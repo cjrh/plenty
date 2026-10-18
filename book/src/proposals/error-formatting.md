@@ -1,6 +1,7 @@
 # Human-readable formatting and error reports
 
-Status: not implemented. An enum-capable formatting protocol and its interaction
+Status: enum methods and ordinary enum protocol satisfaction are implemented;
+the reporting protocol and its interaction
 with [anonymous sums](error-sets.md) are the agreed direction. Exact public API
 names and formatter operations remain to be specified before implementation.
 Current behavior is defined by [entry reports](../design/toolchain/01-building/entry-report.md),
@@ -24,8 +25,10 @@ Formatting a value does not itself print or terminate the process.
 Today entrypoint reports use structural rendering, with special explanations for
 some builtins. `Context.describe()` also uses structural cause text, while
 `describe_with()` accepts caller-provided wording. There is no customizable common
-formatting protocol. Existing protocol bounds accept classes; supporting enums
-is an explicit prerequisite, not something these APIs already provide.
+formatting protocol. Existing protocol bounds accept classes and enums, and both
+can supply the existing `std.fmt` display/debug methods. Those methods use a
+generic writer and allocated scratch; they do not yet define the allocation-free
+entrypoint reporting contract below.
 
 ## Borrowed formatting into a destination
 
@@ -50,9 +53,11 @@ before those signatures and borrowing rules are reviewed together.
 
 ## Enum protocols and sum formatting
 
-Extend ordinary protocol satisfaction to enums, with enum methods subject to
+Ordinary protocol satisfaction now includes enums, with enum methods subject to
 the same visibility, receiver, ownership, and effect rules as class methods.
-No special error-only implementation mechanism is needed.
+Methods use ordinary indented `def` declarations alongside variants; shared and
+mutable receivers borrow the enum. No special error-only implementation
+mechanism is needed.
 
 For the formatting protocol, `A | B` satisfies the protocol exactly when every
 normalized member satisfies it. Generated dispatch examines the tag and borrows
@@ -101,7 +106,7 @@ after output, unsupported structural rendering, closed stderr, exactly-once
 payload destruction, and identical compile-and-run/native executable reports.
 
 Resolve the formatter method/result/destination API, partial-output fallback
-wording, enum method declaration syntax, and context convenience API compatibility
+wording and context convenience API compatibility
 before coding those interfaces. These are remaining design details within the
 agreed architecture. The implementation must update the reference and tutorial
 with actual syntax and behavior; this proposal does not change current APIs.

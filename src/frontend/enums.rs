@@ -7,6 +7,23 @@ pub(super) struct EnumDecl {
     pub(super) name: String,
     pub(super) type_params: Vec<(String, Option<TypeRef>)>,
     pub(super) variants: Vec<(String, Vec<TypeRef>)>,
+    pub(super) methods: Vec<Function>,
+    pub(super) public_members: HashSet<String>,
+}
+impl EnumDecl {
+    pub(super) fn template(&self) -> Self {
+        if !self.type_params.is_empty() {
+            return self.clone();
+        }
+        Self {
+            at: self.at.clone(),
+            name: self.name.clone(),
+            type_params: Vec::new(),
+            variants: self.variants.clone(),
+            methods: self.methods.iter().map(classes::header).collect(),
+            public_members: self.public_members.clone(),
+        }
+    }
 }
 #[derive(Clone)]
 pub(super) struct Case {
@@ -24,8 +41,59 @@ impl Parser {
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented enum declaration")?;
         let mut variants = Vec::new();
+        let mut methods = Vec::new();
+        let mut public_members = HashSet::new();
         let mut declared = HashSet::new();
         while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
+            let public = self.eat("pub");
+            if self.peek().is("def") {
+                let mut f = self.function_in(Some(&name))?;
+                if matches!(
+                    f.name.as_str(),
+                    "__init__" | "__del__" | "__new__" | "new" | "self"
+                ) {
+                    return Err(f.at.error(format!(
+                        "reserved enum method `{}`; enums do not support lifecycle hooks",
+                        f.name
+                    )));
+                }
+                if !declared.insert(f.name.clone()) {
+                    return Err(f.at.error(format!("duplicate enum member `{}`", f.name)));
+                }
+                if f.type_params
+                    .iter()
+                    .any(|(n, _)| type_params.iter().any(|(owner, _)| owner == n))
+                {
+                    return Err(f
+                        .at
+                        .error("method type parameters cannot shadow enum type parameters"));
+                }
+                if let Some((_, receiver)) = f.inputs.first_mut() {
+                    if let Some(owner) = receiver
+                        .args
+                        .first_mut()
+                        .filter(|t| t.name.as_ref() == Some(&name) && t.args.is_empty())
+                    {
+                        owner.args = type_params
+                            .iter()
+                            .map(|(n, _)| TypeRef {
+                                concrete: None,
+                                at: at.clone(),
+                                name: Some(n.clone()),
+                                args: vec![],
+                            })
+                            .collect();
+                    }
+                }
+                if public {
+                    public_members.insert(f.name.clone());
+                }
+                methods.push(f);
+                continue;
+            }
+            if public {
+                return Err(self.peek().error("enum variants inherit the enum's visibility; pub requires a method declaration"));
+            }
             let variant = self.name()?;
             if !declared.insert(variant.clone()) {
                 return Err(self.peek().error(format!("duplicate variant `{variant}`")));
@@ -55,6 +123,8 @@ impl Parser {
             name,
             type_params,
             variants,
+            methods,
+            public_members,
         })
     }
 
@@ -89,6 +159,34 @@ impl Parser {
         }
         Ok((at, value, cases))
     }
+}
+
+/// Methods use the same statically resolved symbols and borrowed receivers as
+/// class methods; enum layout and variant destruction remain unchanged.
+pub(super) fn expand(enums: Vec<EnumDecl>, aliases: &TypeAliases) -> Result<Vec<Function>> {
+    let mut functions = Vec::new();
+    for declaration in enums {
+        let Some(Some(ty @ Ty::Enum(_))) = lookup_type(&declaration.name, aliases) else {
+            unreachable!()
+        };
+        for mut function in declaration.methods {
+            let receiver = function.inputs.first();
+            let valid = if let Some((name, receiver)) = receiver {
+                name == "self"
+                    && matches!(receiver.resolve(aliases)?, Some(Ty::Ref(owner, _)) if *owner == ty)
+            } else {
+                false
+            };
+            if !valid {
+                return Err(function
+                    .at
+                    .error("method receiver must be self: &Enum (or self: &mut Enum)"));
+            }
+            function.name = crate::record::method(&declaration.name, &function.name);
+            functions.push(function);
+        }
+    }
+    Ok(functions)
 }
 
 /// Reserve nominal identities before resolving transparent aliases. Definitions

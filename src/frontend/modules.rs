@@ -186,6 +186,7 @@ pub(super) struct Access {
 pub(super) struct AccessMap {
     members: HashMap<(String, String), Access>,
     types: HashMap<String, Access>,
+    enums: HashSet<String>,
     protocols: HashSet<String>,
 }
 
@@ -1657,6 +1658,7 @@ fn resolve(
         for e in &mut m.enums {
             let public = m.exports.contains(&e.name);
             e.name = qualified(&m.name, &e.name);
+            result.access.enums.insert(e.name.clone());
             result.access.types.insert(
                 e.name.clone(),
                 Access {
@@ -1683,6 +1685,43 @@ fn resolve(
                     scope.ty(t)?;
                     if public {
                         data_public_types(t, &e.type_params, &mut result.public_api);
+                    }
+                }
+            }
+            for f in &mut e.methods {
+                scope.function(f)?;
+                let exposed = public && e.public_members.contains(&f.name);
+                result.access.members.insert(
+                    (e.name.clone(), f.name.clone()),
+                    Access {
+                        owner: e.at.source.clone(),
+                        public: exposed,
+                    },
+                );
+                if exposed {
+                    let params: Vec<_> = e
+                        .type_params
+                        .iter()
+                        .chain(&f.type_params)
+                        .cloned()
+                        .collect();
+                    for t in f
+                        .inputs
+                        .iter()
+                        .skip(1)
+                        .map(|(_, t)| t)
+                        .chain(std::iter::once(&f.output))
+                    {
+                        data_public_types(t, &params, &mut result.public_api);
+                    }
+                    for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
+                        if matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable")) {
+                            for part in &bound.args {
+                                data_public_types(part, &params, &mut result.public_api);
+                            }
+                        } else {
+                            data_public_types(bound, &params, &mut result.public_api);
+                        }
                     }
                 }
             }
@@ -1808,8 +1847,13 @@ pub(super) fn check_member_at(
     if let Some(rule) = access.members.get(&(class.into(), member.into())) {
         if !rule.public && rule.owner != context.source {
             if access.types.get(class).is_some_and(|ty| !ty.public) {
+                let kind = if access.enums.contains(class) {
+                    "enum"
+                } else {
+                    "class"
+                };
                 return Err(diagnostic.error(format!(
-                    "class `{class}` is private to its defining module; declare it `pub class` to allow access to its public members from another module, including a generic function defined there"
+                    "{kind} `{class}` is private to its defining module; declare it `pub {kind}` to allow access to its public members from another module, including a generic function defined there"
                 )));
             }
             return Err(diagnostic.error(format!(

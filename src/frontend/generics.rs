@@ -876,11 +876,11 @@ impl Engine {
                 let Some(protocol) = bound.name.as_ref().and_then(|n| self.protocols.get(n)) else {
                     continue;
                 };
-                let Some(actual @ Ty::Class(_)) = inferred.get(parameter).cloned() else {
+                let Some(actual) = inferred.get(parameter).cloned() else {
                     continue;
                 };
-                let Ty::Class(class) = &actual else {
-                    unreachable!()
+                let Some(owner) = classes::method_owner(&actual) else {
+                    continue;
                 };
                 let mut substitutions: Substitution = protocol
                     .type_params
@@ -890,16 +890,10 @@ impl Engine {
                     .collect();
                 substitutions.insert(protocol.name.clone(), type_ref(&actual, at));
                 for requirement in &protocol.methods {
-                    modules::check_member_at(
-                        access,
-                        &class.name,
-                        &requirement.name,
-                        &bound.at,
-                        at,
-                    )?;
+                    modules::check_member_at(access, owner, &requirement.name, &bound.at, at)?;
                     let (inputs, output) = self
                         .methods
-                        .get(&crate::record::method(&class.name, &requirement.name))
+                        .get(&crate::record::method(owner, &requirement.name))
                         .ok_or_else(|| {
                             at.error(format!(
                                 "{actual} does not satisfy {}: missing method `{}`",

@@ -4735,6 +4735,13 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     } = resolved;
     let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
     modules::check_api(&public_api, &aliases, &access)?;
+    functions.extend(enums::expand(
+        enums
+            .into_iter()
+            .filter(|e| e.type_params.is_empty())
+            .collect(),
+        &aliases,
+    )?);
     functions.extend(classes::expand(
         classes
             .into_iter()
