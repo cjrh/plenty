@@ -1002,7 +1002,7 @@ impl Scope {
             }
             if let Some(symbol) = self.symbol(name, &ty.at)? {
                 *name = symbol;
-            } else if !matches!(name.as_str(), "&" | "&mut") {
+            } else if !matches!(name.as_str(), "&" | "&mut" | "|") {
                 return Err(ty.at.error(format!("unknown type `{name}`")));
             }
         }
@@ -1833,7 +1833,7 @@ fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mu
     } else {
         if t.name
             .as_ref()
-            .is_some_and(|n| !builtin(n) && !matches!(n.as_str(), "&" | "&mut"))
+            .is_some_and(|n| !builtin(n) && !matches!(n.as_str(), "&" | "&mut" | "|"))
         {
             let mut head = t.clone();
             head.args.clear();

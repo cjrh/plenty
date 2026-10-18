@@ -77,6 +77,9 @@ impl Parser {
         while self.peek().is("case") {
             let at = self.take();
             let pattern = self.pattern(0)?;
+            if self.peek().is("if") {
+                return Err(self.peek().error("case guards are not supported; match the member and test its payload inside the arm"));
+            }
             let body = self.suite()?;
             cases.push(Case { at, pattern, body });
         }

@@ -25,6 +25,8 @@ mod test_allocation_default;
 mod test_allocation_markers;
 #[path = "test_anonymous_functions.rs"]
 mod test_anonymous_functions;
+#[path = "test_anonymous_sums.rs"]
+mod test_anonymous_sums;
 #[path = "test_aot.rs"]
 mod test_aot;
 #[path = "test_augmented_assignment.rs"]

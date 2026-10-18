@@ -70,6 +70,9 @@ impl Hash for EnumType {
     }
 }
 impl crate::nominal::Nominal<EnumType> {
+    pub fn anonymous(&self) -> bool {
+        self.name.starts_with("__plenty_sum[")
+    }
     pub fn tag_bits(&self) -> u32 {
         self.get().variants.len().next_power_of_two().ilog2().max(1)
     }
@@ -94,7 +97,97 @@ impl crate::nominal::Nominal<EnumType> {
         self.is_result()
             && source.is_result()
             && (self.discards_error()
-                || self.get().variants[1].fields == source.get().variants[1].fields)
+                || accepts(
+                    &self.get().variants[1].fields[0],
+                    &source.get().variants[1].fields[0],
+                ))
+    }
+}
+
+/// Canonical whole-type alternatives reuse the ordinary inline enum machinery.
+pub fn anonymous(types: Vec<Ty>) -> Ty {
+    let mut members = Vec::new();
+    for ty in types {
+        if let Ty::Enum(t) = &ty {
+            if t.anonymous() {
+                members.extend(t.get().variants.iter().map(|v| v.fields[0].clone()));
+                continue;
+            }
+        }
+        members.push(ty);
+    }
+    members.sort_by_key(Ty::identity_name);
+    members.dedup();
+    if members.len() == 1 {
+        return members.pop().unwrap();
+    }
+    let identity = format!(
+        "__plenty_sum[{}]",
+        members
+            .iter()
+            .map(Ty::identity_name)
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let display = members
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    structural(
+        EnumType {
+            facts: std::sync::OnceLock::new(),
+            restricted_storage: members.iter().any(Ty::restricted_storage),
+            name: display,
+            managed: true,
+            managed_fields: std::sync::OnceLock::new(),
+            inline_range: members.iter().any(Ty::has_inline_range),
+            payload_bytes: std::sync::OnceLock::new(),
+            storage: std::sync::OnceLock::new(),
+            by_name: std::sync::OnceLock::new(),
+            variants: members
+                .into_iter()
+                .map(|ty| Variant {
+                    name: ty.to_string(),
+                    fields: vec![ty],
+                })
+                .collect(),
+        },
+        identity,
+    )
+}
+
+pub fn members(ty: &Ty) -> Vec<Ty> {
+    match ty {
+        Ty::Enum(t) if t.anonymous() => t
+            .get()
+            .variants
+            .iter()
+            .map(|v| v.fields[0].clone())
+            .collect(),
+        _ => vec![ty.clone()],
+    }
+}
+
+pub fn accepts(target: &Ty, source: &Ty) -> bool {
+    if target == source {
+        return true;
+    }
+    match (target, source) {
+        (Ty::Enum(t), _) if t.anonymous() => {
+            let allowed = members(target);
+            members(source)
+                .iter()
+                .all(|member| allowed.contains(member))
+        }
+        (Ty::Enum(t), Ty::Enum(s)) if t.is_result() && s.is_result() => {
+            t.get().variants[0].fields == s.get().variants[0].fields
+                && accepts(
+                    &t.get().variants[1].fields[0],
+                    &s.get().variants[1].fields[0],
+                )
+        }
+        _ => false,
     }
 }
 
@@ -567,6 +660,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum EnumOp {
+    Widen(Box<Ty>, Box<Ty>),
     New(crate::nominal::Nominal<EnumType>, usize),
     Unwrap(crate::nominal::Nominal<EnumType>),
     Tag(crate::nominal::Nominal<EnumType>),
@@ -578,6 +672,10 @@ pub enum EnumOp {
 impl EnumOp {
     pub fn signature(&self) -> Option<(Vec<Ty>, Ty)> {
         Some(match self {
+            Self::Widen(source, target) if accepts(target, source) => {
+                (vec![(**source).clone()], (**target).clone())
+            }
+            Self::Widen(..) => return None,
             Self::Unwrap(t) if t.propagatable() => (
                 vec![Ty::Enum(t.clone())],
                 t.get().variants[usize::from(t.is_option())].fields[0].clone(),

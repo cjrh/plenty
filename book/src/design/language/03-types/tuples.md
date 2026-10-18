@@ -2,7 +2,8 @@
 
 `(a, b)` creates a tuple; `(value,)` creates a one-component tuple. Parentheses
 without a comma group an expression, and empty `()` is unit. Annotations accept
-`tuple[A, B]` or `(A, B)`.
+`tuple[A, B]` or `(A, B)`. A one-component type requires `(A,)` or `tuple[A]`;
+`(A)` groups the type `A`, just as parentheses group an expression.
 
 Tuples are structural products with fixed component types. Construction allocates nothing;
 component expressions retain their own allocation and error contracts. Tuples

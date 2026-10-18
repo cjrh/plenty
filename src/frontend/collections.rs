@@ -533,9 +533,56 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        let ty = self.expr_hinted(e, expected.clone(), ops)?;
+        let mut hint = expected.clone();
+        if let Some(Ty::Enum(sum)) = &expected {
+            if sum.anonymous() {
+                let candidates: Option<Vec<Ty>> = match &ungroup(e).kind {
+                    Expression::Call(name, _) | Expression::Name(name)
+                        if enums::prelude_variant(name) && !self.names.contains_key(name) =>
+                    {
+                        Some(sum.get().variants.iter().map(|v| &v.fields[0])
+                            .filter(|ty| enums::prelude_owner(name, ty)).cloned().collect())
+                    }
+                    Expression::Tuple(values) => Some(sum.get().variants.iter().map(|v| &v.fields[0])
+                        .filter(|ty| matches!(ty, Ty::Enum(t) if t.tuple() && t.get().variants[0].fields.len() == values.len()))
+                        .cloned().collect()),
+                    Expression::Collection { kind, .. } if kind != "generator" => Some(sum.get().variants.iter().map(|v| &v.fields[0])
+                        .filter(|ty| matches!(ty, Ty::Enum(t) if t.is_result() && kind_matches(kind, &t.get().variants[0].fields[0])))
+                        .cloned().collect()),
+                    _ => None,
+                };
+                if let Some(mut candidates) = candidates {
+                    if candidates.len() > 1 {
+                        return Err(e.at.error("ambiguous anonymous sum constructor context; construct a member with an explicit type first"));
+                    }
+                    hint = candidates.pop();
+                }
+            }
+        }
+        let ty = self.expr_hinted(e, hint, ops)?;
         Ok(match (ty, expected) {
-            (Some(ty), Some(expected)) => Some(self.unbox_to(ty, &expected, ops)),
+            (None, Some(expected)) if crate::sum::accepts(&expected, &Ty::Unit) => {
+                ops.push(Op::PushUnit);
+                if expected != Ty::Unit {
+                    ops.push(Op::Enum(crate::sum::EnumOp::Widen(
+                        Box::new(Ty::Unit),
+                        Box::new(expected.clone()),
+                    )));
+                }
+                Some(expected)
+            }
+            (Some(ty), Some(expected)) => {
+                let ty = self.unbox_to(ty, &expected, ops);
+                if ty != expected && crate::sum::accepts(&expected, &ty) {
+                    ops.push(Op::Enum(crate::sum::EnumOp::Widen(
+                        Box::new(ty),
+                        Box::new(expected.clone()),
+                    )));
+                    Some(expected)
+                } else {
+                    Some(ty)
+                }
+            }
             (ty, _) => ty,
         })
     }
@@ -675,7 +722,7 @@ impl Lower<'_> {
             Some(Ty::Enum(t))
                 if t.propagatable()
                     && !t.is_option()
-                    && (t.get().variants[1].fields == vec![crate::sum::alloc_error()]
+                    && (crate::sum::accepts(&t.get().variants[1].fields[0], &crate::sum::alloc_error())
                         || t.discards_error()) =>
             {
                 Some(t.get().variants[0].fields[0].clone())
