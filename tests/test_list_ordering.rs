@@ -286,6 +286,14 @@ fn swap_traps_on_a_missing_index() {
     "sort does not order Point elements"
 )]
 #[case(
+    "class Point:\n    x: i64\nitems = [Point(1)].unwrap()\nsorted(&items).unwrap()",
+    "sorted does not order Point elements"
+)]
+#[case(
+    "items = [True].unwrap()\nshared = &items\nsorted(shared, True).unwrap()",
+    "sorted does not order bool elements"
+)]
+#[case(
     "mut items = [1].unwrap()\nloan = &items\nitems.sort()\nprint(loan).unwrap()",
     "borrow"
 )]
