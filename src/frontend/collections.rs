@@ -2396,45 +2396,8 @@ impl Lower<'_> {
         if ty == Ty::CancellationToken {
             return self.observed_control_method(base, name, args, (ty, loans), ops);
         }
-        if name == "pop" {
-            return Err(base
-                .at
-                .error("pop requires a mutable list or dictionary binding or class field"));
-        }
-        if name == "discard" {
-            return Err(base
-                .at
-                .error("discard requires a mutable set binding or class field"));
-        }
-        if name == "reverse" {
-            return Err(base
-                .at
-                .error("reverse requires a mutable list binding or class field"));
-        }
-        if matches!(name, "sort" | "sort_by_key" | "swap") && matches!(ty, Ty::List(_)) {
-            return Err(base.at.error(format!(
-                "{name} requires a mutable list binding or class field"
-            )));
-        }
-        if name == "extend" {
-            return Err(base
-                .at
-                .error("extend requires a mutable list binding or class field"));
-        }
-        if name == "update" {
-            return Err(base
-                .at
-                .error("update requires a mutable dictionary or set binding or class field"));
-        }
-        if matches!(name, "intersection_update" | "difference_update") {
-            return Err(base.at.error(format!(
-                "{name} requires a mutable set binding or class field"
-            )));
-        }
-        if name == "clear" {
-            return Err(base.at.error(
-                "clear requires a mutable list, dictionary, or set binding or class field",
-            ));
+        if let Some(need) = receiver_requirement(name, &ty) {
+            return Err(base.at.error(format!("{name} requires {need}")));
         }
         if name == "split" && args.is_empty() {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
@@ -3394,4 +3357,23 @@ fn presence_tag(ty: &Ty, name: &str) -> Option<i64> {
         "is_some" if t.is_option() => Some(1),
         _ => None,
     }
+}
+
+/// The receiver a mutating collection method needs, for the error reported
+/// when it is called on a temporary or immutable value.
+fn receiver_requirement(name: &str, ty: &Ty) -> Option<&'static str> {
+    Some(match name {
+        "pop" => "a mutable list or dictionary binding or class field",
+        "discard" | "intersection_update" | "difference_update" => {
+            "a mutable set binding or class field"
+        }
+        "reverse" | "extend" => "a mutable list binding or class field",
+        // Of the collections, only lists have these methods.
+        "sort" | "sort_by_key" | "swap" if matches!(ty, Ty::List(_)) => {
+            "a mutable list binding or class field"
+        }
+        "update" => "a mutable dictionary or set binding or class field",
+        "clear" => "a mutable list, dictionary, or set binding or class field",
+        _ => return None,
+    })
 }
