@@ -639,7 +639,7 @@ pub class Exchange[T]:
     pub def status(self) -> i64:
         self._status
 
-    # Response body bytes written so far.
+    # Response body bytes written so far; always 0 for HEAD.
     pub def sent(self) -> i64:
         self._sent
 
@@ -791,7 +791,8 @@ pub class Exchange[T]:
         self.begin(&mut owned)?
         self.put(body, 0, body.len(), False)?
         self.flush()?
-        self._sent = body.len()
+        if not self._head_only:
+            self._sent = body.len()
         self._state = ended
         Ok(())
 
@@ -846,7 +847,8 @@ pub class Exchange[T]:
         self.put(source, start, stop, state == chunked)?
         self.flush()?
         self._remaining -= stop - start
-        self._sent += stop - start
+        if not self._head_only:
+            self._sent += stop - start
         self._state = state
         Ok(())
 

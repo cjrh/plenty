@@ -446,25 +446,23 @@ pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str)
     http(head.add("X-Content-Type-Options", "nosniff"))?
     add_validators(&mut head, &found)?
     http(exchange.start(head))?
-    head_only = method == "HEAD"
+    # A HEAD response ends without its body, so the file is not read.
     mut remaining = size
+    if method == "HEAD":
+        remaining = 0
     while remaining > 0:
         mut want = chunk
         if remaining < want:
             want = remaining
-        # A HEAD response sends no body, so the file is not read; the writes
-        # only account for the declared length.
-        mut count = want
-        if not head_only:
-            count = match stream.read(&mut buffer, 0, want):
-                case Ok(value):
-                    value
-                case Err(StreamError.Interrupted):
-                    continue
-                case Err(error):
-                    return Err(FilesError.Stream(error))
-            if count == 0:
-                return Err(FilesError.Truncated)
+        count = match stream.read(&mut buffer, 0, want):
+            case Ok(value):
+                value
+            case Err(StreamError.Interrupted):
+                continue
+            case Err(error):
+                return Err(FilesError.Stream(error))
+        if count == 0:
+            return Err(FilesError.Truncated)
         http(exchange.write(&buffer, 0, count))?
         remaining -= count
     http(exchange.end())?

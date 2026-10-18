@@ -345,6 +345,41 @@ connections=1 requests=2 handler_errors=0 protocol_errors=0 timeouts=0 cancelled
     );
 }
 
+/// HEAD responses, whole or streamed, log 0 body bytes (issue #252).
+#[test]
+fn head_responses_count_no_body_bytes() {
+    runs(
+        SCRIPTED,
+        r##"import std.log
+from std.log import Event
+
+def main() -> Result[(), Failure]:
+    (sender, receiver) = channel[Event](16u64)?
+    mut config = std.http.server.config()
+    config.events = Some(std.log.channel_sink(sender))
+    scripted("HEAD / HTTP/1.1\r\nHost: x\r\n\r\nHEAD /sized HTTP/1.1\r\nHost: x\r\n\r\nGET /sized HTTP/1.1\r\nHost: x\r\n\r\n", 64, False, &config)?
+    config.events = Nothing
+    while True:
+        match receiver.recv_nowait():
+            case Ok(event):
+                mut line = event.message.concat("")?
+                for index in range(len(event.fields)):
+                    field = &event.fields[index]
+                    if field.key == "target" or field.key == "bytes":
+                        line = line.concat(" ")?.concat(&field.key)?.concat("=")?.concat(&str.repr(&field.value)?)?
+                print(line)?
+            case Err(_):
+                break
+    Ok(())
+"##,
+        r##"HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4||HTTP/1.1 200 OK|Content-Length: 5||HTTP/1.1 200 OK|Content-Length: 5||hello
+connections=1 requests=3 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=0
+request target=std.log.Value.Text("/") bytes=std.log.Value.Integer(0)
+request target=std.log.Value.Text("/sized") bytes=std.log.Value.Integer(0)
+request target=std.log.Value.Text("/sized") bytes=std.log.Value.Integer(5)"##,
+    );
+}
+
 /// Malformed heads, absolute-form targets, Host faults, unsupported framing,
 /// `100 Continue`, HTTP/1.0, unread bodies, failures mid-stream, stalled
 /// peers, 404/405, request limits and body limits, each on its own scripted
