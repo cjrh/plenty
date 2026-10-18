@@ -141,6 +141,29 @@ fn unclosed_delimiter_reports_its_opening_position() {
     assert!(error.ends_with("2:14: unclosed `[`"), "{error}");
 }
 
+#[rstest]
+#[case(
+    "def main() -> ():\n    s = \"ab\\q\"\n",
+    "2:12: unsupported escape \\q"
+)]
+#[case(
+    "def main() -> ():\n    s = \"\"\"a\nbc \\q\"\"\"\n",
+    "3:4: unsupported escape \\q"
+)]
+#[case(
+    "def main() -> ():\n    s = f\"ab\\q\"\n",
+    "2:13: unsupported escape \\q"
+)]
+#[case(
+    "def main() -> ():\n    s = f\"\"\"a\nbc \\q\"\"\"\n",
+    "3:4: unsupported escape \\q"
+)]
+fn unsupported_escape_reports_the_backslash(#[case] source: &str, #[case] expected: &str) {
+    // Issue #194: the error pointed at the opening quote.
+    let error = plenty::check_source(source).unwrap_err().to_string();
+    assert!(error.ends_with(expected), "{error}");
+}
+
 #[test]
 fn local_slot_limit_is_a_diagnostic() {
     let source = (0..257)

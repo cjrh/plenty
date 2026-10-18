@@ -392,6 +392,12 @@ impl<'a> Lexer<'a> {
                         if ch == '\n' && !triple {
                             return Err(start.error("newline in a quoted string"));
                         }
+                        let here = Token {
+                            kind: Kind::Eof,
+                            line: self.line,
+                            column: self.column,
+                            source: None,
+                        };
                         self.pos += ch.len_utf8();
                         self.column += 1;
                         if ch == '\\' {
@@ -402,7 +408,7 @@ impl<'a> Lexer<'a> {
                             self.pos += escaped.len_utf8();
                             self.column += 1;
                             text.push(escape(escaped).ok_or_else(|| {
-                                start.error(format!("unsupported escape \\{escaped}"))
+                                here.error(format!("unsupported escape \\{escaped}"))
                             })?);
                         } else {
                             if ch == '\n' {
