@@ -151,7 +151,7 @@ The handler receives an `Exchange[T]` for one request.
 | `end()` | Finish a streamed response |
 | `stopping()` | Shutdown has begun; a long response should end soon |
 | `cancelled()` | The drain deadline has passed; reads and writes now fail |
-| `status()`, `sent()` | Status sent (0 before), body bytes written |
+| `status()`, `sent()` | Status sent (0 before), body bytes written (0 for `HEAD`) |
 
 The response methods return `Result[(), HttpError]`. A handler answers once.
 `respond` refuses a head that declares `Content-Length` or
