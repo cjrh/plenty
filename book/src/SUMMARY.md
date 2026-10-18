@@ -438,6 +438,7 @@
     - [Keyword arguments, defaults, and static unpacking](proposals/keyword-arguments-and-unpacking.md)
     - [Explicit error composition](proposals/error-composition.md)
     - [Finite error sets as anonymous sums](proposals/error-sets.md)
+    - [Human-readable formatting and error reports](proposals/error-formatting.md)
     - [Typestate and owned transitions](proposals/typestate-and-owned-transitions.md)
 - [Linear obligations](proposals/linear-obligations.md)
   - [Linear values, aggregates, and errors](proposals/linear-obligations/values-and-errors.md)
