@@ -1761,23 +1761,7 @@ fn resolve(
         for f in &mut m.functions {
             let public = m.exports.contains(&f.name);
             if public {
-                for t in f
-                    .inputs
-                    .iter()
-                    .map(|(_, t)| t)
-                    .chain(std::iter::once(&f.output))
-                {
-                    data_public_types(t, &f.type_params, &mut result.public_api);
-                }
-                for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
-                    if matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable")) {
-                        for part in &bound.args {
-                            data_public_types(part, &f.type_params, &mut result.public_api);
-                        }
-                    } else {
-                        data_public_types(bound, &f.type_params, &mut result.public_api);
-                    }
-                }
+                signature_public_types(f, &[], false, &mut result.public_api);
             }
             qualify(&m.name, &mut f.name);
             if let Some(constant) = constants.get(&f.name) {
@@ -1881,30 +1865,7 @@ fn resolve(
                     },
                 );
                 if exposed {
-                    let params: Vec<_> = e
-                        .type_params
-                        .iter()
-                        .chain(&f.type_params)
-                        .cloned()
-                        .collect();
-                    for t in f
-                        .inputs
-                        .iter()
-                        .skip(1)
-                        .map(|(_, t)| t)
-                        .chain(std::iter::once(&f.output))
-                    {
-                        data_public_types(t, &params, &mut result.public_api);
-                    }
-                    for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
-                        if matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable")) {
-                            for part in &bound.args {
-                                data_public_types(part, &params, &mut result.public_api);
-                            }
-                        } else {
-                            data_public_types(bound, &params, &mut result.public_api);
-                        }
-                    }
+                    signature_public_types(f, &e.type_params, true, &mut result.public_api);
                 }
             }
         }
@@ -1971,30 +1932,7 @@ fn resolve(
                     },
                 );
                 if exposed {
-                    let params: Vec<_> = c
-                        .type_params
-                        .iter()
-                        .chain(&f.type_params)
-                        .cloned()
-                        .collect();
-                    for t in f
-                        .inputs
-                        .iter()
-                        .skip(1)
-                        .map(|(_, t)| t)
-                        .chain(std::iter::once(&f.output))
-                    {
-                        data_public_types(t, &params, &mut result.public_api);
-                    }
-                    for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
-                        if matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable")) {
-                            for part in &bound.args {
-                                data_public_types(part, &params, &mut result.public_api);
-                            }
-                        } else {
-                            data_public_types(bound, &params, &mut result.public_api);
-                        }
-                    }
+                    signature_public_types(f, &c.type_params, true, &mut result.public_api);
                 }
             }
         }
@@ -2044,6 +1982,37 @@ pub(super) fn check_member_at(
         }
     }
     Ok(())
+}
+
+/// Collects the public-API types of a function signature: its inputs (minus
+/// the receiver for methods), output, and type-parameter bounds. Callable
+/// bounds contribute their argument and return types rather than the bound
+/// itself. Protocol methods keep their own walk, which passes bounds whole.
+fn signature_public_types(
+    f: &Function,
+    owner_params: &[(String, Option<TypeRef>)],
+    skip_receiver: bool,
+    out: &mut Vec<TypeRef>,
+) {
+    let params: Vec<_> = owner_params.iter().chain(&f.type_params).cloned().collect();
+    for t in f
+        .inputs
+        .iter()
+        .skip(usize::from(skip_receiver))
+        .map(|(_, t)| t)
+        .chain(std::iter::once(&f.output))
+    {
+        data_public_types(t, &params, out);
+    }
+    for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
+        if matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable")) {
+            for part in &bound.args {
+                data_public_types(part, &params, out);
+            }
+        } else {
+            data_public_types(bound, &params, out);
+        }
+    }
 }
 
 fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mut Vec<TypeRef>) {
