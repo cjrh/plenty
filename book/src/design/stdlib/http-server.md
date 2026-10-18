@@ -388,7 +388,9 @@ timed out`, `handshake failed` and `accept failed`, most with a
 ## Limits
 
 - The accepting thread waits on one selector of at most 64 events per wait,
-  and a parked connection costs a list slot and a selector registration.
+  and a parked connection costs a list slot, room for one free-slot index,
+  and a selector registration. Parking reuses a vacated slot in constant
+  time; each wait still scans every slot for expired deadlines.
   A worker serves one connection at a time, from a complete head to the
   end of the response.
 - `idle_connections` bounds the slow clients the server waits for: with
