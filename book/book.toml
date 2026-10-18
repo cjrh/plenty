@@ -6,5 +6,6 @@ language = "en"
 src = "src"
 
 [output.html]
-# highlight.js has no Plenty grammar. Python is the closest match.
+# highlight.js grammars for Plenty fences, compiler diagnostics and output.
 additional-js = ["theme/plenty-highlight.js"]
+additional-css = ["theme/plenty-highlight.css"]

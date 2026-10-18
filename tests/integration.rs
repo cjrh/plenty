@@ -33,6 +33,8 @@ mod test_augmented_assignment;
 mod test_binary_io;
 #[path = "test_bitwise.rs"]
 mod test_bitwise;
+#[path = "test_book_highlighting.rs"]
+mod test_book_highlighting;
 #[path = "test_borrowed_iteration.rs"]
 mod test_borrowed_iteration;
 #[path = "test_borrowed_match.rs"]
