@@ -12,59 +12,68 @@ from std.sync import CancellationToken
 
 # The upstream of tests/test_std_http_server_proxy.rs. Paths under /stream/
 # reach the same routes through a proxy location that does not buffer.
-#
-# 0 GET /info: what reached the handler, one `name=value` per line
-# 1 POST /echo: the request body
-# 2 GET /big: 1 MiB, chunked
-# 3 GET /hold: "first", then "second" once /release has been requested
-# 4 GET /release
-# 5 GET /slow: answers after 4 s
-# 6 POST /early: answers without reading the body
-# 7 GET /tick: "tick" every 20 ms until shutdown begins, then "bye"
+pub enum Route:
+    # GET /info: what reached the handler, one `name=value` per line
+    Info
+    # POST /echo: the request body
+    Echo
+    # GET /big: 1 MiB, chunked
+    Big
+    # GET /hold: "first", then "second" once /release has been requested
+    Hold
+    # GET /release
+    Release
+    # GET /slow: answers after 4 s
+    Slow
+    # POST /early: answers without reading the body
+    Early
+    # GET /tick: "tick" every 20 ms until shutdown begins, then "bye"
+    Tick
+
 pub class App:
     pub release: CancellationToken
     pub proxies: Proxies
     pub piece: std.bytes.Bytes
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
-        route = exchange.route
-        if route == 0:
-            text = info(exchange, &self.proxies)?
-            exchange.send_text(200, &text)?
-        elif route == 1:
-            mut body = std.bytes.empty()?
-            exchange.read_all(&mut body)?
-            exchange.send(200, "application/octet-stream", &body)?
-        elif route == 2:
-            exchange.start(std.http.response(200, "OK")?)?
-            for index in range(16):
-                exchange.write(&self.piece, 0, self.piece.len())?
-        elif route == 3:
-            exchange.start(std.http.response(200, "OK")?)?
-            first = std.bytes.from_text("first\n")?
-            exchange.write(&first, 0, first.len())?
-            mut waited = 0
-            while not self.release.is_cancelled() and waited < 1000:
-                std.time.sleep(&std.time.milliseconds(10u32))
-                waited += 1
-            second = std.bytes.from_text("second\n")?
-            exchange.write(&second, 0, second.len())?
-        elif route == 4:
-            self.release.cancel()
-            exchange.send_text(200, "released")?
-        elif route == 5:
-            std.time.sleep(&std.time.seconds(4u32))
-            exchange.send_text(200, "late")?
-        elif route == 6:
-            exchange.send_text(200, "early")?
-        else:
-            exchange.start(std.http.response(200, "OK")?)?
-            tick = std.bytes.from_text("tick\n")?
-            while not exchange.stopping():
-                exchange.write(&tick, 0, tick.len())?
-                std.time.sleep(&std.time.milliseconds(20u32))
-            bye = std.bytes.from_text("bye\n")?
-            exchange.write(&bye, 0, bye.len())?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        match route:
+            case Route.Info:
+                text = info(exchange, &self.proxies)?
+                exchange.send_text(200, &text)?
+            case Route.Echo:
+                mut body = std.bytes.empty()?
+                exchange.read_all(&mut body)?
+                exchange.send(200, "application/octet-stream", &body)?
+            case Route.Big:
+                exchange.start(std.http.response(200, "OK")?)?
+                for index in range(16):
+                    exchange.write(&self.piece, 0, self.piece.len())?
+            case Route.Hold:
+                exchange.start(std.http.response(200, "OK")?)?
+                first = std.bytes.from_text("first\n")?
+                exchange.write(&first, 0, first.len())?
+                mut waited = 0
+                while not self.release.is_cancelled() and waited < 1000:
+                    std.time.sleep(&std.time.milliseconds(10u32))
+                    waited += 1
+                second = std.bytes.from_text("second\n")?
+                exchange.write(&second, 0, second.len())?
+            case Route.Release:
+                self.release.cancel()
+                exchange.send_text(200, "released")?
+            case Route.Slow:
+                std.time.sleep(&std.time.seconds(4u32))
+                exchange.send_text(200, "late")?
+            case Route.Early:
+                exchange.send_text(200, "early")?
+            case Route.Tick:
+                exchange.start(std.http.response(200, "OK")?)?
+                tick = std.bytes.from_text("tick\n")?
+                while not exchange.stopping():
+                    exchange.write(&tick, 0, tick.len())?
+                    std.time.sleep(&std.time.milliseconds(20u32))
+                bye = std.bytes.from_text("bye\n")?
+                exchange.write(&bye, 0, bye.len())?
         Ok(())
 
 def field(exchange: &Exchange[TcpStream], name: &str) -> Result[str, Failure]:
@@ -95,17 +104,17 @@ def info(exchange: &Exchange[TcpStream], proxies: &Proxies) -> Result[str, Failu
             text = text.concat("\nclient=invalid")?
     Ok(text)
 
-def routes() -> Result[std.http.server.Router, Failure]:
-    mut table = std.http.server.router()?
+def routes() -> Result[std.http.server.Router[Route], Failure]:
+    mut table = std.http.server.router[Route]()?
     for prefix in ["", "/stream"]?:
-        table.add("GET", prefix.concat("/info")?, 0)?
-        table.add("POST", prefix.concat("/echo")?, 1)?
-        table.add("GET", prefix.concat("/big")?, 2)?
-        table.add("GET", prefix.concat("/hold")?, 3)?
-        table.add("GET", prefix.concat("/release")?, 4)?
-        table.add("GET", prefix.concat("/slow")?, 5)?
-        table.add("POST", prefix.concat("/early")?, 6)?
-        table.add("GET", prefix.concat("/tick")?, 7)?
+        table.add("GET", prefix.concat("/info")?, Route.Info)?
+        table.add("POST", prefix.concat("/echo")?, Route.Echo)?
+        table.add("GET", prefix.concat("/big")?, Route.Big)?
+        table.add("GET", prefix.concat("/hold")?, Route.Hold)?
+        table.add("GET", prefix.concat("/release")?, Route.Release)?
+        table.add("GET", prefix.concat("/slow")?, Route.Slow)?
+        table.add("POST", prefix.concat("/early")?, Route.Early)?
+        table.add("GET", prefix.concat("/tick")?, Route.Tick)?
     Ok(table)
 
 def counts(report: &Report) -> Result[str, Failure]:

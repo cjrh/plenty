@@ -52,27 +52,33 @@ pub class Script:
 
 # Response bodies never repeat the request, so every `HTTP/1.` in the output
 # begins a response head.
+pub enum Route:
+    Home
+    Echo
+    Hello
+    Fail
+
 pub class App:
-    pub def handle(self, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
-        route = exchange.route
-        if route == 0:
-            exchange.send_text(200, "home")?
-        elif route == 1:
-            mut body = std.bytes.empty()?
-            exchange.read_all(&mut body)?
-            exchange.send_text(200, &str.from(body.len())?)?
-        elif route == 2:
-            exchange.send_text(200, "hello")?
-        else:
-            return Err(Failure.Unspecified)
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+        match route:
+            case Route.Home:
+                exchange.send_text(200, "home")?
+            case Route.Echo:
+                mut body = std.bytes.empty()?
+                exchange.read_all(&mut body)?
+                exchange.send_text(200, &str.from(body.len())?)?
+            case Route.Hello:
+                exchange.send_text(200, "hello")?
+            case Route.Fail:
+                return Err(Failure.Unspecified)
         Ok(())
 
-def routes() -> Result[Router, ServerError]:
-    mut table = std.http.server.router()?
-    table.add("GET", "/", 0)?
-    table.add("POST", "/echo", 1)?
-    table.add("GET", "/hello/{name}", 2)?
-    table.add("GET", "/fail", 3)?
+def routes() -> Result[Router[Route], ServerError]:
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/", Route.Home)?
+    table.add("POST", "/echo", Route.Echo)?
+    table.add("GET", "/hello/{name}", Route.Hello)?
+    table.add("GET", "/fail", Route.Fail)?
     Ok(table)
 
 def documented(status: i64) -> bool:

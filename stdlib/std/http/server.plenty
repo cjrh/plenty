@@ -45,8 +45,10 @@ pub protocol Transport:
         pass
 
 # Every worker borrows the one handler shared, so `handle` cannot change it.
-pub protocol Handler[T]:
-    def handle(self, exchange: &mut Exchange[T]) -> Result[(), Failure]:
+# `route` is the value the matched route was added with, borrowed from the
+# router; the handler usually matches on it.
+pub protocol Handler[T, R]:
+    def handle(self, route: &R, exchange: &mut Exchange[T]) -> Result[(), Failure]:
         pass
 
 pub class Config:
@@ -148,32 +150,37 @@ class Segment:
     text: str
     kind: i64
 
-class Route:
+class Entry[R]:
     method: str
     segments: list[Segment]
-    key: i64
+    route: R
 
+# `Found` holds the index of the matched route, in the order routes were
+# added (see `Router.route`), and its captures.
 pub enum Match:
     Found(i64, list[str])
     NotFound
     MethodNotAllowed(str)
 
-pub class Router:
-    _routes: list[Route]
+# Routes map a method and path pattern to a value of the application's route
+# type `R`, normally an enum, which the handler receives.
+pub class Router[R]:
+    _routes: list[Entry[R]]
 
     # Adds a route. `method` is a request method, or `*` for any; `pattern`
-    # starts with `/`. Routes are tried in the order they were added.
-    pub def add(self: &mut Router, method: &str, pattern: &str, key: i64) -> Result[(), ServerError]:
+    # starts with `/`. Routes are tried in the order they were added. Several
+    # patterns may carry equal route values.
+    pub def add(self: &mut Router[R], method: &str, pattern: &str, route: R) -> Result[(), ServerError]:
         if not valid_method(method):
             return Err(ServerError.InvalidPattern)
         if not pattern.startswith("/"):
             return Err(ServerError.InvalidPattern)
         segments = parse_pattern(pattern)?
         for index in range(len(self._routes)):
-            route = &self._routes[index]
-            if route.method == method and same_segments(&route.segments, &segments):
+            entry = &self._routes[index]
+            if entry.method == method and same_segments(&entry.segments, &segments):
                 return Err(ServerError.DuplicateRoute)
-        allocated(self._routes.append(Route(*method, segments, key)))
+        allocated(self._routes.append(Entry(*method, segments, route)))
 
     # The first route whose pattern matches `path` and whose method is
     # `method` or `*`; a GET route also answers HEAD. Captures are returned
@@ -182,20 +189,25 @@ pub class Router:
         pieces = allocated(path.split("/"))?
         mut allowed: list[str] = allocated(list[str].new())?
         for index in range(len(self._routes)):
-            route = &self._routes[index]
-            if matches(&route.segments, &pieces):
-                if route.method == "*" or route.method == method or (method == "HEAD" and route.method == "GET"):
-                    return Ok(Match.Found(route.key, captured(&route.segments, &pieces)?))
-                if not listed(&allowed, &route.method):
-                    allocated(allowed.append(route.method))?
+            entry = &self._routes[index]
+            if matches(&entry.segments, &pieces):
+                if entry.method == "*" or entry.method == method or (method == "HEAD" and entry.method == "GET"):
+                    return Ok(Match.Found(index, captured(&entry.segments, &pieces)?))
+                if not listed(&allowed, &entry.method):
+                    allocated(allowed.append(entry.method))?
         if len(allowed) == 0:
             return Ok(Match.NotFound)
         if listed(&allowed, "GET") and not listed(&allowed, "HEAD"):
             allocated(allowed.append("HEAD"))?
         Ok(Match.MethodNotAllowed(allocated(", ".join(&allowed))?))
 
-pub def router() -> Result[Router, ServerError]:
-    Ok(Router(allocated(list[Route].new())?))
+    # The value of the route at `index`, as `Match.Found` reports it.
+    pub def route(self, index: i64) -> &R:
+        &self._routes[index].route
+
+# An empty router for route type `R`: `router[Route]()`.
+pub def router[R]() -> Result[Router[R], ServerError]:
+    Ok(Router(allocated(list[Entry[R]].new())?))
 
 def valid_method(method: &str) -> bool:
     if method == "*":
@@ -595,7 +607,6 @@ pub class Exchange[T]:
     pub authority: str
     pub path: str
     pub query: str
-    pub route: i64
     pub params: list[str]
     # The connection's remote address: the client, or the proxy in front of
     # it (see std.http.proxy). `Nothing` when the transport has none.
@@ -1123,7 +1134,7 @@ def linger[T: Transport](conn: &mut Conn[T], park: bool, config: &Config) -> Opt
 # thread, as is one to close lingering, with its discard budget (otherwise
 # 0). `input` is a head that arrived while it waited there, and `until`
 # that head's deadline. `served` counts its requests.
-def connection[T: Transport, H: Handler[T]](stream: T, input: Option[Gathered], until: u64, served: &mut i64, park: bool, peer: &Option[SocketAddress], router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, events: &mut Option[ChannelSink], report: &mut Report) -> Option[tuple[T, Option[Gathered], u64, i64]]:
+def connection[T: Transport, R, H: Handler[T, R]](stream: T, input: Option[Gathered], until: u64, served: &mut i64, park: bool, peer: &Option[SocketAddress], router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, events: &mut Option[ChannelSink], report: &mut Report) -> Option[tuple[T, Option[Gathered], u64, i64]]:
     out = match std.bytes.with_capacity(4096):
         case Ok(bytes):
             bytes
@@ -1226,7 +1237,7 @@ def connection[T: Transport, H: Handler[T]](stream: T, input: Option[Gathered], 
 # Runs one request through the router and handler. Returns the connection
 # when it can carry another request, or with `lingering` set when it is
 # answered but request input may be left unread, to close lingering.
-def request[T: Transport, H: Handler[T]](reader: BufReader[Conn[T]], head: RequestHead, peer: &Option[SocketAddress], router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, more: bool, lingering: &mut bool, events: &mut Option[ChannelSink], report: &mut Report) -> Option[BufReader[Conn[T]]]:
+def request[T: Transport, R, H: Handler[T, R]](reader: BufReader[Conn[T]], head: RequestHead, peer: &Option[SocketAddress], router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, more: bool, lingering: &mut bool, events: &mut Option[ChannelSink], report: &mut Report) -> Option[BufReader[Conn[T]]]:
     started = now_ns()
     mut conn = reader
     conn.inner._until = after(started, config.body_timeout.as_nanoseconds())
@@ -1304,9 +1315,9 @@ def request[T: Transport, H: Handler[T]](reader: BufReader[Conn[T]], head: Reque
         case Err(_):
             return Nothing
     unclaimed: Option[BufReader[Conn[T]]] = Nothing
-    mut exchange = Exchange(head, target.authority, target.path, target.query, route, params, copy_peer(peer), Some(body), unclaimed, framing, copy_limits(&config.limits), stop.share(), cancel.share(), unanswered, 0, head_only, keep, 0, 0, expects, False, 0)
+    mut exchange = Exchange(head, target.authority, target.path, target.query, params, copy_peer(peer), Some(body), unclaimed, framing, copy_limits(&config.limits), stop.share(), cancel.share(), unanswered, 0, head_only, keep, 0, 0, expects, False, 0)
     if route >= 0:
-        match handler.handle(&mut exchange):
+        match handler.handle(router.route(route), &mut exchange):
             case Ok(_):
                 if exchange._state == unanswered:
                     report.handler_errors += 1u64
@@ -1374,12 +1385,12 @@ def answer_with_allow[T: Transport](exchange: &mut Exchange[T], allow: &str) -> 
 # same routing, deadlines and counting as `serve`. `stop` begins shutdown:
 # an idle connection closes and the current response ends the connection.
 # `cancel` fails every further read and write.
-pub def serve_connection[T: Transport, H: Handler[T]](stream: T, router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken) -> Report:
+pub def serve_connection[T: Transport, R, H: Handler[T, R]](stream: T, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken) -> Report:
     serve_connection_from(stream, Nothing, router, handler, config, stop, cancel)
 
 # `serve_connection` for a stream whose remote address is known, such as an
 # accepted TLS session; handlers see it as `exchange.peer`.
-pub def serve_connection_from[T: Transport, H: Handler[T]](stream: T, peer: Option[SocketAddress], router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken) -> Report:
+pub def serve_connection_from[T: Transport, R, H: Handler[T, R]](stream: T, peer: Option[SocketAddress], router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken) -> Report:
     mut report = empty_report()
     report.connections = 1u64
     mut events = shared_sink(&config.events)
@@ -1545,7 +1556,7 @@ def bell() -> Option[UdpSocket]:
 # handshake, then serves its requests. With `park`, neither a handshake nor
 # a request head is waited for here: the connection is returned, to wait
 # parked for its peer.
-def take[T: Transport, O: Opener[T], H: Handler[T]](received: Job[T], park: bool, opener: &O, router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, events: &mut Option[ChannelSink], report: &mut Report) -> Option[Job[T]]:
+def take[T: Transport, O: Opener[T], R, H: Handler[T, R]](received: Job[T], park: bool, opener: &O, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, events: &mut Option[ChannelSink], report: &mut Report) -> Option[Job[T]]:
     mut job = received
     accepted = job.accepted
     mut served = job.served
@@ -1585,7 +1596,7 @@ def take[T: Transport, O: Opener[T], H: Handler[T]](received: Job[T], park: bool
         case Nothing:
             Nothing
 
-def worker[T: Transport, O: Opener[T], H: Handler[T]](inbox: Receiver[Job[T]], done: Sender[Report], back: Sender[Job[T]], wake: SocketAddress, opener: &O, router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, events: Option[ChannelSink]) -> ():
+def worker[T: Transport, O: Opener[T], R, H: Handler[T, R]](inbox: Receiver[Job[T]], done: Sender[Report], back: Sender[Job[T]], wake: SocketAddress, opener: &O, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, events: Option[ChannelSink]) -> ():
     mut report = empty_report()
     mut sink = events
     mut ring = bell()
@@ -2041,7 +2052,7 @@ def drop_returns[T](state: &mut Admission[T]) -> ():
 
 # Starts `count` workers, each in its own scope, then admits connections on
 # this thread. Every worker is joined before this returns.
-def launch[T: Transport, O: Opener[T], H: Handler[T]](count: i64, listener: TcpListener, inbox: Receiver[Job[T]], outbox: Sender[Job[T]], done: Sender[Report], reports: Receiver[Report], back: Sender[Job[T]], wake: &SocketAddress, admission: Admission[T], opener: &O, router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, workers: i64) -> Result[Report, ThreadError]:
+def launch[T: Transport, O: Opener[T], R, H: Handler[T, R]](count: i64, listener: TcpListener, inbox: Receiver[Job[T]], outbox: Sender[Job[T]], done: Sender[Report], reports: Receiver[Report], back: Sender[Job[T]], wake: &SocketAddress, admission: Admission[T], opener: &O, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, workers: i64) -> Result[Report, ThreadError]:
     if count == 0:
         drop(inbox)
         drop(done)
@@ -2076,7 +2087,7 @@ def selected[T](result: Result[T, WaitError]) -> Result[T, ServerError]:
         case Err(_):
             Err(ServerError.Net(NetError.TimedOut))
 
-def run[T: Transport, O: Opener[T], H: Handler[T]](listener: TcpListener, opener: &O, router: &Router, handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
+def run[T: Transport, O: Opener[T], R, H: Handler[T, R]](listener: TcpListener, opener: &O, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
     if not valid(config):
         return Err(ServerError.InvalidConfig)
     cancel = allocated(CancellationToken())?
@@ -2111,11 +2122,11 @@ def bytes_of[T](result: Result[T, BytesError]) -> Result[T, AllocError]:
 # and active connections finish within `drain_timeout`, cancels whatever is
 # left, joins every worker and returns the counts. Idle keep-alive
 # connections wait on the accepting thread, not on a worker.
-pub def serve[H: Handler[TcpStream]](listener: TcpListener, router: &Router, handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
+pub def serve[R, H: Handler[TcpStream, R]](listener: TcpListener, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
     run(listener, &Plain(), router, handler, config, stop)
 
 # `serve` with a transport made by `opener`; see std.http.tls.
-pub def serve_with[T: Transport, O: Opener[T], H: Handler[T]](listener: TcpListener, opener: &O, router: &Router, handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
+pub def serve_with[T: Transport, O: Opener[T], R, H: Handler[T, R]](listener: TcpListener, opener: &O, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
     run(listener, opener, router, handler, config, stop)
 
 def channeled[T](result: Result[T, ChannelError]) -> Result[T, ServerError]:

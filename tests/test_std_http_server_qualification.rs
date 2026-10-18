@@ -32,40 +32,51 @@ from std.http.server import Config, Exchange, Report, Router, ServerError
 from std.net import NetError, TcpStream
 from std.sync import CancellationToken
 
-# Routes: 0 GET / -> "home"; 1 POST /echo; 2 GET /big -> 1 MiB chunked;
-# 3 GET /huge -> 64 MiB with Content-Length; 4 GET /stop cancels `stop`;
-# 5 GET /stream -> two chunks.
+pub enum Route:
+    # GET / -> "home"
+    Home
+    # POST /echo
+    Echo
+    # GET /big -> 1 MiB chunked
+    Big
+    # GET /huge -> 64 MiB with Content-Length
+    Huge
+    # GET /stop cancels `stop`
+    Stop
+    # GET /stream -> two chunks
+    Stream
+
 pub class App:
     pub stop: CancellationToken
     pub piece: Bytes
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
-        route = exchange.route
-        if route == 0:
-            exchange.send_text(200, "home")?
-        elif route == 1:
-            mut body = std.bytes.empty()?
-            exchange.read_all(&mut body)?
-            exchange.send(200, "application/octet-stream", &body)?
-        elif route == 2:
-            exchange.start(std.http.response(200, "OK")?)?
-            for index in range(16):
-                exchange.write(&self.piece, 0, self.piece.len())?
-        elif route == 3:
-            mut head = std.http.response(200, "OK")?
-            head.add("Content-Length", str.from(1024 * self.piece.len())?)?
-            exchange.start(head)?
-            for index in range(1024):
-                exchange.write(&self.piece, 0, self.piece.len())?
-            exchange.end()?
-        elif route == 4:
-            exchange.send_text(200, "stopping")?
-            self.stop.cancel()
-        else:
-            exchange.start(std.http.response(200, "OK")?)?
-            text = std.bytes.from_text("abcdef")?
-            exchange.write(&text, 0, 2)?
-            exchange.write(&text, 2, 6)?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        match route:
+            case Route.Home:
+                exchange.send_text(200, "home")?
+            case Route.Echo:
+                mut body = std.bytes.empty()?
+                exchange.read_all(&mut body)?
+                exchange.send(200, "application/octet-stream", &body)?
+            case Route.Big:
+                exchange.start(std.http.response(200, "OK")?)?
+                for index in range(16):
+                    exchange.write(&self.piece, 0, self.piece.len())?
+            case Route.Huge:
+                mut head = std.http.response(200, "OK")?
+                head.add("Content-Length", str.from(1024 * self.piece.len())?)?
+                exchange.start(head)?
+                for index in range(1024):
+                    exchange.write(&self.piece, 0, self.piece.len())?
+                exchange.end()?
+            case Route.Stop:
+                exchange.send_text(200, "stopping")?
+                self.stop.cancel()
+            case Route.Stream:
+                exchange.start(std.http.response(200, "OK")?)?
+                text = std.bytes.from_text("abcdef")?
+                exchange.write(&text, 0, 2)?
+                exchange.write(&text, 2, 6)?
         Ok(())
 
 pub def app(stop: &CancellationToken) -> Result[App, Failure]:
@@ -73,14 +84,14 @@ pub def app(stop: &CancellationToken) -> Result[App, Failure]:
     piece.resize(65536, 120u8)?
     Ok(App(stop.share(), piece))
 
-pub def routes() -> Result[Router, ServerError]:
-    mut table = std.http.server.router()?
-    table.add("GET", "/", 0)?
-    table.add("POST", "/echo", 1)?
-    table.add("GET", "/big", 2)?
-    table.add("GET", "/huge", 3)?
-    table.add("GET", "/stop", 4)?
-    table.add("GET", "/stream", 5)?
+pub def routes() -> Result[Router[Route], ServerError]:
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/", Route.Home)?
+    table.add("POST", "/echo", Route.Echo)?
+    table.add("GET", "/big", Route.Big)?
+    table.add("GET", "/huge", Route.Huge)?
+    table.add("GET", "/stop", Route.Stop)?
+    table.add("GET", "/stream", Route.Stream)?
     Ok(table)
 
 pub def connect_to(port: u16, raw: &str) -> Result[TcpStream, NetError]:
@@ -521,16 +532,17 @@ from std.http.tls import TlsTransport
 pub class Secure:
     pub stop: CancellationToken
 
-    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
-        if exchange.route == 1:
-            mut body = std.bytes.empty()?
-            exchange.read_all(&mut body)?
-            exchange.send(200, "application/octet-stream", &body)?
-        elif exchange.route == 4:
-            exchange.send_text(200, "stopping")?
-            self.stop.cancel()
-        else:
-            exchange.send_text(200, "secure")?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+        match route:
+            case Route.Echo:
+                mut body = std.bytes.empty()?
+                exchange.read_all(&mut body)?
+                exchange.send(200, "application/octet-stream", &body)?
+            case Route.Stop:
+                exchange.send_text(200, "stopping")?
+                self.stop.cancel()
+            case _:
+                exchange.send_text(200, "secure")?
         Ok(())
 
 def main() -> Result[(), Failure]:
@@ -838,7 +850,7 @@ import std.tls
 from std.http.tls import TlsTransport
 
 pub class Secure:
-    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
         exchange.send_text(200, "secure")?
         Ok(())
 
@@ -1049,12 +1061,19 @@ def main() -> Result[(), Failure]:
 #[test]
 fn a_handler_error_is_answered_but_a_trap_ends_the_process() {
     let main = r##"
+pub enum Trial:
+    Fail
+    # Reads `values[index]`.
+    Trap(i64)
+
 pub class Fragile:
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
-        if exchange.route == 0:
-            return Err(Failure.Unspecified)
-        values = [1, 2, 3]?
-        exchange.send_text(200, &str.from(values[exchange.route + 5])?)?
+    pub def handle(self, route: &Trial, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        match route:
+            case Trial.Fail:
+                return Err(Failure.Unspecified)
+            case Trial.Trap(index):
+                values = [1, 2, 3]?
+                exchange.send_text(200, &str.from(values[*index])?)?
         Ok(())
 
 def client(port: u16, stop: CancellationToken) -> ():
@@ -1063,9 +1082,9 @@ def client(port: u16, stop: CancellationToken) -> ():
     print("unreachable").unwrap()
 
 def main() -> Result[(), Failure]:
-    mut table = std.http.server.router()?
-    table.add("GET", "/", 0)?
-    table.add("GET", "/trap", 1)?
+    mut table = std.http.server.router[Trial]()?
+    table.add("GET", "/", Trial.Fail)?
+    table.add("GET", "/trap", Trial.Trap(6))?
     stop = CancellationToken()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
@@ -1099,7 +1118,7 @@ fn allocation_failure_on_the_accepting_thread_is_survived() {
 pub class Once:
     pub stop: CancellationToken
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
         exchange.send_text(200, "home")?
         self.stop.cancel()
         Ok(())
@@ -1123,8 +1142,8 @@ def tag(result: &Result[Report, ServerError]) -> str:
             "other"
 
 def main() -> Result[(), Failure]:
-    mut table = std.http.server.router()?
-    table.add("GET", "/", 0)?
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/", Route.Home)?
     mut config = std.http.server.config()
     config.workers = 1
     mut streak = 0
@@ -1211,9 +1230,12 @@ from std.json import Json, Member
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+pub enum Route:
+    Items
+
 # Echoes a JSON object back with a count of its members.
 pub class Service:
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
         limits = std.json.limits()
         value = std.http.body.read_json(exchange, &limits)?
         mut size = 0
@@ -1242,8 +1264,8 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     Ok(())
 
 def main() -> Result[(), Failure]:
-    mut table = std.http.server.router()?
-    table.add("POST", "/items", 0)?
+    mut table = std.http.server.router[Route]()?
+    table.add("POST", "/items", Route.Items)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
@@ -1430,11 +1452,14 @@ from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+pub enum Route:
+    Summary
+
 # Answers GET /summary with the JSON summary of a CSV file.
 pub class Service:
     pub path: str
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
         summary = stock.summarize(&self.path, 1)?
         std.http.body.send_json(exchange, 200, &summary, &std.json.limits())?
         Ok(())
@@ -1451,8 +1476,8 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
 
 def main() -> Result[(), Failure]:
     arguments = args()?
-    mut table = std.http.server.router()?
-    table.add("GET", "/summary", 0)?
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/summary", Route.Summary)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?

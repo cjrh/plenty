@@ -52,88 +52,101 @@ pub class Script:
             source.write_stdout(start, stop).unwrap()
         Ok(stop - start)
 
+pub enum Route:
+    Home
+    Param
+    Echo
+    Fail
+    Stream
+    Silent
+    Sized
+    Query
+    Broken
+    Authority
+    Late
+
 pub class App:
     pub label: str
 
-    pub def handle(self, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
-        answer(&self.label, exchange)
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+        answer(&self.label, route, exchange)
 
 pub class NetApp:
     pub label: str
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
-        answer(&self.label, exchange)
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        answer(&self.label, route, exchange)
 
-pub def answer[T: Transport](label: &str, exchange: &mut Exchange[T]) -> Result[(), Failure]:
-        route = exchange.route
-        if route == 0:
-            exchange.send_text(200, label)?
-        elif route == 1:
-            param = exchange.params[0].concat("|")?
-            exchange.send_text(200, &param)?
-        elif route == 2:
-            mut body = std.bytes.empty()?
-            exchange.read_all(&mut body)?
-            exchange.send(200, "application/octet-stream", &body)?
-        elif route == 3:
-            return Err(Failure.Unspecified)
-        elif route == 4:
-            exchange.start(std.http.response(200, "OK")?)?
-            piece = std.bytes.from_text("abcdef")?
-            exchange.write(&piece, 0, 2)?
-            exchange.write(&piece, 2, 6)?
-        elif route == 5:
-            pass
-        elif route == 6:
-            mut head = std.http.response(200, "OK")?
-            head.add("Content-Length", "5")?
-            exchange.start(head)?
-            piece = std.bytes.from_text("hello")?
-            exchange.write(&piece, 0, 5)?
-            exchange.end()?
-        elif route == 7:
-            query = exchange.query.concat("")?
-            exchange.send_text(200, &query)?
-        elif route == 8:
-            exchange.start(std.http.response(200, "OK")?)?
-            piece = std.bytes.from_text("part")?
-            exchange.write(&piece, 0, 4)?
-            return Err(Failure.Unspecified)
-        elif route == 9:
-            authority = exchange.authority.concat("|")?
-            exchange.send_text(200, &authority)?
-        elif route == 10:
-            # Answering gives the connection to the response, so the body
-            # is gone; reads report `Broken` without choosing a refusal.
-            exchange.send_text(200, "sent")?
-            mut buffer = std.bytes.from_text("....")?
-            mut out = std.bytes.empty()?
-            match exchange.read_body(&mut buffer, 0, 4):
-                case Err(HttpError.Broken):
-                    pass
-                case _:
-                    return Err(Failure.Unspecified)
-            match exchange.read_all(&mut out):
-                case Err(HttpError.Broken):
-                    pass
-                case _:
-                    return Err(Failure.Unspecified)
+pub def answer[T: Transport](label: &str, route: &Route, exchange: &mut Exchange[T]) -> Result[(), Failure]:
+        match route:
+            case Route.Home:
+                exchange.send_text(200, label)?
+            case Route.Param:
+                param = exchange.params[0].concat("|")?
+                exchange.send_text(200, &param)?
+            case Route.Echo:
+                mut body = std.bytes.empty()?
+                exchange.read_all(&mut body)?
+                exchange.send(200, "application/octet-stream", &body)?
+            case Route.Fail:
+                return Err(Failure.Unspecified)
+            case Route.Stream:
+                exchange.start(std.http.response(200, "OK")?)?
+                piece = std.bytes.from_text("abcdef")?
+                exchange.write(&piece, 0, 2)?
+                exchange.write(&piece, 2, 6)?
+            case Route.Silent:
+                pass
+            case Route.Sized:
+                mut head = std.http.response(200, "OK")?
+                head.add("Content-Length", "5")?
+                exchange.start(head)?
+                piece = std.bytes.from_text("hello")?
+                exchange.write(&piece, 0, 5)?
+                exchange.end()?
+            case Route.Query:
+                query = exchange.query.concat("")?
+                exchange.send_text(200, &query)?
+            case Route.Broken:
+                exchange.start(std.http.response(200, "OK")?)?
+                piece = std.bytes.from_text("part")?
+                exchange.write(&piece, 0, 4)?
+                return Err(Failure.Unspecified)
+            case Route.Authority:
+                authority = exchange.authority.concat("|")?
+                exchange.send_text(200, &authority)?
+            case Route.Late:
+                # Answering gives the connection to the response, so the body
+                # is gone; reads report `Broken` without choosing a refusal.
+                exchange.send_text(200, "sent")?
+                mut buffer = std.bytes.from_text("....")?
+                mut out = std.bytes.empty()?
+                match exchange.read_body(&mut buffer, 0, 4):
+                    case Err(HttpError.Broken):
+                        pass
+                    case _:
+                        return Err(Failure.Unspecified)
+                match exchange.read_all(&mut out):
+                    case Err(HttpError.Broken):
+                        pass
+                    case _:
+                        return Err(Failure.Unspecified)
         Ok(())
 
-pub def routes() -> Result[Router, ServerError]:
-    mut table = std.http.server.router()?
-    table.add("GET", "/", 0)?
-    table.add("GET", "/hello/{name}", 1)?
-    table.add("POST", "/echo", 2)?
-    table.add("GET", "/fail", 3)?
-    table.add("GET", "/stream", 4)?
-    table.add("GET", "/silent", 5)?
-    table.add("GET", "/sized", 6)?
-    table.add("*", "/query", 7)?
-    table.add("GET", "/broken", 8)?
-    table.add("GET", "/files/{path...}", 1)?
-    table.add("GET", "/authority", 9)?
-    table.add("POST", "/late", 10)?
+pub def routes() -> Result[Router[Route], ServerError]:
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/", Route.Home)?
+    table.add("GET", "/hello/{name}", Route.Param)?
+    table.add("POST", "/echo", Route.Echo)?
+    table.add("GET", "/fail", Route.Fail)?
+    table.add("GET", "/stream", Route.Stream)?
+    table.add("GET", "/silent", Route.Silent)?
+    table.add("GET", "/sized", Route.Sized)?
+    table.add("*", "/query", Route.Query)?
+    table.add("GET", "/broken", Route.Broken)?
+    table.add("GET", "/files/{path...}", Route.Param)?
+    table.add("GET", "/authority", Route.Authority)?
+    table.add("POST", "/late", Route.Late)?
     Ok(table)
 
 pub def counts(report: &Report) -> Result[str, Failure]:
@@ -171,44 +184,51 @@ from std.net import NetError, TcpStream
 from std.sync import CancellationToken
 
 # `entered` is cancelled when /wait starts; /wait then waits for `gate`.
+pub enum Route:
+    Home
+    Wait
+    Polite
+    Stubborn
+
 pub class Gated:
     pub entered: CancellationToken
     pub gate: CancellationToken
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
-        if exchange.route == 0:
-            exchange.send_text(200, "home")?
-        elif exchange.route == 1:
-            self.entered.cancel()
-            drop(self.gate.wait_timeout(5000u64))
-            exchange.send_text(200, "waited")?
-        elif exchange.route == 2:
-            # Streams until shutdown begins, then finishes politely.
-            exchange.start(std.http.response(200, "OK")?)?
-            tick = std.bytes.from_text("tick\n")?
-            while not exchange.stopping():
-                exchange.write(&tick, 0, tick.len())?
-                std.time.sleep(&std.time.milliseconds(20u32))
-            bye = std.bytes.from_text("bye\n")?
-            exchange.write(&bye, 0, bye.len())?
-        elif exchange.route == 3:
-            # Ignores shutdown; only cancellation stops it.
-            exchange.start(std.http.response(200, "OK")?)?
-            tick = std.bytes.from_text("tick\n")?
-            while True:
-                exchange.write(&tick, 0, tick.len())?
-                std.time.sleep(&std.time.milliseconds(20u32))
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        match route:
+            case Route.Home:
+                exchange.send_text(200, "home")?
+            case Route.Wait:
+                self.entered.cancel()
+                drop(self.gate.wait_timeout(5000u64))
+                exchange.send_text(200, "waited")?
+            case Route.Polite:
+                # Streams until shutdown begins, then finishes politely.
+                exchange.start(std.http.response(200, "OK")?)?
+                tick = std.bytes.from_text("tick\n")?
+                while not exchange.stopping():
+                    exchange.write(&tick, 0, tick.len())?
+                    std.time.sleep(&std.time.milliseconds(20u32))
+                bye = std.bytes.from_text("bye\n")?
+                exchange.write(&bye, 0, bye.len())?
+            case Route.Stubborn:
+                # Ignores shutdown; only cancellation stops it.
+                exchange.start(std.http.response(200, "OK")?)?
+                tick = std.bytes.from_text("tick\n")?
+                while True:
+                    exchange.write(&tick, 0, tick.len())?
+                    std.time.sleep(&std.time.milliseconds(20u32))
         Ok(())
 
 pub def gated() -> Result[Gated, Failure]:
     Ok(Gated(CancellationToken()?, CancellationToken()?))
 
-pub def routes() -> Result[std.http.server.Router, std.http.server.ServerError]:
-    mut table = std.http.server.router()?
-    table.add("GET", "/", 0)?
-    table.add("GET", "/wait", 1)?
-    table.add("GET", "/polite", 2)?
-    table.add("GET", "/stubborn", 3)?
+pub def routes() -> Result[std.http.server.Router[Route], std.http.server.ServerError]:
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/", Route.Home)?
+    table.add("GET", "/wait", Route.Wait)?
+    table.add("GET", "/polite", Route.Polite)?
+    table.add("GET", "/stubborn", Route.Stubborn)?
     Ok(table)
 
 pub def connect_to(port: u16, raw: &str) -> Result[TcpStream, NetError]:
@@ -606,27 +626,33 @@ import std.net
 from std.http.server import Match, Router, ServerError
 from std.sync import CancellationToken
 
-def shown(table: &Router, method: &str, path: &str) -> Result[(), Failure]:
-    print(method, path, str.repr(&table.find(method, path))?)?
+def shown(table: &Router[str], method: &str, path: &str) -> Result[(), Failure]:
+    result = table.find(method, path)
+    match &result:
+        case Ok(Match.Found(index, _)):
+            route = *table.route(*index)
+            print(method, path, str.repr(&result)?, route)?
+        case _:
+            print(method, path, str.repr(&result)?)?
     Ok(())
 
 pub class Nobody:
-    pub def handle(self, exchange: &mut std.http.server.Exchange[std.net.TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &str, exchange: &mut std.http.server.Exchange[std.net.TcpStream]) -> Result[(), Failure]:
         Ok(())
 
 def main() -> Result[(), Failure]:
-    mut table = std.http.server.router()?
-    print(str.repr(&table.add("GET", "/users/{id}", 1))?)?
-    print(str.repr(&table.add("GET", "/users/{other}", 2))?)?
-    print(str.repr(&table.add("PUT", "/users/{id}", 3))?)?
-    print(str.repr(&table.add("GET", "/users/me", 4))?)?
-    print(str.repr(&table.add("GET", "/static/{path...}", 5))?)?
-    print(str.repr(&table.add("GET", "/a/{rest...}/b", 6))?)?
-    print(str.repr(&table.add("GET", "users", 6))?)?
-    print(str.repr(&table.add("G T", "/x", 6))?)?
-    print(str.repr(&table.add("GET", "/{}", 6))?)?
-    print(str.repr(&table.add("GET", "/x{y}", 6))?)?
-    print(str.repr(&table.add("GET", "/", 7))?)?
+    mut table = std.http.server.router[str]()?
+    print(str.repr(&table.add("GET", "/users/{id}", "user"))?)?
+    print(str.repr(&table.add("GET", "/users/{other}", "other"))?)?
+    print(str.repr(&table.add("PUT", "/users/{id}", "put"))?)?
+    print(str.repr(&table.add("GET", "/users/me", "me"))?)?
+    print(str.repr(&table.add("GET", "/static/{path...}", "static"))?)?
+    print(str.repr(&table.add("GET", "/a/{rest...}/b", "bad"))?)?
+    print(str.repr(&table.add("GET", "users", "bad"))?)?
+    print(str.repr(&table.add("G T", "/x", "bad"))?)?
+    print(str.repr(&table.add("GET", "/{}", "bad"))?)?
+    print(str.repr(&table.add("GET", "/x{y}", "bad"))?)?
+    print(str.repr(&table.add("GET", "/", "home"))?)?
     shown(&table, "GET", "/users/42")?
     shown(&table, "GET", "/users/me")?
     shown(&table, "HEAD", "/users/42")?
@@ -656,16 +682,16 @@ Result[(), std.http.server.ServerError].Err(std.http.server.ServerError.InvalidP
 Result[(), std.http.server.ServerError].Err(std.http.server.ServerError.InvalidPattern)
 Result[(), std.http.server.ServerError].Err(std.http.server.ServerError.InvalidPattern)
 Result[(), std.http.server.ServerError].Ok(())
-GET /users/42 Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(1, ["42"]))
-GET /users/me Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(1, ["me"]))
-HEAD /users/42 Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(1, ["42"]))
+GET /users/42 Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(0, ["42"])) user
+GET /users/me Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(0, ["me"])) user
+HEAD /users/42 Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(0, ["42"])) user
 DELETE /users/42 Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.MethodNotAllowed("GET, PUT, HEAD"))
 GET /users/ Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.NotFound)
 GET /users/42/ Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.NotFound)
-GET /static Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(5, [""]))
-GET /static/ Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(5, [""]))
-GET /static/a/b.css Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(5, ["a/b.css"]))
-GET / Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(7, []))
+GET /static Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(3, [""])) static
+GET /static/ Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(3, [""])) static
+GET /static/a/b.css Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(3, ["a/b.css"])) static
+GET / Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.Found(4, [])) home
 GET /nothing Result[std.http.server.Match, std.http.server.ServerError].Ok(std.http.server.Match.NotFound)
 Result[std.http.server.Report, std.http.server.ServerError].Err(std.http.server.ServerError.InvalidConfig)"##,
     );
@@ -931,7 +957,7 @@ from std.log import Event
 from std.tls import TlsStream
 
 pub class Secure:
-    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
         exchange.send_text(200, "secure")?
         Ok(())
 
@@ -1041,7 +1067,7 @@ from std.log import Event
 from std.tls import TlsStream
 
 pub class Secure:
-    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
         exchange.send_text(200, "secure")?
         Ok(())
 
@@ -1159,13 +1185,13 @@ fn routes_and_captures_share_their_strings() {
         r##"import std.http.server
 from std.http.server import Match, Router, ServerError
 
-def attempt(table: &mut Router, method: &str, pattern: &str, path: &str) -> Result[Match, ServerError]:
+def attempt(table: &mut Router[i64], method: &str, pattern: &str, path: &str) -> Result[Match, ServerError]:
     table.add(method, pattern, 1)?
     table.find(method, path)
 
 def needed(method: &str, pattern: &str, path: &str) -> Result[i64, Failure]:
     for budget in range(200):
-        mut table = std.http.server.router()?
+        mut table = std.http.server.router[i64]()?
         marker = "__test_fail_allocations_after_".concat(str.from(budget)?)?.concat("__")?
         print(marker)?
         outcome = attempt(&mut table, method, pattern, path)
@@ -1184,5 +1210,116 @@ def main() -> Result[(), Failure]:
         // A long method costs nothing extra; a long path or pattern piece
         // costs only the allocation `split` makes for it.
         "0\n1\n2",
+    );
+}
+
+/// Issue #159: a route value can carry the route's own handler and state,
+/// and several patterns can share one route variant.
+#[test]
+fn route_values_carry_per_route_handlers() {
+    runs(
+        SCRIPTED,
+        r##"
+pub enum Site:
+    Home
+    Greet(Greeter)
+
+pub class Greeter:
+    pub opening: str
+
+    pub def handle(self, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+        text = self.opening.concat(&exchange.params[0])?
+        exchange.send_text(200, &text)?
+        Ok(())
+
+pub class SiteApp:
+    pub def handle(self, route: &Site, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+        match route:
+            case Site.Home:
+                exchange.send_text(200, "home")?
+            case Site.Greet(greeter):
+                greeter.handle(exchange)?
+        Ok(())
+
+def main() -> Result[(), Failure]:
+    mut table = std.http.server.router[Site]()?
+    table.add("GET", "/", Site.Home)?
+    table.add("GET", "/index.html", Site.Home)?
+    table.add("GET", "/hi/{name}", Site.Greet(Greeter("hi ")))?
+    table.add("GET", "/bye/{name}", Site.Greet(Greeter("bye ")))?
+    print(str.repr(&table.add("GET", "/hi/{other}", Site.Home))?)?
+    input = "GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /index.html HTTP/1.1\r\nHost: x\r\n\r\nGET /hi/ada HTTP/1.1\r\nHost: x\r\n\r\nGET /bye/bob HTTP/1.1\r\nHost: x\r\n\r\n"
+    script = Script(std.bytes.from_text(input)?, 0, 7, False, True)
+    stop = CancellationToken()?
+    report = std.http.server.serve_connection(script, &table, &SiteApp(), &std.http.server.config(), &stop, &stop)
+    print("")?
+    print(counts(&report)?)?
+    Ok(())
+"##,
+        r##"Result[(), std.http.server.ServerError].Err(std.http.server.ServerError.DuplicateRoute)
+HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4||homeHTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4||homeHTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||hi adaHTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 7||bye bob
+connections=1 requests=4 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=0"##,
+    );
+}
+
+/// Issue #159: dispatch is a `match` on the route type, so a route variant
+/// the handler does not answer is a compile error, and a handler must take
+/// the router's route type.
+#[test]
+fn route_dispatch_is_checked_at_compile_time() {
+    let program = |arms: &str, route: &str| {
+        format!(
+            r##"import std.http.server
+import std.net
+from std.http.server import Exchange
+from std.net import TcpStream
+from std.sync import CancellationToken
+
+pub enum Route:
+    Home
+    Hello(str)
+
+pub enum Other:
+    Home
+
+pub class App:
+    pub def handle(self, route: &{route}, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        match route:
+{arms}        Ok(())
+
+def main() -> Result[(), Failure]:
+    mut routes = std.http.server.router[Route]()?
+    routes.add("GET", "/", Route.Home)?
+    routes.add("GET", "/hello/{{name}}", Route.Hello("hello"))?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 4)?
+    stop = CancellationToken()?
+    stop.cancel()
+    std.http.server.serve(listener, &routes, &App(), &std.http.server.config(), &stop)?
+    Ok(())
+"##
+        )
+    };
+    let check = |source: String| {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        std::fs::write(&path, source).unwrap();
+        plenty::check_file(&path, None).map_err(|error| error.to_string())
+    };
+    let home = "            case Route.Home:\n                exchange.send_text(200, \"home\")?\n";
+    let hello =
+        "            case Route.Hello(text):\n                exchange.send_text(200, text)?\n";
+    check(program(&format!("{home}{hello}"), "Route")).unwrap();
+    let missing = check(program(home, "Route")).unwrap_err();
+    assert!(
+        missing.contains("non-exhaustive match; missing Route.Hello(_)"),
+        "{missing}"
+    );
+    let other =
+        "            case Other.Home:\n                exchange.send_text(200, \"home\")?\n";
+    let mismatched = check(program(other, "Other")).unwrap_err();
+    assert!(
+        mismatched
+            .contains("conflicting types for `R` in `std.http.server.serve`: Route and Other"),
+        "{mismatched}"
     );
 }
