@@ -172,6 +172,16 @@ fn duplicate_parameter_reports_the_duplicate_name() {
     assert!(error.ends_with("1:15: duplicate parameter"), "{error}");
 }
 
+#[rstest]
+#[case::duplicate("def f[T, T](x: T) -> T:\n    x\n", "1:10")]
+#[case::builtin("def f[i64](x: i64) -> i64:\n    x\n", "1:7")]
+fn bad_function_type_parameter_reports_the_parameter(#[case] source: &str, #[case] at: &str) {
+    // Issue #199: the error pointed at `def`.
+    let error = plenty::check_source(source).unwrap_err().to_string();
+    let expected = format!("{at}: duplicate or builtin type parameter");
+    assert!(error.ends_with(&expected), "{error}");
+}
+
 #[test]
 fn local_slot_limit_is_a_diagnostic() {
     let source = (0..257)
