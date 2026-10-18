@@ -190,6 +190,7 @@ fn build_native_object(out: &Path, source: &str, object: &str) {
 /// let `--gc-sections` drop it from programs that never call `plenty_sqlite`.
 /// See book/src/design/stdlib/sqlite.md for the options and update policy.
 const SQLITE: &str = "plenty-runtime/native/sqlite-3.54.0";
+const SQLITE_ARCHIVE: &str = "plenty_sqlite";
 const SQLITE_OPTIONS: &[&str] = &[
     "-DSQLITE_THREADSAFE=1",
     "-DSQLITE_DEFAULT_MEMSTATUS=0",
@@ -222,7 +223,7 @@ fn build_sqlite(dir: &Path) {
         "compiling SQLite failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let archive = dir.join("libplenty_sqlite.a");
+    let archive = dir.join(format!("lib{SQLITE_ARCHIVE}.a"));
     let _ = std::fs::remove_file(&archive);
     let ar = std::env::var_os("AR").unwrap_or_else(|| "ar".into());
     let output = Command::new(&ar)
@@ -456,13 +457,13 @@ fn build_runtime(out: &Path, vendor: &Path, application: bool) {
         "cfg(plenty_runtime_sqlite)",
         "--cfg",
         "plenty_runtime_sqlite",
-        "-lstatic=plenty_sqlite",
-        "-lstatic=ring_core_0_17_14_",
         "--print",
         "native-static-libs",
         "-o",
     ]);
     rustc.arg(&archive);
+    rustc.arg(format!("-lstatic={SQLITE_ARCHIVE}"));
+    rustc.arg(format!("-lstatic={RING_ARCHIVE}"));
     rustc.arg(format!("-Ldependency={}", vendor.display()));
     rustc.arg(format!("-Lnative={}", vendor.display()));
     for name in RUNTIME_EXTERNS {
