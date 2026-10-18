@@ -2560,9 +2560,6 @@ def main() -> ():
         ));
     }
 
-    /// Every lowered operation stays live until its function is emitted, so
-    /// the largest variant sets the size of all of them (issue #54). Box a
-    /// payload that would raise this bound.
     /// Bodies are checked out of order, so the error must be chosen by position.
     #[test]
     fn first_error_in_program_order_for_every_worker_count() {
@@ -2605,6 +2602,9 @@ def main() -> ():
         }
     }
 
+    /// Every lowered operation stays live until its function is emitted, so
+    /// the largest variant sets the size of all of them (issue #54). Box a
+    /// payload that would raise this bound.
     #[test]
     fn operations_stay_small() {
         assert!(std::mem::size_of::<Op>() <= 96);
