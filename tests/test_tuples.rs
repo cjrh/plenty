@@ -131,6 +131,20 @@ fn unit_tuple_components_remain_unit_expressions() {
 }
 
 #[test]
+fn annotated_unit_tuple_components_push_one_unit() {
+    // Issue #207: an annotated unit field pushed its unit twice.
+    let out = support::run(
+        "t: tuple[(), i64] = ((), 7)\nprint(t[1]).unwrap()\nu: ((), (), i64) = ((), (), 8)\nprint(u[2]).unwrap()",
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "7\n8\n");
+}
+
+#[test]
 fn unpacking_moves_owned_components_and_cleans_discarded_fields() {
     let out = support::run(
         r#"
