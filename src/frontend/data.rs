@@ -362,44 +362,27 @@ impl TypeAliases {
                 application.at.error("recursive generic data type or type nesting exceeds the implementation limit of 64")
             }));
         }
-        let concrete_name = if actual.is_empty() {
-            name.clone()
-        } else {
-            format!(
-                "{name}[{}]",
-                actual
-                    .iter()
-                    .map(Ty::identity_name)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        };
+        let concrete_name = instance_name(name, &actual, Ty::identity_name);
         if concrete_name.len() > crate::op::MAX_IDENTITY_NAME_LEN {
             return Err(application
                 .at
                 .error("concrete type name exceeds the implementation limit"));
         }
+        let display_name = instance_name(name, &actual, ToString::to_string);
         let ty = if self.data.enums.contains_key(name) {
-            Ty::Enum(self.data.definitions.enumeration(&concrete_name))
-        } else {
-            Ty::Class(self.data.definitions.class(&concrete_name))
-        };
-        let display_name = if actual.is_empty() {
-            name.clone()
-        } else {
-            format!(
-                "{name}[{}]",
-                actual
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
+            Ty::Enum(
+                self.data
+                    .definitions
+                    .enumeration(&concrete_name)
+                    .with_display_name(display_name),
             )
-        };
-        let ty = match ty {
-            Ty::Enum(t) => Ty::Enum(t.with_display_name(display_name)),
-            Ty::Class(t) => Ty::Class(t.with_display_name(display_name)),
-            _ => unreachable!(),
+        } else {
+            Ty::Class(
+                self.data
+                    .definitions
+                    .class(&concrete_name)
+                    .with_display_name(display_name),
+            )
         };
         self.data
             .arguments
@@ -666,6 +649,16 @@ impl TypeAliases {
             },
         )))
     }
+}
+
+/// Formats `name[arg, ...]`, or `name` alone for a non-generic type. Callers pick
+/// the mapper: `Ty::identity_name` for the identity key, `Display` for messages.
+fn instance_name(name: &str, args: &[Ty], f: impl Fn(&Ty) -> String) -> String {
+    if args.is_empty() {
+        return name.to_string();
+    }
+    let args = args.iter().map(f).collect::<Vec<_>>().join(", ");
+    format!("{name}[{args}]")
 }
 
 fn substitute_method(
