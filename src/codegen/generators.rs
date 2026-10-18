@@ -193,21 +193,17 @@ impl Lowerer<'_, '_> {
         if !self.stack.is_empty() {
             return Err("nonempty stack at yield".into());
         }
-        let out = self.generator.as_ref().unwrap().out;
+        let g = self.generator.as_mut().ok_or("yield outside generator")?;
+        let (out, frame) = (g.out, g.frame);
+        let next = self.bcx.create_block();
+        let state_index = g.continuations.len() as i64;
+        g.continuations.push(next);
         let destination = self.bcx.ins().iadd_imm(out, 16);
         let value = self.copy_inline_to(value, ty, destination);
         let value = self.pack(value, ty);
-        let g = self.generator.as_mut().ok_or("yield outside generator")?;
-        let next = self.bcx.create_block();
-        let state = self
-            .bcx
-            .ins()
-            .iconst(types::I64, g.continuations.len() as i64);
-        g.continuations.push(next);
-        self.bcx
-            .ins()
-            .store(MemFlags::trusted(), state, g.frame, 24);
-        self.bcx.ins().store(MemFlags::trusted(), value, g.out, 0);
+        let state = self.bcx.ins().iconst(types::I64, state_index);
+        self.bcx.ins().store(MemFlags::trusted(), state, frame, 24);
+        self.bcx.ins().store(MemFlags::trusted(), value, out, 0);
         let ready = self.bcx.ins().iconst(types::I8, 1);
         self.bcx.ins().return_(&[ready]);
         self.bcx.switch_to_block(next);
