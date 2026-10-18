@@ -483,9 +483,7 @@ impl Lower<'_> {
             }
             types.push(actual);
         }
-        if types.iter().map(|t| t.identity_name().len()).sum::<usize>() > 16_384
-            || types.iter().any(|t| t.layout_depth() >= 64)
-        {
+        if Ty::identity_names_exceed_limit(&types) || types.iter().any(|t| t.layout_depth() >= 64) {
             return Err(at.error("tuple exceeds the implementation type nesting limit"));
         }
         let Ty::Enum(t) = crate::sum::tuple(types) else {
@@ -1324,11 +1322,7 @@ impl Lower<'_> {
             if let Some(barrier) = fields.iter().find_map(Ty::storage_barrier) {
                 return Err(at.error(barrier.message("iteration item tuples")));
             }
-            if fields
-                .iter()
-                .map(|ty| ty.identity_name().len())
-                .sum::<usize>()
-                > 16_384
+            if Ty::identity_names_exceed_limit(&fields)
                 || fields.iter().any(|ty| ty.layout_depth() >= 64)
             {
                 return Err(at.error("type nesting exceeds the implementation limit of 64"));
