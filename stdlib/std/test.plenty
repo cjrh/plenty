@@ -87,8 +87,11 @@ pub def less[T](left: &T, right: &T) -> Result[(), TestError]:
     shown(" right: ", right)
     failed()
 
-# NaN is never close to anything, so a NaN on either side fails.
+# NaN is never close to anything, so a NaN on either side fails. Equal
+# infinities are close, matching std.math.isclose; their difference is NaN.
 pub def close(left: f64, right: f64, tolerance: f64) -> Result[(), TestError]:
+    if left == right:
+        return Ok(())
     difference = left - right
     if difference <= tolerance and difference >= -tolerance:
         return Ok(())

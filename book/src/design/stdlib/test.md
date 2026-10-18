@@ -36,7 +36,7 @@ line, not its caller's.
 | `equal[T](left: &T, right: &T)` | `left == right` | `left == right`, then `  left: ` and ` right: ` lines |
 | `not_equal[T](left: &T, right: &T)` | `left != right` | `left != right`, then a `  both: ` line |
 | `less[T](left: &T, right: &T)` | `left < right` | `left < right`, then `left` and `right` lines |
-| `close(left: f64, right: f64, tolerance: f64)` | `abs(left - right) <= tolerance` | the three values; NaN on either side fails |
+| `close(left: f64, right: f64, tolerance: f64)` | `left == right` or `abs(left - right) <= tolerance` | the three values; NaN on either side fails, equal infinities pass |
 | `is_ok[T, E](result: &Result[T, E])` | `result` is `Ok` | `result is Ok`, then an `  error: ` line |
 | `is_err[T, E](result: &Result[T, E])` | `result` is `Err` | `result is Err`, then a `  value: ` line |
 
