@@ -1238,12 +1238,12 @@ fn collect_user_fns(
     Ok(())
 }
 
-/// Emit the body of one user function. Each input becomes a CLIF
-/// `Variable` defined once at entry from the matching block parameter;
-/// `Op::LoadLocal(i)` later reads that variable. If the body falls
-/// through without a tail call, emit a `return` carrying the values
-/// remaining on the compile-time stack (the type checker has already
-/// ensured those values match the declared outputs).
+/// Whether the body takes a local's address (`BorrowLocal`) or has an
+/// `Op::Thread`, so the function needs a stack frame mirroring its locals.
+/// Recurses into nested `Match`, `Loop`, and `If` bodies, since a borrow
+/// anywhere in the function needs the frame. `Op::Try` cleanup is not
+/// scanned: its only `BorrowLocal` is a `with` exit receiver, and the
+/// matching entry already borrows that local outside the cleanup.
 fn needs_local_addresses(ops: &[Op]) -> bool {
     ops.iter().any(|op| match op {
         Op::BorrowLocal(..) | Op::Thread(_) => true,
@@ -1266,6 +1266,12 @@ fn needs_local_addresses(ops: &[Op]) -> bool {
     })
 }
 
+/// Emit the body of one user function. Each input becomes a CLIF
+/// `Variable` defined once at entry from the matching block parameter;
+/// `Op::LoadLocal(i)` later reads that variable. If the body falls
+/// through without a tail call, emit a `return` carrying the values
+/// remaining on the compile-time stack (the type checker has already
+/// ensured those values match the declared outputs).
 #[cfg_attr(feature = "profile", hotpath::measure)]
 fn build_user_function(
     name: &str,
