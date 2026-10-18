@@ -464,6 +464,49 @@ fds=5
     );
 }
 
+/// A part header of exactly `max_head` bytes is accepted wherever the reads
+/// split it. The script transport delivers 7 bytes per read, so the preamble
+/// lengths cover every split, including a window that ends one byte before
+/// the header terminator (issue #247).
+#[test]
+fn multipart_header_of_exactly_max_head_is_accepted_on_any_read_boundary() {
+    runs(
+        &format!(
+            r##"{UPLOAD}
+def main() -> Result[(), Failure]:
+    mut app = app()?
+    # `Content-Disposition: form-data; name="a"` is 40 bytes.
+    app.multipart.max_head = 40
+    mut preamble = ""
+    for index in range(7):
+        body = preamble.concat("\r\n")?.concat(&field("a", "1")?)?.concat("--XyZ--")?
+        serve(&app, &upload(&body)?, Nothing)?
+        preamble = preamble.concat("p")?
+    app.multipart.max_head = 39
+    serve(&app, &upload(&field("a", "1")?.concat("--XyZ--")?)?, Nothing)?
+    Ok(())
+"##
+        ),
+        r"
+fds=5
+HTTP/1.1 200 OK||[a type=text/plain size=1 1]
+fds=5
+HTTP/1.1 200 OK||[a type=text/plain size=1 1]
+fds=5
+HTTP/1.1 200 OK||[a type=text/plain size=1 1]
+fds=5
+HTTP/1.1 200 OK||[a type=text/plain size=1 1]
+fds=5
+HTTP/1.1 200 OK||[a type=text/plain size=1 1]
+fds=5
+HTTP/1.1 200 OK||[a type=text/plain size=1 1]
+fds=5
+HTTP/1.1 200 OK||[a type=text/plain size=1 1]
+HTTP/1.1 413 Content Too Large||Content Too Large
+",
+    );
+}
+
 /// A connection cancelled mid-upload is answered 408, and the temporary file
 /// it was writing is closed.
 #[test]

@@ -646,7 +646,9 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
                 case Some(found):
                     head_end = found
                 case Nothing:
-                    if window.data.len() - window.at > limits.max_head + 4:
+                    # A legal section spans the opening CRLF, up to
+                    # `max_head` header bytes and the 4-byte terminator.
+                    if window.data.len() - window.at > limits.max_head + 5:
                         return Err(BodyError.TooLarge)
                     if not fill(exchange, &mut window)?:
                         return Err(BodyError.Malformed)
