@@ -978,13 +978,7 @@ impl Engine {
                         protocol.type_params.len()
                     )));
                 }
-            } else if (numeric_bound(bound).is_none()
-                && !bound
-                    .name
-                    .as_ref()
-                    .is_some_and(|n| self.protocols.contains_key(n)))
-                || !bound.args.is_empty()
-            {
+            } else if numeric_bound(bound).is_none() || !bound.args.is_empty() {
                 return Err(bound.at.error("generic constraints require IntType, FloatType, Callable, OnceCallable, or a declared protocol"));
             }
         }
