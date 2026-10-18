@@ -69,13 +69,9 @@ impl Lower<'_> {
                 at.error("sort_by_key takes a key callback and an optional descending bool")
             );
         }
-        let list = self
-            .place_type(base)
-            .or_else(|| self.expression_type_hint(base))
-            .ok_or_else(|| at.error("sorting requires a list"))?;
-        let list = classes::unbox(list);
+        let list = classes::unbox(self.place_type(base).expect("list place"));
         let Ty::List(element) = list else {
-            return Err(at.error("sorting requires a list"));
+            unreachable!()
         };
         let mut callback = self
             .expression_type_hint(&args[0])
