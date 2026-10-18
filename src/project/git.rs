@@ -1,10 +1,12 @@
 //! Git dependency sources, fetched with the system `git` binary.
 //!
 //! `.pkg/git/db/KEY` is a bare repository holding everything fetched from one
-//! URL. `.pkg/git/checkouts/KEY/COMMIT` is a read-only snapshot of one commit's
-//! tree, written beside its final path and renamed into place, so an
-//! interrupted fetch never leaves a partial snapshot that later builds would
-//! trust. `KEY` combines a readable repository name with a hash of the URL.
+//! URL. `.pkg/git/checkouts/KEY/COMMIT` is a snapshot of one commit's tree,
+//! written beside its final path and renamed into place, so an interrupted
+//! fetch never leaves a partial snapshot that later builds would trust.
+//! Snapshots are not write-protected: an existing snapshot is reused as is, so
+//! edits to its files persist until it is deleted. `KEY` combines a readable
+//! repository name with a hash of the URL.
 use super::manifest::GitSelector;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
