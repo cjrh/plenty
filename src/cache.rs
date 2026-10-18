@@ -24,7 +24,7 @@
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -323,19 +323,29 @@ impl CacheKvStore for Store<'_> {
 }
 
 /// The entry at `path`, if it is complete and intact.
+///
+/// The header is read separately so the payload lands in its own buffer:
+/// slicing it out of a whole-file read would copy it a second time on every
+/// hit.
 fn read_entry(path: &Path) -> Option<(Duration, Vec<u8>)> {
-    let bytes = fs::read(path).ok()?;
-    if bytes.len() < HEADER || &bytes[..4] != MAGIC {
+    let mut file = fs::File::open(path).ok()?;
+    let mut header = [0; HEADER];
+    file.read_exact(&mut header).ok()?;
+    if &header[..4] != MAGIC {
         return None;
     }
-    let field = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    let field = |at: usize| u64::from_le_bytes(header[at..at + 8].try_into().unwrap());
     let compile_ns = field(4);
     let length = field(12) as usize;
-    let payload = &bytes[HEADER..];
-    if payload.len() != length || Sha256::digest(payload).as_slice() != &bytes[20..HEADER] {
+    // Size the buffer from the file, not the header, so a corrupt length
+    // cannot request a huge allocation.
+    let size = file.metadata().ok()?.len().saturating_sub(HEADER as u64);
+    let mut payload = Vec::with_capacity(usize::try_from(size).ok()?);
+    file.read_to_end(&mut payload).ok()?;
+    if payload.len() != length || Sha256::digest(&payload).as_slice() != &header[20..] {
         return None;
     }
-    Some((Duration::from_nanos(compile_ns), payload.to_vec()))
+    Some((Duration::from_nanos(compile_ns), payload))
 }
 
 fn write_entry(path: &Path, number: u64, compile_time: Duration, payload: &[u8]) -> io::Result<()> {
@@ -520,6 +530,12 @@ mod tests {
         assert!(cache.read(&key).is_none(), "wrong magic");
         fs::write(&path, b"").unwrap();
         assert!(cache.read(&key).is_none(), "empty");
+        fs::write(&path, &good[..HEADER]).unwrap();
+        assert!(cache.read(&key).is_none(), "header only");
+        let mut extended = good.clone();
+        extended.push(0);
+        fs::write(&path, &extended).unwrap();
+        assert!(cache.read(&key).is_none(), "trailing byte");
 
         // A later write replaces the damaged entry.
         cache.write(&key, Duration::ZERO, b"machine code");
