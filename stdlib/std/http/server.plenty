@@ -1684,6 +1684,9 @@ class Admission[T]:
     bell: UdpSocket
     returns: Receiver[Job[T]]
     slots: list[Option[Job[T]]]
+    # Indices of empty slots. Its capacity covers every slot, so recording
+    # a vacancy never allocates.
+    free: list[i64]
     parked: i64
     total: Report
     events: Option[ChannelSink]
@@ -1749,15 +1752,20 @@ def park[T, O: Opener[T]](state: &mut Admission[T], parked: Job[T], cap: i64, op
     if state.parked >= cap and parked.input.is_none() and not parked.opening:
         drop(parked)
         return
-    mut index = 0
-    while index < len(state.slots) and state.slots[index].is_some():
-        index += 1
-    if index == len(state.slots):
-        empty: Option[Job[T]] = Nothing
-        if state.slots.append(empty).is_err():
-            drop(parked)
-            return
+    mut index = len(state.slots)
+    match state.free.pop():
+        case Some(vacant):
+            index = vacant
+        case Nothing:
+            if state.free.reserve(index + 1).is_err():
+                drop(parked)
+                return
+            empty: Option[Job[T]] = Nothing
+            if state.slots.append(empty).is_err():
+                drop(parked)
+                return
     if not watch_job(&parked, &mut state.selector, first_slot + u64(index), opener):
+        drop(state.free.append(index))
         drop(parked)
         return
     state.slots[index] = Some(parked)
@@ -1770,6 +1778,7 @@ def unpark[T, O: Opener[T]](state: &mut Admission[T], index: i64, opener: &O) ->
     match replace(state.slots[index], Nothing):
         case Some(parked):
             state.parked -= 1
+            drop(state.free.append(index))
             unwatch_job(&parked, &mut state.selector, opener)
             Some(parked)
         case Nothing:
@@ -2103,9 +2112,10 @@ def run[T: Transport, O: Opener[T], R, H: Handler[T, R]](listener: TcpListener, 
     mut scratch = allocated(bytes_of(std.bytes.with_capacity(discard_chunk)))?
     allocated(bytes_of(scratch.resize(discard_chunk, 0u8)))?
     slots = allocated(list[Option[Job[T]]].new())?
+    free = allocated(list[i64].new())?
     # Rejections must not hold up accepting, so they get a short write budget.
     reject_ns = least(config.write_timeout.as_nanoseconds(), 100000000u64)
-    admission = Admission(selector, wake, returns, slots, 0, empty_report(), shared_sink(&config.events), scratch, reject_ns, linger_span(config))
+    admission = Admission(selector, wake, returns, slots, free, 0, empty_report(), shared_sink(&config.events), scratch, reject_ns, linger_span(config))
     match launch(config.workers, listener, inbox, outbox, done, reports, back, &address, admission, opener, router, handler, config, stop, &cancel, config.workers):
         case Ok(report):
             Ok(report)
