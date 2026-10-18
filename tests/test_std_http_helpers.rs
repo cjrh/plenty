@@ -603,7 +603,9 @@ x=y; Domain=a.example; SameSite=Strict
 }
 
 /// Forwarding headers count only from trusted proxies, read right to left;
-/// whatever the client wrote left of the first untrusted hop is ignored.
+/// whatever the client wrote left of the first untrusted hop is not believed.
+/// Issue #285: `X-Forwarded-For` entries there are not parsed, but every
+/// `Forwarded` element is, so a malformed one fails wherever it is.
 #[test]
 fn forwarded_clients_need_trusted_proxies() {
     runs(
@@ -625,12 +627,14 @@ def main() -> Result[(), Failure]:
     serve(&app, "GET /client HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 10.0.0.1\r\nX-Forwarded-For: 10.0.0.2\r\nConnection: close\r\n\r\n", at("10.1.2.3:5000")?)?
     serve(&app, "GET /client HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: unknown\r\nConnection: close\r\n\r\n", at("10.1.2.3:5000")?)?
     serve(&app, "GET /client HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 1.1.1.1\r\nX-Forwarded-Proto: gopher\r\nConnection: close\r\n\r\n", at("10.1.2.3:5000")?)?
+    serve(&app, "GET /client HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: garbage, 192.0.2.1\r\nConnection: close\r\n\r\n", at("10.1.2.3:5000")?)?
     app.proxies.max_hops = 2
     serve(&app, get, at("10.1.2.3:5000")?)?
     app.proxies.header = Forwarding.Forwarded
     serve(&app, "GET /client HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 1.1.1.1\r\nForwarded: for=\"[2001:db8::7]:99\";proto=https, For=192.0.2.60;proto=http;by=10.0.0.1\r\nConnection: close\r\n\r\n", at("10.1.2.3:5000")?)?
     serve(&app, "GET /client HTTP/1.1\r\nHost: x\r\nForwarded: for=\"[2001:db8::7]:99\";proto=https, for=10.0.0.3\r\nConnection: close\r\n\r\n", at("10.1.2.3:5000")?)?
     serve(&app, "GET /client HTTP/1.1\r\nHost: x\r\nForwarded: for=_hidden, for=10.0.0.3\r\nConnection: close\r\n\r\n", at("10.1.2.3:5000")?)?
+    serve(&app, "GET /client HTTP/1.1\r\nHost: x\r\nForwarded: garbage, for=192.0.2.1\r\nConnection: close\r\n\r\n", at("10.1.2.3:5000")?)?
     serve(&app, "GET /client HTTP/1.1\r\nHost: x\r\nForwarded: for=\"a,b\r\nConnection: close\r\n\r\n", at("10.1.2.3:5000")?)?
     print(app.proxies.trust("10.0.0.1/8").is_err())?
     print(app.proxies.trust("10.0.0.0/33").is_err())?
@@ -656,9 +660,11 @@ HTTP/1.1 200 OK||2001:db8::1 proxied
 HTTP/1.1 200 OK||10.0.0.1 proxied
 HTTP/1.1 400 Bad Request||bad forwarding
 HTTP/1.1 400 Bad Request||bad forwarding
+HTTP/1.1 200 OK||192.0.2.1 proxied
 HTTP/1.1 400 Bad Request||bad forwarding
 HTTP/1.1 200 OK||192.0.2.60 http proxied
 HTTP/1.1 200 OK||2001:db8::7 https proxied
+HTTP/1.1 400 Bad Request||bad forwarding
 HTTP/1.1 400 Bad Request||bad forwarding
 HTTP/1.1 400 Bad Request||bad forwarding
 True
