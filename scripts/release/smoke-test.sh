@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Check a release archive as a user would install it.
 #
-# Usage: smoke-test.sh ARCHIVE [--clean-environment] [--allow-missing-license]
+# Usage: smoke-test.sh ARCHIVE [--clean-environment]
 #
 # ARCHIVE.sha256 must sit next to ARCHIVE. The script checks the checksum,
 # layout, and permissions; extracts into a fresh directory whose path contains
@@ -15,17 +15,14 @@
 #
 # --clean-environment additionally requires that no Rust toolchain, Cargo
 # home, or source checkout is reachable, as in the release smoke containers.
-# --allow-missing-license accepts an archive from `package.sh
-# --allow-missing-license`, for local checks only.
 set -euo pipefail
 
 archive="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 clean=0
-required="bin/plenty bin/plentyc README.md LICENSE THIRD-PARTY-NOTICES.md licenses/rust/COPYRIGHT-library.html"
+required="bin/plenty bin/plentyc README.md LICENSE-MIT LICENSE-APACHE THIRD-PARTY-NOTICES.md licenses/rust/COPYRIGHT-library.html"
 for option in "${@:2}"; do
     case "$option" in
         --clean-environment) clean=1 ;;
-        --allow-missing-license) required="${required/ LICENSE / }" ;;
         *) echo "smoke-test: unknown option $option" >&2; exit 2 ;;
     esac
 done

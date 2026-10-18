@@ -7,7 +7,7 @@ ahead of time to native code. This archive contains the compiler:
 |---|---|
 | `bin/plenty` | Compiler and project tool |
 | `bin/plentyc` | Single-file compiler, without project commands |
-| `LICENSE` | Plenty's license |
+| `LICENSE-MIT`, `LICENSE-APACHE` | Plenty's license: MIT or Apache-2.0, at your option |
 | `THIRD-PARTY-NOTICES.md`, `licenses/` | Licenses of software built into the compiler |
 
 The standard library and runtime are built into `bin/plenty`. You do not need

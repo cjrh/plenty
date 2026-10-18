@@ -98,3 +98,8 @@ for performance evidence. `AGENTS.md` and `CLAUDE.md` describe local issue claim
 worktrees, and review records.
 
 Plenty has no interpreter, REPL, or JIT.
+
+## License
+
+Plenty is licensed under either of [Apache License, Version 2.0](LICENSE-APACHE)
+or [MIT license](LICENSE-MIT), at your option.

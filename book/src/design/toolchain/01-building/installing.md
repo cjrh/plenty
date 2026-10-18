@@ -11,7 +11,8 @@ plenty-VERSION-x86_64-unknown-linux-gnu/
   bin/plenty                  compiler and project tool
   bin/plentyc                 single-file compiler
   README.md                   requirements and installation
-  LICENSE                     Plenty's license
+  LICENSE-MIT                 Plenty's license: MIT or Apache-2.0,
+  LICENSE-APACHE                at your option
   THIRD-PARTY-NOTICES.md      licenses of software built into the compiler
   licenses/rust/              the Rust standard library's notices
 ```

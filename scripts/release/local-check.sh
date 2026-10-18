@@ -2,7 +2,7 @@
 # Run the release build and archive checks locally with Docker, as the
 # release workflow does, without tagging, uploading, or publishing anything.
 #
-# Usage: local-check.sh [--test] [--allow-missing-license] [--skip-smoke]
+# Usage: local-check.sh [--test] [--skip-smoke]
 #
 # Builds in BUILD_IMAGE into target/release-container/ (separate from host
 # builds), then smoke-tests the archive in every SMOKE_IMAGES container.
@@ -15,12 +15,10 @@ repo="$(cd "$here/../.." && pwd)"
 . "$here/toolchain.env"
 
 build_args=()
-smoke_args=()
 smoke=1
 for option in "$@"; do
     case "$option" in
         --test) build_args+=(--test) ;;
-        --allow-missing-license) build_args+=("$option"); smoke_args+=("$option") ;;
         --skip-smoke) smoke=0 ;;
         *) echo "local-check.sh: unknown option $option" >&2; exit 2 ;;
     esac
@@ -44,7 +42,7 @@ docker run --rm --label org.plenty.release-build=1 \
 archive="$(ls "$out"/dist/plenty-*.tar.gz)"
 if [ "$smoke" = 1 ]; then
     for image in $SMOKE_IMAGES; do
-        "$here/smoke-in-container.sh" "$image" "$archive" "${smoke_args[@]}"
+        "$here/smoke-in-container.sh" "$image" "$archive"
     done
 fi
 echo "local-check: $archive"

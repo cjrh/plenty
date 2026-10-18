@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build, audit, and package a release inside the pinned glibc 2.28 image.
 #
-# Usage: build.sh --out-dir DIR [--test] [--allow-missing-license]
+# Usage: build.sh --out-dir DIR [--test]
 #
 # Run inside BUILD_IMAGE from toolchain.env (the release workflow's container,
 # or scripts/release/local-check.sh). Installs RUST_VERSION with a verified
@@ -18,12 +18,10 @@ repo="$(cd "$here/../.." && pwd)"
 
 out_dir=""
 run_tests=0
-package_args=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --out-dir) out_dir="$2"; shift 2 ;;
         --test) run_tests=1; shift ;;
-        --allow-missing-license) package_args+=(--allow-missing-license); shift ;;
         *) echo "build.sh: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -65,4 +63,4 @@ if [ "$run_tests" = 1 ]; then
         -- --skip test_std_http_server_qualification::curl_interoperates_over_tls
 fi
 "$here/package.sh" --bin-dir "$target_dir/release" --out-dir "$out_dir" \
-    --rust-sysroot "$(rustc --print sysroot)" "${package_args[@]}"
+    --rust-sysroot "$(rustc --print sysroot)"
