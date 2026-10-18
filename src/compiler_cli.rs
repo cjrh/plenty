@@ -197,6 +197,9 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                         | "--extract-interface"
                         | "--verify-interface"
                         | "--runtime-interface"
+                        | "-V"
+                        | "--version"
+                        | "--print-target"
                 )
             }))
     {
