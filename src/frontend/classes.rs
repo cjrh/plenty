@@ -215,7 +215,11 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                         Statement::SetIndex {
                             target: expression(
                                 at,
-                                Expression::Member(Box::new(name(at, "self")), field.clone()),
+                                Expression::Member(
+                                    Box::new(name(at, "self")),
+                                    field.clone(),
+                                    Pos::default(),
+                                ),
                             ),
                             value: name(at, field),
                         },
@@ -387,18 +391,18 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
         fn expr(&self, e: &Expr, initialized: &HashSet<String>) -> Result<()> {
             match &e.kind {
                 Expression::Name(n) if n == "self" => self.complete(initialized, &e.at)?,
-                Expression::Member(base, field) if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") => {
+                Expression::Member(base, field, _) if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") => {
                     if !initialized.contains(field) {
                         return Err(e.at.error(format!("field `{field}` is not initialized")));
                     }
                 }
-                Expression::Member(a, _)
+                Expression::Member(a, _, _)
                 | Expression::NamedArgument(_, a)
                 | Expression::Group(a)
                 | Expression::Unary(_, a)
                 | Expression::Try(a) => self.expr(a, initialized)?,
-                Expression::Method(a, _, args)
-                | Expression::GenericMethod(a, _, _, args)
+                Expression::Method(a, _, args, _)
+                | Expression::GenericMethod(a, _, _, args, _)
                 | Expression::Invoke(a, args) => {
                     self.expr(a, initialized)?;
                     for arg in args {
@@ -458,7 +462,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
             Ok(())
         }
         fn target(&self, target: &Expr, set: &mut HashSet<String>) -> Result<()> {
-            if let Expression::Member(base, field) = &target.kind {
+            if let Expression::Member(base, field, _) = &target.kind {
                 if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") {
                     if !self.ty.fields.iter().any(|(n, _)| n == field) {
                         return Err(target.at.error(format!("unknown field `{field}`")));
@@ -699,7 +703,7 @@ impl Lower<'_> {
         ops[end - call..].rotate_left(call);
     }
     pub(super) fn field(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
-        if let Expression::Member(base, name) = &e.kind {
+        if let Expression::Member(base, name, _) = &e.kind {
             if self.place_type(base) == Some(Ty::File) {
                 if name != "closed" {
                     return Err(e.at.error(format!("unknown File property `{name}`")));
@@ -717,13 +721,16 @@ impl Lower<'_> {
             ops.push(Op::ReadRef((*ty).clone()));
             return Ok(((*ty).clone(), vec![loan]));
         }
-        let Expression::Member(base, name) = &e.kind else {
+        let Expression::Member(base, name, _) = &e.kind else {
             unreachable!()
         };
         let (ty, loans) = self.observe(base, ops)?;
         let Ty::Class(class) = ty else {
             return Err(e.at.error("field access requires a class instance"));
         };
+        if let Expression::Member(_, _, pos) = &e.kind {
+            super::ide::refer_member(&e.at, *pos, name, super::ide::field_key(&class.name, name));
+        }
         let index = field_index(&class, name, &e.at)?;
         modules::check_member(self.access, &class.name, name, &e.at)?;
         let ty = class.get().fields[index].1.clone();
@@ -736,6 +743,7 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        self.ide_member(target);
         let ty = self.place_type(target).ok_or_else(|| {
             target
                 .at
@@ -826,7 +834,7 @@ impl Lower<'_> {
                 t if self.reference_binding(base) => Some(t),
                 _ => None,
             },
-            Expression::Member(base, n) => {
+            Expression::Member(base, n, _) => {
                 let Ty::Class(t) = unbox(self.place_type(base)?) else {
                     return None;
                 };
@@ -852,6 +860,7 @@ impl Lower<'_> {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
         }
         let callee = method(&class.name, name);
+        super::ide::method_call(&base.at, name, &callee);
         self.sync_data()?;
         modules::check_member(self.access, &class.name, name, &base.at)?;
         if let Some(template) = self.generics.templates.get(&callee) {

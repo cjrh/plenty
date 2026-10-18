@@ -30,6 +30,7 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty graph [--locked] [--offline]
        plenty clean
        plenty cache (stats | clean)
+       plenty lsp
 
 new / init: create a package with src/main.plenty (or src/lib.plenty with --lib).
 check: type-check every target. build: compile executables into target/debug,
@@ -47,6 +48,8 @@ the package graph file that plentyc --package-graph reads.
 In a workspace root these commands act on every member.
 cache: report or empty the compiled-function cache (PLENTY_CACHE_DIR,
 default ~/.cache/plenty; PLENTY_CACHE=off disables it).
+lsp: serve the Language Server Protocol on stdin and stdout for an editor:
+diagnostics, hover, go to definition, and completion.
 --locked: fail instead of creating or updating plenty.lock.
 --offline: never fetch; use only the package cache in .pkg/.
 A file whose name matches a command runs as ./NAME.
@@ -156,6 +159,12 @@ fn run(args: Vec<String>) -> Result<ExitCode, Box<dyn Error>> {
             project::clean(here)?;
         }
         "cache" => return cache_command(rest),
+        "lsp" => {
+            if !rest.is_empty() {
+                return Err("usage: plenty lsp".into());
+            }
+            plenty::lsp::serve()?;
+        }
         _ => return compiler_cli::run("plenty", args),
     }
     Ok(ExitCode::SUCCESS)

@@ -555,7 +555,7 @@ impl Lower<'_> {
             }
             Expression::Try(value) => self.propagate(e, value, expected, ops),
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, expected, ops),
-            Expression::Method(base, name, args)
+            Expression::Method(base, name, args, _)
                 if matches!(name.as_str(), "unwrap_or" | "ok_or")
                     && !matches!(
                         self.place_type(base).map(classes::unbox),
@@ -564,7 +564,7 @@ impl Lower<'_> {
             {
                 self.option_method(base, name, args, expected, ops)
             }
-            Expression::Method(base, name, args)
+            Expression::Method(base, name, args, _)
                 if name == "unwrap" && !matches!(self.place_type(base), Some(Ty::Class(_))) =>
             {
                 self.unwrap_result(base, args, expected, ops)
@@ -1025,7 +1025,7 @@ impl Lower<'_> {
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(_, true))));
         let range_expr = match &iterable.kind {
             Expression::Try(inner) => ungroup(inner),
-            Expression::Method(inner, name, args) if name == "unwrap" && args.is_empty() => {
+            Expression::Method(inner, name, args, _) if name == "unwrap" && args.is_empty() => {
                 ungroup(inner)
             }
             _ => iterable,
@@ -1972,7 +1972,7 @@ impl Lower<'_> {
         }
         let field = Expr {
             at: base.at.clone(),
-            kind: Expression::Member(Box::new(base.clone()), name.into()),
+            kind: Expression::Member(Box::new(base.clone()), name.into(), Pos::default()),
         };
         if matches!(
             self.place_type(&field),
@@ -2012,7 +2012,7 @@ impl Lower<'_> {
                     return self.call_named(function, args, &base.at, ops);
                 }
             }
-            if let Expression::Member(owner, variant) = &ungroup(base).kind {
+            if let Expression::Member(owner, variant, _) = &ungroup(base).kind {
                 if let Some(Ty::Enum(t)) = self.qualified_type(owner)? {
                     if Ty::Enum(t.clone()).layout_depth() >= 64 {
                         return Err(base
@@ -3209,7 +3209,7 @@ fn dictionary_items(iterable: &Expr) -> Option<(&Expr, bool)> {
         mutable = op == "&mut";
         e = ungroup(base);
     }
-    let Expression::Method(base, method, args) = &e.kind else {
+    let Expression::Method(base, method, args, _) = &e.kind else {
         return None;
     };
     if method != "items" || !args.is_empty() {

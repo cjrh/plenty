@@ -35,14 +35,14 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
                 expression(arg, forbidden)?;
             }
         }
-        Expression::Member(base, _)
+        Expression::Member(base, _, _)
         | Expression::NamedArgument(_, base)
         | Expression::Unary(_, base)
         | Expression::Group(base)
         | Expression::Try(base)
         | Expression::ClassReady(_, base) => expression(base, forbidden)?,
-        Expression::Method(base, _, args)
-        | Expression::GenericMethod(base, _, _, args)
+        Expression::Method(base, _, args, _)
+        | Expression::GenericMethod(base, _, _, args, _)
         | Expression::Invoke(base, args) => {
             expression(base, forbidden)?;
             for arg in args {

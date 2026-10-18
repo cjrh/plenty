@@ -103,3 +103,16 @@ it, so that lowering and ownership errors in its body are
 Source-string checking and compilation accept Plenty source and reject imports.
 File APIs (`check_file`, `check_module_file`, and file compilation) resolve imports
 from an explicit optional root. Checking performs no execution or native emission.
+
+## Editor queries
+
+`ide::analyze`, behind `plenty lsp`, runs the same load, resolution, and
+lowering with a per-thread recorder switched on (`src/frontend/ide.rs`).
+Module loading records modules and imports; name resolution records
+declarations, module-level names, and locals with their binding positions;
+lowering records what needs types: methods resolved through the receiver,
+fields, enum variants, and the types of locals. An ordinary compilation
+records nothing. Expressions keep only the position of their first token, so
+member expressions also carry the position of the member name. In this mode an
+error in one function's resolution or lowering is recorded and checking moves
+to the next function. See the [language server](../01-building/language-server.md).

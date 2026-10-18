@@ -2,6 +2,7 @@
 //!
 //! The backend still consumes one program. Qualified declaration keys retain
 //! nominal identity while aliases only affect the names visible in each source.
+use super::ide::Find;
 use super::*;
 use std::path::{Path, PathBuf};
 
@@ -110,6 +111,11 @@ impl ModuleSource {
             }
             Self::Standard("std.test") => Ok(include_str!("../../stdlib/std/test.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
+            Self::File(path) if super::ide::active() => match super::ide::overlay(path) {
+                Some(text) => Ok(text),
+                None => std::fs::read_to_string(path)
+                    .map_err(|e| format!("reading {}: {e}", path.display()).into()),
+            },
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
         }
@@ -237,12 +243,12 @@ impl Parser {
         let value = self.expr(0)?;
         let valid = match &ungroup(&value).kind {
             Expression::Number(_) => true,
-            Expression::Member(base, _) => {
+            Expression::Member(base, _, _) => {
                 matches!(&base.kind, Expression::Name(n) if numeric_type_name(n))
             }
             Expression::Unary(op, inner) if op == "-" => {
                 matches!(&ungroup(inner).kind, Expression::Number(_))
-                    || matches!(&ungroup(inner).kind, Expression::Member(base, _)
+                    || matches!(&ungroup(inner).kind, Expression::Member(base, _, _)
                         if matches!(&base.kind, Expression::Name(n) if n == "f32" || n == "f64"))
             }
             _ => false,
@@ -705,6 +711,11 @@ pub(super) fn load_graph_with(
             if let Some(appendix) = self.appendix.take() {
                 text.push_str(&appendix);
             }
+            super::ide::loaded(
+                &source.path(),
+                matches!(source, ModuleSource::Standard(_)),
+                &text,
+            );
             let (mut module, at) = parse(&text, Some(&source.path()), name)?;
             if let ModuleSource::Standard(name) = &source {
                 module.facility_exports = facility_exports(name);
@@ -712,6 +723,14 @@ pub(super) fn load_graph_with(
             let mut deps = Vec::new();
             for import in &module.imports {
                 let (dependency, owner) = self.import_path(import, package)?;
+                if super::ide::active() {
+                    super::ide::module(
+                        &import.module,
+                        &dependency.path(),
+                        matches!(dependency, ModuleSource::Standard(_)),
+                        &import.at,
+                    );
+                }
                 let index = if let Some(index) = self.loaded.get(&dependency) {
                     *index
                 } else {
@@ -925,6 +944,19 @@ pub(super) fn load_graph_with(
     Ok(result)
 }
 
+/// Local names in scope and where each was bound. The positions serve
+/// editor queries; see `ide`.
+type Locals = HashMap<String, Pos>;
+
+/// Bind `names` at the statement or case `at`, after which each name is written.
+fn bind(locals: &mut Locals, names: &[String], at: &Token) {
+    let pos = Pos::of(at);
+    for name in names {
+        super::ide::bind_local(at, pos, name, false, Find::After(name.clone()));
+        locals.insert(name.clone(), pos);
+    }
+}
+
 #[derive(Clone)]
 struct Scope {
     captures: HashSet<String>,
@@ -993,6 +1025,10 @@ impl Scope {
                 return Ok(());
             }
             if let Some(symbol) = self.symbol(name, &ty.at)? {
+                if super::ide::active() {
+                    let written = name.chars().count() as u32;
+                    super::ide::refer(&ty.at, Find::At(written), super::ide::global(&symbol));
+                }
                 *name = symbol;
             } else if !matches!(name.as_str(), "&" | "&mut") {
                 return Err(ty.at.error(format!("unknown type `{name}`")));
@@ -1033,13 +1069,28 @@ impl Scope {
         }
         scope.ty(&mut f.output)?;
         for default in f.defaults.iter_mut().flatten() {
-            scope.expr(default, &HashSet::new())?;
+            scope.expr(default, &Locals::new())?;
         }
-        let mut locals: HashSet<_> = f.inputs.iter().map(|(n, _)| n.clone()).collect();
-        locals.extend(f.captures.iter().map(|c| c.name.clone()));
+        let mut locals = Locals::new();
+        for (name, ty) in &f.inputs {
+            let pos = Pos::of(&ty.at);
+            super::ide::bind_local(&f.at, pos, name, true, Find::Before(name.clone()));
+            locals.insert(name.clone(), pos);
+        }
+        for capture in &f.captures {
+            let pos = Pos::of(&f.at);
+            super::ide::bind_local(
+                &f.at,
+                pos,
+                &capture.name,
+                false,
+                Find::After(capture.name.clone()),
+            );
+            locals.insert(capture.name.clone(), pos);
+        }
         scope.block(&mut f.body, &mut locals)
     }
-    fn block(&self, body: &mut [Stmt], locals: &mut HashSet<String>) -> Result<()> {
+    fn block(&self, body: &mut [Stmt], locals: &mut Locals) -> Result<()> {
         for stmt in body {
             match &mut stmt.kind {
                 Statement::With {
@@ -1050,7 +1101,7 @@ impl Scope {
                     self.expr(manager, locals)?;
                     self.fresh_capture_binding(name.iter(), &stmt.at)?;
                     let mut inner = locals.clone();
-                    inner.extend(name.iter().cloned());
+                    bind(&mut inner, name.as_slice(), &stmt.at);
                     self.block(body, &mut inner)?;
                 }
                 Statement::Expr(e) | Statement::Yield(e) => self.expr(e, locals)?,
@@ -1072,12 +1123,19 @@ impl Scope {
                         self.ty(ty)?;
                     }
                     self.expr(value, locals)?;
-                    locals.insert(name.clone());
+                    match locals.get(name) {
+                        Some(&pos) => super::ide::refer(
+                            &stmt.at,
+                            Find::After(name.clone()),
+                            super::ide::local_key(&stmt.at, pos, name),
+                        ),
+                        None => bind(locals, std::slice::from_ref(name), &stmt.at),
+                    }
                 }
                 Statement::Unpack { names, value, .. } => {
                     self.fresh_capture_binding(names.iter(), &stmt.at)?;
                     self.expr(value, locals)?;
-                    locals.extend(names.iter().cloned());
+                    bind(locals, names, &stmt.at);
                 }
                 Statement::Augment { target, value, .. } => {
                     self.expr(target, locals)?;
@@ -1091,7 +1149,10 @@ impl Scope {
                             // not resolve to a declaration of the same name.
                             if let Expression::Name(name) = &target.kind {
                                 self.fresh_capture_binding([name], &target.at)?;
-                                locals.insert(name.clone());
+                                match locals.get(name) {
+                                    Some(&pos) => super::ide::refer_local(&target.at, pos, name),
+                                    None => bind(locals, std::slice::from_ref(name), &target.at),
+                                }
                             } else {
                                 self.expr(target, locals)?;
                             }
@@ -1128,7 +1189,7 @@ impl Scope {
                     self.expr(iterable, locals)?;
                     self.fresh_capture_binding(name.iter(), &stmt.at)?;
                     let mut inner = locals.clone();
-                    inner.extend(name.iter().cloned());
+                    bind(&mut inner, name, &stmt.at);
                     self.block(body, &mut inner)?;
                 }
                 Statement::Match { value, cases } => {
@@ -1144,7 +1205,7 @@ impl Scope {
         value: &mut Expr,
         cases: &mut [enums::Case],
         at: &Token,
-        locals: &HashSet<String>,
+        locals: &Locals,
     ) -> Result<()> {
         self.expr(value, locals)?;
         for case in cases {
@@ -1152,21 +1213,22 @@ impl Scope {
             case.pattern.qualifiers_mut(&mut |ty| self.ty(ty))?;
             let bindings = case.pattern.bindings();
             self.fresh_capture_binding(bindings.iter().copied(), at)?;
-            inner.extend(bindings.into_iter().cloned());
+            let bindings: Vec<String> = bindings.into_iter().cloned().collect();
+            bind(&mut inner, &bindings, &case.at);
             self.block(&mut case.body, &mut inner)?;
         }
         Ok(())
     }
-    fn expr(&self, e: &mut Expr, locals: &HashSet<String>) -> Result<()> {
+    fn expr(&self, e: &mut Expr, locals: &Locals) -> Result<()> {
         fn root(e: &Expr) -> Option<&str> {
             match &e.kind {
                 Expression::Name(n)
                 | Expression::Call(n, _)
                 | Expression::GenericCall(n, _, _)
                 | Expression::GenericValue(n, _) => n.split('.').next(),
-                Expression::Member(base, _)
-                | Expression::Method(base, _, _)
-                | Expression::GenericMethod(base, _, _, _) => root(base),
+                Expression::Member(base, _, _)
+                | Expression::Method(base, _, _, _)
+                | Expression::GenericMethod(base, _, _, _, _) => root(base),
                 _ => None,
             }
         }
@@ -1186,7 +1248,7 @@ impl Scope {
             else {
                 unreachable!()
             };
-            let local = |name: &str| locals.contains(name.split('.').next().unwrap());
+            let local = |name: &str| locals.contains_key(name.split('.').next().unwrap());
             let indexes = match &generic.kind {
                 // Whether `name` is a field or a generic method depends on the
                 // receiver's type, which is not known here. Nothing but a local
@@ -1200,20 +1262,20 @@ impl Scope {
             };
             e.kind = match generic.kind {
                 _ if !indexes => generic.kind,
-                Expression::GenericCall(_, _, args) | Expression::GenericMethod(_, _, _, args) => {
-                    Expression::Invoke(index, args)
-                }
+                Expression::GenericCall(_, _, args)
+                | Expression::GenericMethod(_, _, _, args, _) => Expression::Invoke(index, args),
                 _ => index.kind,
             };
         }
-        if let Some(name) = root(e).filter(|n| !locals.contains(*n) && self.uncaptured.contains(*n))
+        if let Some(name) =
+            root(e).filter(|n| !locals.contains_key(*n) && self.uncaptured.contains(*n))
         {
             return Err(e.at.error(format!(
                 "anonymous functions cannot capture `{name}`; pass it as a parameter"
             )));
         }
         if let Expression::Name(name) | Expression::Call(name, _) = &e.kind {
-            if self.type_params.contains(name) && locals.contains(name) {
+            if self.type_params.contains(name) && locals.contains_key(name) {
                 return Err(e
                     .at
                     .error("a type parameter name cannot also name a value binding"));
@@ -1224,7 +1286,7 @@ impl Scope {
             &e.kind
         {
             let base = name.split('.').next().unwrap();
-            if locals.contains(base) {
+            if locals.contains_key(base) {
                 return Err(match types.as_slice() {
                     [_, extra, ..] => extra.at.error("indexing takes one expression"),
                     _ => types.first().map_or(&e.at, |t| &t.at).error(format!(
@@ -1236,21 +1298,33 @@ impl Scope {
         fn path(e: &Expr) -> Option<String> {
             match &e.kind {
                 Expression::Name(n) => Some(n.clone()),
-                Expression::Member(base, n) => Some(format!("{}.{n}", path(base)?)),
+                Expression::Member(base, n, _) => Some(format!("{}.{n}", path(base)?)),
                 _ => None,
             }
         }
         let candidate = match &e.kind {
-            Expression::Method(base, name, _) | Expression::GenericMethod(base, name, _, _) => {
+            Expression::Method(base, name, _, _) => path(base).map(|p| format!("{p}.{name}")),
+            Expression::GenericMethod(base, name, _, _, _) => {
                 path(base).map(|p| format!("{p}.{name}"))
             }
             Expression::Member(..) => path(e),
             _ => None,
         };
         if let Some(candidate) =
-            candidate.filter(|p| !locals.contains(p.split('.').next().unwrap()))
+            candidate.filter(|p| !locals.contains_key(p.split('.').next().unwrap()))
         {
             if let Some(symbol) = self.symbol(&candidate, &e.at)? {
+                let member = match &e.kind {
+                    Expression::Member(_, name, pos) | Expression::Method(_, name, _, pos) => {
+                        Some((name.as_str(), *pos))
+                    }
+                    Expression::GenericMethod(_, name, _, _, pos) => Some((&**name, *pos)),
+                    _ => None,
+                };
+                if let Some((name, pos)) = member.filter(|_| super::ide::active()) {
+                    let target = self.constants.get(&symbol).unwrap_or(&symbol);
+                    super::ide::refer_member(&e.at, pos, name, super::ide::global(target));
+                }
                 if let Some(getter) = self.constants.get(&symbol) {
                     if !matches!(e.kind, Expression::Member(..)) {
                         return Err(e.at.error("a module constant is a value, not a callable"));
@@ -1259,10 +1333,10 @@ impl Scope {
                     return Ok(());
                 }
                 e.kind = match &mut e.kind {
-                    Expression::Method(_, _, args) => {
+                    Expression::Method(_, _, args, _) => {
                         Expression::Call(symbol, std::mem::take(args))
                     }
-                    Expression::GenericMethod(_, _, types, args) => {
+                    Expression::GenericMethod(_, _, types, args, _) => {
                         Expression::GenericCall(symbol, std::mem::take(types), std::mem::take(args))
                     }
                     _ => Expression::Name(symbol),
@@ -1288,8 +1362,9 @@ impl Scope {
             | Expression::Call(n, _)
             | Expression::GenericCall(n, _, _)
             | Expression::GenericValue(n, _)
-                if !locals.contains(n) && !self.type_params.contains(n) =>
+                if !locals.contains_key(n) && !self.type_params.contains(n) =>
             {
+                let written = n.chars().count() as u32;
                 if let Some(symbol) = self.symbol(n, &e.at)? {
                     *n = symbol;
                 } else if n != "replace"
@@ -1299,6 +1374,20 @@ impl Scope {
                 {
                     *n = qualified(&self.module, n);
                 }
+                if super::ide::active() {
+                    let target = self.constants.get(n).unwrap_or(n);
+                    super::ide::refer(&e.at, Find::At(written), super::ide::global(target));
+                }
+            }
+            Expression::Name(n)
+            | Expression::Call(n, _)
+            | Expression::GenericCall(n, _, _)
+            | Expression::GenericValue(n, _)
+                if super::ide::active() =>
+            {
+                if let Some(&pos) = locals.get(n) {
+                    super::ide::refer_local(&e.at, pos, n);
+                }
             }
             _ => {}
         }
@@ -1307,7 +1396,7 @@ impl Scope {
         | Expression::GenericCall(n, _, _)
         | Expression::GenericValue(n, _) = &e.kind
         {
-            if !locals.contains(n) && !self.type_params.contains(n) {
+            if !locals.contains_key(n) && !self.type_params.contains(n) {
                 if let Some(getter) = self.constants.get(n) {
                     if !matches!(e.kind, Expression::Name(_)) {
                         return Err(e.at.error("a module constant is a value, not a callable"));
@@ -1318,7 +1407,7 @@ impl Scope {
             }
         }
         match &mut e.kind {
-            Expression::GenericMethod(base, _, types, args) => {
+            Expression::GenericMethod(base, _, types, args, _) => {
                 self.expr(base, locals)?;
                 for ty in types {
                     self.ty(ty)?;
@@ -1329,7 +1418,7 @@ impl Scope {
             }
             Expression::Anonymous(function) => {
                 for capture in &function.captures {
-                    if !locals.contains(&capture.name) {
+                    if !locals.contains_key(&capture.name) {
                         return Err(e.at.error(format!(
                             "capture requires a local binding `{}`",
                             capture.name
@@ -1337,7 +1426,7 @@ impl Scope {
                     }
                 }
                 let mut scope = self.clone();
-                scope.uncaptured.extend(locals.iter().cloned());
+                scope.uncaptured.extend(locals.keys().cloned());
                 scope.function(function)?;
             }
             Expression::GenericValue(_, types) => {
@@ -1358,12 +1447,12 @@ impl Scope {
                     self.expr(arg, locals)?;
                 }
             }
-            Expression::Member(base, _)
+            Expression::Member(base, _, _)
             | Expression::NamedArgument(_, base)
             | Expression::Group(base)
             | Expression::Unary(_, base)
             | Expression::Try(base) => self.expr(base, locals)?,
-            Expression::Method(base, _, args) | Expression::Invoke(base, args) => {
+            Expression::Method(base, _, args, _) | Expression::Invoke(base, args) => {
                 self.expr(base, locals)?;
                 for arg in args {
                     self.expr(arg, locals)?;
@@ -1398,7 +1487,17 @@ impl Scope {
                         Clause::For(n, e) => {
                             self.fresh_capture_binding(n.iter(), &e.at)?;
                             self.expr(e, &inner)?;
-                            inner.extend(n.iter().cloned());
+                            for name in n.iter() {
+                                let pos = Pos::of(&e.at);
+                                super::ide::bind_local(
+                                    &e.at,
+                                    pos,
+                                    name,
+                                    false,
+                                    Find::Before(name.clone()),
+                                );
+                                inner.insert(name.clone(), pos);
+                            }
                         }
                         Clause::If(e) => self.expr(e, &inner)?,
                     }
@@ -1554,6 +1653,14 @@ fn resolve(
                         import.module
                     ))
                 })?;
+                if super::ide::active() {
+                    let symbol = constants.get(name).unwrap_or(name);
+                    super::ide::refer(
+                        &import.at,
+                        super::ide::Find::Imported(item.clone()),
+                        super::ide::global(symbol),
+                    );
+                }
                 Arc::make_mut(&mut scope.imported).insert(import.binding.clone(), name.clone());
             } else {
                 Arc::make_mut(&mut scope.namespaces)
@@ -1562,17 +1669,38 @@ fn resolve(
         }
         // Resolving one function reads only the scope, so functions resolve
         // on several threads; the first error is still the first in source.
-        let workers = if m.functions.len() < PARALLEL_FUNCTIONS {
+        // An editor check records what names refer to on this thread.
+        let workers = if m.functions.len() < PARALLEL_FUNCTIONS || super::ide::active() {
             1
         } else {
             crate::parallel::workers()
         };
-        crate::parallel::map_mut(&mut m.functions, workers, |f| {
+        let resolved = crate::parallel::map_mut(&mut m.functions, workers, |f| {
             scope.function(f).map_err(sendable)
-        })
-        .into_iter()
-        .collect::<std::result::Result<(), _>>()
-        .map_err(|e| -> Box<dyn Error> { e })?;
+        });
+        if super::ide::active() {
+            // A function whose body does not resolve keeps its signature, so
+            // the functions that call it can still be checked.
+            let mut failed = HashSet::new();
+            for (f, result) in m.functions.iter_mut().zip(resolved) {
+                if let Err(error) = result {
+                    super::ide::recover(&*error);
+                    f.body.clear();
+                    f.defaults.clear();
+                    if scope.function(f).is_err() {
+                        failed.insert(f.name.clone());
+                    } else {
+                        super::ide::skip(&qualified(&m.name, &f.name));
+                    }
+                }
+            }
+            m.functions.retain(|f| !failed.contains(&f.name));
+        } else {
+            resolved
+                .into_iter()
+                .collect::<std::result::Result<(), _>>()
+                .map_err(|e| -> Box<dyn Error> { e })?;
+        }
         for f in &mut m.functions {
             let public = m.exports.contains(&f.name);
             if public {
@@ -1679,7 +1807,7 @@ fn resolve(
                 }
             }
         }
-        let workers = if m.classes.len() < PARALLEL_CLASSES {
+        let workers = if m.classes.len() < PARALLEL_CLASSES || super::ide::active() {
             1
         } else {
             crate::parallel::workers()

@@ -1,7 +1,8 @@
 # Plenty for Neovim
 
 This runtime plugin detects `*.plenty` files and provides syntax highlighting,
-four-space soft tabs, and `#` comment support. It needs no external dependencies.
+four-space soft tabs, `#` comment support, and a configuration for the Plenty
+language server (`plenty lsp`) in `lsp/plenty.lua`.
 
 Add the runtime directory to `init.lua`, before enabling filetypes and syntax
 (replace the path with your checkout):
@@ -37,16 +38,42 @@ comments, escapes, and single/double/triple-quoted strings. The patterns follow
 the public frontend in `src/frontend.rs`, not the internal stack-language lexer.
 Reserved words are colored even when their syntax is not implemented yet.
 
-This is regex highlighting: it does not resolve names, distinguish user-defined
-types, diagnose invalid programs, or provide completion, formatting, automatic
-block indentation, LSP, or Tree-sitter support. Triple-quoted strings are synced
-from the start of the buffer for correctness; very large files may be slower.
+Highlighting uses regular expressions; triple-quoted strings are synced from
+the start of the buffer for correctness, so very large files may be slower.
 
-Run the regression checks from the repository root:
+## Language server
+
+The server gives diagnostics, hover, go to definition (including into `std`),
+and completion. With Neovim 0.11 or later and `plenty` on `PATH`, add after the
+runtime path:
+
+```lua
+vim.lsp.enable('plenty')
+vim.api.nvim_create_autocmd('LspAttach', {
+  callback = function(event)
+    local client = vim.lsp.get_client_by_id(event.data.client_id)
+    if client.name ~= 'plenty' then
+      return
+    end
+    vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { buffer = event.buf })
+    vim.lsp.completion.enable(true, client.id, event.buf, { autotrigger = true })
+  end,
+})
+```
+
+Otherwise set the command first:
+`vim.lsp.config('plenty', { cmd = { '/path/to/plenty', 'lsp' } })`. `K` shows
+a declaration and its docstring. The book's Neovim page covers nvim-cmp and
+Neovim 0.10.
+
+Run the regression checks from the repository root, the second with a built
+compiler:
 
 ```sh
 nvim --headless -u NONE -i NONE -n -l editors/nvim/tests/highlighting.lua
+PLENTY_BIN=target/debug/plenty nvim --headless -u NONE -i NONE -n -l editors/nvim/tests/lsp.lua
 ```
 
 The tests use a separate Neovim process and do not load or modify user settings.
-Validated with Neovim 0.12.6.
+`cargo test` runs the second one when `nvim` is installed. Validated with
+Neovim 0.12.6.

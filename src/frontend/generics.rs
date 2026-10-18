@@ -1033,7 +1033,8 @@ impl Engine {
 fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
     fn expression(e: &Expr) -> Result<()> {
         match &e.kind {
-            Expression::Method(base, _, args) | Expression::GenericMethod(base, _, _, args) => {
+            Expression::Method(base, _, args, _)
+            | Expression::GenericMethod(base, _, _, args, _) => {
                 if let Some(arg) = args
                     .iter()
                     .find(|arg| matches!(arg.kind, Expression::NamedArgument(..)))
@@ -1060,7 +1061,7 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
                 }
             }
             Expression::NamedArgument(_, inner)
-            | Expression::Member(inner, _)
+            | Expression::Member(inner, _, _)
             | Expression::Group(inner)
             | Expression::Unary(_, inner)
             | Expression::Try(inner)
@@ -1235,7 +1236,7 @@ fn substitute_match(
 pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
     match &mut e.kind {
         Expression::Match(value, cases) => substitute_match(value, cases, substitutions)?,
-        Expression::GenericMethod(base, _, types, args) => {
+        Expression::GenericMethod(base, _, types, args, _) => {
             substitute_expr(base, substitutions)?;
             for ty in types {
                 substitute(ty, substitutions)?;
@@ -1284,13 +1285,13 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
                 substitute_expr(arg, substitutions)?;
             }
         }
-        Expression::Method(base, _, args) | Expression::Invoke(base, args) => {
+        Expression::Method(base, _, args, _) | Expression::Invoke(base, args) => {
             substitute_expr(base, substitutions)?;
             for arg in args {
                 substitute_expr(arg, substitutions)?;
             }
         }
-        Expression::Member(base, _)
+        Expression::Member(base, _, _)
         | Expression::NamedArgument(_, base)
         | Expression::Unary(_, base)
         | Expression::Group(base)

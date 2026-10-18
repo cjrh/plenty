@@ -31,6 +31,7 @@ mod files;
 mod foreign;
 mod generators;
 mod generics;
+pub(crate) mod ide;
 mod modules;
 mod numeric;
 mod patterns;
@@ -845,7 +846,8 @@ enum Expression {
     ClassReady(crate::nominal::Nominal<crate::record::ClassType>, Box<Expr>),
     // Boxed: a type reference inline would more than double every expression node.
     Type(Box<TypeRef>),
-    Member(Box<Expr>, String),
+    /// The position is the member name's, for editor queries; see [`Pos`].
+    Member(Box<Expr>, String, Pos),
     Number(String),
     Text(String),
     Bool(bool),
@@ -855,8 +857,9 @@ enum Expression {
         clauses: Vec<Clause>,
     },
     Index(Box<Expr>, Box<Expr>),
-    Method(Box<Expr>, String, Vec<Expr>),
-    GenericMethod(Box<Expr>, String, Vec<TypeRef>, Vec<Expr>),
+    Method(Box<Expr>, String, Vec<Expr>, Pos),
+    // The name is boxed to keep `Expr` within its size bound with the position.
+    GenericMethod(Box<Expr>, Box<str>, Vec<TypeRef>, Vec<Expr>, Pos),
     /// `base[...]` whose brackets parse both as type arguments and as an index.
     /// `generic` is the Generic* reading, with any call arguments; `index` is
     /// `Index(base, ...)` without them. The parser cannot tell a local from a
@@ -883,6 +886,24 @@ enum Expression {
     /// whole value of a binding, an assignment, or a `return`, where the
     /// statement can end with the block.
     Match(Box<Expr>, Vec<enums::Case>),
+}
+
+/// Where a member name was written. Expressions carry only the position of
+/// their first token, so `a.b.c` would otherwise not say where `c` is. A
+/// synthetic member has the default position, which no source token has.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Pos {
+    line: u32,
+    column: u32,
+}
+
+impl Pos {
+    fn of(at: &Token) -> Self {
+        Pos {
+            line: at.line as u32,
+            column: at.column as u32,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1945,7 +1966,7 @@ impl Parser {
             }
             if self.peek().is("[") {
                 let saved = self.pos;
-                if let Expression::Member(base, name) = &left.kind {
+                if let Expression::Member(base, name, pos) = &left.kind {
                     if let Ok(types) = self.type_arguments() {
                         if self.peek().is("(") {
                             // The index reading holds `left` as its base.
@@ -1953,8 +1974,13 @@ impl Parser {
                             let index = self.index_reading(saved, &left);
                             self.take();
                             let args = self.arguments()?;
-                            let generic =
-                                Expression::GenericMethod(base.clone(), name.clone(), types, args);
+                            let generic = Expression::GenericMethod(
+                                base.clone(),
+                                name.as_str().into(),
+                                types,
+                                args,
+                                *pos,
+                            );
                             left.kind = bracketed(&left.at, generic, index);
                             continue;
                         }
@@ -1964,7 +1990,7 @@ impl Parser {
                 fn path(e: &Expr) -> Option<String> {
                     match &e.kind {
                         Expression::Name(n) => Some(n.clone()),
-                        Expression::Member(base, n) => Some(format!("{}.{n}", path(base)?)),
+                        Expression::Member(base, n, _) => Some(format!("{}.{n}", path(base)?)),
                         _ => None,
                     }
                 }
@@ -2004,6 +2030,7 @@ impl Parser {
             }
             if self.eat(".") {
                 self.deepen()?;
+                let pos = Pos::of(self.peek());
                 let name = if self.eat("from") {
                     "from".into()
                 } else {
@@ -2014,12 +2041,12 @@ impl Parser {
                     let args = self.arguments()?;
                     Expr {
                         at,
-                        kind: Expression::Method(Box::new(left), name, args),
+                        kind: Expression::Method(Box::new(left), name, args, pos),
                     }
                 } else {
                     Expr {
                         at,
-                        kind: Expression::Member(Box::new(left), name),
+                        kind: Expression::Member(Box::new(left), name, pos),
                     }
                 };
                 continue;
@@ -2408,6 +2435,20 @@ fn site(at: &Token, scope_end: bool) -> crate::ownership::Site {
 }
 
 impl Lower<'_> {
+    /// Record the field or enum variant that `e`, a member expression, names.
+    fn ide_member(&self, e: &Expr) {
+        let Expression::Member(base, name, pos) = &e.kind else {
+            return;
+        };
+        if !ide::active() {
+            return;
+        }
+        if let Some(Ty::Class(class)) = self.place_type(base).map(classes::unbox) {
+            ide::refer_member(&e.at, *pos, name, ide::field_key(&class.name, name));
+        } else if let Ok(Some(Ty::Enum(t))) = self.qualified_type(base) {
+            ide::refer_member(&e.at, *pos, name, ide::variant_key(&t.name, name));
+        }
+    }
     fn bind(&mut self, name: String, local: Local) -> Option<Local> {
         self.name_slot(local.slot, &name);
         self.names.insert(name, local)
@@ -2786,7 +2827,8 @@ impl Lower<'_> {
                 ops.push(Op::Drop);
                 None
             }
-            Expression::Member(base, name) => {
+            Expression::Member(base, name, _) => {
+                self.ide_member(e);
                 if let Some(ty) = self.qualified_type(base)? {
                     if ty.is_numeric() {
                         return self.numeric_constant(ty, name, &e.at, ops).map(Some);
@@ -2822,9 +2864,17 @@ impl Lower<'_> {
                     Some(ty)
                 }
             }
-            Expression::Method(base, name, args) => self.method(base, name, args, ops)?,
-            Expression::GenericMethod(base, name, types, args) => {
-                self.generic_method(base, name, types, args, ops)?
+            Expression::Method(base, name, args, pos) => {
+                ide::enter_method(*pos, name);
+                let ty = self.method(base, name, args, ops);
+                ide::leave_method();
+                ty?
+            }
+            Expression::GenericMethod(base, name, types, args, pos) => {
+                ide::enter_method(*pos, name);
+                let ty = self.generic_method(base, name, types, args, ops);
+                ide::leave_method();
+                ty?
             }
             Expression::Constructor(ty, args) => {
                 if ty.name.as_deref() == Some("channel") {
@@ -2873,6 +2923,7 @@ impl Lower<'_> {
                 if matches!(local.ty, Ty::Task(_)) {
                     return Err(e.at.error("scoped tasks cannot escape or be copied; use task.join() inside its with block"));
                 }
+                ide::local_type(&e.at, &local.ty);
                 self.mark(&e.at, ops);
                 if let Some(loan) = self.reference_locals.get(&local.slot) {
                     ops.push(Op::UseLoan(*loan));
@@ -3918,6 +3969,7 @@ impl Lower<'_> {
                                     .error("at most 256 parameter/local slots are supported")
                             })?;
                         self.locals.push(ty.clone());
+                        ide::local_type(&stmt.at, &ty);
                         self.bind(
                             name.clone(),
                             Local {
@@ -4040,7 +4092,7 @@ const LIST_REPETITION: &str = "lists do not support `*` repetition; build the li
 fn list_display(e: &Expr) -> Option<&Expr> {
     match &e.kind {
         Expression::Group(inner) | Expression::Try(inner) => list_display(inner),
-        Expression::Method(inner, name, args) if name == "unwrap" && args.is_empty() => {
+        Expression::Method(inner, name, args, _) if name == "unwrap" && args.is_empty() => {
             list_display(inner)
         }
         Expression::Collection { kind, .. } if kind == "list" => Some(e),
@@ -4469,6 +4521,9 @@ fn lower_body(
         slot_names: Vec::new(),
         site: Default::default(),
     };
+    for ((_, ty), (_, written)) in sig.inputs.iter().zip(&f.inputs) {
+        ide::local_type(&written.at, ty);
+    }
     for (i, (name, ty)) in sig.inputs.iter().enumerate() {
         lower.bind(
             name.clone(),
@@ -4652,6 +4707,7 @@ fn validate_frames(ops: &[Op]) -> std::result::Result<(), String> {
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
 fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
+    ide::declare_program(&resolved);
     let modules::Resolved {
         standard_sources,
         source_paths,
@@ -4792,7 +4848,10 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         let Some(f) = generics.pending.pop_front() else {
             break;
         };
-        lower_function(
+        if ide::active() && ide::skipped(&f.name) {
+            continue;
+        }
+        let lowered = lower_function(
             f,
             heap,
             &mut sigs,
@@ -4800,7 +4859,15 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             &aliases,
             &access,
             &mut returned_fields,
-        )?;
+        );
+        if let Err(error) = lowered {
+            // An editor check reports the error and goes on to the next
+            // function; nothing is being lowered between functions.
+            if !ide::recover(&*error) {
+                return Err(error);
+            }
+            generics.active.clear();
+        }
     }
     let mut ops = std::mem::take(&mut generics.compiled);
     validate_frames(&ops).map_err(|message| at.error(message))?;
