@@ -123,6 +123,32 @@ fn unsupported_target_fails_before_source_or_codegen() {
 }
 
 #[test]
+fn version_reports_package_version_and_target() {
+    for (binary, name) in [
+        (env!("CARGO_BIN_EXE_plenty"), "plenty"),
+        (env!("CARGO_BIN_EXE_plentyc"), "plentyc"),
+    ] {
+        for flag in ["--version", "-V"] {
+            let result = success(Command::new(binary).arg(flag).output().unwrap());
+            assert_eq!(
+                String::from_utf8(result.stdout).unwrap(),
+                format!(
+                    "{name} {} ({})\n",
+                    env!("CARGO_PKG_VERSION"),
+                    plenty::native_target()
+                )
+            );
+        }
+    }
+    // Only the bare flag reports; `plenty add --version REQ` is a requirement.
+    let result = Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .args(["--version", "extra"])
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+}
+
+#[test]
 fn cli_rejects_missing_or_unused_link_options() {
     for args in [
         vec!["--linker"],

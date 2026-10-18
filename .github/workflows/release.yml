@@ -1,0 +1,157 @@
+# Builds, checks, and publishes a Plenty release when `cargo release`
+# pushes a vX.Y.Z (or vX.Y.Z-PRE) tag. See book/src/development/releasing.md.
+#
+# plan     verify the tag: on main, matching Cargo.toml; read the pins
+# test     full test suite on the Ubuntu host, as CI runs it
+# build    glibc 2.28 container: build with the tracked lockfile, run the
+#          test suite with the shipped toolchain, audit ELF dependencies,
+#          package the archive
+# smoke    extract the archive in clean distribution containers with only
+#          the documented prerequisites, offline, and compile/run programs
+# publish  create a draft release, upload, then publish; resumes a draft
+#          left by an interrupted run and never modifies a published release
+#
+# The workflow never builds main, rewrites versions, or moves tags. Every job
+# uses the exact tagged commit. Actions are pinned to commits:
+#   actions/checkout          check out the tagged commit
+#   actions/upload-artifact   pass the archive from build to later jobs
+#   actions/download-artifact
+# `gh` (preinstalled on GitHub-hosted runners) creates the release.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions: {}
+
+# One run per tag at a time; a second push or rerun waits rather than racing.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  plan:
+    name: Verify tag
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      build_image: ${{ steps.pins.outputs.build_image }}
+      smoke_images: ${{ steps.pins.outputs.smoke_images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Tagged commit is on main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$GITHUB_REF_NAME is not on main"; exit 1; }
+      - id: version
+        name: Tag matches Cargo.toml
+        run: scripts/release/check-version.sh --tag "$GITHUB_REF_NAME"
+      - id: pins
+        name: Read pinned images
+        run: |
+          . scripts/release/toolchain.env
+          echo "build_image=$BUILD_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "smoke_images=$(printf '%s' "$SMOKE_IMAGES" | jq -Rc 'split(" ")')" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test (host)
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          . scripts/release/toolchain.env
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          cargo test --locked --workspace --all-features
+      - run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
+
+  build:
+    name: Build and test (glibc 2.28)
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    container:
+      image: ${{ needs.plan.outputs.build_image }}
+      # The runner's user, not root: several filesystem tests check that
+      # permission errors are reported, which root bypasses.
+      options: --user 1001:1001
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build, test, audit, package
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
+          scripts/release/build.sh --out-dir dist --test
+      - name: Archive matches the tag
+        run: test -f "dist/plenty-${{ needs.plan.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-archive
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  smoke:
+    name: Smoke test (${{ matrix.image }})
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.smoke_images) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-archive
+          path: dist
+      - run: scripts/release/smoke-in-container.sh "${{ matrix.image }}" dist/plenty-*.tar.gz
+
+  publish:
+    name: Publish release
+    needs: [plan, test, build, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-archive
+          path: dist
+      - run: scripts/release/publish.sh "$GITHUB_REF_NAME" "${{ needs.plan.outputs.prerelease }}" dist
+        env:
+          GH_TOKEN: ${{ github.token }}

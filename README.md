@@ -17,6 +17,13 @@ The book is an mdBook:
 mdbook serve book --open
 ```
 
+## Install a release
+
+Release archives for x86-64 Linux (glibc 2.28 or later) need no Rust toolchain:
+extract one anywhere, add its `bin/` directory to `PATH`, and install a C
+compiler for linking. See [installing a release](book/src/design/toolchain/01-building/installing.md);
+maintainers, see [releasing Plenty](book/src/development/releasing.md).
+
 ## Run a program
 
 ```python

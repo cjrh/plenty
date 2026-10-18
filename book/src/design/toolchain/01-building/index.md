@@ -4,6 +4,8 @@ Plenty compiles ahead of time through Cranelift. Checking needs no native linker
 running and executable builds use a `cc`-compatible driver and the runtime archive
 embedded in the compiler. Program builds invoke neither Cargo nor rustc.
 
+- [Installing a release](installing.md): release archives, requirements, and
+  `PATH` setup.
 - [Commands](commands.md): checking, running, executable and library output.
 - [Neovim](neovim.md): file detection, syntax highlighting, and editing defaults.
 - [Packages](packages.md): `plenty.toml`, path dependencies, `plenty.lock`,
