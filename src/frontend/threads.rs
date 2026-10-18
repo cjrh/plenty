@@ -5,7 +5,7 @@ use crate::threading::{Task, ThreadOp};
 pub(super) fn spawn_expression(manager: &Expr) -> Option<(&Expr, bool)> {
     let (call, propagate) = match &ungroup(manager).kind {
         Expression::Try(call) => (&**call, true),
-        Expression::Method(call, name, args) if name == "unwrap" && args.is_empty() => {
+        Expression::Method(call, name, args, _) if name == "unwrap" && args.is_empty() => {
             (&**call, false)
         }
         _ => return None,

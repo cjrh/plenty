@@ -171,6 +171,14 @@ fn streaming_uses_no_allocations_and_string_failures_are_values() {
 import std.fmt
 import std.bytes
 import std.io
+from std.fmt import Formatter, FormatError
+pub enum Number:
+    Value(i64)
+    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        match self:
+            case Number.Value(value):
+                out.text("value=")?
+                out.integer(*value, 0)
 def main() -> Result[(), Failure]:
     mut scratch = std.bytes.with_capacity(32)?
     scratch.resize(32, 0u8)?
@@ -184,6 +192,8 @@ def main() -> Result[(), Failure]:
     out.unsigned(u64.MAX, 16, 0)?
     out.floating(1.25, 8)?
     out.boolean(False)?
+    value = Number.Value(7)
+    std.fmt.display(&value, &mut out)?
     print("__test_restore_allocations__")?
     print("__test_end_no_allocations__")?
     print(out.completed())?
@@ -215,7 +225,7 @@ def main() -> Result[(), Failure]:
             print("unexpected")?
     Ok(())
 "#),
-        "67\nallocation failed\nconstruction failed\ninvalid spec"
+        "74\nallocation failed\nconstruction failed\ninvalid spec"
     );
 }
 
@@ -255,6 +265,7 @@ def main() -> Result[(), Failure]:
 #[test]
 fn ordinary_visibility_ownership_and_contract_errors_remain_checked() {
     for (source, expected) in [
+        ("import std.fmt\nfrom std.fmt import Formatter, FormatError\nenum E:\n    V\n    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:\n        out.text(\"value\")\ndef main() -> Result[(), Failure]:\n    value = E.V\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n", "enum `E` is private"),
         ("import std.fmt\ndef main() -> Result[(), Failure]:\n    value = 42\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n", "display"),
         ("import std.fmt\ndef main() -> Result[(), Failure]:\n    mut out = std.fmt.string_formatter(32, 8)?\n    view = &out\n    out.text(\"changed\")?\n    print(view.completed())?\n    Ok(())\n", "conflicting borrow"),
         ("import std.fmt\ndef main() -> Result[(), Failure]:\n    out = std.fmt.string_formatter(32, 8)?\n    drop(copy(out))\n    Ok(())\n", "cannot be copied"),
@@ -265,6 +276,48 @@ fn ordinary_visibility_ownership_and_contract_errors_remain_checked() {
         let error = plenty::check_file(&path, None).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }
+}
+
+#[test]
+fn enum_display_borrows_payload_and_preserves_partial_output() {
+    assert_eq!(
+        run(r#"
+import std.fmt
+from std.fmt import Formatter, FormatError
+pub enum Reading[T]:
+    Missing
+    Value(T)
+    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        match self:
+            case Reading.Missing:
+                out.text("missing")
+            case Reading.Value(value):
+                out.text("value=")?
+                out.text(value)
+    pub def debug[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        match self:
+            case Reading.Missing:
+                out.text("Missing")
+            case Reading.Value(value):
+                out.text("Value(")?
+                out.debug_text(value)?
+                out.text(")")
+def main() -> Result[(), FormatError | IoError]:
+    reading = Reading[str].Value("ready")
+    print(std.fmt.to_string(&reading, 80, 8)?)?
+    print(std.fmt.to_debug(&reading, 80, 8)?)?
+    mut out = std.fmt.string_formatter(6, 8)?
+    match std.fmt.display(&reading, &mut out):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error, out.completed(), std.fmt.finish(&out)?)?
+    print(std.fmt.to_string(&reading, 80, 8)?)?
+    print(std.fmt.to_string(&Reading[str].Missing, 80, 8)?)?
+    Ok(())
+"#),
+        "value=ready\nValue(\"ready\")\nstd.fmt.FormatError.LimitExceeded 6 value=\nvalue=ready\nmissing"
+    );
 }
 
 #[test]

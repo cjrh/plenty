@@ -218,7 +218,7 @@ impl Lower<'_> {
                 self.generics
                     .explicit_output(name, types, self.aliases, &e.at)
             }
-            Expression::GenericMethod(base, name, types, _) => {
+            Expression::GenericMethod(base, name, types, _, _) => {
                 let Ty::Class(class) = self.place_type(base)? else {
                     return None;
                 };
@@ -229,7 +229,7 @@ impl Lower<'_> {
                     &e.at,
                 )
             }
-            Expression::Method(base, name, _) => {
+            Expression::Method(base, name, _, _) => {
                 if self.place_type(base) == Some(Ty::CancellationToken) {
                     return match name.as_str() {
                         "share" => Some(Ty::CancellationToken),
@@ -292,7 +292,7 @@ impl Lower<'_> {
                 }
                 let field = Expr {
                     at: e.at.clone(),
-                    kind: Expression::Member(base.clone(), name.clone()),
+                    kind: Expression::Member(base.clone(), name.clone(), Pos::default()),
                 };
                 output(&self.place_type(&field)?)
             }

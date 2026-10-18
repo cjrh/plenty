@@ -16,7 +16,7 @@ impl Program {
         let entry = directory.path().join("main.plenty");
         let executable = directory.path().join("program");
         let source = format!(
-            "import std.fs as fs\nimport std.path as path\nimport std.io as io\nimport std.bytes as bytes\nfrom std.sync import CancellationToken\ndef show[T, E](value: Result[T, E]) -> Result[(), Failure]:\n    match value:\n        case Ok(_):\n            print(\"Ok\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n{declarations}\ndef main() -> Result[(), Failure]:\n    argv = args_bytes()?\n    location = path.from_bytes(copy(argv[1])?)\n    parent = fs.root(&location)?\n{body}\n    Ok(())\n"
+            "import std.fs as fs\nimport std.path as path\nimport std.io as io\nimport std.bytes\nfrom std.sync import CancellationToken\ndef show[T, E](value: Result[T, E]) -> Result[(), Failure]:\n    match value:\n        case Ok(_):\n            print(\"Ok\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n{declarations}\ndef main() -> Result[(), Failure]:\n    argv = args_bytes()?\n    location = path.from_bytes(copy(argv[1])?)\n    parent = fs.root(&location)?\n{body}\n    Ok(())\n"
         );
         std::fs::write(&entry, &source).unwrap();
         plenty::compile_file_to_executable(&entry, &executable, None)
@@ -80,7 +80,7 @@ pub class Source:
     token: CancellationToken
     calls: i64
     cancel: bool
-    pub def read(self: &mut Source, target: &mut bytes.Bytes, start: i64, stop: i64) -> Result[i64, io.StreamError]:
+    pub def read(self: &mut Source, target: &mut std.bytes.Bytes, start: i64, stop: i64) -> Result[i64, io.StreamError]:
         self.calls += 1
         if self.calls == 1:
             drop(target.set(start, 42u8))

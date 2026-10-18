@@ -497,7 +497,7 @@ unsafe fn hash(value: u128, ty: &Type) -> u64 {
                 (combined ^ unsafe { hash(ty.unpack(value), field) }).wrapping_mul(1099511628211);
         }
         combined
-    } else if ty.kind == b's' {
+    } else if matches!(ty.kind, b's' | b'y') {
         let mut hash = 14695981039346656037u64;
         for &b in unsafe { strings::bytes(&(value as *const Text)) } {
             hash = (hash ^ b as u64).wrapping_mul(1099511628211);
@@ -758,7 +758,9 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             }
             b'f' => f32::from_bits(a as u32) == f32::from_bits(b as u32),
             b'd' => f64::from_bits(a as u64) == f64::from_bits(b as u64),
-            b's' => strings::bytes(&(a as *const Text)) == strings::bytes(&(b as *const Text)),
+            b's' | b'y' => {
+                strings::bytes(&(a as *const Text)) == strings::bytes(&(b as *const Text))
+            }
             b'U' => byte_storage::equal(a, b),
             b'O' => {
                 let (a, b) = (a as *const Boxed, b as *const Boxed);
@@ -1260,6 +1262,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'I' => out.extend_from_slice(b"DirEntry"),
             b'M' => out.extend_from_slice(b"Metadata"),
             b'U' => byte_storage::render(value, out),
+            b'y' => byte_storage::render_slice(strings::bytes(&(value as *const Text)), out),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(
                 if crate::files::closed(value as *const crate::files::File) {
@@ -1530,6 +1533,19 @@ pub(crate) unsafe fn collection_at(
             return match try_copy(a, &*descriptor, b as *mut u128) {
                 Ok(value) => wrap(value, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
+            };
+        }
+        // A `bytes` literal: immortal read-only data in the text layout,
+        // indexed by byte with the list index rules.
+        if !descriptor.is_null() && (*descriptor).kind == b'y' && matches!(op, 4..=7) {
+            return match op {
+                5 => strings::byte_len(a as *const Text) as u128,
+                7 => strings::bytes(&(b as *const Text)).contains(&(a as u8)) as u128,
+                _ => {
+                    let text = a as *const Text;
+                    let data = strings::bytes(&text);
+                    data[index(b as i64, data.len(), site)] as u128
+                }
             };
         }
         if !descriptor.is_null()

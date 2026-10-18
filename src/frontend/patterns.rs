@@ -267,6 +267,9 @@ impl Parser {
                     at.error("a pattern cannot be an f-string; match a plain string literal")
                 )
             }
+            Kind::Bytes(_) => {
+                return Err(at.error("a pattern cannot be a byte literal; compare with `==`"))
+            }
             Kind::Word(word) if word == "True" || word == "False" => Literal::Bool(word == "True"),
             _ => return Ok(None),
         };

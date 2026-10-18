@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const PRELUDE: &str = r#"import std.archive as archive
-import std.bytes as bytes
+import std.bytes
 import std.fs as fs
 import std.io as io
 import std.path as path
@@ -56,7 +56,7 @@ def zip_into(parent: &Root, file: io.FileStream, target: &path.Path, policy: &Po
     archive.extract_zip(&mut reader, parent, target, policy, cancel)
 
 def text(value: &str) -> Result[Bytes, Failure]:
-    Ok(bytes.from_text(value)?)
+    Ok(std.bytes.from_text(value)?)
 
 def name(value: &str) -> Result[path.Path, Failure]:
     Ok(path.from_text(value)?)
@@ -302,7 +302,7 @@ fn writers_round_trip_through_readers_and_extraction() {
     let directory = tempfile::tempdir().unwrap();
     let program = Program::new(
         r#"
-mut tar = archive.tar_writer(io.cursor(bytes.empty()?))?
+mut tar = archive.tar_writer(io.cursor(std.bytes.empty()?))?
 tar.add_dir(&name("docs")?, 493, 1700000000)?
 tar.add_file(&name("./docs//readme.txt")?, &text("hello tar")?, 420, 1700000000)?
 tar.add_file(&name("a/b/c.txt")?, &text("deep")?, 384, 1700000001)?
@@ -311,12 +311,12 @@ mut reader = archive.tar_reader(io.cursor(tar.inner.data.copy()?))?
 while True:
     match reader.next()?:
         case Some(entry):
-            mut out = bytes.empty()?
+            mut out = std.bytes.empty()?
             drop(io.read_up_to(&mut reader, &mut out, 100)?)
             print(decode_utf8(entry.name.as_bytes())?, entry.kind, entry.size, entry.mode, entry.mtime, out.to_text()?)?
         case Nothing:
             break
-mut zip = archive.zip_writer(io.cursor(bytes.empty()?))?
+mut zip = archive.zip_writer(io.cursor(std.bytes.empty()?))?
 zip.add_dir(&name("docs")?, 493, 1700000000)?
 zip.add_file(&name("docs/readme.txt")?, &text("hello zip hello zip hello zip")?, Method.Deflate, 420, 1700000000)?
 zip.add_file(&name("raw.bin")?, &text("stored")?, Method.Stored, 384, 1700000002)?
@@ -324,7 +324,7 @@ zip.finish()?
 mut entries = archive.zip_reader(io.cursor(zip.inner.data.copy()?), 100)?
 for index in range(0, entries.len()):
     entries.open(index)?
-    mut out = bytes.empty()?
+    mut out = std.bytes.empty()?
     drop(io.read_up_to(&mut entries, &mut out, 100)?)
     listed = entries.entries()
     entry = &listed[index]
@@ -378,7 +378,7 @@ fn system_tar_reads_our_archives_and_we_read_its_archives() {
     let long = format!("{}/{}", "d".repeat(80), "f".repeat(120));
     let program = Program::new(&format!(
         r#"
-mut tar = archive.tar_writer(io.cursor(bytes.empty()?))?
+mut tar = archive.tar_writer(io.cursor(std.bytes.empty()?))?
 tar.add_file(&name("{long}")?, &text("long name")?, 420, 1700000000)?
 tar.add_dir(&name("empty")?, 493, 1700000000)?
 tar.add_symlink(&name("link")?, &name("{long}")?, 1700000000)?
@@ -509,7 +509,7 @@ fn python_zipfile_reads_our_archives_and_we_read_its_archives() {
 
     let program = Program::new(
         r#"
-mut zip = archive.zip_writer(io.cursor(bytes.empty()?))?
+mut zip = archive.zip_writer(io.cursor(std.bytes.empty()?))?
 zip.add_dir(&name("deep")?, 493, 1700000000)?
 zip.add_file(&name("deep/file.txt")?, &text("from plenty")?, Method.Deflate, 420, 1700000000)?
 zip.add_file(&name("old.txt")?, &text("clamped")?, Method.Stored, 384, 0)?
@@ -548,8 +548,8 @@ fn zip64_entry_count_is_written_and_read() {
     let directory = tempfile::tempdir().unwrap();
     let program = Program::new(
         r#"
-mut zip = archive.zip_writer(io.cursor(bytes.empty()?))?
-empty = bytes.empty()?
+mut zip = archive.zip_writer(io.cursor(std.bytes.empty()?))?
+empty = std.bytes.empty()?
 for index in range(0, 65536):
     zip.add_file(&path.from_text(&str.from(index)?)?, &empty, Method.Stored, 420, 1700000000)?
 zip.finish()?
@@ -604,13 +604,13 @@ fn unsafe_names_are_rejected_and_leave_nothing() {
     }
     let program = Program::new(
         r#"
-mut tar = archive.tar_writer(io.cursor(bytes.empty()?))?
+mut tar = archive.tar_writer(io.cursor(std.bytes.empty()?))?
 print(str.repr(tar.add_file(&name("../x")?, &text("x")?, 420, 0))?)?
 print(str.repr(tar.add_file(&name("/x")?, &text("x")?, 420, 0))?)?
 print(str.repr(tar.add_file(&name("x")?, &text("x")?, 4096, 0))?)?
 tar.finish()?
 print(str.repr(tar.add_dir(&name("late")?, 493, 0))?)?
-mut zip = archive.zip_writer(io.cursor(bytes.empty()?))?
+mut zip = archive.zip_writer(io.cursor(std.bytes.empty()?))?
 print(str.repr(zip.add_file(&name("a/../b")?, &text("x")?, Method.Stored, 420, 0))?)?
 "#,
     );
@@ -682,9 +682,9 @@ fn limits_stop_extraction_before_writing() {
     let directory = tempfile::tempdir().unwrap();
     let program = Program::new(
         r#"
-mut zeros = bytes.with_capacity(4194304)?
+mut zeros = std.bytes.with_capacity(4194304)?
 zeros.resize(4194304, 0u8)?
-mut zip = archive.zip_writer(io.cursor(bytes.empty()?))?
+mut zip = archive.zip_writer(io.cursor(std.bytes.empty()?))?
 zip.add_file(&name("bomb")?, &zeros, Method.Deflate, 420, 0)?
 zip.finish()?
 save(&parent, "bomb.zip", zip.inner.data.copy()?)?
@@ -763,7 +763,7 @@ fn readers_report_entry_errors_through_the_reader_protocol() {
         r#"
 mut zip = archive.zip_reader(parent.read_file(&name("bad.zip")?)?, 10)?
 zip.open(0)?
-mut out = bytes.empty()?
+mut out = std.bytes.empty()?
 print(str.repr(io.read_up_to(&mut zip, &mut out, 100))?)?
 print(str.repr(zip.failure())?)?
 print(str.repr(io.read_up_to(&mut zip, &mut out, 100))?)?

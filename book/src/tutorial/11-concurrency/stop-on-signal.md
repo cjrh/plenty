@@ -16,8 +16,11 @@ from std.net import TcpStream
 from std.signal import Signal
 from std.sync import CancellationToken
 
+pub enum Route:
+    Home
+
 pub class Hello:
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
         exchange.send_text(200, "hello\n")?
         Ok(())
 
@@ -29,8 +32,8 @@ def supervisor() -> Result[(), Failure]:
 
 def main() -> Result[(), Failure]:
     signals = std.signal.listen()?
-    mut routes = std.http.server.router()?
-    routes.add("GET", "/", 0)?
+    mut routes = std.http.server.router[Route]()?
+    routes.add("GET", "/", Route.Home)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     stop = CancellationToken()?
     with spawn(std.signal.cancel_on, signals, stop.share())? as watcher, spawn(supervisor)? as stopper:

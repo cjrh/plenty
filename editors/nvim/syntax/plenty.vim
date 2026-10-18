@@ -12,7 +12,7 @@ syntax keyword plentyInclude import from as
 syntax keyword plentyOperator and or not in
 syntax keyword plentyBoolean True False
 syntax keyword plentyConstant None
-syntax keyword plentyType i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool str
+syntax keyword plentyType i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool str bytes
 syntax keyword plentyType list dict set tuple
 syntax match plentyOperator /[-+*\/%=<>!&|^~?]/
 syntax match plentyDelimiter /[()[\]{},.:]/
@@ -39,6 +39,12 @@ syntax region plentyFormatString start=/\<f"/ skip=/\\./ end=/"/ oneline contain
 syntax region plentyFormatString start=/\<f'/ skip=/\\./ end=/'/ oneline contains=plentyEscape,plentyFormatBrace,plentyFormatField,@Spell
 syntax region plentyFormatString start=/\<f"""/ skip=/\\./ end=/"""/ contains=plentyEscape,plentyFormatBrace,plentyFormatField,@Spell
 syntax region plentyFormatString start=/\<f'''/ skip=/\\./ end=/'''/ contains=plentyEscape,plentyFormatBrace,plentyFormatField,@Spell
+" Byte literals: ASCII text with `\xHH` escapes, not spell-checked.
+syntax match plentyByteEscape /\\\%(x\x\x\|[0nrt\\'"]\)/ contained
+syntax region plentyBytes start=/\<b"/ skip=/\\./ end=/"/ oneline contains=plentyByteEscape
+syntax region plentyBytes start=/\<b'/ skip=/\\./ end=/'/ oneline contains=plentyByteEscape
+syntax region plentyBytes start=/\<b"""/ skip=/\\./ end=/"""/ contains=plentyByteEscape
+syntax region plentyBytes start=/\<b'''/ skip=/\\./ end=/'''/ contains=plentyByteEscape
 syntax sync fromstart
 
 highlight default link plentyKeyword Keyword
@@ -60,5 +66,7 @@ highlight default link plentyString String
 highlight default link plentyFormatString String
 highlight default link plentyFormatBrace SpecialChar
 highlight default link plentySpecial Special
+highlight default link plentyBytes String
+highlight default link plentyByteEscape SpecialChar
 
 let b:current_syntax = 'plenty'

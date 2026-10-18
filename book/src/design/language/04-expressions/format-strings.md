@@ -31,6 +31,9 @@ formatting moves nothing. A field cannot contain a backslash, a comment, or
 the quote character that encloses the f-string. A field in a triple-quoted
 f-string may span lines.
 
+Only the `f` prefix starts an f-string. `F"..."` and the combinations `bf`/`fb`
+are errors: build text with an f-string, then convert it to bytes.
+
 `{expr=}` writes the field's source text, including the `=` and any spaces
 around it, then its value. Without a conversion or a spec the value is written
 as with `!r`, so `{name=}` gives `name="Ada"`.
@@ -46,7 +49,7 @@ Without a conversion, a field is written as `print` writes it:
 | Integers | Decimal |
 | `f32`, `f64` | Shortest round-trip, as [`str.from`](../../facilities/01-builtins/numbers.md#formatting) |
 | A class or enum with a public `display` method | That method, through `std.fmt.display` |
-| Anything else | The [`str.repr`](../../facilities/01-builtins/formatting.md) spelling, as `print` shows aggregates |
+| Anything else, including `bytes` | The [`str.repr`](../../facilities/01-builtins/formatting.md) spelling, as `print` shows aggregates and `b"..."` values |
 
 `!s` is the same spelling. `!r` writes `str` quoted and escaped as
 `Formatter.debug_text` does, uses a type's public `debug` method when it has

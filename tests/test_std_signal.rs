@@ -76,8 +76,11 @@ from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+pub enum Route:
+    Stream
+
 pub class Ticker:
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
         exchange.start(std.http.response(200, "OK")?)?
         tick = std.bytes.from_text("tick\n")?
         while not exchange.stopping():
@@ -89,8 +92,8 @@ pub class Ticker:
 
 def main() -> Result[(), Failure]:
     signals = std.signal.listen()?
-    mut routes = std.http.server.router()?
-    routes.add("GET", "/stream", 0)?
+    mut routes = std.http.server.router[Route]()?
+    routes.add("GET", "/stream", Route.Stream)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     print(listener.local_address()?.port)?
     stop = CancellationToken()?

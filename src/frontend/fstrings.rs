@@ -136,9 +136,8 @@ impl Lexer<'_> {
         Some(c)
     }
 
-    /// Lexes `f'...'` or `f"..."`, single or triple quoted, at the `f`.
+    /// Lexes `f'...'` or `f"..."`, single or triple quoted, after the `f`.
     pub(super) fn format_string(&mut self, start: &Token) -> Result<Kind> {
-        self.advance();
         let quote = self.advance().unwrap();
         let triple = self.char_at(0) == Some(quote) && self.char_at(1) == Some(quote);
         if triple {
@@ -436,6 +435,7 @@ fn restricted(e: &Expr, argument: bool) -> bool {
         Expression::Name(_)
         | Expression::Number(_)
         | Expression::Text(_)
+        | Expression::Bytes(_)
         | Expression::Bool(_)
         | Expression::Unit
         | Expression::GenericValue(..) => true,
@@ -446,7 +446,7 @@ fn restricted(e: &Expr, argument: bool) -> bool {
             argument && restricted(inner, false)
         }
         Expression::NamedArgument(_, inner) => argument && restricted(inner, true),
-        Expression::Member(base, _) => restricted(base, false),
+        Expression::Member(base, _, _) => restricted(base, false),
         Expression::Index(base, index) => restricted(base, false) && restricted(index, true),
         Expression::Ambiguous { generic, index } => {
             restricted(generic, false) && restricted(index, false)
@@ -454,8 +454,8 @@ fn restricted(e: &Expr, argument: bool) -> bool {
         Expression::Call(_, args) | Expression::GenericCall(_, _, args) => {
             args.iter().all(|a| restricted(a, true))
         }
-        Expression::Method(base, _, args)
-        | Expression::GenericMethod(base, _, _, args)
+        Expression::Method(base, _, args, _)
+        | Expression::GenericMethod(base, _, _, args, _)
         | Expression::Invoke(base, args) => {
             restricted(base, false) && args.iter().all(|a| restricted(a, true))
         }
@@ -557,7 +557,7 @@ fn unary(at: &Token, op: &str, value: Expr) -> Expr {
 fn method(at: &Token, receiver: Expr, method: &str, args: Vec<Expr>) -> Expr {
     expr(
         at,
-        Expression::Method(Box::new(receiver), method.into(), args),
+        Expression::Method(Box::new(receiver), method.into(), args, Pos::of(at)),
     )
 }
 fn try_(value: Expr) -> Expr {

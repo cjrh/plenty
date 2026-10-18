@@ -158,6 +158,28 @@ item 1"
 }
 
 #[test]
+fn byte_values_use_their_print_spelling() {
+    assert_eq!(
+        run(r#"
+def main() -> Result[(), Failure]:
+    data = b"ab\x00\xff"
+    print(f"{data} {data!r} {data:>14}| {b'hi'}"?)?
+    Ok(())
+"#),
+        "b\"ab\\x00\\xff\" b\"ab\\x00\\xff\"  b\"ab\\x00\\xff\"| b\"hi\""
+    );
+    for (line, expected) in [
+        ("x = bf\"a\"", "byte f-strings are not supported"),
+        ("x = F\"a\"", "f-strings use a lowercase `f` prefix"),
+    ] {
+        let error = plenty::check_source(&format!("def main() -> ():\n    {line}\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{line}: {error}");
+    }
+}
+
+#[test]
 fn source_only_compilation_imports_std_fmt_implicitly() {
     // No `import`: the compiler adds `std.fmt` for the f-string alone.
     plenty::check_source(

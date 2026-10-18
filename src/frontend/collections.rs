@@ -602,17 +602,23 @@ impl Lower<'_> {
             }
             Expression::Try(value) => self.propagate(e, value, expected, ops),
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, expected, ops),
-            Expression::Method(base, name, args)
+            Expression::Method(base, name, args, _)
                 if matches!(name.as_str(), "unwrap_or" | "ok_or")
-                    && !matches!(
-                        self.place_type(base).map(classes::unbox),
-                        Some(Ty::Class(_))
-                    ) =>
+                    && !self
+                        .place_type(base)
+                        .map(classes::unbox)
+                        .as_ref()
+                        .is_some_and(classes::inherent_receiver) =>
             {
                 self.option_method(base, name, args, expected, ops)
             }
-            Expression::Method(base, name, args)
-                if name == "unwrap" && !matches!(self.place_type(base), Some(Ty::Class(_))) =>
+            Expression::Method(base, name, args, _)
+                if name == "unwrap"
+                    && !self
+                        .place_type(base)
+                        .map(classes::unbox)
+                        .as_ref()
+                        .is_some_and(classes::inherent_receiver) =>
             {
                 self.unwrap_result(base, args, expected, ops)
             }
@@ -1072,7 +1078,7 @@ impl Lower<'_> {
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(_, true))));
         let range_expr = match &iterable.kind {
             Expression::Try(inner) => ungroup(inner),
-            Expression::Method(inner, name, args) if name == "unwrap" && args.is_empty() => {
+            Expression::Method(inner, name, args, _) if name == "unwrap" && args.is_empty() => {
                 ungroup(inner)
             }
             _ => iterable,
@@ -1132,10 +1138,10 @@ impl Lower<'_> {
             (self.value(iterable, ops)?, vec![])
         };
         let bytes = byte_buffers::byte_buffer(&ty).is_some();
-        if reverse && !matches!(ty, Ty::List(_) | Ty::Str | Ty::Range(_)) && !bytes {
+        if reverse && !matches!(ty, Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_)) && !bytes {
             return Err(iterable
                 .at
-                .error("reversed requires a list, str, range, or Bytes"));
+                .error("reversed requires a list, str, bytes, range, or Bytes"));
         }
         // Bytes are not addressable, so `for x in &b` yields a reference to an
         // iteration-local copy as text and range iteration do.
@@ -1772,11 +1778,12 @@ impl Lower<'_> {
             Ty::List(v) => (Ty::I64, (**v).clone()),
             Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
             Ty::Str => (Ty::I64, Ty::Str),
+            Ty::ByteStr => (Ty::I64, Ty::U8),
             Ty::Range(t) => (Ty::I64, (**t).clone()),
             _ => {
                 return Err(base
                     .at
-                    .error("indexing requires list, dict, str, range, or Bytes"))
+                    .error("indexing requires list, dict, str, bytes, range, or Bytes"))
             }
         };
         if value.affine() {
@@ -1837,11 +1844,26 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        let context = expected.map(|t| crate::sum::result(t, crate::sum::alloc_error()));
+        let actual = self.expr_expected(base, context, ops)?;
+        if let Some(actual) = &actual {
+            let receiver = classes::unbox(actual.clone());
+            if classes::inherent_receiver(&receiver) {
+                self.unbox_to(actual.clone(), &receiver, ops);
+                return self.temporary_class_method(
+                    base,
+                    "unwrap",
+                    None,
+                    args,
+                    (receiver, vec![]),
+                    ops,
+                );
+            }
+        }
         if !args.is_empty() {
             return Err(base.at.error("unwrap takes no arguments"));
         }
-        let context = expected.map(|t| crate::sum::result(t, crate::sum::alloc_error()));
-        let Some(Ty::Enum(t)) = self.expr_expected(base, context, ops)? else {
+        let Some(Ty::Enum(t)) = actual else {
             return Err(base.at.error("unwrap requires a Result or Option"));
         };
         if !t.propagatable() {
@@ -1897,7 +1919,7 @@ impl Lower<'_> {
         let ty = self.expr_expected(base, payload_hint.map(crate::sum::option), ops)?;
         if let Some(actual) = &ty {
             let class = classes::unbox(actual.clone());
-            if matches!(class, Ty::Class(_)) {
+            if classes::inherent_receiver(&class) {
                 self.unbox_to(actual.clone(), &class, ops);
                 return self.temporary_class_method(base, name, None, args, (class, vec![]), ops);
             }
@@ -2019,7 +2041,7 @@ impl Lower<'_> {
         }
         let field = Expr {
             at: base.at.clone(),
-            kind: Expression::Member(Box::new(base.clone()), name.into()),
+            kind: Expression::Member(Box::new(base.clone()), name.into(), Pos::default()),
         };
         if matches!(
             self.place_type(&field),
@@ -2036,14 +2058,21 @@ impl Lower<'_> {
                 return Ok(Some(ty));
             }
         }
-        if name == "unwrap" && !matches!(self.place_type(base), Some(Ty::Class(_))) {
+        if name == "unwrap"
+            && !self
+                .place_type(base)
+                .map(classes::unbox)
+                .as_ref()
+                .is_some_and(classes::inherent_receiver)
+        {
             return self.unwrap_result(base, args, None, ops);
         }
         if matches!(name, "unwrap_or" | "ok_or")
-            && !matches!(
-                self.place_type(base).map(classes::unbox),
-                Some(Ty::Class(_))
-            )
+            && !self
+                .place_type(base)
+                .map(classes::unbox)
+                .as_ref()
+                .is_some_and(classes::inherent_receiver)
         {
             return self.option_method(base, name, args, None, ops);
         }
@@ -2059,7 +2088,7 @@ impl Lower<'_> {
                     return self.call_named(function, args, &base.at, ops);
                 }
             }
-            if let Expression::Member(owner, variant) = &ungroup(base).kind {
+            if let Expression::Member(owner, variant, _) = &ungroup(base).kind {
                 if let Some(Ty::Enum(t)) = self.qualified_type(owner)? {
                     if Ty::Enum(t.clone()).layout_depth() >= 64 {
                         return Err(base
@@ -2174,8 +2203,17 @@ impl Lower<'_> {
             }
             return self.variant(ty, name, Some(args), &base.at, ops);
         }
-        if let Some(Ty::Class(class)) = self.place_type(base).map(classes::unbox) {
-            return self.class_method(base, class, name, None, args, ops);
+        if let Some(ty) = self.place_type(base).map(classes::unbox) {
+            if classes::inherent_receiver(&ty) {
+                return self.class_method(
+                    base,
+                    classes::method_owner(&ty).unwrap(),
+                    name,
+                    None,
+                    args,
+                    ops,
+                );
+            }
         }
         if self.place_type(base) == Some(Ty::File) {
             return self.file_method(base, name, args, ops);
@@ -2184,12 +2222,21 @@ impl Lower<'_> {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
         }
         if matches!(name, "reserve" | "append" | "add" | "insert") {
+            if self.place_type(base).is_none() {
+                let observed = self.observe_method_receiver(base, ops)?;
+                if classes::inherent_receiver(&observed.0) {
+                    return self.temporary_class_method(base, name, None, args, observed, ops);
+                }
+                return Err(base
+                    .at
+                    .error("mutation requires a named binding or class field"));
+            }
             return self.fallible_mutation(base, name, args, ops);
         }
         if name == "into_values" {
             let ty = self.value(base, ops)?;
             let class = classes::unbox(ty.clone());
-            if matches!(class, Ty::Class(_)) {
+            if classes::inherent_receiver(&class) {
                 self.unbox_to(ty, &class, ops);
                 return self.temporary_class_method(base, name, None, args, (class, vec![]), ops);
             }
@@ -2307,6 +2354,11 @@ impl Lower<'_> {
                 "str has no `len` method; `len(text)` counts scalars and `text.byte_len()` counts UTF-8 bytes",
             ));
         }
+        if ty == Ty::ByteStr {
+            return Err(base.at.error(format!(
+                "bytes has no `{name}` method; `len(value)` counts its bytes and `std.bytes.from_bytes(value)?` copies it into a `Bytes` buffer"
+            )));
+        }
         if ty == Ty::Str && name == "byte_len" {
             if !args.is_empty() {
                 return Err(base.at.error("byte_len takes no arguments"));
@@ -2329,7 +2381,7 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(Ty::Bool));
         }
-        if matches!(ty, Ty::Class(_)) {
+        if classes::inherent_receiver(&ty) {
             return self.temporary_class_method(base, name, None, args, (ty, loans), ops);
         }
         if matches!(ty, Ty::Executor | Ty::Future(_)) {
@@ -3256,7 +3308,7 @@ fn dictionary_items(iterable: &Expr) -> Option<(&Expr, bool)> {
         mutable = op == "&mut";
         e = ungroup(base);
     }
-    let Expression::Method(base, method, args) = &e.kind else {
+    let Expression::Method(base, method, args, _) = &e.kind else {
         return None;
     };
     if method != "items" || !args.is_empty() {

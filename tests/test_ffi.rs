@@ -240,13 +240,13 @@ def main() -> Result[(), Failure]:
     print(d)?
     print(native.read(&e))?
     text = "é\0A"
-    print(native.bytes(&text))?
+    print(native.byte_count(&text))?
     empty = ""
-    print(native.bytes(&empty))?
+    print(native.byte_count(&empty))?
     character = text[0]
-    print(native.bytes(&character))?
+    print(native.byte_count(&character))?
     short = text.slice(0, 3)?
-    print(native.bytes(&short))?
+    print(native.byte_count(&short))?
     print(str.repr(native.strings(&character, &empty)).unwrap())?
     good = "é"
     print(str.repr(native.strings(&good, &empty)).unwrap())?
@@ -330,7 +330,7 @@ def main() -> Result[(), Failure]:
     print(native.opened())?
     print(native.live())?
     print("__test_begin_no_allocations__")?
-    count = native.bytes(&a)
+    count = native.byte_count(&a)
     print("__test_end_no_allocations__")?
     print(count)?
     owned = native.create(0)?

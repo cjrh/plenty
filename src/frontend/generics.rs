@@ -876,11 +876,11 @@ impl Engine {
                 let Some(protocol) = bound.name.as_ref().and_then(|n| self.protocols.get(n)) else {
                     continue;
                 };
-                let Some(actual @ Ty::Class(_)) = inferred.get(parameter).cloned() else {
+                let Some(actual) = inferred.get(parameter).cloned() else {
                     continue;
                 };
-                let Ty::Class(class) = &actual else {
-                    unreachable!()
+                let Some(owner) = classes::method_owner(&actual) else {
+                    continue;
                 };
                 let mut substitutions: Substitution = protocol
                     .type_params
@@ -890,16 +890,10 @@ impl Engine {
                     .collect();
                 substitutions.insert(protocol.name.clone(), type_ref(&actual, at));
                 for requirement in &protocol.methods {
-                    modules::check_member_at(
-                        access,
-                        &class.name,
-                        &requirement.name,
-                        &bound.at,
-                        at,
-                    )?;
+                    modules::check_member_at(access, owner, &requirement.name, &bound.at, at)?;
                     let (inputs, output) = self
                         .methods
-                        .get(&crate::record::method(&class.name, &requirement.name))
+                        .get(&crate::record::method(owner, &requirement.name))
                         .ok_or_else(|| {
                             at.error(format!(
                                 "{actual} does not satisfy {}: missing method `{}`",
@@ -1111,7 +1105,8 @@ impl Engine {
 fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
     fn expression(e: &Expr) -> Result<()> {
         match &e.kind {
-            Expression::Method(base, _, args) | Expression::GenericMethod(base, _, _, args) => {
+            Expression::Method(base, _, args, _)
+            | Expression::GenericMethod(base, _, _, args, _) => {
                 if let Some(arg) = args
                     .iter()
                     .find(|arg| matches!(arg.kind, Expression::NamedArgument(..)))
@@ -1143,7 +1138,7 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
                 }
             }
             Expression::NamedArgument(_, inner)
-            | Expression::Member(inner, _)
+            | Expression::Member(inner, _, _)
             | Expression::Group(inner)
             | Expression::Unary(_, inner)
             | Expression::Try(inner)
@@ -1188,6 +1183,7 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
             | Expression::Type(..)
             | Expression::Number(..)
             | Expression::Text(..)
+            | Expression::Bytes(..)
             | Expression::Bool(..)
             | Expression::Unit
             | Expression::Name(..) => {}
@@ -1318,7 +1314,7 @@ fn substitute_match(
 pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
     match &mut e.kind {
         Expression::Match(value, cases) => substitute_match(value, cases, substitutions)?,
-        Expression::GenericMethod(base, _, types, args) => {
+        Expression::GenericMethod(base, _, types, args, _) => {
             substitute_expr(base, substitutions)?;
             for ty in types {
                 substitute(ty, substitutions)?;
@@ -1372,13 +1368,13 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
                 substitute_expr(arg, substitutions)?;
             }
         }
-        Expression::Method(base, _, args) | Expression::Invoke(base, args) => {
+        Expression::Method(base, _, args, _) | Expression::Invoke(base, args) => {
             substitute_expr(base, substitutions)?;
             for arg in args {
                 substitute_expr(arg, substitutions)?;
             }
         }
-        Expression::Member(base, _)
+        Expression::Member(base, _, _)
         | Expression::NamedArgument(_, base)
         | Expression::Unary(_, base)
         | Expression::Group(base)
@@ -1415,6 +1411,7 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
         }
         Expression::Number(_)
         | Expression::Text(_)
+        | Expression::Bytes(_)
         | Expression::Bool(_)
         | Expression::Unit
         | Expression::ClassNew(..) => {}

@@ -21,8 +21,8 @@
     const LITERALS = ["True", "False", "None", "Ok", "Err", "Some", "Nothing"];
     // Lower-case built-in type names. Every capitalized name is shown as a type.
     const TYPES = [
-        "bool", "dict", "f32", "f64", "i8", "i16", "i32", "i64", "list",
-        "range", "set", "str", "tuple", "u8", "u16", "u32", "u64",
+        "bool", "bytes", "dict", "f32", "f64", "i8", "i16", "i32", "i64",
+        "list", "range", "set", "str", "tuple", "u8", "u16", "u32", "u64",
     ];
     // Lower-case built-in functions from the prelude.
     const BUILT_INS = [
@@ -40,11 +40,16 @@
 
     function plenty(hljs) {
         const escape = { className: "char-escape", begin: /\\[0nrt\\'"]/ };
-        const string = (quote, multiline) => ({
+        const byteEscape = {
+            className: "char-escape",
+            begin: /\\(?:x[0-9A-Fa-f]{2}|[0nrt\\'"])/,
+        };
+        // A `prefix` of `b` makes a byte literal, which adds `\xHH` escapes.
+        const string = (quote, multiline, prefix = "") => ({
             className: "string",
-            begin: quote,
+            begin: prefix ? new RegExp("\\b" + prefix + quote) : quote,
             end: multiline ? quote : new RegExp(quote + "|$"),
-            contains: [escape],
+            contains: [prefix ? byteEscape : escape],
         });
         // An f-string: `{{` and `}}` are literal braces, and a field holds
         // ordinary code up to its closing brace.
@@ -82,6 +87,10 @@
                 fstring("'''", true),
                 fstring('"', false),
                 fstring("'", false),
+                string('"""', true, "b"),
+                string("'''", true, "b"),
+                string('"', false, "b"),
+                string("'", false, "b"),
                 string('"""', true),
                 string("'''", true),
                 string('"', false),

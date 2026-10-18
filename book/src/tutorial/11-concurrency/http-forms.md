@@ -23,41 +23,46 @@ from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+pub enum Route:
+    Login
+    Me
+
 pub class Site:
     pub forms: FormLimits
     pub proxies: Proxies
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
-        if exchange.route == 0:
-            match std.http.body.read_form(exchange, &self.forms):
-                case Ok(fields):
-                    match std.http.body.find(&fields, "name"):
-                        case Some(index):
-                            name = &fields[index].value
-                            mut head = std.http.response(200, "OK")?
-                            std.http.cookie.add(&mut head, &std.http.cookie.set_cookie("user", name)?)?
-                            head.add("Content-Type", "text/plain")?
-                            mut text = "welcome ".concat(name)?
-                            match std.http.body.find(&fields, "city"):
-                                case Some(city):
-                                    text = text.concat(" from ")?.concat(&fields[city].value)?
-                                case Nothing:
-                                    pass
-                            exchange.respond(head, &std.bytes.from_text(&text)?)?
-                        case Nothing:
-                            exchange.send_text(400, "name is required")?
-                case Err(error):
-                    std.http.body.reject(exchange, &error)?
-        else:
-            cookies = std.http.cookie.cookies(&exchange.request.headers, 32)?
-            client = std.http.proxy.client_of(exchange, &self.proxies)?
-            mut text = std.net.format_ip(client.address)?.concat(" is ")?
-            match std.http.cookie.find(&cookies, "user"):
-                case Some(index):
-                    text = text.concat(&cookies[index].value)?
-                case Nothing:
-                    text = text.concat("nobody")?
-            exchange.send_text(200, &text)?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        match route:
+            case Route.Login:
+                match std.http.body.read_form(exchange, &self.forms):
+                    case Ok(fields):
+                        match std.http.body.find(&fields, "name"):
+                            case Some(index):
+                                name = &fields[index].value
+                                mut head = std.http.response(200, "OK")?
+                                std.http.cookie.add(&mut head, &std.http.cookie.set_cookie("user", name)?)?
+                                head.add("Content-Type", "text/plain")?
+                                mut text = "welcome ".concat(name)?
+                                match std.http.body.find(&fields, "city"):
+                                    case Some(city):
+                                        text = text.concat(" from ")?.concat(&fields[city].value)?
+                                    case Nothing:
+                                        pass
+                                exchange.respond(head, &std.bytes.from_text(&text)?)?
+                            case Nothing:
+                                exchange.send_text(400, "name is required")?
+                    case Err(error):
+                        std.http.body.reject(exchange, &error)?
+            case Route.Me:
+                cookies = std.http.cookie.cookies(&exchange.request.headers, 32)?
+                client = std.http.proxy.client_of(exchange, &self.proxies)?
+                mut text = std.net.format_ip(client.address)?.concat(" is ")?
+                match std.http.cookie.find(&cookies, "user"):
+                    case Some(index):
+                        text = text.concat(&cookies[index].value)?
+                    case Nothing:
+                        text = text.concat("nobody")?
+                exchange.send_text(200, &text)?
         Ok(())
 
 def fetch(port: u16, request: &str) -> Result[str, Failure]:
@@ -90,9 +95,9 @@ def client(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     Ok(())
 
 def main() -> Result[(), Failure]:
-    mut routes = std.http.server.router()?
-    routes.add("POST", "/login", 0)?
-    routes.add("GET", "/me", 1)?
+    mut routes = std.http.server.router[Route]()?
+    routes.add("POST", "/login", Route.Login)?
+    routes.add("GET", "/me", Route.Me)?
     mut proxies = std.http.proxy.proxies(Forwarding.XForwardedFor)?
     proxies.trust("127.0.0.1")?
     site = Site(std.http.body.form_limits(), proxies)

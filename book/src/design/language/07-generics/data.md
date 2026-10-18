@@ -24,14 +24,14 @@ supplies them: `case Choice.Value(value):` matches it. Aliases can name
 complete instances. Different arguments produce different nominal identities
 even when a parameter is absent from every payload.
 
-Bare `self` uses the current concrete class; an explicit mutable receiver is
-`self: &mut Cell[T]`. Ordinary methods may declare their own parameters and
-integer, protocol, or callable constraints. Class parameters are already fixed
+Bare `self` uses the current concrete class or enum; an explicit mutable receiver is
+`self: &mut Cell[T]` or `self: &mut Choice[T]`. Ordinary methods may declare their own parameters and
+integer, protocol, or callable constraints. Data parameters are already fixed
 by the receiver; method parameters cannot shadow them. Lifecycle methods cannot
 add parameters.
 
 Explicit method calls use `receiver.method[Types](arguments)`. Supply every method
-parameter without repeating class parameters. Inferred method arguments follow
+parameter without repeating data parameters. Inferred method arguments follow
 ordinary [inference](inference.md). Fields and temporary owned receivers support
 generic method calls; returned references retain their ordinary named-receiver
 and lifetime restrictions. Brackets beginning with a local binding index a

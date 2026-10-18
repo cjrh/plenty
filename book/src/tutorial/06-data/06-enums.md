@@ -97,3 +97,43 @@ Coverage is checked through the nested patterns: leaving out
 Payloads can contain strings, collections, and other enums. Matching an enum
 with mutable payloads consumes it and transfers those payloads; use
 `match copy(value)?` to preserve the owner.
+
+An enum can keep behavior beside its variants. A method's bare `self` is a
+shared borrow, so matching it borrows the payload. The same method can satisfy
+a structural protocol:
+
+```plenty
+protocol Numbered:
+    def number(self) -> i64:
+        pass
+
+enum Reading:
+    Missing
+    Value(i64)
+
+    def number(self) -> i64:
+        match self:
+            case Reading.Missing:
+                0
+            case Reading.Value(value):
+                *value
+
+def number[T: Numbered](value: &T) -> i64:
+    value.number()
+
+def main() -> Result[(), IoError]:
+    reading = Reading.Value(42)
+    print(number(&reading))?
+    print(reading.number())?
+    Ok(())
+```
+
+```output
+42
+42
+```
+
+Use `pub def` when callers in other modules need the method, and
+`self: &mut Reading` when it changes a payload. Variant and method names must
+be distinct. The [formatting lesson](../08-resources/formatting.md) uses an enum
+method to produce a message while preserving the error data.

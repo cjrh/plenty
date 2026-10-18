@@ -23,7 +23,7 @@ pub(super) fn returned_fields(function: &Function, sig: &FnSig) -> Option<Vec<us
     fn path(e: &Expr, root: &str, names: &mut Vec<String>) -> Option<()> {
         match &ungroup(e).kind {
             Expression::Name(n) if n == root => Some(()),
-            Expression::Member(base, name) => {
+            Expression::Member(base, name, _) => {
                 path(base, root, names)?;
                 names.push(name.clone());
                 Some(())
@@ -352,6 +352,7 @@ impl Lower<'_> {
         mutable: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        self.ide_member(e);
         self.borrow_with_indices(e, mutable, &mut None, ops)
     }
 
@@ -364,7 +365,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         match &ungroup(e).kind {
-            Expression::Member(base, _) => self.assignment_indices(base, slots, ops),
+            Expression::Member(base, _, _) => self.assignment_indices(base, slots, ops),
             Expression::Unary(op, base) if op == "*" => self.assignment_indices(base, slots, ops),
             Expression::Index(base, index) => {
                 self.assignment_indices(base, slots, ops)?;
@@ -484,7 +485,7 @@ impl Lower<'_> {
                 };
             }
         }
-        if let Expression::Member(base, name) = &ungroup(e).kind {
+        if let Expression::Member(base, name, _) = &ungroup(e).kind {
             let (reference, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
             let reference = self.unbox_reference(reference, ops);
             let Ty::Ref(inner, _) = reference else {
@@ -704,7 +705,7 @@ impl Lower<'_> {
                     Ok((local.ty, vec![loan]))
                 }
             }
-            Expression::Member(base, _) if self.qualified_type(base)?.is_none() => {
+            Expression::Member(base, _, _) if self.qualified_type(base)?.is_none() => {
                 self.field(e, ops)
             }
             Expression::Index(base, index) => {
@@ -758,11 +759,13 @@ impl Lower<'_> {
                 }
                 let (key, value) = match &ty {
                     Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
-                    Ty::List(_) | Ty::Str | Ty::Range(_) => (Ty::I64, ty.element().unwrap()),
+                    Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_) => {
+                        (Ty::I64, ty.element().unwrap())
+                    }
                     _ => {
                         return Err(e
                             .at
-                            .error("indexing requires list, dict, str, range, or Bytes"))
+                            .error("indexing requires list, dict, str, bytes, range, or Bytes"))
                     }
                 };
                 let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;

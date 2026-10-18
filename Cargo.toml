@@ -43,6 +43,9 @@ target-lexicon = "0.13"
 tempfile = "3.27.0"
 object = { version = "0.39.1", default-features = false, features = ["read_core", "elf", "archive", "std"] }
 sha2 = { version = "0.10", default-features = false }
+# JSON for the language server (`plenty lsp`, issue #155). Pinned: serde and
+# its derive are already built for Cranelift, so this adds one crate.
+serde_json = "=1.0.154"
 # Compiler phase profiler, compiled only with the `profile` feature. Pinned:
 # its report formats may change between releases.
 hotpath = { version = "=0.28.6", optional = true, default-features = false }

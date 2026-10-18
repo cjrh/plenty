@@ -98,12 +98,12 @@ impl Lower<'_> {
     /// lowering them, so that it can type an unsuffixed literal beside it.
     pub(super) fn numeric_builtin_hint(&self, e: &Expr) -> Type {
         match &ungroup(e).kind {
-            Expression::Member(base, name) => self
+            Expression::Member(base, name, _) => self
                 .qualified_type(base)
                 .ok()
                 .flatten()
                 .filter(|ty| constant(ty, name).is_some()),
-            Expression::Method(base, name, args) if method(name) => self
+            Expression::Method(base, name, args, _) if method(name) => self
                 .numeric_hint(base)
                 .or_else(|| args.iter().find_map(|argument| self.numeric_hint(argument))),
             _ => None,

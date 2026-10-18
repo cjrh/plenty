@@ -66,9 +66,14 @@ pub(super) unsafe fn equal(a: u128, b: u128) -> bool {
 
 /// Diagnostic spelling: printable ASCII, with every other byte as `\xhh`.
 pub(super) unsafe fn render(value: u128, out: &mut crate::render_buffer::Buffer) {
-    out.extend_from_slice(b"b\"");
     // SAFETY: the operand is a live storage owner.
-    for byte in unsafe { &(*(value as *const Storage)).bytes } {
+    render_slice(unsafe { &(*(value as *const Storage)).bytes }, out);
+}
+
+/// The spelling `Bytes` and `bytes` values share: a valid byte literal.
+pub(super) fn render_slice(bytes: &[u8], out: &mut crate::render_buffer::Buffer) {
+    out.extend_from_slice(b"b\"");
+    for byte in bytes {
         match byte {
             b'\\' | b'"' => out.extend_from_slice(&[b'\\', *byte]),
             0x20..=0x7e => out.push(*byte),

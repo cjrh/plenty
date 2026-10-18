@@ -14,24 +14,30 @@ from std.http.server import Exchange, Report
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+pub enum Route:
+    Small
+    Large
+    Echo
+    Stop
+
 pub class Bench:
     pub stop: CancellationToken
     pub small: Bytes
     pub large: Bytes
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
-        route = exchange.route
-        if route == 0:
-            exchange.send(200, "text/plain", &self.small)?
-        elif route == 1:
-            exchange.send(200, "application/octet-stream", &self.large)?
-        elif route == 2:
-            mut body = std.bytes.empty()?
-            exchange.read_all(&mut body)?
-            exchange.send(200, "application/octet-stream", &body)?
-        else:
-            exchange.send_text(200, "stopping")?
-            self.stop.cancel()
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        match route:
+            case Route.Small:
+                exchange.send(200, "text/plain", &self.small)?
+            case Route.Large:
+                exchange.send(200, "application/octet-stream", &self.large)?
+            case Route.Echo:
+                mut body = std.bytes.empty()?
+                exchange.read_all(&mut body)?
+                exchange.send(200, "application/octet-stream", &body)?
+            case Route.Stop:
+                exchange.send_text(200, "stopping")?
+                self.stop.cancel()
         Ok(())
 
 def setting(name: &str, fallback: i64) -> Result[i64, Failure]:
@@ -46,11 +52,11 @@ def setting(name: &str, fallback: i64) -> Result[i64, Failure]:
             Ok(fallback)
 
 def main() -> Result[(), Failure]:
-    mut table = std.http.server.router()?
-    table.add("GET", "/", 0)?
-    table.add("GET", "/16k", 1)?
-    table.add("POST", "/echo", 2)?
-    table.add("GET", "/stop", 3)?
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/", Route.Small)?
+    table.add("GET", "/16k", Route.Large)?
+    table.add("POST", "/echo", Route.Echo)?
+    table.add("GET", "/stop", Route.Stop)?
     mut large = std.bytes.with_capacity(16384)?
     large.resize(16384, 120u8)?
     stop = CancellationToken()?

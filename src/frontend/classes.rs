@@ -35,7 +35,7 @@ impl ClassDecl {
 /// A copy of `method` without its body. Written out field by field because
 /// `Function { body: Vec::new(), ..method.clone() }` copies the body only to
 /// drop it.
-fn header(method: &Function) -> Function {
+pub(super) fn header(method: &Function) -> Function {
     Function {
         once: method.once,
         captures: method.captures.clone(),
@@ -215,7 +215,11 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                         Statement::SetIndex {
                             target: expression(
                                 at,
-                                Expression::Member(Box::new(name(at, "self")), field.clone()),
+                                Expression::Member(
+                                    Box::new(name(at, "self")),
+                                    field.clone(),
+                                    Pos::default(),
+                                ),
                             ),
                             value: name(at, field),
                         },
@@ -387,18 +391,18 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
         fn expr(&self, e: &Expr, initialized: &HashSet<String>) -> Result<()> {
             match &e.kind {
                 Expression::Name(n) if n == "self" => self.complete(initialized, &e.at)?,
-                Expression::Member(base, field) if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") => {
+                Expression::Member(base, field, _) if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") => {
                     if !initialized.contains(field) {
                         return Err(e.at.error(format!("field `{field}` is not initialized")));
                     }
                 }
-                Expression::Member(a, _)
+                Expression::Member(a, _, _)
                 | Expression::NamedArgument(_, a)
                 | Expression::Group(a)
                 | Expression::Unary(_, a)
                 | Expression::Try(a) => self.expr(a, initialized)?,
-                Expression::Method(a, _, args)
-                | Expression::GenericMethod(a, _, _, args)
+                Expression::Method(a, _, args, _)
+                | Expression::GenericMethod(a, _, _, args, _)
                 | Expression::Invoke(a, args) => {
                     self.expr(a, initialized)?;
                     for arg in args {
@@ -463,7 +467,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
             Ok(())
         }
         fn target(&self, target: &Expr, set: &mut HashSet<String>) -> Result<()> {
-            if let Expression::Member(base, field) = &target.kind {
+            if let Expression::Member(base, field, _) = &target.kind {
                 if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") {
                     if !self.ty.fields.iter().any(|(n, _)| n == field) {
                         return Err(target.at.error(format!("unknown field `{field}`")));
@@ -704,7 +708,7 @@ impl Lower<'_> {
         ops[end - call..].rotate_left(call);
     }
     pub(super) fn field(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
-        if let Expression::Member(base, name) = &e.kind {
+        if let Expression::Member(base, name, _) = &e.kind {
             if self.place_type(base) == Some(Ty::File) {
                 if name != "closed" {
                     return Err(e.at.error(format!("unknown File property `{name}`")));
@@ -722,13 +726,16 @@ impl Lower<'_> {
             ops.push(Op::ReadRef((*ty).clone()));
             return Ok(((*ty).clone(), vec![loan]));
         }
-        let Expression::Member(base, name) = &e.kind else {
+        let Expression::Member(base, name, _) = &e.kind else {
             unreachable!()
         };
         let (ty, loans) = self.observe(base, ops)?;
         let Ty::Class(class) = ty else {
             return Err(e.at.error("field access requires a class instance"));
         };
+        if let Expression::Member(_, _, pos) = &e.kind {
+            super::ide::refer_member(&e.at, *pos, name, super::ide::field_key(&class.name, name));
+        }
         let index = field_index(&class, name, &e.at)?;
         modules::check_member(self.access, &class.name, name, &e.at)?;
         let ty = class.get().fields[index].1.clone();
@@ -741,6 +748,7 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        self.ide_member(target);
         let ty = self.place_type(target).ok_or_else(|| {
             target
                 .at
@@ -831,7 +839,7 @@ impl Lower<'_> {
                 t if self.reference_binding(base) => Some(t),
                 _ => None,
             },
-            Expression::Member(base, n) => {
+            Expression::Member(base, n, _) => {
                 let Ty::Class(t) = unbox(self.place_type(base)?) else {
                     return None;
                 };
@@ -847,7 +855,7 @@ impl Lower<'_> {
     pub(super) fn class_method(
         &mut self,
         base: &Expr,
-        class: crate::nominal::Nominal<ClassType>,
+        owner: &str,
         name: &str,
         types: Option<&[TypeRef]>,
         args: &[Expr],
@@ -856,9 +864,10 @@ impl Lower<'_> {
         if matches!(name, "__init__" | "__del__" | "__new__") {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
         }
-        let callee = method(&class.name, name);
+        let callee = method(owner, name);
+        super::ide::method_call(&base.at, name, &callee);
         self.sync_data()?;
-        modules::check_member(self.access, &class.name, name, &base.at)?;
+        modules::check_member(self.access, owner, name, &base.at)?;
         if let Some(template) = self.generics.templates.get(&callee) {
             let receiver = Expr {
                 at: base.at.clone(),
@@ -878,10 +887,7 @@ impl Lower<'_> {
         let sig = self
             .sigs
             .get(&callee)
-            .ok_or_else(|| {
-                base.at
-                    .error(format!("unknown method `{name}` on {}", class.name))
-            })?
+            .ok_or_else(|| base.at.error(format!("unknown method `{name}` on {owner}")))?
             .clone();
         let receiver = Expr {
             at: base.at.clone(),
@@ -937,8 +943,10 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if let Some(Ty::Class(class)) = self.place_type(base).map(unbox) {
-            return self.class_method(base, class, name, Some(types), args, ops);
+        if let Some(ty) = self.place_type(base).map(unbox) {
+            if let Some(owner) = method_owner(&ty) {
+                return self.class_method(base, owner, name, Some(types), args, ops);
+            }
         }
         let observed = self.observe(base, ops)?;
         self.temporary_class_method(base, name, Some(types), args, observed, ops)
@@ -954,8 +962,10 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         let (ty, loans) = observed;
-        let Ty::Class(class) = &ty else {
-            return Err(base.at.error("generic methods require a class receiver"));
+        let Some(owner) = method_owner(&ty) else {
+            return Err(base
+                .at
+                .error("generic methods require a class or enum receiver"));
         };
         // `observe` may already hold the temporary owner in a slot and push a
         // view of it; borrow that owner rather than storing a second copy.
@@ -989,7 +999,7 @@ impl Lower<'_> {
             at: base.at.clone(),
             kind: Expression::Name(receiver.clone()),
         };
-        let result = self.class_method(&expr, class.clone(), name, types, args, ops)?;
+        let result = self.class_method(&expr, owner, name, types, args, ops)?;
         if matches!(result, Some(Ty::Ref(..))) {
             return Err(base
                 .at
@@ -999,6 +1009,24 @@ impl Lower<'_> {
         self.expression_temps.push(slot);
         Self::end_reads(loans, ops);
         Ok(result)
+    }
+}
+
+pub(super) fn method_owner(ty: &Ty) -> Option<&str> {
+    match ty {
+        Ty::Class(class) => Some(&class.name),
+        Ty::Enum(enumeration) => Some(&enumeration.name),
+        _ => None,
+    }
+}
+
+/// Option/Result retain their intrinsic methods; user data types dispatch to
+/// their declared methods before similarly named collection operations.
+pub(super) fn inherent_receiver(ty: &Ty) -> bool {
+    match ty {
+        Ty::Class(_) => true,
+        Ty::Enum(enumeration) => !enumeration.is_option() && !enumeration.is_result(),
+        _ => false,
     }
 }
 

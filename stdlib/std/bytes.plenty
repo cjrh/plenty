@@ -342,6 +342,10 @@ pub def from_list(values: &list[u8]) -> Result[Bytes, BytesError]:
 pub def from_text(text: &str) -> Result[Bytes, BytesError]:
     Ok(Bytes(allocated(__bytes_from_text(text))?))
 
+# An owned, growable copy of a `b"..."` literal.
+pub def from_bytes(value: bytes) -> Result[Bytes, BytesError]:
+    Ok(Bytes(allocated(__bytes_from_static(value))?))
+
 # std.crypto's hasher states, behind a `Bytes` that byte operations see as
 # empty. Import std.crypto instead.
 pub def crypto_state(kind: u8) -> Result[Bytes, BytesError]:

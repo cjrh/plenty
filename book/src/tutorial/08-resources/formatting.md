@@ -53,6 +53,40 @@ ready
 Label("ready")
 ```
 
+Enums use the same methods. Match the shared receiver to format a payload
+without consuming it:
+
+```plenty
+import std.fmt
+from std.fmt import Formatter, FormatError
+
+pub enum ReadError:
+    Missing
+    Invalid(i64)
+
+    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        match self:
+            case ReadError.Missing:
+                out.text("no reading")
+            case ReadError.Invalid(line):
+                out.text("invalid reading on line ")?
+                out.integer(*line, 0)
+
+def main() -> Result[(), FormatError | IoError]:
+    error = ReadError.Invalid(12)
+    print(std.fmt.to_string(&error, 80, 8)?)?
+    print(std.fmt.to_string(&error, 80, 8)?)?
+    Ok(())
+```
+
+```output
+invalid reading on line 12
+invalid reading on line 12
+```
+
+`std.fmt` calls this method explicitly. Returning the enum from `main` still
+uses the [structural entrypoint report](../../design/toolchain/01-building/entry-report.md).
+
 To stream, construct `std.fmt.formatter(writer, scratch, max_bytes, max_depth)`
 with a [`std.io` writer](26-byte-streams.md) and initialized `Bytes` scratch of at least
 32 bytes. Provision scratch and sink capacity before entering an allocation-free

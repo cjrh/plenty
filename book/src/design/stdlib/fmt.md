@@ -76,7 +76,7 @@ spelling of any value `str.repr` accepts, which allocates a temporary string.
 
 ## Static user contracts and aggregates
 
-A public type opts in by providing either or both public methods:
+A public class or enum opts in by providing either or both public methods:
 
 ```text
 pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
@@ -92,6 +92,9 @@ language's monomorphic protocol requirements. Missing/private methods, wrong
 signatures, moves, conflicting loans and worker effects get ordinary compiler
 diagnostics. `to_string`/`to_debug` use these user methods; primitive scalars use
 the explicit methods in the table instead of acquiring hidden methods.
+An enum method can match its borrowed receiver to render the active payload.
+These methods do not change builtin printing or entrypoint error reports, and
+anonymous sums do not automatically forward them to members.
 
 `list_with(&values, &mut out, render)` writes `[a, b]` using a statically typed
 callback `(&T, &mut Formatter[W]) -> Result[(), FormatError]` for each borrowed
