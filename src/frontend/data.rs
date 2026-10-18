@@ -691,7 +691,7 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
     }
     for bound in params.iter().filter_map(|(_, b)| b.as_ref()) {
         if !(generics::numeric_bound(bound).is_some() && bound.args.is_empty()
-            || generics::callable_bound(bound) && !bound.args.is_empty())
+            || generics::callable_bound(bound))
         {
             return Err(bound.at.error(
                 "generic data constraints currently require IntType, FloatType, Callable, or OnceCallable",

@@ -48,7 +48,7 @@ fn constraints_are_checked_for_explicit_types_unused_declarations_and_call_modes
         ("class Bad[F: Callable[[Missing], i64]]:\n    callback: F\n", "Missing"),
         ("enum Bad[F: Callable[[], Missing]]:\n    Run(F)\n", "Missing"),
         ("class Bad[F: Callable[[i64], i64]]:\n    callback: F\nf = def once() -> i64:\n    1\nx = Bad(f).unwrap()\n", "does not satisfy Callable"),
-        ("class Bad[F: Callable[i64]]:\n    callback: F\n", "expected `[`"),
+        ("class Bad[F: Callable[i64]]:\n    callback: F\n", "use Callable[[parameter types], return type]"),
         ("class Bad[F: Callable[[Bad[F]], i64]]:\n    callback: F\ntype Invalid = Bad[i64]\n", "does not satisfy Callable"),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();

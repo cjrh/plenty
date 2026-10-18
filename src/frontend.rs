@@ -1297,8 +1297,11 @@ impl Parser {
                     name.as_str(),
                     "Callable" | "BoxedCallable" | "Closure" | "OnceClosure" | "OnceCallable"
                 ) {
-                    self.expect("[")?;
-                    self.expect("[")?;
+                    if !(self.eat("[") && self.eat("[")) {
+                        return Err(self
+                            .peek()
+                            .error(format!("use {name}[[parameter types], return type]")));
+                    }
                     let mut args = Vec::new();
                     while !self.eat("]") {
                         args.push(self.ty()?);
