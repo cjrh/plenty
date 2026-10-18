@@ -93,18 +93,23 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
             for capture in &function.captures {
                 name(&capture.name, &e.at, forbidden)?;
             }
+            // Defaults are written inside the parameter brackets, where
+            // `inline_body` admits only a one-expression body; statements,
+            // including `match`, `for`, and `with`, cannot appear here.
+            let [Stmt {
+                kind: Statement::Expr(body),
+                ..
+            }] = function.body.as_slice()
+            else {
+                unreachable!("an anonymous function inside brackets has one expression body")
+            };
             let mut inner = forbidden.clone();
             for (name, _) in &function.inputs {
                 inner.remove(name);
             }
-            block(&function.body, &mut inner)?;
+            expression(body, &inner)?;
         }
-        Expression::Match(value, cases) => {
-            expression(value, forbidden)?;
-            for case in cases {
-                block(&case.body, &mut forbidden.clone())?;
-            }
-        }
+        Expression::Match(..) => unreachable!("a match block is a statement's whole value"),
         Expression::ClassNew(_)
         | Expression::Type(_)
         | Expression::Number(_)
@@ -112,83 +117,6 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
         | Expression::Bytes(_)
         | Expression::Bool(_)
         | Expression::Unit => {}
-    }
-    Ok(())
-}
-
-fn block(body: &[Stmt], forbidden: &mut HashSet<String>) -> Result<()> {
-    for stmt in body {
-        match &stmt.kind {
-            Statement::Expr(e) | Statement::Yield(e) => expression(e, forbidden)?,
-            Statement::Return(value) => {
-                if let Some(value) = value {
-                    expression(value, forbidden)?;
-                }
-            }
-            Statement::Assign { name, value, .. } => {
-                expression(value, forbidden)?;
-                forbidden.remove(name);
-            }
-            Statement::Unpack { names, value, .. } => {
-                expression(value, forbidden)?;
-                for name in names {
-                    forbidden.remove(name);
-                }
-            }
-            Statement::SetIndex { target, value } | Statement::Augment { target, value, .. } => {
-                expression(target, forbidden)?;
-                expression(value, forbidden)?;
-            }
-            Statement::If {
-                condition,
-                yes,
-                elifs,
-                no,
-            } => {
-                expression(condition, forbidden)?;
-                block(yes, &mut forbidden.clone())?;
-                for elif in elifs {
-                    expression(&elif.condition, forbidden)?;
-                    block(&elif.body, &mut forbidden.clone())?;
-                }
-                block(no, &mut forbidden.clone())?;
-            }
-            Statement::While { condition, body } => {
-                expression(condition, forbidden)?;
-                block(body, &mut forbidden.clone())?;
-            }
-            Statement::For {
-                name,
-                iterable,
-                body,
-            } => {
-                expression(iterable, forbidden)?;
-                let mut inner = forbidden.clone();
-                for name in name {
-                    inner.remove(name);
-                }
-                block(body, &mut inner)?;
-            }
-            Statement::With {
-                manager,
-                name,
-                body,
-            } => {
-                expression(manager, forbidden)?;
-                let mut inner = forbidden.clone();
-                if let Some(name) = name {
-                    inner.remove(name);
-                }
-                block(body, &mut inner)?;
-            }
-            Statement::Match { value, cases } => {
-                expression(value, forbidden)?;
-                for case in cases {
-                    block(&case.body, &mut forbidden.clone())?;
-                }
-            }
-            Statement::Pass | Statement::Break | Statement::Continue => {}
-        }
     }
     Ok(())
 }
@@ -234,5 +162,15 @@ mod tests {
     fn defaults_do_not_capture_a_shadowing_comprehension_variable() {
         // A comprehension's own binding is not a dependency on the parameter.
         compile("def f(a: i64, values: list[i64] = [a for a in range(2)]?) -> Result[i64, AllocError]:\n    drop(values)\n    Ok(a)\ndef main() -> ():\n    pass\n", &mut Heap::default()).unwrap();
+    }
+
+    #[test]
+    fn anonymous_function_defaults_check_their_one_expression_body() {
+        // The anonymous function's own parameter shadows the outer one.
+        compile("def f(a: i64, g: Callable[[i64], i64] = def(a: i64) -> i64: a + 1) -> i64:\n    g(a)\ndef main() -> ():\n    pass\n", &mut Heap::default()).unwrap();
+        assert!(diagnostic(
+            "def f(a: i64, g: Callable[[i64], i64] = def(x: i64) -> i64: x + a) -> i64:\n    g(a)\n"
+        )
+        .contains("default expressions cannot reference parameter"));
     }
 }
