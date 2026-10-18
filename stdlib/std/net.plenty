@@ -243,9 +243,10 @@ def number(data: &list[u8], at: i64, count: i64) -> u64:
 
 # The address encoded at `at`, and the offset after it.
 def decoded(data: &list[u8], at: i64) -> Result[(SocketAddress, i64), NetError]:
-    if at < len(data):
+    # Every entry is at least v4_size bytes, so a shorter tail cannot hold the tag and port.
+    if at + v4_size <= len(data):
         port = u16(number(data, at + 1, 2))
-        if data[at] == 4u8 and at + v4_size <= len(data):
+        if data[at] == 4u8:
             ip = IpAddress.V4(u32(number(data, at + 3, 4)))
             return Ok((SocketAddress(ip, port, 0u32), at + v4_size))
         if data[at] == 6u8 and at + v6_size <= len(data):
