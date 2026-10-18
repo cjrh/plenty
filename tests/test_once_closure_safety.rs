@@ -115,6 +115,23 @@ def main() -> Result[(), Failure]:
 }
 
 #[test]
+fn reference_and_yield_errors_name_capturing_and_one_shot_closures() {
+    for (header, body) in [
+        ("def once (x: &i64) -> &i64:", "x"),
+        ("def once () -> i64:", "yield 1"),
+        ("def [n](x: &i64) -> &i64:", "x"),
+    ] {
+        let source =
+            format!("def main() -> ():\n    n = 1\n    f = {header}\n        {body}\n    pass\n");
+        let error = check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains("capturing or one-shot closures cannot return references or yield yet"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
 fn callable_bounds_validate_shape_and_explain_storage_constraints() {
     for bound in ["Callable[[()], i64]", "OnceCallable[[()], i64]"] {
         let source =

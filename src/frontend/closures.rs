@@ -74,7 +74,9 @@ impl Lower<'_> {
         };
         callables::validate(&signature, at)?;
         if matches!(signature.output, Some(Ty::Ref(..))) || generators::yields(&function.body) {
-            return Err(at.error("capturing closures cannot return references or yield yet"));
+            return Err(
+                at.error("capturing or one-shot closures cannot return references or yield yet")
+            );
         }
         let closure = Arc::new(
             ClosureType::new(

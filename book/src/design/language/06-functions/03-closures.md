@@ -64,6 +64,6 @@ retains its transitive loans.
 
 Calls can target temporaries, such as `make(3)(4)` or `wrapped.unwrap()(4)`;
 the callee survives the full expression and cleans up if an argument propagates.
-Capturing closures cannot return references or yield. Environment nesting is
-limited to 64 levels and must fit the native stack layout limit. Closure calls
-do not perform native tail transfers.
+Capturing and one-shot closures cannot return references or yield.
+Environment nesting is limited to 64 levels and must fit the native stack
+layout limit. Closure calls do not perform native tail transfers.
