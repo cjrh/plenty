@@ -37,7 +37,8 @@ built. A `?` in a field belongs to the enclosing function: on `Err` or
 formatting failure, so `f"{parse(s)?}"?` has two independent `?`s.
 
 A field cannot contain a backslash, a comment, or the quote character that
-encloses the f-string. A field in a triple-quoted f-string may span lines.
+encloses the f-string. A field in a triple-quoted f-string may span lines;
+a line break in its spec is a character of the spec, such as a fill.
 
 Only the `f` prefix starts an f-string. `F"..."` and the combinations `bf`/`fb`
 are errors: build text with an f-string, then convert it to bytes.

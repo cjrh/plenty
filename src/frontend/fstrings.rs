@@ -368,8 +368,12 @@ impl Lexer<'_> {
                         fields.push(inner);
                         text.push_str("{}");
                     }
-                    Some('\n') => return Err(unterminated()),
-                    Some(c) if c == quote => return Err(unterminated()),
+                    Some('\n') if !triple => return Err(unterminated()),
+                    Some(c) if c == quote => {
+                        return Err(open.error(
+                            "unterminated f-string field; expected `}`, and a field cannot reuse the enclosing quote",
+                        ))
+                    }
                     Some(c) => {
                         self.advance();
                         text.push(c);

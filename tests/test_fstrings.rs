@@ -94,6 +94,8 @@ def main() -> Result[(), Failure]:
     print(f"""two
 {p.y
 }lines"""?)?
+    print(f"""{p.x:
+>3}|"""?)?
     print(f""?, f'plain'?)?
     Ok(())
 "#),
@@ -102,6 +104,9 @@ def main() -> Result[(), Failure]:
 [10, 20] Point(x=3, y=-4) Option[i64].Some(3) 0.1 1e16 -0.0 18,446,744,073,709,551,615 -9_223_372_036_854_775_808
 two
 -4lines
+
+
+3|
  plain"
     );
 }
@@ -301,6 +306,10 @@ fn template_syntax_errors_are_located() {
         ("print(f\"{x\"?)?", "unterminated f-string field"),
         (
             "print(f\"{\"q\"}\"?)?",
+            "a field cannot reuse the enclosing quote",
+        ),
+        (
+            "print(f\"{x:\"}\"?)?",
             "a field cannot reuse the enclosing quote",
         ),
         ("print(f\"{x:.}\"?)?", "expected digits after `.`"),
