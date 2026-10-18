@@ -287,6 +287,7 @@ pub fn compile_legacy_source_to_executable_with_options(
 /// [`TEST_HOOKS`], which wraps the C library's allocation and file calls, and
 /// std's `__test_fault` reaches it. Every other executable is linked exactly
 /// as without the hooks.
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn compile_ops_to_executable(
     ops: Vec<Op>,
     heap: &Heap,
@@ -481,6 +482,7 @@ pub(crate) fn emit_library_object(
     )
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn emit_object(
     ops: Vec<Op>,
     heap: &Heap,
@@ -525,6 +527,7 @@ fn object_bytes(
 /// Every definition of the object, not yet serialized. Takes the program to
 /// release each function's operations once its code is built, rather than hold
 /// them all until the last function is (issue #54).
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn object_module(
     mut ops: Vec<Op>,
     heap: &Heap,
@@ -1039,6 +1042,7 @@ fn string_literal_bytes(s: &str) -> Vec<u8> {
     bytes
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn declare_str_data(
     ops: &[Op],
     heap: &Heap,
@@ -1264,6 +1268,7 @@ fn needs_local_addresses(ops: &[Op]) -> bool {
     })
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn build_user_function(
     name: &str,
     body: &[Op],

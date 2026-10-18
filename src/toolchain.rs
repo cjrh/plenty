@@ -114,6 +114,7 @@ impl Default for CompileOptions {
     }
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn link(
     object: &Path,
     runtime: &Path,

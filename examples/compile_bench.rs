@@ -2,8 +2,16 @@
 //! cargo run --release --example compile_bench -- 1000 10
 //! The arguments are the generated unit count and the repetitions.
 //! Add --aot to also measure native emission, archive extraction, and linking.
+//! With `--features profile` and PLENTY_PROFILE=1, it also prints a phase
+//! profile; see book/src/development/profiling.md.
 use std::error::Error;
 use std::time::{Duration, Instant};
+
+// With `profile-alloc`, every allocation is counted against the measured
+// function that makes it (issue #150).
+#[cfg(feature = "profile-alloc")]
+#[global_allocator]
+static ALLOCATOR: hotpath::CountingAllocator = hotpath::CountingAllocator::new();
 
 fn measure(
     mut action: impl FnMut() -> Result<(), Box<dyn Error>>,
@@ -77,6 +85,8 @@ def work{i}(a: i64) -> Result[i64, Failure]:
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    #[cfg(feature = "profile")]
+    let _profile = plenty::profile::start();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let count: usize = args.first().map(|s| s.parse()).transpose()?.unwrap_or(1000);
     let repetitions: usize = args.get(1).map(|s| s.parse()).transpose()?.unwrap_or(10);

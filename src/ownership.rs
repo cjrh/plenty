@@ -292,6 +292,7 @@ struct Checker<'a> {
     futures: futures::Futures,
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) -> Result<()> {
     let checker = Checker {
         body: ops,

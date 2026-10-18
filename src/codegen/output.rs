@@ -132,6 +132,7 @@ impl Output {
         self.place(id, code, |_, _| Ok(()))
     }
 
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     pub(super) fn finish(self) -> cranelift_object::ObjectProduct {
         use cranelift_object::object::{elf, FileFlags};
         if let Some(cache) = &self.cache {
@@ -154,6 +155,7 @@ impl Output {
     /// Run `build` on each job across `workers` threads, placing the
     /// functions each job defines in job order. The first error in job order
     /// is returned, whichever thread hit an error first.
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     pub(super) fn build<J: Send>(
         &mut self,
         jobs: Vec<J>,
@@ -337,6 +339,7 @@ impl Worker {
 /// compilation would have: Cranelift keys on the function without its
 /// external names and applies this function's names to the cached result,
 /// and the IR's requested symbols were rebuilt with it ([`symbols`]).
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn compile(
     context: &mut Context,
     isa: &dyn TargetIsa,

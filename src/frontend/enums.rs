@@ -90,6 +90,7 @@ impl Parser {
 
 /// Reserve nominal identities before resolving transparent aliases. Definitions
 /// are finalized from a work queue after every alias is available.
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn resolve_types(
     aliases: &[TypeAlias],
     enums: &[EnumDecl],

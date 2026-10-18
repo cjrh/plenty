@@ -67,6 +67,7 @@ pub(super) type Signature = (Vec<Ty>, Type);
 /// Declares every function and validates every protocol. Also returns the
 /// resolved types of the functions queued in `Engine::pending`, in queue
 /// order, so that registering their signatures does not resolve them again.
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn prepare(
     mut functions: Vec<Function>,
     aliases: &TypeAliases,
