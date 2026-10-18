@@ -3621,9 +3621,6 @@ impl Lower<'_> {
                         ops,
                     );
                 }
-                if self.names.contains_key(name) {
-                    return Err(e.at.error(format!("binding `{name}` is not callable")));
-                }
                 if enums::prelude_variant(name) {
                     return self.prelude_constructor(name, Some(args), None, &e.at, ops);
                 }
