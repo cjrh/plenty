@@ -764,6 +764,29 @@ std.http.client.ClientError.InvalidRedirect"##,
     );
 }
 
+/// A `Location` fragment ends at the first `#`, even before a `?`, and is
+/// never sent; a fragment-only reference keeps the current path and query.
+#[test]
+fn redirect_fragments_are_dropped_before_the_query_is_split() {
+    runs(
+        SCRIPTED,
+        r##"
+def moved(location: &str) -> Result[str, Failure]:
+    Ok("HTTP/1.1 302 Found\r\nLocation: ".concat(location)?.concat("\r\nContent-Length: 0\r\n\r\n")?)
+
+def main() -> Result[(), Failure]:
+    never = CancellationToken()?
+    a = script([moved("/a#x?y")?, moved("/b?x#y")?, moved("#f?g")?, moved("?q#r?s")?, moved("//h/c#t?u")?, ok("done")?]?, True)?
+    mut client = scripted([a]?, hc.config()?)?
+    show(client.get("http://h/p?k=1", &later()?, &never))?
+    Ok(())
+"##,
+        r##"[connect http://h:80]
+GET /p?k=1 HTTP/1.1|Host: h||GET /a HTTP/1.1|Host: h||GET /b?x HTTP/1.1|Host: h||GET /b?x HTTP/1.1|Host: h||GET /b?q HTTP/1.1|Host: h||GET /c HTTP/1.1|Host: h||
+=> 200 http://h/c redirects=5 body=done"##,
+    );
+}
+
 /// Requests through an explicit proxy use absolute-form targets on one pooled
 /// proxy connection, and only the proxy sees `Proxy-Authorization`.
 #[test]
