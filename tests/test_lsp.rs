@@ -170,6 +170,19 @@ fn a_body_that_is_not_json_gets_a_parse_error_and_the_session_continues() {
 }
 
 #[test]
+fn a_request_after_shutdown_gets_an_invalid_request_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut client = Client::start(&dir.path().join("cache"));
+    client.request("shutdown", Value::Null);
+    client.send(json!({"jsonrpc": "2.0", "id": 99, "method": "initialize", "params": {}}));
+    let error = client.receive();
+    assert_eq!(error["id"], 99, "{error}");
+    assert_eq!(error["error"]["code"], -32600, "{error}");
+    client.notify("exit", Value::Null);
+    assert!(client.child.wait().unwrap().success());
+}
+
+#[test]
 fn a_header_without_content_length_ends_the_session() {
     let dir = tempfile::tempdir().unwrap();
     let mut client = Client::start(&dir.path().join("cache"));
