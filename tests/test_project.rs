@@ -718,6 +718,44 @@ fn git_subdirectories_share_one_commit_per_package() {
     fails(&app, &["check"], "leaves its repository");
 }
 
+// A cycle through Git subdirectories is rejected like a local path cycle.
+#[test]
+fn git_subdirectory_cycles_are_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("mono");
+    let mono = url(&repo);
+    let lib = ("src/lib.plenty", "pub def one() -> i64:\n    1\n");
+    commit(
+        &repo,
+        &[
+            (
+                "a/plenty.toml",
+                &library_manifest("a", "1.0.0", "b = { path = \"../b\" }\n"),
+            ),
+            ("a/src/lib.plenty", lib.1),
+            (
+                "b/plenty.toml",
+                &library_manifest(
+                    "b",
+                    "1.0.0",
+                    &format!("a = {{ git = \"{mono}\", subdir = \"a\", tag = \"v1\" }}\n"),
+                ),
+            ),
+            ("b/src/lib.plenty", lib.1),
+        ],
+    );
+    git(&repo, &["tag", "v1"]);
+    package(
+        dir.path(),
+        "app",
+        &format!("a = {{ git = \"{mono}\", subdir = \"a\", tag = \"v1\" }}\n"),
+        &[lib],
+    );
+    let app = dir.path().join("app");
+    fails(&app, &["check"], "dependency cycle: app -> a -> b -> a");
+    assert!(!app.join("plenty.lock").exists());
+}
+
 #[test]
 fn add_edits_the_manifest_and_lockfile() {
     let dir = tempfile::tempdir().unwrap();
