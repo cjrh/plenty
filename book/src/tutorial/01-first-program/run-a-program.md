@@ -15,7 +15,8 @@ Hello, Plenty!
 ```
 
 From the repository, run `cargo run -- hello.plenty`. If you have an installed
-compiler, use `plenty hello.plenty`. A run compiles your file to a native
+compiler, such as a [release archive](../../design/toolchain/01-building/installing.md),
+use `plenty hello.plenty`. A run compiles your file to a native
 executable and then runs it.
 
 Execution begins at `main`. Indentation groups its statements; use four spaces.

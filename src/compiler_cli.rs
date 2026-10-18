@@ -19,6 +19,7 @@ Usage: {0} FILE
        {0} --verify-interface LIBRARY INTERFACE
        {0} --emit-runtime DIR
        {0} --print-target
+       {0} -V | --version
        {0} -h | --help
 
 FILE: compile to a temporary executable and run it.
@@ -41,6 +42,7 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --extract-interface: read embedded .plentyi metadata without executing library code.
 --verify-interface: check a generated interface against a binary before linking.
 --emit-runtime: extract the matching runtime archive and native link arguments.
+--version: print the compiler's version and target.
 --linker PATH: cc-compatible linker driver (default: cc on PATH).
 --link-arg ARG: pass one extra driver argument verbatim; may be repeated.
 --target TRIPLE: require this target to match the supported packaged runtime.
@@ -250,6 +252,18 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                 root.as_deref(),
                 &library,
             )?;
+        }
+        [flag]
+            if matches!(flag.as_str(), "-V" | "--version")
+                && !legacy
+                && root.is_none()
+                && !link_options =>
+        {
+            println!(
+                "{program} {} ({})",
+                env!("CARGO_PKG_VERSION"),
+                plenty::native_target()
+            );
         }
         [flag] if flag == "--print-target" && !legacy && root.is_none() && !link_options => {
             println!("{} (CPU baseline: x86-64/SSE2)", plenty::native_target());

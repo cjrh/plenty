@@ -1,0 +1,4 @@
+# The runtime is embedded in the compiler and never released on its own; its
+# version is independent of Plenty's. See book/src/development/releasing.md.
+release = false
+shared-version = false

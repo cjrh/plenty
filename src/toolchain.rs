@@ -131,8 +131,16 @@ pub(crate) fn link(
         .arg(output)
         .output()
         .map_err(|error| {
+            // Release users have no Rust toolchain, so name what to install.
+            let hint = if error.kind() == std::io::ErrorKind::NotFound {
+                "; Plenty links programs with a C compiler driver: install gcc or clang \
+                 and the C library development files, or select a cc-compatible driver \
+                 with --linker"
+            } else {
+                "; select a cc-compatible driver with --linker"
+            };
             format!(
-                "failed to invoke linker driver `{}`: {error}; select a cc-compatible driver with --linker",
+                "failed to invoke linker driver `{}`: {error}{hint}",
                 options.linker.display()
             )
         })?;

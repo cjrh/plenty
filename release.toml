@@ -1,0 +1,27 @@
+# cargo-release configuration (tested with cargo-release 1.1.6). See
+# book/src/development/releasing.md.
+#
+#   cargo release patch            # dry run: shows what would happen
+#   cargo release patch --execute  # bump, commit, tag vX.Y.Z, push
+#
+# The pushed tag starts .github/workflows/release.yml, which builds, tests,
+# and publishes the GitHub Release. Only the `plenty` package is released:
+# plenty-runtime is embedded in the compiler, keeps its own version, and is
+# excluded in plenty-runtime/release.toml.
+
+# Plenty ships through GitHub Releases only, never crates.io.
+publish = false
+
+# Release only from main, in a clean checkout (cargo-release refuses a
+# dirty tree), with one vX.Y.Z tag per release.
+allow-branch = ["main"]
+# The released package set is `plenty` alone; sharing its version lets the
+# workspace-level commit message name it.
+shared-version = true
+tag-name = "v{{version}}"
+tag-message = "Plenty {{version}}"
+pre-release-commit-message = "Release Plenty {{version}}"
+
+# Push the release commit and its tag together.
+push = true
+push-remote = "origin"

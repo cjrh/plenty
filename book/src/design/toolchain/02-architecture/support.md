@@ -19,7 +19,7 @@ restrictions live with their contracts.
 | I/O | [Text/byte streams, raw Unix paths, and owned UTF-8 files](../../facilities/02-io/index.md); direct file iteration unsupported |
 | Concurrency | [Threads, channels, pools, futures, and parallel operations](../../facilities/03-concurrency/index.md); certified worker effects, serial ordinary loops |
 | Interoperability | [Trusted C imports, exports, metadata, and runtime loading](../../facilities/04-interop/index.md) |
-| Native toolchain | [Commands and artifacts](../01-building/index.md); `x86_64-unknown-linux-gnu` only |
+| Native toolchain | [Commands and artifacts](../01-building/index.md); `x86_64-unknown-linux-gnu` only; [release archives](../01-building/installing.md) for glibc 2.28 or later, linking with the host `cc` |
 
 There is no interpreter, REPL, JIT, async/await, inheritance, dynamic attributes,
 or exception unwinding. Future work and priorities remain in the

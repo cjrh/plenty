@@ -2,6 +2,7 @@
 name = "plenty"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 # Integration tests are modules of one binary; see tests/integration.rs.
 autotests = false
 
