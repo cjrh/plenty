@@ -109,6 +109,14 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
     "def g() -> Generator[Generator[i64]]:\n    yield count(1)",
     "cannot yield generators"
 )]
+#[case(
+    "def g() -> Generator[Closure[[], i64]]:\n    yield (def() -> i64: 1)",
+    "generators cannot yield closures"
+)]
+#[case(
+    "def g(x: &i64) -> Generator[&i64]:\n    yield x",
+    "generators cannot yield references"
+)]
 #[case("a = count(2)\nb = a\nlist(a).unwrap()", "use of moved binding `a`")]
 #[case(
     "def eat(g: Generator[i64]) -> ():\n    pass\na = count(2)\neat(a)\nlist(a).unwrap()",

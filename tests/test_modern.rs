@@ -141,6 +141,47 @@ fn unclosed_delimiter_reports_its_opening_position() {
     assert!(error.ends_with("2:14: unclosed `[`"), "{error}");
 }
 
+#[rstest]
+#[case(
+    "def main() -> ():\n    s = \"ab\\q\"\n",
+    "2:12: unsupported escape \\q"
+)]
+#[case(
+    "def main() -> ():\n    s = \"\"\"a\nbc \\q\"\"\"\n",
+    "3:4: unsupported escape \\q"
+)]
+#[case(
+    "def main() -> ():\n    s = f\"ab\\q\"\n",
+    "2:13: unsupported escape \\q"
+)]
+#[case(
+    "def main() -> ():\n    s = f\"\"\"a\nbc \\q\"\"\"\n",
+    "3:4: unsupported escape \\q"
+)]
+fn unsupported_escape_reports_the_backslash(#[case] source: &str, #[case] expected: &str) {
+    // Issue #194: the error pointed at the opening quote.
+    let error = plenty::check_source(source).unwrap_err().to_string();
+    assert!(error.ends_with(expected), "{error}");
+}
+
+#[test]
+fn duplicate_parameter_reports_the_duplicate_name() {
+    // Issue #198: the error pointed at the `:` after the name.
+    let source = "def f(x: i64, x: i64) -> i64:\n    x\n";
+    let error = plenty::check_source(source).unwrap_err().to_string();
+    assert!(error.ends_with("1:15: duplicate parameter"), "{error}");
+}
+
+#[rstest]
+#[case::duplicate("def f[T, T](x: T) -> T:\n    x\n", "1:10")]
+#[case::builtin("def f[i64](x: i64) -> i64:\n    x\n", "1:7")]
+fn bad_function_type_parameter_reports_the_parameter(#[case] source: &str, #[case] at: &str) {
+    // Issue #199: the error pointed at `def`.
+    let error = plenty::check_source(source).unwrap_err().to_string();
+    let expected = format!("{at}: duplicate or builtin type parameter");
+    assert!(error.ends_with(&expected), "{error}");
+}
+
 #[test]
 fn local_slot_limit_is_a_diagnostic() {
     let source = (0..257)

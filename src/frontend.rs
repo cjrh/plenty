@@ -392,6 +392,12 @@ impl<'a> Lexer<'a> {
                         if ch == '\n' && !triple {
                             return Err(start.error("newline in a quoted string"));
                         }
+                        let here = Token {
+                            kind: Kind::Eof,
+                            line: self.line,
+                            column: self.column,
+                            source: None,
+                        };
                         self.pos += ch.len_utf8();
                         self.column += 1;
                         if ch == '\\' {
@@ -402,7 +408,7 @@ impl<'a> Lexer<'a> {
                             self.pos += escaped.len_utf8();
                             self.column += 1;
                             text.push(escape(escaped).ok_or_else(|| {
-                                start.error(format!("unsupported escape \\{escaped}"))
+                                here.error(format!("unsupported escape \\{escaped}"))
                             })?);
                         } else {
                             if ch == '\n' {
@@ -609,12 +615,7 @@ impl TypeRef {
                 .iter()
                 .map(|t| t.resolve(aliases).map(|t| t.unwrap_or(Ty::Unit)))
                 .collect::<Result<Vec<_>>>()?;
-            if members
-                .iter()
-                .map(|t| t.identity_name().len())
-                .sum::<usize>()
-                > 16_384
-            {
+            if Ty::identity_names_exceed_limit(&members) {
                 return Err(self
                     .at
                     .error("concrete type name exceeds the implementation limit"));
@@ -689,12 +690,7 @@ impl TypeRef {
             if let Some(barrier) = fields.iter().find_map(Ty::storage_barrier) {
                 return Err(self.at.error(barrier.message("tuples")));
             }
-            if fields
-                .iter()
-                .map(|t| t.identity_name().len())
-                .sum::<usize>()
-                > 16_384
-            {
+            if Ty::identity_names_exceed_limit(&fields) {
                 return Err(self
                     .at
                     .error("concrete type name exceeds the implementation limit"));
@@ -730,7 +726,16 @@ impl TypeRef {
                 .resolve(aliases)?
                 .ok_or_else(|| self.at.error("generator elements cannot be unit"))?;
             if element.restricted_storage() {
-                return Err(self.at.error("generators cannot yield generators"));
+                // Closures stay rejected even when a heap owner could store
+                // them: generator expressions reject them too.
+                let subject = match &element {
+                    Ty::Generator(_) => "generators",
+                    Ty::Closure(_) => "closures",
+                    Ty::Ref(..) => "references",
+                    Ty::Task(_) => "scoped tasks",
+                    _ => "enums carrying references, generators, closures, or scoped tasks",
+                };
+                return Err(self.at.error(format!("generators cannot yield {subject}")));
             }
             return Ok(Some(crate::generator::ty(element, None)));
         }
@@ -770,21 +775,26 @@ impl TypeRef {
             }
             return Ok(Some(Ty::Channel(Arc::new(message), name == "Sender")));
         }
-        if matches!(
-            name.as_str(),
-            "Option"
-                | "Result"
-                | "SpawnError"
-                | "SendError"
-                | "SendTimeoutError"
-                | "Selected"
-                | "SubmitError"
-                | "ParallelError"
-        ) {
-            let count = if matches!(name.as_str(), "Result" | "Selected") {
-                2
-            } else {
-                1
+        // The constructor's arity fixes how many type arguments the name takes.
+        enum SumCtor {
+            One(fn(Ty) -> Ty),
+            Two(fn(Ty, Ty) -> Ty),
+        }
+        let sum_ctor = match name.as_str() {
+            "Option" => Some(SumCtor::One(crate::sum::option)),
+            "Result" => Some(SumCtor::Two(crate::sum::result)),
+            "SpawnError" => Some(SumCtor::One(crate::sum::spawn_error)),
+            "SendError" => Some(SumCtor::One(crate::sum::send_error)),
+            "SendTimeoutError" => Some(SumCtor::One(crate::sum::send_timeout_error)),
+            "Selected" => Some(SumCtor::Two(crate::sum::selected)),
+            "SubmitError" => Some(SumCtor::One(crate::sum::submit_error)),
+            "ParallelError" => Some(SumCtor::One(crate::sum::parallel_error)),
+            _ => None,
+        };
+        if let Some(ctor) = sum_ctor {
+            let count = match ctor {
+                SumCtor::One(_) => 1,
+                SumCtor::Two(_) => 2,
             };
             if self.args.len() != count {
                 return Err(self
@@ -796,7 +806,7 @@ impl TypeRef {
                 .iter()
                 .map(|t| Ok(t.resolve(aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<Vec<_>>>()?;
-            if args.iter().map(|t| t.identity_name().len()).sum::<usize>() > 16_384 {
+            if Ty::identity_names_exceed_limit(&args) {
                 return Err(self
                     .at
                     .error("concrete type name exceeds the implementation limit"));
@@ -806,22 +816,14 @@ impl TypeRef {
                     .at
                     .error("references cannot be stored in enum payloads"));
             }
-            return Ok(Some(if name == "Option" {
-                crate::sum::option(args[0].clone())
-            } else if name == "SpawnError" {
-                crate::sum::spawn_error(args[0].clone())
-            } else if name == "SendError" {
-                crate::sum::send_error(args[0].clone())
-            } else if name == "SendTimeoutError" {
-                crate::sum::send_timeout_error(args[0].clone())
-            } else if name == "Selected" {
-                crate::sum::selected(args[0].clone(), args[1].clone())
-            } else if name == "SubmitError" {
-                crate::sum::submit_error(args[0].clone())
-            } else if name == "ParallelError" {
-                crate::sum::parallel_error(args[0].clone())
-            } else {
-                crate::sum::result(args[0].clone(), args[1].clone())
+            let mut args = args.into_iter();
+            let mut next = || args.next().expect("argument count checked above");
+            return Ok(Some(match ctor {
+                SumCtor::One(make) => make(next()),
+                SumCtor::Two(make) => {
+                    let first = next();
+                    make(first, next())
+                }
             }));
         }
         if matches!(name.as_str(), "list" | "dict" | "set") {
@@ -1439,9 +1441,10 @@ impl Parser {
                 return Err(at.error("lifecycle methods cannot declare their own type parameters"));
             }
             loop {
+                let param_at = self.peek().clone();
                 let param = self.name()?;
                 if builtin(&param) || type_params.iter().any(|(n, _)| n == &param) {
-                    return Err(at.error("duplicate or builtin type parameter"));
+                    return Err(param_at.error("duplicate or builtin type parameter"));
                 }
                 let bound = if self.eat(":") {
                     Some(self.ty()?)
@@ -1466,7 +1469,7 @@ impl Parser {
                 return Err(at.error("a parameter cannot shadow a closure capture"));
             }
             if inputs.iter().any(|(n, _)| n == &param) {
-                return Err(self.peek().error("duplicate parameter"));
+                return Err(param_at.error("duplicate parameter"));
             }
             let ty = if let Some(class) =
                 class.filter(|_| param == "self" && inputs.is_empty() && !self.peek().is(":"))
@@ -3481,9 +3484,6 @@ impl Lower<'_> {
                     return self.call_value(&callee, args, ops);
                 }
                 if name == "print" {
-                    if self.names.contains_key(name) {
-                        return Err(e.at.error(format!("binding `{name}` is not callable")));
-                    }
                     let mut types = Vec::new();
                     let mut reads = Vec::new();
                     for argument in args {
@@ -3621,9 +3621,6 @@ impl Lower<'_> {
                         &e.at,
                         ops,
                     );
-                }
-                if self.names.contains_key(name) {
-                    return Err(e.at.error(format!("binding `{name}` is not callable")));
                 }
                 if enums::prelude_variant(name) {
                     return self.prelude_constructor(name, Some(args), None, &e.at, ops);

@@ -50,7 +50,7 @@ pub enum NumericOp {
     Pow,
     /// `F -> F`.
     Sqrt,
-    /// `F -> F`, or `F F -> F` for `Pow` and `Fmod`.
+    /// `F -> F`, or `F F -> F` for the binary `FloatOp`s (see `FloatOp::is_binary`).
     Float(FloatOp),
 }
 

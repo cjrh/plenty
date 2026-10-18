@@ -70,9 +70,6 @@ impl TlsOp {
         })
     }
 
-    /// Roots, configurations and sessions are byte storage owned by
-    /// `std.tls`. Failures are negative codes that `std.tls` names; transfers
-    /// return a byte count.
     /// The operand the primitive only reads bytes from, which a `Bytes`
     /// buffer or a `bytes` literal can supply.
     pub fn source(self) -> Option<usize> {
@@ -97,6 +94,9 @@ impl TlsOp {
         }
     }
 
+    /// Roots, configurations and sessions are byte storage owned by
+    /// `std.tls`. Failures are negative codes that `std.tls` names; transfers
+    /// return a byte count.
     pub fn signature(self) -> (Vec<Ty>, Ty) {
         let form = self.buffer_form();
         if form != self {

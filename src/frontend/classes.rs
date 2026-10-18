@@ -373,6 +373,14 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
     struct Check<'a> {
         ty: &'a ClassType,
     }
+    /// Fields initialized on every continuing branch; `None` when no branch continues.
+    fn join(mut sets: Vec<HashSet<String>>) -> Option<HashSet<String>> {
+        let mut merged = sets.pop()?;
+        for s in sets {
+            merged.retain(|n| s.contains(n));
+        }
+        Some(merged)
+    }
     impl Check<'_> {
         fn complete(&self, initialized: &HashSet<String>, at: &Token) -> Result<()> {
             let missing: Vec<_> = self
@@ -563,12 +571,9 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                             continuing.extend(self.block(&elif.body, set.clone())?);
                         }
                         continuing.extend(self.block(no, set.clone())?);
-                        let Some(mut merged) = continuing.pop() else {
+                        let Some(merged) = join(continuing) else {
                             return Ok(None);
                         };
-                        for s in continuing {
-                            merged.retain(|n| s.contains(n));
-                        }
                         set = merged;
                     }
                     Statement::While { condition, body } => {
@@ -597,12 +602,9 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                                 continuing.push(s);
                             }
                         }
-                        let Some(mut merged) = continuing.pop() else {
+                        let Some(merged) = join(continuing) else {
                             return Ok(None);
                         };
-                        for s in continuing {
-                            merged.retain(|n| s.contains(n));
-                        }
                         set = merged;
                     }
                     Statement::Break | Statement::Continue => return Ok(None),
@@ -748,21 +750,12 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         self.ide_member(target);
-        let ty = self.place_type(target).ok_or_else(|| {
-            target
-                .at
-                .error("assignment requires a named binding, field, or collection element")
-        })?;
-        // Evaluate the RHS before borrowing the destination. Keep its owner in a
-        // local until all indices succeed, so `?` also cleans it up on failure.
-        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
-        self.same(actual, Some(ty.clone()), &value.at)?;
-        let temp = self.slot(ty.clone(), &value.at)?;
-        ops.push(Op::StoreLocal(temp));
-        let mut indices = Vec::new();
-        self.assignment_indices(target, &mut indices, ops)?;
-        // Resolve addresses only once all user code has finished evaluating.
-        let (_, loan) = self.borrow_with_indices(target, true, &mut Some(indices.iter()), ops)?;
+        let (ty, temp, loan) = self.borrow_place_after_value(
+            target,
+            value,
+            "assignment requires a named binding, field, or collection element",
+            ops,
+        )?;
         if let Some(list) = collections::scalar_element_ref(ops) {
             ops.extend([
                 Op::MoveLocal(temp),
@@ -794,25 +787,42 @@ impl Lower<'_> {
                 .at
                 .error("replace requires a mutable class field or collection element"));
         }
-        let ty = self.place_type(target).ok_or_else(|| {
-            target
-                .at
-                .error("replace requires a mutable field or element of a named owner")
-        })?;
-        // As for assignment, finish user code before resolving an address.
-        // The replacement remains owned locally if an index propagates failure.
+        let (ty, temp, loan) = self.borrow_place_after_value(
+            target,
+            value,
+            "replace requires a mutable field or element of a named owner",
+            ops,
+        )?;
+        ops.push(Op::MoveLocal(temp));
+        ops.push(Op::Swap);
+        ops.push(Op::ReplaceRef(ty.clone()));
+        ops.push(Op::UseLoan(loan));
+        Ok(ty)
+    }
+    /// Shared prefix of assignment and `replace`: evaluates `value` into a
+    /// local, then leaves a mutable reference to `target` on the stack.
+    /// Returns the place type, the local holding the value, and the loan.
+    fn borrow_place_after_value(
+        &mut self,
+        target: &Expr,
+        value: &Expr,
+        unnamed: &str,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, u8, usize)> {
+        let ty = self
+            .place_type(target)
+            .ok_or_else(|| target.at.error(unnamed))?;
+        // Evaluate the RHS before borrowing the destination. Keep its owner in a
+        // local until all indices succeed, so `?` also cleans it up on failure.
         let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
         self.same(actual, Some(ty.clone()), &value.at)?;
         let temp = self.slot(ty.clone(), &value.at)?;
         ops.push(Op::StoreLocal(temp));
         let mut indices = Vec::new();
         self.assignment_indices(target, &mut indices, ops)?;
+        // Resolve addresses only once all user code has finished evaluating.
         let (_, loan) = self.borrow_with_indices(target, true, &mut Some(indices.iter()), ops)?;
-        ops.push(Op::MoveLocal(temp));
-        ops.push(Op::Swap);
-        ops.push(Op::ReplaceRef(ty.clone()));
-        ops.push(Op::UseLoan(loan));
-        Ok(ty)
+        Ok((ty, temp, loan))
     }
     pub(super) fn place_type(&self, e: &Expr) -> Option<Ty> {
         match &ungroup(e).kind {

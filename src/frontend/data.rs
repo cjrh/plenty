@@ -374,7 +374,7 @@ impl TypeAliases {
                     .join(", ")
             )
         };
-        if concrete_name.len() > 16_384 {
+        if concrete_name.len() > crate::op::MAX_IDENTITY_NAME_LEN {
             return Err(application
                 .at
                 .error("concrete type name exceeds the implementation limit"));
