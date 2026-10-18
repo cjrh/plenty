@@ -119,6 +119,8 @@ mod test_element_references;
 mod test_entrypoint;
 #[path = "test_enum_allocation.rs"]
 mod test_enum_allocation;
+#[path = "test_enum_methods.rs"]
+mod test_enum_methods;
 #[path = "test_error_composition.rs"]
 mod test_error_composition;
 #[path = "test_error_context.rs"]

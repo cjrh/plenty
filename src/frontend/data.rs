@@ -20,6 +20,7 @@ pub(super) struct DataTypes {
     named: RefCell<HashMap<String, Ty>>,
     arguments: RefCell<HashMap<String, (String, Vec<Ty>)>>,
     pending: RefCell<Vec<classes::ClassDecl>>,
+    pending_enums: RefCell<Vec<enums::EnumDecl>>,
     definitions: Arc<crate::nominal::Types>,
     pending_types: RefCell<std::collections::VecDeque<DefinitionJob>>,
     deferred: Cell<bool>,
@@ -270,6 +271,7 @@ impl TypeAliases {
         }
         // Placeholder specializations are never lowered.
         validation.data.pending.borrow_mut().clear();
+        validation.data.pending_enums.borrow_mut().clear();
         result
     }
     pub(super) fn with_data(
@@ -279,7 +281,7 @@ impl TypeAliases {
         let mut enum_declarations = HashMap::new();
         for e in enums {
             validate_parameters(&e.name, &e.type_params, &e.at)?;
-            enum_declarations.insert(e.name.clone(), e.clone());
+            enum_declarations.insert(e.name.clone(), e.template());
         }
         let mut class_declarations = HashMap::new();
         for c in classes {
@@ -548,7 +550,16 @@ impl TypeAliases {
                                 generics::substitute(field, &substitutions)?;
                             }
                         }
-                        Ok((self.resolve_enum(&declaration)?, None))
+                        for method in &mut declaration.methods {
+                            substitute_method(method, &substitutions)?;
+                        }
+                        let resolved = self.resolve_enum(&declaration)?;
+                        self.data
+                            .required
+                            .borrow_mut()
+                            .insert(concrete_name.clone(), required.clone());
+                        self.data.pending_enums.borrow_mut().push(declaration);
+                        Ok((resolved, None))
                     } else {
                         let mut declaration = self.data.classes[&name].clone();
                         declaration.name = concrete_name.clone();
@@ -557,21 +568,7 @@ impl TypeAliases {
                             generics::substitute(field, &substitutions)?;
                         }
                         for method in &mut declaration.methods {
-                            for bound in method
-                                .type_params
-                                .iter_mut()
-                                .filter_map(|(_, b)| b.as_mut())
-                            {
-                                generics::substitute(bound, &substitutions)?;
-                            }
-                            for (_, ty) in &mut method.inputs {
-                                generics::substitute(ty, &substitutions)?;
-                            }
-                            generics::substitute(&mut method.output, &substitutions)?;
-                            for default in method.defaults.iter_mut().flatten() {
-                                generics::substitute_expr(default, &substitutions)?;
-                            }
-                            generics::substitute_block(&mut method.body, &substitutions)?;
+                            substitute_method(method, &substitutions)?;
                         }
                         Ok((declaration.resolve(self)?, Some(declaration)))
                     }
@@ -662,6 +659,27 @@ impl TypeAliases {
     }
 }
 
+fn substitute_method(
+    method: &mut Function,
+    substitutions: &HashMap<String, TypeRef>,
+) -> Result<()> {
+    for bound in method
+        .type_params
+        .iter_mut()
+        .filter_map(|(_, b)| b.as_mut())
+    {
+        generics::substitute(bound, substitutions)?;
+    }
+    for (_, ty) in &mut method.inputs {
+        generics::substitute(ty, substitutions)?;
+    }
+    generics::substitute(&mut method.output, substitutions)?;
+    for default in method.defaults.iter_mut().flatten() {
+        generics::substitute_expr(default, substitutions)?;
+    }
+    generics::substitute_block(&mut method.body, substitutions)
+}
+
 fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &Token) -> Result<()> {
     if params
         .iter()
@@ -685,6 +703,22 @@ impl generics::Engine {
     pub(super) fn expand_data(&mut self, aliases: &TypeAliases) -> Result<Vec<Function>> {
         let pending = std::mem::take(&mut *aliases.data.pending.borrow_mut());
         let mut functions = Vec::new();
+        let pending_enums = std::mem::take(&mut *aliases.data.pending_enums.borrow_mut());
+        for declaration in pending_enums {
+            let required = aliases
+                .data
+                .required
+                .borrow()
+                .get(&declaration.name)
+                .cloned();
+            let methods = enums::expand(vec![declaration], aliases)?;
+            if let Some(required) = required {
+                for method in &methods {
+                    self.required.insert(method.name.clone(), required.clone());
+                }
+            }
+            functions.extend(methods);
+        }
         for class in pending {
             let required = aliases.data.required.borrow().get(&class.name).cloned();
             let methods = classes::expand(vec![class], aliases)?;

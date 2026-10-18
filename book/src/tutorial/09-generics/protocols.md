@@ -1,8 +1,8 @@
 # Requiring methods with a protocol
 
-A protocol names the methods a generic algorithm needs. A class satisfies it
+A protocol names the methods a generic algorithm needs. A class or enum satisfies it
 by having matching methods; no inheritance or registration is required.
-Importing a protocol does not add methods to a class.
+Importing a protocol does not add methods to a type.
 
 ```plenty
 protocol Readable:
@@ -67,5 +67,5 @@ def main() -> ():
 class `Message` is private to its defining module; declare it `pub class`
 ```
 
-Protocols currently constrain class type arguments; they cannot be stored as
+Protocols constrain class and enum type arguments; they cannot be stored as
 values. Use `source: &T` with `T: Readable`, not `source: Readable`.

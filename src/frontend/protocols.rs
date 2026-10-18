@@ -166,9 +166,9 @@ pub(super) fn check(
     bound: &Token,
     call: &Token,
 ) -> Result<()> {
-    let Ty::Class(class) = actual else {
+    let Some(owner) = classes::method_owner(actual) else {
         return Err(call.error(format!(
-            "{actual} does not satisfy {}; protocols currently require classes",
+            "{actual} does not satisfy {}; protocols currently require classes or enums",
             protocol.name
         )));
     };
@@ -177,14 +177,14 @@ pub(super) fn check(
     for requirement in &protocol.methods {
         let name = &requirement.name;
         let method = methods
-            .get(&crate::record::method(&class.name, name))
+            .get(&crate::record::method(owner, name))
             .ok_or_else(|| {
                 call.error(format!(
                     "{actual} does not satisfy {}: missing method `{name}`",
                     protocol.name
                 ))
             })?;
-        modules::check_member_at(access, &class.name, name, bound, call)?;
+        modules::check_member_at(access, owner, name, bound, call)?;
         let expected = signature(requirement, &aliases)?;
         if *method != expected {
             return Err(call.error(format!("{actual} does not satisfy {}: signature of `{name}` does not match (including receiver borrowing and return type)", protocol.name)));

@@ -35,7 +35,7 @@ impl ClassDecl {
 /// A copy of `method` without its body. Written out field by field because
 /// `Function { body: Vec::new(), ..method.clone() }` copies the body only to
 /// drop it.
-fn header(method: &Function) -> Function {
+pub(super) fn header(method: &Function) -> Function {
     Function {
         once: method.once,
         captures: method.captures.clone(),
@@ -850,7 +850,7 @@ impl Lower<'_> {
     pub(super) fn class_method(
         &mut self,
         base: &Expr,
-        class: crate::nominal::Nominal<ClassType>,
+        owner: &str,
         name: &str,
         types: Option<&[TypeRef]>,
         args: &[Expr],
@@ -859,10 +859,10 @@ impl Lower<'_> {
         if matches!(name, "__init__" | "__del__" | "__new__") {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
         }
-        let callee = method(&class.name, name);
+        let callee = method(owner, name);
         super::ide::method_call(&base.at, name, &callee);
         self.sync_data()?;
-        modules::check_member(self.access, &class.name, name, &base.at)?;
+        modules::check_member(self.access, owner, name, &base.at)?;
         if let Some(template) = self.generics.templates.get(&callee) {
             let receiver = Expr {
                 at: base.at.clone(),
@@ -882,10 +882,7 @@ impl Lower<'_> {
         let sig = self
             .sigs
             .get(&callee)
-            .ok_or_else(|| {
-                base.at
-                    .error(format!("unknown method `{name}` on {}", class.name))
-            })?
+            .ok_or_else(|| base.at.error(format!("unknown method `{name}` on {owner}")))?
             .clone();
         let receiver = Expr {
             at: base.at.clone(),
@@ -941,8 +938,10 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if let Some(Ty::Class(class)) = self.place_type(base).map(unbox) {
-            return self.class_method(base, class, name, Some(types), args, ops);
+        if let Some(ty) = self.place_type(base).map(unbox) {
+            if let Some(owner) = method_owner(&ty) {
+                return self.class_method(base, owner, name, Some(types), args, ops);
+            }
         }
         let observed = self.observe(base, ops)?;
         self.temporary_class_method(base, name, Some(types), args, observed, ops)
@@ -958,8 +957,10 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         let (ty, loans) = observed;
-        let Ty::Class(class) = &ty else {
-            return Err(base.at.error("generic methods require a class receiver"));
+        let Some(owner) = method_owner(&ty) else {
+            return Err(base
+                .at
+                .error("generic methods require a class or enum receiver"));
         };
         // `observe` may already hold the temporary owner in a slot and push a
         // view of it; borrow that owner rather than storing a second copy.
@@ -993,7 +994,7 @@ impl Lower<'_> {
             at: base.at.clone(),
             kind: Expression::Name(receiver.clone()),
         };
-        let result = self.class_method(&expr, class.clone(), name, types, args, ops)?;
+        let result = self.class_method(&expr, owner, name, types, args, ops)?;
         if matches!(result, Some(Ty::Ref(..))) {
             return Err(base
                 .at
@@ -1003,6 +1004,24 @@ impl Lower<'_> {
         self.expression_temps.push(slot);
         Self::end_reads(loans, ops);
         Ok(result)
+    }
+}
+
+pub(super) fn method_owner(ty: &Ty) -> Option<&str> {
+    match ty {
+        Ty::Class(class) => Some(&class.name),
+        Ty::Enum(enumeration) => Some(&enumeration.name),
+        _ => None,
+    }
+}
+
+/// Option/Result retain their intrinsic methods; user data types dispatch to
+/// their declared methods before similarly named collection operations.
+pub(super) fn inherent_receiver(ty: &Ty) -> bool {
+    match ty {
+        Ty::Class(_) => true,
+        Ty::Enum(enumeration) => !enumeration.is_option() && !enumeration.is_result(),
+        _ => false,
     }
 }
 

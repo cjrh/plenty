@@ -10,8 +10,8 @@ available on the supported x86-64 Linux GNU target.
 
 ## Stream contracts
 
-A stream is any `pub` class whose `pub` methods match one of these protocols.
-Calls are resolved for each concrete class at compile time; there is no dynamic
+A stream is any `pub` class or enum whose `pub` methods match one of these protocols.
+Calls are resolved for each concrete type at compile time; there is no dynamic
 dispatch and no stream object type.
 
 | Protocol | Method | Result |
