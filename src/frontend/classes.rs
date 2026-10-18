@@ -373,6 +373,14 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
     struct Check<'a> {
         ty: &'a ClassType,
     }
+    /// Fields initialized on every continuing branch; `None` when no branch continues.
+    fn join(mut sets: Vec<HashSet<String>>) -> Option<HashSet<String>> {
+        let mut merged = sets.pop()?;
+        for s in sets {
+            merged.retain(|n| s.contains(n));
+        }
+        Some(merged)
+    }
     impl Check<'_> {
         fn complete(&self, initialized: &HashSet<String>, at: &Token) -> Result<()> {
             let missing: Vec<_> = self
@@ -563,12 +571,9 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                             continuing.extend(self.block(&elif.body, set.clone())?);
                         }
                         continuing.extend(self.block(no, set.clone())?);
-                        let Some(mut merged) = continuing.pop() else {
+                        let Some(merged) = join(continuing) else {
                             return Ok(None);
                         };
-                        for s in continuing {
-                            merged.retain(|n| s.contains(n));
-                        }
                         set = merged;
                     }
                     Statement::While { condition, body } => {
@@ -597,12 +602,9 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                                 continuing.push(s);
                             }
                         }
-                        let Some(mut merged) = continuing.pop() else {
+                        let Some(merged) = join(continuing) else {
                             return Ok(None);
                         };
-                        for s in continuing {
-                            merged.retain(|n| s.contains(n));
-                        }
                         set = merged;
                     }
                     Statement::Break | Statement::Continue => return Ok(None),
