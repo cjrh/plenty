@@ -25,6 +25,17 @@ jobs:
       # allocation-checks unit tests are gated on a feature the root does not forward.
       - run: cargo test --locked --workspace --all-features --verbose
 
+  # Stable only: new beta/nightly lints would fail unrelated changes.
+  lint:
+    name: Format, clippy, and book links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable && rustup component add rustfmt clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: python3 -B scripts/check_links.py book/src
+
   # std.http.server behind nginx and Caddy (tests/test_std_http_server_proxy.rs).
   # The images are pulled in their own step so pulls are not timed with the
   # tests; keep the tags in step with NGINX_IMAGE and CADDY_IMAGE there.

@@ -41,6 +41,11 @@ so they take precedence over user-wide Cargo profile settings.
 `cargo test --locked --workspace --all-features` runs the full suite, as CI
 does. When several workers share a machine, add `-j 3 -- --test-threads=3`.
 
+CI's `lint` job also gates `cargo fmt --all -- --check`,
+`cargo clippy --locked --workspace --all-targets -- -D warnings`, and
+`python3 -B scripts/check_links.py book/src` on stable Rust. Run them before
+committing.
+
 The integration tests in `tests/test_*.rs` are modules of one test binary,
 `tests/integration.rs`, so all of them share one pool of test threads and the
 binary is linked once. Select one file's tests by module, or one test by path:
