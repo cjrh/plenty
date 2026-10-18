@@ -108,18 +108,14 @@ pub(super) fn emit(
             if let Ty::Ref(inner, mutable) = ty {
                 // C promises one exact-sized initialized scalar, never a Plenty
                 // 16-byte slot. Marshal through a private, aligned stack slot.
+                // Class borrows took the handle path above.
                 let scalar_type = clif_type(inner.as_ref().clone());
-                let object = matches!(inner.as_ref(), Ty::Class(_));
-                let value = if object {
-                    *argument
-                } else {
-                    b.ins().load(
-                        scalar_type,
-                        cranelift_codegen::ir::MemFlags::new(),
-                        *argument,
-                        0,
-                    )
-                };
+                let value = b.ins().load(
+                    scalar_type,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    *argument,
+                    0,
+                );
                 let slot = b.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
                     cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
                     16,
@@ -133,7 +129,7 @@ pub(super) fn emit(
                     temporary,
                     0,
                 );
-                if *mutable && !object {
+                if *mutable {
                     writebacks.push((*argument, temporary, scalar_type));
                 }
                 *argument = b.ins().uextend(types::I128, temporary);
