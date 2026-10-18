@@ -38,7 +38,7 @@ fn output(source: &str) -> String {
 
 /// A pooled client verifies the server by DNS name and by IP address, streams
 /// a chunked upload, and names an untrusted root and a certificate for
-/// another host. Through a proxy, `CONNECT` carries the proxy's credentials,
+/// another host; the server does not count the refusing client. Through a proxy, `CONNECT` carries the proxy's credentials,
 /// the TLS session inside it names the origin, and the origin's request is
 /// origin-form without them; a refused tunnel reports the proxy's status.
 #[test]
@@ -176,6 +176,9 @@ def main() -> Result[(), Failure]:
     with spawn(visit, port, stop.share())? as task:
         report = std.http.tls.serve(listener, serving("leaf.pem")?, &table, &Echo(), &config, &stop)?
         task.join()?
+        # The client that rejects the certificate alerts mid-handshake;
+        # that is not a protocol error (issue #152).
+        print("protocol_errors", report.protocol_errors)?
     print("--- the certificate must name the host")?
     other = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     other_port = other.local_address()?.port
@@ -212,6 +215,7 @@ def main() -> Result[(), Failure]:
 PUT /up streamed over tls
 opened=2 reused=2
 std.http.client.ClientError.Tls(std.http.client.TlsFailure.UntrustedCertificate)
+protocol_errors 0
 --- the certificate must name the host
 std.http.client.ClientError.Tls(std.http.client.TlsFailure.WrongHost)
 impostor refused

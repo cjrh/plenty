@@ -46,8 +46,10 @@ def transported[T](result: Result[T, TlsError]) -> Result[T, NetError]:
                 case _:
                     Err(NetError.Stream(StreamError.Io(IoError.Other)))
 
-# The std.http.server Opener that `serve` uses. A client that goes away
-# during the handshake is not counted; any other handshake failure is.
+# The std.http.server Opener that `serve` uses. A client that goes away or
+# sends a fatal alert during the handshake is not counted; any other
+# handshake failure is. Clients reject a certificate either way: some alert
+# mid-handshake (OpenSSL 1.1.1 curl), others finish it and close.
 pub class TlsOpener:
     tls: ServerConfig
 
@@ -69,6 +71,8 @@ pub class TlsOpener:
             case Err(TlsError.Net(_)):
                 Err(OpenError.Gone)
             case Err(TlsError.Truncated):
+                Err(OpenError.Gone)
+            case Err(TlsError.Rejected):
                 Err(OpenError.Gone)
             case Err(_):
                 Err(OpenError.Failed)

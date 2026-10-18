@@ -227,7 +227,7 @@ A worker calls `advance` with an expired deadline and parks the connection
 while it returns `TimedOut`; with `idle_connections` set to `0`, or once
 shutdown has begun, it waits up to `handshake_timeout` instead. `OpenError`
 is `TimedOut`, `Cancelled`, `Failed` (counted in `protocol_errors`) or
-`Gone` (the client left; not counted).
+`Gone` (the client left or refused the handshake; not counted).
 
 ## Deadlines and faults
 
@@ -240,7 +240,8 @@ worker waits for neither a request head nor a handshake (see
 |---|---|
 | No request starts within `idle_timeout` | Close quietly |
 | HTTPS: no handshake within `handshake_timeout` of the accept | Close; counted in `timeouts` |
-| HTTPS: handshake fails, for example a plaintext request | Close; counted in `protocol_errors` |
+| HTTPS: the client closes or sends a fatal alert during the handshake, for example because it rejects the certificate | Close; not counted |
+| HTTPS: handshake fails otherwise, for example a plaintext request | Close; counted in `protocol_errors` |
 | `idle_connections` connections already waiting | A new connection gets `503` with `Retry-After: 1` (HTTPS: is closed); counted in `rejected`. A served connection going idle is closed; one partway through a head or a handshake is parked anyway |
 | Head not complete within `head_timeout` | `408`, close; counted in `timeouts` |
 | Malformed head, or a line, head or header count over a limit | `400`, or `431` for size limits, `505` for an unsupported version, `501` for an unsupported transfer coding; close |
