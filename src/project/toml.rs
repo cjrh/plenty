@@ -6,7 +6,7 @@
 //! features a manifest never needs, such as dates, floats, and dotted keys. An
 //! unsupported construct is an error at its line, never a silent
 //! reinterpretation, so manifests stay valid TOML 1.0.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Value {
@@ -141,7 +141,10 @@ impl Parser<'_> {
         // element of an array of tables.
         let mut current: Vec<String> = vec![];
         let mut array_element = false;
-        let mut defined: Vec<Vec<String>> = vec![];
+        // Headers of explicitly defined tables. A set keeps the duplicate
+        // check logarithmic, so a hostile manifest within `MAX_INPUT` cannot
+        // force quadratic work.
+        let mut defined: BTreeSet<Vec<String>> = BTreeSet::new();
         loop {
             self.space();
             match self.peek() {
@@ -174,6 +177,17 @@ impl Parser<'_> {
                         match &mut entry.value {
                             Value::Array(items) if entry.table_array => {
                                 items.push(Value::Table(Table::new()));
+                                // Headers below `path` named tables of the
+                                // previous element; the new element may define
+                                // them again. Sorted order keeps them adjacent.
+                                let stale: Vec<Vec<String>> = defined
+                                    .range::<Vec<String>, _>(&path..)
+                                    .take_while(|p| p.starts_with(&path))
+                                    .cloned()
+                                    .collect();
+                                for p in &stale {
+                                    defined.remove(p);
+                                }
                             }
                             _ => {
                                 return self.error_at(
@@ -183,7 +197,7 @@ impl Parser<'_> {
                             }
                         }
                     } else {
-                        if defined.contains(&path) {
+                        if !defined.insert(path.clone()) {
                             return self.error_at(
                                 line,
                                 format!("table `{}` is defined twice", path.join(".")),
@@ -204,7 +218,6 @@ impl Parser<'_> {
                                 format!("`{}` is already defined as an array", path.join(".")),
                             );
                         }
-                        defined.push(path.clone());
                         self.table_at(&mut root, &path, line)?;
                     }
                     current = path;
@@ -561,6 +574,35 @@ mod tests {
             panic!()
         };
         assert!(!first.contains_key("b"));
+    }
+
+    #[test]
+    fn subtable_headers_are_scoped_to_their_array_element() {
+        let text = "[[a]]\n[a.b]\nx = 1\n[[a]]\n[a.b]\nx = 2\n";
+        let doc = parse(text, "plenty.toml").unwrap();
+        let Value::Array(items) = get(&doc, "a") else {
+            panic!()
+        };
+        for (item, x) in items.iter().zip([1, 2]) {
+            let Value::Table(item) = item else { panic!() };
+            let Value::Table(b) = get(item, "b") else {
+                panic!()
+            };
+            assert_eq!(get(b, "x"), &Value::Integer(x));
+        }
+        // Within one element the header is still a duplicate, and a new
+        // element of an unrelated array does not reset it.
+        for text in [
+            "[[a]]\n[a.b]\n[a.b]\n",
+            "[a.b]\n[[c]]\n[a.b]\n",
+            "[[a]]\n[a.b]\n[[ab]]\n[a.b]\n",
+        ] {
+            let error = parse(text, "plenty.toml").unwrap_err();
+            assert!(
+                error.contains("table `a.b` is defined twice"),
+                "{text:?}: {error}"
+            );
+        }
     }
 
     #[test]
