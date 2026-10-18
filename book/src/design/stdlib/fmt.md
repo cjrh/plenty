@@ -2,9 +2,11 @@
 
 `std.fmt` separates user-defined display from debug output and streams UTF-8 to
 any static [`std.io.Writer`](io.md). It leaves builtin `print` unchanged.
-Formatting policy is checked Plenty; the only new native primitive writes a
-bounded floating-point spelling into existing byte storage. There is no runtime
+Formatting policy is checked Plenty; the native primitives only write
+floating-point spellings into existing byte storage. There is no runtime
 reflection, format-string interpreter, or dynamic writer object.
+[f-strings](../language/04-expressions/format-strings.md) compile to calls on
+this module.
 
 ## Writers and strings
 
@@ -40,8 +42,37 @@ minimum **byte** count, padded on the left with ASCII spaces, including any sign
 It never truncates. Negative widths and unsupported bases fail before output.
 These numeric spellings are ASCII, so byte and scalar widths coincide; no
 grapheme or terminal-cell width is promised. Text has no implicit padding.
-Floating formatting has no precision or locale controls; promoting `f32` to
-`f64` spells the promoted value. Dynamic format specifications are unsupported.
+`floating` has no precision or locale controls; promoting `f32` to `f64`
+spells the promoted value. The spec methods below add Python's options.
+Dynamic format specifications are unsupported.
+
+## Format specs
+
+`Spec` holds one field's options as public fields: `fill` (one scalar),
+`align` (`""`, `"<"`, `">"`, `"^"`, `"="`), `sign` (`""`, `"+"`, `"-"`,
+`" "`), `alternate` (`#`), `zero` (`0`), `width`, `grouping` (`""`, `","`,
+`"_"`), `precision` (`-1` when absent), and `kind` (the type letter or `""`).
+`spec(...)` builds one with keyword defaults, for example
+`spec(width=8, precision=2, kind="f")`. Width and precision are at most 4096.
+
+| Method | Options |
+|---|---|
+| `text_spec(&str, &Spec)` | Fill, alignment (default left), width; precision truncates. Widths count scalars |
+| `signed_spec(i64, &Spec)`, `unsigned_spec(u64, &Spec)` | Types `d`, `x`, `X`, `o`, `b`; `#` prefixes; sign; `,` (decimal) or `_` grouping; `0` grouped zero padding; default right |
+| `float_spec(f64, &Spec)`, `float32_spec(f32, &Spec)` | Types `e`, `E`, `f`, `F`, `g`, `G`, `%`, or none; precision (default 6 when typed); `#`; sign; grouping; `0` padding |
+
+Their spellings match Python's `format`, except that a float with neither type
+nor precision uses `print`'s spelling. A combination the method's type does not
+accept, such as a sign on text or a precision on an integer, returns
+`InvalidSpec` before output. f-strings reject these at compile time.
+
+Spec numbers are spelled in scratch at offset 8. A spelling longer than the
+scratch, such as a 64-digit binary integer or `1e300` with `f`, first grows the
+scratch fallibly (`Bytes(Allocation(...))`); preallocate scratch to keep
+formatting allocation-free. `represent(&value, &mut out)` writes the `str.repr`
+spelling of any value `str.repr` accepts, which allocates a temporary string.
+`repr_string(&value)` and `debug_string(&text)` return the `str.repr` and
+`debug_text` spellings as fallible strings.
 
 ## Static user contracts and aggregates
 
@@ -110,7 +141,7 @@ renderer/callback can allocate, and its ordinary effects are not suppressed.
 
 Text is linear in input bytes plus output bytes, integer work is bounded by 64
 digits plus padding, and f64 conversion has fixed bounded scratch work plus
-padding. A padded float may be converted twice because padding reuses scratch.
+padding. A spec float costs time linear in its precision and magnitude digits. A padded float may be converted twice because padding reuses scratch.
 List work is linear in element count plus callback work. At most one Unicode
 scalar (four bytes), one ASCII byte, or one float spelling (at most 32 bytes) is
 offered per write; wrap a syscall writer in `BufWriter` to batch these calls.

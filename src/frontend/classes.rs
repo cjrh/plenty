@@ -417,6 +417,11 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                         self.expr(arg, initialized)?;
                     }
                 }
+                Expression::Format(format) => {
+                    for arg in format.operands() {
+                        self.expr(arg, initialized)?;
+                    }
+                }
                 Expression::Binary(_, a, b) | Expression::Index(a, b) => {
                     self.expr(a, initialized)?;
                     self.expr(b, initialized)?;

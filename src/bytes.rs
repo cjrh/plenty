@@ -21,6 +21,7 @@ pub enum BytesOp {
     FromText,
     ToText,
     WriteFloat,
+    WriteFloatSpec,
     // Bulk scans: read-only, infallible, one runtime call per range.
     Find,
     FindIn,
@@ -57,6 +58,7 @@ impl BytesOp {
             "__bytes_from_text" => Self::FromText,
             "__bytes_to_text" => Self::ToText,
             "__bytes_write_float" => Self::WriteFloat,
+            "__bytes_write_float_spec" => Self::WriteFloatSpec,
             "__bytes_find" => Self::Find,
             "__bytes_find_in" => Self::FindIn,
             "__bytes_find_bytes" => Self::FindBytes,
@@ -86,6 +88,9 @@ impl BytesOp {
             Self::SetItem => return (vec![storage_ref(true), Ty::I64, Ty::U8], Ty::Unit),
             Self::Fill => return (vec![storage(), Ty::I64, Ty::I64, Ty::U8], Ty::Unit),
             Self::WriteFloat => return (vec![storage(), Ty::F64], Ty::I64),
+            Self::WriteFloatSpec => {
+                return (vec![storage(), Ty::F64, Ty::I64, Ty::I64, Ty::I64], Ty::I64)
+            }
             Self::Overwrite => {
                 return (
                     vec![storage(), Ty::I64, storage(), Ty::I64, Ty::I64],
@@ -140,6 +145,7 @@ impl BytesOp {
                 | Self::Append
                 | Self::Overwrite
                 | Self::WriteFloat
+                | Self::WriteFloatSpec
         )
     }
 
@@ -153,6 +159,7 @@ impl BytesOp {
         // 184 onward belongs to others.
         match self {
             Self::WriteFloat => 280,
+            Self::WriteFloatSpec => 281,
             Self::FromStatic => Self::FromText.opcode(),
             Self::Fill => 237,
             Self::Item | Self::ValueItem => 238,

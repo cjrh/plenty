@@ -159,6 +159,8 @@ mod test_file_streams;
 mod test_filesystem;
 #[path = "test_fs_helpers.rs"]
 mod test_fs_helpers;
+#[path = "test_fstrings.rs"]
+mod test_fstrings;
 #[path = "test_fuzz.rs"]
 mod test_fuzz;
 #[path = "test_generator_allocation.rs"]
