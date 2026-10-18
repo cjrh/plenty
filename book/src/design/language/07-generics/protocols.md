@@ -85,3 +85,9 @@ bounds, defaults, associated types, and lifecycle requirements are unsupported.
 Generic bodies are checked per concrete instance. Requirements express the
 minimum interface rather than a separately checked abstract body. `IntType` and
 `FloatType` remain separate built-in numeric constraints.
+
+[`std.report.Formattable`](../../stdlib/report.md) additionally accepts an
+anonymous sum when every normalized member satisfies its contract. The compiler
+dispatches to the active member through a shared borrow without allocation.
+This is specific to that standard-library protocol: a user-defined protocol with
+the same signature does not gain sum forwarding.

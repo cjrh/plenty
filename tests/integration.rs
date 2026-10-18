@@ -365,6 +365,7 @@ mod test_std_ready;
 mod test_std_regex;
 #[path = "test_std_report.rs"]
 mod test_std_report;
+mod test_std_report_sums;
 #[path = "test_std_secrets.rs"]
 mod test_std_secrets;
 #[path = "test_std_signal.rs"]

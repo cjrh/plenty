@@ -59,8 +59,9 @@ the receiver, as described in [generic data](../07-generics/data.md).
 Methods are private to their defining module unless declared `pub def`.
 Variant and method names must be distinct. Class lifecycle hooks are not enum
 methods: variant construction and automatic payload destruction retain their
-existing behavior. There are no methods on anonymous sums or automatic forwarding
-from a sum to its members.
+existing behavior. Anonymous sums cannot declare methods. They forward only the
+[`std.report.Formattable`](../../stdlib/report.md) contract when every member
+satisfies it; arbitrary member methods and protocols are not forwarded.
 
 Enums can satisfy [structural protocols](../07-generics/protocols.md) with
 accessible matching methods. They can also supply `display` and `debug` methods

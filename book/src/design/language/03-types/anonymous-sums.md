@@ -40,7 +40,13 @@ require every alternative to qualify. If generic substitution collapses
 member arms are still duplicates. Generic inference rejects ambiguous member
 substitutions; supply explicit type arguments in that case.
 
+For reporting, a sum satisfies
+[`std.report.Formattable`](../../stdlib/report.md) when every normalized member
+satisfies that protocol. Formatting dispatch borrows the active member without
+allocation or consuming the sum. A missing or mismatched method on any member
+rejects the whole bound, regardless of which member is active.
+
 This version does not infer residual sums after recovery, introduce empty
-sums, forward member methods, or erase errors. See
+sums, forward arbitrary member methods or protocols, or erase errors. See
 [propagation](../08-errors/01-sums-and-propagation.md) for `?` and the temporary
 `Failure` migration behavior.

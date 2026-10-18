@@ -1,9 +1,9 @@
 # Human-readable formatting and error reports
 
-Status: enum methods, ordinary enum protocol satisfaction, and the concrete
-[`std.report`](../design/stdlib/report.md) formatting core are implemented.
-Automatic formatting dispatch over [anonymous sums](error-sets.md) and
-entrypoint selection remain the agreed direction below.
+Status: enum methods, ordinary enum protocol satisfaction, the concrete
+[`std.report`](../design/stdlib/report.md) formatting core, and its automatic
+dispatch over [anonymous sums](error-sets.md) are implemented. Entrypoint selection
+and typed context formatting remain the agreed direction below.
 Current behavior is defined by [entry reports](../design/toolchain/01-building/entry-report.md),
 [formatting](../design/facilities/01-builtins/formatting.md), and
 [`std.error`](../design/stdlib/error.md). Scheduling belongs in B71 in the
@@ -70,7 +70,7 @@ mechanism is needed.
 For the formatting protocol, `A | B` satisfies the protocol exactly when every
 normalized member satisfies it. Generated dispatch examines the tag and borrows
 the active payload; it adds no allocation or hidden existential container.
-Aliases and singleton normalization must give the same formatting behavior.
+Aliases and singleton normalization give the same formatting behavior.
 
 This rule does not automatically forward arbitrary protocols through sums.
 Methods involving `Self`, mutation, or different result types require a separate

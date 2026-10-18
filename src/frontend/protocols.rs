@@ -273,9 +273,34 @@ pub(super) fn check(
     templates: &HashMap<String, std::sync::Arc<Function>>,
     aliases: &TypeAliases,
     access: &modules::AccessMap,
+    standard_sources: &HashSet<Arc<str>>,
     bound: &Token,
     call: &Token,
 ) -> Result<()> {
+    if matches!(actual, Ty::Enum(sum) if sum.anonymous()) {
+        if !reporting(protocol, standard_sources) {
+            return Err(call.error(format!(
+                "{actual} does not satisfy {}; anonymous sums only forward std.report.Formattable",
+                protocol.name
+            )));
+        }
+        // The forwarding method belongs to the reporting contract, so its
+        // payload calls must be visible from that library even for a local bound.
+        for member in crate::sum::members(actual) {
+            check(
+                protocol,
+                &member,
+                methods,
+                templates,
+                aliases,
+                access,
+                standard_sources,
+                &protocol.at,
+                call,
+            )?;
+        }
+        return Ok(());
+    }
     let mismatch = |name: &str| {
         call.error(format!("{actual} does not satisfy {}: signature of `{name}` does not match (including receiver borrowing, type parameters, and return type)", protocol.name))
     };
@@ -337,4 +362,13 @@ pub(super) fn check(
         }
     }
     Ok(())
+}
+
+pub(super) fn reporting(protocol: &Protocol, standard_sources: &HashSet<Arc<str>>) -> bool {
+    protocol.name == "std.report.Formattable"
+        && protocol
+            .at
+            .source
+            .as_ref()
+            .is_some_and(|source| standard_sources.contains(source))
 }

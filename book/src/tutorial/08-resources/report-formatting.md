@@ -34,6 +34,55 @@ The public enum and its public `format` method satisfy the structural
 `std.report.render(&value, &mut output)` counts a nesting level and restores it
 on success or error. Use it when a formatting method delegates to another value.
 
+An anonymous sum supports the same reporting API when every member satisfies
+`std.report.Formattable`. You can keep distinct error types and let the compiler
+select the active member's method:
+
+```plenty
+import std.report
+from std.report import Formatter, FormatError
+
+pub enum ReadingError:
+    Invalid(i64)
+
+    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+        match self:
+            case ReadingError.Invalid(line):
+                output.text("invalid reading on line ")?
+                output.integer(*line)
+
+pub enum ConnectionError:
+    Closed
+
+    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+        output.text("connection closed")
+
+def show(error: &(ReadingError | ConnectionError)) -> Result[(), FormatError | IoError]:
+    print(std.report.to_string(error, 80, 1)?)?
+    Ok(())
+
+def main() -> Result[(), FormatError | IoError]:
+    reading: ReadingError | ConnectionError = ReadingError.Invalid(12)
+    connection: ReadingError | ConnectionError = ConnectionError.Closed
+    show(&reading)?
+    show(&connection)?
+    show(&reading)?
+    Ok(())
+```
+
+```output
+invalid reading on line 12
+connection closed
+invalid reading on line 12
+```
+
+Dispatch borrows the payload without allocating; string collection still
+allocates. The original sum remains usable afterward. `render` counts one depth
+level for the sum, with no extra level for selecting its member. Calling
+`error.format(&mut output)` directly also dispatches, but does not count depth.
+All members must have the required public method, even if the value currently
+holds a different member. Other protocols are not automatically forwarded.
+
 For stderr, construct `std.report.stderr_formatter(max_bytes, max_depth)` and
 call `render` explicitly. Construction and scalar writes allocate no heap
 memory, so simple report methods remain usable when allocation is unavailable.

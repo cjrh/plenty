@@ -231,6 +231,11 @@ pub(super) struct Declared {
 }
 
 impl Engine {
+    pub(super) fn reporting_protocol(&self) -> Option<&protocols::Protocol> {
+        self.protocols
+            .get("std.report.Formattable")
+            .filter(|protocol| protocols::reporting(protocol, &self.standard_sources))
+    }
     fn record_defaults(&mut self, f: &Function) {
         if f.defaults.iter().any(Option::is_some) {
             self.defaults.insert(f.name.clone(), f.defaults.clone());
@@ -1079,6 +1084,7 @@ impl Engine {
                         &self.templates,
                         aliases,
                         access,
+                        &self.standard_sources,
                         &bound.at,
                         at,
                     )?;

@@ -24,6 +24,17 @@ is an integer from 0 through 64; zero permits direct scalar writes but rejects
 `render`. Nested values should use `render` to participate in the depth limit.
 Direct calls to a user method do not count depth automatically.
 
+An [anonymous sum](../language/03-types/anonymous-sums.md) satisfies
+`Formattable` when every normalized member satisfies it. Dispatch borrows the
+active member and calls its `format` method without moving the payload or
+allocating a wrapper. The sum adds no nesting level beyond the one entered by
+`render`. Aliases, reordered members and singleton normalization preserve this
+behavior. Direct `sum.format(&mut output)` uses the same dispatch and does not
+enter a depth level. If any member lacks the required accessible method or has a mismatched
+signature, the sum fails the bound even when that member is not currently active.
+This rule is specific to `std.report.Formattable`; sums do not automatically
+forward other protocols, including the display/debug contracts in `std.fmt`.
+
 ## API
 
 | Operation | Behavior |
@@ -73,8 +84,7 @@ Do not replay a record blindly after a partial write; inspect `completed()`.
 ## Current boundaries
 
 This module is an explicit API. Entrypoint reports still use their existing
-[structural rendering](../toolchain/01-building/entry-report.md); anonymous
-sums do not automatically forward `Formattable`. Floating-point formatting,
+[structural rendering](../toolchain/01-building/entry-report.md). Floating-point formatting,
 width, escaping and arbitrary writer destinations remain in
 [`std.fmt`](fmt.md). The [tutorial](../../tutorial/08-resources/report-formatting.md)
-shows borrowed enum reporting.
+shows borrowed enum and sum reporting.

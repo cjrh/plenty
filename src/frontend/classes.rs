@@ -866,6 +866,13 @@ impl Lower<'_> {
         let callee = method(owner, name);
         super::ide::method_call(&base.at, name, &callee);
         self.sync_data()?;
+        if name == "format" {
+            if let Some(ty @ Ty::Enum(_)) = self.place_type(base).map(unbox) {
+                if matches!(&ty, Ty::Enum(sum) if sum.anonymous()) {
+                    self.report_sum_method(&ty, &callee, &base.at)?;
+                }
+            }
+        }
         modules::check_member(self.access, owner, name, &base.at)?;
         if let Some(template) = self.generics.templates.get(&callee) {
             let receiver = Expr {
@@ -932,6 +939,74 @@ impl Lower<'_> {
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())
+    }
+
+    fn report_sum_method(&mut self, ty: &Ty, callee: &str, at: &Token) -> Result<()> {
+        let Some(protocol) = self.generics.reporting_protocol().cloned() else {
+            return Err(at.error("anonymous sum formatting requires std.report.Formattable"));
+        };
+        // Use the library's visibility boundary even for a direct sum.format
+        // call: private member methods must not become a public implementation.
+        protocols::check(
+            &protocol,
+            ty,
+            &self.generics.methods,
+            &self.generics.templates,
+            self.aliases,
+            self.access,
+            &self.generics.standard_sources,
+            &protocol.at,
+            at,
+        )?;
+        if self.sigs.contains_key(callee) {
+            return Ok(());
+        }
+        let mut function = protocol.methods[0].clone();
+        function.name = callee.into();
+        function.inputs[0].1 =
+            generics::type_ref(&Ty::Ref(Arc::new(ty.clone()), false), &protocol.at);
+        let name = |name: &str| Expr {
+            at: protocol.at.clone(),
+            kind: Expression::Name(name.into()),
+        };
+        let output_name = &function.inputs[1].0;
+        let cases = crate::sum::members(ty)
+            .into_iter()
+            .map(|member| enums::Case {
+                at: protocol.at.clone(),
+                pattern: patterns::Pat {
+                    at: protocol.at.clone(),
+                    kind: patterns::PatKind::Member(
+                        "payload".into(),
+                        Box::new(generics::type_ref(&member, &protocol.at)),
+                    ),
+                },
+                body: vec![Stmt {
+                    at: protocol.at.clone(),
+                    kind: Statement::Return(Some(Expr {
+                        at: protocol.at.clone(),
+                        kind: Expression::Method(
+                            Box::new(name("payload")),
+                            "format".into(),
+                            vec![name(output_name)],
+                            Pos::default(),
+                        ),
+                    })),
+                }],
+            })
+            .collect();
+        function.body = vec![Stmt {
+            at: protocol.at.clone(),
+            kind: Statement::Match {
+                value: name("self"),
+                cases,
+            },
+        }];
+        register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
+        self.generics
+            .inherit_requirement(&self.function_name, callee);
+        self.generics.declare(function);
+        Ok(())
     }
 
     pub(super) fn generic_method(
