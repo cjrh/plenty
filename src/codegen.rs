@@ -264,6 +264,10 @@ pub(crate) fn compile_tests_to_executable(
 }
 
 /// Historical stack syntax, retained for backend regression tests.
+///
+/// Only an unterminated string literal is reported with a `line:column`
+/// location. Legacy tokens carry no positions, so every other syntax or
+/// type error has none.
 pub fn compile_legacy_source_to_executable(source: &str, output: &Path) -> Result<()> {
     compile_legacy_source_to_executable_with_options(
         source,
