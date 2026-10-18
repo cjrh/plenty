@@ -4,7 +4,7 @@
 # nesting, repetition counts, program size, matcher memory, and matcher work
 # are bounded by `Limits`. See book/src/design/stdlib/regex.md.
 import std.bytes
-from std.bytes import Bytes
+from std.bytes import Bytes, BytesError
 
 pub enum Limit:
     PatternBytes
@@ -112,8 +112,12 @@ def no_bytes() -> Result[Bytes, RegexError]:
     match std.bytes.with_capacity(0):
         case Ok(value):
             Ok(value)
-        case Err(_):
-            Err(RegexError.OutOfRange)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(RegexError.Allocation(cause))
+                case _:
+                    Err(RegexError.OutOfRange)
 
 def hex_value(code: i64) -> i64:
     if code >= 48 and code <= 57:
