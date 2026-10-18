@@ -435,6 +435,15 @@ fn read_pins(path: &Path) -> Result<Pins> {
         let (Some(name), Some(commit)) = (string("name"), string("commit")) else {
             return Err(invalid().into());
         };
+        // Diagnostics abbreviate commits to 12 characters, and Git accepts
+        // short prefixes, so only a full commit ID may enter the resolver.
+        if commit.len() != 40
+            || !commit
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(invalid().into());
+        }
         let subdir = string("subdir").unwrap_or_default();
         if let Some(toml::Entry {
             value: toml::Value::Array(selectors),
@@ -1747,8 +1756,7 @@ pub fn update(
             if old != Some(commit) {
                 changes.push((
                     package.manifest.name.clone(),
-                    old.map(|c| c[..12.min(c.len())].to_owned())
-                        .unwrap_or_default(),
+                    old.map(|c| c[..12].to_owned()).unwrap_or_default(),
                     commit[..12].to_owned(),
                 ));
             }
