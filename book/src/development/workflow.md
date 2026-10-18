@@ -84,6 +84,15 @@ appear in `SUMMARY.md`. The examples run as 16 tests in parallel, each taking
 every 16th example in reading order; a failure names the example's page and
 line.
 
+`book/theme/plenty-highlight.js` registers the highlight.js grammars for these
+fences: Plenty source for `plenty`, `plenty-error` and `plenty-file`, compiler
+diagnostics with highlighted `` `code` `` for `error`, and plain text for
+`output`. `book/theme/plenty-highlight.css` colours the classes the bundled
+themes leave unstyled. Its keyword, literal, type and built-in lists follow the
+compiler; `tests/test_book_highlighting.rs` fails when a reserved word or
+lower-case prelude name is missing from them, or when they name one the compiler
+no longer defines.
+
 Proposal fences are illustrative and are not executed by the tutorial suite.
 Use `text` fences for proposed syntax; check implemented behavior with a complete
 program or an executable lesson.

@@ -1,0 +1,48 @@
+/* Colours for highlight classes the bundled themes leave unstyled.
+   plenty-highlight.js marks `?` and borrows as operators and string escapes
+   as char-escape. The light and rust themes use highlight.css, coal and navy
+   use tomorrow-night.css (which has no type colour), and ayu uses
+   ayu-highlight.css. */
+.hljs-operator {
+    color: #00787a;
+    font-weight: bold;
+}
+.hljs-char-escape {
+    color: #b21e00;
+}
+/* highlight.css gives types the colour of literals and numbers. */
+.light .hljs-type,
+.rust .hljs-type,
+html:not(.js) .hljs-type {
+    color: #7a5c00;
+}
+
+.coal .hljs-type,
+.navy .hljs-type {
+    color: #f0c674;
+}
+.coal .hljs-operator,
+.navy .hljs-operator {
+    color: #cc6666;
+}
+.coal .hljs-char-escape,
+.navy .hljs-char-escape {
+    color: #de935f;
+}
+
+.ayu .hljs-operator {
+    color: #95e6cb;
+}
+.ayu .hljs-char-escape {
+    color: #f29668;
+}
+
+/* Compiler diagnostics get an error-coloured rule; output stays plain. */
+code.language-error {
+    border-left: 3px solid #d70025;
+}
+.coal code.language-error,
+.navy code.language-error,
+.ayu code.language-error {
+    border-left-color: #cc6666;
+}
