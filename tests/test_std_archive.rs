@@ -634,10 +634,14 @@ mut tar = archive.tar_writer(io.cursor(std.bytes.empty()?))?
 print(str.repr(tar.add_file(&name("../x")?, &text("x")?, 420, 0))?)?
 print(str.repr(tar.add_file(&name("/x")?, &text("x")?, 420, 0))?)?
 print(str.repr(tar.add_file(&name("x")?, &text("x")?, 4096, 0))?)?
+print(str.repr(tar.add_symlink(&name("l")?, &name("")?, 0))?)?
+print(str.repr(tar.add_symlink(&name("l")?, &path.from_bytes([97u8, 0u8]?), 0))?)?
 tar.finish()?
 print(str.repr(tar.add_dir(&name("late")?, 493, 0))?)?
 mut zip = archive.zip_writer(io.cursor(std.bytes.empty()?))?
 print(str.repr(zip.add_file(&name("a/../b")?, &text("x")?, Method.Stored, 420, 0))?)?
+print(str.repr(zip.add_symlink(&name("l")?, &name("")?, 0))?)?
+print(str.repr(zip.add_symlink(&name("l")?, &path.from_bytes([97u8, 0u8]?), 0))?)?
 "#,
     );
     let directory = tempfile::tempdir().unwrap();
@@ -645,7 +649,10 @@ print(str.repr(zip.add_file(&name("a/../b")?, &text("x")?, Method.Stored, 420, 0
         program
             .run(directory.path())
             .replace("Result[(), std.archive.ArchiveError].", ""),
-        "Err(UnsafePath)\nErr(UnsafePath)\nErr(InvalidInput)\nErr(InvalidInput)\nErr(UnsafePath)"
+        concat!(
+            "Err(UnsafePath)\nErr(UnsafePath)\nErr(InvalidInput)\nErr(InvalidInput)\n",
+            "Err(InvalidInput)\nErr(InvalidInput)\nErr(UnsafePath)\nErr(InvalidInput)\nErr(InvalidInput)"
+        )
     );
 }
 
