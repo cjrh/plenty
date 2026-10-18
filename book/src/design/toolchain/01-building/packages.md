@@ -261,6 +261,7 @@ a graph may contain one commit per package
 | `--offline` and the repository or commit is not cached | Error naming the URL; nothing is fetched |
 | `--locked` and the lockfile has no commit for a requirement | Error before any fetch |
 | The locked commit is gone upstream and not cached | Error suggesting `plenty update` |
+| A locked `commit` is not 40 lowercase hexadecimal digits | Error: the lockfile is malformed; delete it to resolve again |
 | The tag or revision does not exist | Error naming the URL and tag or revision |
 | `git` is not installed | Error saying Git dependencies need `git` on `PATH` |
 

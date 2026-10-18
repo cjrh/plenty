@@ -620,6 +620,34 @@ fn a_locked_commit_that_upstream_deleted_is_reported() {
     );
 }
 
+/// A lockfile commit must be a full commit ID: diagnostics abbreviate it,
+/// and Git would otherwise accept a short prefix (issue #171).
+#[test]
+fn a_locked_commit_that_is_not_a_full_commit_id_is_malformed() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("util-repo");
+    let head = commit(
+        &repo,
+        &[
+            ("plenty.toml", &library_manifest("util", "1.0.0", "")),
+            (
+                "src/lib.plenty",
+                "pub def twice(x: i64) -> i64:\n    x * 2\n",
+            ),
+        ],
+    );
+    let app = twice_application(
+        dir.path(),
+        &format!("util = {{ git = \"{}\", rev = \"{head}\" }}\n", url(&repo)),
+    );
+    assert_eq!(succeeds(&app, &["run"]), "42\n");
+    let lock = std::fs::read_to_string(app.join("plenty.lock")).unwrap();
+    for bad in [&head[..7], "ééééééééééé", &head.to_uppercase()] {
+        write(&app.join("plenty.lock"), &lock.replace(&head, bad));
+        fails(&app, &["check"], "plenty.lock is malformed");
+    }
+}
+
 #[test]
 fn git_subdirectories_share_one_commit_per_package() {
     let dir = tempfile::tempdir().unwrap();
