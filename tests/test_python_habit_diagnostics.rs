@@ -92,7 +92,23 @@ fn mixed_numeric_operands_name_the_conversion() {
         ),
         (
             "a: u64 = 3\n    b: i64 = 4\n    m = a + b",
-            "4:13: cannot combine u64 with i64; convert with `u64(b)`",
+            "4:13: cannot combine u64 with i64; no integer type holds both",
+        ),
+        (
+            "a: i8 = 3\n    b: u16 = 4\n    m = a + b",
+            "4:9: cannot combine i8 with u16; convert both with `i32(a)` and `i32(b)`",
+        ),
+        (
+            "a: u8 = 3\n    b: i8 = 4\n    m = a + b",
+            "4:9: cannot combine u8 with i8; convert both with `i16(a)` and `i16(b)`",
+        ),
+        (
+            "a: u16 = 3\n    b: i32 = 4\n    m = a + b",
+            "4:9: cannot combine u16 with i32; convert with `i32(a)`",
+        ),
+        (
+            "a: i64 = 3\n    b: u64 = 4\n    m = a + b",
+            "4:9: cannot combine i64 with u64; no integer type holds both",
         ),
         (
             "n = 3\n    x = 1.5\n    m = (n + 1) * x",
