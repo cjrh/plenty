@@ -23,6 +23,10 @@ Option and printable aggregates containing Results are allowed. Neither operatio
 invokes user-defined formatting methods. Their Results must be handled or explicitly
 dropped, following the [error rules](../../language/08-errors/index.md).
 
+[f-strings](../../language/04-expressions/format-strings.md) build a `str`
+from fields, with Python format specs checked at compile time; fields without
+a spec use the same spellings as `print`.
+
 Automatic formatting rejects stored recursive types even when an individual value
 is shallow. Print selected scalar fields or write an explicit traversal.
 Numeric spelling follows [scalar formatting](numbers.md); stream behavior follows

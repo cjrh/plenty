@@ -32,6 +32,15 @@ pub class Bytes:
             return Err(BytesError.OutOfRange)
         Ok(__bytes_write_float(self._owner, value))
 
+    # Python format-spec float spellings for std.fmt: style 1 fixed, 2 exponent,
+    # 3 general, 4 general keeping `.0`, 5 f64 display, 6 f32 display; add 16
+    # for `#`. Writes at `offset` and returns the spelling's length, or the
+    # negated total length needed when the buffer is shorter.
+    pub def write_float_spec(self: &mut Bytes, value: f64, style: i64, precision: i64, offset: i64) -> Result[i64, BytesError]:
+        if style & 15 < 1 or style & 15 > 6 or style & ~31 != 0 or precision < 0 or precision > 4096 or offset < 0 or offset > self.len():
+            return Err(BytesError.OutOfRange)
+        Ok(__bytes_write_float_spec(self._owner, value, style, precision, offset))
+
     pub def capacity(self) -> i64:
         __bytes_capacity(self._owner)
 

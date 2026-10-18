@@ -57,6 +57,14 @@ pub class Script:
         # Stdout is line buffered and may take only part of the range.
         Ok(source.write_stdout(start, stop).unwrap())
 
+pub enum Route:
+    Form
+    Json
+    Upload
+    Cookies
+    Client
+    Search
+
 pub class App:
     pub form: FormLimits
     pub multipart: MultipartLimits
@@ -64,97 +72,97 @@ pub class App:
     pub storage: Root
     pub proxies: Proxies
 
-    pub def handle(self, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
-        route = exchange.route
-        if route == 0:
-            match std.http.body.read_form(exchange, &self.form):
-                case Ok(pairs):
-                    mut text = ""
-                    for pair in pairs:
-                        text = text.concat("[")?.concat(&pair.key)?.concat("=")?.concat(&pair.value)?.concat("]")?
-                    exchange.send_text(200, &text)?
-                case Err(error):
-                    std.http.body.reject(exchange, &error)?
-        elif route == 1:
-            match std.http.body.read_json(exchange, &self.json):
-                case Ok(value):
-                    std.http.body.send_json(exchange, 200, &value, &self.json)?
-                case Err(error):
-                    std.http.body.reject(exchange, &error)?
-        elif route == 2:
-            match std.http.body.read_multipart(exchange, &self.multipart, &self.storage):
-                case Ok(found):
-                    print(open_files()?)?
-                    mut parts = found
-                    mut text = ""
-                    for index in range(len(parts)):
-                        part = &mut parts[index]
-                        text = text.concat("[")?.concat(&part.name)?
-                        match &part.filename:
-                            case Some(name):
-                                text = text.concat(" file=")?.concat(name)?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+        match route:
+            case Route.Form:
+                match std.http.body.read_form(exchange, &self.form):
+                    case Ok(pairs):
+                        mut text = ""
+                        for pair in pairs:
+                            text = text.concat("[")?.concat(&pair.key)?.concat("=")?.concat(&pair.value)?.concat("]")?
+                        exchange.send_text(200, &text)?
+                    case Err(error):
+                        std.http.body.reject(exchange, &error)?
+            case Route.Json:
+                match std.http.body.read_json(exchange, &self.json):
+                    case Ok(value):
+                        std.http.body.send_json(exchange, 200, &value, &self.json)?
+                    case Err(error):
+                        std.http.body.reject(exchange, &error)?
+            case Route.Upload:
+                match std.http.body.read_multipart(exchange, &self.multipart, &self.storage):
+                    case Ok(found):
+                        print(open_files()?)?
+                        mut parts = found
+                        mut text = ""
+                        for index in range(len(parts)):
+                            part = &mut parts[index]
+                            text = text.concat("[")?.concat(&part.name)?
+                            match &part.filename:
+                                case Some(name):
+                                    text = text.concat(" file=")?.concat(name)?
+                                case Nothing:
+                                    pass
+                            text = text.concat(" type=")?.concat(&part.content_type)?
+                            text = text.concat(" size=")?.concat(str.from(part.size)?)?.concat(" ")?
+                            size = part.size
+                            match &mut part.content:
+                                case Content.Text(value):
+                                    text = text.concat(value)?
+                                case Content.File(file):
+                                    mut data = std.bytes.empty()?
+                                    data.resize(size + 1, 0u8)?
+                                    mut count = 0
+                                    mut step = file.stream.read(&mut data, 0, size + 1)?
+                                    while step > 0:
+                                        count += step
+                                        step = file.stream.read(&mut data, count, size + 1)?
+                                    if count > 64:
+                                        text = text.concat(data.slice(0, 8)?.to_text()?)?.concat("...")?
+                                        text = text.concat(data.slice(count - 8, count)?.to_text()?)?
+                                    else:
+                                        text = text.concat(data.slice(0, count)?.to_text()?)?
+                            text = text.concat("]")?
+                        exchange.send_text(200, &text)?
+                    case Err(error):
+                        std.http.body.reject(exchange, &error)?
+            case Route.Cookies:
+                found = std.http.cookie.cookies(&exchange.request.headers, 4)?
+                mut text = ""
+                for cookie in found:
+                    text = text.concat("[")?.concat(&cookie.name)?.concat("=")?.concat(&cookie.value)?.concat("]")?
+                mut head = std.http.response(200, "OK")?
+                mut session = std.http.cookie.set_cookie("session", "abc123")?
+                session.max_age = Some(3600)
+                std.http.cookie.add(&mut head, &session)?
+                std.http.cookie.add(&mut head, &std.http.cookie.removal("old")?)?
+                head.add("Content-Type", "text/plain")?
+                body = std.bytes.from_text(&text)?
+                exchange.respond(head, &body)?
+            case Route.Client:
+                match std.http.proxy.client_of(exchange, &self.proxies):
+                    case Ok(client):
+                        mut text = std.net.format_ip(client.address)?
+                        match client.scheme:
+                            case Some(scheme):
+                                text = text.concat(" ")?.concat(&scheme)?
                             case Nothing:
                                 pass
-                        text = text.concat(" type=")?.concat(&part.content_type)?
-                        text = text.concat(" size=")?.concat(str.from(part.size)?)?.concat(" ")?
-                        size = part.size
-                        match &mut part.content:
-                            case Content.Text(value):
-                                text = text.concat(value)?
-                            case Content.File(file):
-                                mut data = std.bytes.empty()?
-                                data.resize(size + 1, 0u8)?
-                                mut count = 0
-                                mut step = file.stream.read(&mut data, 0, size + 1)?
-                                while step > 0:
-                                    count += step
-                                    step = file.stream.read(&mut data, count, size + 1)?
-                                if count > 64:
-                                    text = text.concat(data.slice(0, 8)?.to_text()?)?.concat("...")?
-                                    text = text.concat(data.slice(count - 8, count)?.to_text()?)?
-                                else:
-                                    text = text.concat(data.slice(0, count)?.to_text()?)?
-                        text = text.concat("]")?
-                    exchange.send_text(200, &text)?
-                case Err(error):
-                    std.http.body.reject(exchange, &error)?
-        elif route == 3:
-            found = std.http.cookie.cookies(&exchange.request.headers, 4)?
-            mut text = ""
-            for cookie in found:
-                text = text.concat("[")?.concat(&cookie.name)?.concat("=")?.concat(&cookie.value)?.concat("]")?
-            mut head = std.http.response(200, "OK")?
-            mut session = std.http.cookie.set_cookie("session", "abc123")?
-            session.max_age = Some(3600)
-            std.http.cookie.add(&mut head, &session)?
-            std.http.cookie.add(&mut head, &std.http.cookie.removal("old")?)?
-            head.add("Content-Type", "text/plain")?
-            body = std.bytes.from_text(&text)?
-            exchange.respond(head, &body)?
-        elif route == 4:
-            match std.http.proxy.client_of(exchange, &self.proxies):
-                case Ok(client):
-                    mut text = std.net.format_ip(client.address)?
-                    match client.scheme:
-                        case Some(scheme):
-                            text = text.concat(" ")?.concat(&scheme)?
-                        case Nothing:
-                            pass
-                    if client.proxied:
-                        text = text.concat(" proxied")?
-                    exchange.send_text(200, &text)?
-                case Err(_):
-                    exchange.send_text(400, "bad forwarding")?
-        elif route == 5:
-            match std.http.body.parse_form_text(&exchange.query, &self.form):
-                case Ok(pairs):
-                    match std.http.body.find(&pairs, "q"):
-                        case Some(index):
-                            exchange.send_text(200, &pairs[index].value)?
-                        case Nothing:
-                            exchange.send_text(200, "none")?
-                case Err(error):
-                    std.http.body.reject(exchange, &error)?
+                        if client.proxied:
+                            text = text.concat(" proxied")?
+                        exchange.send_text(200, &text)?
+                    case Err(_):
+                        exchange.send_text(400, "bad forwarding")?
+            case Route.Search:
+                match std.http.body.parse_form_text(&exchange.query, &self.form):
+                    case Ok(pairs):
+                        match std.http.body.find(&pairs, "q"):
+                            case Some(index):
+                                exchange.send_text(200, &pairs[index].value)?
+                            case Nothing:
+                                exchange.send_text(200, "none")?
+                    case Err(error):
+                        std.http.body.reject(exchange, &error)?
         Ok(())
 
 # Open file descriptors of this process.
@@ -169,14 +177,14 @@ pub def open_files() -> Result[str, Failure]:
                 break
     Ok("fds=".concat(str.from(count)?)?)
 
-pub def routes() -> Result[Router, Failure]:
-    mut table = std.http.server.router()?
-    table.add("POST", "/form", 0)?
-    table.add("POST", "/json", 1)?
-    table.add("POST", "/upload", 2)?
-    table.add("GET", "/cookies", 3)?
-    table.add("GET", "/client", 4)?
-    table.add("GET", "/search", 5)?
+pub def routes() -> Result[Router[Route], Failure]:
+    mut table = std.http.server.router[Route]()?
+    table.add("POST", "/form", Route.Form)?
+    table.add("POST", "/json", Route.Json)?
+    table.add("POST", "/upload", Route.Upload)?
+    table.add("GET", "/cookies", Route.Cookies)?
+    table.add("GET", "/client", Route.Client)?
+    table.add("GET", "/search", Route.Search)?
     Ok(table)
 
 pub def app() -> Result[App, Failure]:

@@ -420,6 +420,11 @@ fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String
                 free_names(value, bound, names);
             }
         }
+        Expression::Format(format) => {
+            for value in format.operands() {
+                free_names(value, bound, names);
+            }
+        }
         Expression::Method(base, _, args, _)
         | Expression::GenericMethod(base, _, _, args, _)
         | Expression::Invoke(base, args) => {

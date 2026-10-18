@@ -494,6 +494,14 @@ fn parse_items(
             module.exports.insert(name);
         }
     }
+    if parser.formats {
+        module.imports.push(Import {
+            at: parser.peek().clone(),
+            module: "std.fmt".into(),
+            item: None,
+            binding: fstrings::FMT_BINDING.into(),
+        });
+    }
     Ok((module, parser.peek().clone()))
 }
 
@@ -512,12 +520,43 @@ impl Module {
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn single(source: &str) -> Result<Resolved> {
     let (module, at) = parse(source, None, String::new())?;
-    if let Some(import) = module.imports.first() {
+    if let Some(import) = module
+        .imports
+        .iter()
+        .find(|import| import.binding != fstrings::FMT_BINDING)
+    {
         return Err(import
             .at
             .error("imports require a file-based compilation API and a source root"));
     }
-    resolve(vec![module], vec![vec![]], at, true)
+    // Only the standard library is reachable without a source root.
+    let mut loader = Loader {
+        packages: vec![],
+        active: vec![],
+        loaded: HashMap::new(),
+        modules: vec![],
+        dependencies: vec![],
+        appendix: None,
+    };
+    let mut entry = vec![];
+    for import in &module.imports {
+        let (index, _) = loader
+            .file(ModuleSource::Standard("std.fmt"), 0, import.module.clone())
+            .map_err(|e| import.at.error(e))?;
+        entry.push(index);
+    }
+    let standard_sources = loader
+        .loaded
+        .keys()
+        .map(|source| source.path().to_string_lossy().into_owned().into())
+        .collect();
+    let mut modules = loader.modules;
+    let mut dependencies = loader.dependencies;
+    modules.push(module);
+    dependencies.push(entry);
+    let mut result = resolve(modules, dependencies, at, true)?;
+    result.standard_sources = standard_sources;
+    Ok(result)
 }
 
 pub(super) fn generated_interface(source: &str) -> Result<Resolved> {
@@ -572,6 +611,245 @@ fn module_path_of(relative: &Path) -> Option<String> {
                 && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
         })
         .then(|| names.join("."))
+}
+
+struct Loader {
+    packages: Vec<crate::project::SourcePackage>,
+    active: Vec<ModuleSource>,
+    loaded: HashMap<ModuleSource, usize>,
+    modules: Vec<Module>,
+    dependencies: Vec<Vec<usize>>,
+    /// Taken by the first file read, which is the entry.
+    appendix: Option<String>,
+}
+impl Loader {
+    fn file(
+        &mut self,
+        source: ModuleSource,
+        package: usize,
+        name: String,
+    ) -> Result<(usize, Token)> {
+        if let Some(start) = self.active.iter().position(|p| p == &source) {
+            let cycle = self.active[start..]
+                .iter()
+                .chain(std::iter::once(&source))
+                .map(|p| p.path().display().to_string())
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            return Err(format!("circular import: {cycle}").into());
+        }
+        if self.active.len() >= 128 || self.modules.len() >= 4096 {
+            return Err(
+                "module graph exceeds the implementation limit (128 depth, 4096 modules)".into(),
+            );
+        }
+        self.active.push(source.clone());
+        let mut text = source.read()?;
+        if let Some(appendix) = self.appendix.take() {
+            text.push_str(&appendix);
+        }
+        super::ide::loaded(
+            &source.path(),
+            matches!(source, ModuleSource::Standard(_)),
+            &text,
+        );
+        let (mut module, at) = parse(&text, Some(&source.path()), name)?;
+        if let ModuleSource::Standard(name) = &source {
+            module.facility_exports = facility_exports(name);
+        }
+        let mut deps = Vec::new();
+        for import in &module.imports {
+            let (dependency, owner) = self.import_path(import, package)?;
+            // The implicit `std.fmt` import of an f-string has no source span.
+            if super::ide::active() && import.binding != fstrings::FMT_BINDING {
+                super::ide::module(
+                    &import.module,
+                    &dependency.path(),
+                    matches!(dependency, ModuleSource::Standard(_)),
+                    &import.at,
+                );
+            }
+            let index = if let Some(index) = self.loaded.get(&dependency) {
+                *index
+            } else {
+                // Canonical relative paths make alternate spellings refer to one module.
+                let identity = match &dependency {
+                    ModuleSource::Standard(name) => (*name).into(),
+                    ModuleSource::File(path) => {
+                        let package = &self.packages[owner];
+                        let relative =
+                            module_path_of(path.strip_prefix(&package.root).unwrap()).unwrap();
+                        // `::` cannot occur in a source module path, so
+                        // dependency modules never share a key with entry
+                        // package modules.
+                        if owner == 0 {
+                            relative
+                        } else {
+                            format!("{}::{relative}", package.identity)
+                        }
+                    }
+                };
+                self.file(dependency, owner, identity)
+                    .map_err(|e| import.at.error(e))?
+                    .0
+            };
+            deps.push(index);
+        }
+        self.active.pop();
+        if self.modules.len() >= 4096 {
+            return Err(at.error("module graph exceeds the implementation limit of 4096 modules"));
+        }
+        let index = self.modules.len();
+        self.loaded.insert(source, index);
+        self.modules.push(module);
+        self.dependencies.push(deps);
+        Ok((index, at))
+    }
+
+    fn import_path(&self, import: &Import, package: usize) -> Result<(ModuleSource, usize)> {
+        let first = import.module.split('.').next().unwrap();
+        if first == "std" {
+            let standard = match import.module.as_str() {
+                "std.math" => Ok(ModuleSource::Standard("std.math")),
+                "std.fs" => Ok(ModuleSource::Standard("std.fs")),
+                "std.path" => Ok(ModuleSource::Standard("std.path")),
+                "std.deque" => Ok(ModuleSource::Standard("std.deque")),
+                "std.error" => Ok(ModuleSource::Standard("std.error")),
+                "std.bytes" => Ok(ModuleSource::Standard("std.bytes")),
+                "std.time" => Ok(ModuleSource::Standard("std.time")),
+                "std.cli" => Ok(ModuleSource::Standard("std.cli")),
+                "std.text" => Ok(ModuleSource::Standard("std.text")),
+                "std.fmt" => Ok(ModuleSource::Standard("std.fmt")),
+                "std.unicode" => Ok(ModuleSource::Standard("std.unicode")),
+                "std.thread" => Ok(ModuleSource::Standard("std.thread")),
+                "std.channel" => Ok(ModuleSource::Standard("std.channel")),
+                "std.concurrent" => Ok(ModuleSource::Standard("std.concurrent")),
+                "std.sync" => Ok(ModuleSource::Standard("std.sync")),
+                "std.io" => Ok(ModuleSource::Standard("std.io")),
+                "std.io.typed" => Ok(ModuleSource::Standard("std.io.typed")),
+                "std.http.typed" => Ok(ModuleSource::Standard("std.http.typed")),
+                "std.encoding" => Ok(ModuleSource::Standard("std.encoding")),
+                "std.collections" => Ok(ModuleSource::Standard("std.collections")),
+                "std.iter" => Ok(ModuleSource::Standard("std.iter")),
+                "std.url" => Ok(ModuleSource::Standard("std.url")),
+                "std.csv" => Ok(ModuleSource::Standard("std.csv")),
+                "std.random" => Ok(ModuleSource::Standard("std.random")),
+                "std.secrets" => Ok(ModuleSource::Standard("std.secrets")),
+                "std.crypto" => Ok(ModuleSource::Standard("std.crypto")),
+                "std.compress" => Ok(ModuleSource::Standard("std.compress")),
+                "std.archive" => Ok(ModuleSource::Standard("std.archive")),
+                "std.regex" => Ok(ModuleSource::Standard("std.regex")),
+                "std.json" => Ok(ModuleSource::Standard("std.json")),
+                "std.log" => Ok(ModuleSource::Standard("std.log")),
+                "std.toml" => Ok(ModuleSource::Standard("std.toml")),
+                "std.env" => Ok(ModuleSource::Standard("std.env")),
+                "std.process" => Ok(ModuleSource::Standard("std.process")),
+                "std.ready" => Ok(ModuleSource::Standard("std.ready")),
+                "std.signal" => Ok(ModuleSource::Standard("std.signal")),
+                "std.net" => Ok(ModuleSource::Standard("std.net")),
+                "std.tls" => Ok(ModuleSource::Standard("std.tls")),
+                "std.http" => Ok(ModuleSource::Standard("std.http")),
+                "std.http.server" => Ok(ModuleSource::Standard("std.http.server")),
+                "std.http.tls" => Ok(ModuleSource::Standard("std.http.tls")),
+                "std.http.body" => Ok(ModuleSource::Standard("std.http.body")),
+                "std.http.cookie" => Ok(ModuleSource::Standard("std.http.cookie")),
+                "std.http.files" => Ok(ModuleSource::Standard("std.http.files")),
+                "std.http.proxy" => Ok(ModuleSource::Standard("std.http.proxy")),
+                "std.http.client" => Ok(ModuleSource::Standard("std.http.client")),
+                "std.http.https" => Ok(ModuleSource::Standard("std.http.https")),
+                "std.test" => Ok(ModuleSource::Standard("std.test")),
+                "std.db.sqlite" => Ok(ModuleSource::Standard("std.db.sqlite")),
+                _ => Err(import.at.error(format!(
+            "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.io.typed, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.signal, std.ready, std.net, std.tls, std.http, std.http.server, std.http.tls, std.http.body, std.http.typed, std.http.cookie, std.http.proxy, std.http.files, std.http.client, std.http.https, std.db.sqlite, std.test",
+                    import.module
+            ))),
+            };
+            return standard.map(|source| (source, package));
+        }
+        let parts: Vec<_> = import.module.split('.').collect();
+        let current = &self.packages[package];
+        if let Some(&(_, owner)) = current
+            .dependencies
+            .iter()
+            .find(|(alias, _)| alias == first)
+        {
+            let dependency = &self.packages[owner];
+            if parts.len() == 1 {
+                let library = dependency.library.clone().ok_or_else(|| {
+                    import.at.error(format!(
+                        "dependency `{first}` (package `{}`) has no library target",
+                        dependency.identity
+                    ))
+                })?;
+                return Ok((ModuleSource::File(library), owner));
+            }
+            return Ok((
+                ModuleSource::File(Self::local(&dependency.root, &parts[1..], import)?),
+                owner,
+            ));
+        }
+        Ok((
+            ModuleSource::File(Self::local(&current.root, &parts, import).map_err(|e| {
+                if self.packages.len() > 1 && !current.root.join(first).exists() {
+                    format!(
+                        "{e}\nnote: `{first}` is neither a local module nor a dependency declared by package `{}`",
+                        if current.identity.is_empty() { "<entry>" } else { &current.identity }
+                    )
+                    .into()
+                } else {
+                    e
+                }
+            })?),
+            package,
+        ))
+    }
+
+    /// Resolve `parts` below `root`, confined to that root.
+    fn local(root: &Path, parts: &[&str], import: &Import) -> Result<PathBuf> {
+        let mut path = root.to_path_buf();
+        for (i, part) in parts.iter().enumerate() {
+            path.push(part);
+            let file = path.with_extension("plenty");
+            let interface = path.with_extension("plentyi");
+            if (path.is_dir() && (file.exists() || interface.exists()))
+                || (file.exists() && interface.exists())
+            {
+                return Err(import.at.error(format!(
+                    "ambiguous module `{}`: conflicting namespace or .plenty/.plentyi files at {} and {}",
+                    import.module,
+                    path.display(),
+                    file.display()
+                )));
+            }
+            if i + 1 != parts.len() && !path.is_dir() {
+                return Err(import.at.error(format!(
+                    "module namespace {} is not a directory",
+                    path.display()
+                )));
+            }
+        }
+        let file = if path.with_extension("plentyi").exists() {
+            path.with_extension("plentyi")
+        } else {
+            path.with_extension("plenty")
+        };
+        let canonical = file.canonicalize().map_err(|e| {
+            import.at.error(format!(
+                "loading `{}` at {}: {e}",
+                import.module,
+                file.display()
+            ))
+        })?;
+        if !canonical.starts_with(root) {
+            return Err(import.at.error("import resolves outside the source root"));
+        }
+        if module_path_of(canonical.strip_prefix(root).unwrap()).is_none() {
+            return Err(import.at.error(
+                "canonical imported paths must be .plenty files or .plentyi interfaces with identifier components",
+            ));
+        }
+        Ok(canonical)
+    }
 }
 
 /// Load the program whose entry file belongs to `graph.packages[0]`.
@@ -681,246 +959,6 @@ pub(super) fn load_graph_with(
             root.display()
         )
         .into());
-    }
-    struct Loader {
-        packages: Vec<crate::project::SourcePackage>,
-        active: Vec<ModuleSource>,
-        loaded: HashMap<ModuleSource, usize>,
-        modules: Vec<Module>,
-        dependencies: Vec<Vec<usize>>,
-        /// Taken by the first file read, which is the entry.
-        appendix: Option<String>,
-    }
-    impl Loader {
-        fn file(
-            &mut self,
-            source: ModuleSource,
-            package: usize,
-            name: String,
-        ) -> Result<(usize, Token)> {
-            if let Some(start) = self.active.iter().position(|p| p == &source) {
-                let cycle = self.active[start..]
-                    .iter()
-                    .chain(std::iter::once(&source))
-                    .map(|p| p.path().display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(" -> ");
-                return Err(format!("circular import: {cycle}").into());
-            }
-            if self.active.len() >= 128 || self.modules.len() >= 4096 {
-                return Err(
-                    "module graph exceeds the implementation limit (128 depth, 4096 modules)"
-                        .into(),
-                );
-            }
-            self.active.push(source.clone());
-            let mut text = source.read()?;
-            if let Some(appendix) = self.appendix.take() {
-                text.push_str(&appendix);
-            }
-            super::ide::loaded(
-                &source.path(),
-                matches!(source, ModuleSource::Standard(_)),
-                &text,
-            );
-            let (mut module, at) = parse(&text, Some(&source.path()), name)?;
-            if let ModuleSource::Standard(name) = &source {
-                module.facility_exports = facility_exports(name);
-            }
-            let mut deps = Vec::new();
-            for import in &module.imports {
-                let (dependency, owner) = self.import_path(import, package)?;
-                if super::ide::active() {
-                    super::ide::module(
-                        &import.module,
-                        &dependency.path(),
-                        matches!(dependency, ModuleSource::Standard(_)),
-                        &import.at,
-                    );
-                }
-                let index = if let Some(index) = self.loaded.get(&dependency) {
-                    *index
-                } else {
-                    // Canonical relative paths make alternate spellings refer to one module.
-                    let identity = match &dependency {
-                        ModuleSource::Standard(name) => (*name).into(),
-                        ModuleSource::File(path) => {
-                            let package = &self.packages[owner];
-                            let relative =
-                                module_path_of(path.strip_prefix(&package.root).unwrap()).unwrap();
-                            // `::` cannot occur in a source module path, so
-                            // dependency modules never share a key with entry
-                            // package modules.
-                            if owner == 0 {
-                                relative
-                            } else {
-                                format!("{}::{relative}", package.identity)
-                            }
-                        }
-                    };
-                    self.file(dependency, owner, identity)
-                        .map_err(|e| import.at.error(e))?
-                        .0
-                };
-                deps.push(index);
-            }
-            self.active.pop();
-            if self.modules.len() >= 4096 {
-                return Err(
-                    at.error("module graph exceeds the implementation limit of 4096 modules")
-                );
-            }
-            let index = self.modules.len();
-            self.loaded.insert(source, index);
-            self.modules.push(module);
-            self.dependencies.push(deps);
-            Ok((index, at))
-        }
-
-        fn import_path(&self, import: &Import, package: usize) -> Result<(ModuleSource, usize)> {
-            let first = import.module.split('.').next().unwrap();
-            if first == "std" {
-                let standard = match import.module.as_str() {
-                    "std.math" => Ok(ModuleSource::Standard("std.math")),
-                    "std.fs" => Ok(ModuleSource::Standard("std.fs")),
-                    "std.path" => Ok(ModuleSource::Standard("std.path")),
-                    "std.deque" => Ok(ModuleSource::Standard("std.deque")),
-                    "std.error" => Ok(ModuleSource::Standard("std.error")),
-                    "std.bytes" => Ok(ModuleSource::Standard("std.bytes")),
-                    "std.time" => Ok(ModuleSource::Standard("std.time")),
-                    "std.cli" => Ok(ModuleSource::Standard("std.cli")),
-                    "std.text" => Ok(ModuleSource::Standard("std.text")),
-                    "std.fmt" => Ok(ModuleSource::Standard("std.fmt")),
-                    "std.unicode" => Ok(ModuleSource::Standard("std.unicode")),
-                    "std.thread" => Ok(ModuleSource::Standard("std.thread")),
-                    "std.channel" => Ok(ModuleSource::Standard("std.channel")),
-                    "std.concurrent" => Ok(ModuleSource::Standard("std.concurrent")),
-                    "std.sync" => Ok(ModuleSource::Standard("std.sync")),
-                    "std.io" => Ok(ModuleSource::Standard("std.io")),
-                    "std.io.typed" => Ok(ModuleSource::Standard("std.io.typed")),
-                    "std.http.typed" => Ok(ModuleSource::Standard("std.http.typed")),
-                    "std.encoding" => Ok(ModuleSource::Standard("std.encoding")),
-                    "std.collections" => Ok(ModuleSource::Standard("std.collections")),
-                    "std.iter" => Ok(ModuleSource::Standard("std.iter")),
-                    "std.url" => Ok(ModuleSource::Standard("std.url")),
-                    "std.csv" => Ok(ModuleSource::Standard("std.csv")),
-                    "std.random" => Ok(ModuleSource::Standard("std.random")),
-                    "std.secrets" => Ok(ModuleSource::Standard("std.secrets")),
-                    "std.crypto" => Ok(ModuleSource::Standard("std.crypto")),
-                    "std.compress" => Ok(ModuleSource::Standard("std.compress")),
-                    "std.archive" => Ok(ModuleSource::Standard("std.archive")),
-                    "std.regex" => Ok(ModuleSource::Standard("std.regex")),
-                    "std.json" => Ok(ModuleSource::Standard("std.json")),
-                    "std.log" => Ok(ModuleSource::Standard("std.log")),
-                    "std.toml" => Ok(ModuleSource::Standard("std.toml")),
-                    "std.env" => Ok(ModuleSource::Standard("std.env")),
-                    "std.process" => Ok(ModuleSource::Standard("std.process")),
-                    "std.ready" => Ok(ModuleSource::Standard("std.ready")),
-                    "std.signal" => Ok(ModuleSource::Standard("std.signal")),
-                    "std.net" => Ok(ModuleSource::Standard("std.net")),
-                    "std.tls" => Ok(ModuleSource::Standard("std.tls")),
-                    "std.http" => Ok(ModuleSource::Standard("std.http")),
-                    "std.http.server" => Ok(ModuleSource::Standard("std.http.server")),
-                    "std.http.tls" => Ok(ModuleSource::Standard("std.http.tls")),
-                    "std.http.body" => Ok(ModuleSource::Standard("std.http.body")),
-                    "std.http.cookie" => Ok(ModuleSource::Standard("std.http.cookie")),
-                    "std.http.files" => Ok(ModuleSource::Standard("std.http.files")),
-                    "std.http.proxy" => Ok(ModuleSource::Standard("std.http.proxy")),
-                    "std.http.client" => Ok(ModuleSource::Standard("std.http.client")),
-                    "std.http.https" => Ok(ModuleSource::Standard("std.http.https")),
-                    "std.test" => Ok(ModuleSource::Standard("std.test")),
-                    "std.db.sqlite" => Ok(ModuleSource::Standard("std.db.sqlite")),
-                    _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.io.typed, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.signal, std.ready, std.net, std.tls, std.http, std.http.server, std.http.tls, std.http.body, std.http.typed, std.http.cookie, std.http.proxy, std.http.files, std.http.client, std.http.https, std.db.sqlite, std.test",
-                        import.module
-                ))),
-                };
-                return standard.map(|source| (source, package));
-            }
-            let parts: Vec<_> = import.module.split('.').collect();
-            let current = &self.packages[package];
-            if let Some(&(_, owner)) = current
-                .dependencies
-                .iter()
-                .find(|(alias, _)| alias == first)
-            {
-                let dependency = &self.packages[owner];
-                if parts.len() == 1 {
-                    let library = dependency.library.clone().ok_or_else(|| {
-                        import.at.error(format!(
-                            "dependency `{first}` (package `{}`) has no library target",
-                            dependency.identity
-                        ))
-                    })?;
-                    return Ok((ModuleSource::File(library), owner));
-                }
-                return Ok((
-                    ModuleSource::File(Self::local(&dependency.root, &parts[1..], import)?),
-                    owner,
-                ));
-            }
-            Ok((
-                ModuleSource::File(Self::local(&current.root, &parts, import).map_err(|e| {
-                    if self.packages.len() > 1 && !current.root.join(first).exists() {
-                        format!(
-                            "{e}\nnote: `{first}` is neither a local module nor a dependency declared by package `{}`",
-                            if current.identity.is_empty() { "<entry>" } else { &current.identity }
-                        )
-                        .into()
-                    } else {
-                        e
-                    }
-                })?),
-                package,
-            ))
-        }
-
-        /// Resolve `parts` below `root`, confined to that root.
-        fn local(root: &Path, parts: &[&str], import: &Import) -> Result<PathBuf> {
-            let mut path = root.to_path_buf();
-            for (i, part) in parts.iter().enumerate() {
-                path.push(part);
-                let file = path.with_extension("plenty");
-                let interface = path.with_extension("plentyi");
-                if (path.is_dir() && (file.exists() || interface.exists()))
-                    || (file.exists() && interface.exists())
-                {
-                    return Err(import.at.error(format!(
-                        "ambiguous module `{}`: conflicting namespace or .plenty/.plentyi files at {} and {}",
-                        import.module,
-                        path.display(),
-                        file.display()
-                    )));
-                }
-                if i + 1 != parts.len() && !path.is_dir() {
-                    return Err(import.at.error(format!(
-                        "module namespace {} is not a directory",
-                        path.display()
-                    )));
-                }
-            }
-            let file = if path.with_extension("plentyi").exists() {
-                path.with_extension("plentyi")
-            } else {
-                path.with_extension("plenty")
-            };
-            let canonical = file.canonicalize().map_err(|e| {
-                import.at.error(format!(
-                    "loading `{}` at {}: {e}",
-                    import.module,
-                    file.display()
-                ))
-            })?;
-            if !canonical.starts_with(root) {
-                return Err(import.at.error("import resolves outside the source root"));
-            }
-            if module_path_of(canonical.strip_prefix(root).unwrap()).is_none() {
-                return Err(import.at.error(
-                    "canonical imported paths must be .plenty files or .plentyi interfaces with identifier components",
-                ));
-            }
-            Ok(canonical)
-        }
     }
     let mut loader = Loader {
         packages,
@@ -1453,6 +1491,11 @@ impl Scope {
             }
             Expression::Call(_, args) | Expression::Tuple(args) => {
                 for arg in args {
+                    self.expr(arg, locals)?;
+                }
+            }
+            Expression::Format(format) => {
+                for arg in format.operands_mut() {
                     self.expr(arg, locals)?;
                 }
             }

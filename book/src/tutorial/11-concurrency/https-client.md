@@ -37,8 +37,11 @@ def leaf_pem() -> str:
 def leaf_key() -> str:
     return "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQglvSEE3H7v+mInxSF\nAyWFDKYpzpXr20wH8mfFY3bCaB2hRANCAATxMc1B5OInoSrS1LG0dblDhMKxsioH\ncw60z3wRHIqCXqQd4cJ4NlgrHwH5VEZPaORa5N43bhCWPBR+Hu6HshrP\n-----END PRIVATE KEY-----\n"
 
+pub enum Route:
+    Count
+
 pub class Site:
-    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
         mut body = std.bytes.empty()?
         exchange.read_all(&mut body)?
         exchange.send_text(200, &str.from(body.len())?.concat(" bytes")?)?
@@ -69,9 +72,9 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     Ok(())
 
 def main() -> Result[(), Failure]:
-    mut routes = std.http.server.router()?
-    routes.add("GET", "/", 0)?
-    routes.add("PUT", "/upload", 1)?
+    mut routes = std.http.server.router[Route]()?
+    routes.add("GET", "/", Route.Count)?
+    routes.add("PUT", "/upload", Route.Count)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?

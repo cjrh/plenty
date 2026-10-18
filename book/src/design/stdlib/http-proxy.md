@@ -85,32 +85,38 @@ Without a proxy, serve TLS from the program with
 - Cookies keep their `Secure` default, and the scheme is always `https`.
 
 ```text
+pub enum Route:
+    Files
+    Login
+    Me
+
 pub class Site:
     pub public: Root
     pub keys: list[Bytes]
 
-    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
-        if exchange.route == 0:
-            path = exchange.params[0].concat("")?
-            std.http.files.serve(exchange, &self.public, &path)?
-        elif exchange.route == 1:
-            mut head = std.http.response(204, "No Content")?
-            std.http.cookie.add(&mut head, &std.http.cookie.signed_cookie(&self.keys, "session", "user42")?)?
-            exchange.respond(head, &std.bytes.empty()?)?
-        else:
-            found = std.http.cookie.cookies(&exchange.request.headers, 8)?
-            match std.http.cookie.find_signed(&found, &self.keys, "session")?:
-                case Some(user):
-                    exchange.send_text(200, &user)?
-                case Nothing:
-                    exchange.send_text(401, "sign in first")?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+        match route:
+            case Route.Files:
+                path = exchange.params[0].concat("")?
+                std.http.files.serve(exchange, &self.public, &path)?
+            case Route.Login:
+                mut head = std.http.response(204, "No Content")?
+                std.http.cookie.add(&mut head, &std.http.cookie.signed_cookie(&self.keys, "session", "user42")?)?
+                exchange.respond(head, &std.bytes.empty()?)?
+            case Route.Me:
+                found = std.http.cookie.cookies(&exchange.request.headers, 8)?
+                match std.http.cookie.find_signed(&found, &self.keys, "session")?:
+                    case Some(user):
+                        exchange.send_text(200, &user)?
+                    case Nothing:
+                        exchange.send_text(401, "sign in first")?
         Ok(())
 
 def main() -> Result[(), Failure]:
-    mut table = std.http.server.router()?
-    table.add("GET", "/s/{path...}", 0)?
-    table.add("POST", "/login", 1)?
-    table.add("GET", "/me", 2)?
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/s/{path...}", Route.Files)?
+    table.add("POST", "/login", Route.Login)?
+    table.add("GET", "/me", Route.Me)?
     keys = [std.bytes.from_text(&read_text("/etc/site/session.key")?)?]?
     site = Site(std.fs.root(&std.path.from_text("/srv/site")?)?, keys)
     tls = std.tls.server_config(&read_text("/etc/site/chain.pem")?, &read_text("/etc/site/key.pem")?)?

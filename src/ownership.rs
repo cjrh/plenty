@@ -59,6 +59,14 @@ impl Instantiation {
     /// Render a body diagnostic at the requiring use. `body` is the body
     /// position including its `: ` separator, or empty when there is none.
     pub fn report(&self, body: &str, message: &str) -> String {
+        // An f-string's generated function is not code the reader wrote; its
+        // body positions are the fields themselves.
+        if self.requested.starts_with("__plenty_fstring_") && self.requested == self.instance {
+            if body.is_empty() {
+                return format!("{}: {message}", self.at);
+            }
+            return format!("{body}{message}");
+        }
         format!(
             "{}: cannot instantiate `{}`: its definition is rejected\n  \
              {body}note: in instantiation `{}`: {message}",

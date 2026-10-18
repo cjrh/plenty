@@ -904,18 +904,24 @@ from std.http.server import Exchange
 from std.net import TcpListener, TcpStream
 from std.sync import CancellationToken
 
+pub enum Route:
+    Home
+    Old
+    Echo
+
 pub class Site:
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
-        if exchange.route == 0:
-            exchange.send_text(200, "home\n")?
-        elif exchange.route == 1:
-            mut head = std.http.response(302, "Found")?
-            head.add("Location", "/")?
-            exchange.respond(head, &std.bytes.from_text("moved")?)?
-        else:
-            mut body = std.bytes.empty()?
-            exchange.read_all(&mut body)?
-            exchange.send(200, "application/octet-stream", &body)?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        match route:
+            case Route.Home:
+                exchange.send_text(200, "home\n")?
+            case Route.Old:
+                mut head = std.http.response(302, "Found")?
+                head.add("Location", "/")?
+                exchange.respond(head, &std.bytes.from_text("moved")?)?
+            case Route.Echo:
+                mut body = std.bytes.empty()?
+                exchange.read_all(&mut body)?
+                exchange.send(200, "application/octet-stream", &body)?
         Ok(())
 
 def later() -> Result[std.time.Deadline, Failure]:
@@ -954,10 +960,10 @@ def canceller(token: CancellationToken) -> ():
     token.cancel()
 
 def main() -> Result[(), Failure]:
-    mut routes = std.http.server.router()?
-    routes.add("GET", "/", 0)?
-    routes.add("GET", "/old", 1)?
-    routes.add("POST", "/echo", 2)?
+    mut routes = std.http.server.router[Route]()?
+    routes.add("GET", "/", Route.Home)?
+    routes.add("GET", "/old", Route.Old)?
+    routes.add("POST", "/echo", Route.Echo)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?

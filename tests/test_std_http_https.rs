@@ -78,8 +78,11 @@ def later() -> Result[Deadline, Failure]:
 def url(host: &str, port: u16, path: &str) -> Result[str, Failure]:
     Ok("https://".concat(host)?.concat(":")?.concat(&str.from(i64(port))?)?.concat(path)?)
 
+pub enum Route:
+    Echo
+
 pub class Echo:
-    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
         mut body = std.bytes.empty()?
         exchange.read_all(&mut body)?
         text = exchange.request.method.concat(" ")?.concat(&exchange.path)?.concat(" ")?.concat(&body.to_text()?)?
@@ -165,9 +168,9 @@ def proxy(listener: TcpListener, tls: ServerConfig) -> Result[str, Failure]:
 
 def main() -> Result[(), Failure]:
     never = CancellationToken()?
-    mut table = std.http.server.router()?
-    table.add("GET", "/", 0)?
-    table.add("PUT", "/up", 1)?
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/", Route.Echo)?
+    table.add("PUT", "/up", Route.Echo)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
@@ -296,8 +299,11 @@ def fixture(name: &str) -> Result[str, Failure]:
 def later() -> Result[Deadline, Failure]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
 
+pub enum Route:
+    Hello
+
 pub class Hello:
-    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
         exchange.send_text(200, "hello")?
         Ok(())
 
@@ -332,8 +338,8 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     Ok(())
 
 def main() -> Result[(), Failure]:
-    mut table = std.http.server.router()?
-    table.add("GET", "/", 0)?
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/", Route.Hello)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?

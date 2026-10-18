@@ -44,21 +44,26 @@ pub class Script:
     pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         Ok(source.write_stdout(start, stop).unwrap())
 
+pub enum Route:
+    Files
+    Session
+
 pub class App:
     pub site: Root
     pub keys: list[Bytes]
 
-    pub def handle(self, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
-        if exchange.route == 0:
-            path = exchange.params[0].concat("")?
-            std.http.files.serve(exchange, &self.site, &path)?
-        else:
-            found = std.http.cookie.cookies(&exchange.request.headers, 8)?
-            match std.http.cookie.find_signed(&found, &self.keys, "session")?:
-                case Some(value):
-                    exchange.send_text(200, &value)?
-                case Nothing:
-                    exchange.send_text(401, "unsigned")?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+        match route:
+            case Route.Files:
+                path = exchange.params[0].concat("")?
+                std.http.files.serve(exchange, &self.site, &path)?
+            case Route.Session:
+                found = std.http.cookie.cookies(&exchange.request.headers, 8)?
+                match std.http.cookie.find_signed(&found, &self.keys, "session")?:
+                    case Some(value):
+                        exchange.send_text(200, &value)?
+                    case Nothing:
+                        exchange.send_text(401, "unsigned")?
         Ok(())
 
 pub def key(fill: u8) -> Result[Bytes, Failure]:
@@ -69,10 +74,10 @@ pub def key(fill: u8) -> Result[Bytes, Failure]:
 pub def app(keys: list[Bytes]) -> Result[App, Failure]:
     Ok(App(std.fs.root(&std.path.from_text("$SITE")?)?, keys))
 
-pub def routes() -> Result[Router, Failure]:
-    mut table = std.http.server.router()?
-    table.add("*", "/s/{path...}", 0)?
-    table.add("GET", "/session", 1)?
+pub def routes() -> Result[Router[Route], Failure]:
+    mut table = std.http.server.router[Route]()?
+    table.add("*", "/s/{path...}", Route.Files)?
+    table.add("GET", "/session", Route.Session)?
     Ok(table)
 
 # Serves one request line plus `fields` and prints the response.
@@ -453,6 +458,9 @@ pub class Script:
     pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         Ok(stop - start)
 
+pub enum Route:
+    Upload
+
 # Each outcome cancels one token, so the test sees it after the connection.
 pub class Upload:
     pub storage: Root
@@ -463,7 +471,7 @@ pub class Upload:
     pub refused: CancellationToken
     pub wrong: CancellationToken
 
-    pub def handle(self, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
         if self.files:
             std.test.fail_files_after(self.budget, 28i32)?
         else:
@@ -510,8 +518,8 @@ def request() -> Result[Bytes, Failure]:
 
 def exhaust(files: bool) -> Result[(), Failure]:
     scratch = std.test.scratch()?
-    mut table = std.http.server.router()?
-    table.add("POST", "/upload", 0)?
+    mut table = std.http.server.router[Route]()?
+    table.add("POST", "/upload", Route.Upload)?
     config = std.http.server.config()
     mut budget = 0u32
     while budget < 10000u32:
@@ -593,25 +601,31 @@ from std.http.tls import TlsTransport
 from std.sync import CancellationToken
 from std.tls import TlsStream
 
+pub enum Route:
+    Files
+    Login
+    Me
+
 pub class Site:
     pub root: Root
     pub keys: list[Bytes]
 
-    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
-        if exchange.route == 0:
-            path = exchange.params[0].concat("")?
-            std.http.files.serve(exchange, &self.root, &path)?
-        elif exchange.route == 1:
-            mut head = std.http.response(204, "No Content")?
-            std.http.cookie.add(&mut head, &std.http.cookie.signed_cookie(&self.keys, "session", "user42")?)?
-            exchange.respond(head, &std.bytes.empty()?)?
-        else:
-            found = std.http.cookie.cookies(&exchange.request.headers, 8)?
-            match std.http.cookie.find_signed(&found, &self.keys, "session")?:
-                case Some(user):
-                    exchange.send_text(200, &user)?
-                case Nothing:
-                    exchange.send_text(401, "sign in first")?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+        match route:
+            case Route.Files:
+                path = exchange.params[0].concat("")?
+                std.http.files.serve(exchange, &self.root, &path)?
+            case Route.Login:
+                mut head = std.http.response(204, "No Content")?
+                std.http.cookie.add(&mut head, &std.http.cookie.signed_cookie(&self.keys, "session", "user42")?)?
+                exchange.respond(head, &std.bytes.empty()?)?
+            case Route.Me:
+                found = std.http.cookie.cookies(&exchange.request.headers, 8)?
+                match std.http.cookie.find_signed(&found, &self.keys, "session")?:
+                    case Some(user):
+                        exchange.send_text(200, &user)?
+                    case Nothing:
+                        exchange.send_text(401, "sign in first")?
         Ok(())
 
 # One request on its own TLS connection; reads until `marker` arrives,
@@ -642,10 +656,10 @@ def client(port: u16, cookie: str, stop: CancellationToken) -> ():
     stop.cancel()
 
 def main() -> Result[(), Failure]:
-    mut table = std.http.server.router()?
-    table.add("GET", "/s/{path...}", 0)?
-    table.add("POST", "/login", 1)?
-    table.add("GET", "/me", 2)?
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/s/{path...}", Route.Files)?
+    table.add("POST", "/login", Route.Login)?
+    table.add("GET", "/me", Route.Me)?
     keys = [std.bytes.from_text(&read_text("SESSION_KEY")?)?]?
     site = Site(std.fs.root(&std.path.from_text("SITE")?)?, keys)
     tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?

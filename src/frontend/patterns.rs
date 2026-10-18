@@ -262,6 +262,11 @@ impl Parser {
                 Literal::Integer(text.clone(), negative)
             }
             Kind::Text(text) => Literal::Text(text.clone()),
+            Kind::Format(_) => {
+                return Err(
+                    at.error("a pattern cannot be an f-string; match a plain string literal")
+                )
+            }
             Kind::Bytes(_) => {
                 return Err(at.error("a pattern cannot be a byte literal; compare with `==`"))
             }
