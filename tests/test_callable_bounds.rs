@@ -153,3 +153,27 @@ fn callable_bounds_validate_signatures_before_lowering_the_body() {
         assert!(error.contains("does not satisfy Callable"), "{error}");
     }
 }
+
+#[test]
+fn callable_bounds_without_a_signature_say_what_to_write() {
+    for (name, declaration) in [
+        ("Callable", "def run[F: Callable](f: F) -> ():\n    pass\n"),
+        (
+            "OnceCallable",
+            "def run[F: OnceCallable](f: F) -> ():\n    pass\n",
+        ),
+        ("Callable", "class Holder[F: Callable]:\n    f: F\n"),
+        ("OnceCallable", "class Holder[F: OnceCallable]:\n    f: F\n"),
+        (
+            "Callable",
+            "def run[F: Callable[i64]](f: F) -> ():\n    pass\n",
+        ),
+    ] {
+        let source = format!("{declaration}def main() -> ():\n    pass\n");
+        let error = check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("use {name}[[parameter types], return type]")),
+            "{error}"
+        );
+    }
+}

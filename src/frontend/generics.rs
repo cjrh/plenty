@@ -6,6 +6,8 @@ use std::collections::VecDeque;
 const MAX_SPECIALIZATION_DEPTH: usize = 256;
 const MAX_FUNCTION_INSTANCES: usize = 16_384;
 
+/// The type parser rejects `Callable` and `OnceCallable` without a signature,
+/// so a callable bound always carries at least its return type in `args`.
 pub(super) fn callable_bound(bound: &TypeRef) -> bool {
     matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable"))
 }
@@ -963,7 +965,7 @@ impl Engine {
             positional_protocol_methods(&f.body)?;
         }
         for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
-            if callable_bound(bound) && !bound.args.is_empty() {
+            if callable_bound(bound) {
                 aliases.probe(f.type_params.iter().map(|(name, _)| name), |validation| {
                     callable_pattern(bound).resolve(validation).map(drop)
                 })?;
