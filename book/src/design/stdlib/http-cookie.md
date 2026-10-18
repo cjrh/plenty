@@ -60,7 +60,7 @@ Empty `path` and `domain` are left out. `CookieError` also has
 | `sign(&keys, name, value)` | `Result[str, CookieError]`: `value.<tag>` |
 | `verify(&keys, name, signed)` | `Result[Option[str], CookieError]`: the value when the tag matches under any key, else `Nothing` |
 | `signed_cookie(&keys, name, value)` | `Result[SetCookie, CookieError]`: `set_cookie(name, sign(...))` |
-| `find_signed(&cookies, &keys, name)` | `Result[Option[str], CookieError]`: `verify` on the first cookie named `name`; `Nothing` when it is absent or forged |
+| `find_signed(&cookies, &keys, name)` | `Result[Option[str], CookieError]`: `verify` on each cookie named `name`, in order; the first whose tag verifies; `Nothing` when none does |
 | `min_key` | `32`: shortest key, in bytes |
 
 The tag is HMAC-SHA256 over `name=value` under a key, in unpadded base64url
