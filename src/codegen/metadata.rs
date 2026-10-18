@@ -86,6 +86,7 @@ fn define_type(
         Ty::Unit => b'v',
         Ty::Bool => b'b',
         Ty::Str => b's',
+        Ty::ByteStr => b'y',
         Ty::File => b'F',
         Ty::FsReadDir => b'A',
         Ty::FsDirEntry => b'I',

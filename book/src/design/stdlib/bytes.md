@@ -17,9 +17,15 @@ available on the supported x86-64 Linux GNU target.
 | `std.bytes.with_capacity(capacity)` | `Result[Bytes, BytesError]` | Empty buffer with exactly `capacity` bytes reserved; negative is `OutOfRange` |
 | `std.bytes.from_list(values: &list[u8])` | `Result[Bytes, BytesError]` | Independent copy of the list's bytes |
 | `std.bytes.from_text(text: &str)` | `Result[Bytes, BytesError]` | Independent copy of the exact UTF-8 bytes |
+| `std.bytes.from_bytes(value: bytes)` | `Result[Bytes, BytesError]` | Independent copy of a [byte literal](../language/03-types/bytes.md) |
 
 `Bytes` has no public constructor and its storage field is private. Every
 constructor allocates and can report `Allocation`.
+
+A byte literal such as `b"\r\n"` has the separate, immutable prelude type
+`bytes`, which lives in read-only data and never allocates. `Bytes` operations
+take `&Bytes`, not `bytes`, so a literal used as a needle, a `matches` source,
+or stream data is first copied with `from_bytes`.
 
 ## Operations
 

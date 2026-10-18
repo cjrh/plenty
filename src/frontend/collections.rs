@@ -1138,10 +1138,10 @@ impl Lower<'_> {
             (self.value(iterable, ops)?, vec![])
         };
         let bytes = byte_buffers::byte_buffer(&ty).is_some();
-        if reverse && !matches!(ty, Ty::List(_) | Ty::Str | Ty::Range(_)) && !bytes {
+        if reverse && !matches!(ty, Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_)) && !bytes {
             return Err(iterable
                 .at
-                .error("reversed requires a list, str, range, or Bytes"));
+                .error("reversed requires a list, str, bytes, range, or Bytes"));
         }
         // Bytes are not addressable, so `for x in &b` yields a reference to an
         // iteration-local copy as text and range iteration do.
@@ -1778,11 +1778,12 @@ impl Lower<'_> {
             Ty::List(v) => (Ty::I64, (**v).clone()),
             Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
             Ty::Str => (Ty::I64, Ty::Str),
+            Ty::ByteStr => (Ty::I64, Ty::U8),
             Ty::Range(t) => (Ty::I64, (**t).clone()),
             _ => {
                 return Err(base
                     .at
-                    .error("indexing requires list, dict, str, range, or Bytes"))
+                    .error("indexing requires list, dict, str, bytes, range, or Bytes"))
             }
         };
         if value.affine() {
@@ -2352,6 +2353,11 @@ impl Lower<'_> {
             return Err(base.at.error(
                 "str has no `len` method; `len(text)` counts scalars and `text.byte_len()` counts UTF-8 bytes",
             ));
+        }
+        if ty == Ty::ByteStr {
+            return Err(base.at.error(format!(
+                "bytes has no `{name}` method; `len(value)` counts its bytes and `std.bytes.from_bytes(value)?` copies it into a `Bytes` buffer"
+            )));
         }
         if ty == Ty::Str && name == "byte_len" {
             if !args.is_empty() {

@@ -385,7 +385,14 @@ impl Lower<'_> {
                 args: args.clone(),
             }
             .resolve(self.aliases),
-            Expression::Name(name) if lookup_type(name, self.aliases).is_some() => {
+            // `bytes` has no associated functions, so `bytes.name` always
+            // reads a value; a common local name keeps working with methods.
+            Expression::Name(name)
+                if !matches!(
+                    lookup_type(name, self.aliases),
+                    None | Some(Some(Ty::ByteStr))
+                ) =>
+            {
                 if self.names.contains_key(name) {
                     return Err(base
                         .at

@@ -35,6 +35,8 @@ pub enum BytesOp {
     SetItem,
     // `Item` on a temporary buffer value rather than a named place.
     ValueItem,
+    // A copy of a `bytes` literal, which shares the text layout.
+    FromStatic,
 }
 
 impl BytesOp {
@@ -65,6 +67,7 @@ impl BytesOp {
             "__bytes_fill" => Self::Fill,
             "__bytes_item" => Self::Item,
             "__bytes_set_item" => Self::SetItem,
+            "__bytes_from_static" => Self::FromStatic,
             _ => return None,
         })
     }
@@ -118,6 +121,7 @@ impl BytesOp {
             Self::FromList => (vec![list()], storage()),
             Self::ToList => (vec![storage()], list()),
             Self::FromText => (vec![Ty::Str], storage()),
+            Self::FromStatic => (vec![Ty::ByteStr], storage()),
             Self::ToText => (vec![storage()], sum::option(Ty::Str)),
         };
         (inputs, sum::result(output, sum::alloc_error()))
@@ -149,6 +153,7 @@ impl BytesOp {
         // 184 onward belongs to others.
         match self {
             Self::WriteFloat => 280,
+            Self::FromStatic => Self::FromText.opcode(),
             Self::Fill => 237,
             Self::Item | Self::ValueItem => 238,
             Self::SetItem => 239,

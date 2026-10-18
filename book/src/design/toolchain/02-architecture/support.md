@@ -7,7 +7,7 @@ restrictions live with their contracts.
 |---|---|
 | Source and modules | [Declarations, imports, visibility, and entrypoints](../../language/02-source/index.md); one source root per package, no import cycles or re-exports |
 | Packages | [`plenty.toml`, path and Git dependencies pinned in `plenty.lock`, version requirements, workspaces, `plenty add`/`fetch`/`update`, per-target build reuse, debug/release profiles, `plenty test` with per-process test functions run in parallel under optional timeouts, and `plentyc --package-graph`](../01-building/packages.md); no registry or version selection |
-| Types and data | [Types](../../language/03-types/index.md); fixed layouts and recursive data through heap boundaries |
+| Types and data | [Types](../../language/03-types/index.md), including [byte literals](../../language/03-types/bytes.md) of type `bytes`; fixed layouts and recursive data through heap boundaries; `bytes` must be copied into `std.bytes.Bytes` for buffer and stream APIs |
 | Expressions | [Operators, assignment, and control flow](../../language/04-expressions/index.md); blocks and expressions [nest to 64 levels](../../language/04-expressions/index.md#nesting) |
 | Ownership | [Moves, checked borrows, returned references, and cleanup](../../language/05-ownership/index.md); general stored references unsupported |
 | Functions | [Named functions and concrete closures](../../language/06-functions/index.md); [named arguments and fresh per-call defaults](../../language/06-functions/01-signatures-and-calls.md) for static calls, with callable/builtin/protocol restrictions; explicit fallible [shared-call erasure](../../language/06-functions/05-boxed-callables.md) |

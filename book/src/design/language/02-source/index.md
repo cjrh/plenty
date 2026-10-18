@@ -11,7 +11,9 @@ one-based line and column positions.
 Plenty uses `def`, `True`, `False`, `and`, `or`, `not`, and `pass`. Strings accept
 single, double, or triple quotes; triple quotes permit physical newlines. The
 first standalone string in an indented function body is its documentation. Use
-`return "text"` when that first string should be the returned value.
+`return "text"` when that first string should be the returned value. A `b`
+prefix makes a [byte literal](../03-types/bytes.md), `b"..."`, which holds ASCII
+characters and `\xHH` escapes.
 
 Module scope contains functions, classes, enums, protocols, type aliases,
 [numeric constants](modules.md#numeric-constants), and imports. Executable

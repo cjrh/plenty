@@ -145,5 +145,38 @@ Use `get` and `set` instead when a missing index is an expected outcome to
 handle. `for b in &mut word` is rejected: write through an index. There is no
 slice syntax; `slice` makes its copy explicit.
 
+Fixed binary data, such as a file signature or a protocol delimiter, is
+written as a byte literal: `b"..."` holds ASCII characters, the string escapes,
+and `\xHH` for any other byte. Its type is `bytes`, an immutable value in the
+program's read-only data, so it never allocates. It has a length, indexing, and
+iteration; copy it into a `Bytes` with `from_bytes` to use buffer operations:
+
+```plenty
+import std.bytes
+
+def main() -> Result[(), Failure]:
+    magic = b"\x89PNG"
+    print(magic, len(magic), magic[1])?
+    mut total = 0
+    for byte in magic:
+        total += i64(byte)
+    print(total)?
+    header = std.bytes.from_bytes(b"\x89PNG\r\n\x1a\n")?
+    end = std.bytes.from_bytes(b"\r\n")?
+    print(header.find_bytes(&end, 0, header.len())?)?
+    print(header.matches(0, &std.bytes.from_bytes(magic)?, 0, 4)?)?
+    Ok(())
+```
+```output
+b"\x89PNG" 4 80
+366
+Option[i64].Some(4)
+True
+```
+
+A byte literal accepts only ASCII characters, so `b"é"` is an error; use
+`from_text` for the UTF-8 encoding of text. See
+[byte literals](../../design/language/03-types/bytes.md) for the full rules.
+
 See [the module reference](../../design/stdlib/bytes.md) for every operation,
 its costs, and what views cannot do yet.

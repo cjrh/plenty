@@ -1,7 +1,8 @@
 # Types and data definitions
 
 Primitive types are `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`,
-`f64`, `bool`, and `str`. There is no built-in `int`; use a width or a
+`f64`, `bool`, `str`, and [`bytes`](bytes.md), the type of byte literals such
+as `b"\x89PNG"`. There is no built-in `int`; use a width or a
 [transparent alias](aliases.md). [Numbers](numbers.md) have local literal
 inference and explicit conversions rather than implicit widening.
 

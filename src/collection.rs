@@ -179,13 +179,14 @@ impl Ty {
             Self::List(t) | Self::Set(t) | Self::Dict(t, _) => Some((**t).clone()),
             Self::Range(t) => Some((**t).clone()),
             Self::Str => Some(Self::Str),
+            Self::ByteStr => Some(Self::U8),
             Self::Generator(t) => Some(t.element.clone()),
             _ => None,
         }
     }
     pub fn hashable(&self) -> bool {
         self.is_int()
-            || matches!(self, Self::Bool | Self::Str)
+            || matches!(self, Self::Bool | Self::Str | Self::ByteStr)
             || matches!(self, Self::Enum(t) if t.tuple() && t.get().variants[0].fields.iter().all(Self::hashable))
     }
 }

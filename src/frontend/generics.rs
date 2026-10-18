@@ -1178,6 +1178,7 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
             | Expression::Type(..)
             | Expression::Number(..)
             | Expression::Text(..)
+            | Expression::Bytes(..)
             | Expression::Bool(..)
             | Expression::Unit
             | Expression::Name(..) => {}
@@ -1400,6 +1401,7 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
         }
         Expression::Number(_)
         | Expression::Text(_)
+        | Expression::Bytes(_)
         | Expression::Bool(_)
         | Expression::Unit
         | Expression::ClassNew(..) => {}

@@ -220,6 +220,7 @@
             - [Application entrypoint](design/language/02-source/entrypoint.md)
         - [Types and data definitions](design/language/03-types/index.md)
             - [Numeric types and literals](design/language/03-types/numbers.md)
+            - [Byte literals and bytes](design/language/03-types/bytes.md)
             - [Type aliases](design/language/03-types/aliases.md)
             - [Tuples](design/language/03-types/tuples.md)
             - [Anonymous sums](design/language/03-types/anonymous-sums.md)
