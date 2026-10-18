@@ -90,15 +90,16 @@ pax extended header; a size beyond 8 GiB uses GNU base-256.
 | `add_file(name: &Path, data: &Bytes, mode: i64, mtime: i64)` | `Result[(), ArchiveError]` | A regular file holding `data` |
 | `add_from(name: &Path, size: i64, source: &mut S, mode: i64, mtime: i64)` | `Result[(), ArchiveError]` | A regular file of exactly `size` bytes read from `source` |
 | `add_dir(name: &Path, mode: i64, mtime: i64)` | `Result[(), ArchiveError]` | A directory |
-| `add_symlink(name: &Path, target: &Path, mtime: i64)` | `Result[(), ArchiveError]` | A symbolic link; `target` is stored unchecked |
+| `add_symlink(name: &Path, target: &Path, mtime: i64)` | `Result[(), ArchiveError]` | A symbolic link; `target` is stored as given |
 | `finish()` | `Result[(), ArchiveError]` | Write the end blocks and flush `inner` |
 
 Names are normalised: empty and `.` components are dropped, and directories
 get a trailing `/`. A name that is empty after that, absolute, or contains
 `..`, NUL, or a backslash is `UnsafePath`, so a writer cannot produce an
 archive that extraction would refuse. A `mode` outside 0 to 4095, a negative
-size or time, or any call after `finish` is `InvalidInput`. A `source` that
-ends early in `add_from` is `Truncated` and leaves the archive unusable.
+size or time, a link `target` that is empty or contains NUL, or any call
+after `finish` is `InvalidInput`. A `source` that ends early in `add_from` is
+`Truncated` and leaves the archive unusable.
 
 ## ZipReader
 
@@ -150,8 +151,8 @@ directory at `finish`. It never seeks, so it can write to a pipe.
 | `add_symlink(name: &Path, target: &Path, mtime: i64)` | `Result[(), ArchiveError]` | A symbolic link |
 | `finish()` | `Result[(), ArchiveError]` | Write the central directory and end records, and flush `inner` |
 
-Names follow the `TarWriter` rules. A name with non-ASCII bytes that is valid
-UTF-8 sets the UTF-8 flag. Attributes are Unix (host 3) with `mode`.
+Names and link targets follow the `TarWriter` rules. A name with non-ASCII
+bytes that is valid UTF-8 sets the UTF-8 flag. Attributes are Unix (host 3) with `mode`.
 Times are stored as DOS times, clamped to 1980 through 2107, with
 two-second resolution. ZIP64 fields are written for an entry whose size or
 offset reaches 2³²−1, and ZIP64 end records when there are 65535 or more
