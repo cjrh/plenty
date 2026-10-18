@@ -1589,7 +1589,7 @@ struct Lowerer<'a, 'b> {
     stack: Vec<StackEntry>,
     /// Set after a return, tail call, or branch whose paths all exit.
     /// Once set, the outer loop in
-    /// [`emit_user_function`] stops feeding ops to this lowerer.
+    /// [`build_user_function`] stops feeding ops to this lowerer.
     terminated: bool,
     /// The last entry is the innermost loop: (continue target, break target).
     loop_targets: Vec<(Block, Block)>,
