@@ -101,6 +101,11 @@ size or time, a link `target` that is empty or contains NUL, or any call
 after `finish` is `InvalidInput`. A `source` that ends early in `add_from` is
 `Truncated` and leaves the archive unusable.
 
+An error while writing an entry or the end blocks to `inner`, including a
+`Truncated` source, leaves the archive unusable: that call returns the error,
+and every later `add_*` or `finish` call returns `InvalidInput` without
+writing.
+
 ## ZipReader
 
 `ZipReader[R]` needs a stream with `seek`, such as `FileStream` or `Cursor`.
@@ -269,7 +274,7 @@ pub enum ArchiveError:
 | `Exists` | `destination` already exists |
 | `Limit` | A policy or format limit was exceeded |
 | `Cancelled` | `cancel` was set |
-| `InvalidInput` | A bad argument, policy, or destination, or a writer call after `finish` |
+| `InvalidInput` | A bad argument, policy, or destination, or a writer call after `finish` or a failed write |
 
 `stream_error` maps `Stream(cause)` to `cause`, `Truncated` to
 `UnexpectedEof`, `Allocation(cause)` to `Allocation(cause)`, `Io(cause)` to
