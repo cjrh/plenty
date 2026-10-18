@@ -42,11 +42,19 @@ pub(crate) const DISPLAY: i64 = 5;
 pub(crate) const DISPLAY_F32: i64 = 6;
 pub(crate) const ALTERNATE: i64 = 16;
 
+/// Largest precision std.bytes passes to [`write_float_spec`].
+const MAX_PRECISION: usize = 4096;
+/// The longest spelling is fixed notation of `-f64::MAX` (310 bytes before the
+/// point) with `MAX_PRECISION` decimals; the slack also covers `#` and rounding.
+const SPELLING_CAPACITY: usize = MAX_PRECISION + 320;
+
 /// Python format-spec float spellings (std.fmt applies sign options, grouping
 /// and padding). A negative value, including -0.0 but not NaN, starts with `-`.
 /// Writes at `offset` and returns the length written, or the negated total
 /// length (offset included) that `bytes` needs, leaving it unchanged.
 /// Precision is nonnegative and caller-bounded; std.bytes checks the offset.
+/// The spelling is built on the stack: a heap allocation here could not report
+/// refusal as `BytesError.Allocation` (issue #298).
 pub(crate) fn write_float_spec(
     bytes: &mut [u8],
     value: f64,
@@ -54,49 +62,55 @@ pub(crate) fn write_float_spec(
     precision: i64,
     offset: i64,
 ) -> i64 {
-    let text = float_spec(value, style, precision.max(0) as usize);
+    let mut storage = [0; SPELLING_CAPACITY];
+    let mut spelling = Spelling {
+        bytes: &mut storage,
+        len: 0,
+    };
+    let precision = (precision.max(0) as usize).min(MAX_PRECISION);
+    if float_spec(&mut spelling, value, style, precision).is_err() {
+        crate::fail("float spelling exceeds its bound");
+    }
+    let text = &spelling.bytes[..spelling.len];
     let offset = offset.max(0) as usize;
     match bytes.get_mut(offset..offset + text.len()) {
         Some(destination) => {
-            destination.copy_from_slice(text.as_bytes());
+            destination.copy_from_slice(text);
             text.len() as i64
         }
         None => -((offset + text.len()) as i64),
     }
 }
 
-fn float_spec(value: f64, style: i64, precision: usize) -> String {
+fn float_spec(text: &mut Spelling, value: f64, style: i64, precision: usize) -> fmt::Result {
     let alternate = style & ALTERNATE != 0;
     let style = style & !ALTERNATE;
     if style == DISPLAY {
-        return format!("{value:?}");
+        return write!(text, "{value:?}");
     }
     if style == DISPLAY_F32 {
-        return format!("{:?}", value as f32);
+        return write!(text, "{:?}", value as f32);
     }
-    let mut text = String::new();
     if value.is_sign_negative() && !value.is_nan() {
-        text.push('-');
+        text.write_char('-')?;
     }
     let magnitude = value.abs();
     if !magnitude.is_finite() {
-        text.push_str(if magnitude.is_nan() { "nan" } else { "inf" });
-        return text;
+        return text.write_str(if magnitude.is_nan() { "nan" } else { "inf" });
     }
     match style {
         FIXED => {
-            text.push_str(&format!("{magnitude:.precision$}"));
+            write!(text, "{magnitude:.precision$}")?;
             if alternate && precision == 0 {
-                text.push('.');
+                text.write_char('.')?;
             }
         }
         EXPONENT => {
-            let (mantissa, exponent) = exponent_parts(magnitude, precision);
-            text.push_str(&mantissa);
+            let exponent = exponent_parts(text, magnitude, precision)?;
             if alternate && precision == 0 {
-                text.push('.');
+                text.write_char('.')?;
             }
-            push_exponent(&mut text, exponent);
+            push_exponent(text, exponent)?;
         }
         _ => {
             debug_assert!(matches!(style, GENERAL | GENERAL_POINT));
@@ -104,54 +118,77 @@ fn float_spec(value: f64, style: i64, precision: usize) -> String {
             // fixed or exponent notation from the rounded exponent.
             let point = style == GENERAL_POINT;
             let significant = precision.max(1);
-            let (mantissa, exponent) = exponent_parts(magnitude, significant - 1);
+            let start = text.len;
+            let exponent = exponent_parts(text, magnitude, significant - 1)?;
             let limit = if point {
                 significant as i64 - 1
             } else {
                 significant as i64
             };
             if exponent < -4 || exponent >= limit {
-                text.push_str(&trimmed(mantissa, alternate));
-                push_exponent(&mut text, exponent);
+                trim(text, start, alternate)?;
+                push_exponent(text, exponent)?;
             } else {
+                text.len = start;
                 let decimals = (significant as i64 - 1 - exponent) as usize;
-                let mut fixed = trimmed(format!("{magnitude:.decimals$}"), alternate);
-                if point && !fixed.contains('.') {
-                    fixed.push_str(".0");
+                write!(text, "{magnitude:.decimals$}")?;
+                trim(text, start, alternate)?;
+                if point && !text.bytes[start..text.len].contains(&b'.') {
+                    text.write_str(".0")?;
                 }
-                text.push_str(&fixed);
             }
         }
     }
-    text
+    Ok(())
 }
 
-/// The `d.ddd` mantissa and decimal exponent after rounding to `precision` decimals.
-fn exponent_parts(magnitude: f64, precision: usize) -> (String, i64) {
-    let spelled = format!("{magnitude:.precision$e}");
-    let (mantissa, exponent) = spelled.split_once('e').expect("exponent spelling");
-    (mantissa.into(), exponent.parse().expect("decimal exponent"))
+/// Writes the `d.ddd` mantissa after rounding to `precision` decimals and
+/// returns its decimal exponent.
+fn exponent_parts(
+    text: &mut Spelling,
+    magnitude: f64,
+    precision: usize,
+) -> Result<i64, fmt::Error> {
+    let start = text.len;
+    write!(text, "{magnitude:.precision$e}")?;
+    let marker = start
+        + text.bytes[start..text.len]
+            .iter()
+            .position(|&byte| byte == b'e')
+            .expect("exponent spelling");
+    let exponent = std::str::from_utf8(&text.bytes[marker + 1..text.len])
+        .ok()
+        .and_then(|digits| digits.parse().ok())
+        .expect("decimal exponent");
+    text.len = marker;
+    Ok(exponent)
 }
 
-/// Remove trailing fractional zeros and a bare point, unless `#` keeps them.
-fn trimmed(mut text: String, alternate: bool) -> String {
+/// Remove trailing fractional zeros and a bare point from the spelling after
+/// `start`, unless `#` keeps them.
+fn trim(text: &mut Spelling, start: usize, alternate: bool) -> fmt::Result {
+    let has_point = text.bytes[start..text.len].contains(&b'.');
     if alternate {
-        if !text.contains('.') {
-            text.push('.');
+        if !has_point {
+            text.write_char('.')?;
         }
-        return text;
+        return Ok(());
     }
-    if text.contains('.') {
-        let kept = text.trim_end_matches('0').trim_end_matches('.').len();
-        text.truncate(kept);
+    if has_point {
+        while text.bytes[text.len - 1] == b'0' {
+            text.len -= 1;
+        }
+        if text.bytes[text.len - 1] == b'.' {
+            text.len -= 1;
+        }
     }
-    text
+    Ok(())
 }
 
 /// Python spells exponents with a sign and at least two digits.
-fn push_exponent(text: &mut String, exponent: i64) {
+fn push_exponent(text: &mut Spelling, exponent: i64) -> fmt::Result {
     let sign = if exponent < 0 { '-' } else { '+' };
-    text.push_str(&format!("e{sign}{:02}", exponent.abs()));
+    write!(text, "e{sign}{:02}", exponent.abs())
 }
 
 #[cfg(test)]
@@ -212,5 +249,20 @@ mod tests {
         let mut short = [7; 3];
         assert_eq!(write_float_spec(&mut short, 1234.5, FIXED, 1, 2), -8);
         assert_eq!(short, [7; 3]);
+    }
+
+    #[test]
+    fn longest_spellings_fit_the_stack_buffer() {
+        let mut buffer = vec![0; SPELLING_CAPACITY];
+        for (style, length) in [
+            (FIXED | ALTERNATE, 310 + 1 + MAX_PRECISION),
+            (EXPONENT | ALTERNATE, 3 + MAX_PRECISION + 5),
+            (GENERAL | ALTERNATE, 1 + MAX_PRECISION + 1),
+        ] {
+            let size = write_float_spec(&mut buffer, -f64::MAX, style, MAX_PRECISION as i64, 0);
+            assert_eq!(size as usize, length, "style {style}");
+        }
+        let size = write_float_spec(&mut buffer, 1e-5, GENERAL_POINT, MAX_PRECISION as i64, 0);
+        assert!(buffer[..size as usize].starts_with(b"1.0000000000000000818"));
     }
 }
