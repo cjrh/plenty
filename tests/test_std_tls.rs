@@ -296,6 +296,41 @@ with spawn(cut, &listener, &server, &deadline, &cancel)? as worker:
 }
 
 #[test]
+fn a_failed_close_notify_still_closes_the_tcp_stream() {
+    // Issue #260: the cancelled flush used to return before the TCP close,
+    // leaving the server waiting until its deadline instead of seeing EOF.
+    native(
+        r#"
+def wait_for_close(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+    mut stream = handshake(listener, config, deadline, cancel)?
+    soon = deadline_after(&monotonic_now(), &milliseconds(2000)).unwrap()
+    drain(&mut stream, &soon, cancel)
+"#,
+        r#"
+server = server_for("leaf.pem")?
+client = client_for("ca.pem")?
+with spawn(wait_for_close, &listener, &server, &deadline, &cancel)? as worker:
+    tcp = connect(&address, &deadline, &cancel).unwrap()
+    mut stream = std.tls.connect(tcp, &client, "localhost", &deadline, &cancel).unwrap()
+    cancelled = CancellationToken()?
+    cancelled.cancel()
+    match stream.close_before(&deadline, &cancelled):
+        case Err(error):
+            print(error)?
+        case Ok(_):
+            print("unexpected")?
+    match worker.join():
+        case Err(error):
+            print(error)?
+        case Ok(count):
+            print(count)?
+    stream.close_before(&deadline, &cancel).unwrap()
+"#,
+        "TlsError.Net(NetError.Cancelled)\nTlsError.Truncated",
+    );
+}
+
+#[test]
 fn large_transfers_cross_many_records_through_both_interfaces() {
     // `write_before` sends at most one 16 KiB record; `write` and `read` are
     // the std.io Writer and Reader methods.

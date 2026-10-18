@@ -187,8 +187,10 @@ can cut a TCP connection short. Code that frames its own messages, such as
 `Content-Length` bodies, may treat a truncation after the last expected byte
 as an ordinary end.
 
-`close_before` does not wait for the peer's `close_notify`. After a close,
-writes are `Closed`. A failed write has sent an unknown prefix of its range.
+`close_before` does not wait for the peer's `close_notify`. It closes the TCP
+stream even when sending `close_notify` fails, and then returns that error.
+After a close, writes are `Closed`. A failed write has sent an unknown prefix
+of its range.
 
 The `std.io` methods block as [`TcpStream`](net.md)'s do, so `TlsStream`
 works with `std.io` helpers and [`std.http`](http.md) framing. Through them,
