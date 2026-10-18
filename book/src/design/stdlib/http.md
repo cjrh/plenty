@@ -121,8 +121,9 @@ well-formed message; a server calls this before routing, as
 `Host` is checked even when an absolute-form authority replaces it. An empty
 `Host` value is valid; a client sends one when the target has no authority.
 A host is a reg-name of unreserved, sub-delimiter and percent-encoded bytes,
-or an IP literal in brackets; an IP literal is checked for its characters,
-not parsed as an address. A port is digits.
+or an IP literal in brackets. An IPv6 literal is checked for its characters,
+not parsed as an address; an IPvFuture literal must match
+`"v" 1*HEXDIG "." 1*(unreserved / sub-delims / ":")`. A port is digits.
 
 ## Reading bodies
 
