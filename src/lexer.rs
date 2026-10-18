@@ -8,8 +8,8 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// One lexical unit of Plenty source.
 ///
 /// Plenty's grammar is "whitespace-separated words" plus one form of string
-/// literal. A token carries a borrowed slice of the source; the lexer
-/// allocates nothing. Escape sequences inside `"..."` are not interpreted
+/// literal. A token borrows a slice of the source; no token owns or copies
+/// text. Escape sequences inside `"..."` are not interpreted
 /// here — they are resolved when the compiler interns the text into the heap.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Tok<'a> {
