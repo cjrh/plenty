@@ -115,7 +115,9 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("1__0", "invalid integer separator")]
 #[case("def main() -> ():\n    'hello", "unterminated string")]
 #[case("'\\q'", "unsupported escape")]
-#[case("(1 + 2", "unclosed parenthesis")]
+#[case("(1 + 2", "unclosed `(`")]
+#[case("x = [1, 2", "unclosed `[`")]
+#[case("x = {1: 2", "unclosed `{`")]
 #[case("1 + 2)", "unmatched")]
 #[case("print(())", "expected a value")]
 #[case("contains('a', 1)", "expected str")]
@@ -129,6 +131,14 @@ fn diagnostics(#[case] source: &str, #[case] message: &str) {
         error.chars().next().unwrap().is_ascii_digit(),
         "missing source position: {error}"
     );
+}
+
+#[test]
+fn unclosed_delimiter_reports_its_opening_position() {
+    // Issue #193: the error named every opener a parenthesis and pointed at the end of input.
+    let source = "def main() -> ():\n    x = f(1, [2,\n        3\n    y = 4\n";
+    let error = plenty::check_source(source).unwrap_err().to_string();
+    assert!(error.ends_with("2:14: unclosed `[`"), "{error}");
 }
 
 #[test]

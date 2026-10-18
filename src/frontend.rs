@@ -156,7 +156,8 @@ struct Lexer<'a> {
     column: usize,
     line_start: bool,
     indents: Vec<usize>,
-    delimiters: Vec<u8>,
+    /// Open brackets with their positions, so an unclosed one is reported where it opened.
+    delimiters: Vec<(u8, Token)>,
     /// Whether the last token leaves a logical line for a line break to end.
     open: bool,
     /// No tokens remain: the module ended or has a lexical error.
@@ -509,7 +510,7 @@ impl<'a> Lexer<'a> {
                         self.column += 1;
                     }
                     if matches!(c, b'(' | b'[' | b'{') {
-                        self.delimiters.push(c);
+                        self.delimiters.push((c, start.clone()));
                     }
                     if matches!(c, b')' | b']' | b'}') {
                         let expected = match c {
@@ -517,7 +518,7 @@ impl<'a> Lexer<'a> {
                             b']' => b'[',
                             _ => b'{',
                         };
-                        if self.delimiters.pop() != Some(expected) {
+                        if self.delimiters.pop().map(|(open, _)| open) != Some(expected) {
                             return Err(
                                 start.error(format!("unmatched or mismatched `{}`", c as char))
                             );
@@ -534,8 +535,8 @@ impl<'a> Lexer<'a> {
             }
         }
         let (line, column) = (self.line, self.column);
-        if !self.delimiters.is_empty() {
-            return Err(format!("{line}:{column}: unclosed parenthesis").into());
+        if let Some((open, at)) = self.delimiters.last() {
+            return Err(at.error(format!("unclosed `{}`", *open as char)));
         }
         if self.open {
             self.push(out, Kind::Newline, line, column);
