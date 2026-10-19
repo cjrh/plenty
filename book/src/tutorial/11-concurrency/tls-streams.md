@@ -13,7 +13,7 @@ system's bundle. This lesson embeds a test CA so that it runs offline.
 ```plenty
 import std.bytes
 import std.tls
-from std.net import TcpListener, connect, listen, loopback_v4
+from std.net import NetError, TcpListener, connect, listen, loopback_v4
 from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 from std.tls import ServerConfig, TlsError
@@ -43,7 +43,7 @@ def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, can
         case Err(error):
             Err(TlsError.Net(error))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | TlsError | NetError | std.bytes.BytesError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     roots = std.tls.roots_from_pem(&ca_pem())?
@@ -106,6 +106,3 @@ certificate is `ExpiredCertificate`.
 methods wait without a deadline.
 
 See [`std.tls`](../../design/stdlib/tls.md) for the full reference.
-
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

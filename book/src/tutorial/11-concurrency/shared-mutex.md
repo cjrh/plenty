@@ -17,7 +17,7 @@ def record(stats: &Mutex[Stats], value: i64, rounds: i64) -> ():
             data.count = data.count + 1
             data.total = data.total + value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError]:
     stats = Mutex[Stats](Stats(0, 0))
     with spawn(record, &stats, 3, 10000)?, spawn(record, &stats, 4, 10000)?:
         pass
@@ -53,7 +53,7 @@ def bump(counter: &Mutex[i64]) -> ():
     with counter.lock() as value:
         *value = *value + 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     counter = Mutex(0)
     with counter.lock() as value:
         with spawn(bump, &counter)?:
@@ -76,7 +76,7 @@ def bump(counter: &Mutex[i64]) -> ():
     with counter.lock() as value:
         *value = *value + 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError]:
     counter = Mutex(0)
     with spawn(bump, &counter)?:
         with counter.lock() as value:

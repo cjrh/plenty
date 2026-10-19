@@ -50,7 +50,7 @@ def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
         sender.send(n * n)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | ChannelError | RecvError | IoError]:
     sender, receiver = channel[i64](2)?
     with spawn(produce, sender)?:
         print(receiver.recv()?)?
@@ -84,7 +84,7 @@ def consume(receiver: Receiver[i64]) -> ():
         case Err(_):
             pass
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | ChannelError | SendError[i64]]:
     sender, receiver = channel[i64](1)?
     with spawn(consume, receiver)?, sender as outbox:
         outbox.send(42)?
@@ -104,5 +104,7 @@ up front; sending and receiving introduce no further allocations. Messages still
 use their ordinary types: sending a list moves it, and receiving returns its
 ownership. A failed send returns the unsent value inside its error.
 
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
+The first `main` keeps `Failure` because an owned closure job fails to start
+with `SpawnError[F]`, and `F` is the closure's own type, which a signature
+cannot name. A generic helper can keep it, as in
+[owned worker jobs](owned-worker-jobs.md).

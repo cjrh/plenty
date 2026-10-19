@@ -13,8 +13,10 @@ the complete unstarted job after any
 
 The error does not retain the native code. Returning, matching,
 dropping, and retrying the error and job allocate nothing. Capture expressions
-have already run, but the worker has not. Erasing the error into `Failure`
-deliberately drops the recovered job.
+have already run, but the worker has not. `?` widens the error into an enclosing
+sum containing `SpawnError[F]`, which keeps the job; erasing it into `Failure`
+deliberately drops the recovered job. A closure literal's type cannot be
+written, so a signature names `SpawnError[F]` through a generic parameter.
 
 After success, only the worker owns the captures. One-shot invocation moves them
 into the body; reusable invocation borrows them once and then drops the environment.

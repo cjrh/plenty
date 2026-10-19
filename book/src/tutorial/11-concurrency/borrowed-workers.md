@@ -8,7 +8,7 @@ Omit `as` when you only need the worker's effects:
 def increment(value: &mut i64) -> ():
     *value = *value + 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError]:
     mut count = 4
     with spawn(increment, &mut count)?:
         pass
@@ -27,7 +27,7 @@ Reusable closures work too. Borrow the closure itself so that a failed start
 leaves the job available to retry:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError | AllocError]:
     mut values = [1, 2]?
     mut job = def [&mut values]() -> Result[i64, AllocError]:
         values.append(3)?
@@ -52,7 +52,7 @@ def total(values: list[i64]) -> i64:
         result = result + value
     result
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError | AllocError]:
     values = [2, 3, 4]?
     with spawn(total, values)? as task:
         print(task.join())?
@@ -76,6 +76,3 @@ The compiler checks worker helpers, captured data, and destructors. Foreign
 calls, File values, indirect function calls, and generators are not yet eligible.
 Worker code can use checked `print`, but output from different threads may
 arrive in any order.
-
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

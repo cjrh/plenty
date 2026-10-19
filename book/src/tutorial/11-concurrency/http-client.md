@@ -62,7 +62,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | AllocError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/old", Route.Old)?
@@ -106,9 +106,6 @@ is sent again on a new connection, but only for methods that are safe to
 repeat, such as `GET` and `PUT`. A `POST` is never sent twice; its error is
 returned so the program can decide what to do.
 
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
-
-The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
 Keep concrete errors in helpers; the handler boundary erases them. See the
 [server contract](../../design/stdlib/http-server.md).

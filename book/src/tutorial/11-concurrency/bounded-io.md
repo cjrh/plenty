@@ -29,7 +29,7 @@ def first_bytes(stream: &mut FileStream, deadline: &Deadline, stop: &Cancellatio
             "failed"
     Ok(text)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError | str | AllocError | RangeError | std.bytes.BytesError]:
     mut command = std.process.shell("sleep 10")?
     command.stdout(Stdio.Piped)
     mut child = command.spawn()?
@@ -70,7 +70,7 @@ import std.path
 def worker() -> Result[(), AllocError | IoError]:
     std.env.set_current_dir(&std.path.from_text("/")?)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     with spawn(worker)?:
         pass
     Ok(())
@@ -84,6 +84,3 @@ Change it on the main thread before starting workers, or give a child its own
 directory with `Command.current_dir`. See
 [native effects on worker threads](../../design/facilities/03-concurrency/effects.md)
 for the rules each native operation follows.
-
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

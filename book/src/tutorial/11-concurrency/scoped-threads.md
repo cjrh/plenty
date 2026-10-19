@@ -7,7 +7,7 @@ continues until `join()` waits for the result:
 def squares(n: i64) -> Result[list[i64], AllocError]:
     [i * i for i in range(n)]
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | AllocError | IoError]:
     with spawn(squares, 4)? as first, spawn(squares, 3)? as second:
         print(first.join()?)?
         print(second.join()?)?
@@ -33,11 +33,8 @@ them a shutdown protocol. Fatal traps terminate the process without unwinding.
 
 ## Error types at thread start
 
-The `Failure` signature above is a workaround for a current compiler limit.
-Scoped `spawn(...)?` requires exactly `ThreadError` (or `SpawnError[F]` for an
-owned job), or the erasing `Failure` type. It does not yet accept a sum containing
-the start error, so examples combining a start with allocation or printing keep
-`Failure`. Worker functions can still return precise errors, as `squares` does.
-Ordinary calls and `?` outside this special start operation support error sums.
-For a small scope, a helper returning `Result[T, ThreadError]` can preserve the
-start error and let its caller compose it with other errors.
+A failed start reports `ThreadError`; an owned closure job reports
+`SpawnError[F]`, which returns the job. Like any `?`, the start error widens
+into the enclosing Result's error sum, so `main` above lists `ThreadError`
+beside the worker's `AllocError` and the printing `IoError`. A return type with
+`Failure` also accepts it. A sum without the start error is rejected.

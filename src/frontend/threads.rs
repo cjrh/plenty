@@ -143,13 +143,10 @@ impl Lower<'_> {
             let Some(Some(Ty::Enum(target))) = self.return_type.clone() else {
                 return Err(call.at.error("`?` requires a function returning Result"));
             };
-            if !target.propagatable()
-                || target.is_option()
-                || (!target.discards_error()
-                    && target.get().variants[1].fields != source.get().variants[1].fields)
-            {
+            // The same rule as ordinary `?`: the start error may widen into a sum.
+            if !target.accepts_result_error(&source) {
                 return Err(call.at.error(format!(
-                    "spawn propagation requires Result with {} or Failure",
+                    "spawn propagation requires a Result whose error accepts {}, or Failure",
                     source.get().variants[1].fields[0]
                 )));
             }
