@@ -745,10 +745,6 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                 let stmt = statement(a);
                 sqlite3_column_double(stmt, column(stmt, b)).to_bits() as u128
             }
-            465 => {
-                let stmt = statement(a);
-                sqlite3_column_bytes(stmt, column(stmt, b)) as i64 as u128
-            }
             466 => {
                 let stmt = statement(a);
                 column_text(stmt, column(stmt, b))
