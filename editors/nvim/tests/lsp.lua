@@ -2,8 +2,8 @@
 -- or plugins are loaded:
 --   PLENTY_BIN=target/debug/plenty nvim --headless -u NONE -i NONE -n -l editors/nvim/tests/lsp.lua
 -- Drives the shipped configuration through Neovim's built-in LSP client:
--- diagnostics, hover (K), go to definition (gd) into a `std` source, and
--- completion.
+-- diagnostics, hover (K), go to definition (gd) into a `std` source,
+-- completion, and re-checks after an edit (didChange) and a write (didSave).
 local root = vim.fn.getcwd()
 vim.opt.runtimepath:prepend(root .. '/editors/nvim')
 vim.cmd('filetype plugin on')
@@ -39,6 +39,7 @@ vim.fn.writefile({
 }, file)
 vim.cmd('edit ' .. file)
 assert(vim.bo.filetype == 'plenty', 'filetype')
+local buf = vim.api.nvim_get_current_buf()
 
 local function wait(what, check)
   assert(vim.wait(20000, check, 50), 'timed out waiting for ' .. what)
@@ -46,6 +47,15 @@ end
 wait('the client', function()
   return #vim.lsp.get_clients({ bufnr = 0, name = 'plenty' }) == 1
 end)
+-- Record the notifications the client sends, to show that edits and writes
+-- reach the server through didChange and didSave.
+local client = vim.lsp.get_clients({ bufnr = 0, name = 'plenty' })[1]
+local sent = {}
+local notify = client.notify
+client.notify = function(self, method, ...)
+  sent[method] = true
+  return notify(self, method, ...)
+end
 wait('diagnostics', function()
   return #vim.diagnostic.get(0) > 0
 end)
@@ -99,5 +109,26 @@ wait('the std source', function()
 end)
 local line = vim.api.nvim_get_current_line()
 assert(line:find('def gcd'), line)
+
+-- didChange: completing `broken` clears its diagnostic after the server's
+-- debounced re-check of the unsaved text.
+vim.api.nvim_set_current_buf(buf)
+vim.api.nvim_buf_set_lines(buf, 11, 11, false, { '    0' })
+wait('diagnostics after the edit', function()
+  return #vim.diagnostic.get(buf) == 0
+end)
+assert(sent['textDocument/didChange'], vim.inspect(sent))
+
+-- didSave: a new error written to disk is reported at its line.
+vim.api.nvim_buf_set_lines(buf, -1, -1, false, { '    k = p.double(1)' })
+vim.cmd('write')
+assert(sent['textDocument/didSave'], vim.inspect(sent))
+wait('diagnostics after the write', function()
+  return #vim.diagnostic.get(buf) > 0
+end)
+diagnostics = vim.diagnostic.get(buf)
+assert(#diagnostics == 1, vim.inspect(diagnostics))
+assert(diagnostics[1].lnum == 17, vim.inspect(diagnostics))
+assert(diagnostics[1].message:find('expects 0 arguments'), diagnostics[1].message)
 print('ok')
 vim.cmd('qall!')
