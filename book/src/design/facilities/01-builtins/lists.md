@@ -61,6 +61,10 @@ Every other element type, including `bool`, classes, enums, and collections, is
 a compile-time error. Elements that compare equal are indistinguishable, so the
 result is fully determined. `items.sort(True)` orders descending; an omitted or
 `False` argument orders ascending. Sorting takes O(n log n) comparisons.
+Wide inline rows use three-way introsort with insertion sort for small partitions
+and a heapsort fallback; two-word rows use Rust's unstable slice sort. Row swaps
+repair inline addresses immediately, without retaining or dropping elements.
+The wide-row algorithm uses O(log n) stack space and no heap workspace.
 
 `items.sort_by_key(key) -> ()` accepts any element type. The named function or
 reusable shared-call closure takes `&T` for the element type `T` and returns an

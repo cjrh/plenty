@@ -4,6 +4,23 @@ use rstest::rstest;
 use support::assert_visible_stdout as native;
 
 #[test]
+fn wide_sort_moves_nested_string_owners_in_both_directions() {
+    native(
+        r#"
+mut rows = [((i % 7, str.repr(&i).unwrap()), i) for i in range(127)].unwrap()
+rows.sort()
+print(len(rows)).unwrap()
+print(rows[0]).unwrap()
+rows.sort(True)
+print(rows[0]).unwrap()
+rows.reverse()
+print(rows[0]).unwrap()
+"#,
+        "127\n((0, \"0\"), 0)\n((6, \"97\"), 97)\n((0, \"0\"), 0)\n",
+    );
+}
+
+#[test]
 fn key_sort_borrows_owned_elements_and_supports_descending_and_sorted_copies() {
     native(
         r#"

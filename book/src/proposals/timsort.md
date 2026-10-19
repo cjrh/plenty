@@ -16,7 +16,8 @@ tie breaker or constructing a separate decorated list. Exploiting existing order
 also suits logs, grouped records, and incrementally updated data.
 
 Today `sort()` is infallible and allocation-free. The runtime uses Rust's
-unstable slice sort for two-word rows and heapsort for wider inline rows
+unstable slice sort for two-word rows and three-way introsort (with a heapsort
+fallback) for wider inline rows
 (`plenty-runtime/src/entries.rs`). `sort_by_key` is a specialized Plenty heapsort
 (`src/frontend/sorting.plenty`); it recomputes keys and swaps rows. `sorted`
 explicitly copies, then invokes the same natural-order sort. Keys cannot return
@@ -74,7 +75,7 @@ Other choices have different costs:
 | Choice | Consequence |
 | --- | --- |
 | Keep stable methods permanently explicit | Preserves compatibility and makes scratch allocation visible; ordinary key sorting still loses ties unless the caller chooses stability. |
-| Try scratch, fall back to current heapsort on allocation failure | Can preserve an infallible return type, but introduces hidden allocation and cannot promise stability. This does not meet the proposed stable contract. |
+| Try scratch, fall back to allocation-free unstable sorting on allocation failure | Can preserve an infallible return type, but introduces hidden allocation and cannot promise stability. This does not meet the proposed stable contract. |
 | Fall back to a stable in-place merge | Can preserve stability and avoid returning allocation failure, but simple rotation-based merges can raise worst-case work to O(n log² n); sophisticated bounded-space algorithms add substantial complexity. Attempting allocation still changes today's allocation-free promise. |
 | Caller-owned reusable workspace | Makes repeated allocation avoidable; useful later, but capacity/type/lifetime management should not be required for the ordinary call. |
 

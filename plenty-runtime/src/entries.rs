@@ -5,6 +5,8 @@ use crate::entry_order::Order;
 use crate::{memory, ranges};
 use std::cmp::Ordering;
 
+mod sort;
+
 #[cfg(test)]
 mod tests;
 
@@ -299,29 +301,61 @@ impl Entries {
             rows.sort_unstable_by(|a, b| compare(a[0], b[0]));
             return;
         }
-        // Wider rows carry inline payloads of a size known only at run time.
-        // Heapsort needs nothing beyond row exchanges.
+        // Partitioning an already ordered run needlessly destroys its locality.
+        // Stop this probe at the first change of direction on mixed input.
+        let mut direction = Ordering::Equal;
+        let monotonic = (1..len).all(|i| {
+            let next = compare(self.get(i - 1).key, self.get(i).key);
+            if direction == Ordering::Equal {
+                direction = next;
+            }
+            next == Ordering::Equal || next == direction
+        });
+        if monotonic {
+            if direction == Ordering::Greater {
+                self.reverse();
+            }
+            return;
+        }
+        self.sort_rows(0, len, 2 * len.checked_ilog2().unwrap_or(0), &mut compare);
+    }
+
+    fn heap_sort_rows(
+        &mut self,
+        start: usize,
+        len: usize,
+        compare: &mut impl FnMut(u128, u128) -> Ordering,
+    ) {
         let mut sift = |entries: &mut Self, mut root: usize, end: usize| loop {
             let mut child = 2 * root + 1;
             if child >= end {
                 break;
             }
             if child + 1 < end
-                && compare(entries.get(child).key, entries.get(child + 1).key).is_lt()
+                && compare(
+                    entries.get(start + child).key,
+                    entries.get(start + child + 1).key,
+                )
+                .is_lt()
             {
                 child += 1;
             }
-            if compare(entries.get(root).key, entries.get(child).key).is_ge() {
+            if compare(
+                entries.get(start + root).key,
+                entries.get(start + child).key,
+            )
+            .is_ge()
+            {
                 break;
             }
-            entries.swap(root, child);
+            entries.swap(start + root, start + child);
             root = child;
         };
-        for start in (0..len / 2).rev() {
-            sift(self, start, len);
+        for root in (0..len / 2).rev() {
+            sift(self, root, len);
         }
         for end in (1..len).rev() {
-            self.swap(0, end);
+            self.swap(start, start + end);
             sift(self, 0, end);
         }
     }
