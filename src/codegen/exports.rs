@@ -49,7 +49,7 @@ pub(super) fn emit(
         let returned_handle = if let Some((ok @ Ty::Class(_), _)) = result {
             let boxed = Ty::Box(std::sync::Arc::new(ok.clone()));
             let handle = collection(&mut b, module, runtime, 121, &[], Some(&boxed))?;
-            let tags = b.ins().ushr_imm(handle, 64);
+            let tags = enums::high_word(&mut b, handle);
             let failed = b.ins().band_imm(tags, 1);
             let failed = b.ins().ireduce(types::I8, failed);
             let failure = b.create_block();
@@ -64,7 +64,8 @@ pub(super) fn emit(
                     b.ins().call(release, &[*argument]);
                 }
             }
-            let code = b.ins().ushr_imm(handle, 65);
+            let code = enums::high_word(&mut b, handle);
+            let code = b.ins().ushr_imm(code, 1);
             let code = b.ins().ireduce(types::I32, code);
             b.ins().store(
                 cranelift_codegen::ir::MemFlags::new(),
@@ -147,7 +148,7 @@ pub(super) fn emit(
             // Move a returned instance into its handle; an error result frees
             // the still-empty handle.
             let value = results[0];
-            let tags = b.ins().ushr_imm(value, 64);
+            let tags = enums::high_word(&mut b, value);
             let failed = b.ins().band_imm(tags, 1);
             let failed = b.ins().ireduce(types::I8, failed);
             let filling = b.create_block();
@@ -162,11 +163,9 @@ pub(super) fn emit(
             b.ins().jump(done, &[value.into()]);
             b.switch_to_block(filling);
             b.seal_block(filling);
-            let instance = b.ins().ushr_imm(value, 65);
-            let instance = b.ins().ishl_imm(instance, 64);
-            let word = b.ins().ireduce(types::I64, value);
-            let word = b.ins().uextend(types::I128, word);
-            let instance = b.ins().bor(word, instance);
+            let (word, tags) = b.ins().isplit(value);
+            let tags = b.ins().ushr_imm(tags, 1);
+            let instance = b.ins().iconcat(word, tags);
             let slot = b.ins().iadd_imm(handle, 32);
             let storage = b.ins().iadd_imm(handle, 48);
             let instance =
@@ -199,7 +198,7 @@ pub(super) fn emit(
         }
         if let Some((ok, error)) = result {
             let value = results[0];
-            let tags = b.ins().ushr_imm(value, 64);
+            let tags = enums::high_word(&mut b, value);
             let tag = b.ins().ireduce(types::I32, tags);
             let tag = b.ins().band_imm(tag, 1);
             let success = b.create_block();
@@ -214,7 +213,8 @@ pub(super) fn emit(
                 if *ty != Ty::Unit {
                     let marker = crate::exports::error_variants(ty).is_some();
                     let value = if marker {
-                        b.ins().ushr_imm(value, 65)
+                        let tags = enums::high_word(&mut b, value);
+                        b.ins().ushr_imm(tags, 1)
                     } else {
                         value
                     };

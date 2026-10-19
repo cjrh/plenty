@@ -6,24 +6,23 @@ use cranelift_codegen::ir::{MemFlags, Value as NativeValue};
 
 impl Lowerer<'_, '_> {
     pub(super) fn read_reference(&mut self, reference: NativeValue) -> NativeValue {
-        let address = self.raw_word(reference);
-        let shift = self.bcx.ins().ushr_imm(reference, 64);
+        let (address, shift) = self.bcx.ins().isplit(reference);
         let packed = self
             .bcx
             .ins()
             .load(types::I128, MemFlags::trusted(), address, 0);
-        let word = self.raw_word(packed);
-        let word = self.bcx.ins().uextend(types::I128, word);
-        let tags = self.bcx.ins().ushr_imm(packed, 64);
-        // Shift in 128 bits so the deepest legal projection (64) produces zero.
+        let (word, tags) = self.bcx.ins().isplit(packed);
+        // The deepest legal projection (64) produces zero, which a 64-bit
+        // shift, masked to 0, would not.
         let tags = self.bcx.ins().ushr(tags, shift);
-        let tags = self.bcx.ins().ishl_imm(tags, 64);
-        self.bcx.ins().bor(word, tags)
+        let projected = self.bcx.ins().icmp_imm(IntCC::UnsignedLessThan, shift, 64);
+        let zero = self.bcx.ins().iconst(types::I64, 0);
+        let tags = self.bcx.ins().select(projected, tags, zero);
+        self.bcx.ins().iconcat(word, tags)
     }
 
     pub(super) fn write_reference(&mut self, reference: NativeValue, value: NativeValue, ty: &Ty) {
-        let address = self.raw_word(reference);
-        let shift = self.bcx.ins().ushr_imm(reference, 64);
+        let (address, shift) = self.bcx.ins().isplit(reference);
         let old = self
             .bcx
             .ins()
@@ -35,19 +34,21 @@ impl Lowerer<'_, '_> {
             value
         };
         let packed = self.pack(value, ty);
-        let word = self.raw_word(packed);
-        let word = self.bcx.ins().uextend(types::I128, word);
-        let tags = self.bcx.ins().ushr_imm(packed, 64);
+        let (word, tags) = self.bcx.ins().isplit(packed);
+        // At the deepest projection (64) every old tag bit is an ancestor's.
+        let projected = self.bcx.ins().icmp_imm(IntCC::UnsignedLessThan, shift, 64);
         let tags = self.bcx.ins().ishl(tags, shift);
-        let tags = self.bcx.ins().ishl_imm(tags, 64);
+        let zero = self.bcx.ins().iconst(types::I64, 0);
+        let tags = self.bcx.ins().select(projected, tags, zero);
         let one = self.bcx.ins().iconst(types::I64, 1);
-        let one = self.bcx.ins().uextend(types::I128, one);
         let mask = self.bcx.ins().ishl(one, shift);
         let mask = self.bcx.ins().iadd_imm(mask, -1);
-        let mask = self.bcx.ins().ishl_imm(mask, 64);
-        let ancestors = self.bcx.ins().band(old, mask);
+        let all = self.bcx.ins().iconst(types::I64, -1);
+        let mask = self.bcx.ins().select(projected, mask, all);
+        let (_, old_tags) = self.bcx.ins().isplit(old);
+        let ancestors = self.bcx.ins().band(old_tags, mask);
         let tags = self.bcx.ins().bor(tags, ancestors);
-        let packed = self.bcx.ins().bor(word, tags);
+        let packed = self.bcx.ins().iconcat(word, tags);
         self.bcx
             .ins()
             .store(MemFlags::trusted(), packed, address, 0);

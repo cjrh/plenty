@@ -186,9 +186,9 @@ impl Lowerer<'_, '_> {
                     self.bcx.ins().select(failed, error, zero)
                 } else {
                     let payload = self.bcx.ins().uextend(types::I128, status);
-                    let tag = self.bcx.ins().uextend(types::I128, failed);
-                    let tag = self.bcx.ins().ishl_imm(tag, 64);
-                    self.bcx.ins().bor(payload, tag)
+                    let tag = self.bcx.ins().uextend(types::I64, failed);
+                    let (payload, _) = self.bcx.ins().isplit(payload);
+                    self.bcx.ins().iconcat(payload, tag)
                 };
                 self.stack.push((result, task.start_result()));
             }

@@ -77,10 +77,8 @@ impl Lowerer<'_, '_> {
             false,
             MemFlags::trusted(),
         );
-        let tags = self.bcx.ins().ushr_imm(value, 64);
-        let tags = self.bcx.ins().ishl_imm(tags, 64);
-        let word = self.bcx.ins().uextend(types::I128, destination);
-        let moved = self.bcx.ins().bor(tags, word);
+        let tags = self.high_word(value);
+        let moved = self.bcx.ins().iconcat(destination, tags);
         self.bcx.ins().jump(done, &[moved.into()]);
         self.bcx.switch_to_block(done);
         self.bcx.seal_block(done);
