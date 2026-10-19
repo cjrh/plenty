@@ -4,7 +4,6 @@
 
 # Development
 
-- [Backlog](backlog.md)
 - [Development workflow](development/workflow.md)
     - [Documentation versions](development/documentation-versions.md)
 - [Profiling the compiler](development/profiling.md)
@@ -435,6 +434,10 @@
             - [Replace literal text with recoverable allocation](design/examples/text-files/text-24-replace-literal-text-with-recoverable-allocation.md)
             - [Build text with recoverable allocation](design/examples/text-files/text-25-build-text-with-recoverable-allocation.md)
             - [Look up a character without trapping](design/examples/text-files/text-27-look-up-a-character-without-trapping.md)
+
+# Backlog
+
+- [Backlog](backlog.md)
 
 # Proposals
 
