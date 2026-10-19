@@ -8,9 +8,17 @@ pattern or search can consume has an explicit limit. Errors are one type,
 
 The parser, compiler and matcher (a Pike VM) are Plenty code in the module.
 The runtime supplies only primitives: Unicode properties and single-scalar
-case mappings from the toolchain's Unicode 17 tables, and reads of borrowed
+case mappings from the Rust toolchain's Unicode tables, and reads of borrowed
 UTF-8 by byte offset. They do not allocate, except the one that copies a byte
 range into a new `str`, which can fail with an allocation error.
+
+`Alphabetic`, `Lowercase`, `Uppercase`, `White_Space`, `Numeric`, `Control`,
+and case mappings use the Unicode version in the Rust compiler that builds
+Plenty (`char::UNICODE_VERSION`). Their results may change when that toolchain
+is upgraded. `Mark` uses the independently pinned Unicode 17.0.0 tables in
+[`std.unicode`](unicode.md), as does that module's normalization. The two
+data versions need not match; ASCII classes and byte-offset rules are unchanged
+by Unicode table upgrades.
 
 ## Functions and types
 
