@@ -870,6 +870,11 @@ impl Lower<'_> {
                 "cannot replace a whole class through a reference; assign its fields instead",
             ));
         }
+        if matches!(&**ty, Ty::Atomic(_)) {
+            return Err(target
+                .at
+                .error("an atomic is written with store(), not through `*`"));
+        }
         let expected = (**ty != Ty::Unit).then(|| (**ty).clone());
         let got = self.expr_expected(value, expected.clone(), ops)?;
         self.same(got, expected, &value.at)?;

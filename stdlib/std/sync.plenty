@@ -1,0 +1,13 @@
+# `Mutex[T]`: a value and the futex word that guards it. `lock()` and
+# `into_inner()` are provided by the compiler; see
+# book/src/design/stdlib/sync.md. `CancellationToken` is also compiler-provided.
+from std.atomic import Atomic
+
+# State 0 is unlocked, 1 locked, and 2 locked with possible waiters.
+pub class Mutex[T]:
+    state: Atomic[u32]
+    value: T
+
+    pub def __init__(self, value: T) -> ():
+        self.state = Atomic[u32](0)
+        self.value = value

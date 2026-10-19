@@ -17,6 +17,9 @@ pub struct Facts {
     pub reflexive: bool,
     pub closure: bool,
     pub concurrent_handle: bool,
+    /// Reaches an `Atomic`, which has no equality and no formatting: its
+    /// value is only what one `load` observed.
+    pub atomic: bool,
 }
 
 impl Ty {
@@ -32,13 +35,14 @@ impl Ty {
         ) {
             let resource = self.is_resource() || matches!(self, Self::Task(_));
             return Facts {
-                affine: resource,
-                copyable: !resource && !matches!(self, Self::Ref(..)),
+                affine: resource || matches!(self, Self::Atomic(_)),
+                copyable: !resource && !matches!(self, Self::Ref(..) | Self::Atomic(_)),
                 destructor: resource,
                 complete: true,
                 reflexive: !self.is_float(),
                 closure: matches!(self, Self::Closure(_) | Self::BoxedCallable(_)),
                 concurrent_handle: self.is_concurrent_handle(),
+                atomic: matches!(self, Self::Atomic(_)),
                 ..Facts::default()
             };
         }
@@ -120,6 +124,7 @@ impl Ty {
             facts.reflexive &= part.reflexive;
             facts.closure |= part.closure;
             facts.concurrent_handle |= part.concurrent_handle;
+            facts.atomic |= part.atomic;
         }
         // An owner that reaches a cycle is a heap boundary, which a walk cuts
         // before measuring depth.
@@ -147,6 +152,7 @@ impl Ty {
         while i < nodes.len() {
             facts.closure |= matches!(nodes[i], Self::Closure(_) | Self::BoxedCallable(_));
             facts.concurrent_handle |= nodes[i].is_concurrent_handle();
+            facts.atomic |= matches!(nodes[i], Self::Atomic(_));
             facts.reflexive &= !nodes[i].is_float();
             let weight = match &nodes[i] {
                 Self::Enum(t) => t.try_get().map_or(0, |definition| {
@@ -207,6 +213,12 @@ impl Ty {
                     vec![]
                 }
                 Self::Ref(..) => {
+                    facts.copyable = false;
+                    vec![]
+                }
+                // One owner per atomic: copying would split its updates.
+                Self::Atomic(_) => {
+                    facts.affine = true;
                     facts.copyable = false;
                     vec![]
                 }

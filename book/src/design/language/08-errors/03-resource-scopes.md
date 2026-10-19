@@ -39,4 +39,7 @@ Resource-scope bookkeeping adds no runtime allocation; manager methods retain
 their own costs. `yield` inside `with` is unsupported. Traps and process aborts
 do not unwind managers. Intrinsic thread, channel, and executor managers use
 the same scope-exit obligations; their shutdown contracts are described under
-[concurrency](../../facilities/03-concurrency/index.md).
+[concurrency](../../facilities/03-concurrency/index.md). `mutex.lock()` is an
+intrinsic manager too: it borrows the mutex shared rather than moving it, binds
+an exclusive reference to the value, and unlocks on every exit; see
+[mutexes](../../facilities/03-concurrency/mutex.md).

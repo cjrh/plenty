@@ -1034,6 +1034,12 @@ impl Lower<'_> {
         } else {
             "display"
         };
+        if ty.facts().atomic && super::mutex::holds_mutex(&ty) {
+            return Err(at.error(super::mutex::FORMAT));
+        }
+        if ty.facts().atomic {
+            return Err(at.error("atomics cannot be formatted; format a value read with load()"));
+        }
         let category = match &ty {
             Ty::Str => Category::Text,
             Ty::Bool => Category::Bool,

@@ -38,7 +38,8 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.thread", ""),
     ("std.channel", ""),
     ("std.concurrent", ""),
-    ("std.sync", ""),
+    ("std.sync", include_str!("../../stdlib/std/sync.plenty")),
+    ("std.atomic", include_str!("../../stdlib/std/atomic.plenty")),
     ("std.io", include_str!("../../stdlib/std/io.plenty")),
     (
         "std.io.typed",
@@ -183,6 +184,8 @@ fn facility_exports(module: &str) -> &'static [&'static str] {
             "ParallelError",
         ],
         "std.sync" => &["CancellationToken"],
+        // Qualified so that the names resolve only through an import.
+        "std.atomic" => &[crate::atomic::ATOMIC, crate::atomic::FENCE],
         _ => &[],
     }
 }
@@ -1626,11 +1629,10 @@ fn resolve(
                 m.exports
                     .iter()
                     .map(|n| (n.clone(), qualified(&m.name, n)))
-                    .chain(
-                        m.facility_exports
-                            .iter()
-                            .map(|n| (n.to_string(), n.to_string())),
-                    )
+                    .chain(m.facility_exports.iter().map(|n| {
+                        let name = n.rsplit('.').next().unwrap_or(n);
+                        (name.to_string(), n.to_string())
+                    }))
                     .collect(),
             )
         })
@@ -1952,6 +1954,11 @@ pub(super) fn check_member_at(
                 return Err(diagnostic.error(format!(
                     "{kind} `{class}` is private to its defining module; declare it `pub {kind}` to allow access to its public members from another module, including a generic function defined there"
                 )));
+            }
+            if class == crate::mutex::CLASS {
+                return Err(diagnostic.error(
+                    "a Mutex's fields are private; reach its value with `with mutex.lock() as value:`",
+                ));
             }
             return Err(diagnostic.error(format!(
                 "`{class}.{member}` is private to its defining module; declare the member public to allow access from another module"

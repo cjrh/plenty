@@ -64,6 +64,15 @@ fn define_type(
     let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
     let mut bytes = vec![0; 64];
+    // Atomics have their element's layout but stay affine, so the runtime
+    // never copies one. The frontend keeps them out of every concurrent or
+    // copying runtime operation; unborrowed atomics still move through pop,
+    // append, and insert.
+    let affine = ty.affine();
+    let ty = match ty {
+        Ty::Atomic(t) => &**t,
+        _ => ty,
+    };
     bytes[0] = match ty {
         Ty::I8 => b'1',
         Ty::Callable(_) | Ty::Task(_) => b'c',
@@ -101,8 +110,9 @@ fn define_type(
         Ty::Generator(_) => b'G',
         Ty::Enum(_) => b'B',
         Ty::Ref(..) => b'v',
+        Ty::Atomic(_) => unreachable!("replaced by its element"),
     };
-    bytes[1] = u8::from(ty.affine());
+    bytes[1] = u8::from(affine);
     bytes[2] = u8::from(ty.facts().reflexive);
     bytes[3] = u8::from(ty.has_inline_range());
     bytes[4..8].copy_from_slice(&(ty.inline_bytes() as u32).to_ne_bytes());

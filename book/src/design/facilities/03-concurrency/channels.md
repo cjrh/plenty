@@ -55,7 +55,9 @@ compiler therefore rejects a join that could wait this way:
 The rule applies to `task.join()` and to the automatic join on every exit from
 the task's `with` block: its end, `return`, `?`, `break`, `continue`, and the
 failed start of a later task in the same statement. A task that `task.join()`
-has consumed on every path is not joined again at exit.
+has consumed on every path is not joined again at exit. A join is likewise
+rejected while the joining function holds a lock on a `Mutex[T]` that the
+worker can reach; see [mutexes](mutex.md#waits-the-compiler-rejects).
 
 A worker *can hold* a sender that is an argument or capture, a field or element
 of one, behind a reference, or a message of a channel it holds. A binding

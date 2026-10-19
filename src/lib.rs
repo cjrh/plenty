@@ -22,6 +22,7 @@ macro_rules! profile_block {
 }
 pub(crate) use profile_block;
 
+mod atomic;
 mod boxed;
 mod bytes;
 pub mod cache;
@@ -43,6 +44,7 @@ mod lexer;
 mod library;
 mod library_metadata;
 pub mod lsp;
+mod mutex;
 mod net;
 mod nominal;
 mod numeric;

@@ -3,7 +3,9 @@
 Concurrency is explicit. Native workers can overlap without an interpreter lock;
 ordinary loops and comprehensions remain serial. Ownership transfers and checked
 loans still apply across threads. Shared immutable storage does not permit
-unsynchronized mutation.
+unsynchronized mutation; [`std.atomic`](../../stdlib/atomic.md) values are
+updated through shared references with atomic instructions, and a
+[mutex](mutex.md) grants one lock holder at a time exclusive access to its value.
 
 Worker eligibility is a closed-world compiler check, not a user-defined marker
 protocol. It examines concrete stored types, reachable helper and callback
@@ -29,6 +31,7 @@ submission and future waiting are unsupported.
 - [Bounded channels](channels.md).
 - [Executors and shutdown](executors.md), [futures](futures.md), and
   [ordered mapping](parallel-map.md) / [fixed-tree reduction](parallel-reduce.md).
+- [Mutexes](mutex.md).
 - [Cancellation tokens](cancellation.md) and [timed waits and selection](timed-selection.md).
 - [Native effects on worker threads](effects.md) and deadline-bounded I/O
   through [`std.ready`](../../stdlib/ready.md).
