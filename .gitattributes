@@ -1,0 +1,3 @@
+# Temporary GitHub highlighting until Plenty has native Linguist support.
+# Exclude Plenty files from statistics rather than counting them as Python.
+*.plenty linguist-language=Python linguist-detectable=false

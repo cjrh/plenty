@@ -119,6 +119,23 @@ example `python3 -B scripts/check_links.py book/src proposals`.
 Check the workflow helpers with
 `python3 -B -m unittest discover -s scripts -p 'test_*.py'`.
 
+## GitHub source highlighting
+
+Plenty is its own language. Until GitHub supports it through Linguist, the root
+`.gitattributes` selects Python highlighting for every `.plenty` file, including
+nested modules. This is approximate coloring: Plenty-specific syntax can be
+miscolored, and a file viewer may label the file as Python. The
+`linguist-detectable=false` attribute excludes these files from repository
+language statistics so they do not count as Python; genuine Python files keep
+their normal classification. The files remain visible in diffs.
+
+This override applies only to repositories containing the rule. It does not
+provide editor integration or guarantee GitHub code navigation or search
+classification. Keep Markdown's `plenty` fences and the book's custom highlighter;
+they are independent of GitHub's source viewer. Once native Plenty support
+reaches GitHub, remove both temporary attributes and recheck source highlighting
+and language statistics.
+
 ## Reverse-proxy tests
 
 `tests/test_std_http_server_proxy.rs` runs `std.http.server` behind nginx and
