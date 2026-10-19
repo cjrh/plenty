@@ -25,7 +25,7 @@ pub enum Route:
     Echo
 
 pub class Site:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError | std.bytes.BytesError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home\n")?
@@ -105,7 +105,3 @@ A request that fails because a reused connection was closed by the server
 is sent again on a new connection, but only for methods that are safe to
 repeat, such as `GET` and `PUT`. A `POST` is never sent twice; its error is
 returned so the program can decide what to do.
-
-The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
-Keep concrete errors in helpers; the handler boundary erases them. See the
-[server contract](../../design/stdlib/http-server.md).

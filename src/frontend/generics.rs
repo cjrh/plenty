@@ -948,7 +948,7 @@ impl Engine {
                             requirement.name, protocol.name
                         )));
                     }
-                    for (pattern, actual) in requirement
+                    for (pattern, found) in requirement
                         .inputs
                         .iter()
                         .map(|(_, t)| t)
@@ -961,7 +961,23 @@ impl Engine {
                     {
                         let mut pattern = pattern.clone();
                         substitute(&mut pattern, &substitutions)?;
-                        infer(&pattern, actual, template, inferred, aliases, at)?;
+                        let Err(error) = infer(&pattern, found, template, inferred, aliases, at)
+                        else {
+                            continue;
+                        };
+                        // A method type that no type arguments can fit, such
+                        // as `-> ()` for `-> Result[(), E]`, fails the protocol
+                        // as `protocols::check` reports it; the shape error is
+                        // worded for call arguments. A type that fits alone
+                        // but disagrees with other evidence keeps the error
+                        // naming that conflict.
+                        if mentions_parameter(&pattern, template)
+                            && infer(&pattern, found, template, &mut HashMap::new(), aliases, at)
+                                .is_err()
+                        {
+                            return Err(at.error(format!("{actual} does not satisfy {}: signature of `{}` does not match (including receiver borrowing, type parameters, and return type)", protocol.name, requirement.name)));
+                        }
+                        return Err(error);
                     }
                 }
             }

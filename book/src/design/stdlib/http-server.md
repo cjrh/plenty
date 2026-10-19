@@ -14,18 +14,24 @@ deployment guidance; the server is production-ready.
 
 | Item | Meaning |
 |---|---|
-| `serve[R, H: Handler[TcpStream, R]](listener: TcpListener, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken)` | `Result[Report, ServerError]`: serve until `stop` is cancelled, then shut down |
-| `std.http.tls.serve[R, H: Handler[TlsTransport, R]](listener, tls: ServerConfig, router, handler, config, stop)` | `serve` over TLS; see [HTTPS](#https) |
-| `serve_with[T: Transport, O: Opener[T], R, H: Handler[T, R]](listener, opener: &O, router, handler, config, stop)` | `serve` with a transport that `opener` makes from each accepted `TcpStream` |
-| `serve_connection[T: Transport, R, H: Handler[T, R]](stream: T, router, handler, config, stop, cancel: &CancellationToken)` | `Report`: serve every request on one connection, on the calling thread |
-| `serve_connection_from[T, R, H](stream: T, peer: Option[SocketAddress], router, handler, config, stop, cancel)` | `serve_connection` that records the connection's peer address in each exchange |
-| `protocol Handler[T, R]` | `def handle(self, route: &R, exchange: &mut Exchange[T]) -> Result[(), Failure]` |
+| `serve[R, E, H: Handler[TcpStream, R, E]](listener: TcpListener, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken)` | `Result[Report, ServerError]`: serve until `stop` is cancelled, then shut down |
+| `std.http.tls.serve[R, E, H: Handler[TlsTransport, R, E]](listener, tls: ServerConfig, router, handler, config, stop)` | `serve` over TLS; see [HTTPS](#https) |
+| `serve_with[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](listener, opener: &O, router, handler, config, stop)` | `serve` with a transport that `opener` makes from each accepted `TcpStream` |
+| `serve_connection[T: Transport, R, E, H: Handler[T, R, E]](stream: T, router, handler, config, stop, cancel: &CancellationToken)` | `Report`: serve every request on one connection, on the calling thread |
+| `serve_connection_from[T, R, E, H](stream: T, peer: Option[SocketAddress], router, handler, config, stop, cancel)` | `serve_connection` that records the connection's peer address in each exchange |
+| `protocol Handler[T, R, E]` | `def handle(self, route: &R, exchange: &mut Exchange[T]) -> Result[(), E]` |
 | `protocol Transport` | `read_before`, `write_before` and `shutdown` with the signatures of `TcpStream`'s; `write_before` is generic in its `S: ByteSource` source |
 | `reason(status: i64)` | `str`: the reason phrase for a common status, or `""` |
 
-The current `Handler` protocol requires this exact erased error type. A handler
-cannot yet substitute a concrete error or sum; helper methods called by the
-handler can preserve their errors until this boundary.
+`E` is the handler's own error type: `HttpError`, a sum such as
+`AllocError | HttpError`, or `Failure`. Calls infer it from `handle`, as they
+infer `R` from the router; a generic function that passes a handler on
+declares it too, as in `def run[E, H: Handler[TcpStream, Route, E]](handler: &H)`.
+The server needs nothing from the error: it answers and counts every `Err`
+alike (see [When a handler fails](#when-a-handler-fails)) and drops it on
+the worker. A return type other than `Result[(), E]` does not satisfy
+`Handler`:
+``App does not satisfy std.http.server.Handler: signature of `handle` does not match``.
 
 `serve` takes ownership of the listener and runs on the calling thread. It
 starts `config.workers` scoped worker threads, then accepts connections on
@@ -108,7 +114,7 @@ pub enum Route:
     Hello(Greeting)
 
 pub class App:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | HttpError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home\n")?
@@ -252,7 +258,7 @@ report = std.http.tls.serve(listener, tls, &table, &App(), &config, &stop)?
 ```
 
 `std.http.tls.serve` takes a [`std.tls`](tls.md) `ServerConfig` and calls a
-handler of type `Handler[TlsTransport, R]`; `TlsTransport.stream` is the
+handler of type `Handler[TlsTransport, R, E]`; `TlsTransport.stream` is the
 `TlsStream`. Each handshake must finish within `handshake_timeout` of the
 accept. Workers advance it as the client's messages arrive, and between
 them the connection waits parked, so a client that stalls mid-handshake

@@ -14,6 +14,7 @@ CA so that it runs offline.
 
 ```plenty
 import std.bytes
+import std.http
 import std.http.client
 import std.http.https
 import std.http.server
@@ -41,7 +42,7 @@ pub enum Route:
     Count
 
 pub class Site:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), AllocError | std.http.HttpError | std.bytes.BytesError]:
         mut body = std.bytes.empty()?
         exchange.read_all(&mut body)?
         exchange.send_text(200, &str.from(body.len())?.concat(" bytes")?)?
@@ -115,7 +116,3 @@ neither the request nor the response.
 
 The HTTPS support is a separate module: a program that imports only
 `std.http.client` does not include the TLS library.
-
-The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
-Keep concrete errors in helpers; the handler boundary erases them. See the
-[server contract](../../design/stdlib/http-server.md).
