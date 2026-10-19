@@ -315,16 +315,10 @@ pub def max_all[T](items: &list[T]) -> Option[T]:
     Some(best)
 
 pub def sum[T](items: &list[T], start: T) -> T:
-    mut total = start
-    for item in items:
-        total += *item
-    total
+    sum_iter(items, start)
 
 pub def prod[T](items: &list[T], start: T) -> T:
-    mut total = start
-    for item in items:
-        total *= *item
-    total
+    prod_iter(items, start)
 
 # I specializes to any supported borrowed iterable with numeric elements T.
 pub def sum_iter[I, T](items: &I, start: T) -> T:
