@@ -1,14 +1,5 @@
 mod support;
-
-fn run(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
+use support::assert_stdout as run;
 
 #[test]
 fn heterogeneous_handlers_and_branch_factories_share_a_structural_type() {

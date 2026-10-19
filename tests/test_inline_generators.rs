@@ -1,14 +1,5 @@
 mod support;
-
-fn expect(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
+use support::assert_stdout as expect;
 
 #[test]
 fn suspended_frames_move_through_factories_and_consumers() {

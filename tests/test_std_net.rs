@@ -1,13 +1,9 @@
 //! std.net over loopback only: no test needs a network, a resolver beyond
 //! the hosts file, or a fixed port.
-use std::path::Path;
-use std::process::{Command, Stdio};
 
-fn written(dir: &Path, source: &str) -> std::path::PathBuf {
-    let path = dir.join("main.plenty");
-    std::fs::write(&path, source).unwrap();
-    path
-}
+mod support;
+use std::process::{Command, Stdio};
+use support::write_main as written;
 
 fn runs(body: &str, expected: &str) {
     runs_with(body, expected, None);

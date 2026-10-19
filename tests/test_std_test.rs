@@ -4,6 +4,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 mod support;
+use support::write_file as write;
 
 fn run_program(source: &str) -> Output {
     let dir = tempfile::tempdir().unwrap();
@@ -340,11 +341,6 @@ fn plenty(directory: &Path, args: &[&str]) -> Output {
         .env_remove("PLENTY_TEST_SEED")
         .output()
         .unwrap()
-}
-
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
 }
 
 fn suite(root: &Path, files: &[(&str, &str)]) {

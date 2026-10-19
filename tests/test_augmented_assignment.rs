@@ -1,15 +1,6 @@
 //! Arithmetic updates of writable places with one evaluation of each index.
 mod support;
-
-fn expect(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
+use support::assert_stdout as expect;
 
 #[test]
 fn numeric_operators_keep_the_destination_type() {

@@ -1,6 +1,8 @@
 //! `std.toml`: the document parser, the value tree, and the writer, checked
 //! against TOML 1.0 specification examples, hand-written expectations, and
 //! generated documents.
+mod support;
+use support::hex;
 
 /// Helpers shared by every program. Inputs arrive as hex so a case can hold
 /// any byte sequence. `check` prints the parsed tree, or the located error,
@@ -261,10 +263,6 @@ fn native(body: &str, expected: &str) {
         expected.trim_matches('\n'),
         "{body}"
     );
-}
-
-fn hex(data: &[u8]) -> String {
-    data.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// One `check` outcome per input, under limits prepared by `setup`.

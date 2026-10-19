@@ -1,4 +1,6 @@
 //! `std.db.sqlite`: typed bindings over the vendored SQLite library.
+mod support;
+use support::{build_file as build, run_file as run};
 
 const HEADER: &str = r#"import std.bytes
 import std.db.sqlite
@@ -32,21 +34,6 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
-}
-
-fn build(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    let executable = dir.path().join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    (dir, executable)
-}
-
-fn run(source: &str) -> std::process::Output {
-    let (_dir, executable) = build(source);
-    std::process::Command::new(executable).output().unwrap()
 }
 
 fn output(source: &str) -> String {

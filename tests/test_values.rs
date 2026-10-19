@@ -2,14 +2,7 @@
 mod support;
 use rstest::rstest;
 use std::process::Command;
-
-fn run(source: &str) -> std::process::Output {
-    let workspace = tempfile::tempdir().unwrap();
-    let executable = workspace.path().join("program");
-    support::compile_source_to_executable(source, &executable)
-        .unwrap_or_else(|e| panic!("{source}\n{e}"));
-    Command::new(executable).output().unwrap()
-}
+use support::run;
 
 #[rstest]
 #[case(

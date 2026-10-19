@@ -1,6 +1,8 @@
 //! `std.compress`: DEFLATE, zlib and gzip through zlib-rs, checked against
 //! fixtures from CPython's zlib and gzip modules and against the system
 //! `gzip` tool.
+mod support;
+use support::{build_file as build, run_file as run};
 
 const HEADER: &str = r#"import std.bytes
 import std.compress
@@ -128,16 +130,6 @@ fn program(body: &str) -> String {
     format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
 }
 
-fn build(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    let executable = dir.path().join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    (dir, executable)
-}
-
 /// Runs the program with `input` on stdin and returns its raw stdout.
 fn piped(source: &str, input: &[u8]) -> Vec<u8> {
     use std::io::Write;
@@ -159,11 +151,6 @@ fn piped(source: &str, input: &[u8]) -> Vec<u8> {
         String::from_utf8_lossy(&output.stderr)
     );
     output.stdout
-}
-
-fn run(source: &str) -> std::process::Output {
-    let (_dir, executable) = build(source);
-    std::process::Command::new(executable).output().unwrap()
 }
 
 fn output(source: &str) -> String {

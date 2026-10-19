@@ -1,7 +1,8 @@
 //! Brackets after a name are an index when the name is a local binding and
 //! type arguments when it is a declaration (issue #23).
 mod support;
-use support::{check_source, run};
+use support::check_diagnostic as error;
+use support::run;
 
 fn stdout(source: &str) -> String {
     let output = run(source);
@@ -11,10 +12,6 @@ fn stdout(source: &str) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
-}
-
-fn error(source: &str) -> String {
-    check_source(source).unwrap_err().to_string()
 }
 
 #[test]

@@ -1,15 +1,6 @@
 //! Exchange initialized fields without cloning or partially moving their owner.
 mod support;
-
-fn expect(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
+use support::assert_stdout as expect;
 
 fn reject(source: &str, expected: &str) {
     let dir = tempfile::tempdir().unwrap();

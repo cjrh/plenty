@@ -2,6 +2,7 @@
 //! `bytes` literal or a `Bytes` buffer in place (issue #156), and protocol
 //! requirements may declare their own type parameters.
 mod support;
+use support::{check_error as rejected, check_file_error as file_rejected};
 
 /// Programs that import `std` need a file-based compilation.
 fn file_output(source: &str) -> String {
@@ -21,22 +22,6 @@ fn file_output(source: &str) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
-}
-
-fn file_rejected(source: &str) -> String {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    std::fs::write(&path, source).unwrap();
-    match plenty::check_file(&path, None) {
-        Ok(()) => panic!("accepted:\n{source}"),
-        Err(error) => error.to_string(),
-    }
-}
-
-fn rejected(source: &str) -> String {
-    support::check_source(source)
-        .expect_err("source should be rejected")
-        .to_string()
 }
 
 #[test]

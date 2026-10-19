@@ -1,7 +1,7 @@
 //! Laziness, suspension, affine ownership and destruction through native code.
 mod support;
 use rstest::rstest;
-use std::process::Command;
+use support::run;
 
 const COUNT: &str = "def count(n: i64) -> Generator[i64]:\n    mut i = 0\n    while i < n:\n        yield i\n        i = i + 1\n";
 
@@ -36,14 +36,6 @@ fn explicit_next_reborrows_a_mutable_generator_without_consuming_it() {
         assert!(error.contains(expected), "{body}\n{error}");
     }
 }
-fn run(source: &str) -> std::process::Output {
-    let workspace = tempfile::tempdir().unwrap();
-    let executable = workspace.path().join("program");
-    support::compile_source_to_executable(source, &executable)
-        .unwrap_or_else(|e| panic!("{source}\n{e}"));
-    Command::new(executable).output().unwrap()
-}
-
 #[rstest]
 #[case("def g(n: i64) -> Generator[i64]:\n    print('start').unwrap()\n    yield n\n    print('after').unwrap()\ndef arg() -> i64:\n    print('arg').unwrap()\n    42\nmut it = g(arg())\nprint('created').unwrap()\nprint(next(it)).unwrap()\nprint('stop').unwrap()", "arg\ncreated\nstart\nOption[i64].Some(42)\nstop\n")]
 #[case(

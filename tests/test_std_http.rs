@@ -1,5 +1,7 @@
 //! `std.http`: HTTP/1.1 message framing over in-memory streams and loopback
 //! sockets. No test needs a network or a fixed port.
+mod support;
+use support::hex;
 
 const HEADER: &str = "import std.bytes\nimport std.encoding\nimport std.io\nimport std.http\nfrom std.bytes import Bytes\nfrom std.io import BufReader, Cursor, Reader, StreamError\nfrom std.http import Framing, Header, HttpError, Limits\n";
 
@@ -175,10 +177,6 @@ fn native(body: &str, expected: &str) {
         expected.trim_matches('\n'),
         "{body}"
     );
-}
-
-fn hex(data: &[u8]) -> String {
-    data.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Runs `helper` over every input in one program. Inputs travel as hex so

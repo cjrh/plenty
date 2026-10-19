@@ -1,5 +1,7 @@
 //! `std.secrets`: OS-backed bytes and tokens, with retry and failure policy
 //! exercised through an injected scripted source.
+mod support;
+use support::check_file_error as rejected;
 
 const HEADER: &str = r#"import std.bytes
 import std.secrets
@@ -74,16 +76,6 @@ fn native(body: &str, expected: &str) {
         expected.trim_matches('\n'),
         "{body}"
     );
-}
-
-fn rejected(source: &str) -> String {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    std::fs::write(&path, source).unwrap();
-    match plenty::check_file(&path, None) {
-        Ok(()) => panic!("accepted:\n{source}"),
-        Err(error) => error.to_string(),
-    }
 }
 
 #[test]

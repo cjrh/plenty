@@ -1,5 +1,6 @@
 //! `Result`/`Option` predicates, integer rotation, and `str.byte_len` (issue #116).
 mod support;
+use support::check_error as rejected;
 
 fn output(source: &str) -> String {
     let output = support::run(source);
@@ -9,12 +10,6 @@ fn output(source: &str) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn rejected(source: &str) -> String {
-    support::check_source(source)
-        .expect_err("source should be rejected")
-        .to_string()
 }
 
 #[test]

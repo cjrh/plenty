@@ -1,22 +1,7 @@
 //! Set removal reports membership changes without allocating.
 mod support;
 use rstest::rstest;
-
-fn native(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{source}\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let visible = stdout
-        .lines()
-        .filter(|line| !line.starts_with("__test_"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert_eq!(visible, expected.trim_end(), "{source}");
-}
+use support::assert_visible_stdout as native;
 
 #[test]
 fn discard_reports_changes_for_zero_false_and_sized_integer_keys() {

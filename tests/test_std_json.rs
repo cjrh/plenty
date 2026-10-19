@@ -1,6 +1,8 @@
 //! `std.json`: the resumable event decoder, the event encoder, and the value
 //! tree, checked against hand-written expectations and an independent
 //! reference parser.
+mod support;
+use support::hex;
 
 use std::collections::HashSet;
 
@@ -150,10 +152,6 @@ fn native(body: &str, expected: &str) {
         expected.trim_matches('\n'),
         "{body}"
     );
-}
-
-fn hex(data: &[u8]) -> String {
-    data.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// One `check` outcome per input, under limits prepared by `setup`.

@@ -1,15 +1,6 @@
 //! Explicit error erasure must preserve success types, cleanup, and allocation guarantees.
 mod support;
-
-fn native(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
+use support::assert_stdout as native;
 
 #[test]
 fn mixed_errors_and_contextual_success_types() {

@@ -1,14 +1,5 @@
 mod support;
-
-fn runs(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
+use support::assert_stdout as runs;
 
 #[test]
 fn named_workers_move_owned_inputs_and_keep_borrowed_loans_scoped() {

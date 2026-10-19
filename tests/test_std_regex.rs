@@ -1,6 +1,8 @@
 //! `std.regex`: a Pike VM in Plenty, checked against the `regex` crate on a
 //! shared syntax subset, plus syntax errors, limits, linear-time bounds,
 //! bytes input, worker threads, and allocation failure.
+mod support;
+use support::build_file as build;
 
 const HEADER: &str = r#"import std.bytes
 import std.regex
@@ -63,16 +65,6 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
-}
-
-fn build(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    let executable = dir.path().join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    (dir, executable)
 }
 
 fn output(source: &str) -> String {
