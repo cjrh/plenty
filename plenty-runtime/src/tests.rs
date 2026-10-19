@@ -466,6 +466,22 @@ static RESULT_TEXT_LIST: Type = Type {
     ..scalar(b'B')
 };
 
+static RESULT_LIST_LIST: Type = Type {
+    affine: true,
+    name: "Result[list[list[i64]], AllocError]",
+    variants: &[
+        Variant {
+            name: "Ok",
+            fields: &[&LIST_LIST],
+        },
+        Variant {
+            name: "Err",
+            fields: &[&ALLOC_ERROR],
+        },
+    ],
+    ..scalar(b'B')
+};
+
 #[test]
 fn split_line_results_own_members_after_source_destruction() {
     unsafe {
@@ -2050,7 +2066,8 @@ fn dictionaries_preserve_order_and_copy_owned_contents() {
         // The affine list moved into the dictionary; only the dictionary owns it.
         let independent = crate::aggregates::payload(collection(33, dict, 0, 0, &DICT));
         assert_eq!(collection(8, dict, independent, 0, ptr::null()), 1);
-        let values = collection(11, dict, 0, 0, &LIST_LIST);
+        let values = collection(44, dict, 0, 0, &RESULT_LIST_LIST);
+        assert_eq!(values >> 64, 0);
         let copied_values = crate::aggregates::payload(collection(33, values, 0, 0, &LIST_LIST));
         let item = collection(15, values, 0, 0, ptr::null());
         plenty_release(collection(2, item, 7, 0, ptr::null()) as *mut Header);
