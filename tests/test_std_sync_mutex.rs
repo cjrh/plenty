@@ -117,13 +117,22 @@ def main() -> Result[(), Failure]:
                 break
     with m.lock() as v:
         print(*v)?
+    mut i = 0
+    while True:
+        i = i + 1
+        with m.lock() as v:
+            *v = *v + 10
+            if i == 2:
+                continue
+            if i == 4:
+                break
     with m.lock():
         pass
     print(m.into_inner())?
     Ok(())
 "#
     );
-    assert_eq!(output(&source), "1\nstopped\n6\n6");
+    assert_eq!(output(&source), "1\nstopped\n6\n46");
 }
 
 #[test]
@@ -219,6 +228,58 @@ def main() -> Result[(), Failure]:
 }
 
 #[test]
+fn locks_nest_and_workers_start_inside_them() {
+    let source = format!(
+        r#"{HEADER}
+def double(value: i64) -> i64:
+    value * 2
+
+def main() -> Result[(), Failure]:
+    nested = Mutex(Mutex(3))
+    with nested.lock() as inner:
+        with inner.lock() as value:
+            *value = *value + 1
+    counter = Mutex(5)
+    with counter.lock() as value:
+        with spawn(double, *value)? as task:
+            *value = task.join()
+    print(nested.into_inner().into_inner())?
+    print(counter.into_inner())?
+    Ok(())
+"#
+    );
+    assert_eq!(output(&source), "4\n10");
+}
+
+/// Locking allocates nothing, and `into_inner` moves a heap value out
+/// without leaking or releasing it twice.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn locks_allocate_nothing_and_into_inner_keeps_the_heap_balanced() {
+    let source = format!(
+        r#"{HEADER}
+def main() -> Result[(), Failure]:
+    words = Mutex([f"word {{n}}"? for n in range(2000)]?)
+    print("__test_begin_no_allocations__")?
+    with words.lock() as values:
+        values.reverse()
+    print("__test_end_no_allocations__")?
+    values = words.into_inner()
+    print(values[0])?
+    drop(values)
+    print("__test_small_live_heap__")?
+    Ok(())
+"#
+    );
+    let visible: Vec<_> = output(&source)
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(visible, ["word 1999"]);
+}
+
+#[test]
 fn import_aliases_name_the_same_type() {
     let source = r#"import std.sync as sync
 from std.sync import Mutex as Guarded
@@ -279,6 +340,12 @@ fn joining_while_holding_a_reachable_lock_is_rejected() {
             "{HEADER}{worker}def main() -> Result[(), Failure]:\n    m = Mutex(1)\n    with m.lock() as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
         ),
         "note: the lock is acquired here; end the lock's `with` block before this one, or start the task outside it",
+    );
+    rejects(
+        &format!(
+            "{HEADER}{worker}def main() -> Result[(), Failure]:\n    m = Mutex(1)\n    with m.lock() as v, spawn(work, &m)?:\n        pass\n    Ok(())\n"
+        ),
+        &format!("leaving this `with` block joins {hang}"),
     );
 }
 

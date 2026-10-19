@@ -44,6 +44,8 @@ patterns that would wait forever:
   worker could be waiting for that lock. Mutexes are matched by type, like the
   [channel rule](channels.md#joins-and-live-endpoints). Start the task outside
   the lock: `with spawn(...)?:` around `with m.lock():` unlocks before joining.
+  A join inside a function called while the lock is held is not detected and
+  deadlocks at run time.
 - **Yielding under a lock.** `yield` inside a lock block is an error: a
   suspended generator would keep the lock indefinitely.
 

@@ -807,7 +807,9 @@ impl Checker<'_> {
 
     /// A lock guard this function still holds on a `Mutex[T]` while the task's
     /// worker can reach a `Mutex[T]`. Mutexes are matched by guarded type, so
-    /// this neither identifies mutexes nor proves the worker locks one.
+    /// this neither identifies mutexes nor proves the worker locks one. A guard
+    /// slot belongs to one lock block and is never reused, so its state is
+    /// live exactly from its store to the `Unlock(slot)` that resets it.
     fn held_lock(
         &self,
         task: &Task,

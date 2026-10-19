@@ -18,8 +18,11 @@ unsafe extern "C" {
     fn syscall(number: i64, ...) -> i64;
 }
 
-/// Acquire a lock whose inline compare-exchange failed. Each attempt marks the
-/// state as having waiters, so the holder's unlock always wakes one.
+/// Acquire a lock whose inline compare-exchange failed. Each attempt stores 2,
+/// so the holder's unlock wakes a waiter if there is one. Acquiring through
+/// that exchange also leaves 2 when no thread waits, so the next unlock may
+/// make one unnecessary `FUTEX_WAKE`; the protocol accepts that cost, and it
+/// is correct because a wake with no sleeper does nothing.
 ///
 /// # Safety
 ///
