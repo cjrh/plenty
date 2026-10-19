@@ -1,22 +1,6 @@
 //! Eager collection conversion with recoverable output growth.
 mod support;
-
-fn native(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let text = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(
-        text.lines()
-            .filter(|s| !s.starts_with("__test_"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        expected
-    );
-}
+use support::assert_filtered_stdout as native;
 
 #[test]
 fn collect_ranges_generators_and_owned_elements() {

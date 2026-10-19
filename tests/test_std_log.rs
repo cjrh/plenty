@@ -1,13 +1,5 @@
-use std::path::Path;
-
-fn compile(dir: &Path, source: &str) -> std::path::PathBuf {
-    let path = dir.join("main.plenty");
-    let executable = dir.join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{error}\n{source}"));
-    executable
-}
+mod support;
+use support::compile_file as compile;
 
 fn output(source: &str) -> std::process::Output {
     let directory = tempfile::tempdir().unwrap();

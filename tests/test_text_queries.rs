@@ -1,6 +1,7 @@
 //! Allocation-free text queries use literal UTF-8 and scalar positions.
 mod support;
 use rstest::rstest;
+use support::assert_visible_stdout as native;
 
 #[rstest]
 #[case("", "True\nFalse")]
@@ -77,22 +78,6 @@ print(d).unwrap()
 fn invalid_classification(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
-}
-
-fn native(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{source}\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let visible = stdout
-        .lines()
-        .filter(|line| !line.starts_with("__test_"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert_eq!(visible, expected.trim_end(), "{source}");
 }
 
 #[rstest]

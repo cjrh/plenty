@@ -1,33 +1,8 @@
 //! `f"..."` literals (issue #157): Python-parity spellings, conversions,
 //! static spec checks, and failure as a value.
-use std::path::Path;
 
-fn compile(dir: &Path, source: &str) -> std::path::PathBuf {
-    let path = dir.join("main.plenty");
-    let executable = dir.join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{error}\n{source}"));
-    executable
-}
-
-fn run(source: &str) -> String {
-    let directory = tempfile::tempdir().unwrap();
-    let result = std::process::Command::new(compile(directory.path(), source))
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    String::from_utf8(result.stdout)
-        .unwrap()
-        .lines()
-        .filter(|line| !line.starts_with("__test_"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
+mod support;
+use support::run_file_stdout as run;
 
 /// The diagnostic for `line` placed in a `main` with some typed locals.
 fn error(line: &str) -> String {

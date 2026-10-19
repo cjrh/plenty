@@ -1,16 +1,8 @@
 //! Native artifact and driver contracts. Each test owns its environment.
-use std::process::{Command, Output};
+use std::process::Command;
 
 mod support;
-
-fn success(output: Output) -> Output {
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    output
-}
+use support::assert_success as success;
 
 #[test]
 fn configurable_driver_links_and_runs() {

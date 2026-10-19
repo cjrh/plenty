@@ -8,6 +8,7 @@
 //! Everything runs on loopback; no test needs a network.
 
 mod support;
+use support::build_file as build;
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
@@ -151,16 +152,6 @@ pub def counts(report: &Report) -> Result[str, Failure]:
     text = text.concat(" rejected=")?.concat(str.from(report.rejected)?)?
     Ok(text)
 "##;
-
-fn build(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    let executable = dir.path().join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    (dir, executable)
-}
 
 /// Runs a program to completion and returns its standard output, with CRLF
 /// shown as `|` and test-hook markers removed.

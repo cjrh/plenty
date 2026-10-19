@@ -2,22 +2,7 @@
 //! component is assigned to its target from left to right.
 mod support;
 use rstest::rstest;
-
-fn native(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{source}\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let visible = stdout
-        .lines()
-        .filter(|line| !line.starts_with("__test_"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert_eq!(visible, expected.trim_end(), "{source}");
-}
+use support::assert_visible_stdout as native;
 
 #[test]
 fn names_unpack_a_tuple_written_without_parentheses() {

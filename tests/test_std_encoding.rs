@@ -1,4 +1,6 @@
 //! `std.encoding`: hex, base64, and fixed-width integer packing over `Bytes`.
+mod support;
+use support::{check_file_error as rejected, hex};
 
 const HEADER: &str = "import std.bytes\nimport std.encoding\nfrom std.bytes import Bytes\nfrom std.encoding import Endian, EncodingError\n";
 
@@ -42,16 +44,6 @@ fn native(body: &str, expected: &str) {
     );
 }
 
-fn rejected(source: &str) -> String {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    std::fs::write(&path, source).unwrap();
-    match plenty::check_file(&path, None) {
-        Ok(()) => panic!("accepted:\n{source}"),
-        Err(error) => error.to_string(),
-    }
-}
-
 /// Independent reference encoder for known-answer comparison.
 fn reference_base64(data: &[u8], url: bool) -> String {
     let alphabet: Vec<char> = if url {
@@ -75,10 +67,6 @@ fn reference_base64(data: &[u8], url: bool) -> String {
         }
     }
     text
-}
-
-fn hex(data: &[u8]) -> String {
-    data.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 // RFC 4648 section 10.

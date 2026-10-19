@@ -1,8 +1,11 @@
 //! `plenty lsp` driven over stdio with scripted messages (issue #155).
+
+mod support;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use support::write_file as write;
 
 struct Client {
     child: Child,
@@ -193,11 +196,6 @@ fn a_header_without_content_length_ends_the_session() {
 
 fn uri(path: &Path) -> String {
     format!("file://{}", path.canonicalize().unwrap().display())
-}
-
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
 }
 
 const MAIN: &str = r#"from std.math import gcd

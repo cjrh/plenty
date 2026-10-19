@@ -1,5 +1,7 @@
 //! `std.random`: caller-owned seeded generators, checked against published
 //! vectors and an independent reference implementation.
+mod support;
+use support::check_file_error as rejected;
 
 const HEADER: &str =
     "import std.bytes\nimport std.random\nfrom std.bytes import Bytes\nfrom std.random import Rng, RandomError\n";
@@ -41,16 +43,6 @@ fn native(body: &str, expected: &str) {
         expected.trim_matches('\n'),
         "{body}"
     );
-}
-
-fn rejected(source: &str) -> String {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    std::fs::write(&path, source).unwrap();
-    match plenty::check_file(&path, None) {
-        Ok(()) => panic!("accepted:\n{source}"),
-        Err(error) => error.to_string(),
-    }
 }
 
 /// Independent xoshiro256** 1.0 with SplitMix64 seeding, written from the

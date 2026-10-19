@@ -1,5 +1,7 @@
 //! `std.crypto`: SHA-256, SHA-512, HMAC and constant-time comparison, checked
 //! against published vectors (FIPS 180-2 examples, RFC 4231).
+mod support;
+use support::check_file_error as rejected;
 
 const HEADER: &str = r#"import std.bytes
 import std.crypto
@@ -56,16 +58,6 @@ fn native(body: &str, expected: &str) {
         expected.trim_matches('\n'),
         "{body}"
     );
-}
-
-fn rejected(source: &str) -> String {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    std::fs::write(&path, source).unwrap();
-    match plenty::check_file(&path, None) {
-        Ok(()) => panic!("accepted:\n{source}"),
-        Err(error) => error.to_string(),
-    }
 }
 
 /// FIPS 180-2 example messages: (input, SHA-256, SHA-512).

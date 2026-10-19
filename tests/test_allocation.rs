@@ -1,22 +1,7 @@
 //! Recoverable collection growth, including real allocator failure injection.
 mod support;
 use rstest::rstest;
-
-fn native(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{source}\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let text = String::from_utf8_lossy(&output.stdout);
-    let visible = text
-        .lines()
-        .filter(|line| !line.starts_with("__test_"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert_eq!(visible, expected.trim_end(), "{source}");
-}
+use support::assert_visible_stdout as native;
 
 #[test]
 fn fallible_mutations_and_reservation_work_with_borrows_and_fields() {

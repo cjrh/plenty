@@ -1,7 +1,10 @@
 //! `plenty.toml` projects: the `plenty` project commands, path dependencies,
 //! `plenty.lock`, profiles, and the `plentyc` compiler binary.
+
+mod support;
 use std::path::Path;
 use std::process::{Command, Output};
+use support::write_file as write;
 
 /// Git settings that make fixture repositories independent of the user's
 /// configuration (signing, tag editors, default branch names).
@@ -46,11 +49,6 @@ fn fails(directory: &Path, args: &[&str], message: &str) {
         stderr.contains(message),
         "{args:?}: expected {message:?}, got {stderr}"
     );
-}
-
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
 }
 
 /// A package directory with a manifest, `dependencies` lines, and sources.

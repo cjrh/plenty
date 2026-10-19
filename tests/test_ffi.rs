@@ -1,15 +1,9 @@
 //! C fixtures validate actual ABI calls, not just interface parsing.
+
+mod support;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-
-fn success(output: Output) -> Output {
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    output
-}
+use support::assert_success as success;
 
 fn fixture(root: &Path, shared: bool) -> PathBuf {
     let source = root.join("fixture.c");

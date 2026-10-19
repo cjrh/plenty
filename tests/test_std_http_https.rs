@@ -1,10 +1,8 @@
 //! `std.http.https`: `https` URLs through std.tls, verified against the
 //! certificates in `tests/fixtures/tls`, directly and through a `CONNECT`
 //! tunnel. Every socket is on 127.0.0.1.
-
-fn fixtures() -> String {
-    format!("{}/tests/fixtures/tls", env!("CARGO_MANIFEST_DIR"))
-}
+mod support;
+use support::tls_fixtures as fixtures;
 
 fn compile(source: &str, dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join("main.plenty");

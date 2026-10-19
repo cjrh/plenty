@@ -1,15 +1,6 @@
 //! Native writes through nested places, including evaluation and loan lifetimes.
 mod support;
-
-fn expect(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
+use support::assert_stdout as expect;
 
 #[test]
 fn nested_indices_run_once_after_the_value_in_path_order() {

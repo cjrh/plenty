@@ -1,4 +1,5 @@
 mod support;
+use support::check_diagnostic as diagnostic;
 use support::{check_source, run};
 
 #[test]
@@ -71,10 +72,6 @@ fn output(source: &str) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn diagnostic(source: &str) -> String {
-    check_source(source).unwrap_err().to_string()
 }
 
 const APPLY: &str = "def apply(f: Callable[[i64], i64], value: i64) -> i64:\n    f(value)\n";

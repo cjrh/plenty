@@ -1,6 +1,10 @@
 //! `std.http.client`: pooling, replay, redirects, proxies and deadlines.
 //! Scripted connections run in memory through a test `Connector`; the rest
 //! use loopback sockets on ephemeral ports. No test needs a network.
+mod support;
+use support::assert_http_program as runs;
+#[cfg(feature = "runtime-checks")]
+use support::http_program_output as output;
 
 /// An in-memory `Transport` and `Connector` that echo what the client sends.
 const SCRIPTED: &str = r##"import std.http.client as hc
@@ -124,37 +128,6 @@ def ok(body: &str) -> Result[str, Failure]:
     Ok("HTTP/1.1 200 OK\r\nContent-Length: ".concat(&str.from(body.byte_len())?)?.concat("\r\n\r\n")?.concat(body)?)
 
 "##;
-
-fn output(source: &str) -> String {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    let executable = dir.path().join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    let output = std::process::Command::new(executable)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{source}\nstatus {:?}\n{}",
-        output.status,
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "|")
-        .lines()
-        .filter(|line| !line.starts_with("__test_"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim_end()
-        .to_owned()
-}
-
-fn runs(prelude: &str, main: &str, expected: &str) {
-    assert_eq!(output(&format!("{prelude}{main}")), expected.trim_end());
-}
 
 /// One connection carries two requests; a connection the server closed while
 /// idle, an unfinished response, `max_idle = 0` and a closing response each
