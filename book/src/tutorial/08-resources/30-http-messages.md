@@ -11,7 +11,9 @@ import std.bytes
 import std.http
 import std.io
 
-def main() -> Result[(), AllocError | IoError | std.http.HttpError | std.io.StreamError | std.bytes.BytesError]:
+type MessageStreamError = std.http.HttpError | std.io.StreamError | std.bytes.BytesError
+
+def main() -> Result[(), AllocError | IoError | MessageStreamError]:
     wire = "POST /notes HTTP/1.1\r\nHost: example.com\r\nContent-Length: 5\r\n\r\nhelloGET /notes HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n"
     limits = std.http.limits()
     mut conn = std.io.buffered_reader(std.io.cursor(std.bytes.from_text(wire)?), 1024)?
@@ -49,7 +51,9 @@ import std.http
 import std.io
 from std.http import Header
 
-def main() -> Result[(), AllocError | IoError | std.io.StreamError | std.http.HttpError | std.bytes.BytesError]:
+type MessageStreamError = std.io.StreamError | std.http.HttpError | std.bytes.BytesError
+
+def main() -> Result[(), AllocError | IoError | MessageStreamError]:
     mut sink = std.io.cursor(std.bytes.empty()?)
     mut reply = std.http.response(200, "OK")?
     reply.add("Transfer-Encoding", "chunked")?

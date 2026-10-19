@@ -23,7 +23,9 @@ def work(stop: CancellationToken, ready: Sender[i64]) -> Result[i64, SendError[i
     # Release resources and return through ordinary control flow.
     Ok(42)
 
-def main() -> Result[(), AllocError | IoError | SendError[i64] | FutureError | RecvError | str | ChannelError | PoolError]:
+type CancellableWorkError = SendError[i64] | FutureError | RecvError | str | ChannelError | PoolError
+
+def main() -> Result[(), AllocError | IoError | CancellableWorkError]:
     stop = CancellationToken()?
     with ThreadPoolExecutor(1, 1)? as pool:
         ready, started = channel[i64](1)?

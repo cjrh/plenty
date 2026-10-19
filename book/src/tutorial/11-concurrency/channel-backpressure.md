@@ -4,7 +4,9 @@ Use `send_nowait` when a full queue should return control to the caller. Its
 `Full` error retains your message, so you can retry it after making space.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError | RecvError | SendError[list[i64]] | ChannelError]:
+type MessageError = RecvError | SendError[list[i64]] | ChannelError
+
+def main() -> Result[(), AllocError | IoError | MessageError]:
     sender, receiver = channel[list[i64]](1)?
     sender.send([10]?)?
     match sender.send_nowait([20, 30]?):

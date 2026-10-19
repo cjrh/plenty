@@ -109,7 +109,7 @@ import std.io
 import std.json
 from std.json import Event
 
-def main() -> Result[(), AllocError | IoError | ParseError | std.json.JsonError | std.bytes.BytesError]:
+def main() -> Result[(), IoError | ParseError | std.json.JsonError | std.bytes.BytesError]:
     bounds = std.json.limits()
     mut reader = std.io.cursor(std.bytes.from_text("[{\"id\": 7, \"ok\": true}, {\"id\": 18446744073709551615}]")?)
     mut decoder = std.json.decoder(&bounds)?

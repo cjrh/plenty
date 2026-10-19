@@ -71,7 +71,9 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | AllocError | std.tls.TlsError]:
+type HttpsSetupError = std.http.server.ServerError | std.net.NetError | std.tls.TlsError
+
+def main() -> Result[(), ThreadError | AllocError | HttpsSetupError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Count)?
     routes.add("PUT", "/upload", Route.Count)?

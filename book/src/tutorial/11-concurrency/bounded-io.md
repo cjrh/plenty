@@ -29,7 +29,9 @@ def first_bytes(stream: &mut FileStream, deadline: &Deadline, stop: &Cancellatio
             "failed"
     Ok(text)
 
-def main() -> Result[(), ThreadError | IoError | str | AllocError | RangeError | std.bytes.BytesError]:
+type PipeWaitError = str | RangeError | std.bytes.BytesError
+
+def main() -> Result[(), ThreadError | IoError | AllocError | PipeWaitError]:
     mut command = std.process.shell("sleep 10")?
     command.stdout(Stdio.Piped)
     mut child = command.spawn()?

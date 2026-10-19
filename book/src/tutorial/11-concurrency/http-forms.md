@@ -94,7 +94,9 @@ def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoErro
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), ThreadError | std.http.server.ServerError | std.http.proxy.ProxyError | std.net.NetError | AllocError]:
+type ProxySetupError = std.http.server.ServerError | std.http.proxy.ProxyError | std.net.NetError
+
+def main() -> Result[(), ThreadError | AllocError | ProxySetupError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("POST", "/login", Route.Login)?
     routes.add("GET", "/me", Route.Me)?
