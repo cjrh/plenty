@@ -16,6 +16,8 @@ mod entry_error;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
 mod filesystem;
+#[cfg(test)]
+mod hash_tests;
 pub(crate) mod net;
 mod process;
 mod readiness;
@@ -486,7 +488,10 @@ pub(crate) fn checked_index(index: i64, len: usize) -> Option<usize> {
 unsafe fn hash(value: u128, ty: &Type) -> u64 {
     if ty.kind == b'B' {
         // Hash structural fields, never the address of an inline tuple's storage.
-        let mut combined = 14695981039346656037u64;
+        // Seed with the tag: `equal` distinguishes variants, so equal payloads
+        // of different variants must not share a hash.
+        let mut combined =
+            (14695981039346656037u64 ^ ty.tag(value) as u64).wrapping_mul(1099511628211);
         if let Some(record) = ty.record(value) {
             for i in 0..record.len() {
                 combined = (combined ^ unsafe { hash(record.slot(i).read(), record.ty(i)) })
