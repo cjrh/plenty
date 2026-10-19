@@ -18,6 +18,7 @@ import std.path
 import std.secrets
 import std.time
 from std.bytes import Bytes
+from std.fmt import FormatError
 from std.fs import Root
 from std.http.server import Exchange
 from std.net import TcpStream
@@ -35,7 +36,7 @@ pub class Site:
     pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError | std.bytes.BytesError | std.http.files.FilesError | std.http.cookie.CookieError]:
         match route:
             case Route.Files:
-                path = exchange.params[0].concat("")?
+                path = exchange.params[0]
                 std.http.files.serve(exchange, &self.public, &path)?
             case Route.Login:
                 mut head = std.http.response(204, "No Content")?
@@ -51,7 +52,9 @@ pub class Site:
                         exchange.send_text(401, "who are you?")?
         Ok(())
 
-def fetch(port: u16, request: &str) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError]:
+type FetchError = AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError
+
+def fetch(port: u16, request: &str) -> Result[str, FetchError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
@@ -71,29 +74,29 @@ def fetch(port: u16, request: &str) -> Result[str, AllocError | IoError | std.by
 def field(reply: &str, name: &str) -> Result[str, AllocError | IoError]:
     for line in reply.split("\r\n")?:
         if line.startswith(name):
-            return Ok(line.split(": ")?[1].concat("")?)
+            return Ok(line.split(": ")?[1])
     Ok("")
 
-def get(path: &str, extra: &str) -> Result[str, AllocError | IoError]:
-    Ok("GET ".concat(path)?.concat(" HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n")?.concat(extra)?.concat("\r\n")?)
+def get(path: &str, extra: &str) -> Result[str, FormatError]:
+    Ok(f"GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{extra}\r\n"?)
 
-def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.net.NetError]:
+def client(port: u16, stop: CancellationToken) -> Result[(), FetchError | FormatError]:
     page = fetch(port, &get("/files/index.html", "")?)?
     print(page.split("\r\n")?[0])?
     print(field(&page, "Content-Type")?)?
     print(page.split("\r\n\r\n")?[1].strip()?)?
     tag = field(&page, "ETag")?
-    again = fetch(port, &get("/files/index.html", &"If-None-Match: ".concat(&tag)?.concat("\r\n")?)?)?
+    again = fetch(port, &get("/files/index.html", &f"If-None-Match: {tag}\r\n"?)?)?
     print(again.split("\r\n")?[0])?
     for path in ["/files/../secret.txt", "/files/%2e%2e/secret.txt", "/files/.env"]?:
         print(fetch(port, &get(&path, "")?)?.split("\r\n")?[0])?
 
     login = fetch(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?
-    cookie = field(&login, "Set-Cookie")?.split(";")?[0].concat("")?
+    cookie = field(&login, "Set-Cookie")?.split(";")?[0]
     print(cookie.startswith("user=Ada."))?
-    print(fetch(port, &get("/me", &"Cookie: ".concat(&cookie)?.concat("\r\n")?)?)?.split("\r\n\r\n")?[1])?
+    print(fetch(port, &get("/me", &f"Cookie: {cookie}\r\n"?)?)?.split("\r\n\r\n")?[1])?
     forged = cookie.replace("Ada", "Eve")?
-    print(fetch(port, &get("/me", &"Cookie: ".concat(&forged)?.concat("\r\n")?)?)?.split("\r\n\r\n")?[1])?
+    print(fetch(port, &get("/me", &f"Cookie: {forged}\r\n"?)?)?.split("\r\n\r\n")?[1])?
     stop.cancel()
     Ok(())
 

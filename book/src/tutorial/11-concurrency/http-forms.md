@@ -17,6 +17,7 @@ import std.http.proxy
 import std.http.server
 import std.net
 import std.time
+from std.fmt import FormatError
 from std.http.body import FormLimits
 from std.http.proxy import Forwarding, Proxies
 from std.http.server import Exchange
@@ -31,7 +32,7 @@ pub class Site:
     pub forms: FormLimits
     pub proxies: Proxies
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError | std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.net.NetError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), FormatError | std.http.HttpError | std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.net.NetError]:
         match route:
             case Route.Login:
                 match std.http.body.read_form(exchange, &self.forms):
@@ -42,10 +43,10 @@ pub class Site:
                                 mut head = std.http.response(200, "OK")?
                                 std.http.cookie.add(&mut head, &std.http.cookie.set_cookie("user", name)?)?
                                 head.add("Content-Type", "text/plain")?
-                                mut text = "welcome ".concat(name)?
+                                mut text = f"welcome {name}"?
                                 match std.http.body.find(&fields, "city"):
                                     case Some(city):
-                                        text = text.concat(" from ")?.concat(&fields[city].value)?
+                                        text = f"{text} from {fields[city].value}"?
                                     case Nothing:
                                         pass
                                 exchange.respond(head, &std.bytes.from_text(&text)?)?
@@ -56,13 +57,14 @@ pub class Site:
             case Route.Me:
                 cookies = std.http.cookie.cookies(&exchange.request.headers, 32)?
                 client = std.http.proxy.client_of(exchange, &self.proxies)?
-                mut text = std.net.format_ip(client.address)?.concat(" is ")?
+                address = std.net.format_ip(client.address)?
+                mut who = "nobody"
                 match std.http.cookie.find(&cookies, "user"):
                     case Some(index):
-                        text = text.concat(&cookies[index].value)?
+                        who = cookies[index].value
                     case Nothing:
-                        text = text.concat("nobody")?
-                exchange.send_text(200, &text)?
+                        pass
+                exchange.send_text(200, &f"{address} is {who}"?)?
         Ok(())
 
 def fetch(port: u16, request: &str) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError]:
@@ -80,11 +82,13 @@ def fetch(port: u16, request: &str) -> Result[str, AllocError | IoError | std.by
             break
         reply.extend_range(&buffer, 0, count)?
     text = reply.to_text()?
-    mut summary = text.split("\r\n")?[0].concat("")?
-    for line in text.split("\r\n")?:
+    lines = text.split("\r\n")?
+    mut parts = [lines[0]]?
+    for line in lines:
         if line.startswith("Set-Cookie"):
-            summary = summary.concat(" | ")?.concat(&line)?
-    Ok(summary.concat(" | ")?.concat(&text.split("\r\n\r\n")?[1].strip()?)?)
+            parts.append(line)?
+    parts.append(text.split("\r\n\r\n")?[1].strip()?)?
+    Ok(" | ".join(&parts)?)
 
 def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.net.NetError]:
     form = "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 28\r\nConnection: close\r\n\r\nname=Ada&city=S%C3%A3o+Paulo"

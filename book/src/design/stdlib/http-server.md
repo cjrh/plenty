@@ -178,8 +178,8 @@ response sent before the body is read to its end closes the connection after
 the response, since the next request cannot be found.
 
 `exchange.send_text(200, &exchange.query)` is rejected: `send_text` borrows
-the whole exchange exclusively while `exchange.query` is borrowed. Copy the
-field first (`query = exchange.query.concat("")?`).
+the whole exchange exclusively while `exchange.query` is borrowed. Bind the
+field first: `query = exchange.query` copies the `str`, sharing its storage.
 
 ### When a handler fails
 

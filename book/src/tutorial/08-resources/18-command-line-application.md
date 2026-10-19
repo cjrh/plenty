@@ -10,7 +10,9 @@ mistaken for the end of the file.
 Save this module as `report.plenty`:
 
 ```plenty-file report.plenty
-pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError]:
+from std.fmt import FormatError
+
+pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError | FormatError]:
     mut count = 0
     mut total = 0
     with open(path)? as file:
@@ -23,20 +25,19 @@ pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError]:
                 continue
             total = total + i64.parse(cleaned)?
             count = count + 1
-    heading = "count=".concat(str.from(count)?)?
-    result = heading.concat(" total=")?.concat(str.from(total)?)?.concat("\n")?
-    Ok(result)
+    Ok(f"count={count} total={total}\n"?)
 ```
 
 Save this application beside it as `main.plenty`:
 
 ```plenty
 from report import summarize
+from std.fmt import FormatError
 
 enum UsageError:
     Arguments
 
-type AppError = AllocError | IoError | ParseError | UsageError
+type AppError = AllocError | IoError | ParseError | FormatError | UsageError
 
 def run() -> Result[(), AppError]:
     arguments = args()?
@@ -69,7 +70,7 @@ For an input containing `10`, a blank line, and `20`, the output file contains
 `count=2 total=30` followed by a newline. `write_text` replaces the output file;
 choose a path whose contents may be replaced.
 
-`AppError` preserves usage, parsing, I/O, and allocation errors. Returning the
+`AppError` preserves usage, parsing, formatting, I/O, and allocation errors. Returning the
 error from `main` reports its cause on standard error and exits unsuccessfully.
 Values and their total must fit `i64`; arithmetic overflow is a runtime trap.
 

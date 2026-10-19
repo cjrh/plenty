@@ -17,7 +17,7 @@ with files below one directory. The module is checked Plenty in
 ```text
 routes.add("GET", "/static/{path...}", 0)?
 ...
-path = exchange.params[0].concat("")?
+path = exchange.params[0]
 std.http.files.serve(exchange, &self.public, &path)?
 ```
 

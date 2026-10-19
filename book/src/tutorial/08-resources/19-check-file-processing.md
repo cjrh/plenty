@@ -4,7 +4,9 @@ Test the processing module without command-line arguments. Save its companion
 as `report_demo.plenty`:
 
 ```plenty-file report_demo.plenty
-pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError]:
+from std.fmt import FormatError
+
+pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError | FormatError]:
     mut count = 0
     mut total = 0
     with open(path)? as file:
@@ -17,9 +19,7 @@ pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError]:
                 continue
             total = total + i64.parse(cleaned)?
             count = count + 1
-    heading = "count=".concat(str.from(count)?)?
-    result = heading.concat(" total=")?.concat(str.from(total)?)?.concat("\n")?
-    Ok(result)
+    Ok(f"count={count} total={total}\n"?)
 ```
 
 Run this application in a scratch directory; it replaces `numbers.txt` and
@@ -27,8 +27,9 @@ Run this application in a scratch directory; it replaces `numbers.txt` and
 
 ```plenty
 from report_demo import summarize
+from std.fmt import FormatError
 
-def main() -> Result[(), AllocError | IoError | ParseError]:
+def main() -> Result[(), AllocError | IoError | ParseError | FormatError]:
     write_text("numbers.txt", "10\r\n\r\n20\r\n")?
     report = summarize("numbers.txt")?
     write_text("report.txt", report)?

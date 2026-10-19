@@ -23,6 +23,7 @@ import std.io
 import std.net
 import std.time
 import std.tls
+from std.fmt import FormatError
 from std.http.server import Exchange
 from std.http.tls import TlsTransport
 from std.sync import CancellationToken
@@ -42,25 +43,27 @@ pub enum Route:
     Count
 
 pub class Site:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), AllocError | std.http.HttpError | std.bytes.BytesError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), FormatError | std.http.HttpError | std.bytes.BytesError]:
         mut body = std.bytes.empty()?
         exchange.read_all(&mut body)?
-        exchange.send_text(200, &str.from(body.len())?.concat(" bytes")?)?
+        exchange.send_text(200, &f"{body.len()} bytes"?)?
         Ok(())
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | std.tls.TlsError | RangeError]:
+type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | std.tls.TlsError | RangeError
+
+def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
-    base = "https://localhost:".concat(&str.from(i64(port))?)?
+    base = f"https://localhost:{port}"?
     roots = std.tls.roots_from_pem(&ca_pem())?
     tls = std.tls.client_config(&roots)?
     client = std.http.https.client(std.http.client.config()?, tls)?
 
-    home = client.get(&base.concat("/")?, &deadline, &never)?
+    home = client.get(&f"{base}/"?, &deadline, &never)?
     print(home.status, home.body.to_text()?)?
 
     mut source = std.io.cursor(std.bytes.from_text("a body read in pieces")?)
-    request = std.http.client.request("PUT", &base.concat("/upload")?)?
+    request = std.http.client.request("PUT", &f"{base}/upload"?)?
     mut response = client.send_from(request, &mut source, &std.http.client.chunked(), &deadline, &never)?
     mut answer = std.bytes.empty()?
     response.read_all(&mut answer)?
