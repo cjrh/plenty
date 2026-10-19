@@ -366,11 +366,11 @@ mod native {
     const SYSTEM: u8 = 4;
     const OTHER: u8 = 5;
 
-    /// One `getaddrinfo` for a NUL-terminated name: the reply header and the
-    /// encoded addresses.
     /// A lookup's reply: the status header, then the encoded addresses.
     pub(super) type Reply = ([u8; 5], Vec<u8>);
 
+    /// One `getaddrinfo` for a NUL-terminated name: the reply header and the
+    /// encoded addresses.
     pub(super) fn lookup(name: &[u8]) -> Reply {
         let header = |status: u8, code: i32| {
             let code = code.to_be_bytes();
