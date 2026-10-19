@@ -32,6 +32,9 @@ own all nodes while integer IDs represent parent links, shared targets, or
 cycles: such graph edges do not carry ownership or create loans. Index stability,
 stale IDs, and graph consistency remain the application's responsibility. See
 [representation choices](../../examples/data-structures/index.md).
+[`Shared[T]`](../../facilities/01-builtins/shared.md) nodes may form immutable
+trees and DAGs, but not cycles: a `Shared[T]` whose content can reach it again
+through a `Mutex` or channel is rejected, so back-references use these IDs.
 
 Automatic destruction of recursive owners uses bounded stack space and allocates
 nothing. Explicit recursion in user methods and destructor hooks still uses the

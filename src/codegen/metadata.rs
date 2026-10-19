@@ -106,7 +106,8 @@ fn define_type(
         Ty::Dict(..) => b'D',
         Ty::Range(_) => b'R',
         Ty::Class(_) => b'C',
-        Ty::Box(_) => b'O',
+        // A shared owner is a box with more than one counted owner.
+        Ty::Box(_) | Ty::Shared(_) => b'O',
         Ty::Generator(_) => b'G',
         Ty::Enum(_) => b'B',
         Ty::Ref(..) => b'v',
@@ -123,7 +124,8 @@ fn define_type(
         | Ty::Range(t)
         | Ty::Channel(t, _)
         | Ty::Future(t)
-        | Ty::Box(t) => links.push((8, reserve(module, runtime, t, pending)?)),
+        | Ty::Box(t)
+        | Ty::Shared(t) => links.push((8, reserve(module, runtime, t, pending)?)),
         Ty::Dict(k, v) => {
             links.push((8, reserve(module, runtime, k, pending)?));
             links.push((16, reserve(module, runtime, v, pending)?));

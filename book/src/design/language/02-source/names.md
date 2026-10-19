@@ -16,8 +16,9 @@ cast name without changing type annotations. A binding shadowing an enum type
 qualifier is diagnosed rather than selecting a different constructor.
 
 The built-in prelude is available without an import. It provides primitive and
-container type names, standard sums and variants (`Option`, `Result`, `Some`,
-`Nothing`, `Ok`, `Err`), callable and generator types, and facility names for
+container type names (including `Box` and `Shared`), standard sums and
+variants (`Option`, `Result`, `Some`, `Nothing`, `Ok`, `Err`), callable and
+generator types, and facility names for
 files, errors, threads, channels, executors, and cancellation. Built-in operations
 include `copy`, `drop`, `len`, `range`, text I/O, worker submission, and channel
 construction and selection. Their contracts appear under

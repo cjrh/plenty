@@ -349,6 +349,7 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
         ),
         Ty::Set(t) => (Some("set".into()), vec![t]),
         Ty::Box(t) => (Some("Box".into()), vec![t]),
+        Ty::Shared(t) => (Some("Shared".into()), vec![t]),
         Ty::Dict(k, v) => (Some("dict".into()), vec![k, v]),
         Ty::Range(t) => (Some("range".into()), vec![t]),
         Ty::Generator(t) => (Some("Generator".into()), vec![&t.element]),
@@ -525,7 +526,9 @@ fn infer_inner(
             Some(vec![t])
         }
         (Some("Generator"), Ty::Generator(t)) => Some(vec![&t.element]),
-        (Some("Future"), Ty::Future(t)) | (Some("Box"), Ty::Box(t)) => Some(vec![t]),
+        (Some("Future"), Ty::Future(t))
+        | (Some("Box"), Ty::Box(t))
+        | (Some("Shared"), Ty::Shared(t)) => Some(vec![t]),
         (Some("Sender"), Ty::Channel(t, true)) | (Some("Receiver"), Ty::Channel(t, false)) => {
             Some(vec![t])
         }

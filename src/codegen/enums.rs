@@ -600,7 +600,7 @@ impl Lowerer<'_, '_> {
         let (inputs, output) = op.signature();
         let (operand, _) = self.pop_typed(inputs[0].clone())?;
         let result = match op {
-            BoxOp::New(t) => {
+            BoxOp::New(t) | BoxOp::Share(t) => {
                 // The runtime moves the value into the box, or drops it on failure.
                 let value = self.pack(operand, t);
                 let boxed = Ty::Box(std::sync::Arc::new(t.clone()));
@@ -619,7 +619,7 @@ impl Lowerer<'_, '_> {
                 self.collection_call(120, &[operand], None)?;
                 self.pack(value, t)
             }
-            BoxOp::Ref(..) => {
+            BoxOp::Ref(..) | BoxOp::SharedRef(_) => {
                 // A reference to the box's slot becomes one to its content slot.
                 let address = self.raw_word(operand);
                 let boxed = self.bcx.ins().load(

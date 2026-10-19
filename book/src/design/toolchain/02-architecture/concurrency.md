@@ -70,7 +70,22 @@ mutex reference in a hidden guard local and roots the value's exclusive loan
 there, while the mutex's own shared loan stays live until the block's exit.
 The ownership checker treats the guard as live from the lock to the unlock and
 rejects a join reached while a live guard's `T` matches a `Mutex[T]` the
-worker's inputs can reach.
+worker's inputs can reach. Each pool submission records the `Mutex[T]` types
+its job input can reach, beside the sender message types, in the function's
+submission list and in the future's local provenance; `result()` and each
+shutdown run the same guard scan against them. Reachability walks through
+`Shared[...]` contents.
+
+## Shared owners
+
+`Shared[T]` reuses the `Box[T]` runtime record and its type metadata kind: a
+counted header, the content type, and a 32-byte-aligned content slot. The
+frontend emits `BoxOp::Share` (the box allocation entry point) and
+`BoxOp::SharedRef`, a shared-only projection to the content slot; it never
+emits the box's move-out or mutable projection for a handle. `share()` is the
+ordinary retain of a loaded owner. Construction rejects contents that reach an
+executor or future, or that reach the same `Shared[T]` through a `Mutex` or a
+channel endpoint.
 
 Locking follows mutex 2 of Drepper's "Futexes Are Tricky": state 0 is
 unlocked, 1 locked, and 2 locked with possible waiters. Lock is an inline

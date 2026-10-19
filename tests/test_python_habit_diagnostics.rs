@@ -42,7 +42,7 @@ fn multiplying_by_a_dereference_is_still_valid() {
     // Separated stars are a multiplication and a dereference, not `**`.
     assert_eq!(
         diagnostic("def main() -> ():\n    n = 3\n    m = n * * 2\n"),
-        "3:15: dereference requires a reference or a Box"
+        "3:15: dereference requires a reference, a Box, or a Shared handle"
     );
     assert_eq!(
         diagnostic("def main() -> ():\n    n = 3\n    m = n ** missing\n"),

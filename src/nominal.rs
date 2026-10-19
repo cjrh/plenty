@@ -221,6 +221,7 @@ impl Ty {
             Self::Future(t) => Self::Future(Arc::new(t.weaken())),
             Self::Set(t) => Self::Set(Arc::new(t.weaken())),
             Self::Box(t) => Self::Box(Arc::new(t.weaken())),
+            Self::Shared(t) => Self::Shared(Arc::new(t.weaken())),
             Self::Dict(k, v) => Self::Dict(Arc::new(k.weaken()), Arc::new(v.weaken())),
             Self::Ref(t, m) => Self::Ref(Arc::new(t.weaken()), *m),
             Self::Callable(t) => Self::Callable(Arc::new(crate::op::CallableSig {
@@ -249,6 +250,7 @@ impl Clone for Ty {
             Self::Set(t) => Self::Set(Arc::new((**t).clone())),
             Self::Dict(k, v) => Self::Dict(Arc::new((**k).clone()), Arc::new((**v).clone())),
             Self::Box(t) => Self::Box(Arc::new((**t).clone())),
+            Self::Shared(t) => Self::Shared(Arc::new((**t).clone())),
             Self::Ref(t, m) => Self::Ref(Arc::new((**t).clone()), *m),
             Self::Callable(t) => Self::Callable(Arc::new((**t).clone())),
             Self::BoxedCallable(t) => Self::BoxedCallable(t.clone()),

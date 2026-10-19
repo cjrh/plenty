@@ -7,7 +7,9 @@ old owner. Source cleanup order is defined by
 [destruction](../../language/05-ownership/06-destruction.md), not reference counts.
 
 Runtime objects share `{atomic u64 refs, destroy_callback}`. Heap objects begin
-with one reference; literals use an immortal count. Native helpers borrow inputs
+with one reference; literals use an immortal count. A
+[`Shared[T]`](../../facilities/01-builtins/shared.md) handle is a box whose
+count is shared by its source-level owners. Native helpers borrow inputs
 and return owned managed results, including retained projections and builder aliases.
 Buffers have explicit owners; type metadata is immutable program data.
 

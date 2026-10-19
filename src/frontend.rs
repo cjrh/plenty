@@ -40,6 +40,7 @@ mod numeric;
 mod patterns;
 mod protocols;
 mod references;
+mod shared;
 mod sorting;
 mod tail_calls;
 mod threads;
@@ -785,6 +786,18 @@ impl TypeRef {
                 return Err(self.at.error(barrier.message("a box")));
             }
             return Ok(Some(Ty::Box(Arc::new(content))));
+        }
+        if name == "Shared" {
+            if self.args.len() != 1 {
+                return Err(self.at.error("Shared requires 1 type argument"));
+            }
+            let content = self.args[0]
+                .resolve(aliases)?
+                .ok_or_else(|| self.at.error("a shared owner cannot hold unit"))?;
+            if let Some(barrier) = content.storage_barrier() {
+                return Err(self.at.error(barrier.message("a shared owner")));
+            }
+            return Ok(Some(Ty::Shared(Arc::new(content))));
         }
         if name == "Future" {
             if self.args.len() != 1 {
@@ -2481,6 +2494,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "copy"
                 | "drop"
                 | "Box"
+                | "Shared"
         )
 }
 /// Keeps the index reading beside the generic one when the brackets have both.
@@ -3042,6 +3056,9 @@ impl Lower<'_> {
                 if name == crate::atomic::ATOMIC {
                     return self.atomic_new(Some(types), args, None, &e.at, ops);
                 }
+                if name == "Shared" {
+                    return self.shared_new(Some(types), args, &e.at, ops);
+                }
                 if self.aliases.data.contains(name) {
                     let ty = TypeRef {
                         concrete: None,
@@ -3214,6 +3231,9 @@ impl Lower<'_> {
                         .borrow(value, op == "&mut", ops)
                         .map(|(ty, _)| Some(ty));
                 }
+                if op == "*" && matches!(self.place_type(value), Some(Ty::Shared(_))) {
+                    return self.shared_read(e, ops);
+                }
                 if op == "*" {
                     let ty = match self.value(value, ops)? {
                         // Moving the content out consumes the box.
@@ -3222,13 +3242,20 @@ impl Lower<'_> {
                             return Ok(Some((*content).clone()));
                         }
                         Ty::Ref(ty, _) => ty,
+                        Ty::Shared(_) => {
+                            return Err(value.at.error(
+                                "a temporary Shared owner has no place to borrow from; bind it to a name first",
+                            ))
+                        }
                         // The parser marks a `*` written directly after a
                         // multiplication `*`; see the binary operator loop.
                         _ if e.at.is("**") => return Err(e.at.error(
                             "exponentiation with `**` is not supported; use `base.pow(exponent)`",
                         )),
                         _ => {
-                            return Err(value.at.error("dereference requires a reference or a Box"))
+                            return Err(value
+                                .at
+                                .error("dereference requires a reference, a Box, or a Shared handle"))
                         }
                     };
                     let loan = self.reference_origin(value, ops)?;
@@ -3314,6 +3341,9 @@ impl Lower<'_> {
                         "values containing channel endpoints, executors, or futures do not support membership equality",
                     ));
                 }
+                if element.facts().shared {
+                    return Err(e.at.error(shared::EQUALITY));
+                }
                 if element.facts().atomic {
                     let subject = if mutex::holds_mutex(&element) {
                         "mutexes"
@@ -3392,6 +3422,9 @@ impl Lower<'_> {
                     return Err(e
                         .at
                         .error("values containing channel endpoints, executors, or futures do not support equality"));
+                }
+                if matches!(op.as_str(), "==" | "!=") && a.facts().shared {
+                    return Err(e.at.error(shared::EQUALITY));
                 }
                 if matches!(op.as_str(), "==" | "!=") && a.facts().atomic {
                     if mutex::holds_mutex(&a) {
@@ -3561,6 +3594,11 @@ impl Lower<'_> {
                         if ty.prints_generator_frame() {
                             return Err(e.at.error("generators cannot be printed"));
                         }
+                        if ty.facts().shared {
+                            return Err(e.at.error(
+                                "Shared owners cannot be printed; print values read through the handle",
+                            ));
+                        }
                         if ty.facts().atomic && mutex::holds_mutex(&ty) {
                             return Err(e.at.error(
                                 "mutexes cannot be printed; print a value read inside `with mutex.lock() as value:`",
@@ -3720,6 +3758,9 @@ impl Lower<'_> {
                 }
                 if name == "BoxedCallable" {
                     return self.boxed_callable(args, &e.at, ops).map(Some);
+                }
+                if name == "Shared" {
+                    return self.shared_new(None, args, &e.at, ops);
                 }
                 if name == "Box" {
                     let [content] = args.as_slice() else {

@@ -827,6 +827,11 @@ impl Lower<'_> {
     pub(super) fn place_type(&self, e: &Expr) -> Option<Ty> {
         match &ungroup(e).kind {
             Expression::Index(base, index) => match self.place_type(base)? {
+                // Elements are reached through the content, as `(*handle)[i]`.
+                Ty::Shared(_) => self.place_type(&Expr {
+                    at: e.at.clone(),
+                    kind: Expression::Index(Box::new(shared::content(base)), index.clone()),
+                }),
                 Ty::List(element) | Ty::Dict(_, element) => Some((*element).clone()),
                 Ty::Enum(t) if t.tuple() => {
                     let Expression::Number(n) = &ungroup(index).kind else {
@@ -844,7 +849,7 @@ impl Lower<'_> {
                 t => t.clone(),
             }),
             Expression::Unary(op, base) if op == "*" => match self.place_type(base)? {
-                Ty::Box(t) => Some((*t).clone()),
+                Ty::Box(t) | Ty::Shared(t) => Some((*t).clone()),
                 t if self.reference_binding(base) => Some(t),
                 _ => None,
             },
@@ -855,7 +860,11 @@ impl Lower<'_> {
     /// The type of field `name` on place `base`, without building the member
     /// expression: method calls probe this for callable fields (issue #208).
     pub(super) fn field_type(&self, base: &Expr, name: &str) -> Option<Ty> {
-        let Ty::Class(t) = unbox(self.place_type(base)?) else {
+        let owner = match self.place_type(base)? {
+            Ty::Shared(content) => (*content).clone(),
+            owner => owner,
+        };
+        let Ty::Class(t) = unbox(owner) else {
             return None;
         };
         t.get()

@@ -115,12 +115,14 @@ pub enum Kind {
         /// The join belongs to a `with` block exit, not an explicit `join()`.
         automatic: bool,
     },
-    /// A join that a worker waiting for a mutex this function holds could
-    /// keep waiting forever.
+    /// A join, result wait, or pool shutdown that a worker waiting for a
+    /// mutex this function holds could keep waiting forever.
     BlockedLock {
         /// Guarded type of the held mutex and of one the worker can reach.
         element: String,
-        /// The join belongs to a `with` block exit, not an explicit `join()`.
+        wait: Wait,
+        /// The wait belongs to the end of a `with` block or of the pool's
+        /// scope, not to a call written there.
         automatic: bool,
     },
     /// A pool shutdown that a job waiting to send could keep waiting forever.
@@ -131,6 +133,66 @@ pub enum Kind {
         /// `shutdown()`, `drop()`, or a reassignment.
         automatic: bool,
     },
+}
+
+/// What a `Kind::BlockedLock` waits for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wait {
+    Join,
+    Result,
+    Shutdown,
+}
+
+/// Types that a job accepted by a pool can block on: the message types of
+/// its senders, and the guarded types of the mutexes it can lock.
+#[derive(Clone, Debug, PartialEq)]
+enum Hazard {
+    Sends(Ty),
+    Locks(Ty),
+}
+
+impl Hazard {
+    /// Every hazard a value of `ty` carries into a job.
+    fn of(ty: &Ty) -> impl Iterator<Item = Self> {
+        endpoints([ty.clone()], true, true)
+            .into_iter()
+            .map(Self::Sends)
+            .chain(
+                crate::threading::mutexes([ty.clone()])
+                    .into_iter()
+                    .map(Self::Locks),
+            )
+    }
+}
+
+/// The first submission of the job whose hazard `kind` reports.
+fn submission(hazards: &[(Hazard, Option<Site>)], kind: &Kind) -> Option<Site> {
+    let (Kind::BlockedFuture { message } | Kind::BlockedShutdown { message, .. }) = kind else {
+        let Kind::BlockedLock { element, .. } = kind else {
+            return None;
+        };
+        return hazards
+            .iter()
+            .find(|(hazard, _)| matches!(hazard, Hazard::Locks(t) if t.to_string() == *element))
+            .and_then(|(_, at)| *at);
+    };
+    hazards
+        .iter()
+        .find(|(hazard, _)| matches!(hazard, Hazard::Sends(t) if t.to_string() == *message))
+        .and_then(|(_, at)| *at)
+}
+
+/// Message types and guarded types of `hazards`, in that order.
+fn split(hazards: &[(Hazard, Option<Site>)]) -> (Vec<Ty>, Vec<Ty>) {
+    let mut sends = Vec::new();
+    let mut locks = Vec::new();
+    for (hazard, _) in hazards {
+        match hazard {
+            Hazard::Sends(t) => sends.push(t.clone()),
+            Hazard::Locks(t) => locks.push(t.clone()),
+        }
+    }
+    (sends, locks)
 }
 
 /// A rejected operation, the place it touches, and the related source sites.
@@ -230,7 +292,11 @@ impl fmt::Display for Error {
                 },
                 if *worker_sends { "send" } else { "receive" },
             ),
-            Kind::BlockedLock { element, automatic } => format!(
+            Kind::BlockedLock {
+                element,
+                wait: Wait::Join,
+                automatic,
+            } => format!(
                 "{} a task whose worker can lock a `Mutex[{element}]` while this function \
                  holds a lock on a `Mutex[{element}]`: the worker could wait for that lock, \
                  and this join, forever",
@@ -238,6 +304,29 @@ impl fmt::Display for Error {
                     "leaving this `with` block joins"
                 } else {
                     "this join waits for"
+                },
+            ),
+            Kind::BlockedLock {
+                element,
+                wait: Wait::Result,
+                ..
+            } => format!(
+                "this result() waits for a job that can lock a `Mutex[{element}]` while this \
+                 function holds a lock on a `Mutex[{element}]`: the job could wait for that \
+                 lock, and this result wait, forever"
+            ),
+            Kind::BlockedLock {
+                element,
+                wait: Wait::Shutdown,
+                automatic,
+            } => format!(
+                "{} after a job that can lock a `Mutex[{element}]` was submitted, while this \
+                 function holds a lock on a `Mutex[{element}]`: the job could wait for that \
+                 lock, and the shutdown, forever",
+                if *automatic {
+                    "leaving its scope shuts down this pool"
+                } else {
+                    "this shuts down a pool"
                 },
             ),
             Kind::BlockedShutdown { message, automatic } => format!(
@@ -364,10 +453,10 @@ struct Checker<'a> {
     locals: &'a [Ty],
     parameters: usize,
     origins: &'a Origins,
-    /// Message types that a job submitted by operations already checked can
-    /// send, each with its first submission. Jobs are not matched to pools,
-    /// and one is never assumed to have finished.
-    submitted: RefCell<Vec<(Ty, Option<Site>)>>,
+    /// What a job submitted by operations already checked can block on,
+    /// each with its first submission. Jobs are not matched to pools, and one
+    /// is never assumed to have finished.
+    submitted: RefCell<Vec<(Hazard, Option<Site>)>>,
     futures: futures::Futures,
 }
 
@@ -457,10 +546,17 @@ fn leaving(mut error: Box<Error>, at: Option<Site>, exit: Option<&str>) -> Box<E
             automatic: true, ..
         }
         | Kind::BlockedLock {
-            automatic: true, ..
+            wait: Wait::Join,
+            automatic: true,
+            ..
         } => format!("{exit} leaves the block here"),
         Kind::BlockedShutdown {
             automatic: true, ..
+        }
+        | Kind::BlockedLock {
+            wait: Wait::Shutdown,
+            automatic: true,
+            ..
         } => format!("{exit} leaves the pool's scope here"),
         _ => return error,
     };
@@ -628,7 +724,7 @@ impl Checker<'_> {
         }
         let mut ty = self.locals.get(root as usize).cloned();
         for &index in fields {
-            while let Some(Ty::Ref(inner, _) | Ty::Box(inner)) = &ty {
+            while let Some(Ty::Ref(inner, _) | Ty::Box(inner) | Ty::Shared(inner)) = &ty {
                 ty = Some((**inner).clone());
             }
             ty = match &ty {
@@ -785,10 +881,15 @@ impl Checker<'_> {
             };
             self.blocked_endpoints(&messages, worker_sends, state, site, kind, advice)
         };
-        let Some(mut error) = blocked(true)
-            .or_else(|| blocked(false))
-            .or_else(|| self.held_lock(task, state, site, automatic))
-        else {
+        let Some(mut error) = blocked(true).or_else(|| blocked(false)).or_else(|| {
+            let reachable = crate::threading::mutexes(task.inputs.iter().cloned());
+            let advice = if automatic {
+                "end the lock's `with` block before this one, or start the task outside it"
+            } else {
+                "end the lock's `with` block before joining"
+            };
+            self.held_lock(&reachable, Wait::Join, automatic, advice, state, site)
+        }) else {
             return Ok(());
         };
         // An automatic join is reported at the `with` statement that starts the task.
@@ -805,19 +906,21 @@ impl Checker<'_> {
         Err(error)
     }
 
-    /// A lock guard this function still holds on a `Mutex[T]` while the task's
-    /// worker can reach a `Mutex[T]`. Mutexes are matched by guarded type, so
-    /// this neither identifies mutexes nor proves the worker locks one. A guard
-    /// slot belongs to one lock block and is never reused, so its state is
-    /// live exactly from its store to the `Unlock(slot)` that resets it.
+    /// A lock guard this function still holds on a `Mutex[T]` while a worker
+    /// it waits for can reach a `Mutex[T]` of `reachable`. Mutexes are matched
+    /// by guarded type, so this neither identifies mutexes nor proves the
+    /// worker locks one. A guard slot belongs to one lock block and is never
+    /// reused, so its state is live exactly from its store to the
+    /// `Unlock(slot)` that resets it.
     fn held_lock(
         &self,
-        task: &Task,
+        reachable: &[Ty],
+        wait: Wait,
+        automatic: bool,
+        advice: &str,
         state: &State,
         site: Option<Site>,
-        automatic: bool,
     ) -> Option<Box<Error>> {
-        let reachable = crate::threading::mutexes(task.inputs.iter().cloned());
         if reachable.is_empty() {
             return None;
         }
@@ -848,16 +951,12 @@ impl Checker<'_> {
             let mut error = self.error(
                 Kind::BlockedLock {
                     element: element.to_string(),
+                    wait,
                     automatic,
                 },
                 None,
                 site,
             );
-            let advice = if automatic {
-                "end the lock's `with` block before this one, or start the task outside it"
-            } else {
-                "end the lock's `with` block before joining"
-            };
             if let Some(at) = self.bound(slot) {
                 error
                     .notes
@@ -867,36 +966,35 @@ impl Checker<'_> {
         })
     }
 
-    /// Record the message types a job accepted by a pool can send.
-    fn submit(&self, sends: impl IntoIterator<Item = (Ty, Option<Site>)>) {
+    /// Record what a job accepted by a pool can block on.
+    fn submit(&self, hazards: impl IntoIterator<Item = (Hazard, Option<Site>)>) {
         let mut submitted = self.submitted.borrow_mut();
-        for (message, at) in sends {
-            if !submitted.iter().any(|(other, _)| *other == message) {
-                submitted.push((message, at));
+        for (hazard, at) in hazards {
+            if !submitted.iter().any(|(other, _)| *other == hazard) {
+                submitted.push((hazard, at));
             }
         }
     }
 
     fn future_result(&self, before: &[Op], state: &State, site: Option<Site>) -> Result<()> {
         let jobs = self.futures.before(before);
-        let sends: Vec<_> = jobs.iter().map(|(message, _)| message.clone()).collect();
-        let Some(mut error) = self.blocked(
-            &sends,
-            state,
-            site,
-            |message| Kind::BlockedFuture { message },
-            |_| "drop it, or end its `with` block, before waiting for the result".into(),
-        ) else {
+        let (sends, locks) = split(jobs);
+        let blocked = self
+            .blocked(
+                &sends,
+                state,
+                site,
+                |message| Kind::BlockedFuture { message },
+                |_| "drop it, or end its `with` block, before waiting for the result".into(),
+            )
+            .or_else(|| {
+                let advice = "end the lock's `with` block before waiting for the result";
+                self.held_lock(&locks, Wait::Result, false, advice, state, site)
+            });
+        let Some(mut error) = blocked else {
             return Ok(());
         };
-        let Kind::BlockedFuture { message } = &error.kind else {
-            unreachable!()
-        };
-        if let Some(at) = jobs
-            .iter()
-            .find(|(sent, _)| sent.to_string() == *message)
-            .and_then(|(_, at)| *at)
-        {
+        if let Some(at) = submission(jobs, &error.kind) {
             error.notes.push((at, "the job is submitted here".into()));
         }
         Err(error)
@@ -923,10 +1021,7 @@ impl Checker<'_> {
     /// shutdown belongs to the end of the pool's scope.
     fn shutdown(&self, scope: Option<usize>, state: &State, site: Option<Site>) -> Result<()> {
         let submitted = self.submitted.borrow();
-        let sends: Vec<_> = submitted
-            .iter()
-            .map(|(message, _)| message.clone())
-            .collect();
+        let (sends, locks) = split(&submitted);
         let automatic = scope.is_some();
         let kind = |message| Kind::BlockedShutdown { message, automatic };
         let advice = |place: Option<&str>| match place {
@@ -939,21 +1034,22 @@ impl Checker<'_> {
             ),
             None => "end its scope before the pool shuts down".into(),
         };
-        let Some(mut error) = self.blocked(&sends, state, site, kind, advice) else {
+        let blocked = self.blocked(&sends, state, site, kind, advice).or_else(|| {
+            let advice = if automatic {
+                "end the lock's `with` block before the pool's scope ends"
+            } else {
+                "end the lock's `with` block before shutting the pool down"
+            };
+            self.held_lock(&locks, Wait::Shutdown, automatic, advice, state, site)
+        });
+        let Some(mut error) = blocked else {
             return Ok(());
         };
         // An automatic shutdown is reported where its pool starts.
         if let Some(at) = scope.and_then(|slot| self.bound(slot)) {
             error.primary = Some(at);
         }
-        let Kind::BlockedShutdown { message, .. } = &error.kind else {
-            unreachable!()
-        };
-        let job = submitted
-            .iter()
-            .find(|(sent, _)| sent.to_string() == *message)
-            .and_then(|(_, at)| *at);
-        if let Some(at) = job {
+        if let Some(at) = submission(&submitted, &error.kind) {
             error.notes.push((at, "the job is submitted here".into()));
         }
         Err(error)
@@ -1021,9 +1117,7 @@ impl Checker<'_> {
                     state[*slot as usize] = Slot::Unset
                 }
                 Op::Executor(ExecutorOp::Submit(job, _)) => {
-                    let sends = endpoints([job.input.clone()], true, true)
-                        .into_iter()
-                        .map(|message| (message, site));
+                    let sends = Hazard::of(&job.input).map(|hazard| (hazard, site));
                     let result = ops[index + 1..]
                         .iter()
                         .find(|op| !matches!(op, Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_)));

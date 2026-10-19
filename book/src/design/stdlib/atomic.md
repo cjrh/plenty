@@ -95,8 +95,9 @@ location. It compiles to a full sequentially consistent fence.
 
 Scoped threads borrow an atomic, or a class holding atomics, for the task's
 scope. The parent may keep calling methods on it while the workers run. Executor
-jobs must own their inputs, and Plenty has no shared owner, so a pool job cannot
-share an atomic with other jobs.
+jobs own their inputs, so they share an atomic through a
+[`Shared[Atomic[T]]`](../facilities/01-builtins/shared.md) handle: each job
+receives its own `handle.share()` and calls methods on it directly.
 
 Not provided: `compare_exchange_weak` (identical to `compare_exchange` on the
 supported target), `fetch_update` (write a `compare_exchange` loop),

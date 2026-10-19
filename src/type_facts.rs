@@ -20,6 +20,9 @@ pub struct Facts {
     /// Reaches an `Atomic`, which has no equality and no formatting: its
     /// value is only what one `load` observed.
     pub atomic: bool,
+    /// Reaches a `Shared` owner, which has no equality, formatting, or copy:
+    /// several owners observe one value.
+    pub shared: bool,
 }
 
 impl Ty {
@@ -32,6 +35,7 @@ impl Ty {
                 | Self::Set(_)
                 | Self::Dict(..)
                 | Self::Box(_)
+                | Self::Shared(_)
         ) {
             let resource = self.is_resource() || matches!(self, Self::Task(_));
             return Facts {
@@ -51,6 +55,12 @@ impl Ty {
             Self::Enum(t) => t.cached_facts(),
             Self::Dict(k, v) => return Self::owner_facts(&[k, v]),
             Self::List(t) | Self::Set(t) | Self::Box(t) => return Self::owner_facts(&[t]),
+            Self::Shared(t) => {
+                let mut facts = Self::owner_facts(&[t]);
+                facts.copyable = false;
+                facts.shared = true;
+                return facts;
+            }
             _ => None,
         };
         if let Some(facts) = cached {
@@ -110,7 +120,8 @@ impl Ty {
                 | Self::List(_)
                 | Self::Set(_)
                 | Self::Dict(..)
-                | Self::Box(_) => ty.facts(),
+                | Self::Box(_)
+                | Self::Shared(_) => ty.facts(),
                 // A walk weighs a reachable leaf and never treats a task as a
                 // resource, so its one-node walk differs from `facts`.
                 _ => ty.walk(),
@@ -125,6 +136,7 @@ impl Ty {
             facts.closure |= part.closure;
             facts.concurrent_handle |= part.concurrent_handle;
             facts.atomic |= part.atomic;
+            facts.shared |= part.shared;
         }
         // An owner that reaches a cycle is a heap boundary, which a walk cuts
         // before measuring depth.
@@ -153,6 +165,7 @@ impl Ty {
             facts.closure |= matches!(nodes[i], Self::Closure(_) | Self::BoxedCallable(_));
             facts.concurrent_handle |= nodes[i].is_concurrent_handle();
             facts.atomic |= matches!(nodes[i], Self::Atomic(_));
+            facts.shared |= matches!(nodes[i], Self::Shared(_));
             facts.reflexive &= !nodes[i].is_float();
             let weight = match &nodes[i] {
                 Self::Enum(t) => t.try_get().map_or(0, |definition| {
@@ -167,6 +180,7 @@ impl Ty {
                 | Self::Set(_)
                 | Self::Dict(..)
                 | Self::Box(_)
+                | Self::Shared(_)
                 | Self::Callable(_) => 1,
                 Self::BoxedCallable(_) => 1,
                 Self::Closure(t) => t.depth,
@@ -200,6 +214,11 @@ impl Ty {
                 }
                 Self::List(t) | Self::Set(t) | Self::Box(t) => {
                     facts.affine = true;
+                    vec![(**t).clone()]
+                }
+                Self::Shared(t) => {
+                    facts.affine = true;
+                    facts.copyable = false;
                     vec![(**t).clone()]
                 }
                 Self::Dict(k, v) => {
@@ -263,7 +282,11 @@ impl Ty {
                     degree[i] != 0
                         && matches!(
                             t,
-                            Self::Box(_) | Self::List(_) | Self::Set(_) | Self::Dict(..)
+                            Self::Box(_)
+                                | Self::Shared(_)
+                                | Self::List(_)
+                                | Self::Set(_)
+                                | Self::Dict(..)
                         )
                 })
                 .collect();

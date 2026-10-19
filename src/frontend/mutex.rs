@@ -48,6 +48,26 @@ fn other_method(name: &str, at: &Token) -> Box<dyn Error> {
 }
 
 impl Lower<'_> {
+    /// Whether the mutex at `e` could also be named by a different written
+    /// place: it is reached through a reference, a shared handle, or a
+    /// computed index.
+    fn aliasable(&self, e: &Expr) -> bool {
+        match &ungroup(e).kind {
+            Expression::Name(name) => self
+                .names
+                .get(name)
+                .is_none_or(|local| matches!(local.ty, Ty::Ref(..) | Ty::Shared(_))),
+            Expression::Member(base, _, _) => self.aliasable(base),
+            Expression::Index(base, index) => {
+                !matches!(ungroup(index).kind, Expression::Number(_)) || self.aliasable(base)
+            }
+            Expression::Unary(op, base) if op == "*" => {
+                matches!(self.place_type(base), Some(Ty::Shared(_))) || self.aliasable(base)
+            }
+            _ => true,
+        }
+    }
+
     pub(super) fn with_lock(
         &mut self,
         manager: &Expr,
@@ -77,14 +97,25 @@ impl Lower<'_> {
             base.at
                 .error("lock() requires a named mutex or a field of one")
         })?;
-        if self
-            .contexts
-            .iter()
-            .any(|context| matches!(&context.kind, Kind::Lock(held) if *held == place && !place.contains("[?]")))
-        {
-            return Err(manager.at.error(format!(
-                "`{place}` is already locked by an enclosing `with` block, so this lock would wait for itself forever; use the existing binding, or release the lock before relocking"
-            )));
+        let element = crate::mutex::element(&class);
+        let aliasable = self.aliasable(base);
+        for context in &self.contexts {
+            let Kind::Lock(held, guarded, other) = &context.kind else {
+                continue;
+            };
+            if *held == place && !place.contains("[?]") {
+                return Err(manager.at.error(format!(
+                    "`{place}` is already locked by an enclosing `with` block, so this lock would wait for itself forever; use the existing binding, or release the lock before relocking"
+                )));
+            }
+            // References, shared handles, and computed indices can name one
+            // mutex through different places; there, mutexes are told apart
+            // only by type. Distinct owned places are distinct mutexes.
+            if *guarded == element && (aliasable || *other) {
+                return Err(manager.at.error(format!(
+                    "this locks `{place}` while an enclosing `with` block holds a lock on `{held}`; both are a `Mutex[{element}]`, and a reference, shared handle, or computed index can make them one mutex, so this lock could wait for itself forever; lock them one at a time, or wrap one value in a distinct class"
+                )));
+            }
         }
         let saved = self.names.clone();
         let start = self.locals.len();
@@ -95,7 +126,6 @@ impl Lower<'_> {
         ops.extend([Op::Mutex(MutexOp::Lock(guard)), Op::Drop]);
         // The value's exclusive loan is rooted at the guard, not the mutex,
         // which this block and the workers keep borrowed shared.
-        let element = crate::mutex::element(&class);
         let value_loan = self.new_loan(guard, true, None, ops);
         ops.extend([
             Op::LoadLocal(guard),
@@ -106,7 +136,7 @@ impl Lower<'_> {
             if self.names.contains_key(name) {
                 return Err(manager.at.error(format!("duplicate binding `{name}`")));
             }
-            let ty = Ty::Ref(Arc::new(element), true);
+            let ty = Ty::Ref(Arc::new(element.clone()), true);
             let target = self.slot(ty.clone(), &manager.at)?;
             ops.push(Op::StoreLocal(target));
             self.bind_reference(target, value_loan, false, ops);
@@ -132,7 +162,7 @@ impl Lower<'_> {
             slot: guard,
             exit,
             loan: None,
-            kind: Kind::Lock(place),
+            kind: Kind::Lock(place, element.clone(), aliasable),
             at: site(&manager.at, true),
         });
         let result = self.block_inner(body, ops, &Tail::Discard)?;

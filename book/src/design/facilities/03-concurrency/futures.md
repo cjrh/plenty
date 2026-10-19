@@ -51,6 +51,11 @@ Receivers dropped on every continuing path are accepted. `done()`, `cancel()`,
 and `wait_timeout()` are unaffected, and result retrieval still consumes the
 future and preserves both cancellation and application errors.
 
+The same wait is rejected while the function holds a lock on a `Mutex[T]` and
+the job can reach a `Mutex[T]` of the same `T`, for example through a
+`Shared[Mutex[T]]` share: the job could be waiting for that lock. End the lock's
+`with` block before waiting. Mutexes are matched by type.
+
 This is a conservative check, not a proof of deadlock freedom: endpoints are
 matched by message type, not channel identity. Completion, cancellation, queue
 capacity, and earlier receives do not discharge the check. Assignments to the

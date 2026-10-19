@@ -145,7 +145,7 @@ class Noisy:
     def __del__(self: &mut Noisy) -> ():
         print("dropped").unwrap()
 
-class Shared:
+class Pair:
     items: Mutex[list[i64]]
     size: Mutex[i64]
 
@@ -155,7 +155,7 @@ def put[T](m: &Mutex[list[T]], value: T) -> Result[(), AllocError]:
     Ok(())
 
 def main() -> Result[(), Failure]:
-    shared = Shared(Mutex([1]?), Mutex(0))
+    shared = Pair(Mutex([1]?), Mutex(0))
     put(&shared.items, 5)?
     with shared.items.lock() as items, shared.size.lock() as size:
         *size = len(*items)

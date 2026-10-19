@@ -403,7 +403,7 @@ pub fn measure(ty: &Ty, active: &mut Vec<String>) -> Result<Measured, String> {
         }
         // A box's content is laid out where the content type itself occurs,
         // so a recursive type does not measure itself through its boxes.
-        Ty::Box(_) => Ok(Measured { bytes: 0, reach: 0 }),
+        Ty::Box(_) | Ty::Shared(_) => Ok(Measured { bytes: 0, reach: 0 }),
         Ty::Range(_) => Ok(Measured {
             bytes: 32,
             reach: 0,

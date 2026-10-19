@@ -6,12 +6,15 @@ loans still apply across threads. Shared immutable storage does not permit
 unsynchronized mutation; [`std.atomic`](../../stdlib/atomic.md) values are
 updated through shared references with atomic instructions, and a
 [mutex](mutex.md) grants one lock holder at a time exclusive access to its value.
+A [`Shared[T]`](../01-builtins/shared.md) handle gives several owners, such as
+pool jobs, shared access to one value; the last owner, on any thread, drops it.
 
 Worker eligibility is a closed-world compiler check, not a user-defined marker
 protocol. It examines concrete stored types, reachable helper and callback
 bodies, captures, results, and destructors, including finite recursive type
-graphs. Scalars, strings, ranges, collections, classes, and enums are eligible
-when their contents and effects are eligible. Stored concrete callbacks retain
+graphs. Scalars, strings, ranges, collections, classes, enums, and `Shared`
+handles are eligible when their contents and effects are eligible. A shared
+value's destructor is checked as if any holder's thread could run it. Stored concrete callbacks retain
 their eligibility evidence.
 
 Each native operation has a declared [effect](effects.md). Files, directory

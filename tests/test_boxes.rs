@@ -300,7 +300,10 @@ fn boxed_method_borrows_reject_immutable_shared_and_aliasing_mutation() {
 fn box_contents_and_dereferences_are_checked() {
     for (source, expected) in [
         ("x = 1\nb = Box(&x)", "cannot be stored in a box"),
-        ("x = 1\ny = *x", "requires a reference or a Box"),
+        (
+            "x = 1\ny = *x",
+            "requires a reference, a Box, or a Shared handle",
+        ),
         ("b = Box(1).unwrap()\nc = b\nprint(b).unwrap()", "moved"),
         (
             "def f(x: i64) -> ():\n    pass\nb = Box(1).unwrap()\nf(b)\nprint(b).unwrap()",

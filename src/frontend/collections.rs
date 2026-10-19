@@ -1709,6 +1709,18 @@ impl Lower<'_> {
         let Expression::Index(base, index) = &e.kind else {
             unreachable!()
         };
+        if matches!(self.place_type(base), Some(Ty::Shared(_))) {
+            let element = Expr {
+                at: e.at.clone(),
+                kind: Expression::Index(Box::new(super::shared::content(base)), index.clone()),
+            };
+            if self.place_type(&element).is_some_and(|ty| ty.affine()) {
+                return Err(e.at.error(
+                    "cannot move an element out of a Shared owner; borrow it with `&handle[i]`, or copy it with copy(handle[i])",
+                ));
+            }
+            return self.index(&element, ops);
+        }
         if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple()) {
             let (reference, loan) = self.borrow(e, false, ops)?;
             let Ty::Ref(value, _) = reference else {
@@ -2028,6 +2040,9 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if matches!(self.place_type(base), Some(Ty::Shared(_))) {
+            return self.shared_method(base, name, args, ops);
+        }
         if matches!(self.place_type(base), Some(Ty::Task(_))) {
             return self.join_thread(base, name, args, ops);
         }
@@ -2153,6 +2168,9 @@ impl Lower<'_> {
                 let (source, loans) = self.observe(&args[0], ops)?;
                 if source.restricted_storage() {
                     return Err(base.at.error("generators cannot be formatted"));
+                }
+                if source.facts().shared {
+                    return Err(base.at.error(super::shared::FORMAT));
                 }
                 if source.facts().atomic && super::mutex::holds_mutex(&source) {
                     return Err(base.at.error(super::mutex::FORMAT));
@@ -2422,6 +2440,11 @@ impl Lower<'_> {
         }
         if ty == Ty::CancellationToken {
             return self.observed_control_method(base, name, args, (ty, loans), ops);
+        }
+        if let Ty::Shared(_) = &ty {
+            return Err(base.at.error(
+                "a temporary Shared owner has no place to borrow from; bind it to a name first",
+            ));
         }
         if let Ty::Atomic(element) = &ty {
             // An owned temporary can only be unwrapped: an update would be lost.

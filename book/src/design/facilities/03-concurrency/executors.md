@@ -21,6 +21,8 @@ closures transfer captures into their body. Named submissions infer ordinary
 argument types and return a callable bound job on failure.
 
 Inputs and results must be wholly owned and satisfy the [worker checks](index.md).
+Jobs share state through [`Shared[T]`](../01-builtins/shared.md) handles:
+pass each job its own `handle.share()`.
 Borrowed captures/arguments, generator frames, and uncertified indirect effects
 are rejected. Executors and futures cannot enter workers. Channel protocols can
 still deadlock.
@@ -100,3 +102,17 @@ It does not cover:
 
 Blocking [future retrieval](futures.md#result-waits-and-live-receivers) has its own
 check at `result()`, before any later receiver cleanup.
+
+## Shutdown and held locks
+
+A job waiting for a mutex this function holds would keep the shutdown waiting
+too. Submission therefore also records the guarded types of the `Mutex[T]`
+values a job can reach, including through `Shared` handles:
+
+> A pool cannot be shut down while the function holds a lock on a `Mutex[T]`,
+> once it has submitted a job that can reach a `Mutex[T]` of the same `T`.
+
+Shutdown points, job counting, and the false positives are those of the
+receiver rule; mutexes are matched by type, as for
+[joins under a lock](mutex.md#waits-the-compiler-rejects). End the lock's
+`with` block before the pool shuts down.
