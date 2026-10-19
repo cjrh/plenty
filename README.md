@@ -5,14 +5,16 @@ ownership, checked borrowing, and ahead-of-time native compilation through
 Cranelift. Low memory use, fast compilation, and a small, understandable language
 guide the design.
 
+Read the [online documentation](https://cjrh.info/plenty/) for the current
+`main` development version.
+
 Start with [Learn Plenty](book/src/tutorial/index.md). The
 [reference](book/src/design/index.md) separates language rules, built-in facilities,
 the [standard library](book/src/design/stdlib/index.md), and compiler/runtime architecture. Its [support index](book/src/design/toolchain/02-architecture/support.md)
 links to implemented features and restrictions. Future work lives in the
 [backlog](book/src/backlog.md); proposals explain design alternatives.
 
-Read the [online documentation](https://cjrh.github.io/plenty/) for the current
-`main` development version. The book is an mdBook; for a local preview:
+The book is an mdBook; for a local preview:
 
 ```sh
 mdbook serve book --open
