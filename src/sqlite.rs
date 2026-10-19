@@ -31,8 +31,8 @@ pub enum SqliteOp {
     ColumnType,
     ColumnInteger,
     ColumnReal,
-    ColumnBytes,
-    ColumnText,
+    // Opcode 465 is retired; later opcodes keep their numbers.
+    ColumnText = 26,
     ColumnBlob,
     ColumnName,
 }
@@ -65,7 +65,6 @@ impl SqliteOp {
             "__sqlite_column_type" => Self::ColumnType,
             "__sqlite_column_integer" => Self::ColumnInteger,
             "__sqlite_column_real" => Self::ColumnReal,
-            "__sqlite_column_bytes" => Self::ColumnBytes,
             "__sqlite_column_text" => Self::ColumnText,
             "__sqlite_column_blob" => Self::ColumnBlob,
             "__sqlite_column_name" => Self::ColumnName,
@@ -96,11 +95,9 @@ impl SqliteOp {
             | Self::ClearBindings
             | Self::ParameterCount
             | Self::ColumnCount => (vec![handle()], Ty::I64),
-            Self::BusyTimeout
-            | Self::BindNull
-            | Self::ColumnType
-            | Self::ColumnInteger
-            | Self::ColumnBytes => (vec![handle(), Ty::I64], Ty::I64),
+            Self::BusyTimeout | Self::BindNull | Self::ColumnType | Self::ColumnInteger => {
+                (vec![handle(), Ty::I64], Ty::I64)
+            }
             Self::BindInteger => (vec![handle(), Ty::I64, Ty::I64], Ty::I64),
             Self::BindReal => (vec![handle(), Ty::I64, Ty::F64], Ty::I64),
             Self::BindText => (vec![handle(), Ty::I64, Ty::Str], Ty::I64),
@@ -146,7 +143,6 @@ impl SqliteOp {
             | Self::ColumnType
             | Self::ColumnInteger
             | Self::ColumnReal
-            | Self::ColumnBytes
             | Self::ColumnText
             | Self::ColumnBlob
             | Self::ColumnName => Effect::Handle,
