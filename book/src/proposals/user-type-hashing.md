@@ -401,7 +401,7 @@ of the fields their `__cmp__` compares.
    test beside `aggregates/hash_tests.rs` that equal classes in different
    storage hash equally. Audit each operation in [Affine keys](#affine-keys) in
    `src/frontend/collections.rs` and the runtime's retain/release paths
-   (`try_insert`, `Collection::at`, set algebra). Fix `Record::slot`'s quadratic
-   offset walk.
+   (`try_insert`, `Collection::at`, set algebra). Use the runtime's running-offset
+   record iterator; field-offset traversal is already linear per pass (issue #330).
 Hash quality and per-process seeding are already implemented independently
 (issue #329); this sketch does not change their policy.

@@ -6,6 +6,14 @@ Moves and copies relocate private addresses into the destination; addresses neve
 extend the lifetime of departed frames. Immutable metadata describes field layout,
 ownership, relocation, equality, and formatting. Concrete layout facts are cached.
 
+Runtime record traversal advances a running slot offset, including each field's
+inline payload and any class cleanup state word. A complete pass takes one width
+lookup per field, without allocating an offset table. Hashing, equality, ordering,
+formatting, copying, relocation, and retain/release use this traversal. Copy
+failure cleanup walks the completed prefix backwards with a decreasing offset.
+This bounds offset work per pass; nested payload work and repeated visits while
+queued destruction resumes remain separate costs.
+
 References use two native words: an address and packed inline-sum tag-offset
 information. They point into typed local, frame, field, or collection storage;
 source loans determine when those locations remain usable. Function values are
