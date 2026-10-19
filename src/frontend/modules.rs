@@ -2029,8 +2029,8 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             return Ok(());
         }
         let nominal = match ty {
-            Ty::Class(c) => Some(c.name.as_str()),
-            Ty::Enum(e) => Some(e.name.as_str()),
+            Ty::Class(c) => Some(&*c.name),
+            Ty::Enum(e) => Some(&*e.name),
             Ty::ForeignPtr(name) => Some(name.as_ref()),
             _ => None,
         };

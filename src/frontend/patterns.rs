@@ -259,9 +259,9 @@ impl Parser {
                         "a pattern cannot be a float; compare floats with an `if`/`elif` chain",
                     ));
                 }
-                Literal::Integer(text.clone(), negative)
+                Literal::Integer(text.to_string(), negative)
             }
-            Kind::Text(text) => Literal::Text(text.clone()),
+            Kind::Text(text) => Literal::Text(text.to_string()),
             Kind::Format(_) => {
                 return Err(
                     at.error("a pattern cannot be an f-string; match a plain string literal")
@@ -270,7 +270,9 @@ impl Parser {
             Kind::Bytes(_) => {
                 return Err(at.error("a pattern cannot be a byte literal; compare with `==`"))
             }
-            Kind::Word(word) if word == "True" || word == "False" => Literal::Bool(word == "True"),
+            Kind::Word(word) if matches!(&**word, "True" | "False") => {
+                Literal::Bool(&**word == "True")
+            }
             _ => return Ok(None),
         };
         self.take();
@@ -1051,7 +1053,7 @@ impl Lower<'_> {
         let declared = self.aliases.data.contains(name);
         if declared || LIBRARY_GENERICS.contains(&name) {
             let instance = if declared {
-                t.name == name
+                &*t.name == name
                     || self
                         .aliases
                         .data

@@ -18,7 +18,7 @@ impl Parser {
             // `=` is not an expression operator, so `name =` here can only be
             // a keyword argument.
             let label = match (&self.peek().kind, self.token(self.pos + 1)) {
-                (Kind::Word(name), Some(next)) if next.is("=") => Some(name.clone()),
+                (Kind::Word(name), Some(next)) if next.is("=") => Some(name.to_string()),
                 _ => None,
             };
             let at = self.peek().clone();

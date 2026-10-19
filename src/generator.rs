@@ -68,7 +68,7 @@ impl GeneratorType {
                     }
                 }
                 Ty::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => {
-                    if seen.insert(Some(t.name.as_str())) {
+                    if seen.insert(Some(&t.name)) {
                         work.extend(t.local().variants.iter().flat_map(|v| &v.fields));
                     }
                 }

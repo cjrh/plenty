@@ -13,7 +13,7 @@ type Slot<T> = Arc<OnceLock<Arc<T>>>;
 pub struct Types {
     classes: Mutex<Vec<Slot<ClassType>>>,
     enums: Mutex<Vec<Slot<EnumType>>>,
-    facts: Mutex<std::collections::HashMap<String, crate::type_facts::Facts>>,
+    facts: Mutex<std::collections::HashMap<Arc<str>, crate::type_facts::Facts>>,
 }
 
 enum Link<T> {
@@ -24,7 +24,8 @@ enum Link<T> {
 }
 
 pub struct Nominal<T> {
-    pub name: String,
+    /// Shared: a type is cloned far more often than it is declared.
+    pub name: Arc<str>,
     /// User-facing spelling, excluded from identity and type-table lookup.
     display_name: Option<Arc<str>>,
     link: Link<T>,
@@ -48,7 +49,7 @@ impl<T: Definition> Nominal<T> {
         }
     }
     pub fn with_display_name(mut self, name: String) -> Self {
-        self.display_name = (name != self.name).then(|| name.into());
+        self.display_name = (*name != *self.name).then(|| name.into());
         self
     }
     pub fn display_name(&self) -> &str {
@@ -92,7 +93,12 @@ impl<T: Definition> Nominal<T> {
         if let Link::Local(t) | Link::Stored(t) = &self.link {
             return t.cached_facts();
         }
-        self.owner()?.facts.lock().unwrap().get(&self.name).copied()
+        self.owner()?
+            .facts
+            .lock()
+            .unwrap()
+            .get(&*self.name)
+            .copied()
     }
     pub fn cache_facts(&self, facts: crate::type_facts::Facts) {
         if let Link::Local(t) | Link::Stored(t) = &self.link {

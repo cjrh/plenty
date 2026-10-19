@@ -115,7 +115,7 @@ impl DataTypes {
             Ty::Enum(t) => &t.name,
             _ => return None,
         };
-        self.arguments.borrow().get(name).cloned()
+        self.arguments.borrow().get(&**name).cloned()
     }
 
     /// The reporting method of the toolchain's Context is available only when

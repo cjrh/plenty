@@ -15,7 +15,7 @@ pub(super) const BYTES_CLASS: &str = "std.bytes.Bytes";
 pub(super) fn byte_buffer(ty: &Ty) -> Option<Nominal<ClassType>> {
     match ty {
         Ty::Class(class)
-            if class.name == BYTES_CLASS
+            if &*class.name == BYTES_CLASS
                 && class.get().fields.first().map(|f| &f.1) == Some(&Ty::ByteStorage) =>
         {
             Some(class.clone())
