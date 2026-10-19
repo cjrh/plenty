@@ -4,6 +4,50 @@ mod support;
 use support::run_file_stdout as run;
 
 #[test]
+fn anonymous_sums_render_members_and_source_type_names() {
+    assert_eq!(
+        run(r#"
+import std.fmt
+enum Named:
+    Empty
+    Pair(i64, str)
+class Wrapper[T]:
+    value: T
+def main() -> Result[(), Failure]:
+    error: IoError | ThreadError = ThreadError.System(11i32)
+    result: Result[(), IoError | ThreadError] = Err(ThreadError.System(11i32))
+    print(error, str.repr(&error)?)?
+    print(str.repr(&result)?)?
+    print(std.fmt.repr_string(&result)?)?
+    mut out = std.fmt.string_formatter(500, 8)?
+    std.fmt.represent(&result, &mut out)?
+    print(std.fmt.finish(&out)?)?
+    other: IoError | ThreadError = IoError.Closed
+    print(other)?
+    pair: Named | i64 = Named.Pair(42, "hello")
+    empty: Named | i64 = Named.Empty
+    number: Named | i64 = 7
+    unit: () | i64 = ()
+    tuple: (i64,) | u64 = (8,)
+    nested: Option[Named | i64] = Some(Named.Empty)
+    print(pair, empty, number, unit, tuple, nested)?
+    wrapped = Wrapper[IoError | ThreadError](ThreadError.System(12i32))
+    print(wrapped)?
+    Ok(())
+"#),
+        concat!(
+            "ThreadError.System(11) ThreadError.System(11)\n",
+            "Result[(), IoError | ThreadError].Err(ThreadError.System(11))\n",
+            "Result[(), IoError | ThreadError].Err(ThreadError.System(11))\n",
+            "Result[(), IoError | ThreadError].Err(ThreadError.System(11))\n",
+            "IoError.Closed\n",
+            "Named.Pair(42, \"hello\") Named.Empty 7 () (8,) Option[Named | i64].Some(Named.Empty)\n",
+            "Wrapper[IoError | ThreadError](value=ThreadError.System(12))"
+        )
+    );
+}
+
+#[test]
 fn scalars_bounds_bases_width_and_escaping() {
     assert_eq!(run(r#"
 import std.fmt

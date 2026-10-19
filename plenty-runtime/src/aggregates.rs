@@ -1202,11 +1202,17 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
     unsafe {
         match ty.kind {
             b'B' => {
-                let tuple = ty.name.starts_with("tuple[");
+                let tuple = ty.variants.len() == 1 && ty.name.starts_with("tuple[");
+                let variant = &ty.variants[ty.tag(value)];
+                // Apart from tuples, unnamed alternatives describe anonymous
+                // sums, whose source-level value is just the active member.
+                if !tuple && variant.name.is_empty() {
+                    render(ty.unpack(value), variant.fields[0], out);
+                    return;
+                }
                 if !tuple {
                     out.extend_from_slice(ty.name.as_bytes());
                     out.push(b'.');
-                    let variant = &ty.variants[ty.tag(value)];
                     out.extend_from_slice(variant.name.as_bytes());
                 }
                 if let Some(record) = ty.record(value) {

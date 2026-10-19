@@ -84,7 +84,7 @@ fn incomplete_sum_and_inexact_or_private_methods_keep_structural_fallback() {
     reports(
         &format!("{TYPES}\ndef main() -> Result[(), Problem | str]:\n    Err(Problem('input'))\n"),
         "dropped\n",
-        "error: main returned __plenty_sum[Problem, str].Problem(Problem(message=\"input\"))\n",
+        "error: main returned Problem(message=\"input\")\n",
     );
     for method in [
         "def format(self, output: &mut Formatter) -> Result[(), FormatError]:\n        output.text('human')",

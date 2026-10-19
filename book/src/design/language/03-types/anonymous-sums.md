@@ -10,6 +10,13 @@ Aliases, order, duplicates and nested sums normalize: `A | B`, `B | A` and
 enums remain distinct, and enum variants never become separate members.
 There is no stable tag numbering or foreign layout contract.
 
+Structural formatting (`print`, `str.repr`, and `std.fmt.represent`) shows the
+active member directly, without an anonymous wrapper. For example, a
+`Result[(), IoError | ThreadError]` error can be represented as
+`Result[(), IoError | ThreadError].Err(ThreadError.System(11))`. Type names use
+the normalized `A | B` spelling. The structural fallback for an error returned
+by `main` follows the same rule; named enums keep their usual qualified variants.
+
 `|` binds less tightly than references and type applications. Use `&(A | B)`
 to borrow a sum. `&A | B` attempts to store a reference as a member and is
 rejected, as are other members forbidden by owned storage rules. Callable

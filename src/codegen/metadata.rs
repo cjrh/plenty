@@ -148,17 +148,24 @@ fn define_type(
             vec![("captures", t.captures.iter().map(|(_, t)| t).collect())],
         ),
         Ty::Enum(t) => (
-            &t.name,
+            t.display_name(),
             enum_definition
                 .as_ref()
                 .unwrap()
                 .variants
                 .iter()
-                .map(|v| (v.name.as_str(), v.fields.iter().collect()))
+                // Anonymous alternatives have no source constructor: the runtime
+                // renders their sole payload without an invented wrapper.
+                .map(|v| {
+                    (
+                        if t.anonymous() { "" } else { v.name.as_str() },
+                        v.fields.iter().collect(),
+                    )
+                })
                 .collect(),
         ),
         Ty::Class(t) => (
-            &t.name,
+            t.display_name(),
             class_definition
                 .as_ref()
                 .unwrap()
