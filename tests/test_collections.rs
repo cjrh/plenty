@@ -2,6 +2,40 @@
 mod support;
 use rstest::rstest;
 
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn first_hash_and_keyed_collection_operations_allocate_nothing_after_reserve() {
+    let output = support::run(
+        r#"
+mut d = dict[str, i64]().unwrap()
+d.reserve(16).unwrap()
+keys = ["a", "q", "A", "Q", "1", "!"].unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+for key in keys:
+    d.insert(key, len(d)).unwrap()
+removed = d.pop("q")
+d.insert("q", 99).unwrap()
+print("__test_restore_allocations__").unwrap()
+print(removed).unwrap()
+print(d).unwrap()
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let visible = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(
+        visible,
+        "Option[i64].Some(1)\n{\"a\": 0, \"A\": 2, \"Q\": 3, \"1\": 4, \"!\": 5, \"q\": 99}"
+    );
+}
+
 #[rstest]
 #[case(
     "print([1, 2, 3].unwrap()).unwrap()\nprint(len([1, 2].unwrap())).unwrap()",

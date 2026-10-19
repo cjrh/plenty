@@ -7,6 +7,21 @@ including string bytes, independently of where a tuple is stored. Floats,
 owned collection/class components, and user-defined hash/equality are unsupported. Unit elements are
 rejected.
 
+Dictionary and set bucket selection uses SipHash-2-4 over the complete key,
+including framed tuple fields and string lengths. One secret 128-bit key is
+obtained from OS entropy on the process's first hash operation and shared across
+worker threads. Initialization and hashing allocate no runtime storage.
+Constructing or reserving an empty collection does not need entropy. The first
+hash may wait for the OS entropy source to initialize. If the OS cannot
+provide the key, the operation traps with `collection hashing requires OS
+entropy`; there is no predictable fallback. Interrupted reads retry.
+
+Randomized bucket placement makes precomputed hash-flooding inputs harder to
+construct; it does not guarantee worst-case constant-time lookup. Hash values
+are private implementation details, not persistent identifiers or cryptographic
+digests. No test-mode fixed seed is needed: dictionary insertion order is
+independent of buckets. Set iteration order remains unspecified.
+
 Lists preserve order and duplicates. Dictionaries preserve first insertion
 order: replacing a value keeps its key's position. Sets remove duplicates and
 promise no iteration order. Equality is structural: list order matters;

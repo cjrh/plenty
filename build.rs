@@ -7,7 +7,8 @@ use std::process::Command;
 
 /// The runtime's only third-party code: RustCrypto digests, HMAC and
 /// constant-time comparison for `std.crypto`, zlib-rs for `std.compress`, and
-/// rustls with its ring provider for `std.tls`, copied unmodified from
+/// rustls with its ring provider for `std.tls`, and SipHash for collections,
+/// copied unmodified from
 /// crates.io into `plenty-runtime/vendor` (tests, benchmarks and other
 /// platforms' pregenerated assembly omitted). Versions match `Cargo.lock`,
 /// which the Cargo build of the same crate uses; `tests/test_std_crypto.rs`
@@ -23,6 +24,7 @@ type Vendored = (
     &'static [&'static str],
 );
 const VENDORED: &[Vendored] = &[
+    ("siphasher-1.0.4", "siphasher", "2018", &[], &[], &[]),
     ("cfg-if-1.0.4", "cfg_if", "2018", &[], &[], &[]),
     ("typenum-1.20.1", "typenum", "2018", &[], &[], &[]),
     (
@@ -138,7 +140,7 @@ const VENDORED: &[Vendored] = &[
         ],
     ),
 ];
-const RUNTIME_EXTERNS: &[&str] = &["sha2", "hmac", "subtle", "zlib_rs", "rustls"];
+const RUNTIME_EXTERNS: &[&str] = &["sha2", "hmac", "subtle", "zlib_rs", "rustls", "siphasher"];
 
 fn main() {
     println!("cargo:rerun-if-changed=plenty-runtime/src");

@@ -35,8 +35,8 @@ static type descriptor. Generated code never hashes or probes.
 | Aspect | Current behavior |
 | --- | --- |
 | Descriptor | `Type` (`aggregates.rs:36`), 64 bytes, asserted layout: kind byte, `affine`, `reflexive`, inline payload size, key/value descriptors, name, variants (fields), and a `drop` function pointer at byte 56. Emitted by `src/codegen/metadata.rs`. |
-| Hash | `hash(value, ty)` (`aggregates.rs:485`) interprets the descriptor recursively. Integers and `bool`: splitmix64 finalizer. `str`/byte strings: FNV-1a over the bytes. Kind `B` (tuples and enums): FNV-style xor-multiply over field hashes, seeded with the variant tag (issue #228). Any other kind falls through to the integer branch and would hash the value word, which for a class is its storage address. |
-| Seeding | None. Hashes are deterministic across runs and processes. |
+| Hash | `aggregates/hashing.rs` feeds the complete descriptor-guided key into SipHash-2-4: scalar words, length-framed strings, and kind `B` fields framed by variant tag and field count. Classes remain inadmissible keys and need a structural branch before admission. |
+| Seeding | One secret 128-bit OS key per process, initialized on the first hash and shared by workers. Entropy failure traps; no fixed-seed production mode. |
 | Table | `Vec<usize>` of entry indices plus one, linear probing, power-of-two size, load at most one half (`try_reserve`, `aggregates.rs:546`). No hash is cached; rehashing and removal (`aggregates.rs:699`, backward-shift repair) recompute the home bucket of every key they visit. |
 | Entries | Dense, type-sized rows (`plenty-runtime/src/entries.rs`). Inline payloads such as multi-field tuples live in the row. Iteration walks rows, not the bucket table, so dictionary order is insertion order regardless of hash values. |
 | Equality | `equal(a, b, ty)` (`aggregates.rs:742`), structural, also used by `==` on classes, enums and collections (`src/codegen.rs:2481` lowers it to collection op 8). Floats compare by IEEE rules. |
@@ -49,23 +49,29 @@ The runtime relies on two properties of every legal key, recorded in
 rebuilding computes hashes alone, in the middle of a reservation, with no error
 channel.
 
-Two hash-quality defects exist independently of this proposal:
+Issue #329 addressed two hash-quality defects independently of this proposal:
 
-- FNV-1a has no finalizer. Multiplication carries bits only upward, so the low
+- The former FNV-1a path had no finalizer. Multiplication carries bits only upward, so the low
   *k* bits of a string's hash depend only on the low *k* bits of each byte. A
   16-bucket table (the minimum) puts `"a"`, `"q"`, `"A"`, `"Q"`, `"1"` and
   `"!"` in one bucket. Tables below 256 buckets are affected.
-- No seed: inputs that collide can be precomputed. `std.toml` indexes parsed
+- It had no seed: colliding inputs could be precomputed. `std.toml` indexes parsed
   keys in `dict[(i64, str), i64]` (`stdlib/std/toml.plenty:245`), so untrusted
   TOML can force quadratic parsing. The
   [dictionary reference](../design/facilities/01-builtins/dictionaries.md)
   already says adversarial collisions can make lookup linear.
 
-### Measured cost of a composite key today
+The replacement keys the entire structured input, rather than applying a secret
+finalizer to an unkeyed prehash. It covers TOML's index and duplicate-key set,
+and JSON's duplicate-member set. HTTP and CSV currently use no dictionary/set
+tables in their implementations.
+
+### Historical cost of a composite key before keyed hashing
 
 A probe on 2026-10-19 (release build of this branch, Linux x86-64, one pinned
 core; the machine had load average about 18, so treat these as indicative) ran
-20 million membership tests, half hits, minimum of seven runs:
+20 million membership tests, half hits, minimum of seven runs. These results
+predate issue #329's keyed hashing and do not describe its current cost:
 
 | Entries | Empty loop | `dict[i64, i64]` | `dict[(i64, i64), i64]` |
 | ---: | ---: | ---: | ---: |
@@ -258,26 +264,32 @@ error: `dict[K, i64]` requires `K: KeyType`
 
 ### DoS resistance and seeding
 
-Separate from user keys, but the Hasher-style design above keeps it a runtime
-decision. Recommended, in one change after key types land:
+This runtime concern was implemented independently of user key admission in
+issue #329. SipHash-2-4 consumes all structural bytes with one OS-generated key
+per process. Adding a finalizer alone would improve low-bit distribution but
+would not prevent precomputed full-hash collisions. The key is initialized
+lazily and atomically; interrupted entropy reads retry, short reads accumulate,
+and other failures trap rather than weaken the key. Constructing empty
+collections does not require entropy. See the [collection contract](../design/facilities/01-builtins/collections.md).
 
-1. Add a finalizer (splitmix64) to string and composite hashes, fixing the
-   low-bit defect for small tables. Cost: a few cycles per hash.
-2. Seed the hash from OS entropy once per process (`plenty-runtime/src/entropy.rs`
-   exists), or per table. Dictionary iteration order does not depend on hashes,
-   so the only observable change is set iteration order where it already is
-   unspecified. A deterministic mode for reproducible tests is an open question.
-3. Consider a keyed hash (SipHash-1-3, or a faster keyed hash) for strings only
-   if measurements show the seeded FNV/finalizer path is still attackable;
-   seeding a non-cryptographic hash does not stop all collision attacks.
+Dictionary iteration stays deterministic through its entry order, so tests
+need no public seed override. Set order remains unspecified. Keyed hashing
+does not remove the table's theoretical linear-probe worst case.
+
+The pinned `siphasher` 1.0.4 backend uses the original SipHash-2-4 schedule:
+two compression rounds and four finalization rounds. SipHash-1-3 uses fewer
+rounds to reduce hashing cost; this change chooses the original schedule as
+a conservative security margin. The collection benchmarks quantify the cost:
+short-key lookup is more expensive, especially for integers. Hashing remains
+a runtime policy, so callers need no new API or manual mixing.
 
 ## Costs
 
 | Cost | Recommended design |
 | --- | --- |
 | Lookup, user key | Same descriptor path as a tuple with the same fields; about 45 ns versus 18 ns for `i64` in the probe above |
-| Existing keys | Unchanged until the finalizer/seed change, which adds a few cycles per hash |
-| Per field | One recursive `hash`/`equal` call. `Record::slot` (`aggregates.rs:188`) recomputes each offset from the start, so hashing or comparing an *n*-field record is O(*n*²) descriptor reads; walking offsets incrementally fixes it for tuples and classes alike |
+| Existing keys | SipHash-2-4 adds keyed mixing cost; see the collection benchmark for measured deltas |
+| Per field | One recursive structural hash/equality walk. `Record::slot` recomputes each offset from the start, so hashing or comparing an *n*-field record is O(*n*²) descriptor reads; walking offsets incrementally fixes it for tuples and classes alike |
 | Memory per entry | Unchanged: 8-byte bucket at load at most one half, plus a row sized from the key's inline payload, as for tuples |
 | Code size, compile time | One static descriptor per key type, which collection types already emit; no per-type functions |
 | Rehash | Every resize recomputes all hashes by interpretation; composite keys pay more than integers |
@@ -296,7 +308,7 @@ Before implementation and before any follow-up optimization:
    `dict[(i64, i64), i64]`, `dict[Point, i64]` (two `i64` fields), a copyable
    enum key, and `dict[str, i64]` with short keys. Pin to physical cores as in
    [profiling](../development/profiling.md).
-2. Rerun after the finalizer and seed change; report per-operation deltas for
+2. Rerun against keyed hashing; report per-operation deltas for
    existing key types.
 3. To evaluate design B at all: prototype a descriptor hook that returns the
    structural hash through an adapter and compare against A on the same
@@ -365,11 +377,9 @@ of the fields their `__cmp__` compares.
    impossible, so `keys()` and set algebra are unavailable.
 3. Private fields: structural hashing reads them, as equality already does.
    Confirm that is acceptable for public key types across modules.
-4. Seed scope: per process or per table, and whether a test-mode environment
-   variable fixes the seed.
-5. Whether `std.report`-style anonymous sums should be key types when every
+4. Whether `std.report`-style anonymous sums should be key types when every
    member is.
-6. Whether to cache hashes, after measurement.
+5. Whether to cache hashes, after measurement.
 
 ## Implementation sketch
 
@@ -386,13 +396,12 @@ of the fields their `__cmp__` compares.
    (`src/frontend/generics.rs:19`, diagnostic at `:1001`); let `dict[K, V]`
    resolve in generic signatures when `K: KeyType`. Update
    [generics](../design/language/07-generics/index.md).
-3. **Classes and affine enums.** Add a class branch to `hash`
-   (`plenty-runtime/src/aggregates.rs:485`) over `Record` fields, plus a unit
+3. **Classes and affine enums.** Add a class branch to `write_key`
+   (`plenty-runtime/src/aggregates/hashing.rs`) over `Record` fields, plus a unit
    test beside `aggregates/hash_tests.rs` that equal classes in different
    storage hash equally. Audit each operation in [Affine keys](#affine-keys) in
    `src/frontend/collections.rs` and the runtime's retain/release paths
    (`try_insert`, `Collection::at`, set algebra). Fix `Record::slot`'s quadratic
    offset walk.
-4. **Hash quality and seeding.** Finalizer, then seed; benchmark per
-   [Measurements](#measurements). Update the dictionary reference's collision
-   sentence.
+Hash quality and per-process seeding are already implemented independently
+(issue #329); this sketch does not change their policy.
