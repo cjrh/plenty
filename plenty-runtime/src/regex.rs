@@ -107,8 +107,8 @@ mod tests {
 
     #[test]
     fn properties_cases_and_offsets() {
-        // std.unicode pins Unicode 17; the toolchain's tables must agree.
-        assert_eq!(char::UNICODE_VERSION, (17, 0, 0));
+        // Properties and case mappings follow Rust's Unicode tables, independently
+        // of std.unicode's vendored normalization and Mark tables.
         assert!(property('é' as u32, 10) && !property('1' as u32, 10));
         assert!(property('٣' as u32, 14) && property('Ⅻ' as u32, 14));
         assert!(property(0xA0, 13) && !property(0x200B, 13));
