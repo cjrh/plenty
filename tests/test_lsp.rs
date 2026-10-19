@@ -293,7 +293,11 @@ fn hover_definition_and_diagnostics_in_a_file_with_an_error_elsewhere() {
     assert!(hover.contains("def gcd(a: u64, b: u64) -> u64"), "{hover}");
     let (file, line, _) = client.definition(&main, 22, 8);
     assert!(
-        file.ends_with("/std-sources/0.1.0/std/math.plenty"),
+        file.ends_with(concat!(
+            "/std-sources/",
+            env!("CARGO_PKG_VERSION"),
+            "/std/math.plenty"
+        )),
         "{file}"
     );
     let copy = std::fs::read_to_string(&file).unwrap();
