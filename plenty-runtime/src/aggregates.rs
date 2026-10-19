@@ -2225,24 +2225,6 @@ pub(crate) unsafe fn collection_at(
                     &*descriptor
                 },
             ) as u128,
-            9 => {
-                let mut out = crate::render_buffer::Buffer::default();
-                render(
-                    a,
-                    if descriptor.is_null() {
-                        value_type(a)
-                    } else {
-                        &*descriptor
-                    },
-                    &mut out,
-                );
-                out.push(b'\n');
-                crate::io::output(
-                    &out.finish()
-                        .unwrap_or_else(|_| crate::fail("format allocation failed")),
-                );
-                0
-            }
             117 => ranges::copy_payload(a, &*descriptor, b as *mut Range),
             118 => match strings::try_c_string(a as *const Text) {
                 Ok(text) => wrap(text as u128, 0),
