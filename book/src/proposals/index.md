@@ -67,6 +67,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Synchronous resolution scopes](linear-scope-resolution.md) — consuming scope policy; depends on linear obligations | B72 (issue #149) |
 | [Linearity, typestate, and execution responsibility](linear-integration.md) — shared boundaries and deferred worker/async contracts | B72 (issue #149) |
 | [GCC backend (`plenty_codegen_gcc`)](codegen-gcc.md) | B20 |
+| [User-defined ordering](user-type-ordering.md) — one three-way `__cmp__` hook | B37 |
 
 ## Completed investigations
 
