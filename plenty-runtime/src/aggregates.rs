@@ -374,9 +374,6 @@ unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
     }
 }
 
-fn collection_new(ty: &'static Type) -> *mut Collection {
-    try_collection_new(ty, 0).unwrap_or_else(|_| crate::fail("collection allocation failed"))
-}
 fn try_collection_new(ty: &'static Type, capacity: usize) -> Result<*mut Collection, AllocError> {
     let mut collection = Collection {
         header: Header::new(collection_destroy),
@@ -2101,30 +2098,8 @@ pub(crate) unsafe fn collection_at(
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
             }
-            0 => collection_new(&*descriptor) as u128,
-            1 | 2 => {
+            1 => {
                 (*(a as *mut Collection)).insert(b, value);
-                plenty_retain(a as *mut Header);
-                a
-            }
-            3 => {
-                let c = &mut *(a as *mut Collection);
-                if c.ty().kind == b'L' {
-                    let i = index(b as i64, c.len(), site);
-                    retain(value, c.ty().key());
-                    release(c.entries.get(i).key, c.ty().key());
-                    c.entries.set(i, false, value);
-                } else {
-                    let i = c.find(b).unwrap_or_else(|| {
-                        crate::fail_at(
-                            site,
-                            format_args!("dictionary key not found; use insert to add keys"),
-                        )
-                    });
-                    retain(value, c.ty().value());
-                    release(c.entries.get(i).value, c.ty().value());
-                    c.entries.set(i, true, value);
-                }
                 plenty_retain(a as *mut Header);
                 a
             }

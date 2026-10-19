@@ -32,6 +32,11 @@ const fn list(key: &'static Type) -> Type {
     }
 }
 static INTEGER: Type = scalar(b'4');
+
+/// An empty collection through the constructor generated code uses.
+unsafe fn new_collection(ty: &'static Type) -> u128 {
+    unsafe { crate::aggregates::payload(collection(32, 0, 0, 0, ty)) }
+}
 static UNSIGNED: Type = scalar(b'8');
 
 #[test]
@@ -241,7 +246,7 @@ fn inline_range_dictionary_removal_and_record_copy_keep_valid_payloads() {
     unsafe {
         let source = Range::new(10, 13, 1, false);
         let address = &source as *const Range as u128;
-        let map = collection(0, 0, 0, 0, &MAP);
+        let map = new_collection(&MAP);
         for key in 0..20 {
             assert_eq!(collection(29, map, key, address, ptr::null()), 0);
         }
@@ -538,7 +543,7 @@ static OPTION_TEXT: Type = Type {
 #[test]
 fn optional_dictionary_lookup_retains_values_across_update_and_destruction() {
     unsafe {
-        let dictionary = collection(0, 0, 0, 0, &DICT_TEXT);
+        let dictionary = new_collection(&DICT_TEXT);
         let key = strings::new("é\0".as_bytes());
         let equal_key = strings::new("é\0".as_bytes());
         let value = strings::new("Ada🙂".as_bytes());
@@ -553,7 +558,7 @@ fn optional_dictionary_lookup_retains_values_across_update_and_destruction() {
             0
         );
         plenty_release(
-            collection(3, dictionary, key as u128, replacement as u128, ptr::null()) as *mut Header,
+            collection(1, dictionary, key as u128, replacement as u128, ptr::null()) as *mut Header,
         );
         plenty_release(dictionary as *mut Header);
         for text in [key, equal_key, value, replacement] {
@@ -585,9 +590,9 @@ fn dictionary_removal_transfers_owned_payload_and_repairs_hash_storage() {
         ..scalar(b'B')
     };
     unsafe {
-        let dictionary = collection(0, 0, 0, 0, &DICT);
+        let dictionary = new_collection(&DICT);
         for key in 0..32 {
-            let child = collection(0, 0, 0, 0, &LIST_INT);
+            let child = new_collection(&LIST_INT);
             plenty_release(collection(1, child, key, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, dictionary, key, child, ptr::null()) as *mut Header);
         }
@@ -622,10 +627,10 @@ fn dictionary_removal_transfers_owned_payload_and_repairs_hash_storage() {
 #[test]
 fn list_removal_transfers_payload_and_preserves_remaining_order() {
     unsafe {
-        let list = collection(0, 0, 0, 0, &LIST_LIST);
+        let list = new_collection(&LIST_LIST);
         let mut children = [0; 3];
         for (i, child) in children.iter_mut().enumerate() {
-            *child = collection(0, 0, 0, 0, &LIST_INT);
+            *child = new_collection(&LIST_INT);
             plenty_release(collection(1, *child, i as u128, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, list, *child, 0, ptr::null()) as *mut Header);
         }
@@ -656,7 +661,7 @@ fn set_discard_releases_stored_strings_and_keeps_query_owners_valid() {
         ..scalar(b'S')
     };
     unsafe {
-        let set = collection(0, 0, 0, 0, &SET_TEXT);
+        let set = new_collection(&SET_TEXT);
         for text in ["é\0🙂", "other"] {
             let stored = strings::new(text.as_bytes());
             plenty_release(collection(1, set, stored as u128, 0, ptr::null()) as *mut Header);
@@ -688,8 +693,8 @@ fn set_relations_allow_identical_borrowed_operands() {
         ..scalar(b'S')
     };
     unsafe {
-        let a = collection(0, 0, 0, 0, &SET);
-        let b = collection(0, 0, 0, 0, &SET);
+        let a = new_collection(&SET);
+        let b = new_collection(&SET);
         assert_eq!(collection(64, a, a, 0, ptr::null()), 1);
         for set in [a, b] {
             let text = strings::new("é\0🙂".as_bytes());
@@ -721,8 +726,8 @@ fn set_algebra_cleans_partial_storage_and_retains_result_members() {
     for (op, length) in [(65, 3), (66, 1), (67, 1), (68, 2)] {
         for budget in 0..=4 {
             unsafe {
-                let a = collection(0, 0, 0, 0, &SET);
-                let b = collection(0, 0, 0, 0, &SET);
+                let a = new_collection(&SET);
+                let b = new_collection(&SET);
                 for (set, words) in [(a, ["é", "left"]), (b, ["é", "right"])] {
                     for word in words {
                         let text = strings::new(word.as_bytes());
@@ -761,7 +766,7 @@ fn set_algebra_cleans_partial_storage_and_retains_result_members() {
 #[test]
 fn list_lookup_retains_string_payload_without_transferring_the_entry() {
     unsafe {
-        let list = collection(0, 0, 0, 0, &LIST_TEXT);
+        let list = new_collection(&LIST_TEXT);
         let text = strings::new("é\0🙂".as_bytes());
         plenty_release(collection(1, list, text as u128, 0, ptr::null()) as *mut Header);
         plenty_release(text.cast());
@@ -790,8 +795,8 @@ fn set_filter_releases_removed_strings_and_keeps_source_owners() {
     };
     for (op, expected) in [(69, "é"), (70, "remove")] {
         unsafe {
-            let target = collection(0, 0, 0, 0, &SET);
-            let other = collection(0, 0, 0, 0, &SET);
+            let target = new_collection(&SET);
+            let other = new_collection(&SET);
             for (set, words) in [(target, ["é", "remove"]), (other, ["é", "extra"])] {
                 for word in words {
                     let text = strings::new(word.as_bytes());
@@ -814,7 +819,7 @@ fn set_filter_releases_removed_strings_and_keeps_source_owners() {
 #[test]
 fn list_queries_compare_float_values_and_return_inline_positions() {
     unsafe {
-        let list = collection(0, 0, 0, 0, &LIST_F64);
+        let list = new_collection(&LIST_F64);
         for value in [f64::NAN, -0.0, 1.5, 0.0] {
             plenty_release(
                 collection(1, list, value.to_bits() as u128, 0, ptr::null()) as *mut Header
@@ -899,11 +904,11 @@ fn set_update_preserves_string_owners_across_duplicate_and_failure_paths() {
     }
     for budget in 0..=3 {
         unsafe {
-            let target = collection(0, 0, 0, 0, &SET_TEXT);
+            let target = new_collection(&SET_TEXT);
             let stored = strings::new(b"key0");
             plenty_release(collection(1, target, stored as u128, 0, ptr::null()) as *mut Header);
             plenty_release(stored.cast());
-            let source = collection(0, 0, 0, 0, &SET_TEXT);
+            let source = new_collection(&SET_TEXT);
             let query = strings::new(b"key0");
             plenty_release(collection(1, source, query as u128, 0, ptr::null()) as *mut Header);
             for n in 1..10 {
@@ -945,13 +950,13 @@ fn dictionary_update_reserves_all_storage_before_transferring_owned_values() {
     }
     for budget in 0..=3 {
         unsafe {
-            let target = collection(0, 0, 0, 0, &DICT);
-            let old = collection(0, 0, 0, 0, &LIST_INT);
+            let target = new_collection(&DICT);
+            let old = new_collection(&LIST_INT);
             plenty_release(collection(1, old, 99, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, target, 0, old, ptr::null()) as *mut Header);
-            let source = collection(0, 0, 0, 0, &DICT);
+            let source = new_collection(&DICT);
             for n in 0..10 {
-                let child = collection(0, 0, 0, 0, &LIST_INT);
+                let child = new_collection(&LIST_INT);
                 plenty_release(collection(1, child, n, 0, ptr::null()) as *mut Header);
                 plenty_release(collection(1, source, n, child, ptr::null()) as *mut Header);
             }
@@ -994,9 +999,9 @@ fn list_extension_reserves_before_transferring_owned_entries() {
     }
     for budget in 0..=1 {
         unsafe {
-            let destination = collection(0, 0, 0, 0, &LIST_LIST);
-            let source = collection(0, 0, 0, 0, &LIST_LIST);
-            let child = collection(0, 0, 0, 0, &LIST_INT);
+            let destination = new_collection(&LIST_LIST);
+            let source = new_collection(&LIST_LIST);
+            let child = new_collection(&LIST_INT);
             plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
             let result = {
@@ -1037,7 +1042,7 @@ fn dictionary_clear_releases_entries_but_reuses_buffers() {
         }
     }
     unsafe {
-        let source = collection(0, 0, 0, 0, &DICT_TEXT);
+        let source = new_collection(&DICT_TEXT);
         let text = strings::new("é\0🙂".as_bytes());
         plenty_release(
             collection(1, source, text as u128, text as u128, ptr::null()) as *mut Header,
@@ -1062,11 +1067,11 @@ fn dictionary_clear_releases_entries_but_reuses_buffers() {
 #[test]
 fn list_reverse_reorders_owned_slots_without_duplication() {
     unsafe {
-        let source = collection(0, 0, 0, 0, &LIST_LIST);
-        let child = collection(0, 0, 0, 0, &LIST_INT);
+        let source = new_collection(&LIST_LIST);
+        let child = new_collection(&LIST_INT);
         plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
         plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
-        let other = collection(0, 0, 0, 0, &LIST_INT);
+        let other = new_collection(&LIST_INT);
         plenty_release(collection(1, source, other, 0, ptr::null()) as *mut Header);
         plenty_release(collection(57, source, 0, 0, ptr::null()) as *mut Header);
         let found = collection(4, source, 1, 0, ptr::null());
@@ -1080,10 +1085,10 @@ fn list_reverse_reorders_owned_slots_without_duplication() {
 #[test]
 fn list_swap_exchanges_owned_slots_and_counts_negative_indices_from_the_end() {
     unsafe {
-        let source = collection(0, 0, 0, 0, &LIST_LIST);
+        let source = new_collection(&LIST_LIST);
         let mut children = [0; 3];
         for (i, child) in children.iter_mut().enumerate() {
-            *child = collection(0, 0, 0, 0, &LIST_INT);
+            *child = new_collection(&LIST_INT);
             plenty_release(collection(1, *child, i as u128, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, source, *child, 0, ptr::null()) as *mut Header);
         }
@@ -1101,7 +1106,7 @@ fn list_swap_exchanges_owned_slots_and_counts_negative_indices_from_the_end() {
 #[test]
 fn list_sort_orders_scalar_rows_by_their_signed_value() {
     unsafe {
-        let source = collection(0, 0, 0, 0, &LIST_INT);
+        let source = new_collection(&LIST_INT);
         let values = [5i64, -3, 9, 0, -3, i64::MIN, i64::MAX];
         for value in values {
             plenty_release(collection(1, source, value as u128, 0, ptr::null()) as *mut Header);
@@ -1330,10 +1335,10 @@ fn list_slices_transfer_only_selected_payloads_after_reserving_storage() {
     }
     for budget in 0..=2 {
         unsafe {
-            let source = collection(0, 0, 0, 0, &LIST_LIST);
+            let source = new_collection(&LIST_LIST);
             let mut children = [0; 3];
             for (i, child) in children.iter_mut().enumerate() {
-                *child = collection(0, 0, 0, 0, &LIST_INT);
+                *child = new_collection(&LIST_INT);
                 plenty_release(collection(1, *child, i as u128, 0, ptr::null()) as *mut Header);
                 plenty_release(collection(1, source, *child, 0, ptr::null()) as *mut Header);
             }
@@ -1376,7 +1381,7 @@ fn dictionary_snapshots_retain_strings_only_after_successful_reservation() {
     for op in [43, 44] {
         for budget in 0..=2 {
             unsafe {
-                let source = collection(0, 0, 0, 0, &DICT_TEXT);
+                let source = new_collection(&DICT_TEXT);
                 let key = strings::new(b"key");
                 let value = strings::new("é\0🙂".as_bytes());
                 plenty_release(
@@ -1437,8 +1442,8 @@ fn dictionary_snapshot_transfers_owned_payload_only_on_success() {
     }
     for budget in 0..=2 {
         unsafe {
-            let source = collection(0, 0, 0, 0, &DICT);
-            let child = collection(0, 0, 0, 0, &LIST_INT);
+            let source = new_collection(&DICT);
+            let child = new_collection(&LIST_INT);
             plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, source, 1, child, ptr::null()) as *mut Header);
             let result = {
@@ -1476,7 +1481,7 @@ fn dictionary_lookup_succeeds_when_allocation_is_disabled() {
         }
     }
     unsafe {
-        let dictionary = collection(0, 0, 0, 0, &DICT_TEXT);
+        let dictionary = new_collection(&DICT_TEXT);
         let key = strings::new(b"key");
         let equal_key = strings::new(b"key");
         let value = strings::new(b"value");
@@ -1675,9 +1680,9 @@ fn partial_nested_collection_copies_release_only_owned_values() {
     }
     let allocations = 6;
     unsafe {
-        let source = collection(0, 0, 0, 0, &LIST_LIST);
+        let source = new_collection(&LIST_LIST);
         for i in 0..2 {
-            let child = collection(0, 0, 0, 0, &LIST_INT);
+            let child = new_collection(&LIST_INT);
             plenty_release(collection(1, child, i + 1, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
         }
@@ -1792,7 +1797,7 @@ fn fallible_reservation_and_growth_preserve_hash_lookups() {
     };
     for ty in [&LIST_INT, &SET, &MAP] {
         unsafe {
-            let c = collection(0, 0, 0, 0, ty);
+            let c = new_collection(ty);
             assert_eq!(collection(28, c, 0, 0, ptr::null()), 0);
             assert_eq!(collection(28, c, 32, 0, ptr::null()), 0);
             for n in 0..32 {
@@ -1831,7 +1836,7 @@ fn actual_allocator_failures_preserve_empty_and_populated_hash_tables() {
     for len in [0, 8] {
         for budget in 0..=3 {
             unsafe {
-                let c = collection(0, 0, 0, 0, &MAP);
+                let c = new_collection(&MAP);
                 for n in 0..len {
                     assert_eq!(collection(29, c, n, n, ptr::null()), 0);
                 }
@@ -1861,7 +1866,7 @@ fn inline_payloads_retain_and_drop_through_runtime_slots() {
     use crate::aggregates::{release, wrap};
     unsafe {
         let first = wrap(wrap(guard(42), 1), 0);
-        let list = collection(0, 0, 0, 0, &LIST_RESULT);
+        let list = new_collection(&LIST_RESULT);
         plenty_release(collection(1, list, first, 0, ptr::null()) as *mut Header);
         let moved = collection(15, list, 0, 0, ptr::null());
         plenty_release(list as *mut Header);
@@ -1889,17 +1894,19 @@ fn float_slots_preserve_bits_and_ieee_equality_and_unit_payloads() {
                 u128::from(f64::NAN.to_bits()),
             ),
         ] {
-            let a = collection(0, 0, 0, 0, descriptor);
-            let b = collection(0, 0, 0, 0, descriptor);
+            let a = new_collection(descriptor);
+            let b = new_collection(descriptor);
             plenty_release(collection(1, a, negative_zero, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, b, 0, 0, ptr::null()) as *mut Header);
             assert_eq!(collection(4, a, 0, 0, ptr::null()), negative_zero);
             assert_eq!(collection(8, a, b, 0, ptr::null()), 1);
-            plenty_release(collection(3, a, 0, nan, ptr::null()) as *mut Header);
-            assert_eq!(collection(8, a, a, 0, ptr::null()), 0);
-            assert_eq!(collection(7, nan, a, 0, ptr::null()), 0);
+            let c = new_collection(descriptor);
+            plenty_release(collection(1, c, nan, 0, ptr::null()) as *mut Header);
+            assert_eq!(collection(8, c, c, 0, ptr::null()), 0);
+            assert_eq!(collection(7, nan, c, 0, ptr::null()), 0);
             plenty_release(a as *mut Header);
             plenty_release(b as *mut Header);
+            plenty_release(c as *mut Header);
         }
     }
 }
@@ -1978,7 +1985,7 @@ fn compiler_literal_prefix_is_read_only_and_immortal() {
 #[test]
 fn destruction_queue_preserves_children_and_nested_drops() {
     unsafe {
-        let list = collection(0, 0, 0, 0, &LIST_GUARD);
+        let list = new_collection(&LIST_GUARD);
         for id in [9, 2, 3] {
             // Affine elements move into the list.
             let retained = collection(1, list, guard(id), 0, ptr::null());
@@ -1997,7 +2004,7 @@ fn dictionary_heap_keys_finish_before_inline_values() {
         ..DICT
     };
     unsafe {
-        let dictionary = collection(0, 0, 0, 0, &DICTIONARY);
+        let dictionary = new_collection(&DICTIONARY);
         for id in [11, 21] {
             let mut value = [INITIALIZED, id + 1];
             let retained = collection(
@@ -2017,7 +2024,7 @@ fn dictionary_heap_keys_finish_before_inline_values() {
 #[test]
 fn owned_iteration_removes_the_source_owner() {
     unsafe {
-        let list = collection(0, 0, 0, 0, &LIST_GUARD);
+        let list = new_collection(&LIST_GUARD);
         let retained = collection(1, list, guard(5), 0, ptr::null());
         plenty_release(retained as *mut Header);
         let taken = collection(15, list, 0, 0, ptr::null());
@@ -2059,8 +2066,8 @@ fn shared_descriptor_graphs_and_recursive_copies() {
 #[test]
 fn dictionaries_preserve_order_and_copy_owned_contents() {
     unsafe {
-        let dict = collection(0, 0, 0, 0, &DICT);
-        let list = collection(0, 0, 0, 0, &LIST_INT);
+        let dict = new_collection(&DICT);
+        let list = new_collection(&LIST_INT);
         plenty_release(collection(1, list, 42, 0, ptr::null()) as *mut Header);
         plenty_release(collection(1, dict, 1, list, ptr::null()) as *mut Header);
         // The affine list moved into the dictionary; only the dictionary owns it.
@@ -2070,7 +2077,7 @@ fn dictionaries_preserve_order_and_copy_owned_contents() {
         assert_eq!(values >> 64, 0);
         let copied_values = crate::aggregates::payload(collection(33, values, 0, 0, &LIST_LIST));
         let item = collection(15, values, 0, 0, ptr::null());
-        plenty_release(collection(2, item, 7, 0, ptr::null()) as *mut Header);
+        plenty_release(collection(1, item, 7, 0, ptr::null()) as *mut Header);
         let copied_item = collection(15, copied_values, 0, 0, ptr::null());
         assert_eq!(collection(5, copied_item, 0, 0, ptr::null()), 1);
         for object in [dict, independent, values, copied_values, item, copied_item] {
@@ -2310,7 +2317,7 @@ fn partial_class_cleanup_skips_hook_until_explicitly_armed() {
 #[test]
 fn element_addresses_survive_shared_projection_and_allow_exclusive_writes() {
     unsafe {
-        let owner = collection(0, 0, 0, 0, &LIST_INT);
+        let owner = new_collection(&LIST_INT);
         plenty_release(collection(1, owner, 4, 0, ptr::null()) as *mut Header);
         plenty_release(collection(1, owner, 8, 0, ptr::null()) as *mut Header);
         let slot = owner;
