@@ -18,6 +18,7 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Share one deadline across waits](deadlines.md)
 - [Reuse workers with an executor](executors-and-futures.md)
 - [Handle executor outcomes](executor-outcomes.md)
+- [Share state with pool workers](shared-pool-state.md)
 - [Cancel queued work and bound a future wait](future-cancellation-and-waits.md)
 - [Stop work cooperatively](cooperative-cancellation.md)
 - [Recover a job when submission cannot proceed](submission-backpressure.md)

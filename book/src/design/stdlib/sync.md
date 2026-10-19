@@ -31,8 +31,9 @@ wait. Workers must return cooperatively, using bounded waits where needed.
 
 ## `Mutex[T]`
 
-A value that scoped workers update through shared references, one lock holder
-at a time. See [mutexes](../facilities/03-concurrency/mutex.md) for the rules
+A value that workers update through shared references or
+[`Shared[Mutex[T]]`](../facilities/01-builtins/shared.md) handles, one lock
+holder at a time. See [mutexes](../facilities/03-concurrency/mutex.md) for the rules
 and the deadlocks the compiler rejects.
 
 ```plenty
@@ -74,6 +75,6 @@ inline atomic instructions; a contended one waits in the kernel.
 `into_inner()` needs no lock: owning the mutex proves no other thread can hold
 it.
 
-Atomic integers and booleans are in [`std.atomic`](atomic.md). Semaphores,
-condition variables, read-write locks, and shared owners such as `Arc` are not
-exported.
+Atomic integers and booleans are in [`std.atomic`](atomic.md). The shared
+owner `Shared[T]` is a [prelude type](../facilities/01-builtins/shared.md).
+Semaphores, condition variables, and read-write locks are not exported.

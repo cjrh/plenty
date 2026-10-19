@@ -65,6 +65,10 @@ pub enum Ty {
     Dict(Arc<Ty>, Arc<Ty>),
     /// One owned heap value; recursive types reach themselves through boxes.
     Box(Arc<Ty>),
+    /// `Shared[T]`: one atomically counted heap value with several affine
+    /// owners. It reuses the box layout and gives only shared access; see
+    /// book/src/design/facilities/01-builtins/shared.md.
+    Shared(Arc<Ty>),
     Range(Arc<Ty>),
     Enum(crate::nominal::Nominal<crate::sum::EnumType>),
     Class(crate::nominal::Nominal<crate::record::ClassType>),
@@ -145,9 +149,12 @@ impl Ty {
                     .max()
                     .unwrap_or(0)
             }
-            Self::List(t) | Self::Set(t) | Self::Channel(t, _) | Self::Future(t) | Self::Box(t) => {
-                1 + t.layout_depth()
-            }
+            Self::List(t)
+            | Self::Set(t)
+            | Self::Channel(t, _)
+            | Self::Future(t)
+            | Self::Box(t)
+            | Self::Shared(t) => 1 + t.layout_depth(),
             Self::Generator(t) => 1 + t.element.layout_depth(),
             Self::Dict(k, v) => 1 + k.layout_depth().max(v.layout_depth()),
             Self::Enum(_) | Self::Class(_) => self.facts().depth,
@@ -171,6 +178,7 @@ impl Ty {
                 | Self::Generator(_)
                 | Self::Class(_)
                 | Self::Box(_)
+                | Self::Shared(_)
                 | Self::File
                 | Self::FsReadDir
                 | Self::FsDirEntry
@@ -290,6 +298,7 @@ impl Ty {
                 | Self::Set(_)
                 | Self::Dict(_, _)
                 | Self::Box(_)
+                | Self::Shared(_)
                 | Self::Class(_)
                 | Self::Generator(_)
         )
@@ -361,6 +370,7 @@ impl Ty {
             Ty::Set(t) => format!("set[{}]", t.identity_name()),
             Ty::Dict(k, v) => format!("dict[{}, {}]", k.identity_name(), v.identity_name()),
             Ty::Box(t) => format!("Box[{}]", t.identity_name()),
+            Ty::Shared(t) => format!("Shared[{}]", t.identity_name()),
             Ty::Future(t) => format!("Future[{}]", t.identity_name()),
             Ty::Atomic(t) => format!("Atomic[{}]", t.identity_name()),
             Ty::Channel(t, sender) => format!(
@@ -437,6 +447,7 @@ impl fmt::Display for Ty {
             Ty::Set(t) => return write!(f, "set[{t}]"),
             Ty::Dict(k, v) => return write!(f, "dict[{k}, {v}]"),
             Ty::Box(t) => return write!(f, "Box[{t}]"),
+            Ty::Shared(t) => return write!(f, "Shared[{t}]"),
             Ty::Range(t) => {
                 return if **t == Ty::I64 {
                     f.write_str("range")

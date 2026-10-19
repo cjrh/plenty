@@ -8,8 +8,9 @@ pub(super) enum Kind {
     Manager,
     /// The exit joins a scoped task.
     Thread,
-    /// The exit unlocks the mutex at this written place.
-    Lock(String),
+    /// The exit unlocks the mutex at this written place, which guards a
+    /// value of this type.
+    Lock(String, Ty),
 }
 
 pub(super) struct Context {
@@ -30,6 +31,12 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<BlockResult> {
         if let Some((base, args)) = mutex::lock_expression(manager) {
+            if let Some(Ty::Shared(content)) = self.place_type(base) {
+                if crate::mutex::class(&content).is_some() {
+                    let content = shared::content(base);
+                    return self.with_lock(manager, &content, args, name, body, ops);
+                }
+            }
             if self
                 .place_type(base)
                 .as_ref()

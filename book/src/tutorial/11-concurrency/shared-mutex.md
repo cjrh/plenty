@@ -88,9 +88,11 @@ def main() -> Result[(), Failure]:
 11
 ```
 
-The compiler cannot see a relock through another reference or inside a called
+Nesting a lock inside the block of another mutex of the same type is also
+rejected: two references can name one mutex. Wrap one value in a distinct class
+to hold both at once. The compiler cannot see a relock inside a called
 function, a join inside a function called while the lock is held, or two
-threads taking two locks in opposite orders. Keep lock blocks
-short and take nested locks in one fixed order. See
+threads taking two locks in opposite orders. Keep lock blocks short and take
+nested locks in one fixed order. See
 [`std.sync`](../../design/stdlib/sync.md) and
 [mutexes](../../design/facilities/03-concurrency/mutex.md) for the full rules.

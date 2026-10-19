@@ -238,7 +238,10 @@ fn check_type(
         | Ty::Set(t)
         | Ty::Range(t)
         | Ty::Channel(t, _)
-        | Ty::Box(t) => types.push((**t).clone()),
+        | Ty::Box(t)
+        // The last owner can drop on any holder's thread, so the content's
+        // destructors are certified as if every holder could run them.
+        | Ty::Shared(t) => types.push((**t).clone()),
         Ty::Dict(k, v) => types.extend([(**k).clone(), (**v).clone()]),
         Ty::Class(t) if seen.insert(format!("class:{}", t.name)) => {
             let t = t.get();
@@ -286,14 +289,15 @@ fn receiver_cycle(message: &Ty, receiver: &Ty) -> bool {
 }
 
 /// The types a value of `ty` stores, queues, captures, or refers to.
-fn contained(ty: &Ty, pending: &mut Vec<Ty>) {
+pub fn contained(ty: &Ty, pending: &mut Vec<Ty>) {
     match ty {
         Ty::Channel(t, _)
         | Ty::Future(t)
         | Ty::List(t)
         | Ty::Set(t)
         | Ty::Ref(t, _)
-        | Ty::Box(t) => pending.push((**t).clone()),
+        | Ty::Box(t)
+        | Ty::Shared(t) => pending.push((**t).clone()),
         Ty::Dict(k, v) => pending.extend([(**k).clone(), (**v).clone()]),
         Ty::Class(t) => pending.extend(t.get().fields.iter().map(|(_, t)| t.clone())),
         Ty::Enum(t) => pending.extend(

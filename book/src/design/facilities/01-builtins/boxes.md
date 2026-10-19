@@ -4,7 +4,8 @@
 Failure drops the input. Boxes are affine. Moving, borrowing, extracting content,
 and destroying the box add no allocation; explicit copying and operations on its
 content retain their own costs. Boxes provide a heap boundary for
-[recursive data](../../language/03-types/recursive-data.md).
+[recursive data](../../language/03-types/recursive-data.md). A box has one
+owner; [`Shared[T]`](shared.md) has several.
 
 For insertion into a borrowed structure, allocate a detached node before moving
 existing contents into it. Otherwise a failed allocation can destroy the old

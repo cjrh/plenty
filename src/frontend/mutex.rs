@@ -77,14 +77,23 @@ impl Lower<'_> {
             base.at
                 .error("lock() requires a named mutex or a field of one")
         })?;
-        if self
-            .contexts
-            .iter()
-            .any(|context| matches!(&context.kind, Kind::Lock(held) if *held == place && !place.contains("[?]")))
-        {
-            return Err(manager.at.error(format!(
-                "`{place}` is already locked by an enclosing `with` block, so this lock would wait for itself forever; use the existing binding, or release the lock before relocking"
-            )));
+        let element = crate::mutex::element(&class);
+        for context in &self.contexts {
+            let Kind::Lock(held, guarded) = &context.kind else {
+                continue;
+            };
+            if *held == place && !place.contains("[?]") {
+                return Err(manager.at.error(format!(
+                    "`{place}` is already locked by an enclosing `with` block, so this lock would wait for itself forever; use the existing binding, or release the lock before relocking"
+                )));
+            }
+            // Shared handles and references can name one mutex through
+            // different places, so mutexes are told apart only by type.
+            if *guarded == element {
+                return Err(manager.at.error(format!(
+                    "this locks `{place}` while an enclosing `with` block holds a lock on `{held}`; both are a `Mutex[{element}]` and may be one mutex reached through different handles, so this lock could wait for itself forever; lock them one at a time, or wrap one value in a distinct class"
+                )));
+            }
         }
         let saved = self.names.clone();
         let start = self.locals.len();
@@ -95,7 +104,6 @@ impl Lower<'_> {
         ops.extend([Op::Mutex(MutexOp::Lock(guard)), Op::Drop]);
         // The value's exclusive loan is rooted at the guard, not the mutex,
         // which this block and the workers keep borrowed shared.
-        let element = crate::mutex::element(&class);
         let value_loan = self.new_loan(guard, true, None, ops);
         ops.extend([
             Op::LoadLocal(guard),
@@ -106,7 +114,7 @@ impl Lower<'_> {
             if self.names.contains_key(name) {
                 return Err(manager.at.error(format!("duplicate binding `{name}`")));
             }
-            let ty = Ty::Ref(Arc::new(element), true);
+            let ty = Ty::Ref(Arc::new(element.clone()), true);
             let target = self.slot(ty.clone(), &manager.at)?;
             ops.push(Op::StoreLocal(target));
             self.bind_reference(target, value_loan, false, ops);
@@ -132,7 +140,7 @@ impl Lower<'_> {
             slot: guard,
             exit,
             loan: None,
-            kind: Kind::Lock(place),
+            kind: Kind::Lock(place, element.clone()),
             at: site(&manager.at, true),
         });
         let result = self.block_inner(body, ops, &Tail::Discard)?;

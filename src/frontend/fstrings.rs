@@ -1034,6 +1034,9 @@ impl Lower<'_> {
         } else {
             "display"
         };
+        if ty.facts().shared {
+            return Err(at.error(super::shared::FORMAT));
+        }
         if ty.facts().atomic && super::mutex::holds_mutex(&ty) {
             return Err(at.error(super::mutex::FORMAT));
         }

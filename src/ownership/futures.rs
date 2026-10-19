@@ -1,9 +1,9 @@
 //! Local submission provenance for blocking future retrieval.
-use super::{graph, Node, Op, Site, Ty};
+use super::{graph, Hazard, Node, Op, Site};
 use crate::executor::ExecutorOp;
 use crate::sum::EnumOp;
 
-type Jobs = Vec<(Ty, Option<Site>)>;
+type Jobs = Vec<(Hazard, Option<Site>)>;
 
 /// Local assignments are joined conservatively, including loop-carried moves.
 /// Calls and multi-field aggregate storage are outside this analysis.
@@ -51,7 +51,7 @@ impl Futures {
         graph(body, None, 0, None, &mut nodes);
         if !nodes.iter().any(|node| {
             matches!(&node.op, Some(Op::Executor(ExecutorOp::Submit(job, _)))
-                if !crate::threading::endpoints([job.input.clone()], true, true).is_empty())
+                if Hazard::of(&job.input).next().is_some())
         }) {
             return Self { jobs };
         }
@@ -77,9 +77,8 @@ impl Futures {
                 let node = &nodes[index];
                 match &node.op {
                     Some(Op::Executor(ExecutorOp::Submit(job, _))) => {
-                        for message in crate::threading::endpoints([job.input.clone()], true, true)
-                        {
-                            let origin = (message, node.site);
+                        for hazard in Hazard::of(&job.input) {
+                            let origin = (hazard, node.site);
                             if !jobs[slot].contains(&origin) {
                                 jobs[slot].push(origin);
                             }
@@ -115,7 +114,7 @@ impl Futures {
     }
 
     /// The frontend materializes a future receiver in a local before consuming it.
-    pub(super) fn before(&self, ops: &[Op]) -> &[(Ty, Option<Site>)] {
+    pub(super) fn before(&self, ops: &[Op]) -> &[(Hazard, Option<Site>)] {
         match ops.iter().rev().find(|op| !transparent(op)) {
             Some(Op::MoveLocal(slot)) => self.jobs.get(*slot as usize).map_or(&[], Vec::as_slice),
             _ => &[],

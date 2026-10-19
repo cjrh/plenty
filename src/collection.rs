@@ -162,6 +162,7 @@ impl Ty {
                 Self::Enum(_)
                     | Self::Class(_)
                     | Self::Box(_)
+                    | Self::Shared(_)
                     | Self::Generator(_)
                     | Self::File
                     | Self::Channel(..)

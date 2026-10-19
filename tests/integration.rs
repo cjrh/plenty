@@ -311,6 +311,8 @@ mod test_runtime_packaging;
 mod test_set_operations;
 #[path = "test_set_removal.rs"]
 mod test_set_removal;
+#[path = "test_shared.rs"]
+mod test_shared;
 #[path = "test_slicing.rs"]
 mod test_slicing;
 #[path = "test_small_conveniences.rs"]

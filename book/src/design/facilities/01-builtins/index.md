@@ -12,6 +12,7 @@ method names. Their contracts complement the language rules for
 - [Formatting](formatting.md): representations and printed values.
 - [Tuples](tuples.md): fixed products and component access.
 - [Boxes](boxes.md): explicit heap ownership and content access.
+- [Shared owners](shared.md): one value with several counted owners.
 - [Text](text.md): Unicode values and character lookup.
 - [Text search](text-search.md), [building](text-building.md), and
   [splitting](text-splitting.md).

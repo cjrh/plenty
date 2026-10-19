@@ -393,6 +393,13 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
         if let Expression::Index(base, index) = &ungroup(e).kind {
+            if matches!(self.place_type(base), Some(Ty::Shared(_))) {
+                let element = Expr {
+                    at: e.at.clone(),
+                    kind: Expression::Index(Box::new(shared::content(base)), index.clone()),
+                };
+                return self.borrow_with_indices(&element, mutable, indices, ops);
+            }
             let collection = self.place_type(base).ok_or_else(|| {
                 e.at.error("element borrowing requires a named collection or field")
             })?;
@@ -467,6 +474,9 @@ impl Lower<'_> {
         }
         if let Expression::Unary(op, base) = &ungroup(e).kind {
             if op == "*" {
+                if mutable && matches!(self.place_type(base), Some(Ty::Shared(_))) {
+                    return Err(e.at.error(shared::MUTATION));
+                }
                 let reference_binding = self.reference_binding(base);
                 let (reference, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
                 let Ty::Ref(inner, _) = &reference else {
@@ -480,12 +490,31 @@ impl Lower<'_> {
                         )));
                         Ok((Ty::Ref(content.clone(), mutable), loan))
                     }
+                    Ty::Shared(content) => {
+                        ops.push(Op::Box(crate::boxed::BoxOp::SharedRef((**content).clone())));
+                        Ok((Ty::Ref(content.clone(), false), loan))
+                    }
                     _ if reference_binding => Ok((reference, loan)),
                     _ => Err(e.at.error("`*` requires a reference or a Box")),
                 };
             }
         }
         if let Expression::Member(base, name, _) = &ungroup(e).kind {
+            if matches!(self.place_type(base), Some(Ty::Shared(_))) {
+                return self.borrow_with_indices(
+                    &Expr {
+                        at: e.at.clone(),
+                        kind: Expression::Member(
+                            Box::new(shared::content(base)),
+                            name.clone(),
+                            Pos::default(),
+                        ),
+                    },
+                    mutable,
+                    indices,
+                    ops,
+                );
+            }
             let (reference, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
             let reference = self.unbox_reference(reference, ops);
             let Ty::Ref(inner, _) = reference else {
@@ -708,7 +737,24 @@ impl Lower<'_> {
             Expression::Member(base, _, _) if self.qualified_type(base)?.is_none() => {
                 self.field(e, ops)
             }
+            Expression::Unary(op, base)
+                if op == "*" && matches!(self.place_type(base), Some(Ty::Shared(_))) =>
+            {
+                let (reference, loan) = self.borrow(e, false, ops)?;
+                let Ty::Ref(content, _) = reference else {
+                    unreachable!()
+                };
+                ops.push(Op::ReadRef((*content).clone()));
+                Ok(((*content).clone(), vec![loan]))
+            }
             Expression::Index(base, index) => {
+                if matches!(self.place_type(base), Some(Ty::Shared(_))) {
+                    let element = Expr {
+                        at: e.at.clone(),
+                        kind: Expression::Index(Box::new(shared::content(base)), index.clone()),
+                    };
+                    return self.observe_inner(&element, expected, ops);
+                }
                 if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple()) {
                     let (reference, loan) = self.borrow(e, false, ops)?;
                     let Ty::Ref(value, _) = reference else {
@@ -818,6 +864,11 @@ impl Lower<'_> {
             return Ok(None);
         }
         let (ty, loans) = self.observe(arg, ops)?;
+        if ty.facts().shared {
+            return Err(at.error(
+                "values containing Shared owners cannot be copied; call share() for another owner of the same value",
+            ));
+        }
         if ty.recursive_data() {
             return Err(at.error(
                 "automatic copy is not supported for recursive data; rebuild it explicitly",
