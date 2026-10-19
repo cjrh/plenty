@@ -26,5 +26,6 @@ Cancellation is idempotent and does not reset.
 A token does not interrupt instructions, cancel a future, or wake a channel
 wait. Workers must return cooperatively, using bounded waits where needed.
 [`std.time`](time.md) supplies deadline arithmetic and timeout conversion.
-Mutexes, atomics, semaphores and other synchronization primitives are not
-exported; this module exposes only the adopted cancellation contract.
+Atomic integers and booleans are in [`std.atomic`](atomic.md). Mutexes,
+semaphores and other synchronization primitives are not exported; this module
+exposes only the adopted cancellation contract.

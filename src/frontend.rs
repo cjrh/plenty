@@ -13,6 +13,7 @@ use crate::op::{
     mark_tail_calls, CompiledFn, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty,
 };
 use crate::value::{Heap, Value};
+mod atomic;
 mod byte_buffers;
 mod callables;
 mod calls;
@@ -740,6 +741,16 @@ impl TypeRef {
                 return Err(self.at.error("references to references are not supported"));
             }
             return Ok(Some(Ty::Ref(Arc::new(inner), name == "&mut")));
+        }
+        if name == crate::atomic::ATOMIC {
+            let [element] = self.args.as_slice() else {
+                return Err(self.at.error("Atomic requires one element type"));
+            };
+            let element = element.resolve(aliases)?.unwrap_or(Ty::Unit);
+            if !crate::atomic::supported(&element) {
+                return Err(atomic::element_error(&element, &self.at));
+            }
+            return Ok(Some(crate::atomic::ty(element)));
         }
         if name == "Generator" {
             if self.args.len() != 1 {
@@ -3027,6 +3038,9 @@ impl Lower<'_> {
                 Some(self.function_value(&symbol, &e.at, ops)?)
             }
             Expression::GenericCall(name, types, args) => {
+                if name == crate::atomic::ATOMIC {
+                    return self.atomic_new(Some(types), args, None, &e.at, ops);
+                }
                 if self.aliases.data.contains(name) {
                     let ty = TypeRef {
                         concrete: None,
@@ -3217,6 +3231,9 @@ impl Lower<'_> {
                         }
                     };
                     let loan = self.reference_origin(value, ops)?;
+                    if let Ty::Atomic(_) = &*ty {
+                        return Err(e.at.error("an atomic is read with load(), not through `*`"));
+                    }
                     if ty.affine() {
                         return Err(e
                             .at
@@ -3296,6 +3313,11 @@ impl Lower<'_> {
                         "values containing channel endpoints, executors, or futures do not support membership equality",
                     ));
                 }
+                if element.facts().atomic {
+                    return Err(e
+                        .at
+                        .error("values containing atomics do not support membership equality"));
+                }
                 self.same(
                     Some(a),
                     Some(if b == Ty::Str { Ty::Str } else { element }),
@@ -3364,6 +3386,11 @@ impl Lower<'_> {
                     return Err(e
                         .at
                         .error("values containing channel endpoints, executors, or futures do not support equality"));
+                }
+                if matches!(op.as_str(), "==" | "!=") && a.facts().atomic {
+                    return Err(e.at.error(
+                        "values containing atomics do not support equality; compare values read with load()",
+                    ));
                 }
                 if matches!(op.as_str(), "==" | "!=") && a.recursive_data() {
                     return Err(e.at.error("automatic equality is not supported for recursive data; compare fields explicitly"));
@@ -3490,6 +3517,12 @@ impl Lower<'_> {
                 if name == "CancellationToken" {
                     return self.control_new(args, &e.at, ops);
                 }
+                if name == crate::atomic::ATOMIC {
+                    return self.atomic_new(None, args, None, &e.at, ops);
+                }
+                if name == crate::atomic::FENCE {
+                    return self.atomic_fence(args, &e.at, ops);
+                }
                 if matches!(
                     name.as_str(),
                     "select_recv" | "select_recv_nowait" | "select_recv_timeout"
@@ -3516,6 +3549,11 @@ impl Lower<'_> {
                         let (ty, loans) = self.observe(argument, ops)?;
                         if ty.prints_generator_frame() {
                             return Err(e.at.error("generators cannot be printed"));
+                        }
+                        if ty.facts().atomic {
+                            return Err(e.at.error(
+                                "atomics cannot be printed; print a value read with load()",
+                            ));
                         }
                         if ty.recursive_data() {
                             return Err(e.at.error("automatic formatting is not supported for recursive data; print selected fields"));

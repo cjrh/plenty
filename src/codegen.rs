@@ -64,6 +64,7 @@ use cranelift_object::ObjectModule;
 
 use crate::cache::Cache;
 use crate::lexer;
+mod atomic;
 mod casts;
 mod channels;
 mod closures;
@@ -1701,6 +1702,7 @@ impl Lowerer<'_, '_> {
             Op::Thread(operation) => self.lower_thread(operation)?,
             Op::Channel(operation) => self.lower_channel(operation)?,
             Op::Control(operation) => self.lower_control(operation)?,
+            Op::Atomic(operation) => self.lower_atomic(operation)?,
             Op::Executor(operation) => self.lower_executor(operation)?,
             Op::Try {
                 source,

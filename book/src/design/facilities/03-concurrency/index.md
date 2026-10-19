@@ -3,7 +3,8 @@
 Concurrency is explicit. Native workers can overlap without an interpreter lock;
 ordinary loops and comprehensions remain serial. Ownership transfers and checked
 loans still apply across threads. Shared immutable storage does not permit
-unsynchronized mutation.
+unsynchronized mutation; [`std.atomic`](../../stdlib/atomic.md) values are
+updated through shared references with atomic instructions.
 
 Worker eligibility is a closed-world compiler check, not a user-defined marker
 protocol. It examines concrete stored types, reachable helper and callback

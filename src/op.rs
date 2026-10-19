@@ -25,6 +25,9 @@ pub enum Ty {
     /// Shared channel core, with affine sender (true) or receiver (false) handles.
     Channel(Arc<Ty>, bool),
     CancellationToken,
+    /// `std.atomic.Atomic[T]`: an inline integer or bool slot accessed only
+    /// through atomic instructions.
+    Atomic(Arc<Ty>),
     Executor,
     Future(Arc<Ty>),
     Closure(Arc<crate::closure::ClosureType>),
@@ -158,6 +161,7 @@ impl Ty {
                 | Self::Task(_)
                 | Self::Channel(..)
                 | Self::CancellationToken
+                | Self::Atomic(_)
                 | Self::Executor
                 | Self::Future(_)
                 | Self::Closure(_)
@@ -358,6 +362,7 @@ impl Ty {
             Ty::Dict(k, v) => format!("dict[{}, {}]", k.identity_name(), v.identity_name()),
             Ty::Box(t) => format!("Box[{}]", t.identity_name()),
             Ty::Future(t) => format!("Future[{}]", t.identity_name()),
+            Ty::Atomic(t) => format!("Atomic[{}]", t.identity_name()),
             Ty::Channel(t, sender) => format!(
                 "{}[{}]",
                 if *sender { "Sender" } else { "Receiver" },
@@ -387,6 +392,7 @@ impl fmt::Display for Ty {
             Ty::Task(_) => "scoped task",
             Ty::Executor => "ThreadPoolExecutor",
             Ty::CancellationToken => "CancellationToken",
+            Ty::Atomic(t) => return write!(f, "Atomic[{t}]"),
             Ty::Future(t) => return write!(f, "Future[{t}]"),
             Ty::Channel(t, sender) => {
                 return write!(f, "{}[{t}]", if *sender { "Sender" } else { "Receiver" })
@@ -571,6 +577,7 @@ pub enum Op {
     Thread(crate::threading::ThreadOp),
     Channel(crate::channel::ChannelOp),
     Control(crate::control::ControlOp),
+    Atomic(crate::atomic::AtomicOp),
     Executor(crate::executor::ExecutorOp),
     ClosureNew(Arc<crate::closure::ClosureType>),
     ClosureCall(Arc<crate::closure::ClosureType>),
@@ -1605,6 +1612,15 @@ fn step(
             for ty in inputs.iter().rev() {
                 if stack.pop().as_ref() != Some(ty) {
                     return Err("invalid cancellation token argument".into());
+                }
+            }
+            stack.push(output);
+        }
+        Op::Atomic(operation) => {
+            let (inputs, output) = operation.signature();
+            for ty in inputs.iter().rev() {
+                if stack.pop().as_ref() != Some(ty) {
+                    return Err("invalid atomic argument".into());
                 }
             }
             stack.push(output);

@@ -317,6 +317,8 @@ mod test_small_conveniences;
 mod test_stack_overflow;
 #[path = "test_std_archive.rs"]
 mod test_std_archive;
+#[path = "test_std_atomic.rs"]
+mod test_std_atomic;
 #[path = "test_std_bytes.rs"]
 mod test_std_bytes;
 #[path = "test_std_collections.rs"]

@@ -39,6 +39,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.channel", ""),
     ("std.concurrent", ""),
     ("std.sync", ""),
+    ("std.atomic", include_str!("../../stdlib/std/atomic.plenty")),
     ("std.io", include_str!("../../stdlib/std/io.plenty")),
     (
         "std.io.typed",
@@ -183,6 +184,8 @@ fn facility_exports(module: &str) -> &'static [&'static str] {
             "ParallelError",
         ],
         "std.sync" => &["CancellationToken"],
+        // Qualified so that the names resolve only through an import.
+        "std.atomic" => &[crate::atomic::ATOMIC, crate::atomic::FENCE],
         _ => &[],
     }
 }
@@ -1626,11 +1629,10 @@ fn resolve(
                 m.exports
                     .iter()
                     .map(|n| (n.clone(), qualified(&m.name, n)))
-                    .chain(
-                        m.facility_exports
-                            .iter()
-                            .map(|n| (n.to_string(), n.to_string())),
-                    )
+                    .chain(m.facility_exports.iter().map(|n| {
+                        let name = n.rsplit('.').next().unwrap_or(n);
+                        (name.to_string(), n.to_string())
+                    }))
                     .collect(),
             )
         })

@@ -22,6 +22,7 @@ macro_rules! profile_block {
 }
 pub(crate) use profile_block;
 
+mod atomic;
 mod boxed;
 mod bytes;
 pub mod cache;

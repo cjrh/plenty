@@ -29,6 +29,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.channel`](channel.md) | Bounded channels, endpoints and selection | Channel/send/receive/selection errors |
 | [`std.concurrent`](concurrent.md) | Executors, futures and parallel operations | Pool/submission/future/parallel errors |
 | [`std.sync`](sync.md) | Shared cooperative cancellation tokens | `AllocError` |
+| [`std.atomic`](atomic.md) | Inline atomic integers and booleans with compile-time checked orderings, and fences | None |
 | [`std.encoding`](encoding.md) | Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |
 | [`std.url`](url.md) | Strict RFC 3986 absolute URL parsing and formatting without normalization, component-aware percent encoding, and query pairs | `UrlError` |
 | [`std.collections`](collections.md) | Owned binary heaps ordered by `<` or by a stored comparator | `AllocError` |

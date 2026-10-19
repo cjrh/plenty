@@ -45,3 +45,17 @@ and uses a per-call condition variable. Queue-to-waiter lock ordering synchroniz
 notification; selection transfers a value under its queue lock and removes all
 registrations on every return. It needs no global selection lock or per-wait
 heap allocation.
+
+## Atomics
+
+`std.atomic` operations compile inline, with no runtime call. A method borrows
+its receiver's place, so a local atomic lives in the function's frame and every
+thread addresses the same slot. The payload is the slot's low word, naturally
+aligned because slots are at least 8-byte aligned. Each access is a Cranelift
+atomic instruction (`atomic_load`, `atomic_store`, `atomic_rmw`, `atomic_cas`,
+`fence`) of the element's exact width, never a plain load the optimizer could
+merge. Checked `fetch_add`/`fetch_sub` loop on `atomic_cas` and trap before
+storing. Cranelift's atomics are all sequentially consistent, so each requested
+`Ordering` is validated at compile time and then strengthened. On x86-64 a
+load is a `mov`, a store and a fence add `mfence`, and read-modify-write
+operations use `lock`-prefixed instructions or a `lock cmpxchg` loop.

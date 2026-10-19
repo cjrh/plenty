@@ -623,6 +623,11 @@ impl Lower<'_> {
                 self.unwrap_result(base, args, expected, ops)
             }
             Expression::Call(name, args)
+                if name == crate::atomic::ATOMIC && matches!(&expected, Some(Ty::Atomic(_))) =>
+            {
+                self.atomic_new(None, args, expected, &e.at, ops)
+            }
+            Expression::Call(name, args)
                 if name == "range"
                     && matches!(&expected, Some(Ty::Range(_)))
                     && !self.names.contains_key(name) =>
@@ -2032,6 +2037,9 @@ impl Lower<'_> {
         if matches!(self.place_type(base), Some(Ty::CancellationToken)) {
             return self.control_method(base, name, args, ops);
         }
+        if matches!(self.place_type(base), Some(Ty::Atomic(_))) {
+            return self.atomic_method(base, name, args, ops);
+        }
         if matches!(self.place_type(base), Some(Ty::Executor | Ty::Future(_))) {
             return self.executor_method(base, name, args, ops);
         }
@@ -2137,6 +2145,11 @@ impl Lower<'_> {
                 let (source, loans) = self.observe(&args[0], ops)?;
                 if source.restricted_storage() {
                     return Err(base.at.error("generators cannot be formatted"));
+                }
+                if source.facts().atomic {
+                    return Err(base
+                        .at
+                        .error("atomics cannot be formatted; format a value read with load()"));
                 }
                 if source.recursive_data() {
                     return Err(base.at.error("automatic formatting is not supported for recursive data; format selected fields"));
@@ -2395,6 +2408,19 @@ impl Lower<'_> {
         }
         if ty == Ty::CancellationToken {
             return self.observed_control_method(base, name, args, (ty, loans), ops);
+        }
+        if let Ty::Atomic(element) = &ty {
+            // An owned temporary can only be unwrapped: an update would be lost.
+            if name == "into_inner" && args.is_empty() && loans.is_empty() {
+                let element = (**element).clone();
+                ops.push(Op::Atomic(crate::atomic::AtomicOp::IntoInner(
+                    element.clone(),
+                )));
+                return Ok(Some(element));
+            }
+            return Err(base.at.error(
+                "atomic operations need a place to update; bind the atomic to a name first",
+            ));
         }
         if let Some(need) = receiver_requirement(name, &ty) {
             return Err(base.at.error(format!("{name} requires {need}")));

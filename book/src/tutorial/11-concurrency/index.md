@@ -7,6 +7,7 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Import concurrency explicitly](explicit-imports.md)
 - [Run scoped threads](scoped-threads.md)
 - [Borrow local data for a worker](borrowed-workers.md)
+- [Count with atomics](atomic-counters.md)
 - [Move jobs to workers](owned-worker-jobs.md)
 - [Run stored jobs](stored-worker-jobs.md)
 - [Send values between threads](channels-and-shutdown.md)

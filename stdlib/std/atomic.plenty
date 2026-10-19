@@ -1,0 +1,9 @@
+# Memory orderings for std.atomic. `Atomic[T]` and `fence` are provided by the
+# compiler; see book/src/design/stdlib/atomic.md.
+
+pub enum Ordering:
+    Relaxed
+    Release
+    Acquire
+    AcqRel
+    SeqCst
