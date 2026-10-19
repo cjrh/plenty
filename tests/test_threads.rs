@@ -712,3 +712,74 @@ def main() -> ():
         "{error}"
     );
 }
+
+#[test]
+fn start_errors_widen_into_declared_error_sums() {
+    runs(
+        r#"
+def worker() -> ():
+    pass
+def add(n: &mut i64) -> i64:
+    *n = *n + 1
+    *n
+def main() -> Result[(), ThreadError | IoError]:
+    mut n = 1
+    with spawn(worker)?:
+        print("started")?
+    mut job = def [mut n]() -> i64:
+        n + 5
+    with spawn(&mut job)? as a, spawn(add, &mut n)? as b:
+        print(a.join())?
+        print(b.join())?
+    Ok(())
+"#,
+        "started\n6\n2\n",
+    );
+    let error = support::check_source(
+        "def worker() -> ():\n    pass\ndef main() -> Result[(), IoError | AllocError]:\n    with spawn(worker)?:\n        pass\n    Ok(())\n",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains(
+            "spawn propagation requires a Result whose error accepts ThreadError, or Failure"
+        ),
+        "{error}"
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_start_in_error_sum_drops_arguments_and_joins_prior_tasks() {
+    runs(r#"
+class Item:
+    label: str
+    def __del__(self) -> ():
+        print(self.label).unwrap()
+def update(n: &mut i64) -> ():
+    *n = *n + 10
+def take(item: Item, values: list[Item]) -> ():
+    print("unexpected worker").unwrap()
+def attempt(a: &mut i64, b: &mut i64) -> Result[(), ThreadError | IoError]:
+    with spawn(update, a)?, spawn(take, Item("item"), [Item("nested")].unwrap())?, spawn(update, b)?:
+        print("unexpected body")?
+    Ok(())
+def main() -> Result[(), Failure]:
+    mut a = 1
+    mut b = 2
+    print("__test_one_thread_start__")?
+    match attempt(&mut a, &mut b):
+        case Err(error):
+            match error:
+                case start: ThreadError:
+                    print(str.repr(start)?)?
+                case _:
+                    print("unexpected error")?
+        case Ok(_):
+            print("unexpected start")?
+    print("__test_restore_thread_starts__")?
+    print(a)?
+    print(b)?
+    Ok(())
+"#, "__test_one_thread_start__\nnested\nitem\nThreadError.System(11)\n__test_restore_thread_starts__\n11\n2\n");
+}

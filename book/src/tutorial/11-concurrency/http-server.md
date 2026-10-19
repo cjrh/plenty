@@ -68,7 +68,7 @@ def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoErro
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError | std.http.server.ServerError | std.net.NetError | AllocError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/index.html", Route.Home)?
@@ -178,9 +178,6 @@ says nothing is closed then. Between the client's handshake messages the
 connection waits on the server's thread too. Routing, deadlines and shutdown work as for
 plain HTTP.
 
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
-
-The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
 Keep concrete errors in helpers; the handler boundary erases them. See the
 [server contract](../../design/stdlib/http-server.md).

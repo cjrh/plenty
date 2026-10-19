@@ -26,7 +26,7 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
         total = total + count
     Ok(total)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | NetError | std.bytes.BytesError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     mut listener = listen(&loopback_v4(0u16), 8)?
@@ -110,6 +110,3 @@ Only the second connection has input, so the wait reports one event, key 2.
 The server would now call `read_before` on that stream, which returns at once.
 Name lookup, UDP datagrams and IPv6 addresses are in the
 [reference](../../design/stdlib/net.md).
-
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

@@ -49,8 +49,10 @@ slots can have disjoint loans. All workers satisfy the
 
 Borrowed and named starts return `ThreadError.System(code)` with the native
 start error code. The worker has not run and cannot have changed borrowed inputs;
-already evaluated argument expressions keep their effects. Errors may be retained
-in a typed Result or erased into `Failure`.
+already evaluated argument expressions keep their effects. `spawn(...)?` follows
+ordinary [`?` propagation](../../language/08-errors/01-sums-and-propagation.md):
+the enclosing Result's error may be the start error, an anonymous sum containing
+it, or `Failure`, which erases it.
 
 Every nonzero `pthread_create` status is a start failure; none terminates the
 process. The usual code is `EAGAIN` (11), for a thread or memory limit. The

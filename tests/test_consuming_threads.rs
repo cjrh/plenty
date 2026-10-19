@@ -135,3 +135,60 @@ with spawn(other).unwrap() as task:
     print(task.join()).unwrap()
 "#, "__test_fail_thread_starts__\ndrop\nResult[(), Failure].Err(Failure.Unspecified)\n__test_restore_thread_starts__\ndrop\ndrop\n2\n");
 }
+
+#[test]
+fn owned_start_error_widens_into_declared_error_sum() {
+    runs(
+        r#"
+def submit[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[F] | IoError]:
+    with spawn(job)? as task:
+        print("started")?
+        return Ok(task.join())
+n = 4
+job = def once [n]() -> i64:
+    n + 1
+print(submit(job).unwrap()).unwrap()
+"#,
+        "started\n5\n",
+    );
+    let error = support::check_source(
+        "def submit[F: OnceCallable[[], i64]](job: F) -> Result[i64, ThreadError | IoError]:\n    with spawn(job)? as task:\n        return Ok(task.join())\nn = 1\njob = def once [n]() -> i64:\n    n\nsubmit(job).unwrap()\n",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("spawn propagation requires a Result whose error accepts SpawnError[OnceClosure[[], i64]"),
+        "{error}"
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_owned_start_in_error_sum_returns_the_job() {
+    runs(
+        r#"
+def attempt[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[F] | IoError]:
+    with spawn(job)? as task:
+        return Ok(task.join())
+def retry[F: OnceCallable[[], i64]](job: F) -> i64:
+    match attempt(job):
+        case Ok(value):
+            value
+        case Err(error):
+            match error:
+                case failed: SpawnError[F]:
+                    match failed:
+                        case SpawnError.Unavailable(job):
+                            print("__test_restore_thread_starts__").unwrap()
+                            attempt(job).unwrap()
+                case _:
+                    0
+values = [7, 8].unwrap()
+job = def once [values]() -> i64:
+    values[1]
+print("__test_fail_thread_starts__").unwrap()
+print(retry(job)).unwrap()
+"#,
+        "__test_fail_thread_starts__\n__test_restore_thread_starts__\n8\n",
+    );
+}

@@ -47,5 +47,5 @@ Using `?` in a function returning `Failure` discards the creation error and drop
 the unstarted job. A reusable closure can also be moved into `spawn`; its captures
 are dropped after the worker's single invocation.
 
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
+The first `main` keeps `Failure` because `F` there is the closure's own type,
+which a signature cannot name; the generic `attempt` helper names it as `F`.

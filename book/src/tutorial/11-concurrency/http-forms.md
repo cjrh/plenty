@@ -94,7 +94,7 @@ def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoErro
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | std.http.server.ServerError | std.http.proxy.ProxyError | std.net.NetError | AllocError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("POST", "/login", Route.Login)?
     routes.add("GET", "/me", Route.Me)?
@@ -141,9 +141,6 @@ only because the program trusts `127.0.0.1`, and reads it from the right:
 client. `198.51.100.4` came from the client itself and is ignored. With no
 `trust` call, the header is ignored and the client is the peer.
 
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
-
-The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
 Keep concrete errors in helpers; the handler boundary erases them. See the
 [server contract](../../design/stdlib/http-server.md).

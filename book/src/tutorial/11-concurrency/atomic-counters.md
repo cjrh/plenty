@@ -11,7 +11,7 @@ def count(hits: &Atomic[u64], rounds: i64) -> ():
     for _ in range(rounds):
         hits.fetch_add(1, Ordering.Relaxed)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError]:
     hits = Atomic[u64](0)
     with spawn(count, &hits, 100000)?, spawn(count, &hits, 100000)?:
         pass
@@ -58,7 +58,7 @@ def record(stats: &Stats, start: i64) -> ():
         stats.seen.fetch_add(1, Ordering.Relaxed)
         stats.largest.fetch_max(value, Ordering.Relaxed)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError]:
     stats = Stats(seen=Atomic(0), largest=Atomic(i64.MIN))
     with spawn(record, &stats, 0)?, spawn(record, &stats, 5000)?:
         pass

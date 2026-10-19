@@ -38,12 +38,12 @@ def produce(sender: Sender[i64]) -> Result[(), AllocError | IoError | SendError[
         sender.send(n * n)?
     Ok(())
 
-def first_square() -> Result[i64, Failure]:
+def first_square() -> Result[i64, ThreadError | ChannelError | RecvError]:
     sender, receiver = channel[i64](1)?
     with spawn(produce, sender)?, receiver as inbox:
         return Ok(inbox.recv()?)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | ChannelError | RecvError | IoError]:
     print(first_square()?)?
     Ok(())
 ```
@@ -55,6 +55,3 @@ def main() -> Result[(), Failure]:
 Returning drops the receiver first. The producer's next send reports
 disconnection; its `?` ends the worker. The task scope then joins it and discards
 its unclaimed result.
-
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
