@@ -121,7 +121,7 @@ Check the workflow helpers with
 
 ## Documentation site
 
-[The public book](https://cjrh.github.io/plenty/) follows `main`, so it describes
+[The public book](https://cjrh.info/plenty/) follows `main`, so it describes
 development rather than a particular release. `.github/workflows/docs.yml`
 builds every push to `main`, PR targeting `main` (including forks), and manual
 dispatch. Only a main push or main dispatch can deploy. It does not publish
@@ -133,10 +133,18 @@ Use the same pinned tools as the workflow:
 rustup toolchain install 1.99.0 --profile minimal
 cargo +1.99.0 install mdbook --version 0.5.4 --locked
 python3 -B scripts/check_links.py book/src
-mdbook build book
+python3 -B scripts/build_book.py
 python3 -B scripts/check_book_output.py book/book
 mdbook serve book --open
 ```
+
+The build helper adds a visible **Development** label and source commit to every
+page, including print and 404 pages. Local uncommitted changes are explicitly
+marked. `docs-version.json` records the full revision and Cargo package version;
+the package version alone does not identify a development build. The label is
+static HTML and needs no JavaScript. Raw `mdbook serve` is a convenient content
+preview, but does not add this deployment metadata; serve the helper's generated
+directory with a static HTTP server to preview the label.
 
 The build needs no Plenty compiler. Do not use `mdbook test` for Plenty fences;
 the tutorial integration tests above execute those examples. The output checker
