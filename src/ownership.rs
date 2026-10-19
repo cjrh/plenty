@@ -308,20 +308,28 @@ pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) ->
         parameters,
         origins,
         submitted: RefCell::default(),
-        futures: futures::Futures::new(ops, locals.len()),
+        futures: crate::profile_block!(
+            "ownership::prepare_futures",
+            futures::Futures::new(ops, locals.len())
+        ),
     };
-    let mut state = (0..locals.len())
-        .map(|i| {
-            if i < parameters {
-                Slot::Owned
-            } else {
-                Slot::Unset
-            }
-        })
-        .collect();
-    if checker.sequence(ops, &mut state, &mut Vec::new(), None)? {
-        checker.release(&mut state, None)?;
-    }
+    let mut state = crate::profile_block!(
+        "ownership::initialize_state",
+        (0..locals.len())
+            .map(|i| {
+                if i < parameters {
+                    Slot::Owned
+                } else {
+                    Slot::Unset
+                }
+            })
+            .collect()
+    );
+    crate::profile_block!("ownership::check_moves", {
+        if checker.sequence(ops, &mut state, &mut Vec::new(), None)? {
+            checker.release(&mut state, None)?;
+        }
+    });
     checker.loans(ops)
 }
 
@@ -1038,6 +1046,10 @@ impl Checker<'_> {
         Ok(true)
     }
 
+    #[cfg_attr(
+        feature = "profile",
+        hotpath::measure(label = "ownership::check_loans")
+    )]
     fn loans(&self, ops: &[Op]) -> Result<()> {
         fn use_loan(id: usize, loans: &HashMap<usize, Loan>, live: &mut BTreeSet<usize>) {
             if live.insert(id) {
@@ -1069,211 +1081,220 @@ impl Checker<'_> {
         if !has_loans(ops) {
             return Ok(());
         }
-        let mut nodes = vec![Node::default()];
-        let entry = graph(ops, None, 0, None, &mut nodes);
-        let mut reachable = BTreeSet::new();
-        let mut todo = vec![entry];
-        while let Some(n) = todo.pop() {
-            if reachable.insert(n) {
-                todo.extend(&nodes[n].successors);
-            }
-        }
-        let mut loans = HashMap::new();
-        let mut created = HashMap::new();
-        for node in &nodes {
-            if let Some(Op::Loan(l)) = &node.op {
-                loans.insert(l.id, l.clone());
-                created.insert(l.id, node.site);
-            }
-        }
-        let mut live = vec![BTreeSet::new(); nodes.len()];
-        loop {
-            let mut changed = false;
-            for &i in &reachable {
-                let mut before = BTreeSet::new();
-                for &s in &nodes[i].successors {
-                    before.extend(&live[s]);
+        let (nodes, reachable, loans, created) = crate::profile_block!("ownership::loan_graph", {
+            let mut nodes = vec![Node::default()];
+            let entry = graph(ops, None, 0, None, &mut nodes);
+            let mut reachable = BTreeSet::new();
+            let mut todo = vec![entry];
+            while let Some(n) = todo.pop() {
+                if reachable.insert(n) {
+                    todo.extend(&nodes[n].successors);
                 }
-                match &nodes[i].op {
-                    Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
-                        before.remove(id);
-                        use_loan(*id, &loans, &mut before);
+            }
+            let mut loans = HashMap::new();
+            let mut created = HashMap::new();
+            for node in &nodes {
+                if let Some(Op::Loan(l)) = &node.op {
+                    loans.insert(l.id, l.clone());
+                    created.insert(l.id, node.site);
+                }
+            }
+            (nodes, reachable, loans, created)
+        });
+        let live = crate::profile_block!("ownership::loan_liveness", {
+            let mut live = vec![BTreeSet::new(); nodes.len()];
+            loop {
+                let mut changed = false;
+                for &i in &reachable {
+                    let mut before = BTreeSet::new();
+                    for &s in &nodes[i].successors {
+                        before.extend(&live[s]);
                     }
-                    Some(Op::Loan(l)) => {
-                        before.remove(&l.id);
-                        if let Some(p) = l.parent {
-                            before.insert(p);
+                    match &nodes[i].op {
+                        Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
+                            before.remove(id);
+                            use_loan(*id, &loans, &mut before);
                         }
+                        Some(Op::Loan(l)) => {
+                            before.remove(&l.id);
+                            if let Some(p) = l.parent {
+                                before.insert(p);
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                }
-                if before != live[i] {
-                    live[i] = before;
-                    changed = true;
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
-        let ancestor = |candidate: usize, mut child: usize| loop {
-            if candidate == child {
-                return true;
-            }
-            match loans.get(&child).and_then(|l| l.parent) {
-                Some(p) => child = p,
-                None => return false,
-            }
-        };
-        // The nearest operation that keeps `loan` live after node `from`, and
-        // whether reaching it re-enters a loop that contains `from`.
-        let later_use = |from: usize, loan: usize| -> Option<(Site, bool)> {
-            let mut seen = BTreeSet::new();
-            let mut todo: std::collections::VecDeque<_> =
-                nodes[from].successors.iter().map(|&s| (s, false)).collect();
-            while let Some((n, repeated)) = todo.pop_front() {
-                if !live[n].contains(&loan) || !seen.insert(n) {
-                    continue;
-                }
-                let keeps = match &nodes[n].op {
-                    Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
-                        let mut used = BTreeSet::new();
-                        use_loan(*id, &loans, &mut used);
-                        used.contains(&loan)
+                    if before != live[i] {
+                        live[i] = before;
+                        changed = true;
                     }
-                    Some(Op::Loan(l)) => l.parent == Some(loan),
-                    _ => false,
-                };
-                if keeps {
-                    return nodes[n].site.map(|site| (site, repeated));
                 }
-                // Nodes are numbered back to front, so only a loop header has
-                // a higher-numbered successor: its test, the last node built
-                // for the loop. `from` is inside that loop when it lies between.
-                todo.extend(
-                    nodes[n]
-                        .successors
-                        .iter()
-                        .map(|&s| (s, repeated || (n < from && from <= s))),
-                );
+                if !changed {
+                    break;
+                }
             }
-            None
-        };
-        // Report the conflict that comes first in the source.
-        let mut first: Option<Box<Error>> = None;
-        for &i in &reachable {
-            let mut after = BTreeSet::new();
-            for &s in &nodes[i].successors {
-                after.extend(&live[s]);
-            }
-            let site = nodes[i].site;
-            let access = match &nodes[i].op {
-                Some(Op::Loan(l)) => Some((
-                    l.root,
-                    l.mutable,
-                    l.parent,
-                    Some(l.id),
-                    if l.mutable {
-                        "modify or exclusively borrow"
-                    } else {
-                        "read or borrow"
-                    },
-                )),
-                Some(Op::Access(root, write, via)) => Some((
-                    *root,
-                    *write,
-                    *via,
-                    None,
-                    if *write { "modify" } else { "read" },
-                )),
-                Some(Op::MoveLocal(root)) => Some((*root, true, None, None, "move")),
-                Some(Op::StoreLocal(root)) => Some((*root, true, None, None, "assign to")),
-                Some(Op::DropLocal(root)) => Some((*root, true, None, None, "drop")),
-                Some(Op::Next(root)) => Some((*root, true, None, None, "advance")),
-                _ => None,
+            live
+        });
+        crate::profile_block!("ownership::validate_loans", {
+            let ancestor = |candidate: usize, mut child: usize| loop {
+                if candidate == child {
+                    return true;
+                }
+                match loans.get(&child).and_then(|l| l.parent) {
+                    Some(p) => child = p,
+                    None => return false,
+                }
             };
-            let mut found = None;
-            if let Some(Op::Yield(_)) = &nodes[i].op {
-                if let Some(&id) = after.first() {
-                    let loan = &loans[&id];
-                    let place = self.place(loan.root, &loan.fields, loan.precise);
-                    found = Some((self.error(Kind::LiveAcrossYield, place, site), id));
-                }
-            }
-            if let Some((root, write, via, defining, action)) = access {
-                for id in &after {
-                    let loan = &loans[id];
-                    if Some(*id) == defining || via.is_some_and(|v| ancestor(*id, v)) {
+            // The nearest operation that keeps `loan` live after node `from`, and
+            // whether reaching it re-enters a loop that contains `from`.
+            let later_use = |from: usize, loan: usize| -> Option<(Site, bool)> {
+                let mut seen = BTreeSet::new();
+                let mut todo: std::collections::VecDeque<_> =
+                    nodes[from].successors.iter().map(|&s| (s, false)).collect();
+                while let Some((n, repeated)) = todo.pop_front() {
+                    if !live[n].contains(&loan) || !seen.insert(n) {
                         continue;
                     }
-                    let accessed = defining.or(via).map(|id| &loans[&id]);
-                    let fields = accessed.map(|l| l.fields.as_slice()).unwrap_or(&[]);
-                    let overlaps =
-                        loan.fields.starts_with(fields) || fields.starts_with(&loan.fields);
-                    if loan.root == root && overlaps && (write || loan.mutable) {
-                        let place = self.place(root, fields, accessed.is_none_or(|l| l.precise));
-                        let borrowed = self.place(loan.root, &loan.fields, loan.precise);
-                        let kind = Kind::Conflict {
-                            action,
-                            through: accessed
-                                .and_then(|l| {
-                                    if defining.is_some() {
-                                        l.through
-                                    } else {
-                                        l.binding.or(l.through)
-                                    }
-                                })
-                                .filter(|slot| *slot != root)
-                                .and_then(|slot| self.place(slot, &[], false)),
-                            borrowed: borrowed.clone().filter(|b| Some(b) != place.as_ref()),
-                            exclusive: loan.mutable,
-                        };
-                        found = Some((self.error(kind, place, site), *id));
-                        break;
+                    let keeps = match &nodes[n].op {
+                        Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
+                            let mut used = BTreeSet::new();
+                            use_loan(*id, &loans, &mut used);
+                            used.contains(&loan)
+                        }
+                        Some(Op::Loan(l)) => l.parent == Some(loan),
+                        _ => false,
+                    };
+                    if keeps {
+                        return nodes[n].site.map(|site| (site, repeated));
+                    }
+                    // Nodes are numbered back to front, so only a loop header has
+                    // a higher-numbered successor: its test, the last node built
+                    // for the loop. `from` is inside that loop when it lies between.
+                    todo.extend(
+                        nodes[n]
+                            .successors
+                            .iter()
+                            .map(|&s| (s, repeated || (n < from && from <= s))),
+                    );
+                }
+                None
+            };
+            // Report the conflict that comes first in the source.
+            let mut first: Option<Box<Error>> = None;
+            for &i in &reachable {
+                let mut after = BTreeSet::new();
+                for &s in &nodes[i].successors {
+                    after.extend(&live[s]);
+                }
+                let site = nodes[i].site;
+                let access = match &nodes[i].op {
+                    Some(Op::Loan(l)) => Some((
+                        l.root,
+                        l.mutable,
+                        l.parent,
+                        Some(l.id),
+                        if l.mutable {
+                            "modify or exclusively borrow"
+                        } else {
+                            "read or borrow"
+                        },
+                    )),
+                    Some(Op::Access(root, write, via)) => Some((
+                        *root,
+                        *write,
+                        *via,
+                        None,
+                        if *write { "modify" } else { "read" },
+                    )),
+                    Some(Op::MoveLocal(root)) => Some((*root, true, None, None, "move")),
+                    Some(Op::StoreLocal(root)) => Some((*root, true, None, None, "assign to")),
+                    Some(Op::DropLocal(root)) => Some((*root, true, None, None, "drop")),
+                    Some(Op::Next(root)) => Some((*root, true, None, None, "advance")),
+                    _ => None,
+                };
+                let mut found = None;
+                if let Some(Op::Yield(_)) = &nodes[i].op {
+                    if let Some(&id) = after.first() {
+                        let loan = &loans[&id];
+                        let place = self.place(loan.root, &loan.fields, loan.precise);
+                        found = Some((self.error(Kind::LiveAcrossYield, place, site), id));
                     }
                 }
+                if let Some((root, write, via, defining, action)) = access {
+                    for id in &after {
+                        let loan = &loans[id];
+                        if Some(*id) == defining || via.is_some_and(|v| ancestor(*id, v)) {
+                            continue;
+                        }
+                        let accessed = defining.or(via).map(|id| &loans[&id]);
+                        let fields = accessed.map(|l| l.fields.as_slice()).unwrap_or(&[]);
+                        let overlaps =
+                            loan.fields.starts_with(fields) || fields.starts_with(&loan.fields);
+                        if loan.root == root && overlaps && (write || loan.mutable) {
+                            let place =
+                                self.place(root, fields, accessed.is_none_or(|l| l.precise));
+                            let borrowed = self.place(loan.root, &loan.fields, loan.precise);
+                            let kind = Kind::Conflict {
+                                action,
+                                through: accessed
+                                    .and_then(|l| {
+                                        if defining.is_some() {
+                                            l.through
+                                        } else {
+                                            l.binding.or(l.through)
+                                        }
+                                    })
+                                    .filter(|slot| *slot != root)
+                                    .and_then(|slot| self.place(slot, &[], false)),
+                                borrowed: borrowed.clone().filter(|b| Some(b) != place.as_ref()),
+                                exclusive: loan.mutable,
+                            };
+                            found = Some((self.error(kind, place, site), *id));
+                            break;
+                        }
+                    }
+                }
+                let Some((mut error, id)) = found else {
+                    continue;
+                };
+                let position = |e: &Error| e.primary.map(|s| (s.line, s.column));
+                if first
+                    .as_ref()
+                    .is_some_and(|f| position(f).is_some() && position(f) <= position(&error))
+                {
+                    continue;
+                }
+                let loan = &loans[&id];
+                if let Some(at) = created[&id] {
+                    error.notes.push((
+                        at,
+                        format!(
+                            "the {} borrow{} starts here",
+                            if loan.mutable { "exclusive" } else { "shared" },
+                            self.place(loan.root, &loan.fields, loan.precise)
+                                .map(|place| format!(" of `{place}`"))
+                                .unwrap_or_default()
+                        ),
+                    ));
+                }
+                // A later use inside the conflicting expression itself, such as
+                // the call both arguments feed, adds nothing to the primary line.
+                if let Some((at, repeated)) =
+                    later_use(i, id).filter(|(at, _)| Some(*at) != error.primary)
+                {
+                    error.notes.push((
+                        at,
+                        if at.scope_end {
+                            "the borrow is held until the end of this `with` block".into()
+                        } else if repeated {
+                            "the borrow is used again here on the next loop iteration".into()
+                        } else {
+                            "the borrow is used again here".into()
+                        },
+                    ));
+                }
+                first = Some(error);
             }
-            let Some((mut error, id)) = found else {
-                continue;
-            };
-            let position = |e: &Error| e.primary.map(|s| (s.line, s.column));
-            if first
-                .as_ref()
-                .is_some_and(|f| position(f).is_some() && position(f) <= position(&error))
-            {
-                continue;
-            }
-            let loan = &loans[&id];
-            if let Some(at) = created[&id] {
-                error.notes.push((
-                    at,
-                    format!(
-                        "the {} borrow{} starts here",
-                        if loan.mutable { "exclusive" } else { "shared" },
-                        self.place(loan.root, &loan.fields, loan.precise)
-                            .map(|place| format!(" of `{place}`"))
-                            .unwrap_or_default()
-                    ),
-                ));
-            }
-            // A later use inside the conflicting expression itself, such as
-            // the call both arguments feed, adds nothing to the primary line.
-            if let Some((at, repeated)) =
-                later_use(i, id).filter(|(at, _)| Some(*at) != error.primary)
-            {
-                error.notes.push((
-                    at,
-                    if at.scope_end {
-                        "the borrow is held until the end of this `with` block".into()
-                    } else if repeated {
-                        "the borrow is used again here on the next loop iteration".into()
-                    } else {
-                        "the borrow is used again here".into()
-                    },
-                ));
-            }
-            first = Some(error);
-        }
-        first.map_or(Ok(()), Err)
+            first.map_or(Ok(()), Err)
+        })
     }
 }

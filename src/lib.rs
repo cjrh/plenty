@@ -6,6 +6,22 @@
 //!
 //! Compile with [`compile_source_to_executable`] or validate with [`check_source`].
 
+// Keep scoped measurements expression-shaped: `?`, early returns and borrows
+// retain their original behavior, and feature-disabled builds need no hotpath.
+macro_rules! profile_block {
+    ($label:literal, $body:expr) => {{
+        #[cfg(feature = "profile")]
+        {
+            hotpath::measure_block!($label, $body)
+        }
+        #[cfg(not(feature = "profile"))]
+        {
+            $body
+        }
+    }};
+}
+pub(crate) use profile_block;
+
 mod boxed;
 mod bytes;
 pub mod cache;

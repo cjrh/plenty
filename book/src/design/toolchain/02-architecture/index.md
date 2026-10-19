@@ -22,6 +22,11 @@ source → lexer/parser → name and alias resolution → signatures → checkin
 - [Native interfaces](interop.md): adapters, metadata, and resident code.
 - [Support index](support.md): links to implemented contracts and major restrictions.
 
+The opt-in [compiler phase profiler](../../../development/profiling.md) reports
+lowering setup/body/finalization, ownership analysis subphases, and native
+compilation/code collection/context cleanup. Benchmark workloads can be selected
+independently; profiling is never activated by the feature alone.
+
 These pages describe mechanisms. Source rules live in the
 [language contract](../../language/01-overview/index.md), and operation guarantees
 live beside the [built-in APIs](../../facilities/01-builtins/index.md).

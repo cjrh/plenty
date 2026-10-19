@@ -754,6 +754,7 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
 }
 
 impl generics::Engine {
+    #[cfg_attr(feature = "profile", hotpath::measure(label = "generics::expand_data"))]
     pub(super) fn expand_data(&mut self, aliases: &TypeAliases) -> Result<Vec<Function>> {
         let pending = std::mem::take(&mut *aliases.data.pending.borrow_mut());
         let mut functions = Vec::new();

@@ -348,33 +348,38 @@ fn compile(
     cache: Option<&Cache>,
 ) -> Compiled {
     context.func = func;
-    let compiled = match cache {
-        Some(cache) => {
-            let mut store = cache.store();
-            let hit = context
-                .compile_with_cache(isa, &mut store, &mut ControlPlane::default())
-                .map(|(_, hit)| hit)
-                .map_err(|error| format!("{:?}", error.inner));
-            hit.map(|hit| store.finish(hit))
+    let compiled = crate::profile_block!(
+        "output::cranelift_compile",
+        match cache {
+            Some(cache) => {
+                let mut store = cache.store();
+                let hit = context
+                    .compile_with_cache(isa, &mut store, &mut ControlPlane::default())
+                    .map(|(_, hit)| hit)
+                    .map_err(|error| format!("{:?}", error.inner));
+                hit.map(|hit| store.finish(hit))
+            }
+            None => context
+                .compile(isa, &mut ControlPlane::default())
+                .map(|_| ())
+                .map_err(|error| format!("{:?}", error.inner)),
         }
-        None => context
-            .compile(isa, &mut ControlPlane::default())
-            .map(|_| ())
-            .map_err(|error| format!("{:?}", error.inner)),
-    };
+    );
     let code = compiled.map(|()| {
-        let buffer = &context.compiled_code().unwrap().buffer;
-        Code {
-            alignment: buffer.alignment as u64,
-            bytes: buffer.data().to_vec(),
-            relocs: buffer
-                .relocs()
-                .iter()
-                .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &context.func, id))
-                .collect(),
-        }
+        crate::profile_block!("output::collect_code", {
+            let buffer = &context.compiled_code().unwrap().buffer;
+            Code {
+                alignment: buffer.alignment as u64,
+                bytes: buffer.data().to_vec(),
+                relocs: buffer
+                    .relocs()
+                    .iter()
+                    .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &context.func, id))
+                    .collect(),
+            }
+        })
     });
-    context.clear();
+    crate::profile_block!("output::clear_context", context.clear());
     code
 }
 
