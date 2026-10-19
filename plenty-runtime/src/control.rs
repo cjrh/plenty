@@ -160,12 +160,7 @@ unsafe extern "C" fn destroy(header: *mut Header) {
 }
 
 #[no_mangle]
-pub(crate) unsafe extern "C" fn plenty_control(
-    op: i64,
-    args: *const u128,
-    _descriptor: *const aggregates::Type,
-    out: *mut u128,
-) {
+pub(crate) unsafe extern "C" fn plenty_control(op: i64, args: *const u128, out: *mut u128) {
     // SAFETY: compiler-checked operations provide live token borrows, the exact
     // arity, and one output slot. The constructor returns its sole owned count.
     unsafe {
