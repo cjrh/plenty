@@ -813,7 +813,7 @@ pub class Client[T, C]:
                         return Err(ClientError.TooManyRedirects)
                     base = target_of(&current.url)?
                     next = resolved(&base, &text)?
-                    self.drain(incoming, until)
+                    self.drain(incoming)
                     follow(&mut current, status, next, &self._config.sensitive)?
                     if dropped:
                         streaming = False
@@ -861,7 +861,7 @@ pub class Client[T, C]:
 
     # Reads a little of an unwanted body so that the connection can be
     # reused; a longer body closes it.
-    def drain(self: &mut Client[T, C], incoming: Incoming[T], until: u64) -> ():
+    def drain(self: &mut Client[T, C], incoming: Incoming[T]) -> ():
         mut owned = incoming
         if not owned._keep:
             return
