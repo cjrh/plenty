@@ -867,7 +867,6 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
                 AbiParam::new(types::I64),
                 AbiParam::new(PTR_TY),
                 AbiParam::new(PTR_TY),
-                AbiParam::new(PTR_TY),
             ]);
             module.declare_function("plenty_control", Linkage::Import, &sig)?
         },
