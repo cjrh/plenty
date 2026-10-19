@@ -212,7 +212,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let source = workload(count);
     println!(
-        "profile={} target={}-{} units={} lines={} bytes={} repetitions={} workload={} warmup={}",
+        "profile={} target={}-{} requested_units={} units={} lines={} bytes={} repetitions={} workload={} warmup={}",
         if cfg!(debug_assertions) {
             "debug"
         } else {
@@ -220,6 +220,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         std::env::consts::ARCH,
         std::env::consts::OS,
+        options.units,
         count,
         source.lines().count(),
         source.len(),

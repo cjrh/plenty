@@ -53,7 +53,7 @@ PLENTY_CACHE=off PLENTY_PROFILE=1 HOTPATH_OUTPUT_PATH=aot.txt \
 | Selection | Work performed |
 |---|---|
 | `--workload check` | Check the requested unit count only. |
-| `--workload scale` | Check **four times** the requested unit count only; the metadata shows this actual count. No ratio is printed without a base check. |
+| `--workload scale` | Check **four times** the requested unit count only; the metadata shows `requested_units` and the actual `units` checked. No ratio is printed without a base check. |
 | `--workload aot` | Compile and link the requested unit count only, including its frontend checks. |
 | `--workload check-and-scale` (default) | Check both sizes and print the scaling ratio. |
 | `--workload all` or legacy `--aot` | Check both sizes and also compile/link the base size. |
@@ -88,7 +88,7 @@ Additional rows subdivide the larger phases:
 | `output::compile` | `output::cranelift_compile`: Cranelift compilation or cache lookup/compilation, including cache bookkeeping; `output::collect_code`: copy machine code and convert relocations after success; `output::clear_context`: clear reusable compiler state, including after a compilation error. These do not expose individual Cranelift passes. |
 | `ownership::check` | `ownership::prepare_futures`, `ownership::initialize_state`, `ownership::check_moves` (outer sequence and final release), and `ownership::check_loans`. |
 | `ownership::check_loans` | For bodies with loans: `ownership::loan_graph` (CFG, reachability and loan tables), `ownership::loan_liveness` (fixed point), and `ownership::validate_loans` (conflict checks and diagnostics). The no-loan scan remains in the parent. |
-| `frontend::lower_function` | `frontend::setup_function` (initial state, parameters and parameter loans), `frontend::lower_function_body` (the outer body-lowering call), and `frontend::finish_function` (return inference and final operation-body construction). |
+| `frontend::lower_function` | `frontend::setup_function` (initial state, parameters and parameter loans; for a foreign function, its whole lowering), `frontend::lower_function_body` (the outer body-lowering call), and `frontend::finish_function` (return inference and final operation-body construction). |
 | `frontend::lower` | Also reports `generics::expand_data` and `tail_calls::validate`; both can return early when there is no relevant work. |
 
 Recursive ownership walks and nested expression/block lowering are not annotated
