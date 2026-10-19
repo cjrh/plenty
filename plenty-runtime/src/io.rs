@@ -147,10 +147,6 @@ macro_rules! printer {
         }
     };
 }
-printer!(plenty_println_signed, i64, "{}\n");
-printer!(plenty_println_unsigned, u64, "{}\n");
-printer!(plenty_println_f32, f32, "{:?}\n");
-printer!(plenty_println_f64, f64, "{:?}\n");
 printer!(plenty_print_i8, i8, "{}i8");
 printer!(plenty_print_i16, i16, "{}i16");
 printer!(plenty_print_i32, i32, "{}i32");
@@ -159,10 +155,6 @@ printer!(plenty_print_u8, u8, "{}u8");
 printer!(plenty_print_u16, u16, "{}u16");
 printer!(plenty_print_u32, u32, "{}u32");
 printer!(plenty_print_u64, u64, "{}u64");
-#[no_mangle]
-pub(crate) extern "C" fn plenty_println_bool(value: i8) {
-    output(if value != 0 { b"True\n" } else { b"False\n" });
-}
 #[no_mangle]
 pub(crate) extern "C" fn plenty_print_bool(value: i8) {
     output(if value != 0 { b"true" } else { b"false" });

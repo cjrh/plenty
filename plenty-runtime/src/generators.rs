@@ -118,6 +118,9 @@ pub(crate) unsafe extern "C" fn plenty_generator_finish(g: *mut Generator) {
         (*g).state = u64::MAX;
     }
 }
+// Heap frames are test-only: generated code initializes caller-owned storage
+// through `plenty_generator_init`.
+#[cfg(test)]
 unsafe extern "C" fn destroy(header: *mut Header) {
     unsafe {
         let g = header.cast::<Generator>();
@@ -125,19 +128,9 @@ unsafe extern "C" fn destroy(header: *mut Header) {
         memory::free::<Generator, u128>(g, slot_words(g));
     }
 }
-#[no_mangle]
-pub(crate) unsafe extern "C" fn plenty_generator_new(
-    resume: Resume,
-    count: u64,
-    managed: *const *const Type,
-) -> *mut Generator {
-    // SAFETY: forwarded callback and metadata retain the constructor contract.
-    unsafe { try_new(resume, count, managed) }
-        .unwrap_or_else(|_| crate::fail("generator allocation failed"))
-}
-
 /// Allocate only the frame. Callers transfer captures after success, and retain
 /// responsibility for them on failure. The managed mask must outlive the frame.
+#[cfg(test)]
 pub(crate) unsafe fn try_new(
     resume: Resume,
     count: u64,
@@ -165,42 +158,7 @@ pub(crate) unsafe fn try_new(
     }
     Ok(g)
 }
-
-/// Native ABI: consumes the capture prefix on both success and failure. The
-/// metadata covers all slots; captures and out are aligned, disjoint buffers.
-#[no_mangle]
-pub(crate) unsafe extern "C" fn plenty_generator_try_new(
-    resume: Resume,
-    count: u64,
-    managed: *const *const Type,
-    captures: *const u128,
-    capture_count: u64,
-    out: *mut u128,
-) {
-    unsafe {
-        assert!(capture_count <= count);
-        let result = match try_new(resume, count, managed) {
-            Ok(frame) => {
-                let mut slot = std::ptr::addr_of_mut!((*frame).slots).cast::<u128>();
-                for i in 0..capture_count as usize {
-                    let ty = &**managed.add(i);
-                    ranges::store(slot, *captures.add(i), ty);
-                    slot = slot.add(ty.slot_words());
-                }
-                crate::aggregates::wrap(frame as u128, 0)
-            }
-            Err(error) => {
-                for i in (0..capture_count as usize).rev() {
-                    release(*captures.add(i), &**managed.add(i));
-                }
-                crate::aggregates::wrap(crate::aggregates::wrap(0, error as u64), 1)
-            }
-        };
-        out.write(result);
-    }
-}
-#[no_mangle]
-pub(crate) unsafe extern "C" fn plenty_generator_resume(g: *mut Generator, out: *mut u128) -> u8 {
+pub(crate) unsafe fn plenty_generator_resume(g: *mut Generator, out: *mut u128) -> u8 {
     unsafe {
         if (*g).running != 0 {
             crate::fail("generator is already running");
