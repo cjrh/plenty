@@ -17,14 +17,29 @@ pub(crate) fn checked_capacity<T>(count: usize) -> Result<usize, AllocError> {
     Ok(count)
 }
 
-pub(crate) fn try_reserve<T>(buffer: &mut Vec<T>, additional: usize) -> Result<(), AllocError> {
+fn check_growth<T>(buffer: &[T], additional: usize) -> Result<(), AllocError> {
     let count = buffer
         .len()
         .checked_add(additional)
         .ok_or(AllocError::CapacityOverflow)?;
-    checked_capacity::<T>(count)?;
+    checked_capacity::<T>(count).map(drop)
+}
+
+pub(crate) fn try_reserve<T>(buffer: &mut Vec<T>, additional: usize) -> Result<(), AllocError> {
+    check_growth(buffer, additional)?;
     buffer
         .try_reserve_exact(additional)
+        .map_err(|_| AllocError::OutOfMemory)
+}
+
+/// Amortized growth: `Vec` at least doubles, so repeated appends stay linear.
+pub(crate) fn try_reserve_amortized<T>(
+    buffer: &mut Vec<T>,
+    additional: usize,
+) -> Result<(), AllocError> {
+    check_growth(buffer, additional)?;
+    buffer
+        .try_reserve(additional)
         .map_err(|_| AllocError::OutOfMemory)
 }
 
@@ -270,6 +285,28 @@ mod allocator_tests {
             free::<Aligned, u128>(first, 3);
         }
         assert_eq!(FREED.with(Cell::get), 1);
+    }
+}
+
+#[cfg(test)]
+mod reserve_tests {
+    use super::*;
+
+    #[test]
+    fn exact_and_amortized_reserve_reject_the_same_counts() {
+        let mut bytes = vec![0u8];
+        for additional in [usize::MAX, isize::MAX as usize] {
+            assert_eq!(
+                try_reserve(&mut bytes, additional),
+                Err(AllocError::CapacityOverflow)
+            );
+            assert_eq!(
+                try_reserve_amortized(&mut bytes, additional),
+                Err(AllocError::CapacityOverflow)
+            );
+        }
+        try_reserve_amortized(&mut bytes, 1).unwrap();
+        assert!(bytes.capacity() >= 2);
     }
 }
 
