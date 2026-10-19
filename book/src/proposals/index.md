@@ -72,4 +72,5 @@ reference pages. Further extensions remain tracked in the backlog.
 
 | Assessment | Decision / related backlog |
 | --- | --- |
+| [Native macOS, Windows, and AArch64 support](cross-platform.md) | Native ports need target-aware builds, ABI validation and OS/stdlib contracts before release packaging. B18, with B17/B12 dependencies. |
 | [Library-owned operations and backend hooks](library-owned-operations.md) | Existing composition and optional capabilities; new protocol access deferred. B29 (issue #145). |

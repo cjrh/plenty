@@ -439,6 +439,10 @@
 # Proposals
 
 - [Proposals](proposals/index.md)
+    - [Native macOS, Windows, and AArch64 support](proposals/cross-platform.md)
+        - [Compiler, runtime build, and native ABI](proposals/cross-platform/compiler.md)
+        - [Standard library and OS semantics](proposals/cross-platform/stdlib.md)
+        - [Qualification, delivery, and reference implementations](proposals/cross-platform/delivery.md)
     - [Standard library scope](proposals/standard-library-scope.md)
     - [Bundled HTTP acceptance](proposals/standard-http.md)
     - [Recursive owned data](proposals/recursive-data.md)
