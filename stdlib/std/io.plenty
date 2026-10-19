@@ -81,10 +81,10 @@ def interrupted(cause: &StreamError) -> bool:
         case _:
             False
 
-def stored(result: Result[(), BytesError]) -> Result[(), StreamError]:
+def bytes_result[T](result: Result[T, BytesError]) -> Result[T, StreamError]:
     match result:
-        case Ok(_):
-            Ok(())
+        case Ok(value):
+            Ok(value)
         case Err(error):
             match error:
                 case BytesError.Allocation(cause):
@@ -179,7 +179,7 @@ pub def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Re
         if step > chunk:
             step = chunk
         filled = out.len()
-        match stored(out.resize(filled + step, 0u8)):
+        match bytes_result(out.resize(filled + step, 0u8)):
             case Ok(_):
                 pass
             case Err(cause):
@@ -262,7 +262,7 @@ pub class BufReader[R]:
         mut count = stop - start
         if count > self._stop - self._start:
             count = self._stop - self._start
-        stored(buffer.overwrite(start, &self._buffer, self._start, self._start + count))?
+        bytes_result(buffer.overwrite(start, &self._buffer, self._start, self._start + count))?
         self._start += count
         Ok(count)
 
@@ -298,7 +298,7 @@ pub class BufReader[R]:
                                 pass
                     case Err(_):
                         return Err(StreamError.OutOfRange)
-                stored(out.extend_range(&self._buffer, self._start, stop))?
+                bytes_result(out.extend_range(&self._buffer, self._start, stop))?
                 total += stop - self._start
                 self._start = stop
                 if found:
@@ -308,8 +308,8 @@ pub class BufReader[R]:
 pub def buffered_reader[R](inner: R, capacity: i64) -> Result[BufReader[R], StreamError]:
     if capacity <= 0:
         return Err(StreamError.OutOfRange)
-    mut buffer = allocated(with_capacity(capacity))?
-    stored(buffer.resize(capacity, 0u8))?
+    mut buffer = bytes_result(with_capacity(capacity))?
+    bytes_result(buffer.resize(capacity, 0u8))?
     Ok(BufReader(inner, buffer, 0, 0))
 
 # Repositions the inner stream and discards buffered input. A relative target
@@ -373,7 +373,7 @@ pub class BufWriter[W]:
         # A range at least as large as the buffer goes straight through.
         if count >= self._capacity:
             return progressed(self.inner.write(source, start, stop)?, count)
-        stored(self._buffer.extend_range(source, start, stop))?
+        bytes_result(self._buffer.extend_range(source, start, stop))?
         Ok(count)
 
     pub def flush(self: &mut BufWriter[W]) -> Result[(), StreamError]:
@@ -383,7 +383,7 @@ pub class BufWriter[W]:
 pub def buffered_writer[W](inner: W, capacity: i64) -> Result[BufWriter[W], StreamError]:
     if capacity <= 0:
         return Err(StreamError.OutOfRange)
-    Ok(BufWriter(inner, allocated(with_capacity(capacity))?, 0, capacity))
+    Ok(BufWriter(inner, bytes_result(with_capacity(capacity))?, 0, capacity))
 
 # Delivers pending bytes, then repositions the inner stream.
 pub def seek_writer[W: Seeker](writer: &mut BufWriter[W], target: SeekFrom) -> Result[i64, StreamError]:
@@ -409,17 +409,6 @@ pub def close_buffered[W: Closer](writer: &mut BufWriter[W]) -> Result[(), Close
                 case Err(second):
                     Err(CloseError.FlushAndClose(first, second))
 
-def allocated(result: Result[Bytes, BytesError]) -> Result[Bytes, StreamError]:
-    match result:
-        case Ok(buffer):
-            Ok(buffer)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(StreamError.Allocation(cause))
-                case _:
-                    Err(StreamError.OutOfRange)
-
 # An in-memory stream over an owned buffer. Reads stop at the buffer's end;
 # writes overwrite in place and extend it at the end.
 pub class Cursor:
@@ -437,7 +426,7 @@ pub class Cursor:
         mut count = stop - start
         if count > size - self._position:
             count = size - self._position
-        stored(buffer.overwrite(start, &self.data, self._position, self._position + count))?
+        bytes_result(buffer.overwrite(start, &self.data, self._position, self._position + count))?
         self._position += count
         Ok(count)
 
@@ -449,14 +438,14 @@ pub class Cursor:
         end = displaced(self._position, count)?
         # A position past the end leaves a gap, which reads back as zeros.
         if self._position > self.data.len():
-            stored(self.data.resize(self._position, 0u8))?
+            bytes_result(self.data.resize(self._position, 0u8))?
         mut inside = self.data.len() - self._position
         if inside > count:
             inside = count
         # Reserving first means a failed write changes nothing but the gap.
-        stored(self.data.reserve(count - inside))?
-        stored(self.data.overwrite(self._position, source, start, start + inside))?
-        stored(self.data.extend_range(source, start + inside, stop))?
+        bytes_result(self.data.reserve(count - inside))?
+        bytes_result(self.data.overwrite(self._position, source, start, start + inside))?
+        bytes_result(self.data.extend_range(source, start + inside, stop))?
         self._position = end
         Ok(count)
 
