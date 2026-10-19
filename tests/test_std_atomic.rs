@@ -141,8 +141,11 @@ print(a.load(Ordering.SeqCst))?
 b = Atomic[bool](False)
 print(str.repr(b.compare_exchange(False, True, Ordering.Relaxed, Ordering.Relaxed))?)?
 print(str.repr(b.compare_exchange(False, True, Ordering.Relaxed, Ordering.Relaxed))?)?
+c = Atomic[i8](-5)
+print(str.repr(c.compare_exchange(-5, -6, Ordering.SeqCst, Ordering.Relaxed))?)?
+print(str.repr(c.compare_exchange(-5, -7, Ordering.SeqCst, Ordering.Relaxed))?)?
 "#,
-        "replaced 5\nkept 8\n8\nResult[bool, bool].Ok(False)\nResult[bool, bool].Err(True)",
+        "replaced 5\nkept 8\n8\nResult[bool, bool].Ok(False)\nResult[bool, bool].Err(True)\nResult[i8, i8].Ok(-5)\nResult[i8, i8].Err(-6)",
     );
 }
 
@@ -211,6 +214,116 @@ def main() -> Result[(), Failure]:
 "#
     );
     assert_eq!(output(&source), "1000000");
+}
+
+#[test]
+fn checked_updates_retry_under_contention() {
+    let source = format!(
+        r#"{HEADER}
+def work(total: &Atomic[i64], rounds: i64) -> ():
+    for _ in range(rounds):
+        total.fetch_add(3, Ordering.Relaxed)
+        total.fetch_sub(1, Ordering.Relaxed)
+
+def main() -> Result[(), Failure]:
+    total = Atomic[i64](0)
+    with spawn(work, &total, 200000)?, spawn(work, &total, 200000)?, spawn(work, &total, 200000)?, spawn(work, &total, 200000)?:
+        pass
+    print(total.load(Ordering.Acquire))?
+    Ok(())
+"#
+    );
+    assert_eq!(output(&source), "1600000");
+}
+
+#[test]
+fn workers_update_atomics_in_every_storage_shape() {
+    let source = format!(
+        r#"{HEADER}
+def flip(flags: &list[Atomic[bool]], index: i64) -> ():
+    flags[index].store(True, Ordering.Release)
+
+def lower(values: &list[Atomic[i8]]) -> ():
+    for _ in range(10):
+        values[0].fetch_sub(3, Ordering.Relaxed)
+        values[1].fetch_min(-100, Ordering.Relaxed)
+
+def bump(triple: &(Atomic[u8], Atomic[u8], u8)) -> ():
+    triple[0].fetch_add(triple[2], Ordering.Relaxed)
+    triple[1].fetch_wrapping_sub(1, Ordering.Relaxed)
+    pass
+
+def mark(slot: &Option[Atomic[u8]]) -> ():
+    match slot:
+        case Some(value):
+            value.fetch_or(8, Ordering.Relaxed)
+            pass
+        case Nothing:
+            pass
+
+def main() -> Result[(), Failure]:
+    flags = [Atomic(False), Atomic(False), Atomic(False)]?
+    with spawn(flip, &flags, 1)?:
+        pass
+    for flag in flags:
+        print(flag.load(Ordering.Acquire))?
+    values = [Atomic[i8](-1), Atomic[i8](-7)]?
+    with spawn(lower, &values)?, spawn(lower, &values)?:
+        pass
+    print(values[0].load(Ordering.Relaxed))?
+    print(values[1].load(Ordering.Relaxed))?
+    triple = (Atomic[u8](1), Atomic[u8](0), 5u8)
+    with spawn(bump, &triple)?, spawn(bump, &triple)?:
+        pass
+    print(triple[0].load(Ordering.Relaxed))?
+    print(triple[1].load(Ordering.Relaxed))?
+    print(triple[2])?
+    slot: Option[Atomic[u8]] = Some(Atomic(3))
+    with spawn(mark, &slot)?:
+        pass
+    match slot:
+        case Some(value):
+            print(value.load(Ordering.Relaxed))?
+        case Nothing:
+            pass
+    mut items = [Atomic[u32](1), Atomic[u32](2)]?
+    items.append(Atomic[u32](7))?
+    print(items.pop().unwrap().into_inner())?
+    sender, receiver = channel[Atomic[u64]](1)?
+    sender.send(Atomic[u64](41))?
+    received = receiver.recv()?
+    print(received.fetch_add(1, Ordering.Relaxed) + received.load(Ordering.Relaxed))?
+    Ok(())
+"#
+    );
+    assert_eq!(
+        output(&source),
+        "False\nTrue\nFalse\n-61\n-100\n11\n254\n5\n11\n7\n83"
+    );
+}
+
+#[test]
+fn borrowed_atomics_cannot_move() {
+    let worker = "def work(a: &Atomic[u64]) -> ():\n    a.fetch_add(1, Ordering.Relaxed)\n    pass\n\nclass Holder:\n    hits: Atomic[u64]\n\n";
+    for (body, message) in [
+        (
+            "a = Atomic[u64](0)\n    with spawn(work, &a)?:\n        b = a",
+            "conflicting borrow: cannot move `a` while it is borrowed",
+        ),
+        (
+            "mut a = Atomic[u64](0)\n    with spawn(work, &a)?:\n        a = Atomic[u64](5)",
+            "conflicting borrow: cannot assign to `a` while it is borrowed",
+        ),
+        (
+            "h = Holder(Atomic(0))\n    with spawn(work, &h.hits)?:\n        g = h",
+            "conflicting borrow: cannot move `h` while `h.hits` is borrowed",
+        ),
+    ] {
+        let source =
+            format!("{HEADER}{worker}def main() -> Result[(), Failure]:\n    {body}\n    Ok(())\n");
+        let error = rejected(&source);
+        assert!(error.contains(message), "{source}\n{error}");
+    }
 }
 
 #[test]
@@ -459,6 +572,16 @@ fn unsupported_element_types_name_the_allowed_ones() {
     let error = rejected(&source);
     assert!(
         error.contains(&format!("Atomic[str] is not supported; {allowed}")),
+        "{error}"
+    );
+    let generic = format!(
+        "{HEADER}def made[T](value: T) -> T:\n    a = Atomic[T](value)\n    a.swap(value, Ordering.Relaxed)\n\ndef main() -> Result[(), Failure]:\n    print(made(-9i16))?\n    print(made(True))?\n    Ok(())\n"
+    );
+    assert_eq!(output(&generic), "-9\nTrue");
+    let error = rejected(&generic.replace("made(True)", "made(\"text\")"));
+    assert!(
+        error.contains("cannot instantiate `made[str]`")
+            && error.contains(&format!("Atomic[str] is not supported; {allowed}")),
         "{error}"
     );
 }

@@ -57,7 +57,10 @@ Every `fetch_` method returns the previous value. `fetch_add` and `fetch_sub`
 use the ordinary `integer overflow` trap at the call's position. They compute
 the checked result from the value last read and store it with a
 compare-exchange, retrying if another thread changed the value, so no thread
-observes a wrapped value. The other methods lower to one atomic instruction,
+observes a wrapped value. They trap on the value they read even if another thread
+changes it afterwards: that is a valid ordering of the operations, and it keeps
+the guarantee that no wrapped value is stored, unlike Rust's wrapping
+`fetch_add`. The other methods lower to one atomic instruction,
 or a compare-exchange loop where the target has none. No operation blocks or
 takes a lock; a compare-exchange loop retries while other threads keep changing
 the value, so it is lock-free but not wait-free.
