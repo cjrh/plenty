@@ -131,7 +131,7 @@ not parsed as an address; an IPvFuture literal must match
 | Function or method | Result |
 |---|---|
 | `body_reader(conn: BufReader[R], framing: &Framing, limits)` | `Result[BodyReader[R], HttpError]`; takes the connection |
-| `body.read_body(buffer, start, stop)` | `Result[i64, HttpError]`: decoded bytes; 0 is the end of the body |
+| `body.read_body(buffer, start, stop)` | `Result[i64, HttpError]`: decoded bytes; 0 from a non-empty range is the end of the body, and an empty range returns 0 without reading |
 | `body.read(buffer, start, stop)` | The `std.io` `Reader` method |
 | `read_to_end(body, out: &mut Bytes)` | `Result[i64, HttpError]`: append the rest |
 | `discard(body)` | `Result[i64, HttpError]`: read and drop the rest |

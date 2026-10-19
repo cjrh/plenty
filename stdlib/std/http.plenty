@@ -749,9 +749,10 @@ pub class BodyReader[R]:
                 return Ok(count)
         Ok(0)
 
-    # Fills part of buffer[start:stop] with decoded body bytes; zero is the
-    # end of the body. A chunked body's trailer fields are in `trailers` once
-    # it ends.
+    # Fills part of buffer[start:stop] with decoded body bytes; zero from a
+    # non-empty range is the end of the body. An empty range returns zero
+    # without reading, as `std.io` readers do; check `is_done()`. A chunked
+    # body's trailer fields are in `trailers` once it ends.
     pub def read_body(self: &mut BodyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]:
         if start < 0 or start > stop or stop > buffer.len():
             return Err(HttpError.Stream(StreamError.OutOfRange))
