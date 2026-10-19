@@ -9,6 +9,12 @@ rejected without recursive traversal of long chains.
 Nominal definitions reserve identities before resolving fields. Weak stored
 edges and table-owning handles represent recursive type graphs without compiler
 memory cycles. Concrete type facts and native metadata use finite graph walks.
+Cloning a structural type shares its already-owned child storage. When a field
+escapes a nominal table, cloning promotes its weak edges and copies only the
+structural paths that contain them. This is a single pass through the structural
+type, without following nominal table links; stored definitions still keep weak
+edges so sharing cannot create a table ownership cycle. Callable signatures
+retain their existing copying path.
 A complete class or enum caches its facts; a collection or box combines its
 contents' facts instead of walking again.
 Aliases normalize to `Ty` values and generate no runtime operations.

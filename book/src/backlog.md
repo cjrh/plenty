@@ -75,7 +75,9 @@ ownership. Table row order below remains a catalogue, not a second priority list
   of parallel parsing/lowering. Compiled-function caching has landed (issue
   #144). Remaining serial efficiency, per-module caching and streaming
   lowering/emission need measurements and a focused batch; they do not keep
-  B34 open.
+  B34 open. The issue #302 follow-up shares owned structural type children
+  while preserving weak-edge promotion; callable signatures still copy, and
+  name-table hashing and other frontend costs remain under investigation.
 - **B22:** join/shutdown checks for sending workers are implemented (issues
   #12/#74). Scoped joins also check receiving workers against surviving senders
   (issue #108), and blocking future-result checks are implemented (issue #109).
