@@ -15,6 +15,7 @@ import std.http.client
 import std.http.server
 import std.net
 import std.time
+from std.fmt import FormatError
 from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
@@ -39,19 +40,21 @@ pub class Site:
                 exchange.send(200, "text/plain", &body)?
         Ok(())
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | RangeError]:
+type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | RangeError
+
+def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
-    base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
+    base = f"http://127.0.0.1:{port}"?
     client = std.http.client.client(std.http.client.config()?)?
 
-    home = client.get(&base.concat("/")?, &deadline, &never)?
+    home = client.get(&f"{base}/"?, &deadline, &never)?
     print(home.status, home.body.to_text()?.strip()?)?
 
-    moved = client.get(&base.concat("/old")?, &deadline, &never)?
+    moved = client.get(&f"{base}/old"?, &deadline, &never)?
     print(moved.status, moved.redirects, moved.url.endswith("/"))?
 
-    mut post = std.http.client.request("POST", &base.concat("/echo")?)?
+    mut post = std.http.client.request("POST", &f"{base}/echo"?)?
     post.add("Content-Type", "text/plain")?
     post.body = std.bytes.from_text("ping")?
     echoed = client.fetch(post, &deadline, &never)?

@@ -55,7 +55,7 @@ def main() -> Result[(), Failure]:
     port = listener.local_address()?.port
     stop = CancellationToken()?
     with spawn(serve, listener, stop.share())? as server:
-        url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
+        url = f"http://127.0.0.1:{port}/"?
         client = Shared(std.http.client.client(std.http.client.config()?)?)?
         mut answered = 0
         with ThreadPoolExecutor(3, 8)? as pool:

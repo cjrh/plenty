@@ -100,7 +100,7 @@ pub class Site:
     pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
         match route:
             case Route.Files:
-                path = exchange.params[0].concat("")?
+                path = exchange.params[0]
                 std.http.files.serve(exchange, &self.public, &path)?
             case Route.Login:
                 mut head = std.http.response(204, "No Content")?

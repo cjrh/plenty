@@ -16,6 +16,7 @@ import std.bytes
 import std.http.server
 import std.net
 import std.time
+from std.fmt import FormatError
 from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
@@ -27,13 +28,13 @@ pub enum Route:
 pub class Greeting:
     pub opening: str
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError]:
-        text = self.opening.concat(&exchange.params[0])?.concat("\n")?
+    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), FormatError | std.http.HttpError]:
+        text = f"{self.opening}{exchange.params[0]}\n"?
         exchange.send_text(200, &text)?
         Ok(())
 
 pub class App:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), FormatError | std.http.HttpError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home\n")?
@@ -41,11 +42,13 @@ pub class App:
                 greeting.handle(exchange)?
         Ok(())
 
-def get(port: u16, path: &str) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError]:
+type FetchError = AllocError | IoError | FormatError | std.bytes.BytesError | std.net.NetError | RangeError
+
+def get(port: u16, path: &str) -> Result[str, FetchError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
-    request = std.bytes.from_text(&"GET ".concat(path)?.concat(" HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")?)?
+    request = std.bytes.from_text(&f"GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"?)?
     stream.write_all_before(&request, 0, request.len(), &deadline, &never)?
     mut reply = std.bytes.empty()?
     mut buffer = std.bytes.empty()?
@@ -56,11 +59,11 @@ def get(port: u16, path: &str) -> Result[str, AllocError | IoError | std.bytes.B
             break
         reply.extend_range(&buffer, 0, count)?
     text = reply.to_text()?
-    status = text.split("\r\n")?[0].concat(" | ")?
+    status = text.split("\r\n")?[0]
     body = text.split("\r\n\r\n")?[1].strip()?
-    Ok(status.concat(&body)?)
+    Ok(f"{status} | {body}"?)
 
-def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.net.NetError]:
+def client(port: u16, stop: CancellationToken) -> Result[(), FetchError]:
     print(get(port, "/")?)?
     print(get(port, "/index.html")?)?
     print(get(port, "/hello/Ada%20L")?)?
@@ -91,6 +94,7 @@ HTTP/1.1 404 Not Found | Not Found
 4
 ```
 
+`FetchError` names the client's errors, shared by `get` and `client`.
 `ServerSetupError` names this example's server and listener errors. `serve`
 already wraps its network failures in `ServerError`; the separate `NetError`
 member is needed because `main` opens and inspects the listener directly.
@@ -147,8 +151,8 @@ signature names it. Every worker thread borrows the same handler and the
 same table, so `handle` takes `self` and `route` by shared borrow and
 cannot change them.
 
-`handle` returns its own error type, here `AllocError | std.http.HttpError`
-from `concat` and `send_text`. The server answers an `Err` of any type with
+`handle` returns its own error type, here `FormatError | std.http.HttpError`
+from the f-string and `send_text`. The server answers an `Err` of any type with
 `500` and counts it in `report.handler_errors`;
 [When a handler fails](../../design/stdlib/http-server.md#when-a-handler-fails)
 lists the other cases.
@@ -180,7 +184,7 @@ import std.http.tls
 from std.http.tls import TlsTransport
 
 pub class App:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), AllocError | std.http.HttpError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), FormatError | std.http.HttpError]:
         ...
 
 server = std.tls.server_config(&leaf_pem(), &leaf_key())?
