@@ -242,6 +242,7 @@ impl Clone for Ty {
             Self::Task(t) => Self::Task(t.clone()),
             Self::Channel(t, sender) => Self::Channel(Arc::new((**t).clone()), *sender),
             Self::Future(t) => Self::Future(Arc::new((**t).clone())),
+            Self::Atomic(t) => Self::Atomic(t.clone()),
             Self::Class(t) => Self::Class(t.clone()),
             Self::Enum(t) => Self::Enum(t.clone()),
             Self::List(t) => Self::List(Arc::new((**t).clone())),

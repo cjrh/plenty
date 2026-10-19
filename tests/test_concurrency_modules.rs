@@ -230,7 +230,7 @@ fn imports_do_not_override_unrelated_bindings_or_allow_reexports() {
         ("from std.sync import CancellationToken as print\ndef main() -> ():\n    pass\n", "conflicts with an existing name"),
         ("from std.sync import CancellationToken as Token\nclass Token:\n    value: i64\ndef main() -> ():\n    pass\n", "conflicts with an existing name"),
         ("pub from std.thread import spawn\ndef main() -> ():\n    pass\n", "re-exports are not supported"),
-        ("from std.sync import Mutex\ndef main() -> ():\n    pass\n", "not a declared export"),
+        ("from std.sync import Semaphore\ndef main() -> ():\n    pass\n", "not a declared export"),
     ] {
         rejected(source, expected);
     }

@@ -458,6 +458,8 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
             Op::Channel(op) => flatten(op.signature()),
             Op::Executor(op) => flatten(op.signature()),
             Op::Control(op) => flatten(op.signature()),
+            Op::Atomic(op) => flatten(op.signature()),
+            Op::Mutex(op) => flatten(op.signature()),
             Op::Enum(op) => flatten(op.signature().ok_or("invalid enum operation")?),
             Op::Box(op) => flatten(op.signature()),
             Op::Split(t, tag) => {

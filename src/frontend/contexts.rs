@@ -2,11 +2,21 @@
 use super::*;
 use crate::record::method;
 
+/// What a context's exit operates on.
+pub(super) enum Kind {
+    /// `__exit__` or an intrinsic exit receives the manager by `&mut`.
+    Manager,
+    /// The exit joins a scoped task.
+    Thread,
+    /// The exit unlocks the mutex at this written place.
+    Lock(String),
+}
+
 pub(super) struct Context {
     pub slot: u8,
     pub exit: Vec<Op>,
     pub loan: Option<usize>,
-    pub thread: bool,
+    pub kind: Kind,
     /// The `with` statement, reported when its exit keeps a borrow live.
     pub at: crate::ownership::Site,
 }
@@ -19,6 +29,26 @@ impl Lower<'_> {
         body: &[Stmt],
         ops: &mut Vec<Op>,
     ) -> Result<BlockResult> {
+        if let Some((base, args)) = mutex::lock_expression(manager) {
+            if self
+                .place_type(base)
+                .as_ref()
+                .and_then(crate::mutex::class)
+                .is_some()
+            {
+                return self.with_lock(manager, base, args, name, body, ops);
+            }
+            if self
+                .expression_type_hint(base)
+                .as_ref()
+                .and_then(crate::mutex::class)
+                .is_some()
+            {
+                return Err(base.at.error(
+                    "lock() requires a named mutex or a field of one; bind the mutex to a name first",
+                ));
+            }
+        }
         if generators::yields(body) {
             return Err(manager.at.error("yield inside with is not supported yet"));
         }
@@ -127,7 +157,7 @@ impl Lower<'_> {
             slot,
             exit,
             loan,
-            thread: false,
+            kind: Kind::Manager,
             at: site(&manager.at, true),
         };
         let entry_loan = self.new_loan(
@@ -186,7 +216,7 @@ impl Lower<'_> {
     }
 
     pub(super) fn context_receiver(&self, context: &Context, ops: &mut Vec<Op>) {
-        if context.thread {
+        if !matches!(context.kind, Kind::Manager) {
             return;
         }
         if let Some(loan) = context.loan {

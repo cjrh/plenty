@@ -319,6 +319,8 @@ mod test_small_conveniences;
 mod test_stack_overflow;
 #[path = "test_std_archive.rs"]
 mod test_std_archive;
+#[path = "test_std_atomic.rs"]
+mod test_std_atomic;
 #[path = "test_std_bytes.rs"]
 mod test_std_bytes;
 #[path = "test_std_collections.rs"]
@@ -376,6 +378,8 @@ mod test_std_secrets;
 mod test_std_signal;
 #[path = "test_std_sqlite.rs"]
 mod test_std_sqlite;
+#[path = "test_std_sync_mutex.rs"]
+mod test_std_sync_mutex;
 #[path = "test_std_test.rs"]
 mod test_std_test;
 #[path = "test_std_text_unicode.rs"]

@@ -51,6 +51,9 @@ pub(crate) fn native_type(ty: &Ty) -> Type {
     if ty.wide() || matches!(ty, Ty::Ref(..)) {
         return types::I128;
     }
+    if let Ty::Atomic(element) = ty {
+        return native_type(element);
+    }
     match ty {
         Ty::I8 | Ty::U8 | Ty::Bool => types::I8,
         Ty::I16 | Ty::U16 => types::I16,
