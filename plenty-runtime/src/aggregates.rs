@@ -18,6 +18,7 @@ pub(crate) mod executor_reduce;
 mod filesystem;
 #[cfg(test)]
 mod hash_tests;
+mod hashing;
 pub(crate) mod net;
 mod process;
 mod readiness;
@@ -483,34 +484,8 @@ pub(crate) fn checked_index(index: i64, len: usize) -> Option<usize> {
     (i >= 0 && i < len as i128).then_some(i as usize)
 }
 unsafe fn hash(value: u128, ty: &Type) -> u64 {
-    if ty.kind == b'B' {
-        // Hash structural fields, never the address of an inline tuple's storage.
-        // Seed with the tag: `equal` distinguishes variants, so equal payloads
-        // of different variants must not share a hash.
-        let mut combined =
-            (14695981039346656037u64 ^ ty.tag(value) as u64).wrapping_mul(1099511628211);
-        if let Some(record) = ty.record(value) {
-            for i in 0..record.len() {
-                combined = (combined ^ unsafe { hash(record.slot(i).read(), record.ty(i)) })
-                    .wrapping_mul(1099511628211);
-            }
-        } else if let Some(field) = ty.payload(value) {
-            combined =
-                (combined ^ unsafe { hash(ty.unpack(value), field) }).wrapping_mul(1099511628211);
-        }
-        combined
-    } else if matches!(ty.kind, b's' | b'y') {
-        let mut hash = 14695981039346656037u64;
-        for &b in unsafe { strings::bytes(&(value as *const Text)) } {
-            hash = (hash ^ b as u64).wrapping_mul(1099511628211);
-        }
-        hash
-    } else {
-        let mut value = value as u64;
-        value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-        value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
-        value ^ (value >> 31)
-    }
+    // SAFETY: the caller supplies a live key matching its descriptor.
+    unsafe { hashing::hash(value, ty) }
 }
 impl Collection {
     fn ty(&self) -> &Type {

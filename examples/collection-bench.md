@@ -1,5 +1,72 @@
 # Collection access benchmarks
 
+## Keyed hashing (issue #329, 2026-10-19)
+
+The runtime replaces unkeyed FNV/integer mixing with SipHash-2-4 keyed from
+OS entropy once per process. This is security hardening with a measurable
+short-key cost. It does not promise worst-case constant-time table operations.
+
+Compared local `main` at `41f3f6c` with the issue #329 change using release
+compilers, rustc 1.99.0 (b940084d7 2026-09-28), Linux x86-64, AMD Ryzen 7 7840HS,
+and `target-cpu=x86-64-v3`. Runtime allocation instrumentation was disabled.
+Each workload ran seven times per executable, alternating before/after order,
+pinned to CPU 0 with `PLENTY_CACHE=off`. Every checksum matched across all 20
+workloads. Execution includes startup and construction; the lookup workloads
+build query strings once before their lookup loops. The harness saves raw
+timings, compiler hashes, affinity, and load metadata in `results.json`.
+The local run's copy is `/tmp/plenty-329-paired/results.json`.
+
+| Hash workload | Iterations/elements | Before median ms | After median ms |
+| --- | ---: | ---: | ---: |
+| Integer hit/miss | 200,000 | 4.757 | 6.749 |
+| Integer hit/miss | 800,000 | 16.653 | 24.563 |
+| Short string hit/miss | 200,000 | 17.697 | 20.946 |
+| Short string hit/miss | 800,000 | 43.377 | 54.615 |
+| Long string hit/miss | 200,000 | 67.283 | 63.491 |
+| Long string hit/miss | 800,000 | 120.300 | 111.497 |
+| `(i64, str)` hit/miss | 200,000 | 27.817 | 32.140 |
+| `(i64, str)` hit/miss | 800,000 | 85.205 | 97.565 |
+| Structured string construction/lookup | 2,000 | 2.744 | 2.548 |
+| Structured string construction/lookup | 8,000 | 8.724 | 7.955 |
+
+At 800,000 queries, integer lookup cost increased about 47%, short strings
+26%, and tuples 15%. Longer strings measured about 7% lower. The structured
+keys enumerate fixed-length combinations of `a`, `q`, `A`, `Q`, `1`, and `!`:
+their old FNV hashes share the low four bits. This workload measures that
+clustering pattern; it is not a proof or benchmark of resistance to a capable
+hash-flooding attacker. The fixed-key runtime regression separately checks the
+six original one-byte examples distribute across multiple buckets.
+
+Unrelated host workloads ran during this session. Alternating execution and
+CPU affinity reduce some variation, but these measurements are illustrative,
+not a general speedup claim. The initial 1/5/15-minute load averages were
+2.81/16.45/20.29. Both binaries were checked before timing: the baseline lacks
+the new entropy diagnostic, while the candidate embeds it in both native
+runtime archives and links the new vendored SipHash implementation.
+
+The AOT check used `compile_bench 1000 10 --workload aot`, warmup enabled,
+cache off, pinned to CPUs 0–7, ordered before/after/after/before. Each value is
+a median of ten compilations including checking, archive work, and linking:
+before **525.135 / 526.114 ms**, after **528.751 / 532.738 ms**. No compilation
+speedup is claimed. Full local commands and outputs are preserved in
+`/tmp/plenty-329-aot-results.json`.
+
+Compiler SHA-256 values:
+
+```text
+before ce6d03826e46203857a4936b13adcfd18b0d019046e632ddfbd836195df5f373
+after  4eb842b88e3923c272349072ac68da2895ee94731750cb2ee33002096098249e
+```
+
+To reproduce paired collection measurements with two preserved compiler
+binaries:
+
+```sh
+PLENTY_CACHE=off taskset -c 0 python3 examples/collection_bench.py --compiler /path/to/after --baseline-compiler /path/to/before --output /tmp/hash-comparison --runs 7
+```
+
+## Earlier collection access measurements
+
 Run from the repository root with a release compiler:
 
 ```sh
