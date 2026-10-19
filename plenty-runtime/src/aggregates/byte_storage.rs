@@ -24,18 +24,6 @@ unsafe extern "C" fn destroy(pointer: *mut Header) {
     }
 }
 
-/// Amortized growth: `Vec` at least doubles, so repeated appends stay linear.
-fn grow(bytes: &mut Vec<u8>, additional: usize) -> Result<(), AllocError> {
-    bytes
-        .len()
-        .checked_add(additional)
-        .filter(|total| *total <= isize::MAX as usize)
-        .ok_or(AllocError::CapacityOverflow)?;
-    bytes
-        .try_reserve(additional)
-        .map_err(|_| AllocError::OutOfMemory)
-}
-
 /// The buffer is reserved before the owner, so failure leaves nothing live.
 fn create(capacity: usize) -> Result<*mut Storage, AllocError> {
     let mut bytes = Vec::new();
@@ -182,14 +170,14 @@ pub(super) unsafe fn call(
             176 => {
                 let (bytes, len) = (storage(a), size(b));
                 let additional = len.saturating_sub(bytes.len());
-                result(grow(bytes, additional).map(|()| {
+                result(memory::try_reserve_amortized(bytes, additional).map(|()| {
                     bytes.resize(len, c as u8);
                     0
                 }))
             }
             177 => {
                 let bytes = storage(a);
-                result(grow(bytes, 1).map(|()| {
+                result(memory::try_reserve_amortized(bytes, 1).map(|()| {
                     bytes.push(b as u8);
                     0
                 }))
@@ -198,10 +186,12 @@ pub(super) unsafe fn call(
                 let source = source(b);
                 let source = &source[range(c, d, source.len())];
                 let bytes = storage(a);
-                result(grow(bytes, source.len()).map(|()| {
-                    bytes.extend_from_slice(source);
-                    0
-                }))
+                result(
+                    memory::try_reserve_amortized(bytes, source.len()).map(|()| {
+                        bytes.extend_from_slice(source);
+                        0
+                    }),
+                )
             }
             179 => {
                 let source = source(c);
