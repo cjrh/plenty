@@ -51,7 +51,8 @@ fields to relax them; `format` checks the result each time:
 | A `__Host-` name needs `secure`, path `/` and no domain | `InvalidAttribute` |
 
 Empty `path` and `domain` are left out. `CookieError` also has
-`TooManyCookies`, `Http(HttpError)` from `add`, and `Allocation`.
+`TooManyCookies`, `Http(HttpError)` from `add`, `Crypto(CryptoError)` from
+the HMAC in the signing functions, and `Allocation`.
 
 ## Signing
 

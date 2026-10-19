@@ -1,15 +1,6 @@
 //! `Box[T]` owns one heap value and behaves like an owning reference.
 mod support;
-
-fn runs(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
+use support::assert_stdout as runs;
 
 #[test]
 fn boxes_move_borrow_and_reach_through_to_their_content() {

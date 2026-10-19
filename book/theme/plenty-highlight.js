@@ -39,6 +39,12 @@
     const SUFFIX = "(?:[iu](?:8|16|32|64)|f32|f64)";
 
     function plenty(hljs) {
+        const keywords = {
+            keyword: KEYWORDS.join(" "),
+            literal: LITERALS.join(" "),
+            type: TYPES.join(" "),
+            built_in: BUILT_INS.join(" "),
+        };
         const escape = { className: "char-escape", begin: /\\[0nrt\\'"]/ };
         const byteEscape = {
             className: "char-escape",
@@ -51,24 +57,57 @@
             end: multiline ? quote : new RegExp(quote + "|$"),
             contains: [prefix ? byteEscape : escape],
         });
-        // An f-string: `{{` and `}}` are literal braces, and a field holds
-        // ordinary code up to its closing brace, including nested fields in
-        // its format spec.
+        // Strings a field may hold: the compiler accepts a one-line literal
+        // of the other quote kind there, and a `}` inside it is text.
+        const fieldStrings = [
+            string('"', false, "b"),
+            string("'", false, "b"),
+            string('"', false),
+            string("'", false),
+        ];
+        const number = {
+            className: "number",
+            begin: new RegExp(
+                "(?:\\b\\d[\\d_]*(?:\\.[\\d_]*)?|\\.\\d[\\d_]*)" +
+                    "(?:[eE][+-]?[\\d_]+)?" + SUFFIX + "?\\b"
+            ),
+            relevance: 0,
+        };
+        // Field and method names after a dot are not built-ins.
+        const member = { begin: new RegExp("\\." + IDENT), relevance: 0 };
+        const type = {
+            className: "type",
+            begin: new RegExp(
+                "\\b(?!(?:" + LITERALS.join("|") + ")\\b)[A-Z][A-Za-z0-9_]*"
+            ),
+            relevance: 0,
+        };
+        // Error propagation and borrows.
+        const operator = { className: "operator", begin: /\?|&(?:mut\b)?/, relevance: 0 };
+        const fieldCode = [...fieldStrings, number, member, type, operator];
+        // A field holds ordinary code up to its closing brace. Brackets nest,
+        // as do fields in its format spec, so an inner `}` closes only them.
+        const fieldBraces = {
+            begin: /\{/,
+            end: /\}/,
+            keywords,
+            relevance: 0,
+            contains: ["self", ...fieldCode],
+        };
+        const field = {
+            className: "subst",
+            begin: /\{/,
+            end: /\}/,
+            keywords,
+            relevance: 0,
+            contains: [fieldBraces, ...fieldCode],
+        };
+        // An f-string: `{{` and `}}` are literal braces.
         const fstring = (quote, multiline) => ({
             className: "string",
             begin: new RegExp("\\bf" + quote),
             end: multiline ? quote : new RegExp(quote + "|$"),
-            contains: [
-                escape,
-                { begin: /\{\{|\}\}/, relevance: 0 },
-                {
-                    className: "subst",
-                    begin: /\{/,
-                    end: /\}/,
-                    relevance: 0,
-                    contains: [{ begin: /\{/, end: /\}/, relevance: 0 }],
-                },
-            ],
+            contains: [escape, { begin: /\{\{|\}\}/, relevance: 0 }, field],
         });
         // A declaration keyword, then the declared name. `def once(...)`
         // makes a closure that runs once, so there `once` is a keyword.
@@ -82,12 +121,7 @@
         return {
             name: "Plenty",
             aliases: ["plenty-error", "plenty-file"],
-            keywords: {
-                keyword: KEYWORDS.join(" "),
-                literal: LITERALS.join(" "),
-                type: TYPES.join(" "),
-                built_in: BUILT_INS.join(" "),
-            },
+            keywords,
             contains: [
                 hljs.HASH_COMMENT_MODE,
                 fstring('"""', true),
@@ -104,25 +138,10 @@
                 string("'", false),
                 declaration("def", new RegExp("\\b(?!once\\b)" + IDENT)),
                 declaration("class enum protocol type", new RegExp(IDENT)),
-                {
-                    className: "number",
-                    begin: new RegExp(
-                        "(?:\\b\\d[\\d_]*(?:\\.[\\d_]*)?|\\.\\d[\\d_]*)" +
-                            "(?:[eE][+-]?[\\d_]+)?" + SUFFIX + "?\\b"
-                    ),
-                    relevance: 0,
-                },
-                // Field and method names after a dot are not built-ins.
-                { begin: new RegExp("\\." + IDENT), relevance: 0 },
-                {
-                    className: "type",
-                    begin: new RegExp(
-                        "\\b(?!(?:" + LITERALS.join("|") + ")\\b)[A-Z][A-Za-z0-9_]*"
-                    ),
-                    relevance: 0,
-                },
-                // Error propagation and borrows.
-                { className: "operator", begin: /\?|&(?:mut\b)?/, relevance: 0 },
+                number,
+                member,
+                type,
+                operator,
             ],
         };
     }

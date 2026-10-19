@@ -4,21 +4,12 @@
 //! (issue #70).
 
 mod support;
+use support::run_stdout as stdout;
 
 use rstest::rstest;
 use std::process::Command;
 
 const LIMIT: &str = "block and expression nesting exceeds the implementation limit of 64";
-
-fn stdout(source: &str) -> String {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap()
-}
 
 fn chain(arms: usize) -> String {
     let mut source = String::from("def pick(x: i64) -> i64:\n    if x == 0:\n        0\n");

@@ -1,5 +1,7 @@
 //! `std.url`: RFC 3986 absolute URL parsing, formatting, percent encoding,
 //! and query pairs.
+mod support;
+use support::{check_file_error as rejected, hex};
 
 use std::net::Ipv6Addr;
 use std::str::FromStr;
@@ -84,20 +86,6 @@ fn native(body: &str, expected: &str) {
         expected.trim_matches('\n'),
         "{body}"
     );
-}
-
-fn rejected(source: &str) -> String {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    std::fs::write(&path, source).unwrap();
-    match plenty::check_file(&path, None) {
-        Ok(()) => panic!("accepted:\n{source}"),
-        Err(error) => error.to_string(),
-    }
-}
-
-fn hex(data: &[u8]) -> String {
-    data.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Parses every input in one program. Inputs travel as hex so that they may

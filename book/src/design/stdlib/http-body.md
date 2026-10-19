@@ -45,7 +45,8 @@ duplicates. `+` decodes to a space and `%hh` to a byte; a `%` without two
 hex digits is `Malformed`, and the decoded bytes must be UTF-8. Empty pieces
 between `&` are skipped, and a piece without `=` has an empty value.
 Parameters such as `charset` on the media type are accepted and ignored:
-forms are UTF-8.
+forms are UTF-8. As in RFC 9110, an empty parameter (`a/b;` or `a/b;;c=d`)
+is allowed; a parameter without `=` makes the media type malformed.
 
 `read_form` refuses a declared `Content-Length` over `max_bytes` before
 reading, and stops a chunked body as soon as it passes the limit.

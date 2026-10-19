@@ -2,14 +2,11 @@
 //!
 //! `CARGO_BIN_EXE_plenty` is set by Cargo for binary integration tests; it
 //! points at the built `plenty` executable. No extra dev-dep needed.
+mod support;
+use support::plenty_bin;
 
 use std::io::Write;
 use std::process::Command;
-
-/// Path to the freshly-built `plenty` binary.
-fn plenty_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_plenty")
-}
 
 #[test]
 fn builtin_file_operands_get_numeric_context_without_coercing_variables() {

@@ -12,7 +12,7 @@ import std.ready
 import std.time
 import std.url
 from std.bytes import ByteSource, Bytes, BytesError
-from std.http import BodyReader, Framing, Header, HttpError, Limits, RequestHead, RequestTarget, ResponseHead
+from std.http import BodyReader, Framing, Header, HttpError, Limits, RequestHead, ResponseHead
 from std.io import BufReader, StreamError
 from std.log import ChannelSink, Field, Level
 from std.net import NetError, Shutdown, SocketAddress, TcpListener, TcpStream, UdpSocket
@@ -1237,6 +1237,18 @@ def connection[T: Transport, R, H: Handler[T, R]](stream: T, input: Option[Gathe
                 return Nothing
     Nothing
 
+# Answers a request refused before routing. The request input may be left
+# unread, so a connection that took the answer is returned for lingering.
+def refused[T: Transport](reader: BufReader[Conn[T]], status: i64, lingering: &mut bool, events: &mut Option[ChannelSink], report: &mut Report) -> Option[BufReader[Conn[T]]]:
+    mut conn = reader
+    report.protocol_errors += 1u64
+    answered = refuse(&mut conn.inner, status, "").is_ok()
+    problem(events, "bad request", status, report)
+    if not answered:
+        return Nothing
+    *lingering = True
+    Some(conn)
+
 # Runs one request through the router and handler. Returns the connection
 # when it can carry another request, or with `lingering` set when it is
 # answered but request input may be left unread, to close lingering.
@@ -1259,29 +1271,16 @@ def request[T: Transport, R, H: Handler[T, R]](reader: BufReader[Conn[T]], head:
                 refusal = 413
         case _:
             pass
-    # Host and target faults (RFC 9112 section 3.2) are refused like framing.
-    mut checked: Option[RequestTarget] = Nothing
-    if refusal == 0:
-        match std.http.request_target(&head):
-            case Ok(found):
-                checked = Some(found)
-            case Err(HttpError.Allocation(_)):
-                return Nothing
-            case Err(error):
-                refusal = error_status(&error)
     if refusal != 0:
-        report.protocol_errors += 1u64
-        answered = refuse(&mut conn.inner, refusal, "").is_ok()
-        problem(events, "bad request", refusal, report)
-        if not answered:
-            return Nothing
-        *lingering = True
-        return Some(conn)
-    target = match checked:
-        case Some(found):
+        return refused(conn, refusal, lingering, events, report)
+    # Host and target faults (RFC 9112 section 3.2) are refused like framing.
+    target = match std.http.request_target(&head):
+        case Ok(found):
             found
-        case Nothing:
+        case Err(HttpError.Allocation(_)):
             return Nothing
+        case Err(error):
+            return refused(conn, error_status(&error), lingering, events, report)
     keep = more and std.http.request_keeps_alive(&head)
     expects = wants_continue(&head)
     head_only = head.method == "HEAD"
@@ -1307,12 +1306,7 @@ def request[T: Transport, R, H: Handler[T, R]](reader: BufReader[Conn[T]], head:
             allow = methods
         case Err(_):
             return Nothing
-    body_framing = match std.http.request_framing(&head):
-        case Ok(found):
-            found
-        case Err(_):
-            return Nothing
-    body = match std.http.body_reader(conn, &body_framing, &config.limits):
+    body = match std.http.body_reader(conn, &framing, &config.limits):
         case Ok(made):
             made
         case Err(_):

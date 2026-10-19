@@ -3,20 +3,7 @@
 //! strings, and booleans (issue #36). `_ as name` binds the whole matched value
 //! (issue #114).
 mod support;
-
-fn runs(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
-
-fn diagnostic(source: &str) -> String {
-    support::check_source(source).unwrap_err().to_string()
-}
+use support::{assert_stdout as runs, check_diagnostic as diagnostic};
 
 const DECLARATIONS: &str = "enum Choice[T]:
     Empty

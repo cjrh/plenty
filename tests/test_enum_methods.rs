@@ -1,14 +1,5 @@
 mod support;
-
-fn runs(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
+use support::assert_stdout as runs;
 
 #[test]
 fn shared_mutable_and_temporary_enum_receivers() {

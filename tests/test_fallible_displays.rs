@@ -1,22 +1,6 @@
 //! Visible allocation boundaries for collection displays.
 mod support;
-
-fn native(source: &str, expected: &str) {
-    let out = support::run(source);
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let text = String::from_utf8_lossy(&out.stdout);
-    assert_eq!(
-        text.lines()
-            .filter(|s| !s.starts_with("__test_"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        expected
-    );
-}
+use support::assert_filtered_stdout as native;
 
 #[test]
 fn literals_preserve_types_order_and_duplicate_rules() {

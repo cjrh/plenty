@@ -2,16 +2,7 @@
 //! helpers as local lists, not the generic `ElementRef` runtime call
 //! (issue #122).
 mod support;
-
-fn expect(source: &str, output: &str) {
-    let result = support::run(source);
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&result.stdout), output);
-}
+use support::assert_stdout as expect;
 
 /// Names of the symbols `function` calls in a compiled object.
 fn calls(source: &str, function: &str) -> Vec<String> {

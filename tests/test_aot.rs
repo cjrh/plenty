@@ -1,11 +1,9 @@
 //! Native regression tests for the historical syntax and shared backend.
 //! Expected output and diagnostics are specified independently of execution.
+mod support;
+use support::plenty_bin;
 
 use std::process::Command;
-
-fn plenty_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_plenty")
-}
 
 // Collision-free across parallel test threads: `process::id()` distinguishes
 // across processes, `COUNTER` across threads inside one process. Avoids the

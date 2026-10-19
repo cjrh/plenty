@@ -1,5 +1,6 @@
 //! Byte literals: `b"..."` has the built-in immutable type `bytes` (issue #156).
 mod support;
+use support::check_error as rejected;
 
 fn output(source: &str) -> String {
     let output = support::run(source);
@@ -26,12 +27,6 @@ fn file_output(source: &str) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
-}
-
-fn rejected(source: &str) -> String {
-    support::check_source(source)
-        .expect_err("source should be rejected")
-        .to_string()
 }
 
 #[test]

@@ -1,16 +1,7 @@
 //! `for` over a literal `range(...)` is a counted loop: its count is computed
 //! once and the loop never calls the runtime (issue #121).
 mod support;
-
-fn expect(source: &str, output: &str) {
-    let result = support::run(source);
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&result.stdout), output);
-}
+use support::assert_stdout as expect;
 
 /// Names of the symbols `function` calls in a compiled object.
 fn calls(source: &str, function: &str) -> Vec<String> {

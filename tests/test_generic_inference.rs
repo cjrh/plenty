@@ -1,14 +1,5 @@
 mod support;
-
-fn native(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
-}
+use support::assert_stdout as native;
 
 #[test]
 fn protocols_infer_shared_mutable_and_named_reference_arguments() {

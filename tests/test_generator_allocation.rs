@@ -1,22 +1,6 @@
 //! Generator construction and ownership through standard sums.
 mod support;
-
-fn native(source: &str, expected: &str) {
-    let output = support::run(source);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let text = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(
-        text.lines()
-            .filter(|s| !s.starts_with("__test_"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        expected
-    );
-}
+use support::assert_filtered_stdout as native;
 
 #[test]
 fn results_transfer_generators_through_propagation() {

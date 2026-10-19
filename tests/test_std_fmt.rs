@@ -1,33 +1,7 @@
 use std::path::Path;
 
 mod support;
-
-fn compile(dir: &Path, source: &str) -> std::path::PathBuf {
-    let path = dir.join("main.plenty");
-    let executable = dir.join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{error}\n{source}"));
-    executable
-}
-
-fn run(source: &str) -> String {
-    let directory = tempfile::tempdir().unwrap();
-    let result = std::process::Command::new(compile(directory.path(), source))
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    String::from_utf8(result.stdout)
-        .unwrap()
-        .lines()
-        .filter(|line| !line.starts_with("__test_"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
+use support::run_file_stdout as run;
 
 #[test]
 fn scalars_bounds_bases_width_and_escaping() {

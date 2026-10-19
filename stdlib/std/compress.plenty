@@ -103,7 +103,9 @@ pub class Inflater:
     _produced: i64
 
     # Consumes from input[start:stop] and leaves new output pending in the
-    # state. Returns the count consumed; 0 means more input is needed.
+    # state. Returns the count consumed. 0 with pending output means the output
+    # window is full: drain it and call again. 0 with no output means more input
+    # is needed.
     pub def step(self: &mut Inflater, input: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]:
         if start == stop:
             return Ok(0)

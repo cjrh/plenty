@@ -1,6 +1,10 @@
 //! `std.http.server`: routing, workers, admission, deadlines and shutdown.
 //! Scripted connections run in memory through `serve_connection`; the rest
 //! use loopback sockets on ephemeral ports. No test needs a network.
+mod support;
+#[cfg(feature = "runtime-checks")]
+use support::http_program_output as output;
+use support::{assert_http_program as runs, tls_fixtures as fixtures};
 
 /// An in-memory `Transport` and a handler covering each response style.
 const SCRIPTED: &str = r##"import std.bytes
@@ -277,37 +281,6 @@ pub def counts(report: &Report) -> Result[str, Failure]:
     text = text.concat(" rejected=")?.concat(str.from(report.rejected)?)?
     Ok(text)
 "##;
-
-fn output(source: &str) -> String {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    let executable = dir.path().join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    let output = std::process::Command::new(executable)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{source}\nstatus {:?}\n{}",
-        output.status,
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "|")
-        .lines()
-        .filter(|line| !line.starts_with("__test_"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim_end()
-        .to_owned()
-}
-
-fn runs(prelude: &str, main: &str, expected: &str) {
-    assert_eq!(output(&format!("{prelude}{main}")), expected.trim_end());
-}
 
 /// Ten pipelined requests on one connection, delivered five bytes at a time:
 /// literal, captured and rest routes, query text, a chunked request body,
@@ -997,10 +970,6 @@ HTTP/1.1 408 Request Timeout|Content-Type: text/plain; charset=utf-8|Content-Len
 ""
 connections=2 requests=1 handler_errors=0 protocol_errors=0 timeouts=1 cancelled=0 rejected=1"##,
     );
-}
-
-fn fixtures() -> String {
-    format!("{}/tests/fixtures/tls", env!("CARGO_MANIFEST_DIR"))
 }
 
 /// HTTPS through `std.http.tls.serve`. Two TLS clients alternate on one

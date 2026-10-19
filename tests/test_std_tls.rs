@@ -1,9 +1,7 @@
 //! `std.tls`: verified TLS streams over loopback TCP. Certificates come from
 //! `tests/fixtures/tls` (see its `generate.sh`); nothing leaves 127.0.0.1.
-
-fn fixtures() -> String {
-    format!("{}/tests/fixtures/tls", env!("CARGO_MANIFEST_DIR"))
-}
+mod support;
+use support::tls_fixtures as fixtures;
 
 const HEADER: &str = r#"import std.bytes
 import std.tls

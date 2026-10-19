@@ -1,10 +1,7 @@
 //! Diagnostics for Python spellings that Plenty rejects: each names the
 //! unsupported form and its replacement at the offending token (issue #38).
 mod support;
-
-fn diagnostic(source: &str) -> String {
-    support::check_source(source).unwrap_err().to_string()
-}
+use support::check_diagnostic as diagnostic;
 
 fn output(source: &str) -> String {
     let output = support::run(source);

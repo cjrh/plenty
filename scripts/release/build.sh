@@ -3,6 +3,8 @@
 #
 # Usage: build.sh --out-dir DIR [--test]
 #
+# A relative DIR is resolved against the caller's working directory.
+#
 # Run inside BUILD_IMAGE from toolchain.env (the release workflow's container,
 # or scripts/release/local-check.sh). Installs RUST_VERSION with a verified
 # rustup-init when no matching toolchain is present, builds both executables
@@ -48,6 +50,8 @@ export RUSTUP_TOOLCHAIN="$RUST_VERSION"
 rustc --version
 cc --version | head -n1
 
+mkdir -p "$out_dir"
+out_dir="$(cd "$out_dir" && pwd)"
 cd "$repo"
 # Generic x86-64: no host CPU tuning reaches the compiler or runtime archives.
 unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS

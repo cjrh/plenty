@@ -1,13 +1,9 @@
 //! Native handles on worker threads and std.ready's bounded waits. Child
 //! processes from `/bin/sh` provide local pipes, so no test needs a network.
-use std::path::Path;
-use std::process::{Command, Stdio};
 
-fn written(dir: &Path, source: &str) -> std::path::PathBuf {
-    let path = dir.join("main.plenty");
-    std::fs::write(&path, source).unwrap();
-    path
-}
+mod support;
+use std::process::{Command, Stdio};
+use support::write_main as written;
 
 fn runs(source: &str, expected: &str) {
     let dir = tempfile::tempdir().unwrap();

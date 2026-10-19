@@ -164,9 +164,11 @@ def skip_blanks(data: &Bytes, start: i64) -> i64:
 
 # Media types and parameters
 
-# A field value of the form `essence *( OWS ";" OWS name "=" value )`, where
-# the essence is a token or `type/subtype` and each value a token or a quoted
-# string (RFC 9110 section 5.6.6). The essence and names are lowercased.
+# A field value of the form `essence *( OWS ";" OWS [ name "=" value ] )`,
+# where the essence is a token or `type/subtype` and each value a token or a
+# quoted string (RFC 9110 section 5.6.6). The parameter after a `;` is
+# optional in that grammar, so `text/plain;` and `a;;b=c` are valid. The
+# essence and names are lowercased.
 class Parameters:
     essence: str
     pairs: list[Pair]
@@ -175,10 +177,17 @@ def parameters(value: &str) -> Result[Parameters, BodyError]:
     data = lifted(std.bytes.from_text(value))?
     count = data.len()
     mut at = 0
-    while at < count and (token_byte(code(&data, at)) or code(&data, at) == 47):
+    while at < count and token_byte(code(&data, at)):
         at += 1
     if at == 0:
         return Err(BodyError.Malformed)
+    if at < count and code(&data, at) == 47:
+        at += 1
+        subtype = at
+        while at < count and token_byte(code(&data, at)):
+            at += 1
+        if at == subtype:
+            return Err(BodyError.Malformed)
     essence = lowered(&data, 0, at)?
     mut pairs = allocated(list[Pair].new())?
     while True:
@@ -188,8 +197,8 @@ def parameters(value: &str) -> Result[Parameters, BodyError]:
         if code(&data, at) != 59:
             return Err(BodyError.Malformed)
         at = skip_blanks(&data, at + 1)
-        if at == count:
-            break
+        if at == count or code(&data, at) == 59:
+            continue
         start = at
         while at < count and token_byte(code(&data, at)):
             at += 1

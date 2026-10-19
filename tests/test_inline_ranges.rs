@@ -1,14 +1,5 @@
 mod support;
-
-fn expect(source: &str, output: &str) {
-    let result = support::run(source);
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&result.stdout), output);
-}
+use support::assert_stdout as expect;
 
 #[test]
 fn ranges_cross_calls_and_standard_sum_returns_by_value() {
