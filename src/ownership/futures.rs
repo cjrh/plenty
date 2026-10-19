@@ -57,7 +57,7 @@ impl Futures {
         }
         let mut predecessors = vec![Vec::new(); nodes.len()];
         for (index, node) in nodes.iter().enumerate() {
-            for &next in &node.successors {
+            for &next in node.successors.as_slice() {
                 predecessors[next].push(index);
             }
         }

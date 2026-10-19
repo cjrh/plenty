@@ -87,6 +87,9 @@ later passes rely on it instead of checking again.
 Ownership checking tracks definite slot availability through branches and loop
 backedges. Borrow checking flattens typed access facts into a separate source-level
 CFG with branch successors, early exits, loop edges, and stable binding-place IDs.
+Each CFG node stores up to two successors inline; only matches with more than
+two arms allocate a separate successor slice. Edges retain source branch order,
+including duplicate successors when empty arms join the same continuation.
 Loan liveness reaches a fixed point before native lowering. Functions without
 loan facts skip this analysis. It never runs on Cranelift IR and needs no
 whole-program alias analysis or per-call inspection of function bodies.
