@@ -89,9 +89,9 @@ issue ownership, discussion, and PR review state live in the database.
 | `cargo test --locked --test integration test_std_url::` | Run one test file's tests: integration tests are modules of `tests/integration.rs`, which must list each `tests/test_*.rs` file |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Lint compiler and runtime; CI's `lint` job also runs this, `cargo fmt --all -- --check`, and the link check below |
 | `cargo run --locked --release --example compile_bench -- 1000 10 --workload aot` | Benchmark one workload; see `book/src/development/profiling.md` for workloads and phase profiles |
-| `cargo run -- FILE` | Compile and run a Plenty program (needs `cc`) |
-| `cargo run -- --check FILE` | Type-check without linking or running |
-| `cargo run -- --compile FILE -o OUT` | Produce a native executable |
+| `cargo run --bin plenty -- FILE` | Compile and run a Plenty program (needs `cc`); `--bin` is required because `src/bin/plentyc.rs` is a second binary |
+| `cargo run --bin plenty -- --check FILE` | Type-check without linking or running |
+| `cargo run --bin plenty -- --compile FILE -o OUT` | Produce a native executable |
 | `target/release/plenty FILE` | Run probes with a compiler already built by `cargo build --release` in this worktree; rebuild after compiler/runtime changes |
 | `python3 -B scripts/check_links.py book/src [SUBDIR_OR_FILE]` | Check local Markdown link targets across the book, or only e.g. `proposals`; no remote or heading-anchor checks |
 | `python3 -B -m unittest discover -s scripts -p 'test_*.py'` | Check shared workflow helpers |
