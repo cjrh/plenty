@@ -6,6 +6,7 @@
 
 - [Backlog](backlog.md)
 - [Development workflow](development/workflow.md)
+    - [Documentation versions](development/documentation-versions.md)
 - [Profiling the compiler](development/profiling.md)
 - [Releasing Plenty](development/releasing.md)
 

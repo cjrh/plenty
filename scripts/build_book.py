@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tomllib
 
 
@@ -45,8 +46,14 @@ def decorate(output, metadata):
 
 def build_book(source, output, prefix, metadata):
     env = dict(os.environ, MDBOOK_OUTPUT__HTML__SITE_URL=prefix)
-    subprocess.run(["mdbook", "build", str(source / "book"), "--dest-dir", str(output)],
-                   env=env, check=True)
+    result = subprocess.run(["mdbook", "build", str(source / "book"), "--dest-dir", str(output)],
+                            env=dict(env, RUST_LOG="info"), check=True,
+                            text=True, capture_output=True)
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    # mdBook0.5.4 logs missing {{#include}} files as ERROR but exits successfully.
+    if "ERROR" in result.stderr:
+        raise ValueError("mdBook logged an error; refusing incomplete documentation")
     decorate(output, metadata)
 
 

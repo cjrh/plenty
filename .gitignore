@@ -20,6 +20,8 @@ target/
 
 /target
 /book/book
+/book/site
+/book/.docs-site-*
 
 # SQLite WAL files for the issues register
 /issues.db-wal

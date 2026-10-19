@@ -16,8 +16,10 @@ class Links(HTMLParser):
         self.urls.extend(value for key, value in attrs if key in ("href", "src") and value)
 
 
-def check(root, prefix="/plenty/"):
+def check(root, prefix="/plenty/", *, site_root=None, site_prefix=None):
     root = root.resolve()
+    site_root = (site_root or root).resolve()
+    site_prefix = site_prefix or prefix
     errors = []
     for pattern in ("index.html", "404.html", "print.html", "searchindex-*.js",
                     "searcher-*.js", "highlight-*.js", "theme/plenty-highlight*.js",
@@ -37,14 +39,14 @@ def check(root, prefix="/plenty/"):
                 continue
             path = unquote(url.path)
             if path.startswith("/"):
-                if not path.startswith(prefix):
+                if not path.startswith(site_prefix):
                     errors.append(f"{page.relative_to(root)}: outside site prefix: {value}")
                     continue
-                target = root / path[len(prefix):]
+                target = site_root / path[len(site_prefix):]
             else:
                 target = page.parent / path
             target = target.resolve()
-            if not target.is_relative_to(root) or not target.exists():
+            if not target.is_relative_to(site_root) or not target.exists():
                 errors.append(f"{page.relative_to(root)}: missing/escaping target: {value}")
     return len(pages), sorted(set(errors))
 

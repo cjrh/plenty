@@ -121,11 +121,19 @@ Check the workflow helpers with
 
 ## Documentation site
 
-[The public book](https://cjrh.info/plenty/) follows `main`, so it describes
-development rather than a particular release. `.github/workflows/docs.yml`
-builds every push to `main`, PR targeting `main` (including forks), and manual
-dispatch. Only a main push or main dispatch can deploy. It does not publish
-packages, push branches, or depend on release tags.
+[The public book](https://cjrh.info/plenty/) defaults to development until the
+first published release is admitted in `book/releases.json`. After that, the
+root serves the selected stable release. [Development documentation](https://cjrh.info/plenty/dev/)
+always follows `main`; admitted releases live under `/plenty/VERSION/`.
+Every page identifies its version and offers a version menu. Matching chapters
+are preserved when switching versions; missing chapters fall back to that
+version's homepage. The links work without JavaScript; JavaScript also preserves
+the current query and heading fragment when the chapter exists.
+
+`.github/workflows/docs.yml` builds every push to `main`, PR targeting `main`
+(including forks), and manual dispatch. Only a main push or main dispatch can
+deploy. It does not publish packages or push branches. Release admission and
+retention are described in [versioned documentation](documentation-versions.md).
 
 Use the same pinned tools as the workflow:
 
@@ -133,18 +141,18 @@ Use the same pinned tools as the workflow:
 rustup toolchain install 1.99.0 --profile minimal
 cargo +1.99.0 install mdbook --version 0.5.4 --locked
 python3 -B scripts/check_links.py book/src
-python3 -B scripts/build_book.py
-python3 -B scripts/check_book_output.py book/book
+python3 -B scripts/build_docs_site.py
 mdbook serve book --open
 ```
 
-The build helper adds a visible **Development** label and source commit to every
-page, including print and 404 pages. Local uncommitted changes are explicitly
-marked. `docs-version.json` records the full revision and Cargo package version;
-the package version alone does not identify a development build. The label is
-static HTML and needs no JavaScript. Raw `mdbook serve` is a convenient content
-preview, but does not add this deployment metadata; serve the helper's generated
-directory with a static HTTP server to preview the label.
+For only the current checkout, `python3 -B scripts/build_book.py` writes
+`book/book`. The complete site helper writes `book/site`. Both show Development
+and its source commit, explicitly marking local changes. Each version's
+`docs-version.json` records the full revision and Cargo package version;
+the package version alone does not identify a development build. Labels are
+static HTML. Raw `mdbook serve` previews content without deployment metadata.
+To preview the complete site, mount `book/site` at `/plenty/` on a static HTTP
+server; configure unknown paths to serve its root `404.html` as GitHub does.
 
 The build needs no Plenty compiler. Do not use `mdbook test` for Plenty fences;
 the tutorial integration tests above execute those examples. The output checker
@@ -153,13 +161,11 @@ and checks search, print, 404 and custom highlighting assets. Source checking
 alone cannot catch a malformed `SUMMARY.md` that leaves a chapter unrendered.
 Neither checker validates external URLs or heading anchors.
 
-The Pages artifact is only `book/book`, which remains ignored. The HTML
-`site-url` is `/plenty/` so nested missing-page requests load 404 assets from the
-correct location; ordinary chapters and custom assets keep relative paths and
-work with local preview. For a production-path check, serve the generated tree
-at `/plenty/` and open a nested tutorial/reference page, search, print view and a
-missing nested URL. Check navigation, anchors, and Plenty, diagnostic and output
-fences. Do the same on the public site after deployment.
+The Pages artifact is only `book/site`, which remains ignored. It contains all
+admitted versions together, so development updates preserve older books. Each
+build receives its own `site-url` prefix for nested 404 assets. Check navigation,
+anchors, search, print, version switching and Plenty highlighting under each
+prefix; repeat those checks on the public site after deployment.
 
 ### First publication and recovery
 

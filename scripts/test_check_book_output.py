@@ -36,6 +36,18 @@ class BookOutputTests(unittest.TestCase):
             (root / "404.html").write_text('<a href="/index.html">wrong prefix</a>')
             self.assertTrue(any("outside site prefix" in error for error in check(root)[1]))
 
+    def test_cross_version_links_stay_within_whole_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'dev').mkdir()
+            (root / 'index.html').touch()
+            (root / 'dev/index.html').write_text('<a href="/plenty/index.html">stable</a>')
+            _, errors = check(root / 'dev', '/plenty/dev/', site_root=root, site_prefix='/plenty/')
+            self.assertFalse(any('missing/escaping target' in error for error in errors))
+            (root / 'dev/index.html').write_text('<a href="/plenty/../../secret">escape</a>')
+            _, errors = check(root / 'dev', '/plenty/dev/', site_root=root, site_prefix='/plenty/')
+            self.assertTrue(any('missing/escaping target' in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

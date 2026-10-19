@@ -5,8 +5,9 @@ ownership, checked borrowing, and ahead-of-time native compilation through
 Cranelift. Low memory use, fast compilation, and a small, understandable language
 guide the design.
 
-Read the [online documentation](https://cjrh.info/plenty/) for the current
-`main` development version.
+Read the [online documentation](https://cjrh.info/plenty/), or the
+[development documentation](https://cjrh.info/plenty/dev/) for current `main`.
+The default stays on development until the first stable release is admitted.
 
 Start with [Learn Plenty](book/src/tutorial/index.md). The
 [reference](book/src/design/index.md) separates language rules, built-in facilities,
