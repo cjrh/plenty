@@ -189,16 +189,23 @@ pub fn compile_file_to_library(
                 &script,
                 format!("{{ global: {}; local: *; }};\n", symbols.join("; ")),
             )?;
-            let mut compile = options.compile.clone();
-            compile.link_args.extend([
+            let extra_args = [
                 OsString::from("-shared"),
                 OsString::from("-Wl,-z,defs"),
                 OsString::from("-Xlinker"),
                 OsString::from("--version-script"),
                 OsString::from("-Xlinker"),
                 script.into_os_string(),
-            ]);
-            crate::toolchain::link(&object, &runtime, NATIVE_ARGS, &built, &compile)?;
+            ];
+            crate::toolchain::link(
+                &object,
+                &runtime,
+                NATIVE_ARGS,
+                &built,
+                &options.compile,
+                &[],
+                &extra_args,
+            )?;
         }
     }
     // Publish only after compilation/linking succeeds; a diagnostic leaves old outputs alone.

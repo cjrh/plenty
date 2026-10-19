@@ -11,6 +11,25 @@ Repeat `--link-arg ARG` to pass individual arguments after program/runtime input
 and before the runtime's native dependencies. Static-library builds use
 `--archiver PATH`, defaulting to `ar`; it must support deterministic `rcsD` mode.
 
+With no `--linker` or `--link-arg` override, Plenty prefers **mold**, then **lld**,
+then the driver's default linker. It looks for executable `ld.mold` or `ld.lld`
+on `PATH` and checks that `cc -fuse-ld=NAME -Wl,--version` succeeds before
+selecting one. Discovery is cached for the compiler process; set `PATH` and the
+driver's environment before starting it. An unavailable or rejected candidate
+falls through to the next choice. A failure linking the actual program is
+reported without retrying with a different linker.
+
+Pass `--verbose` to report the effective driver command. `--linker cc` opts out
+of automatic selection and uses the driver's configured default; to pin a
+particular linker, use e.g. `--link-arg -fuse-ld=bfd` or
+`--link-arg -fuse-ld=mold`. Any explicit `--link-arg`, even `-lm`, disables
+automatic selection. These options apply to both compiler binaries, including
+shared libraries and fuzz executables. Object emission does not probe a linker.
+In the Rust API, `CompileOptions::auto_linker = false` opts out; non-default
+drivers and nonempty `link_args` also disable discovery. `verbose` reports the
+command. The caller must explicitly disable `auto_linker` when selecting `cc`
+itself, since assigning that default value cannot record an explicit override.
+
 ## Reproducible artifacts
 
 Generated code uses the original x86-64/SSE2 baseline, regardless of the
@@ -21,8 +40,13 @@ directory, output name, time, user, and code-generation worker count. Static
 archives use deterministic member timestamps, owner IDs, and modes.
 
 Executables and shared libraries additionally depend on the linker driver,
-its options, startup objects, and native libraries. Determinism is checked with
-the local GNU toolchain; other linker implementations are separate inputs.
+its options, startup objects, and native libraries. Automatic selection makes
+the available linkers and driver environment inputs too: pin the linker for
+reproducible builds across machines. Package build fingerprints include the
+automatically selected linker name. Different versions of the same tool still
+require a clean rebuild after changing the native toolchain. Determinism is
+checked with the locally selected toolchain; other linker implementations are
+separate inputs.
 Rebuilding the compiler also depends on rustc and its precompiled standard
 library. Runtime compilation remaps project, output, and sysroot source paths;
 it cannot rewrite paths already compiled into the Rust standard library.

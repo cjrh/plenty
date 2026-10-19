@@ -5,6 +5,162 @@ mod support;
 use support::assert_success as success;
 
 #[test]
+fn default_linker_links_and_runs_without_cargos_compiler_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("main.plenty");
+    let executable = temp.path().join("app");
+    std::fs::write(&source, "def main() -> i32:\n    23\n").unwrap();
+    let output = success(
+        Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .env_remove("COMPILER_PATH")
+            .arg("--compile")
+            .arg(source)
+            .arg("-o")
+            .arg(&executable)
+            .arg("--verbose")
+            .output()
+            .unwrap(),
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("link: "));
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(23));
+}
+
+#[cfg(unix)]
+#[test]
+fn package_build_probes_once_and_rebuilds_when_linker_selection_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("project");
+    let tools = temp.path().join("tools");
+    std::fs::create_dir_all(project.join("src")).unwrap();
+    std::fs::create_dir(&tools).unwrap();
+    std::fs::write(
+        project.join("plenty.toml"),
+        concat!(
+            "manifest-version = 1\n[package]\nname = \"fixture\"\nversion = \"1.0.0\"\n",
+            "[[bin]]\nname = \"one\"\npath = \"src/one.plenty\"\n",
+            "[[bin]]\nname = \"two\"\npath = \"src/two.plenty\"\n"
+        ),
+    )
+    .unwrap();
+    for name in ["one", "two"] {
+        std::fs::write(
+            project.join(format!("src/{name}.plenty")),
+            "def main() -> ():\n    pass\n",
+        )
+        .unwrap();
+    }
+    let log = temp.path().join("driver.log");
+    support::write_script(
+        &tools.join("cc"),
+        r##"#!/bin/sh
+printf '%s\n' "$*" >> "$DRIVER_LOG"
+case "$*" in *--version*) exit 0;; esac
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = -o ]; then shift; : > "$1"; exit 0; fi
+    shift
+done
+exit 1
+"##,
+    );
+    let build = || {
+        success(
+            Command::new(env!("CARGO_BIN_EXE_plenty"))
+                .current_dir(&project)
+                .arg("build")
+                .env("PATH", &tools)
+                .env("DRIVER_LOG", &log)
+                .output()
+                .unwrap(),
+        );
+        let calls = std::fs::read_to_string(&log).unwrap();
+        std::fs::write(&log, "").unwrap();
+        calls
+    };
+    let first = build();
+    assert_eq!(first.lines().count(), 2, "{first}");
+    assert!(build().is_empty());
+    support::write_script(&tools.join("ld.mold"), "#!/bin/sh\nexit 0\n");
+    let changed = build();
+    assert_eq!(changed.lines().count(), 3, "{changed}");
+    assert_eq!(changed.matches("--version").count(), 1, "{changed}");
+    assert!(changed.lines().all(|line| line.contains("-fuse-ld=mold")));
+    let fresh = build();
+    assert_eq!(fresh.lines().count(), 1, "{fresh}");
+    assert!(fresh.contains("--version"));
+}
+
+#[cfg(unix)]
+#[test]
+fn automatic_linker_selection_preserves_overrides_and_falls_back() {
+    for (candidates, reject, args, expected, probes) in [
+        (vec!["mold", "lld"], "", vec![], Some("mold"), 1),
+        (vec!["lld"], "", vec![], Some("lld"), 1),
+        (vec![], "", vec![], None, 0),
+        (vec!["mold", "lld"], "mold", vec![], Some("lld"), 2),
+        (vec!["mold", "lld"], "all", vec![], None, 2),
+        (vec!["mold"], "", vec!["--linker", "cc"], None, 0),
+        (vec!["mold"], "", vec!["--link-arg", "-lm"], None, 0),
+        (
+            vec!["mold"],
+            "",
+            vec!["--link-arg", "-fuse-ld=bfd"],
+            Some("bfd"),
+            0,
+        ),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("driver.log");
+        support::write_script(
+            &temp.path().join("cc"),
+            r##"#!/bin/sh
+printf '%s\n' "$*" >> "$DRIVER_LOG"
+case "$*" in
+  *--version*)
+    case "$REJECT:$1" in all:*|mold:-fuse-ld=mold) exit 1;; esac
+    exit 0;;
+esac
+exit 42
+"##,
+        );
+        for candidate in candidates {
+            support::write_script(
+                &temp.path().join(format!("ld.{candidate}")),
+                "#!/bin/sh\nexit 0\n",
+            );
+        }
+        let source = temp.path().join("main.plenty");
+        std::fs::write(&source, "def main() -> ():\n    pass\n").unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .env("PATH", temp.path())
+            .env("DRIVER_LOG", &log)
+            .env("REJECT", reject)
+            .arg("--compile")
+            .arg(source)
+            .arg("-o")
+            .arg(temp.path().join("app"))
+            .arg("--verbose")
+            .args(&args)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        assert!(!result.status.success(), "{stderr}");
+        assert!(
+            stderr.contains("42") && stderr.contains("link: "),
+            "{stderr}"
+        );
+        let calls = std::fs::read_to_string(log).unwrap();
+        let lines: Vec<_> = calls.lines().collect();
+        assert_eq!(lines.len(), probes + 1, "{calls}");
+        let actual = lines
+            .last()
+            .unwrap()
+            .split_whitespace()
+            .find_map(|arg| arg.strip_prefix("-fuse-ld="));
+        assert_eq!(actual, expected, "{calls}");
+    }
+}
+
+#[test]
 fn configurable_driver_links_and_runs() {
     let temp = tempfile::tempdir().unwrap();
     let source = temp.path().join("main.plenty");

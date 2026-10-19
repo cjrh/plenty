@@ -85,6 +85,11 @@ pub struct CompileOptions {
     pub target: Option<String>,
     /// Executable name or path, passed directly to Command without a shell.
     pub linker: PathBuf,
+    /// Prefer an installed mold or lld for the default `cc` driver. Any
+    /// explicit link arguments or a different driver disable this selection.
+    pub auto_linker: bool,
+    /// Report the effective driver command before linking.
+    pub verbose: bool,
     /// Additional driver arguments, each passed verbatim after the inputs.
     pub link_args: Vec<OsString>,
     /// Ask Cranelift to optimize generated code for speed (the release
@@ -105,6 +110,8 @@ impl Default for CompileOptions {
         Self {
             target: None,
             linker: "cc".into(),
+            auto_linker: true,
+            verbose: false,
             link_args: Vec::new(),
             optimize: false,
             cache: crate::cache::CacheMode::Environment,
@@ -114,6 +121,45 @@ impl Default for CompileOptions {
     }
 }
 
+impl CompileOptions {
+    pub(crate) fn automatic_linker(&self) -> Option<&'static str> {
+        if !cfg!(target_os = "linux")
+            || !self.auto_linker
+            || self.linker != Path::new("cc")
+            || !self.link_args.is_empty()
+        {
+            return None;
+        }
+        static LINKER: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+        *LINKER.get_or_init(|| {
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            ["mold", "lld"].into_iter().find(|name| {
+                let installed = std::env::split_paths(&path)
+                    .any(|dir| executable(&dir.join(format!("ld.{name}"))));
+                // A name on PATH alone is insufficient: the driver might not
+                // support -fuse-ld, or its tool search may find a broken linker.
+                installed
+                    && Command::new("cc")
+                        .arg(format!("-fuse-ld={name}"))
+                        .args(["-Wl,--version", "-o", "/dev/null"])
+                        .output()
+                        .is_ok_and(|output| output.status.success())
+            })
+        })
+    }
+}
+
+fn executable(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        path.metadata()
+            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    path.is_file()
+}
+
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn link(
     object: &Path,
@@ -121,32 +167,42 @@ pub(crate) fn link(
     native_args: &str,
     output: &Path,
     options: &CompileOptions,
+    extra_args: &[OsString],
+    trailing_args: &[OsString],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = Command::new(&options.linker)
+    let mut command = Command::new(&options.linker);
+    if let Some(linker) = options.automatic_linker() {
+        command.arg(format!("-fuse-ld={linker}"));
+    }
+    command
         .arg(object)
         .arg(runtime)
+        .args(extra_args)
         .args(&options.link_args)
+        .args(trailing_args)
         .args(native_args.split_whitespace())
         .arg("-o")
-        .arg(output)
-        .output()
-        .map_err(|error| {
-            // Release users have no Rust toolchain, so name what to install.
-            let hint = if error.kind() == std::io::ErrorKind::NotFound {
-                "; Plenty links programs with a C compiler driver: install gcc or clang \
+        .arg(output);
+    if options.verbose {
+        eprintln!("link: {command:?}");
+    }
+    let result = command.output().map_err(|error| {
+        // Release users have no Rust toolchain, so name what to install.
+        let hint = if error.kind() == std::io::ErrorKind::NotFound {
+            "; Plenty links programs with a C compiler driver: install gcc or clang \
                  and the C library development files, or select a cc-compatible driver \
                  with --linker"
-            } else {
-                "; select a cc-compatible driver with --linker"
-            };
-            format!(
-                "failed to invoke linker driver `{}`: {error}{hint}",
-                options.linker.display()
-            )
-        })?;
+        } else {
+            "; select a cc-compatible driver with --linker"
+        };
+        format!(
+            "failed to invoke linker driver `{}`: {error}{hint}",
+            options.linker.display()
+        )
+    })?;
     if !result.status.success() {
         return Err(format!(
-            "linker driver `{}` failed ({}):\n{}{}",
+            "linker driver `{}` failed ({}); command: {command:?}\n{}{}",
             options.linker.display(),
             result.status,
             String::from_utf8_lossy(&result.stdout),
@@ -160,6 +216,21 @@ pub(crate) fn link(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn linker_candidates_must_be_executable_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        assert!(!executable(temp.path()));
+        let candidate = temp.path().join("ld.mold");
+        assert!(!executable(&candidate));
+        std::fs::write(&candidate, "fixture").unwrap();
+        std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(!executable(&candidate));
+        std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(executable(&candidate));
+    }
 
     #[test]
     fn rejects_runtime_mismatch_and_unsupported_layouts() {

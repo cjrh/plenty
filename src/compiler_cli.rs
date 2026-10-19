@@ -46,6 +46,8 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --version: print the compiler's version and target.
 --linker PATH: cc-compatible linker driver (default: cc on PATH).
 --link-arg ARG: pass one extra driver argument verbatim; may be repeated.
+  Without either override, prefer installed mold, then lld, then cc's default.
+--verbose: report the effective linker command.
 --target TRIPLE: require this target to match the supported packaged runtime.
 --release: optimize generated code for FILE, --compile, or --fuzz (slower
   compilation).
@@ -117,9 +119,15 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                 options.link_args.push(value.into());
             }
             link_options = true;
+            options.auto_linker = false;
         } else {
             index += 1;
         }
+    }
+    if let Some(index) = args.iter().position(|a| a == "--verbose") {
+        args.remove(index);
+        options.verbose = true;
+        link_options = true;
     }
     let root = if let Some(index) = args.iter().position(|a| a == "--module-root") {
         if legacy {
