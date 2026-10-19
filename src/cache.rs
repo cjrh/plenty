@@ -34,6 +34,7 @@ use cranelift_codegen::incremental_cache::CacheKvStore;
 use sha2::{Digest, Sha256};
 
 mod compiled;
+pub(crate) use compiled::MachineCode;
 
 /// Where the compiled-function cache lives, if anywhere.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

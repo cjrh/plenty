@@ -19,7 +19,7 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use super::symbols::{self, Declared, Request, Symbols};
 use super::{Result, Runtime};
-use crate::cache::Cache;
+use crate::cache::{Cache, MachineCode};
 
 /// Branch arguments in one function above which Cranelift's single-pass
 /// register allocator compiles it. The backtracking allocator re-sorts a block
@@ -78,8 +78,25 @@ pub(super) struct Output {
 
 struct Code {
     alignment: u64,
-    bytes: Vec<u8>,
+    bytes: CodeBytes,
     relocs: Vec<ModuleReloc>,
+}
+
+enum CodeBytes {
+    Owned(Vec<u8>),
+    // The cache already retains this immutable code until emission finishes.
+    // Transfer its existing owner instead of allocating a worker-side copy
+    // that the placing thread would immediately copy and free again.
+    Cached(Arc<MachineCode>),
+}
+
+impl CodeBytes {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Owned(bytes) => bytes,
+            Self::Cached(code) => &code.bytes,
+        }
+    }
 }
 
 type Compiled = std::result::Result<Code, String>;
@@ -258,8 +275,12 @@ impl Output {
             format!("compiling `{}`: {error}", declaration.linkage_name(id))
         })?;
         relocate(&mut self.module, &mut code.relocs)?;
-        self.module
-            .define_function_bytes(id, code.alignment, &code.bytes, &code.relocs)?;
+        self.module.define_function_bytes(
+            id,
+            code.alignment,
+            code.bytes.as_slice(),
+            &code.relocs,
+        )?;
         Ok(())
     }
 }
@@ -387,13 +408,18 @@ fn compile(
                     (buffer.alignment as u64, buffer.data(), buffer.relocs())
                 }
             };
+            let relocs = relocs
+                .iter()
+                .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &context.func, id))
+                .collect();
+            let bytes = match compiled {
+                Some(code) => CodeBytes::Cached(code),
+                None => CodeBytes::Owned(bytes.to_vec()),
+            };
             Code {
                 alignment,
-                bytes: bytes.to_vec(),
-                relocs: relocs
-                    .iter()
-                    .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &context.func, id))
-                    .collect(),
+                bytes,
+                relocs,
             }
         })
     });
@@ -550,6 +576,8 @@ mod tests {
         )
         .unwrap()
         .bytes
+        .as_slice()
+        .to_vec()
     }
 
     /// What a worker produces for `func`, through the same path as a program.
@@ -559,7 +587,15 @@ mod tests {
         let mut worker = Worker::new(targets.clone(), Arc::new(declared), None, false);
         let symbols = worker.symbols();
         worker.define(FuncId::from_u32(0), func.clone(), symbols);
-        worker.built.pop().unwrap().code.unwrap().bytes
+        worker
+            .built
+            .pop()
+            .unwrap()
+            .code
+            .unwrap()
+            .bytes
+            .as_slice()
+            .to_vec()
     }
 
     /// The backtracking allocator's time is quadratic in a function's branch
@@ -859,6 +895,62 @@ def main() -> ():
     }
 
     #[test]
+    fn cached_results_share_bytes_until_object_placement() {
+        let isa = targets().ordinary;
+        let dir = tempfile::tempdir().unwrap();
+        let function = constant(types::I64, 123, Some(7));
+        let id = FuncId::from_u32(0);
+        let mut context = Context::new();
+        let plain = compile(&mut context, &*isa, id, function.clone(), None).unwrap();
+        assert!(matches!(plain.bytes, CodeBytes::Owned(_)));
+
+        // Exercise a cold compilation and a fresh cache reading that entry
+        // from disk. Both return the cache's allocation, not a result copy.
+        for warm in [false, true] {
+            let cache = Cache::open(&CacheMode::Directory(dir.path().to_path_buf())).unwrap();
+            context.func = function.clone();
+            let original = cache.compile(&mut context, &*isa).unwrap();
+            context.clear();
+            assert_eq!(cache.stats().misses, u64::from(!warm));
+
+            let results = std::thread::scope(|scope| {
+                (0..8)
+                    .map(|_| {
+                        let cache = &cache;
+                        let isa = &isa;
+                        let function = &function;
+                        scope.spawn(move || {
+                            compile(
+                                &mut Context::new(),
+                                &**isa,
+                                id,
+                                function.clone(),
+                                Some(cache),
+                            )
+                            .unwrap()
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|handle| handle.join().unwrap())
+                    .collect::<Vec<_>>()
+            });
+            for result in &results {
+                let CodeBytes::Cached(code) = &result.bytes else {
+                    panic!("cached emission copied the machine code");
+                };
+                assert!(Arc::ptr_eq(code, &original));
+                assert_eq!(result.bytes.as_slice().as_ptr(), original.bytes.as_ptr());
+            }
+            drop(original);
+            drop(cache);
+            for result in results {
+                assert_eq!(result.bytes.as_slice(), plain.bytes.as_slice());
+            }
+        }
+    }
+
+    #[test]
     fn memoized_stencils_keep_each_functions_own_relocations() {
         let isa = targets().ordinary;
         let dir = tempfile::tempdir().unwrap();
@@ -869,7 +961,7 @@ def main() -> ():
             let id = FuncId::from_u32(callee + 100);
             let plain = compile(&mut context, &*isa, id, func.clone(), None).unwrap();
             let cached = compile(&mut context, &*isa, id, func, Some(&cache)).unwrap();
-            assert_eq!(plain.bytes, cached.bytes);
+            assert_eq!(plain.bytes.as_slice(), cached.bytes.as_slice());
             assert_eq!(plain.alignment, cached.alignment);
             assert!(!cached.relocs.is_empty());
             assert_eq!(plain.relocs.len(), cached.relocs.len());
