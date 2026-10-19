@@ -5,19 +5,15 @@ A generator expression evaluates one element at a time. A consumer such as
 
 ```plenty
 def qualifies(n: i64) -> bool:
-    print("visit", n).unwrap()
     n == 2
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(any(qualifies(n) for n in range(10)))?
     squares = (n * n for n in range(4) if n != 2)
     print(list[i64].from(squares)?)?
     Ok(())
 ```
 ```output
-visit 0
-visit 1
-visit 2
 True
 [0, 1, 9]
 ```

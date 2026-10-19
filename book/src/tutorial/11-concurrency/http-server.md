@@ -109,8 +109,9 @@ pub class App:
                 exchange.send_text(200, "home\n")?
         Ok(())
 
-def main() -> ():
+def main() -> Result[(), AllocError | IoError]:
     pass
+    Ok(())
 ```
 
 ```error
@@ -165,7 +166,7 @@ pub class App:
     pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
         ...
 
-server = std.tls.server_config(&leaf_pem(), &leaf_key()).unwrap()
+server = std.tls.server_config(&leaf_pem(), &leaf_key())?
 report = std.http.tls.serve(listener, server, &routes, &App(), &config, &stop)?
 ```
 

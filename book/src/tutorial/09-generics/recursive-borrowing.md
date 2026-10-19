@@ -32,12 +32,13 @@ the assignment is allowed. `home` stays borrowed until `folder`'s last use.
 Pointing it at a different value is rejected, even one of the same type:
 
 ```plenty-error
-def main() -> ():
-    first = [1, 2].unwrap()
-    second = [3].unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    first = [1, 2]?
+    second = [3]?
     mut view = &first
     view = &second
-    print(view).unwrap()
+    print(view)?
+    Ok(())
 ```
 
 ```error

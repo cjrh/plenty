@@ -15,34 +15,36 @@ from std.ready import WaitError, read_before
 from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now, sleep
 
-def first_bytes(stream: &mut FileStream, deadline: &Deadline, stop: &CancellationToken) -> str:
-    mut buffer = std.bytes.with_capacity(16).unwrap()
-    buffer.resize(16, 0u8).unwrap()
-    match read_before(stream, &mut buffer, 0, 16, deadline, stop):
+def first_bytes(stream: &mut FileStream, deadline: &Deadline, stop: &CancellationToken) -> Result[str, std.bytes.BytesError | AllocError]:
+    mut buffer = std.bytes.with_capacity(16)?
+    buffer.resize(16, 0u8)?
+    text = match read_before(stream, &mut buffer, 0, 16, deadline, stop):
         case Ok(count):
-            str.from(count).unwrap()
+            str.from(count)?
         case Err(WaitError.TimedOut):
             "timed out"
         case Err(WaitError.Cancelled):
             "cancelled"
         case Err(WaitError.Stream(_)):
             "failed"
+    Ok(text)
 
 def main() -> Result[(), Failure]:
     mut command = std.process.shell("sleep 10")?
     command.stdout(Stdio.Piped)
     mut child = command.spawn()?
-    mut quiet = std.io.from_file(child.take_stdout().unwrap())
+    pipe: Result[File, str] = child.take_stdout().ok_or("missing piped stdout")
+    mut quiet = std.io.from_file(pipe?)
     stop = CancellationToken()?
     soon = deadline_after(&monotonic_now(), &milliseconds(20))?
     with spawn(first_bytes, &mut quiet, &soon, &stop)? as task:
-        print(task.join())?
+        print(task.join()?)?
     later = deadline_after(&monotonic_now(), &milliseconds(60000))?
     observer = stop.share()
     with spawn(first_bytes, &mut quiet, &later, &observer)? as task:
         sleep(&milliseconds(20))
         stop.cancel()
-        print(task.join())?
+        print(task.join()?)?
     child.kill()?
     child.wait()?
     Ok(())
@@ -65,8 +67,8 @@ relative paths against it:
 import std.env
 import std.path
 
-def worker() -> ():
-    std.env.set_current_dir(&std.path.from_text("/").unwrap()).unwrap()
+def worker() -> Result[(), AllocError | IoError]:
+    std.env.set_current_dir(&std.path.from_text("/")?)
 
 def main() -> Result[(), Failure]:
     with spawn(worker)?:

@@ -6,14 +6,18 @@ first element does not shift the remaining elements.
 ```plenty
 from std.deque import Deque
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut queue = Deque[(i64, i64)]()?
     queue.append((0, 0))?
     queue.append((0, 1))?
     queue.appendleft((-1, 0))?
     print(queue.len())?
     while not queue.is_empty():
-        print(queue.popleft().unwrap())?
+        match queue.popleft():
+            case Some(value):
+                print(value)?
+            case Nothing:
+                break
     print(queue.pop())?
     Ok(())
 ```

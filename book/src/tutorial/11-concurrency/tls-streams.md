@@ -30,12 +30,12 @@ def leaf_key() -> str:
     return "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQglvSEE3H7v+mInxSF\nAyWFDKYpzpXr20wH8mfFY3bCaB2hRANCAATxMc1B5OInoSrS1LG0dblDhMKxsioH\ncw60z3wRHIqCXqQd4cJ4NlgrHwH5VEZPaORa5N43bhCWPBR+Hu6HshrP\n-----END PRIVATE KEY-----\n"
 
 # Answers one message on one connection.
-def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError | std.bytes.BytesError]:
     match listener.accept(deadline, cancel):
         case Ok(tcp):
             mut stream = std.tls.accept(tcp, config, deadline, cancel)?
-            mut buffer = std.bytes.with_capacity(64).unwrap()
-            buffer.resize(64, 0u8).unwrap()
+            mut buffer = std.bytes.with_capacity(64)?
+            buffer.resize(64, 0u8)?
             count = stream.read_before(&mut buffer, 0, 64, deadline, cancel)?
             stream.write_all_before(&buffer, 0, count, deadline, cancel)?
             stream.close_before(deadline, cancel)?
@@ -46,25 +46,25 @@ def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, can
 def main() -> Result[(), Failure]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
-    roots = std.tls.roots_from_pem(&ca_pem()).unwrap()
-    client = std.tls.client_config(&roots).unwrap()
-    server = std.tls.server_config(&leaf_pem(), &leaf_key()).unwrap()
-    listener = listen(&loopback_v4(0u16), 8).unwrap()
-    address = listener.local_address().unwrap()
+    roots = std.tls.roots_from_pem(&ca_pem())?
+    client = std.tls.client_config(&roots)?
+    server = std.tls.server_config(&leaf_pem(), &leaf_key())?
+    listener = listen(&loopback_v4(0u16), 8)?
+    address = listener.local_address()?
     with spawn(echo, &listener, &server, &deadline, &cancel)? as worker:
-        tcp = connect(&address, &deadline, &cancel).unwrap()
-        mut stream = std.tls.connect(tcp, &client, "localhost", &deadline, &cancel).unwrap()
+        tcp = connect(&address, &deadline, &cancel)?
+        mut stream = std.tls.connect(tcp, &client, "localhost", &deadline, &cancel)?
         message = std.bytes.from_text("hello")?
-        stream.write_all_before(&message, 0, message.len(), &deadline, &cancel).unwrap()
+        stream.write_all_before(&message, 0, message.len(), &deadline, &cancel)?
         mut reply = std.bytes.with_capacity(16)?
         reply.resize(16, 0u8)?
-        count = stream.read_before(&mut reply, 0, 16, &deadline, &cancel).unwrap()
+        count = stream.read_before(&mut reply, 0, 16, &deadline, &cancel)?
         print(reply.slice(0, count)?.to_text()?)?
-        print(stream.read_before(&mut reply, 0, 16, &deadline, &cancel).unwrap())?
-        stream.close_before(&deadline, &cancel).unwrap()
-        print(worker.join().unwrap())?
+        print(stream.read_before(&mut reply, 0, 16, &deadline, &cancel)?)?
+        stream.close_before(&deadline, &cancel)?
+        print(worker.join()?)?
     with spawn(echo, &listener, &server, &deadline, &cancel)? as worker:
-        tcp = connect(&address, &deadline, &cancel).unwrap()
+        tcp = connect(&address, &deadline, &cancel)?
         match std.tls.connect(tcp, &client, "example.test", &deadline, &cancel):
             case Err(error):
                 print(error)?
@@ -72,7 +72,11 @@ def main() -> Result[(), Failure]:
                 print("unexpected")?
         match worker.join():
             case Err(error):
-                print(error)?
+                match error:
+                    case tls: TlsError:
+                        print(tls)?
+                    case buffer: std.bytes.BytesError:
+                        print(buffer)?
             case Ok(_):
                 print("unexpected")?
     Ok(())

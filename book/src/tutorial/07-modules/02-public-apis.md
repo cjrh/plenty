@@ -20,7 +20,7 @@ pub class Counter:
         self.value
 
     def __del__(self) -> ():
-        print("counter closed").unwrap()
+        drop(print("counter closed"))
 ```
 
 Application:
@@ -28,7 +28,7 @@ Application:
 ```plenty
 from counter import Counter
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut count = Counter(41)
     count.increment()
     print(count.read())?
@@ -55,9 +55,10 @@ pub class Secret:
 ```plenty-error
 from secret import Secret
 
-def main() -> ():
+def main() -> Result[(), AllocError | IoError]:
     item = Secret(42)
-    print(item.value).unwrap()
+    print(item.value)?
+    Ok(())
 ```
 
 ```error
@@ -71,3 +72,8 @@ importing a name does not re-export it. Relative imports, wildcards, circular
 imports, and `pub import` are not supported yet.
 
 Private fields are still included in automatic printing and equality.
+
+The lifecycle trace uses `drop(print(...))` deliberately: cleanup cannot return
+an error, and a failed diagnostic write must not interrupt cleanup. For output
+that must succeed, provide an explicit fallible operation and propagate its
+result before leaving the scope.

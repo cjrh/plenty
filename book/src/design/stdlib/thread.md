@@ -21,6 +21,10 @@ There is no hidden clone. Start/join bookkeeping has fixed overhead apart from
 argument/result transfer and cleanup, but scheduling and joining have no bounded
 latency. A join waits as long as the worker needs.
 
+Unlike ordinary Result propagation, scoped `spawn(...)?` currently requires
+the enclosing Result's error to be exactly the start error type or `Failure`.
+An anonymous sum containing the start error is not yet accepted.
+
 The prelude spellings remain supported. There is no detached thread, global
 pool, forced interruption, or import-only exemption from ownership checks.
 For examples see [explicit concurrency imports](../../tutorial/11-concurrency/explicit-imports.md).

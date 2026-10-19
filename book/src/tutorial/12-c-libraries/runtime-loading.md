@@ -8,7 +8,7 @@ function signatures ahead of time. Start with a small library, saved as
 class Counter:
     value: i64
     def __del__(self) -> ():
-        print("released").unwrap()
+        drop(print("released"))
 
 export def create(value: i64) -> Result[Counter, AllocError] = "counter_create":
     Ok(Counter(value))
@@ -33,7 +33,7 @@ containing `libcounter.so`. No library link arguments are needed.
 ```plenty
 import plugin
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | LoadError]:
     path = "./libcounter.so"
     library = plugin.load(&path)?
     mut counter = library.create(42)?
@@ -68,3 +68,8 @@ Keep objects with the library instance that created them. Passing an object to
 a different loaded instance stops with a diagnostic before making the native
 call. Loading trusts native code: metadata checks compatibility, and library
 constructors may run before a later check reports an error.
+
+The lifecycle trace uses `drop(print(...))` deliberately: cleanup cannot return
+an error, and a failed diagnostic write must not interrupt cleanup. For output
+that must succeed, provide an explicit fallible operation and propagate its
+result before leaving the scope.

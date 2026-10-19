@@ -9,22 +9,22 @@ class Resource:
     name: str
 
     def __del__(self) -> ():
-        print(("release " + self.name).unwrap()).unwrap()
+        drop(print("release", self.name))
 
 class Pair:
     first: Resource
     second: Resource
 
     def __del__(self) -> ():
-        print("release pair").unwrap()
+        drop(print("release pair"))
 
-def work() -> Result[(), Failure]:
+def work() -> Result[(), IoError]:
     pair = Pair(Resource("first"), Resource("second"))
     spare = Resource("spare")
     print("working")?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     work()?
     print("done")?
     Ok(())
@@ -49,13 +49,14 @@ Each field finishes cleaning up its children before the next field begins:
 class Leaf:
     name: str
     def __del__(self) -> ():
-        print(self.name).unwrap()
+        drop(print(self.name))
 class Pair:
     first: list[Leaf]
     second: Leaf
-def main() -> ():
-    pairs = [Pair([Leaf("a")].unwrap(), Leaf("b"))].unwrap()
+def main() -> Result[(), AllocError]:
+    pairs = [Pair([Leaf("a")]?, Leaf("b"))]?
     drop(pairs)
+    Ok(())
 ```
 
 ```output
@@ -67,3 +68,8 @@ Lifecycle methods are not called directly. A class with custom cleanup, or one
 containing a value with custom cleanup, cannot be copied yet. A destructor cannot
 yield or report a recoverable error; use an explicit closing method returning
 `Result` when failures matter. Fatal traps do not run cleanup.
+
+The lifecycle trace uses `drop(print(...))` deliberately: cleanup cannot return
+an error, and a failed diagnostic write must not interrupt cleanup. For output
+that must succeed, provide an explicit fallible operation and propagate its
+result before leaving the scope.

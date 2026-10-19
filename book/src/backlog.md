@@ -30,7 +30,9 @@ not mean all candidates or every concurrency diagnostic are implemented.
    string collection. Sums forward `Formattable` when every normalized member
    satisfies it, borrowing the active payload without allocation. Entrypoint
    reports now select this protocol, and typed contexts format eligible causes.
-   Next migrate examples,
+   Tutorial examples now propagate incidental failures instead of unwrapping;
+   scoped spawn still rejects error sums containing `ThreadError` (issue #323).
+   Continue migrating examples,
    libraries where appropriate, fixtures and documentation before removing
    builtin `Failure`. Use non-error sums and the mutual-TLS lesson as acceptance
    cases. This is the agreed next language batch; B71 records its boundaries.

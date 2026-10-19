@@ -7,7 +7,7 @@ that owner instead of copying the position:
 def once() -> Generator[i64]:
     yield 42
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     first = once()
     second = first
     print(list(second)?)?
@@ -24,11 +24,12 @@ After a move, the old binding cannot be used:
 def once() -> Generator[i64]:
     yield 42
 
-def main() -> ():
+def main() -> Result[(), AllocError | IoError]:
     first = once()
     second = first
-    list(first).unwrap()
+    list(first)?
     pass
+    Ok(())
 ```
 
 ```error
@@ -54,10 +55,9 @@ unavailable; a mutable binding may then receive another value:
 
 ```plenty
 def pending() -> Generator[i64]:
-    print("started").unwrap()
     yield 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut numbers = [1, 2, 3]?
     drop(numbers)
     numbers = [4]?

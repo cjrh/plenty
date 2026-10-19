@@ -57,9 +57,9 @@ asks you to stop, wait on a
 ```plenty
 from std.time import seconds
 
-def pause(stop: CancellationToken, ready: Sender[i64]) -> bool:
-    ready.send(1).unwrap()
-    stop.wait_timeout(seconds(3600).as_timeout_ms())
+def pause(stop: CancellationToken, ready: Sender[i64]) -> Result[bool, SendError[i64]]:
+    ready.send(1)?
+    Ok(stop.wait_timeout(seconds(3600).as_timeout_ms()))
 
 def main() -> Result[(), Failure]:
     stop = CancellationToken()?
@@ -69,7 +69,7 @@ def main() -> Result[(), Failure]:
         started.recv()?
         drop(started)
         stop.cancel()
-        print(future.result()?)?
+        print(future.result()??)?
     Ok(())
 ```
 

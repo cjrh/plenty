@@ -6,13 +6,17 @@ the least element, however the elements were pushed.
 ```plenty
 from std.collections import Heap
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut times = Heap[i64]()?
     for time in [40, 10, 30, 20]?:
         times.push(time)?
     print(*times.peek(), times.len())?
     while not times.is_empty():
-        print(times.pop().unwrap())?
+        match times.pop():
+            case Some(value):
+                print(value)?
+            case Nothing:
+                break
     print(times.pop())?
     Ok(())
 ```
@@ -45,14 +49,17 @@ class Job:
 def urgent(a: &Job, b: &Job) -> bool:
     a.priority > b.priority
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut jobs = HeapBy(urgent)?
     jobs.push(Job(1, "sweep"))?
     jobs.push(Job(9, "deploy"))?
     jobs.push(Job(5, "review"))?
     while not jobs.is_empty():
-        job = jobs.pop().unwrap()
-        print(job.priority, job.name)?
+        match jobs.pop():
+            case Some(job):
+                print(job.priority, job.name)?
+            case Nothing:
+                break
     Ok(())
 ```
 

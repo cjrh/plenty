@@ -71,10 +71,11 @@ the loop.
 Statements directly after an unconditional exit are rejected:
 
 ```plenty-error
-def main() -> ():
+def main() -> Result[(), AllocError | IoError]:
     while True:
         break
-        print("unreachable").unwrap()
+        print("unreachable")?
+    Ok(())
 ```
 
 ```error

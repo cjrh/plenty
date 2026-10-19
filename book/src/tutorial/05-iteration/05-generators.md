@@ -4,13 +4,12 @@ A generator function declares `Generator[T]` and uses `yield` statements:
 
 ```plenty
 def countdown(start: i64) -> Generator[i64]:
-    print("starting").unwrap()
     mut remaining = start
     while remaining > 0:
         yield remaining
         remaining = remaining - 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     numbers = countdown(3)
     print("created")?
     for number in numbers:
@@ -20,7 +19,6 @@ def main() -> Result[(), Failure]:
 
 ```output
 created
-starting
 3
 2
 1
@@ -41,7 +39,7 @@ def numbers(limit: i64) -> Generator[i64]:
     for n in range(limit):
         yield n
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print([n * n for n in numbers(6) if n % 2 == 1]?)?
     print(list(numbers(3))?)?
     Ok(())
@@ -60,7 +58,7 @@ an exhausted generator keeps returning `Nothing`:
 def once() -> Generator[str]:
     yield "hello"
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut messages = once()
     print(next(&mut messages))?
     print(next(&mut messages))?

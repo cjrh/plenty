@@ -31,8 +31,9 @@ Both operands must have the same integer type.
 Every element must have the same type; there is no implicit numeric widening:
 
 ```plenty-error
-def main() -> ():
-    values = [1, True].unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    values = [1, True]?
+    Ok(())
 ```
 
 ```error

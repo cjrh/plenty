@@ -7,7 +7,7 @@ its destroy function and ownership rules.
 pub class Counter:
     value: i64
     def __del__(self) -> ():
-        print(self.value).unwrap()
+        drop(print(self.value))
 
 pub export def create(value: i64) -> Result[Counter, AllocError] = "counter_create":
     Ok(Counter(value))
@@ -25,7 +25,7 @@ pub export def finish(owner: Counter) -> () = "counter_finish":
 ```plenty
 import counter
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut owner = counter.create(42)?
     counter.increment(&mut owner)
     print(counter.read(&owner))?
@@ -55,3 +55,8 @@ handle again; a Plenty caller gets a moved-value error if it tries to reuse
 
 Plenty consumers get automatic cleanup through the generated `counter.plentyi`.
 Keep the originating library loaded for every owner's lifetime.
+
+The lifecycle trace uses `drop(print(...))` deliberately: cleanup cannot return
+an error, and a failed diagnostic write must not interrupt cleanup. For output
+that must succeed, provide an explicit fallible operation and propagate its
+result before leaving the scope.

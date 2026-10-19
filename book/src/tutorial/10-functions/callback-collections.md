@@ -8,7 +8,7 @@ def add(offset: i64) -> Closure[[i64], i64]:
     def [offset](n: i64) -> i64:
         offset + n
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     pair = (add(10), add(100))
     print(pair[0](2))?
     first, second = pair
@@ -29,12 +29,16 @@ def counter(total: i64) -> Closure[[], i64]:
         total = total + 1
         total
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut callbacks = [counter(n) for n in range(3)]?
     for callback in &mut callbacks:
         print(callback())?
-    mut removed = callbacks.pop(0).unwrap()
-    print(removed())?
+    match callbacks.pop(0):
+        case Some(callback):
+            mut removed = callback
+            print(removed())?
+        case Nothing:
+            print("no callback")?
     print(callbacks[0]())?
     Ok(())
 ```

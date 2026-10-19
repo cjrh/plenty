@@ -4,11 +4,11 @@ Use a cancellation token to ask a running worker to stop. Share the token
 explicitly; all handles observe the same request.
 
 ```plenty
-def work(stop: CancellationToken, ready: Sender[i64]) -> i64:
-    ready.send(1).unwrap()
+def work(stop: CancellationToken, ready: Sender[i64]) -> Result[i64, SendError[i64]]:
+    ready.send(1)?
     stop.wait()
     # Release resources and return through ordinary control flow.
-    42
+    Ok(42)
 
 def main() -> Result[(), Failure]:
     stop = CancellationToken()?
@@ -18,7 +18,7 @@ def main() -> Result[(), Failure]:
         started.recv()?
         stop.cancel()
         drop(started)
-        print(future.result()?)?
+        print(future.result()??)?
     print(stop.is_cancelled())?
     Ok(())
 ```
@@ -36,8 +36,8 @@ only when the last receiver drops. Plenty rejects a shutdown reached while a
 receiver for a submitted job's sender is still alive:
 
 ```plenty-error
-def report(ready: Sender[i64]) -> ():
-    ready.send(1).unwrap()
+def report(ready: Sender[i64]) -> Result[(), SendError[i64]]:
+    ready.send(1)
 
 def main() -> Result[(), Failure]:
     ready, started = channel[i64](1)?

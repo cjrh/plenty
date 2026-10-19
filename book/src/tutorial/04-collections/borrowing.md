@@ -58,11 +58,12 @@ The exclusive borrow ends after the last use of `reference`, so assigning to
 live, including across branches and loop iterations:
 
 ```plenty-error
-def main() -> ():
-    mut numbers = [1, 2].unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    mut numbers = [1, 2]?
     view = &numbers
-    numbers.append(3).unwrap()
-    print(view).unwrap()
+    numbers.append(3)?
+    print(view)?
+    Ok(())
 ```
 
 ```error
@@ -81,12 +82,13 @@ When a conflict goes through a reference, the diagnostic names both the owner
 and the reference written at the failing use:
 
 ```plenty-error
-def main() -> ():
-    mut numbers = [1, 2].unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    mut numbers = [1, 2]?
     reference = &mut numbers
     view = &reference
-    reference.append(3).unwrap()
-    print(view).unwrap()
+    reference.append(3)?
+    print(view)?
+    Ok(())
 ```
 
 ```error

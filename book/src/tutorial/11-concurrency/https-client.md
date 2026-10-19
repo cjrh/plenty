@@ -51,8 +51,8 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     base = "https://localhost:".concat(&str.from(i64(port))?)?
-    roots = std.tls.roots_from_pem(&ca_pem()).unwrap()
-    tls = std.tls.client_config(&roots).unwrap()
+    roots = std.tls.roots_from_pem(&ca_pem())?
+    tls = std.tls.client_config(&roots)?
     mut client = std.http.https.client(std.http.client.config()?, tls)?
 
     home = client.get(&base.concat("/")?, &deadline, &never)?
@@ -78,7 +78,7 @@ def main() -> Result[(), Failure]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    server = std.tls.server_config(&leaf_pem(), &leaf_key()).unwrap()
+    server = std.tls.server_config(&leaf_pem(), &leaf_key())?
     with spawn(visit, port, stop.share())? as task:
         drop(std.http.tls.serve(listener, server, &routes, &Site(), &std.http.server.config(), &stop)?)
     Ok(())

@@ -11,10 +11,12 @@ client and server agree on during the handshake, such as `h2` for HTTP/2.
 ```plenty
 import std.bytes
 import std.tls
-from std.net import TcpListener, connect, listen, loopback_v4
+from std.net import NetError, TcpListener, connect, listen, loopback_v4
 from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now
-from std.tls import ClientCertificates, ClientConfig, ServerConfig, TlsStream
+from std.tls import TlsError, ClientCertificates, ClientConfig, ServerConfig, TlsStream
+
+type ConnectionError = IoError | NetError | TlsError | std.bytes.BytesError
 
 # Test-only certificates: a server CA and a localhost leaf it signed, and a
 # client CA and a client certificate it signed. Never use a published key
@@ -38,7 +40,7 @@ def client_key() -> str:
     return "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgIVqyz+J6RT5Qaqpt\ndcpJwQnZR3muh8UkZ4GdOuUB1aShRANCAARPkYGzXSPqMKmOeuq+EzvY+QCsmhQB\nAdOTfS8NoVR/OouMku82cYbebFwnqeGZkgeXgrQdKinkL9p7A3u/rttZ\n-----END PRIVATE KEY-----\n"
 
 # Reports who connected, then answers one message.
-def answer(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), Failure]:
+def answer(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), ConnectionError]:
     match stream.peer_certificate()?:
         case Some(der):
             print(der.len() > 0)?
@@ -52,7 +54,7 @@ def answer(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationTok
     stream.close_before(deadline, cancel)?
     Ok(())
 
-def greet(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), Failure]:
+def greet(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), ConnectionError]:
     tcp = listener.accept(deadline, cancel)?
     match std.tls.accept(tcp, config, deadline, cancel):
         case Ok(opened):
@@ -84,18 +86,18 @@ def ask(listener: &TcpListener, server: &ServerConfig, client: &ClientConfig, de
 def main() -> Result[(), Failure]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
-    mut server = std.tls.server_builder(&leaf_pem(), &leaf_key()).unwrap()
-    server.verify_clients(&std.tls.roots_from_pem(&client_ca_pem()).unwrap(), ClientCertificates.Required)
-    server.application_protocol("greet/1").unwrap()
-    server_config = server.build().unwrap()
-    roots = std.tls.roots_from_pem(&ca_pem()).unwrap()
-    mut client = std.tls.client_builder(&roots).unwrap()
-    client.certificate(&client_pem(), &client_key()).unwrap()
-    client.application_protocol("greet/1").unwrap()
-    client_config = client.build().unwrap()
-    listener = listen(&loopback_v4(0u16), 8).unwrap()
+    mut server = std.tls.server_builder(&leaf_pem(), &leaf_key())?
+    server.verify_clients(&std.tls.roots_from_pem(&client_ca_pem())?, ClientCertificates.Required)
+    server.application_protocol("greet/1")?
+    server_config = server.build()?
+    roots = std.tls.roots_from_pem(&ca_pem())?
+    mut client = std.tls.client_builder(&roots)?
+    client.certificate(&client_pem(), &client_key())?
+    client.application_protocol("greet/1")?
+    client_config = client.build()?
+    listener = listen(&loopback_v4(0u16), 8)?
     ask(&listener, &server_config, &client_config, &deadline, &cancel)?
-    ask(&listener, &server_config, &std.tls.client_config(&roots).unwrap(), &deadline, &cancel)?
+    ask(&listener, &server_config, &std.tls.client_config(&roots)?, &deadline, &cancel)?
     Ok(())
 ```
 
@@ -126,3 +128,9 @@ offers none gets `Nothing`.
 Builders also choose the minimum TLS version and the cipher suites, add
 revocation lists, and give a server several certificates to choose by the
 name the client asked for. See [`std.tls`](../../design/stdlib/tls.md).
+
+`ConnectionError` preserves the concrete I/O, networking, TLS, and byte-buffer
+errors from the connection helpers. The spawning caller still uses `Failure`:
+scoped `spawn(...)?` currently accepts only `ThreadError` or `Failure`, not an
+error sum containing `ThreadError`. This is a remaining compiler limitation,
+not a reason to unwrap setup failures.

@@ -3,9 +3,10 @@
 Arithmetic requires matching types:
 
 ```plenty-error
-def main() -> ():
+def main() -> Result[(), AllocError | IoError]:
     small = 7u8
-    print(small + 1i64).unwrap()
+    print(small + 1i64)?
+    Ok(())
 ```
 
 ```error
@@ -34,9 +35,9 @@ returns a `Result`: `Ok` with the converted value, or
 this one variant; parsing text uses the separate `ParseError` type.
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), RangeError | IoError]:
     wide = 200
-    small = u8.try_from(wide).unwrap()
+    small = u8.try_from(wide)?
     print(small + 1u8)?
     Ok(())
 ```
@@ -45,9 +46,10 @@ def main() -> Result[(), IoError]:
 201
 ```
 
-`.unwrap()` takes the converted value and stops the program on an error, as it
-would for a `wide` of `300`. [Absence and failure](../03-absence/index.md) shows
-how to handle the error instead.
+`?` takes the converted value or returns its error to the caller. The
+`RangeError | IoError` error type preserves either a conversion error or a
+printing error. [Absence and failure](../03-absence/index.md) explains propagation
+and how to recover from an error.
 
 A cast to an integer type requires the value to fit. A literal that does not
 fit is rejected when the program is compiled:
@@ -91,9 +93,10 @@ Integer arithmetic overflow is a runtime error. An unsigned type has no negative
 values, so unary minus requires a signed integer or a float:
 
 ```plenty-error
-def main() -> ():
+def main() -> Result[(), AllocError | IoError]:
     small = 7u8
-    print(-small).unwrap()
+    print(-small)?
+    Ok(())
 ```
 
 ```error

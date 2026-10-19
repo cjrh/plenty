@@ -55,11 +55,12 @@ such a match ends with `case _:`, and a payload position needs `_` or a name
 after its literals:
 
 ```plenty-error
-def main() -> ():
+def main() -> Result[(), AllocError | IoError]:
     count = 3
     match count:
         case 1:
-            print("one").unwrap()
+            print("one")?
+    Ok(())
 ```
 
 ```error

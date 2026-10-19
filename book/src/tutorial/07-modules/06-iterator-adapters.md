@@ -8,7 +8,6 @@ from std.iter import map, filter, fold
 
 def numbers(stop: i64) -> Generator[i64]:
     for n in range(stop):
-        print("make", n).unwrap()
         yield n
 
 def even(n: &i64) -> bool:
@@ -20,7 +19,7 @@ def square(n: i64) -> i64:
 def add(total: i64, n: i64) -> i64:
     total + n
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     for n in map(filter(numbers(10), even), square):
         print(n)?
         if n > 3:
@@ -31,10 +30,7 @@ def main() -> Result[(), Failure]:
 ```
 
 ```output
-make 0
 0
-make 1
-make 2
 4
 50
 ```
@@ -56,7 +52,7 @@ def naturals() -> Generator[i64]:
         yield n
         n += 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     offset = 100
     for n in take(map(naturals(), def [offset](n: i64) -> i64: n + offset), 3):
         print(n)?

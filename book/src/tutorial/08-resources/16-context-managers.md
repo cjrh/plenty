@@ -8,12 +8,12 @@ No inheritance or protocol declaration is needed.
 class Message:
     text: str
     def __enter__(self: &mut Message) -> str:
-        print("enter").unwrap()
+        drop(print("enter"))
         self.text
     def __exit__(self: &mut Message) -> ():
-        print("exit").unwrap()
+        drop(print("exit"))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     with Message("hello") as text:
         print(text)?
     print("after")?
@@ -32,3 +32,8 @@ value can move out, for example through `return`. The `as` binding is local to t
 body; omit it for unit entry methods.
 
 `with acquire()?:` propagates acquisition failure without entering the context.
+
+The lifecycle trace uses `drop(print(...))` deliberately: cleanup cannot return
+an error, and a failed diagnostic write must not interrupt cleanup. For output
+that must succeed, provide an explicit fallible operation and propagate its
+result before leaving the scope.

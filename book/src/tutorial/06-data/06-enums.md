@@ -42,10 +42,11 @@ enum Switch:
     On
     Off
 
-def main() -> ():
+def main() -> Result[(), AllocError | IoError]:
     match Switch.On:
         case Switch.On:
-            print("on").unwrap()
+            print("on")?
+    Ok(())
 ```
 
 ```error

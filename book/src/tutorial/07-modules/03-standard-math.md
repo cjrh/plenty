@@ -9,7 +9,7 @@ from std.math import pi
 
 const half_turn: f64 = f64.PI
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | math.MathError]:
     print(math.sqrt(81.0)?)?
     print(math.factorial(5)?)?
     print(math.comb(5, 2)?)?
@@ -19,8 +19,16 @@ def main() -> Result[(), Failure]:
     values = [2, 3, 4]?
     print(math.sum(&values, 0))?
     print(math.prod(&values, 1))?
-    print(math.min_all(&values).unwrap())?
-    print(math.max_all(&values).unwrap())?
+    match math.min_all(&values):
+        case Some(value):
+            print(value)?
+        case Nothing:
+            print("empty input")?
+    match math.max_all(&values):
+        case Some(value):
+            print(value)?
+        case Nothing:
+            print("empty input")?
     print(math.round(2.5)?)?
     print(math.round(3.5)?)?
     quotient, remainder = math.divmod(-7, 3)?

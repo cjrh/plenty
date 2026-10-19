@@ -56,8 +56,16 @@ def main() -> Result[(), Failure]:
     text = "from 2024-05 to 1999-12"
     match date.captures(text)?:
         case Some(groups):
-            print(groups.name("year").unwrap().text(text)?)?
-            print(groups.get(2).unwrap().text(text)?)?
+            match groups.name("year"):
+                case Some(group):
+                    print(group.text(text)?)?
+                case Nothing:
+                    print("group did not match")?
+            match groups.get(2):
+                case Some(group):
+                    print(group.text(text)?)?
+                case Nothing:
+                    print("group did not match")?
         case Nothing:
             pass
     print(date.replace_all(text, "${month}/$1", 100)?)?

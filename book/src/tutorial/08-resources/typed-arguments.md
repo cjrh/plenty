@@ -50,24 +50,33 @@ without shell arguments. Replace `raw` and the start index as above in a binary.
 from std.cli import Spec, Kind, parse, help, describe_for, exit_status
 from std.error import Context, Subject
 
-def main() -> i32:
-    schema = [Spec("FILE", Kind.Path, True, True, False, "input file")].unwrap()
-    raw = [encode_utf8("--help").unwrap()].unwrap()
-    match parse(&schema, &raw, 0):
+def run() -> Result[i32, AllocError | IoError]:
+    schema = [Spec("FILE", Kind.Path, True, True, False, "input file")]?
+    raw = [encode_utf8("--help")?]?
+    status = match parse(&schema, &raw, 0):
         case Ok(parsed):
             if parsed.help_requested:
                 match help(&schema, "finder"):
                     case Ok(text):
-                        drop(write_stdout(text))
+                        write_stdout(text)?
                     case Err(error):
                         Context("help", Subject.Absent, error).report()
-                        return 1i32
+                        return Ok(1i32)
             0i32
         case Err(error):
             status = exit_status(&error)
             context = Context("arguments", Subject.Absent, error)
             context.report_with(describe_for(&context.cause, &schema))
             status
+    Ok(status)
+
+def main() -> i32:
+    match run():
+        case Ok(status):
+            status
+        case Err(error):
+            Context("argument setup", Subject.Absent, error).report()
+            1i32
 ```
 ```output
 Usage: finder [--help]
@@ -79,6 +88,7 @@ Usage: finder [--help]
 fails. After `--`, or as the next token for a text/path option, `--help` is data.
 The parser validates the schema before processing either form.
 
-For real startup code, also handle allocation failure while constructing the
-schema and snapshot; this example uses `unwrap()` only to keep that setup short.
+The `run` helper propagates setup and output failures. `main` reports
+those failures and returns a nonzero exit status, just as it does for argument
+and help errors.
 [`std.cli`](../../design/stdlib/cli.md) lists all errors, costs, and grammar limits.

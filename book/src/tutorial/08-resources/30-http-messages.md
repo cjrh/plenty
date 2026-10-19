@@ -64,8 +64,11 @@ def main() -> Result[(), Failure]:
     print(str.repr(std.http.write_response(&mut sink, &forged))?)?
     smuggled = "POST / HTTP/1.1\r\nContent-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n"
     mut conn = std.io.buffered_reader(std.io.cursor(std.bytes.from_text(smuggled)?), 1024)?
-    head = std.http.read_request(&mut conn, &std.http.limits())?.unwrap()
-    print(str.repr(std.http.request_framing(&head))?)?
+    match std.http.read_request(&mut conn, &std.http.limits())?:
+        case Some(head):
+            print(str.repr(std.http.request_framing(&head))?)?
+        case Nothing:
+            print("connection ended before a request")?
     Ok(())
 ```
 ```output

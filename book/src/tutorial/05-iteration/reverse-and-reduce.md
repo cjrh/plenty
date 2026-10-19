@@ -5,13 +5,13 @@ or range backward. Borrow a list to keep it afterward. Text yields Unicode
 scalars, so a multibyte character stays intact.
 
 ```plenty
-def main() -> Result[(), IoError]:
-    values = [10, 20, 30].unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    values = [10, 20, 30]?
     for index, value in enumerate(reversed(&values)):
         print((index, *value))?
     for letter in reversed("aé🙂"):
         print(letter)?
-    print([x for x in reversed(range(5)) if x % 2 == 0].unwrap())?
+    print([x for x in reversed(range(5)) if x % 2 == 0]?)?
     print(values)?
     Ok(())
 ```
@@ -31,19 +31,23 @@ Use `any` to find whether at least one boolean is `True`, or `all` to check
 whether every boolean is `True`. Both stop as soon as they know the answer.
 An empty input gives `False` for `any` and `True` for `all`.
 
+The return type lists both possible errors: `AllocError` from creating or
+copying lists, and `IoError` from printing. Each `?` passes its error back
+without discarding the details.
+
 ```plenty
 def positive(values: list[i64]) -> Generator[bool]:
     for value in values:
         yield value > 0
 
-def main() -> Result[(), IoError]:
-    values = [2, -1, 3].unwrap()
-    print(any(positive(copy(values).unwrap())))?
+def main() -> Result[(), AllocError | IoError]:
+    values = [2, -1, 3]?
+    print(any(positive(copy(values)?)))?
     print(all(positive(values)))?
-    flags = [True, True].unwrap()
+    flags = [True, True]?
     print(all(reversed(&flags)))?
-    print(any(list[bool]().unwrap()))?
-    print(all(list[bool]().unwrap()))?
+    print(any(list[bool]()?))?
+    print(all(list[bool]()?))?
     Ok(())
 ```
 

@@ -13,10 +13,10 @@ from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 
 # Echoes one connection until the client stops sending.
-def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError | std.bytes.BytesError]:
     mut stream = listener.accept(deadline, cancel)?
-    mut buffer = std.bytes.with_capacity(64).unwrap()
-    buffer.resize(64, 0u8).unwrap()
+    mut buffer = std.bytes.with_capacity(64)?
+    buffer.resize(64, 0u8)?
     mut total = 0
     while True:
         count = stream.read_before(&mut buffer, 0, 64, deadline, cancel)?
@@ -29,19 +29,19 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
 def main() -> Result[(), Failure]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
-    mut listener = listen(&loopback_v4(0u16), 8).unwrap()
-    address = listener.local_address().unwrap()
+    mut listener = listen(&loopback_v4(0u16), 8)?
+    address = listener.local_address()?
     with spawn(echo, &listener, &deadline, &cancel)? as server:
-        mut stream = connect(&address, &deadline, &cancel).unwrap()
+        mut stream = connect(&address, &deadline, &cancel)?
         message = std.bytes.from_text("hello")?
-        stream.write_all_before(&message, 0, message.len(), &deadline, &cancel).unwrap()
-        stream.shutdown(Shutdown.Write).unwrap()
+        stream.write_all_before(&message, 0, message.len(), &deadline, &cancel)?
+        stream.shutdown(Shutdown.Write)?
         mut reply = std.bytes.with_capacity(16)?
         reply.resize(16, 0u8)?
-        count = stream.read_before(&mut reply, 0, 16, &deadline, &cancel).unwrap()
+        count = stream.read_before(&mut reply, 0, 16, &deadline, &cancel)?
         print(reply.slice(0, count)?.to_text()?)?
-        print(server.join().unwrap())?
-    listener.close().unwrap()
+        print(server.join()?)?
+    listener.close()?
     match connect(&address, &deadline, &cancel):
         case Err(NetError.Refused):
             print("refused")?
@@ -82,19 +82,19 @@ from std.time import deadline_after, milliseconds, monotonic_now
 def main() -> Result[(), Failure]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
-    listener = listen(&loopback_v4(0u16), 8).unwrap()
-    address = listener.local_address().unwrap()
-    quiet = connect(&address, &deadline, &cancel).unwrap()
-    mut chatty = connect(&address, &deadline, &cancel).unwrap()
-    first = listener.accept(&deadline, &cancel).unwrap()
-    second = listener.accept(&deadline, &cancel).unwrap()
-    mut chosen = selector(8).unwrap()
-    first.watch(&mut chosen, 1u64, Interest.Read).unwrap()
-    second.watch(&mut chosen, 2u64, Interest.Read).unwrap()
+    listener = listen(&loopback_v4(0u16), 8)?
+    address = listener.local_address()?
+    quiet = connect(&address, &deadline, &cancel)?
+    mut chatty = connect(&address, &deadline, &cancel)?
+    first = listener.accept(&deadline, &cancel)?
+    second = listener.accept(&deadline, &cancel)?
+    mut chosen = selector(8)?
+    first.watch(&mut chosen, 1u64, Interest.Read)?
+    second.watch(&mut chosen, 2u64, Interest.Read)?
     message = std.bytes.from_text("hi")?
-    chatty.write_all_before(&message, 0, 2, &deadline, &cancel).unwrap()
-    count = chosen.wait(&deadline, &cancel).unwrap()
-    print(count, chosen.event(0).unwrap().key)?
+    chatty.write_all_before(&message, 0, 2, &deadline, &cancel)?
+    count = chosen.wait(&deadline, &cancel)?
+    print(count, chosen.event(0)?.key)?
     Ok(())
 ```
 

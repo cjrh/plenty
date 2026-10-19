@@ -10,8 +10,8 @@ from std.channel import channel as bounded, Receiver as Inbox
 from std.concurrent import ThreadPoolExecutor as Pool
 from std.sync import CancellationToken as Stop
 
-def receive(inbox: Inbox[str]) -> str:
-    inbox.recv().unwrap()
+def receive(inbox: Inbox[str]) -> Result[str, RecvError]:
+    inbox.recv()
 
 def stopped(stop: Stop) -> bool:
     stop.wait()
@@ -22,7 +22,7 @@ def main() -> Result[(), Failure]:
     sender.send("hello")?
     drop(sender)
     with threads.spawn(receive, receiver)? as task:
-        print(task.join())?
+        print(task.join()?)?
     stop = Stop()?
     with Pool(1, 1)? as pool:
         future = pool.submit(stopped, stop.share())?

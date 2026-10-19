@@ -5,10 +5,14 @@ Methods borrow its content; mutation requires a `mut` binding or an exclusive
 reference:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut items = Box(Box([1, 2]?)?)?
     items.append(3)?
-    print(items.get(2).unwrap())?
+    match items.get(2):
+        case Some(value):
+            print(value)?
+        case Nothing:
+            print("missing item")?
     text = Box("  hello  ")?
     print(text.strip()?)?
     print(text.startswith("  "))?

@@ -6,8 +6,8 @@
 string count as present values.
 
 ```plenty
-def main() -> Result[(), IoError]:
-    numbers = {"answer": 42}.unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    numbers = {"answer": 42}?
     print(numbers.get("answer", 0))?
     print(numbers.get("missing", 0))?
     missing: Option[i64] = Nothing
@@ -33,8 +33,8 @@ def answer(numbers: &dict[str, i64]) -> Result[i64, Missing]:
     value = numbers.get("answer").ok_or(Missing.Answer)?
     Ok(value)
 
-def main() -> Result[(), IoError]:
-    numbers = {"answer": 42}.unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    numbers = {"answer": 42}?
     match answer(&numbers):
         case Ok(value):
             print(value)?

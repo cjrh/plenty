@@ -1,8 +1,8 @@
 # Pass a failure back with `?`
 
 Put `?` after a `Result` expression to extract its `Ok` payload or return its
-`Err` immediately. The example's `main` uses `Failure` to discard error details;
-`checked_name` keeps its concrete `str` error.
+`Err` immediately. The example's `main` preserves allocation and printing errors
+in `AllocError | IoError`; `checked_name` keeps its concrete `str` error.
 
 ```plenty
 def validate(name: str) -> Result[(), str]:
@@ -14,7 +14,7 @@ def checked_name(name: str) -> Result[str, str]:
     validate(name)?
     Ok(name)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(str.repr(checked_name("Plenty"))?)?
     print(str.repr(checked_name(""))?)?
     Ok(())
@@ -68,8 +68,12 @@ Option[i64].Nothing
 
 The enclosing function must return the same family: `Result` for a `Result`
 operand or `Option` for an `Option` operand. Success payload types can differ,
-but `Result` error types must match exactly unless the function explicitly
-chooses `Failure`. Use `match` to convert errors while preserving details.
+but a `Result` error must either match the declared error type or fit within
+its [anonymous sum](../../design/language/03-types/anonymous-sums.md).
+For example, `Result[(), AllocError | IoError]` lets the same function propagate
+list allocation failures and printing failures with `?`. The sum retains the
+original error and adds no allocation. Use `match` when you want to recover or
+translate an error rather than pass it back.
 `?` is not supported inside generators.
 
 ```plenty-error

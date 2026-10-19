@@ -19,10 +19,11 @@ def main() -> Result[(), Failure]:
 The assignment moves the list. The old binding cannot be used afterward:
 
 ```plenty-error
-def main() -> ():
-    original = [10, 20].unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    original = [10, 20]?
     changed = original
-    print(original).unwrap()
+    print(original)?
+    Ok(())
 ```
 
 ```error

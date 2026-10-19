@@ -12,7 +12,7 @@ class Counter:
     def __exit__(self: &mut Counter) -> ():
         self.count = self.count + 10
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut counter = Counter(0)
     with &mut counter as n:
         print(n)?
@@ -32,12 +32,12 @@ can use earlier `as` bindings.
 class Label:
     text: str
     def __enter__(self: &mut Label) -> str:
-        print(self.text).unwrap()
+        drop(print(self.text))
         self.text
     def __exit__(self: &mut Label) -> ():
-        print(self.text).unwrap()
+        drop(print(self.text))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     with Label("first") as first, Label("second") as second:
         print("body")?
     Ok(())
@@ -63,9 +63,9 @@ class Counter:
     def __enter__(self: &mut Counter) -> &mut Counter:
         &mut self
     def __exit__(self: &mut Counter) -> ():
-        print(self.count).unwrap()
+        drop(print(self.count))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     with Counter(1) as counter:
         counter.count = 7
     Ok(())
@@ -73,3 +73,8 @@ def main() -> Result[(), Failure]:
 ```output
 7
 ```
+
+The lifecycle trace uses `drop(print(...))` deliberately: cleanup cannot return
+an error, and a failed diagnostic write must not interrupt cleanup. For output
+that must succeed, provide an explicit fallible operation and propagate its
+result before leaving the scope.
