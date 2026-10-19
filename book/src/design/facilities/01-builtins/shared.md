@@ -3,8 +3,9 @@
 `Shared[T]` is one heap value with several owners. Each owner is an affine
 handle; the value is released when the last handle drops, on whichever thread
 drops it. Use it to give pool jobs, or any owners that cannot borrow from one
-scope, the same atomic, mutex, or immutable value. It is a prelude name, like
-[`Box`](boxes.md).
+scope, the same atomic, mutex, or immutable value, or a value that synchronizes
+itself, such as an [HTTP client](../../stdlib/http-client.md#sharing-a-client-between-threads)
+and its connection pool. It is a prelude name, like [`Box`](boxes.md).
 
 | Operation | Result | Effect |
 |---|---|---|

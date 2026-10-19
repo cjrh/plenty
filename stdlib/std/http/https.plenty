@@ -106,7 +106,7 @@ def secured[T](result: Result[T, TlsError]) -> Result[T, ClientError]:
 pub class HttpsConnector:
     _tls: ClientConfig
 
-    pub def open(self: &mut HttpsConnector, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Connection, ClientError]:
+    pub def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Connection, ClientError]:
         if endpoint.scheme == "http" and endpoint.tunnel.is_none():
             return Ok(Connection(Some(std.http.client.dial(endpoint, deadline, cancel)?), Nothing))
         if endpoint.scheme != "https":

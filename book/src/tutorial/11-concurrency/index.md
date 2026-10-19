@@ -34,3 +34,4 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Read forms, cookies and forwarded clients](http-forms.md)
 - [Serve files and sign cookies](http-files.md)
 - [Send HTTP requests](http-client.md)
+- [Share one HTTP client between workers](shared-http-client.md)

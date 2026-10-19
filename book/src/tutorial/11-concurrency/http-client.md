@@ -43,7 +43,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
-    mut client = std.http.client.client(std.http.client.config()?)?
+    client = std.http.client.client(std.http.client.config()?)?
 
     home = client.get(&base.concat("/")?, &deadline, &never)?
     print(home.status, home.body.to_text()?.strip()?)?

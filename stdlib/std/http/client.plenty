@@ -6,7 +6,11 @@
 # requests that failed on a reused connection before any response byte
 # arrived. Connections come from a Connector; std.http.https supplies TLS
 # ones, so this module does not import std.tls and plain clients link none
-# of it. See book/src/design/stdlib/http-client.md.
+# of it. Every method takes the client by shared borrow, so one client in a
+# `Shared` serves many threads: the pool sits behind a mutex held only while
+# a connection is taken or returned, and the counters are atomics. See
+# book/src/design/stdlib/http-client.md.
+import std.atomic
 import std.bytes
 import std.error
 import std.http
@@ -18,7 +22,8 @@ from std.bytes import ByteSource, Bytes, BytesError
 from std.http import BodyReader, Header, HttpError, Limits, RequestHead, ResponseHead
 from std.io import BufReader, Reader, StreamError
 from std.net import NetError, TcpStream
-from std.sync import CancellationToken
+from std.atomic import Atomic, Ordering
+from std.sync import CancellationToken, Mutex
 from std.time import Deadline, Duration, deadline_at, instant_at, monotonic_now, seconds
 from std.url import UrlError
 
@@ -81,9 +86,11 @@ pub protocol Transport:
     def write_before[S: ByteSource](self: &mut Transport, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         pass
 
-# Opens a new connection to an endpoint within the deadline.
+# Opens a new connection to an endpoint within the deadline. The connector
+# is borrowed shared, since clients sharing one connector may open
+# connections at the same time.
 pub protocol Connector[T]:
-    def open(self: &mut Connector[T], endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[T, ClientError]:
+    def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[T, ClientError]:
         pass
 
 # A plain TCP connection.
@@ -98,7 +105,7 @@ pub class Plain:
 
 # Opens plain TCP connections. Only the `http` scheme is accepted.
 pub class TcpConnector:
-    pub def open(self: &mut TcpConnector, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Plain, ClientError]:
+    pub def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Plain, ClientError]:
         if endpoint.scheme != "http" or endpoint.tunnel.is_some():
             return Err(ClientError.UnsupportedScheme)
         Ok(Plain(dial(endpoint, deadline, cancel)?))
@@ -301,13 +308,28 @@ pub class Unstreamed:
 # Bytes of a streamed body read and sent at a time.
 const upload_chunk: i64 = 16384
 
-# Counts kept by a client.
+# Counts kept by a client, as `stats()` reports them.
 pub class Stats:
     pub opened: u64
     pub reused: u64
     pub retried: u64
     pub redirected: u64
     pub discarded: u64
+
+# The live counters. Atomics, so that threads sharing a client count without
+# taking the pool lock, and every event is counted exactly once.
+class Counters:
+    opened: Atomic[u64]
+    reused: Atomic[u64]
+    retried: Atomic[u64]
+    redirected: Atomic[u64]
+    discarded: Atomic[u64]
+
+def bump(counter: &Atomic[u64]) -> ():
+    drop(counter.fetch_add(1, Ordering.Relaxed))
+
+def loaded(counter: &Atomic[u64]) -> u64:
+    counter.load(Ordering.Acquire)
 
 pub class Request:
     pub method: str
@@ -743,27 +765,51 @@ def checked(config: &Config) -> bool:
 def copy_limits(limits: &Limits) -> Limits:
     Limits(limits.max_line, limits.max_head, limits.max_headers, limits.max_body)
 
+# A connection taken out of the pool under its lock, to be closed or probed
+# with the lock released.
+enum Taken[T]:
+    Expired(BufReader[Wire[T]])
+    Candidate(BufReader[Wire[T]])
+    Empty
+
+# Every method borrows the client shared, so threads can use one client
+# through `Shared[Client[T, C]]` handles and reuse each other's connections.
+# The pool lock is held only to take a connection out or put one back; a
+# connection is opened, probed, used and closed with the lock released, so a
+# slow origin never holds up requests to another.
 pub class Client[T, C]:
     _connector: C
     _config: Config
-    _pool: list[BufReader[Wire[T]]]
-    _stats: Stats
+    _pool: Mutex[list[BufReader[Wire[T]]]]
+    _stats: Counters
 
     pub def stats(self) -> Stats:
-        Stats(self._stats.opened, self._stats.reused, self._stats.retried, self._stats.redirected, self._stats.discarded)
+        Stats(loaded(&self._stats.opened), loaded(&self._stats.reused), loaded(&self._stats.retried), loaded(&self._stats.redirected), loaded(&self._stats.discarded))
 
     # Connections waiting in the pool.
     pub def idle(self) -> i64:
-        len(self._pool)
+        mut waiting = 0
+        with self._pool.lock() as pool:
+            waiting = len(pool)
+        waiting
 
-    # Closes every pooled connection.
-    pub def close_idle(self: &mut Client[T, C]) -> ():
-        self._pool.clear()
+    # Closes every pooled connection, one at a time so that no connection
+    # closes under the lock.
+    pub def close_idle(self) -> ():
+        while True:
+            mut taken: Option[BufReader[Wire[T]]] = Nothing
+            with self._pool.lock() as pool:
+                taken = pool.pop()
+            match taken:
+                case Some(conn):
+                    drop(conn)
+                case Nothing:
+                    return
 
     # Sends `request` and returns once the final response head has arrived,
     # following redirects. `deadline` bounds the whole exchange, including
     # reads of the returned body; `cancel` stops it.
-    pub def send(self: &mut Client[T, C], request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
+    pub def send(self, request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
         mut none = Unstreamed()
         head, incoming, url, redirects = self.run(request, &mut none, &sized(0), False, deadline, cancel)?
         status = head.status
@@ -774,7 +820,7 @@ pub class Client[T, C]:
     # request is replayed only if none of it was read, and a redirect is
     # followed only when the next request has no body: otherwise the
     # redirect response is returned.
-    pub def send_from[R: Reader](self: &mut Client[T, C], request: Request, body: &mut R, upload: &Upload, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
+    pub def send_from[R: Reader](self, request: Request, body: &mut R, upload: &Upload, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
         if request.body.len() > 0:
             return Err(ClientError.InvalidRequest)
         match upload.length:
@@ -789,7 +835,7 @@ pub class Client[T, C]:
 
     # The final head, its body, the final URL and the number of redirects
     # followed, as separate values so that `fetch` can keep the head.
-    def run[R: Reader](self: &mut Client[T, C], request: Request, body: &mut R, upload: &Upload, streamed: bool, deadline: &Deadline, cancel: &CancellationToken) -> Result[(ResponseHead, Incoming[T], str, i64), ClientError]:
+    def run[R: Reader](self, request: Request, body: &mut R, upload: &Upload, streamed: bool, deadline: &Deadline, cancel: &CancellationToken) -> Result[(ResponseHead, Incoming[T], str, i64), ClientError]:
         until = until_of(deadline)
         mut current = request
         mut streaming = streamed
@@ -818,13 +864,13 @@ pub class Client[T, C]:
                     if dropped:
                         streaming = False
                     hops += 1
-                    self._stats.redirected += 1u64
+                    bump(&self._stats.redirected)
                 case Nothing:
                     return Ok((head, incoming, replace(current.url, ""), hops))
         Err(ClientError.TooManyRedirects)
 
     # Sends `request` and reads the whole body, within `limits.max_body`.
-    pub def fetch(self: &mut Client[T, C], request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
+    pub def fetch(self, request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
         mut none = Unstreamed()
         head, incoming, url, redirects = self.run(request, &mut none, &sized(0), False, deadline, cancel)?
         mut reading = incoming
@@ -834,18 +880,18 @@ pub class Client[T, C]:
         status = head.status
         Ok(Fetched(status, head, url, redirects, body))
 
-    pub def get(self: &mut Client[T, C], url: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
+    pub def get(self, url: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
         self.fetch(request("GET", url)?, deadline, cancel)
 
     # Returns a response's connection to the pool when its body was read to
     # the end and both sides allow reuse; otherwise closes it.
-    pub def finish(self: &mut Client[T, C], response: Response[T]) -> ():
+    pub def finish(self, response: Response[T]) -> ():
         mut owned = response
         self.recycle(&mut owned._incoming)
 
     # Parks the connection behind a fully read, reusable body. Whatever is
     # left in `incoming` closes when it is dropped.
-    def recycle(self: &mut Client[T, C], incoming: &mut Incoming[T]) -> ():
+    def recycle(self, incoming: &mut Incoming[T]) -> ():
         if not incoming._keep:
             return
         match &mut incoming._body:
@@ -861,7 +907,7 @@ pub class Client[T, C]:
 
     # Reads a little of an unwanted body so that the connection can be
     # reused; a longer body closes it.
-    def drain(self: &mut Client[T, C], incoming: Incoming[T]) -> ():
+    def drain(self, incoming: Incoming[T]) -> ():
         mut owned = incoming
         if not owned._keep:
             return
@@ -883,41 +929,68 @@ pub class Client[T, C]:
                 return
         self.recycle(&mut owned)
 
-    def park(self: &mut Client[T, C], conn: BufReader[Wire[T]]) -> ():
+    # Puts a connection in the pool. The connection it displaces, the oldest
+    # for its origin or the oldest of all, is closed after the lock is
+    # released.
+    def park(self, conn: BufReader[Wire[T]]) -> ():
         config = &self._config
         if config.max_idle == 0 or config.max_idle_per_origin == 0 or conn.buffered() != 0:
-            self._stats.discarded += 1u64
+            bump(&self._stats.discarded)
             return
         mut owned = conn
         owned.inner._since = now_ns()
-        mut same = 0
-        mut oldest = -1
-        for index in range(len(self._pool)):
-            if self._pool[index].inner._key == owned.inner._key:
-                same += 1
-                if oldest < 0:
-                    oldest = index
-        if same >= config.max_idle_per_origin:
-            drop(self._pool.pop(oldest))
-            self._stats.discarded += 1u64
-        elif len(self._pool) >= config.max_idle:
-            drop(self._pool.pop(0))
-            self._stats.discarded += 1u64
-        if self._pool.append(owned).is_err():
-            self._stats.discarded += 1u64
+        mut evicted: Option[BufReader[Wire[T]]] = Nothing
+        mut kept = True
+        with self._pool.lock() as pool:
+            mut same = 0
+            mut oldest = -1
+            for index in range(len(pool)):
+                if pool[index].inner._key == owned.inner._key:
+                    same += 1
+                    if oldest < 0:
+                        oldest = index
+            if same >= config.max_idle_per_origin:
+                evicted = pool.pop(oldest)
+            elif len(pool) >= config.max_idle:
+                evicted = pool.pop(0)
+            kept = pool.append(owned).is_ok()
+        if evicted.is_some():
+            bump(&self._stats.discarded)
+        if not kept:
+            bump(&self._stats.discarded)
+
+    # Takes one connection out of the pool: an expired one if there is any,
+    # otherwise the most recently parked one for `key`. Expired connections
+    # go first so that they are all closed before a request reuses anything.
+    def checkout(self, key: &str, now: u64, idle_span: u64) -> Taken[T]:
+        mut taken: Taken[T] = Taken[T].Empty
+        with self._pool.lock() as pool:
+            for index in range(len(pool)):
+                if after(pool[index].inner._since, idle_span) <= now:
+                    match pool.pop(index):
+                        case Some(conn):
+                            taken = Taken[T].Expired(conn)
+                        case Nothing:
+                            pass
+                    return taken
+            mut at = len(pool) - 1
+            while at >= 0:
+                if pool[at].inner._key == key:
+                    match pool.pop(at):
+                        case Some(conn):
+                            taken = Taken[T].Candidate(conn)
+                        case Nothing:
+                            pass
+                    return taken
+                at -= 1
+        taken
 
     # The most recently parked live connection for `key`. Expired, closed
-    # and unexpectedly readable connections are closed on the way.
-    def take_idle(self: &mut Client[T, C], key: &str, cancel: &CancellationToken) -> Option[BufReader[Wire[T]]]:
+    # and unexpectedly readable connections are closed on the way, each
+    # with the pool lock released.
+    def take_idle(self, key: &str, cancel: &CancellationToken) -> Option[BufReader[Wire[T]]]:
         now = now_ns()
         idle_span = self._config.idle_timeout.as_nanoseconds()
-        mut index = 0
-        while index < len(self._pool):
-            if after(self._pool[index].inner._since, idle_span) <= now:
-                drop(self._pool.pop(index))
-                self._stats.discarded += 1u64
-            else:
-                index += 1
         mut probe = match std.bytes.with_capacity(1):
             case Ok(made):
                 made
@@ -925,28 +998,28 @@ pub class Client[T, C]:
                 return Nothing
         if probe.resize(1, 0u8).is_err():
             return Nothing
-        mut at = len(self._pool) - 1
-        while at >= 0:
-            if self._pool[at].inner._key == key:
-                match self._pool.pop(at):
-                    case Some(conn):
-                        mut owned = conn
-                        # A live idle connection has nothing to read; end of
-                        # input or stray bytes mean it cannot carry a request.
-                        match owned.inner._stream.read_before(&mut probe, 0, 1, &deadline_of(0u64), cancel):
-                            case Err(ClientError.Net(NetError.TimedOut)):
-                                return Some(owned)
-                            case _:
-                                self._stats.discarded += 1u64
-                    case Nothing:
-                        pass
-            at -= 1
+        while True:
+            match self.checkout(key, now, idle_span):
+                case Taken.Expired(conn):
+                    drop(conn)
+                    bump(&self._stats.discarded)
+                case Taken.Candidate(conn):
+                    mut owned = conn
+                    # A live idle connection has nothing to read; end of
+                    # input or stray bytes mean it cannot carry a request.
+                    match owned.inner._stream.read_before(&mut probe, 0, 1, &deadline_of(0u64), cancel):
+                        case Err(ClientError.Net(NetError.TimedOut)):
+                            return Some(owned)
+                        case _:
+                            bump(&self._stats.discarded)
+                case Taken.Empty:
+                    return Nothing
         Nothing
 
-    def open(self: &mut Client[T, C], endpoint: &Endpoint, key: &str, until: u64, cancel: &CancellationToken) -> Result[BufReader[Wire[T]], ClientError]:
+    def open(self, endpoint: &Endpoint, key: &str, until: u64, cancel: &CancellationToken) -> Result[BufReader[Wire[T]], ClientError]:
         limit = least(after(now_ns(), self._config.connect_timeout.as_nanoseconds()), until)
         stream = self._connector.open(endpoint, &deadline_of(limit), cancel)?
-        self._stats.opened += 1u64
+        bump(&self._stats.opened)
         failure: Option[ClientError] = Nothing
         wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, 0, failure, *key, 0u64)
         match std.io.buffered_reader(wire, 4096):
@@ -960,7 +1033,7 @@ pub class Client[T, C]:
     # One request on one connection, replayed on a new connection when a
     # reused one failed before any response byte arrived, the method is
     # idempotent and no byte of a streamed body was read.
-    def attempt[R: Reader](self: &mut Client[T, C], request: &Request, body: &mut R, upload: &Upload, streamed: bool, until: u64, cancel: &CancellationToken) -> Result[(ResponseHead, Incoming[T]), ClientError]:
+    def attempt[R: Reader](self, request: &Request, body: &mut R, upload: &Upload, streamed: bool, until: u64, cancel: &CancellationToken) -> Result[(ResponseHead, Incoming[T]), ClientError]:
         target = target_of(&request.url)?
         for index in range(len(request.headers)):
             if alloc(managed(&request.headers[index].name))?:
@@ -996,7 +1069,7 @@ pub class Client[T, C]:
             mut conn = match found:
                 case Some(pooled):
                     reused = True
-                    self._stats.reused += 1u64
+                    bump(&self._stats.reused)
                     pooled
                 case Nothing:
                     self.open(&endpoint, &key, until, cancel)?
@@ -1017,7 +1090,7 @@ pub class Client[T, C]:
                     if reused and conn.inner._received == 0 and conn.inner._pulled == 0 and retried < self._config.retries and idempotent(&request.method) and replayable(&error):
                         retried += 1
                         fresh = True
-                        self._stats.retried += 1u64
+                        bump(&self._stats.retried)
                     else:
                         return Err(error)
         Err(ClientError.InvalidRequest)
@@ -1238,9 +1311,11 @@ def listed(names: &list[str], name: &str) -> Result[bool, ClientError]:
 pub def client(config: Config) -> Result[Client[Plain, TcpConnector], ClientError]:
     connector[Plain, TcpConnector](TcpConnector(), config)
 
-# A client over any connector, such as an in-memory one for tests.
+# A client over any connector, such as an in-memory one for tests. To share
+# the client between threads, put it in a `Shared`: `Shared(connector(...)?)?`.
 pub def connector[T, C](opener: C, config: Config) -> Result[Client[T, C], ClientError]:
     if not checked(&config):
         return Err(ClientError.InvalidConfig)
     pool = alloc(list[BufReader[Wire[T]]].new())?
-    Ok(Client(opener, config, pool, Stats(0u64, 0u64, 0u64, 0u64, 0u64)))
+    counters = Counters(Atomic[u64](0), Atomic[u64](0), Atomic[u64](0), Atomic[u64](0), Atomic[u64](0))
+    Ok(Client(opener, config, Mutex(pool), counters))

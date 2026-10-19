@@ -16,7 +16,7 @@ from std.bytes import ByteSource, Bytes
 from std.http.client import ClientError, Endpoint, Request
 from std.http import HttpError
 from std.net import NetError
-from std.sync import CancellationToken
+from std.sync import CancellationToken, Mutex
 from std.time import Deadline
 
 # One scripted connection. `input` is cut at `ends` into replies; a write
@@ -73,17 +73,20 @@ pub class Script:
         Ok(count)
 
 # Hands out scripted connections in order, printing each endpoint when
-# `echo` is set.
+# `echo` is set. A connector is borrowed shared, so the queue sits in a
+# mutex.
 pub class Scripts:
-    pub queue: list[Script]
+    pub queue: Mutex[list[Script]]
     pub echo: bool
 
-    pub def open(self: &mut Scripts, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Script, ClientError]:
+    pub def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Script, ClientError]:
         if self.echo:
             print(described(endpoint).unwrap()).unwrap()
-        if len(self.queue) == 0:
-            return Err(ClientError.Net(NetError.Refused))
-        match self.queue.pop(0):
+        mut next: Option[Script] = Nothing
+        with self.queue.lock() as queue:
+            if len(queue) > 0:
+                next = queue.pop(0)
+        match next:
             case Some(script):
                 Ok(script)
             case Nothing:
@@ -102,7 +105,7 @@ pub def script(replies: list[str], hang: bool) -> Result[Script, Failure]:
     Ok(Script(input, ends, 0, 0, hang, -1, 0, True))
 
 pub def scripted(connections: list[Script], config: hc.Config) -> Result[hc.Client[Script, Scripts], Failure]:
-    Ok(hc.connector[Script, Scripts](Scripts(connections, True), config)?)
+    Ok(hc.connector[Script, Scripts](Scripts(Mutex(connections), True), config)?)
 
 pub def later() -> Result[Deadline, Failure]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
@@ -1031,7 +1034,7 @@ def main() -> Result[(), Failure]:
         first = quiet(["HTTP/1.1 307 Temporary Redirect\r\nLocation: /next/page-beyond-inline\r\nContent-Length: 0\r\n\r\n", "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nX-Field-Beyond-Inline: a-value-beyond-inline\r\n\r\n4\r\nbody\r\n0\r\n\r\n"]?)?
         # A connection closed after a failed allocation is replaced by this one.
         spare = quiet(["HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nbody"]?)?
-        mut client = hc.connector[Script, Scripts](Scripts([first, spare]?, False), hc.config()?)?
+        mut client = hc.connector[Script, Scripts](Scripts(Mutex([first, spare]?), False), hc.config()?)?
         mut put = hc.request("PUT", "http://host-beyond-inline/first/page")?
         put.add("Authorization", "Bearer a-token-beyond-inline")?
         put.body = std.bytes.from_text("payload-beyond-inline")?
@@ -1084,7 +1087,7 @@ def main() -> Result[(), Failure]:
     final = "HTTP/1.1 203 Translated Here\r\nX-One: 1\r\nX-Two: two\r\nContent-Length: 4\r\n\r\nbody"
     mut first = script([moved, final, ok("next")?]?, True)?
     first.echo = False
-    mut client = hc.connector[Script, Scripts](Scripts([first]?, False), hc.config()?)?
+    mut client = hc.connector[Script, Scripts](Scripts(Mutex([first]?), False), hc.config()?)?
     fetched = client.get("http://h/start", &later()?, &never)?
     head_of(&fetched)?
     print(fetched.url, fetched.redirects, fetched.body.to_text()?)?
@@ -1097,7 +1100,7 @@ def main() -> Result[(), Failure]:
     big.echo = False
     mut config = hc.config()?
     config.limits.max_body = 3
-    mut second = hc.connector[Script, Scripts](Scripts([big]?, False), config)?
+    mut second = hc.connector[Script, Scripts](Scripts(Mutex([big]?), False), config)?
     show(second.get("http://h/big", &later()?, &never))?
     stats(&second)?
     Ok(())
@@ -1133,7 +1136,7 @@ from std.bytes import BytesError
 def client() -> Result[hc.Client[Script, Scripts], Failure]:
     mut made = script(["HTTP/1.1 200 OK\r\nX-Field-Beyond-Inline: a-value-beyond-inline\r\nContent-Length: 4\r\n\r\nbody"]?, True)?
     made.echo = False
-    Ok(hc.connector[Script, Scripts](Scripts([made]?, False), hc.config()?)?)
+    Ok(hc.connector[Script, Scripts](Scripts(Mutex([made]?), False), hc.config()?)?)
 
 def by_hand(client: &mut hc.Client[Script, Scripts], request: Request, deadline: &Deadline, never: &CancellationToken) -> Result[(), ClientError]:
     mut response = client.send(request, deadline, never)?

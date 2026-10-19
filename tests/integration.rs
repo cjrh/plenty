@@ -355,6 +355,8 @@ mod test_std_http_server;
 mod test_std_http_server_proxy;
 #[path = "test_std_http_server_qualification.rs"]
 mod test_std_http_server_qualification;
+#[path = "test_std_http_shared_client.rs"]
+mod test_std_http_shared_client;
 #[path = "test_std_io.rs"]
 mod test_std_io;
 #[path = "test_std_json.rs"]
