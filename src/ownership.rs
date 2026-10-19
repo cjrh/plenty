@@ -282,6 +282,58 @@ pub struct Loan {
     /// Borrowing an environment keeps all references stored inside it live.
     pub dependencies: Vec<usize>,
 }
+/// Live loan ids, sorted ascending: the order in which conflicts are tried.
+/// Liveness revisits every node until nothing changes, so a set is rebuilt in
+/// a reused buffer and copied only when it differs; a `BTreeSet` per visit
+/// made allocation the checker's main cost.
+#[derive(Clone, Default, PartialEq)]
+struct Live(Vec<usize>);
+
+impl Live {
+    fn insert(&mut self, id: usize) -> bool {
+        match self.0.binary_search(&id) {
+            Ok(_) => false,
+            Err(at) => {
+                self.0.insert(at, id);
+                true
+            }
+        }
+    }
+
+    fn remove(&mut self, id: &usize) {
+        if let Ok(at) = self.0.binary_search(id) {
+            self.0.remove(at);
+        }
+    }
+
+    fn contains(&self, id: &usize) -> bool {
+        self.0.binary_search(id).is_ok()
+    }
+
+    fn union(&mut self, other: &Live, scratch: &mut Vec<usize>) {
+        if other.0.is_empty() {
+            return;
+        }
+        if self.0.is_empty() {
+            self.0.extend_from_slice(&other.0);
+            return;
+        }
+        scratch.clear();
+        let (mut a, mut b) = (self.0.iter().peekable(), other.0.iter().peekable());
+        while let (Some(&&x), Some(&&y)) = (a.peek(), b.peek()) {
+            scratch.push(x.min(y));
+            if x <= y {
+                a.next();
+            }
+            if y <= x {
+                b.next();
+            }
+        }
+        scratch.extend(a.chain(b));
+        std::mem::swap(&mut self.0, scratch);
+    }
+}
+
 #[derive(Default)]
 struct Loop {
     entry: State,
@@ -407,20 +459,21 @@ pub(crate) fn site_after(ops: &[Op], inherited: Option<Site>) -> Option<Site> {
 }
 
 #[derive(Default)]
-struct Node {
-    op: Option<Op>,
+struct Node<'a> {
+    /// Borrowed from the body: cloning every operation dominated the graph's cost.
+    op: Option<&'a Op>,
     successors: Vec<usize>,
     site: Option<Site>,
 }
 
 /// Flatten structured operations to an access CFG. Backedges and early exits are
 /// explicit, so liveness reaches a fixed point rather than guessing at loop uses.
-fn graph(
-    ops: &[Op],
+fn graph<'a>(
+    ops: &'a [Op],
     inherited: Option<Site>,
     next: usize,
     targets: Option<(usize, usize)>,
-    nodes: &mut Vec<Node>,
+    nodes: &mut Vec<Node<'a>>,
 ) -> usize {
     // Nodes are built back to front, but a marker applies to what follows it.
     let mut current = inherited;
@@ -517,7 +570,7 @@ fn graph(
                 nodes.push(Node::default())
             }
             _ => nodes.push(Node {
-                op: Some(op.clone()),
+                op: Some(op),
                 successors: vec![next],
                 site,
             }),
@@ -1051,7 +1104,7 @@ impl Checker<'_> {
         hotpath::measure(label = "ownership::check_loans")
     )]
     fn loans(&self, ops: &[Op]) -> Result<()> {
-        fn use_loan(id: usize, loans: &HashMap<usize, Loan>, live: &mut BTreeSet<usize>) {
+        fn use_loan(id: usize, loans: &HashMap<usize, &Loan>, live: &mut Live) {
             if live.insert(id) {
                 for dependency in &loans[&id].dependencies {
                     use_loan(*dependency, loans, live);
@@ -1084,31 +1137,35 @@ impl Checker<'_> {
         let (nodes, reachable, loans, created) = crate::profile_block!("ownership::loan_graph", {
             let mut nodes = vec![Node::default()];
             let entry = graph(ops, None, 0, None, &mut nodes);
-            let mut reachable = BTreeSet::new();
+            let mut seen = vec![false; nodes.len()];
             let mut todo = vec![entry];
             while let Some(n) = todo.pop() {
-                if reachable.insert(n) {
+                if !std::mem::replace(&mut seen[n], true) {
                     todo.extend(&nodes[n].successors);
                 }
             }
+            // Ascending, as liveness visits successors before their predecessors.
+            let reachable: Vec<usize> = (0..nodes.len()).filter(|&n| seen[n]).collect();
             let mut loans = HashMap::new();
             let mut created = HashMap::new();
             for node in &nodes {
-                if let Some(Op::Loan(l)) = &node.op {
-                    loans.insert(l.id, l.clone());
+                if let Some(Op::Loan(l)) = node.op {
+                    loans.insert(l.id, l);
                     created.insert(l.id, node.site);
                 }
             }
             (nodes, reachable, loans, created)
         });
+        let mut scratch = Vec::new();
         let live = crate::profile_block!("ownership::loan_liveness", {
-            let mut live = vec![BTreeSet::new(); nodes.len()];
+            let mut live = vec![Live::default(); nodes.len()];
+            let mut before = Live::default();
             loop {
                 let mut changed = false;
                 for &i in &reachable {
-                    let mut before = BTreeSet::new();
+                    before.0.clear();
                     for &s in &nodes[i].successors {
-                        before.extend(&live[s]);
+                        before.union(&live[s], &mut scratch);
                     }
                     match &nodes[i].op {
                         Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
@@ -1124,7 +1181,7 @@ impl Checker<'_> {
                         _ => {}
                     }
                     if before != live[i] {
-                        live[i] = before;
+                        live[i].0.clone_from(&before.0);
                         changed = true;
                     }
                 }
@@ -1156,7 +1213,7 @@ impl Checker<'_> {
                     }
                     let keeps = match &nodes[n].op {
                         Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
-                            let mut used = BTreeSet::new();
+                            let mut used = Live::default();
                             use_loan(*id, &loans, &mut used);
                             used.contains(&loan)
                         }
@@ -1180,10 +1237,11 @@ impl Checker<'_> {
             };
             // Report the conflict that comes first in the source.
             let mut first: Option<Box<Error>> = None;
+            let mut after = Live::default();
             for &i in &reachable {
-                let mut after = BTreeSet::new();
+                after.0.clear();
                 for &s in &nodes[i].successors {
-                    after.extend(&live[s]);
+                    after.union(&live[s], &mut scratch);
                 }
                 let site = nodes[i].site;
                 let access = match &nodes[i].op {
@@ -1213,14 +1271,14 @@ impl Checker<'_> {
                 };
                 let mut found = None;
                 if let Some(Op::Yield(_)) = &nodes[i].op {
-                    if let Some(&id) = after.first() {
+                    if let Some(&id) = after.0.first() {
                         let loan = &loans[&id];
                         let place = self.place(loan.root, &loan.fields, loan.precise);
                         found = Some((self.error(Kind::LiveAcrossYield, place, site), id));
                     }
                 }
                 if let Some((root, write, via, defining, action)) = access {
-                    for id in &after {
+                    for id in &after.0 {
                         let loan = &loans[id];
                         if Some(*id) == defining || via.is_some_and(|v| ancestor(*id, v)) {
                             continue;

@@ -67,7 +67,7 @@ impl Futures {
             let Some(Op::StoreLocal(slot)) = node.op else {
                 continue;
             };
-            let slot = slot as usize;
+            let slot = *slot as usize;
             let mut pending = predecessors[index].clone();
             let generation = index + 1;
             while let Some(index) = pending.pop() {
