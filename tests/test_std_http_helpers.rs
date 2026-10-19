@@ -71,6 +71,7 @@ pub class App:
     pub json: std.json.Limits
     pub storage: Root
     pub proxies: Proxies
+    pub baseline_files: i64
 
     pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
         match route:
@@ -92,7 +93,7 @@ pub class App:
             case Route.Upload:
                 match std.http.body.read_multipart(exchange, &self.multipart, &self.storage):
                     case Ok(found):
-                        print(open_files()?)?
+                        print(file_delta(self.baseline_files)?)?
                         mut parts = found
                         mut text = ""
                         for index in range(len(parts)):
@@ -166,7 +167,7 @@ pub class App:
         Ok(())
 
 # Open file descriptors of this process.
-pub def open_files() -> Result[str, Failure]:
+pub def open_files() -> Result[i64, Failure]:
     mut names = std.fs.root(&std.path.from_text("/proc/self/fd")?)?.names()?
     mut count = 0
     while True:
@@ -175,7 +176,10 @@ pub def open_files() -> Result[str, Failure]:
                 count += 1
             case Nothing:
                 break
-    Ok("fds=".concat(str.from(count)?)?)
+    Ok(count)
+
+pub def file_delta(baseline: i64) -> Result[str, Failure]:
+    Ok("fds=".concat(str.from(open_files()? - baseline)?)?)
 
 pub def routes() -> Result[Router[Route], Failure]:
     mut table = std.http.server.router[Route]()?
@@ -189,7 +193,9 @@ pub def routes() -> Result[Router[Route], Failure]:
 
 pub def app() -> Result[App, Failure]:
     storage = std.fs.root(&std.path.from_text("$STORAGE")?)?
-    Ok(App(std.http.body.form_limits(), std.http.body.multipart_limits(), std.json.limits(), storage, std.http.proxy.proxies(Forwarding.XForwardedFor)?))
+    # Keep the storage root live for both the baseline and request measurements.
+    baseline = open_files()?
+    Ok(App(std.http.body.form_limits(), std.http.body.multipart_limits(), std.json.limits(), storage, std.http.proxy.proxies(Forwarding.XForwardedFor)?, baseline))
 
 # Serves `input` as one connection from `peer` and prints what was written.
 pub def serve(app: &App, input: &str, peer: Option[SocketAddress]) -> Result[(), Failure]:
@@ -202,6 +208,8 @@ pub def play(app: &App, input: &str, peer: Option[SocketAddress], cut: bool) -> 
     config = std.http.server.config()
     script = Script(std.bytes.from_text(input)?, 0, cut)
     report = std.http.server.serve_connection_from(script, peer, &table, app, &config, &stop, &cancel)
+    if open_files()? != app.baseline_files:
+        print("request leaked descriptors", file_delta(app.baseline_files)?)?
     print("")?
     Ok(())
 
@@ -380,9 +388,9 @@ fn multipart_fields_and_files_are_parsed() {
             r##"{UPLOAD}
 def main() -> Result[(), Failure]:
     mut app = app()?
-    print(open_files()?)?
+    print(file_delta(app.baseline_files)?)?
     serve(&app, "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=\"XyZ\"\r\nContent-Length: 208\r\nConnection: close\r\n\r\npreamble\r\n--XyZ\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nhello\r\n--XyZ  \r\ncontent-disposition: form-data; name=\"doc\"; filename=\"a b.txt\"\r\nContent-Type: text/csv\r\n\r\nx,y\r\n--XyXnot\r\n1,2\r\n--XyZ--\r\nepilogue", Nothing)?
-    print(open_files()?)?
+    print(file_delta(app.baseline_files)?)?
     mut body = field("a", "")?
     body = body.concat(&file("b", "")?)?.concat("--XyZ--")?
     serve(&app, &upload(&body)?, Nothing)?
@@ -399,15 +407,15 @@ def main() -> Result[(), Failure]:
 "##
         ),
         r"
-fds=5
-fds=7
+fds=0
+fds=2
 HTTP/1.1 200 OK||[title type=text/plain size=5 hello][doc file=a b.txt type=text/csv size=18 x,y|--XyXnot|1,2]
-fds=5
-fds=7
+fds=0
+fds=2
 HTTP/1.1 200 OK||[a type=text/plain size=0 ][b file=f.txt type=text/csv size=0 ]
-fds=5
+fds=0
 HTTP/1.1 200 OK||
-fds=9
+fds=4
 HTTP/1.1 200 OK||[big file=f.txt type=text/csv size=40000 abcdefg0...abcdefg9][LONG type=text/plain size=1 v][again file=f.txt type=text/csv size=40000 abcdefg0...abcdefg9]
 ",
     );
@@ -443,7 +451,7 @@ def main() -> Result[(), Failure]:
     body = file("a", "1")?
     serve(&app, &upload(&body.concat("--XyZ--")?)?, Nothing)?
     app.multipart.max_body = 4096
-    print(open_files()?)?
+    print(file_delta(app.baseline_files)?)?
     serve(&app, &upload(&file("a", "unfinished")?)?, Nothing)?
     serve(&app, &upload("--XyZ\r\nContent-Disposition: attachment; name=\"a\"\r\n\r\nx\r\n--XyZ--")?, Nothing)?
     serve(&app, &upload("--XyZ\r\nContent-Type: text/plain\r\n\r\nx\r\n--XyZ--")?, Nothing)?
@@ -451,7 +459,7 @@ def main() -> Result[(), Failure]:
     serve(&app, &upload("no delimiter at all")?, Nothing)?
     serve(&app, "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", Nothing)?
     serve(&app, "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=\"a@b\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", Nothing)?
-    print(open_files()?)?
+    print(file_delta(app.baseline_files)?)?
     Ok(())
 "##
         ),
@@ -461,7 +469,7 @@ HTTP/1.1 413 Content Too Large||Content Too Large
 HTTP/1.1 413 Content Too Large||Content Too Large
 HTTP/1.1 413 Content Too Large||Content Too Large
 HTTP/1.1 413 Content Too Large||Content Too Large
-fds=5
+fds=0
 HTTP/1.1 400 Bad Request||Bad Request
 HTTP/1.1 400 Bad Request||Bad Request
 HTTP/1.1 400 Bad Request||Bad Request
@@ -469,7 +477,7 @@ HTTP/1.1 400 Bad Request||Bad Request
 HTTP/1.1 400 Bad Request||Bad Request
 HTTP/1.1 400 Bad Request||Bad Request
 HTTP/1.1 400 Bad Request||Bad Request
-fds=5
+fds=0
 ",
     );
 }
@@ -498,19 +506,19 @@ def main() -> Result[(), Failure]:
 "##
         ),
         r"
-fds=5
+fds=0
 HTTP/1.1 200 OK||[a type=text/plain size=1 1]
-fds=5
+fds=0
 HTTP/1.1 200 OK||[a type=text/plain size=1 1]
-fds=5
+fds=0
 HTTP/1.1 200 OK||[a type=text/plain size=1 1]
-fds=5
+fds=0
 HTTP/1.1 200 OK||[a type=text/plain size=1 1]
-fds=5
+fds=0
 HTTP/1.1 200 OK||[a type=text/plain size=1 1]
-fds=5
+fds=0
 HTTP/1.1 200 OK||[a type=text/plain size=1 1]
-fds=5
+fds=0
 HTTP/1.1 200 OK||[a type=text/plain size=1 1]
 HTTP/1.1 413 Content Too Large||Content Too Large
 ",
@@ -526,20 +534,62 @@ fn a_cancelled_upload_releases_its_file() {
             r##"{UPLOAD}
 def main() -> Result[(), Failure]:
     mut app = app()?
-    print(open_files()?)?
+    print(file_delta(app.baseline_files)?)?
     mut text = "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=XyZ\r\nContent-Length: 1000\r\n\r\n"
     text = text.concat(&file("a", "partial content")?)?
     play(&app, &text, Nothing, True)?
-    print(open_files()?)?
+    print(file_delta(app.baseline_files)?)?
     Ok(())
 "##
         ),
         r"
-fds=5
+fds=0
 HTTP/1.1 408 Request Timeout||Request Timeout
-fds=5
+fds=0
 ",
     );
+}
+
+/// Extra descriptors must survive both execs without changing the live-upload
+/// deltas or masking descriptors leaked by a completed request (issue #299).
+#[cfg(target_os = "linux")]
+#[test]
+fn multipart_checks_allow_inherited_descriptors() {
+    use std::os::unix::process::CommandExt;
+
+    unsafe extern "C" {
+        fn dup(fd: i32) -> i32;
+    }
+
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args([
+            "--exact",
+            "test_std_http_helpers::multipart_fields_and_files_are_parsed",
+            "test_std_http_helpers::multipart_limits_and_malformed_bodies_leave_no_files",
+            "test_std_http_helpers::multipart_header_of_exactly_max_head_is_accepted_on_any_read_boundary",
+            "test_std_http_helpers::a_cancelled_upload_releases_its_file",
+            "--test-threads=1",
+        ])
+        .stdin(std::process::Stdio::null());
+    // dup is async-signal-safe and clears close-on-exec on the new descriptors.
+    // Run only in the child so parallel tests never inherit these extra handles.
+    unsafe {
+        command.pre_exec(|| {
+            if dup(0) < 0 || dup(0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let output = command.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("4 passed; 0 failed"), "{stdout}");
 }
 
 #[test]
