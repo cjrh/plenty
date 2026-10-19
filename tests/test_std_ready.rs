@@ -247,11 +247,22 @@ def main() -> Result[(), Failure]:
             task.join()
         short.wait()?
     # Still open: the pipe and the token's wake descriptor.
-    print(count("/proc/self/fd")? - descriptors, count("/proc/self/task")? - threads)?
+    # Keep this sample immediate: a delayed file close is not acceptable.
+    print("extra descriptors:", count("/proc/self/fd")? - descriptors)?
+    # pthread_join waits for clear_child_tid, which Linux performs before
+    # removing the exiting task from /proc/self/task (issue #332).
+    # Only this kernel bookkeeping check is eventual; a leaked helper still
+    # fails after the deadline, with the remaining task count in the output.
+    cleanup = deadline_after(&monotonic_now(), &milliseconds(5000))?
+    mut extra_threads = count("/proc/self/task")? - threads
+    while extra_threads != 0 and not cleanup.expired(&monotonic_now()):
+        sleep(&milliseconds(1))
+        extra_threads = count("/proc/self/task")? - threads
+    print("extra tasks after cleanup:", extra_threads)?
     Ok(())
 "#,
         ),
-        "True True\nTrue\n2 0\n",
+        "True True\nTrue\nextra descriptors: 2\nextra tasks after cleanup: 0\n",
     );
 }
 

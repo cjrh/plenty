@@ -69,3 +69,8 @@ must return all inputs together for retry; its `SpawnError[F]` retains the job.
 Task bookkeeping and error handling allocate no Plenty heap storage; native thread
 stacks and OS bookkeeping still require resources. The current runtime supports
 joinable native threads on x86_64 Linux GNU.
+
+Joining synchronizes worker completion and its cleanup, but does not synchronize
+Linux's later removal of the task from `/proc/self/task`. Diagnostic tools can
+briefly observe an exiting task there after a successful join; this does not
+mean the worker is still running Plenty code or still owns its dropped handles.
