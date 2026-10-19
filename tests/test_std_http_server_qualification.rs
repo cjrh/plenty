@@ -606,14 +606,21 @@ def main() -> Result[(), Failure]:
 /// streamed chunked upload, sized and chunked downloads, and `HEAD`.
 #[test]
 fn std_http_client_interoperates() {
+    // Exact reuse counts require idle connections to outlive the entire
+    // request sequence, including the separate client's 64 MiB download.
+    // The server's default five-second idle timeout can expire on slow CI.
     let main = r##"import std.http.client
 import std.io
 
+const request_budget_seconds: u32 = 20u32
+
 def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     never = CancellationToken()?
-    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(20u32))?
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(request_budget_seconds))?
     base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
-    mut client = std.http.client.client(std.http.client.config()?)?
+    mut client_config = std.http.client.config()?
+    client_config.idle_timeout = std.time.seconds(request_budget_seconds)
+    mut client = std.http.client.client(client_config)?
     for index in range(3):
         home = client.get(&base.concat("/")?, &deadline, &never)?
         print(home.status, home.body.to_text()?)?
@@ -649,8 +656,10 @@ def main() -> Result[(), Failure]:
     site = app(&stop)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 64)?
     port = listener.local_address()?.port
+    mut config = std.http.server.config()
+    config.idle_timeout = std.time.seconds(request_budget_seconds)
     with spawn(visit, port, stop.share())? as task:
-        report = std.http.server.serve(listener, &table, &site, &std.http.server.config(), &stop)?
+        report = std.http.server.serve(listener, &table, &site, &config, &stop)?
         print(counts(&report)?)?
     Ok(())
 "##;
