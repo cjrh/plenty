@@ -333,6 +333,10 @@ def main() -> Result[(), Failure]:
     serve(&app, "POST /json HTTP/1.1\r\nHost: x\r\nContent-Type: text/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}", Nothing)?
     # A second '/' makes the media type malformed, though it ends in +json.
     serve(&app, "POST /json HTTP/1.1\r\nHost: x\r\nContent-Type: application/a/b+json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}", Nothing)?
+    # RFC 9110 allows empty parameters; a parameter without '=' is malformed.
+    serve(&app, "POST /json HTTP/1.1\r\nHost: x\r\nContent-Type: application/json; \r\nContent-Length: 1\r\nConnection: close\r\n\r\n1", Nothing)?
+    serve(&app, "POST /json HTTP/1.1\r\nHost: x\r\nContent-Type: application/json;; ;charset=utf-8;\r\nContent-Length: 1\r\nConnection: close\r\n\r\n2", Nothing)?
+    serve(&app, "POST /json HTTP/1.1\r\nHost: x\r\nContent-Type: application/json; charset\r\nContent-Length: 1\r\nConnection: close\r\n\r\n3", Nothing)?
     app.json.max_input = 3
     serve(&app, "POST /json HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 4\r\nConnection: close\r\n\r\nnull", Nothing)?
     Ok(())
@@ -342,6 +346,9 @@ HTTP/1.1 200 OK||{"a":[1,2]}
 HTTP/1.1 200 OK||true
 HTTP/1.1 400 Bad Request||Bad Request
 HTTP/1.1 415 Unsupported Media Type||Unsupported Media Type
+HTTP/1.1 415 Unsupported Media Type||Unsupported Media Type
+HTTP/1.1 200 OK||1
+HTTP/1.1 200 OK||2
 HTTP/1.1 415 Unsupported Media Type||Unsupported Media Type
 HTTP/1.1 413 Content Too Large||Content Too Large
 "#,
