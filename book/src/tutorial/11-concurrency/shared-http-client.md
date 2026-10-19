@@ -64,19 +64,22 @@ def main() -> Result[(), Failure]:
             answered = a.result()?? + b.result()?? + c.result()??
         stats = client.stats()
         print(answered, stats.opened + stats.reused, stats.opened <= 3)?
+        print(stats.opened == u64(client.idle()) + stats.discarded)?
         stop.cancel()
     Ok(())
 ```
 ```output
 30 30 True
+True
 ```
 
 `Shared(client(config)?)?` moves the client into one shared allocation;
 `client.share()` gives each job its own owner, and `client.get` reaches the
 client through the handle. Thirty requests went out, and every one either
-opened a connection or reused one: `opened + reused` is 30. Three jobs ran at
-once, so at most three connections were ever opened; a connection one job
-parks is taken by whichever job asks next.
+opened a connection or reused one: `opened + reused` is 30. A job holds one
+connection at a time and opens one only when none is idle, and a connection
+one job parks is taken by whichever job asks next. Three jobs ran at once and
+none of their connections closed, so at most three were opened.
 
 The client holds its pool lock only while taking a connection out or putting
 one back. Connecting, sending, and waiting for a response happen with the lock
@@ -84,7 +87,9 @@ released, so a job stuck on a slow server does not delay the others. Each
 request still has its own deadline and cancellation token.
 
 `stats()` and `idle()` work through the handle too. The counts are exact however
-many jobs run: here, `opened` is the number of connections now idle plus the
-number counted as `discarded`. The pool limits `max_idle` and `max_idle_per_origin`
-and the `idle_timeout` apply to the shared pool as a whole; see
+many jobs run. Every connection the client opened is idle, in use, or counted
+as `discarded` once it has closed, whatever closed it; with no request or
+response holding one, `opened` is `idle()` plus `discarded`, as the last line
+shows. The pool limits `max_idle` and `max_idle_per_origin` and the
+`idle_timeout` apply to the shared pool as a whole; see
 [the client reference](../../design/stdlib/http-client.md#sharing-a-client-between-threads).

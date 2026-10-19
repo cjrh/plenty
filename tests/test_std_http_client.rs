@@ -24,7 +24,9 @@ from std.time import Deadline
 # reply released and read, a read reports end of input, or a timeout when
 # `hang` is set; before then it reports a timeout, as an idle live peer
 # does. Written bytes are copied to standard output when `echo` is set. A write fails with
-# `Reset` once `fail_after` bytes have gone, when it is not negative.
+# `Reset` once `fail_after` bytes have gone, when it is not negative. With
+# `cancel_once` set, the next read that finds nothing to read reports
+# `Cancelled`, as a wait that cancellation cut short does.
 pub class Script:
     pub input: Bytes
     pub ends: list[i64]
@@ -34,6 +36,7 @@ pub class Script:
     pub fail_after: i64
     pub sent: i64
     pub echo: bool
+    pub cancel_once: bool
 
     pub def read_before(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         if cancel.is_cancelled():
@@ -43,6 +46,9 @@ pub class Script:
             end = self.ends[self.released - 1]
         left = end - self.at
         if left == 0:
+            if self.cancel_once:
+                self.cancel_once = False
+                return Err(ClientError.Net(NetError.Cancelled))
             if self.released == len(self.ends) and not self.hang:
                 return Ok(0)
             return Err(ClientError.Net(NetError.TimedOut))
@@ -102,7 +108,7 @@ pub def script(replies: list[str], hang: bool) -> Result[Script, Failure]:
     for index in range(len(replies)):
         input.extend(&std.bytes.from_text(&replies[index])?)?
         ends.append(input.len())?
-    Ok(Script(input, ends, 0, 0, hang, -1, 0, True))
+    Ok(Script(input, ends, 0, 0, hang, -1, 0, True, False))
 
 pub def scripted(connections: list[Script], config: hc.Config) -> Result[hc.Client[Script, Scripts], Failure]:
     Ok(hc.connector[Script, Scripts](Scripts(Mutex(connections), True), config)?)
@@ -207,7 +213,7 @@ GET /a?x=1 HTTP/1.1|Host: Example.com||
 PUT /b HTTP/1.1|Host: example.com:80|X-Trace: 7|Content-Length: 4||data
 => 200 http://example.com:80/b redirects=0 body=two
 opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=1
-opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=0
+opened=1 reused=1 retried=0 redirected=0 discarded=1 idle=0
 --- a closed idle connection is replaced
 [connect http://h:80]
 GET /1 HTTP/1.1|Host: h||
@@ -222,7 +228,7 @@ GET /1 HTTP/1.1|Host: h||200
 [connect http://h:80]
 GET /2 HTTP/1.1|Host: h||
 => 200 http://h/2 redirects=0 body=d
-opened=2 reused=0 retried=0 redirected=0 discarded=0 idle=1
+opened=2 reused=0 retried=0 redirected=0 discarded=1 idle=1
 --- max_idle 0 asks the server to close
 [connect http://h:80]
 GET /1 HTTP/1.1|Host: h|Connection: close||
@@ -230,7 +236,7 @@ GET /1 HTTP/1.1|Host: h|Connection: close||
 [connect http://h:80]
 GET /2 HTTP/1.1|Host: h|Connection: close||
 => 200 http://h/2 redirects=0 body=f
-opened=2 reused=0 retried=0 redirected=0 discarded=0 idle=0
+opened=2 reused=0 retried=0 redirected=0 discarded=2 idle=0
 --- a response that closes is not pooled
 [connect http://h:80]
 GET /1 HTTP/1.1|Host: h||
@@ -238,7 +244,7 @@ GET /1 HTTP/1.1|Host: h||
 [connect http://h:80]
 GET /2 HTTP/1.1|Host: h||
 => 200 http://h/2 redirects=0 body=until close
-opened=2 reused=0 retried=0 redirected=0 discarded=0 idle=0
+opened=2 reused=0 retried=0 redirected=0 discarded=2 idle=0
 --- the pool keeps max_idle_per_origin connections
 [connect http://h:80]
 GET /1 HTTP/1.1|Host: h||[connect http://h:80]
@@ -301,7 +307,7 @@ GET /1 HTTP/1.1|Host: h||
 GET /2 HTTP/1.1|Host: h||[connect http://h:80]
 GET /2 HTTP/1.1|Host: h||
 => 200 http://h/2 redirects=0 body=b
-opened=2 reused=1 retried=1 redirected=0 discarded=0 idle=1
+opened=2 reused=1 retried=1 redirected=0 discarded=1 idle=1
 --- POST is never replayed
 [connect http://h:80]
 GET /1 HTTP/1.1|Host: h||
@@ -309,7 +315,7 @@ GET /1 HTTP/1.1|Host: h||
 POST /2 HTTP/1.1|Host: h|Content-Length: 1||x
 => error
 std.http.client.ClientError.Http(std.http.HttpError.Truncated)
-opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=0
+opened=1 reused=1 retried=0 redirected=0 discarded=1 idle=0
 --- retries 0 replays nothing
 [connect http://h:80]
 GET /1 HTTP/1.1|Host: h||
@@ -317,13 +323,13 @@ GET /1 HTTP/1.1|Host: h||
 GET /2 HTTP/1.1|Host: h||
 => error
 std.http.client.ClientError.Http(std.http.HttpError.Truncated)
-opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=0
+opened=1 reused=1 retried=0 redirected=0 discarded=1 idle=0
 --- a failure on a new connection is not replayed
 [connect http://h:80]
 GET /1 HTT
 => error
 std.http.client.ClientError.Net(std.net.NetError.Reset)
-opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=0
+opened=1 reused=0 retried=0 redirected=0 discarded=1 idle=0
 --- a failure after response bytes is not replayed
 [connect http://h:80]
 GET /1 HTTP/1.1|Host: h||
@@ -331,7 +337,56 @@ GET /1 HTTP/1.1|Host: h||
 GET /2 HTTP/1.1|Host: h||
 => error
 std.http.client.ClientError.Http(std.http.HttpError.Truncated)
-opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=0"##,
+opened=1 reused=1 retried=0 redirected=0 discarded=1 idle=0"##,
+    );
+}
+
+/// A request whose token is already cancelled, or whose deadline has passed,
+/// fails before it opens or takes a connection. A readiness probe that
+/// cancellation cuts short has learned nothing about its connection: the
+/// request reports `Cancelled`, and the connection goes back to the pool for
+/// the next request instead of closing.
+#[test]
+fn cancellation_and_expiry_leave_connections_alone() {
+    runs(
+        SCRIPTED,
+        r##"
+def main() -> Result[(), Failure]:
+    never = CancellationToken()?
+    gone = CancellationToken()?
+    gone.cancel()
+    past = std.time.deadline_after(&std.time.monotonic_now(), &std.time.milliseconds(0u32))?
+    mut a = script([ok("a")?, ok("b")?]?, True)?
+    # The first read that finds nothing is the probe before the second request.
+    a.cancel_once = True
+    mut client = scripted([a]?, hc.config()?)?
+    show(client.get("http://h/0", &later()?, &gone))?
+    show(client.get("http://h/0", &past, &never))?
+    stats(&client)?
+    show(client.get("http://h/1", &later()?, &never))?
+    show(client.get("http://h/2", &later()?, &never))?
+    stats(&client)?
+    show(client.get("http://h/3", &later()?, &never))?
+    stats(&client)?
+    Ok(())
+"##,
+        r##"
+=> error
+std.http.client.ClientError.Net(std.net.NetError.Cancelled)
+
+=> error
+std.http.client.ClientError.Net(std.net.NetError.TimedOut)
+opened=0 reused=0 retried=0 redirected=0 discarded=0 idle=0
+[connect http://h:80]
+GET /1 HTTP/1.1|Host: h||
+=> 200 http://h/1 redirects=0 body=a
+
+=> error
+std.http.client.ClientError.Net(std.net.NetError.Cancelled)
+opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=1
+GET /3 HTTP/1.1|Host: h||
+=> 200 http://h/3 redirects=0 body=b
+opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=1"##,
     );
 }
 
@@ -482,7 +537,7 @@ std.http.client.ClientError.WrongBodyLength
 PUT /fails HTTP/1.1|Host: h|Transfer-Encoding: chunked||3|bad|
 => error
 std.http.client.ClientError.Body(std.io.StreamError.Io(IoError.Other))
-opened=3 reused=0 retried=0 redirected=0 discarded=0 idle=0
+opened=3 reused=0 retried=0 redirected=0 discarded=3 idle=0
 --- 100-continue
 [connect http://h:80]
 PUT /continue HTTP/1.1|Host: h|Content-Length: 5|Expect: 100-continue||hello
@@ -493,7 +548,7 @@ opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=1
 PUT /refused HTTP/1.1|Host: h|Content-Length: 5|Expect: 100-continue||
 => 417 http://h/refused redirects=0 body=
 0
-opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=0
+opened=1 reused=0 retried=0 redirected=0 discarded=1 idle=0
 --- a silent server gets the body after continue_timeout
 [connect http://h:80]
 PUT /silent HTTP/1.1|Host: h|Content-Length: 5|Expect: 100-continue||hello
@@ -506,14 +561,14 @@ GET /1 HTTP/1.1|Host: h||
 PUT /2 HTTP/1.1|Host: h|Content-Length: 5|Expect: 100-continue||[connect http://h:80]
 PUT /2 HTTP/1.1|Host: h|Content-Length: 5|Expect: 100-continue||
 => 200 http://h/2 redirects=0 body=i
-opened=2 reused=1 retried=1 redirected=0 discarded=0 idle=0
+opened=2 reused=1 retried=1 redirected=0 discarded=2 idle=0
 [connect http://h:80]
 GET /1 HTTP/1.1|Host: h||
 => 200 http://h/1 redirects=0 body=j
 PUT /2 HTTP/1.1|Host: h|Content-Length: 5||hello
 => error
 std.http.client.ClientError.Http(std.http.HttpError.Truncated)
-opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=0
+opened=1 reused=1 retried=0 redirected=0 discarded=1 idle=0
 --- redirects that need the body again are returned
 [connect http://h:80]
 PUT /a HTTP/1.1|Host: h|Content-Length: 5||hello
@@ -654,7 +709,7 @@ GET /1 HTTP/1.1|Host: h||abc
 std.http.client.ClientError.Net(std.net.NetError.TimedOut)
 std.http.client.ClientError.Http(std.http.HttpError.Broken)
 std.http.client.ClientError.Http(std.http.HttpError.Broken)
-opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=0"##,
+opened=1 reused=0 retried=0 redirected=0 discarded=1 idle=0"##,
     );
 }
 
@@ -1016,7 +1071,8 @@ True"##,
 }
 
 /// Allocation failure at any point is reported as `Allocation`; the program
-/// never aborts, and once allocation succeeds the exchange completes.
+/// never aborts, the connection counts stay exact, and once allocation
+/// succeeds the exchange completes.
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn allocation_failure_is_reported() {
@@ -1043,11 +1099,15 @@ def main() -> Result[(), Failure]:
         print(marker)?
         result = client.fetch(put, &deadline, &never)
         print("__test_restore_allocations__")?
+        # Whatever failed, every connection counted as opened is idle or
+        # was counted as discarded.
+        s = client.stats()
+        exact = s.opened == u64(client.idle()) + s.discarded
         match result:
             case Ok(fetched):
-                print(fetched.body.to_text()?)?
+                print(fetched.body.to_text()?, exact)?
             case Err(ClientError.Allocation(_)):
-                print("allocation")?
+                print("allocation", exact)?
             case Err(error):
                 print(error)?
     Ok(())
@@ -1058,11 +1118,14 @@ def main() -> Result[(), Failure]:
     assert!(
         lines
             .iter()
-            .all(|line| ["allocation", "body"].contains(line)),
+            .all(|line| ["allocation True", "body True"].contains(line)),
         "{lines:?}"
     );
-    assert_eq!(lines[0], "allocation");
-    assert!(lines[280..].iter().all(|line| *line == "body"), "{lines:?}");
+    assert_eq!(lines[0], "allocation True");
+    assert!(
+        lines[280..].iter().all(|line| *line == "body True"),
+        "{lines:?}"
+    );
 }
 
 /// `fetch` keeps the final head whole (version, reason and every field), the
@@ -1117,7 +1180,7 @@ opened=1 reused=2 retried=0 redirected=1 discarded=0 idle=1
 
 => error
 std.http.client.ClientError.Http(std.http.HttpError.BodyTooLarge)
-opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=0"##,
+opened=1 reused=0 retried=0 redirected=0 discarded=1 idle=0"##,
     );
 }
 

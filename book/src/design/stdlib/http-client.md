@@ -19,13 +19,13 @@ complete programs.
 | Item | Meaning |
 |---|---|
 | `client(config: Config)` | `Result[Client[Plain, TcpConnector], ClientError]`: plain `http` over TCP |
-| `connector[T, C](opener: C, config: Config)` | `Result[Client[T, C], ClientError]`: connections come from `opener`; give both type arguments |
+| `connector[T: Transport, C: Connector[T]](opener: C, config: Config)` | `Result[Client[T, C], ClientError]`: connections come from `opener`; give both type arguments |
 | `client.send(request, &deadline, &cancel)` | `Result[Response[T], ClientError]`: the final response head, after redirects |
 | `client.send_from(request, &mut body, &upload, &deadline, &cancel)` | `send` with the body read from `body`, a `std.io` `Reader`; see [Streamed bodies](#streamed-bodies) |
 | `client.fetch(request, &deadline, &cancel)` | `Result[Fetched, ClientError]`: `send`, read the whole body, `finish` |
 | `client.get(url: &str, &deadline, &cancel)` | `fetch` of a `GET` |
 | `client.finish(response)` | Pool the connection if the body was read to its end and both sides allow reuse; otherwise close it |
-| `client.close_idle()` | Close every pooled connection |
+| `client.close_idle()` | Close the connections pooled when it is called |
 | `client.idle()` | `i64`: pooled connections |
 | `client.stats()` | `Stats` |
 
@@ -36,7 +36,9 @@ threads through [`Shared`](../facilities/01-builtins/shared.md) handles; see
 
 `deadline` bounds the whole exchange, including later reads of the body of
 the `Response` that `send` returns. `cancel` stops it: a wait in progress
-ends with `Net(Cancelled)`.
+ends with `Net(Cancelled)`. A request whose token is already cancelled, or
+whose deadline has passed, fails with `Net(Cancelled)` or `Net(TimedOut)`
+before it takes a connection, so it leaves pooled connections alone.
 
 ## Requests and responses
 
@@ -115,8 +117,9 @@ instead of pooled when:
 Dropping a `Response` without `finish` closes its connection. Before reusing
 a pooled connection the client checks, without waiting, that nothing has
 arrived on it: a connection the server closed, or one with unexpected
-bytes, is closed and another is used. A connection idle longer than
-`idle_timeout` is closed when the pool is next used.
+bytes, is closed and another is used. A check that cancellation cuts short
+puts the connection back. A connection idle longer than `idle_timeout` is
+closed when the pool is next used.
 
 ## Sharing a client between threads
 
@@ -132,16 +135,22 @@ Each job owns a handle and calls `get`, `send`, `finish` and the rest through
 it; a connection one thread parks is reused by whichever thread asks next.
 The lock is held only while a connection is taken out of the pool or put back
 in: connecting, TLS, writing, waiting for a response and reading a body all
-run with the lock released, as do closing a stale, expired or displaced
-connection and the readiness probe before reuse. A request to a slow origin
-therefore does not delay requests to another through the same client.
+run with the lock released, as do closing any connection and the readiness
+probe before reuse. A request to a slow origin therefore does not delay
+requests to another through the same client. `close_idle` takes the
+connections out one at a time, oldest first, and stops after as many as were
+idle when it was called, so other threads parking connections cannot keep
+it running.
 
 `max_idle`, `max_idle_per_origin` and `idle_timeout` bound the shared pool as a
-whole, and `Stats` counts every event exactly once: after all jobs finish,
-`opened + reused` is the number of requests sent, counting replays, and when
-every response allowed reuse, `opened` is `idle()` plus `discarded`. `stats()` reads each counter without
-the lock, so a snapshot taken while jobs run may show one counter ahead of
-another.
+whole, and `Stats` counts every event exactly once. Every request sent,
+counting replays and redirects, went on a connection counted in `opened` or in
+`reused`, so `opened + reused` is the number of requests sent. Every
+connection counted in `opened` is idle, held by a request or a `Response`, or
+counted in `discarded` once closed, whatever closed it; so after all jobs
+finish and every response has been finished or dropped, `opened` is `idle()`
+plus `discarded`. `stats()` reads each counter without the lock, so a snapshot
+taken while jobs run may show one counter ahead of another.
 
 Sharing a client is subject to the `Shared` rules: the connector's type must
 be able to cross threads. `TcpConnector` and `HttpsConnector`, whose TLS
@@ -244,7 +253,10 @@ and its per-operation timeout.
 A connector decides how to reach an endpoint. `dial` resolves the host and
 tries each address in turn. An in-memory connector makes code that uses a
 client testable without sockets; one that hands out scripted connections
-keeps them in a `Mutex`, since `open` borrows it shared.
+keeps them in a `Mutex`, since `open` borrows it shared. `connector` checks
+both type arguments against the protocols where it is called, so a connector
+whose `open` takes `self: &mut ...` is reported there; like any argument of a
+bound in another module, a connector and a transport must be `pub` classes.
 
 ## HTTPS
 
@@ -299,10 +311,14 @@ cancellation; `Http(HttpError)` for malformed or oversized responses, with
 `Incompatible`; see [`TlsError`](tls.md). No variant carries a URL or field value, so printing an
 error does not reveal credentials.
 
-`Stats` counts, as `u64`: `opened` connections, `reused` pooled
-connections, `retried` replays, `redirected` hops and `discarded`
-connections closed instead of reused: stale, expired, over a pool limit, or
-with unread bytes buffered.
+`Stats` counts, as `u64`: `opened` connections; `reused`, requests sent on a
+pooled connection; `retried` replays; `redirected` hops; and `discarded`
+connections, those closed for any reason: the response or server ended
+reuse, the body was not read to its end, the exchange failed or was
+replayed, the connection was stale, expired, over a pool limit or had unread
+bytes buffered, or `close_idle` closed it. See
+[Sharing a client between threads](#sharing-a-client-between-threads) for the
+totals they keep.
 
 ## Limits
 
