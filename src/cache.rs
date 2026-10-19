@@ -33,6 +33,8 @@ use std::time::{Duration, Instant, SystemTime};
 use cranelift_codegen::incremental_cache::CacheKvStore;
 use sha2::{Digest, Sha256};
 
+mod compiled;
+
 /// Where the compiled-function cache lives, if anywhere.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum CacheMode {
@@ -148,6 +150,7 @@ impl std::fmt::Display for Size {
 
 /// One cache directory, shared by the threads of one compilation.
 pub(crate) struct Cache {
+    compiled: compiled::Entries,
     dir: PathBuf,
     limit: u64,
     /// Fed to the key hash before Cranelift's key: schema and versions.
@@ -191,6 +194,7 @@ impl Cache {
             return None;
         }
         Some(Arc::new(Cache {
+            compiled: compiled::Entries::default(),
             dir,
             limit: limit(),
             key_prefix: key_prefix(),
