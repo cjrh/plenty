@@ -97,7 +97,9 @@ def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoErro
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), ThreadError | IoError | std.fs.FsError | AllocError | std.io.StreamError | std.http.server.ServerError | std.secrets.SecretsError | std.net.NetError]:
+type FileSiteError = std.fs.FsError | std.io.StreamError | std.http.server.ServerError | std.secrets.SecretsError | std.net.NetError
+
+def main() -> Result[(), ThreadError | IoError | AllocError | FileSiteError]:
     parent = std.fs.root(&std.path.from_text(".")?)?
     mut directory = std.fs.temporary_dir(&parent, &std.path.from_text("plenty-site-")?, 8)?
     for name in ["index.html", ".env"]?:

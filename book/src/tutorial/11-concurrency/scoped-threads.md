@@ -38,3 +38,7 @@ A failed start reports `ThreadError`; an owned closure job reports
 into the enclosing Result's error sum, so `main` above lists `ThreadError`
 beside the worker's `AllocError` and the printing `IoError`. A return type with
 `Failure` also accepts it. A sum without the start error is rejected.
+
+Later lessons use module-level [error aliases](../03-absence/anonymous-sums.md)
+to keep longer signatures readable. Each alias names that example's propagated
+errors; it does not change widening through `?` or introduce an error wrapper.

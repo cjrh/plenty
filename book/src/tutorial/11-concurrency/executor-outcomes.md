@@ -22,7 +22,9 @@ def divide(value: i64) -> Result[i64, str]:
         return Err("zero divisor")
     Ok(24 // value)
 
-def main() -> Result[(), AllocError | IoError | PoolMapError | FutureError | str | PoolError]:
+type PoolJobError = PoolMapError | FutureError | str | PoolError
+
+def main() -> Result[(), AllocError | IoError | PoolJobError]:
     with ThreadPoolExecutor(2, 2)? as pool:
         future = submitted(pool.submit(divide, 0))?
         match future.result()?:

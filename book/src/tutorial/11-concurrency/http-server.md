@@ -68,7 +68,9 @@ def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoErro
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), ThreadError | IoError | std.http.server.ServerError | std.net.NetError | AllocError]:
+type ServerSetupError = std.http.server.ServerError | std.net.NetError
+
+def main() -> Result[(), ThreadError | IoError | AllocError | ServerSetupError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/index.html", Route.Home)?
@@ -88,6 +90,12 @@ HTTP/1.1 200 OK | hello, Ada L
 HTTP/1.1 404 Not Found | Not Found
 4
 ```
+
+`ServerSetupError` names this example's server and listener errors. `serve`
+already wraps its network failures in `ServerError`; the separate `NetError`
+member is needed because `main` opens and inspects the listener directly.
+The alias composes with allocation, printing and thread-start errors without
+mapping their values.
 
 `router[Route]()` makes an empty table for the route type `Route`. It
 matches the request path against each pattern in the order the routes were

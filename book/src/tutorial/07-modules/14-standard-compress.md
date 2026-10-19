@@ -52,7 +52,9 @@ import std.compress
 import std.io
 from std.compress import Format
 
-def main() -> Result[(), AllocError | IoError | std.io.StreamError | std.io.Partial | std.compress.CompressError | std.bytes.BytesError]:
+type CompressedStreamError = std.io.StreamError | std.io.Partial | std.compress.CompressError | std.bytes.BytesError
+
+def main() -> Result[(), IoError | CompressedStreamError]:
     line = std.bytes.from_text("one line of a log\n")?
     mut writer = std.compress.compressor(Format.Gzip, std.io.cursor(std.bytes.empty()?), 6)?
     for _ in range(0, 1000):

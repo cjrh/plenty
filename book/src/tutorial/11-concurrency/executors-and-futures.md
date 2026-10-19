@@ -20,7 +20,9 @@ def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[
 def square(value: i64) -> i64:
     value * value
 
-def main() -> Result[(), AllocError | IoError | PoolMapError | FutureError | str | PoolError]:
+type PoolJobError = PoolMapError | FutureError | str | PoolError
+
+def main() -> Result[(), IoError | PoolJobError]:
     with ThreadPoolExecutor(2, 4)? as pool:
         first = submitted(pool.submit(square, 6))?
         second = submitted(pool.submit(square, 9))?
@@ -80,7 +82,9 @@ def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[
         case Err(SubmitError.CapacityOverflow(_)):
             Err("submission capacity overflow")
 
-def main() -> Result[(), AllocError | IoError | FutureError | str | PoolError]:
+type PoolJobError = FutureError | str | PoolError
+
+def main() -> Result[(), AllocError | IoError | PoolJobError]:
     with ThreadPoolExecutor(2, 2)? as pool:
         values = [3, 6, 9]?
         future = submitted(pool.submit(def once [values]() -> list[i64]: values))?

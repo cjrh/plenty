@@ -4,7 +4,7 @@ Use a timeout when your program needs control back even if no message arrives.
 Timeouts are `u64` milliseconds; zero performs an immediate check.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError | RecvTimeoutError | SendTimeoutError[i64] | ChannelError]:
+def main() -> Result[(), IoError | RecvTimeoutError | SendTimeoutError[i64] | ChannelError]:
     sender, receiver = channel[i64](1)?
     match receiver.recv_timeout(0):
         case Ok(value):

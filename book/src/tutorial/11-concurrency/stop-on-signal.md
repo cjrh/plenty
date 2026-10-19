@@ -31,7 +31,9 @@ def supervisor() -> Result[(), AllocError | IoError]:
     command.spawn()?.wait()?
     Ok(())
 
-def main() -> Result[(), ThreadError | IoError | std.signal.SignalError | std.http.server.ServerError | std.net.NetError | AllocError | std.ready.WaitError]:
+type ServerShutdownError = std.signal.SignalError | std.http.server.ServerError | std.net.NetError | std.ready.WaitError
+
+def main() -> Result[(), ThreadError | IoError | AllocError | ServerShutdownError]:
     signals = std.signal.listen()?
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?

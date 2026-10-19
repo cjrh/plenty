@@ -27,7 +27,9 @@ def work(hits: Shared[Atomic[u64]], stats: Shared[Mutex[Stats]], value: i64) -> 
             data.total = data.total + value
     value
 
-def main() -> Result[(), AllocError | IoError | FutureError | str | PoolError]:
+type PoolJobError = FutureError | str | PoolError
+
+def main() -> Result[(), AllocError | IoError | PoolJobError]:
     hits = Shared[Atomic[u64]](Atomic(0))?
     stats = Shared[Mutex[Stats]](Mutex(Stats(0, 0)))?
     with ThreadPoolExecutor(2, 4)? as pool:

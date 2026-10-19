@@ -4,7 +4,9 @@ A sum keeps one complete value from a finite set of types. Use `|` in the
 error type when a function combines operations with different errors:
 
 ```plenty
-def parse_small(text: str) -> Result[u8, ParseError | RangeError]:
+type SmallNumberError = ParseError | RangeError
+
+def parse_small(text: str) -> Result[u8, SmallNumberError]:
     number = i64.parse(text)?
     u8.try_from(number)
 
@@ -30,6 +32,18 @@ result to the declared set. Neither step creates a heap wrapper or loses the
 payload. `case name: Type:` selects one whole member and binds it; every
 member needs a case unless you use `_`. An enum member can then be matched
 again by its constructors.
+
+Use a module-level [type alias](../../design/language/03-types/aliases.md) to
+name a recurring group: `SmallNumberError` means exactly `ParseError |
+RangeError`. It introduces no wrapper or allocation, so `?` and exhaustive
+matching still work on the original members. An alias also composes with
+other errors: `SmallNumberError | IoError` is the same sum as `ParseError |
+RangeError | IoError`.
+
+Name the errors the function actually propagates. An operation may already
+wrap a lower-level error in its own enum; that does not require adding the
+lower-level type separately. A new wrapper enum is useful when an API wants
+to hide or reorganize its causes, but naming a group needs only an alias.
 
 Sums also work outside errors:
 

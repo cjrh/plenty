@@ -26,7 +26,9 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
         total = total + count
     Ok(total)
 
-def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | NetError | std.bytes.BytesError]:
+type SocketOperationError = RangeError | NetError | std.bytes.BytesError
+
+def main() -> Result[(), ThreadError | IoError | AllocError | SocketOperationError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     mut listener = listen(&loopback_v4(0u16), 8)?
@@ -83,7 +85,9 @@ from std.ready import Interest, selector
 from std.sync import CancellationToken
 from std.time import deadline_after, milliseconds, monotonic_now
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.ready.WaitError | std.net.NetError | RangeError]:
+type SocketOperationError = std.bytes.BytesError | std.ready.WaitError | std.net.NetError | RangeError
+
+def main() -> Result[(), AllocError | IoError | SocketOperationError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     listener = listen(&loopback_v4(0u16), 8)?

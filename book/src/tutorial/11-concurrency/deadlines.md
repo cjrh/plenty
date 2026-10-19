@@ -20,7 +20,7 @@ def collect(inbox: &Receiver[i64], deadline: &Deadline) -> i64:
                 break
     total
 
-def main() -> Result[(), AllocError | IoError | RangeError | SendError[i64] | ChannelError]:
+def main() -> Result[(), IoError | RangeError | SendError[i64] | ChannelError]:
     sender, receiver = channel[i64](4)?
     sender.send(1)?
     sender.send(2)?
@@ -74,7 +74,9 @@ def pause(stop: CancellationToken, ready: Sender[i64]) -> Result[bool, SendError
     ready.send(1)?
     Ok(stop.wait_timeout(seconds(3600).as_timeout_ms()))
 
-def main() -> Result[(), AllocError | IoError | SendError[i64] | FutureError | RecvError | str | ChannelError | PoolError]:
+type TimedWorkError = SendError[i64] | FutureError | RecvError | str | ChannelError | PoolError
+
+def main() -> Result[(), AllocError | IoError | TimedWorkError]:
     stop = CancellationToken()?
     with ThreadPoolExecutor(1, 1)? as pool:
         ready, started = channel[i64](1)?

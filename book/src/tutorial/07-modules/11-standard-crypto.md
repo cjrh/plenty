@@ -16,7 +16,9 @@ import std.crypto
 import std.encoding
 from std.crypto import Algorithm
 
-def main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.crypto.CryptoError | std.bytes.BytesError]:
+type CryptoBufferError = std.encoding.EncodingError | std.crypto.CryptoError | std.bytes.BytesError
+
+def main() -> Result[(), AllocError | IoError | CryptoBufferError]:
     data = std.bytes.from_text("abc")?
     digest = std.crypto.sha256(&data)?
     print(digest.len())?
@@ -63,7 +65,9 @@ def check(key: &Bytes, message: &str, tag: &Bytes) -> Result[bool, AllocError | 
     mac.update_text(message)?
     Ok(mac.verify(tag, 0, tag.len())?)
 
-def main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.crypto.CryptoError | std.bytes.BytesError]:
+type CryptoBufferError = std.encoding.EncodingError | std.crypto.CryptoError | std.bytes.BytesError
+
+def main() -> Result[(), AllocError | IoError | CryptoBufferError]:
     key = std.bytes.from_text("server key")?
     tag = sign(&key, "user=ada")?
     print(std.encoding.hex_text(&tag, 0, 8)?)?
