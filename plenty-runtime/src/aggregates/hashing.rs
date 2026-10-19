@@ -49,9 +49,9 @@ unsafe fn write_key(state: &mut SipHasher24, value: u128, ty: &Type) {
         state.write_u64(ty.tag(value) as u64);
         if let Some(record) = ty.record(value) {
             state.write_usize(record.len());
-            for i in 0..record.len() {
+            for (slot, ty) in record.slots() {
                 // SAFETY: the record view belongs to this live typed key.
-                unsafe { write_key(state, record.slot(i).read(), record.ty(i)) };
+                unsafe { write_key(state, slot.read(), ty) };
             }
         } else if let Some(field) = ty.payload(value) {
             state.write_usize(1);

@@ -23,6 +23,8 @@ pub(crate) mod net;
 mod process;
 mod readiness;
 #[cfg(test)]
+mod record_tests;
+#[cfg(test)]
 mod removal_tests;
 #[cfg(plenty_runtime_sqlite)]
 mod sqlite;
@@ -186,10 +188,16 @@ impl Record<'_> {
     pub(crate) fn moved_to(&self, base: *mut u128) -> Self {
         Self { base, ..*self }
     }
-    pub(crate) fn slot(&self, index: usize) -> *mut u128 {
-        let offset: usize = (0..index).map(|i| self.ty(i).slot_words()).sum();
-        // SAFETY: the owner reserved `words()` slots at `base`.
-        unsafe { self.base.add(usize::from(self.state) + offset) }
+    /// Visit fields in declaration order with one width lookup per field.
+    /// Raw pointers avoid borrowing payloads that callers may move or release.
+    pub(crate) fn slots(&self) -> impl Iterator<Item = (*mut u128, &'static Type)> + '_ {
+        (0..self.len()).scan(usize::from(self.state), move |offset, index| {
+            let ty = self.ty(index);
+            // SAFETY: the owner reserved `words()` slots at `base`.
+            let slot = unsafe { self.base.add(*offset) };
+            *offset += ty.slot_words();
+            Some((slot, ty))
+        })
     }
     fn state(&self) -> Option<*mut u64> {
         self.state.then_some(self.base.cast())
@@ -219,8 +227,8 @@ impl Record<'_> {
     /// Release the owned fields in declaration order. Inline fields finish
     /// immediately; heap fields join the destruction queue.
     unsafe fn release(&self) {
-        for i in 0..self.len() {
-            unsafe { release(self.slot(i).read(), self.ty(i)) };
+        for (slot, ty) in self.slots() {
+            unsafe { release(slot.read(), ty) };
         }
     }
 }
@@ -289,8 +297,8 @@ pub(crate) unsafe fn retain(value: u128, ty: &Type) {
                 *state += 2;
                 return;
             }
-            for i in 0..record.len() {
-                retain(record.slot(i).read(), record.ty(i));
+            for (slot, ty) in record.slots() {
+                retain(slot.read(), ty);
             }
         } else if ty.kind == b'B' {
             if let Some(t) = ty.payload(value) {
@@ -350,8 +358,8 @@ unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
                 slot.write(0);
                 return None;
             }
-            for i in 0..record.len() {
-                if let Some(child) = release_next(record.slot(i), record.ty(i)) {
+            for (slot, ty) in record.slots() {
+                if let Some(child) = release_next(slot, ty) {
                     return Some(child);
                 }
             }
@@ -725,8 +733,10 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
                     return false;
                 }
                 match (ty.record(a), ty.record(b)) {
-                    (Some(left), Some(right)) => (0..left.len())
-                        .all(|i| equal(left.slot(i).read(), right.slot(i).read(), left.ty(i))),
+                    (Some(left), Some(right)) => left
+                        .slots()
+                        .zip(right.slots())
+                        .all(|((a, ty), (b, _))| equal(a.read(), b.read(), ty)),
                     (None, None) => ty
                         .payload(a)
                         .is_none_or(|t| equal(ty.unpack(a), ty.unpack(b), t)),
@@ -807,8 +817,10 @@ unsafe fn compare(a: u128, b: u128, ty: &Type) -> Ordering {
             // UTF-8 byte order is code point order.
             b's' => strings::bytes(&(a as *const Text)).cmp(strings::bytes(&(b as *const Text))),
             b'B' => match (ty.record(a), ty.record(b)) {
-                (Some(left), Some(right)) => (0..left.len())
-                    .map(|i| compare(left.slot(i).read(), right.slot(i).read(), left.ty(i)))
+                (Some(left), Some(right)) => left
+                    .slots()
+                    .zip(right.slots())
+                    .map(|((a, ty), (b, _))| compare(a.read(), b.read(), ty))
                     .find(|order| order.is_ne())
                     .unwrap_or(Ordering::Equal),
                 _ => ty.payload(a).map_or(Ordering::Equal, |field| {
@@ -1058,20 +1070,23 @@ unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
             if record.state().is_some() {
                 crate::fail("cannot copy a class with custom cleanup");
             }
-            for i in 0..record.len() {
-                let mut field = record.slot(i).read();
-                if let Err(error) = try_copy_into(&mut field, record.ty(i)) {
+            for (i, (slot, ty)) in record.slots().enumerate() {
+                let mut field = slot.read();
+                if let Err(error) = try_copy_into(&mut field, ty) {
                     // The prefix owns copies; the rest still names the source.
+                    let mut prefix = slot;
                     for j in (0..i).rev() {
-                        release(record.slot(j).read(), record.ty(j));
+                        let ty = record.ty(j);
+                        prefix = prefix.sub(ty.slot_words());
+                        release(prefix.read(), ty);
                     }
-                    for j in 0..record.len() {
-                        record.slot(j).write(0);
+                    for (slot, _) in record.slots() {
+                        slot.write(0);
                     }
                     *value = 0;
                     return Err(error);
                 }
-                record.slot(i).write(field);
+                slot.write(field);
             }
             return Ok(());
         }
@@ -1164,7 +1179,7 @@ unsafe fn render_fields(
     out: &mut crate::render_buffer::Buffer,
 ) {
     out.push(b'(');
-    for i in 0..record.len() {
+    for (i, (slot, ty)) in record.slots().enumerate() {
         if out.failed() {
             break;
         }
@@ -1175,7 +1190,7 @@ unsafe fn render_fields(
             out.extend_from_slice(names[i].name.as_bytes());
             out.push(b'=');
         }
-        unsafe { render(record.slot(i).read(), record.ty(i), out) };
+        unsafe { render(slot.read(), ty, out) };
     }
     out.push(b')');
 }

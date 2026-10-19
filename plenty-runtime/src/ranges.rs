@@ -127,9 +127,9 @@ impl Payload<'_> {
                 Self::Object(_) => {}
                 Self::Record(record) => {
                     let moved = record.moved_to(destination);
-                    for i in 0..moved.len() {
-                        if moved.ty(i).payload_bytes() != 0 {
-                            relocate(moved.slot(i), moved.ty(i));
+                    for (slot, ty) in moved.slots() {
+                        if ty.payload_bytes() != 0 {
+                            relocate(slot, ty);
                         }
                     }
                 }
