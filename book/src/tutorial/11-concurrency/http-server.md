@@ -33,7 +33,7 @@ pub class Greeting:
         Ok(())
 
 pub class App:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home\n")?
@@ -105,6 +105,7 @@ to `handle` as `route`, borrowed from the table, so the handler chooses
 what to do with a `match`. A route the handler forgets is a compile error:
 
 ```plenty-error
+import std.http
 from std.http.server import Exchange
 from std.net import TcpStream
 
@@ -113,7 +114,7 @@ pub enum Route:
     Hello
 
 pub class App:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home\n")?
@@ -146,6 +147,12 @@ signature names it. Every worker thread borrows the same handler and the
 same table, so `handle` takes `self` and `route` by shared borrow and
 cannot change them.
 
+`handle` returns its own error type, here `AllocError | std.http.HttpError`
+from `concat` and `send_text`. The server answers an `Err` of any type with
+`500` and counts it in `report.handler_errors`;
+[When a handler fails](../../design/stdlib/http-server.md#when-a-handler-fails)
+lists the other cases.
+
 `serve` runs on the calling thread until `stop` is cancelled. Here the client
 thread cancels it after its last request. `serve` then stops accepting, lets
 the connections it has finish within the drain timeout, joins its workers
@@ -173,7 +180,7 @@ import std.http.tls
 from std.http.tls import TlsTransport
 
 pub class App:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), AllocError | std.http.HttpError]:
         ...
 
 server = std.tls.server_config(&leaf_pem(), &leaf_key())?
@@ -185,7 +192,3 @@ Each connection must finish its handshake within
 says nothing is closed then. Between the client's handshake messages the
 connection waits on the server's thread too. Routing, deadlines and shutdown work as for
 plain HTTP.
-
-The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
-Keep concrete errors in helpers; the handler boundary erases them. See the
-[server contract](../../design/stdlib/http-server.md).

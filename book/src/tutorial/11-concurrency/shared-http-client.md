@@ -9,6 +9,7 @@ This program serves a loopback port from one thread and sends it requests
 from three pool jobs that share a client:
 
 ```plenty
+import std.http
 import std.http.client
 import std.http.server
 import std.net
@@ -23,7 +24,7 @@ pub enum Route:
     Home
 
 pub class Site:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError]:
         exchange.send_text(200, "home\n")?
         Ok(())
 

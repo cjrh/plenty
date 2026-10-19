@@ -22,9 +22,11 @@ own name denotes the implementing type, including in returned references.
 Protocol arguments substitute into all requirements. Once an input determines
 the implementing type, its accessible concrete signatures supply inference
 evidence for other parameters, including nested types and returns. Evidence must
-agree with ordinary arguments and callable constraints. A protocol parameter
-absent from every requirement still needs explicit arguments. Inference follows
-known signatures without searching for a type or implementation.
+agree with ordinary arguments and callable constraints. A method type that no
+arguments can fit, such as `-> ()` for `-> Result[(), E]`, does not satisfy the
+protocol. A protocol parameter absent from every requirement still needs
+explicit arguments. Inference follows known signatures without searching for a
+type or implementation.
 
 Visibility is checked from the bound's defining module before method signatures
 supply evidence. Public contracts cannot expose private protocols, requirement

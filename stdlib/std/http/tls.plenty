@@ -88,5 +88,5 @@ pub class TlsOpener:
 
 # std.http.server.serve over TLS with `tls`. Responses end without a TLS
 # close_notify, except before a lingering close; see the reference's limits.
-pub def serve[R, H: Handler[TlsTransport, R]](listener: TcpListener, tls: ServerConfig, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
+pub def serve[R, E, H: Handler[TlsTransport, R, E]](listener: TcpListener, tls: ServerConfig, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
     std.http.server.serve_with(listener, &TlsOpener(tls), router, handler, config, stop)

@@ -32,7 +32,7 @@ pub class Site:
     pub public: Root
     pub keys: list[Bytes]
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError | std.bytes.BytesError | std.http.files.FilesError | std.http.cookie.CookieError]:
         match route:
             case Route.Files:
                 path = exchange.params[0].concat("")?
@@ -161,7 +161,3 @@ Keys are at least 32 random bytes, kept secret and stable across restarts;
 when the program restarts. To replace a key, put the new one first and keep
 the old one after it until old cookies have expired: `find_signed` accepts
 any listed key, and `signed_cookie` always signs with the first.
-
-The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
-Keep concrete errors in helpers; the handler boundary erases them. See the
-[server contract](../../design/stdlib/http-server.md).

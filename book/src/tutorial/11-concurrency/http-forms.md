@@ -31,7 +31,7 @@ pub class Site:
     pub forms: FormLimits
     pub proxies: Proxies
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError | std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.net.NetError]:
         match route:
             case Route.Login:
                 match std.http.body.read_form(exchange, &self.forms):
@@ -142,7 +142,3 @@ only because the program trusts `127.0.0.1`, and reads it from the right:
 `203.0.113.7` is the first address that is not a trusted proxy, so it is the
 client. `198.51.100.4` came from the client itself and is ignored. With no
 `trust` call, the header is ignored and the client is the peer.
-
-The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
-Keep concrete errors in helpers; the handler boundary erases them. See the
-[server contract](../../design/stdlib/http-server.md).

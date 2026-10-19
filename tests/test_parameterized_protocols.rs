@@ -71,10 +71,13 @@ def main() -> Result[(), Failure]:
     assert_eq!(String::from_utf8_lossy(&output.stdout), "7\n");
 }
 
+/// A method type that no argument can fit, such as `()` for
+/// `Result[(), E]`, fails the protocol rather than the call's arguments.
 #[test]
-fn protocol_inference_rejects_conflicts_and_unobservable_parameters() {
+fn protocol_inference_rejects_conflicts_mismatches_and_unobservable_parameters() {
     for (source, expected) in [
         ("protocol Readable[T]:\n    def read(self) -> T:\n        pass\nclass Cell:\n    value: u8\n    def read(self) -> u8:\n        self.value\ndef use[T, R: Readable[T]](source: &R, other: T) -> ():\n    pass\ndef main() -> ():\n    cell = Cell(1)\n    use(&cell, 2u16)\n", "conflicting types"),
+        ("protocol Fallible[E]:\n    def run(self) -> Result[(), E]:\n        pass\nclass Quiet:\n    def run(self) -> ():\n        pass\ndef use[E, R: Fallible[E]](source: &R) -> ():\n    pass\ndef main() -> ():\n    use(&Quiet())\n", "Quiet does not satisfy Fallible: signature of `run` does not match"),
         ("protocol Marker[T]:\n    def size(self) -> i64:\n        pass\nclass Cell:\n    def size(self) -> i64:\n        1\ndef use[T, R: Marker[T]](source: &R) -> ():\n    pass\ndef main() -> ():\n    cell = Cell()\n    use(&cell)\n", "cannot infer type parameter"),
     ] {
         let error = check_source(source).unwrap_err().to_string();

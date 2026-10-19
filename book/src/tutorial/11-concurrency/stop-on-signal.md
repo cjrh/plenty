@@ -7,6 +7,7 @@ Plenty program at once, cutting off responses in flight.
 the [HTTP server](http-server.md) can drain instead:
 
 ```plenty
+import std.http
 import std.http.server
 import std.net
 import std.process
@@ -21,7 +22,7 @@ pub enum Route:
     Home
 
 pub class Hello:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError]:
         exchange.send_text(200, "hello\n")?
         Ok(())
 
@@ -82,7 +83,3 @@ A program that is not a server can wait on the handle directly with
 [selector](tcp-sockets.md#wait-on-many-connections) with
 `signals.watch(&mut selector, key)` and take the signal with
 `signals.received()`.
-
-The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
-Keep concrete errors in helpers; the handler boundary erases them. See the
-[server contract](../../design/stdlib/http-server.md).

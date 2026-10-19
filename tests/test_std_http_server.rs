@@ -1352,3 +1352,243 @@ def main() -> Result[(), Failure]:
         "{mismatched}"
     );
 }
+
+/// Issue #325: `Handler[T, R, E]` takes `E` from `handle`, so a handler
+/// keeps its own error type: one `HttpError`, or a sum with an application
+/// error. Either `Err` is answered and counted as a `Failure` one is, a body
+/// the client failed to deliver stays the client's error, routing is
+/// unchanged, and a generic caller can write the bound with `E` inferred.
+#[test]
+fn handlers_return_their_own_error_types() {
+    runs(
+        SCRIPTED,
+        r##"
+from std.http.server import Handler
+
+pub enum Refused:
+    Teapot
+
+pub class Precise:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), HttpError]:
+        match route:
+            case Route.Home:
+                exchange.send_text(200, "precise")?
+            case _:
+                return Err(HttpError.Broken)
+        Ok(())
+
+pub class Summed:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Refused | HttpError | AllocError | std.bytes.BytesError]:
+        match route:
+            case Route.Param:
+                text = "summed ".concat(&exchange.params[0])?
+                exchange.send_text(200, &text)?
+            case Route.Echo:
+                mut body = std.bytes.empty()?
+                exchange.read_all(&mut body)?
+                exchange.send(200, "application/octet-stream", &body)?
+            case Route.Broken:
+                exchange.start(std.http.response(200, "OK")?)?
+                piece = std.bytes.from_text("part")?
+                exchange.write(&piece, 0, 4)?
+                return Err(Refused.Teapot)
+            case _:
+                return Err(Refused.Teapot)
+        Ok(())
+
+# Generic over any handler of the scripted routes, whatever its error type.
+def play[E, H: Handler[Script, Route, E]](handler: &H, input: &str, config: &Config) -> Result[(), Failure]:
+    table = routes()?
+    stop = CancellationToken()?
+    cancel = CancellationToken()?
+    script = Script(std.bytes.from_text(input)?, 0, 64, False, True)
+    report = std.http.server.serve_connection(script, &table, handler, config, &stop, &cancel)
+    print("")?
+    print(counts(&report)?)?
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    mut config = std.http.server.config()
+    config.limits.max_body = 4
+    print("--- one error")?
+    play(&Precise(), "GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /fail HTTP/1.1\r\nHost: x\r\n\r\n", &config)?
+    print("--- a sum")?
+    play(&Summed(), "GET /hello/Ada HTTP/1.1\r\nHost: x\r\n\r\nDELETE /echo HTTP/1.1\r\nHost: x\r\n\r\nGET /missing HTTP/1.1\r\nHost: x\r\n\r\nGET /fail HTTP/1.1\r\nHost: x\r\n\r\n", &config)?
+    print("--- body limit")?
+    play(&Summed(), "POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n", &config)?
+    print("--- broken")?
+    play(&Summed(), "GET /broken HTTP/1.1\r\nHost: x\r\n\r\n", &config)?
+    Ok(())
+"##,
+        r##"--- one error
+HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 7||preciseHTTP/1.1 500 Internal Server Error|Content-Type: text/plain; charset=utf-8|Content-Length: 22|Connection: close||Internal Server Error
+
+connections=1 requests=2 handler_errors=1 protocol_errors=0 timeouts=0 cancelled=0 rejected=0
+--- a sum
+HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 10||summed AdaHTTP/1.1 405 Method Not Allowed|Allow: POST|Content-Type: text/plain; charset=utf-8|Content-Length: 19||Method Not Allowed
+HTTP/1.1 404 Not Found|Content-Type: text/plain; charset=utf-8|Content-Length: 10||Not Found
+HTTP/1.1 500 Internal Server Error|Content-Type: text/plain; charset=utf-8|Content-Length: 22|Connection: close||Internal Server Error
+
+connections=1 requests=4 handler_errors=1 protocol_errors=0 timeouts=0 cancelled=0 rejected=0
+--- body limit
+HTTP/1.1 413 Content Too Large|Content-Type: text/plain; charset=utf-8|Content-Length: 18|Connection: close||Content Too Large
+
+connections=1 requests=1 handler_errors=0 protocol_errors=1 timeouts=0 cancelled=0 rejected=0
+--- broken
+HTTP/1.1 200 OK|Transfer-Encoding: chunked||4|part|
+connections=1 requests=1 handler_errors=1 protocol_errors=0 timeouts=0 cancelled=0 rejected=0"##,
+    );
+}
+
+/// Issue #325: typed handler errors over plain TCP `serve` and HTTPS
+/// `std.http.tls.serve`, where each worker thread drops the error it gets.
+#[test]
+fn served_handlers_return_their_own_error_types() {
+    let main = r##"import std.http.tls
+import std.tls
+from std.http import HttpError
+from std.http.tls import TlsTransport
+from std.tls import TlsStream
+
+pub enum Refused:
+    Teapot
+
+pub class Plain:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Refused | HttpError]:
+        match route:
+            case Route.Home:
+                exchange.send_text(200, "plain")?
+            case _:
+                return Err(Refused.Teapot)
+        Ok(())
+
+pub class Secure:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), HttpError]:
+        match route:
+            case Route.Home:
+                exchange.send_text(200, "secure")?
+            case _:
+                return Err(HttpError.Broken)
+        Ok(())
+
+def plain_client(port: u16, stop: CancellationToken) -> ():
+    print(fetch(port, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap()).unwrap()
+    print(fetch(port, "GET /wait HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()).unwrap()
+    stop.cancel()
+
+# Responses are length-delimited and the server sends no close_notify, so
+# read until the body's last text.
+def ask(port: u16, path: &str, last: &str) -> str:
+    never = CancellationToken().unwrap()
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
+    roots = std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem").unwrap()).unwrap()
+    config = std.tls.client_config(&roots).unwrap()
+    tcp = std.net.connect(&std.net.loopback_v4(port), &deadline, &never).unwrap()
+    mut stream = std.tls.connect(tcp, &config, "localhost", &deadline, &never).unwrap()
+    request = std.bytes.from_text(&"GET ".concat(path).unwrap().concat(" HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()).unwrap()
+    stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
+    mut out = std.bytes.empty().unwrap()
+    while not out.to_text().unwrap().endswith(last):
+        at = out.len()
+        out.resize(at + 64, 0u8).unwrap()
+        count = stream.read_before(&mut out, at, at + 64, &deadline, &never).unwrap()
+        out.truncate(at + count).unwrap()
+    out.to_text().unwrap().replace("\r\n", "|").unwrap()
+
+def secure_client(port: u16, stop: CancellationToken) -> ():
+    print(ask(port, "/", "secure")).unwrap()
+    print(ask(port, "/wait", "Error\n")).unwrap()
+    stop.cancel()
+
+def main() -> Result[(), Failure]:
+    table = routes()?
+    mut config = std.http.server.config()
+    config.workers = 1
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    with spawn(plain_client, port, stop.share())? as task:
+        print(counts(&std.http.server.serve(listener, &table, &Plain(), &config, &stop)?)?)?
+    secure = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    secure_port = secure.local_address()?.port
+    secure_stop = CancellationToken()?
+    tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?).unwrap()
+    with spawn(secure_client, secure_port, secure_stop.share())? as task:
+        print(counts(&std.http.tls.serve(secure, tls, &table, &Secure(), &config, &secure_stop)?)?)?
+    Ok(())
+"##
+    .replace("FIXTURES", &fixtures());
+    runs(
+        LOOPBACK,
+        &main,
+        r##"HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 5|Connection: close||plain
+HTTP/1.1 500 Internal Server Error|Content-Type: text/plain; charset=utf-8|Content-Length: 22|Connection: close||Internal Server Error
+
+connections=2 requests=2 handler_errors=1 protocol_errors=0 timeouts=0 cancelled=0 rejected=0
+HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||secure
+HTTP/1.1 500 Internal Server Error|Content-Type: text/plain; charset=utf-8|Content-Length: 22|Connection: close||Internal Server Error
+
+connections=2 requests=2 handler_errors=1 protocol_errors=0 timeouts=0 cancelled=0 rejected=0"##,
+    );
+}
+
+/// Issue #325: `handle` may return any `Result[(), E]`; a method returning
+/// anything else does not satisfy `Handler`, and the error names it.
+#[test]
+fn a_handler_must_return_a_unit_result() {
+    let program = |output: &str, body: &str| {
+        format!(
+            r##"import std.http
+import std.http.server
+import std.net
+from std.http.server import Exchange
+from std.net import TcpStream
+from std.sync import CancellationToken
+
+pub enum Route:
+    Home
+
+pub class App:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> {output}:
+{body}
+
+def main() -> Result[(), Failure]:
+    mut routes = std.http.server.router[Route]()?
+    routes.add("GET", "/", Route.Home)?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 4)?
+    stop = CancellationToken()?
+    stop.cancel()
+    std.http.server.serve(listener, &routes, &App(), &std.http.server.config(), &stop)?
+    Ok(())
+"##
+        )
+    };
+    let check = |source: String| {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        std::fs::write(&path, source).unwrap();
+        plenty::check_file(&path, None).map_err(|error| error.to_string())
+    };
+    let sends = "        exchange.send_text(200, \"home\")?\n";
+    check(program(
+        "Result[(), std.http.HttpError]",
+        &format!("{sends}        Ok(())"),
+    ))
+    .unwrap();
+    for (output, body) in [
+        (
+            "()",
+            "        drop(exchange.send_text(200, \"home\"))".to_owned(),
+        ),
+        (
+            "Result[i64, std.http.HttpError]",
+            format!("{sends}        Ok(1)"),
+        ),
+    ] {
+        let error = check(program(output, &body)).unwrap_err();
+        assert!(
+            error.contains("App does not satisfy std.http.server.Handler: signature of `handle` does not match"),
+            "{error}"
+        );
+    }
+}
