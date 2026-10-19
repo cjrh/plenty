@@ -28,8 +28,17 @@ pub(super) fn digest(
     field(kind);
     field(&entry.display().to_string());
     field(&format!(
-        "{:?} {:?} {:?} {}",
-        options.target, options.linker, options.link_args, options.optimize
+        "{:?} {:?} {:?} {} {:?}",
+        options.target,
+        options.linker,
+        options.link_args,
+        options.optimize,
+        // Package libraries are checked, not linked.
+        if kind == "library" {
+            None
+        } else {
+            options.automatic_linker()
+        }
     ));
     for package in &graph.packages {
         field(&package.identity);

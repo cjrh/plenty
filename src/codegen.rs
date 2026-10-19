@@ -317,7 +317,6 @@ fn compile_ops_to_executable(
     if let Some(libfuzzer) = &options.fuzz {
         let driver = workspace.path().join("plenty_fuzz_driver.o");
         std::fs::write(&driver, FUZZ_DRIVER)?;
-        let mut options = options.clone();
         let mut inputs = vec![
             driver.into_os_string(),
             "-Wl,--wrap=main".into(),
@@ -330,18 +329,38 @@ fn compile_ops_to_executable(
             inputs.push(interceptors.into_os_string());
         }
         inputs.push("-lstdc++".into());
-        options.link_args.splice(0..0, inputs);
-        return crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, &options);
+        return crate::toolchain::link(
+            &obj_path,
+            &rt_path,
+            RUNTIME_LINK_ARGS,
+            output,
+            options,
+            &inputs,
+            &[],
+        );
     }
     if !test_hooks {
-        return crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, options);
+        return crate::toolchain::link(
+            &obj_path,
+            &rt_path,
+            RUNTIME_LINK_ARGS,
+            output,
+            options,
+            &[],
+            &[],
+        );
     }
     let hooks = workspace.path().join("plenty_test_hooks.o");
     std::fs::write(&hooks, TEST_HOOKS)?;
-    let mut options = options.clone();
-    options.link_args.insert(0, hooks.into_os_string());
-    options.link_args.insert(1, TEST_HOOK_WRAPS.into());
-    crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, &options)
+    crate::toolchain::link(
+        &obj_path,
+        &rt_path,
+        RUNTIME_LINK_ARGS,
+        output,
+        options,
+        &[hooks.into_os_string(), TEST_HOOK_WRAPS.into()],
+        &[],
+    )
 }
 
 /// Code generation choices that do not change the program's meaning.
