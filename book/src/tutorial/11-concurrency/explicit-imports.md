@@ -49,3 +49,6 @@ The module references list the complete surfaces:
 [`std.concurrent`](../../design/stdlib/concurrent.md), and
 [`std.sync`](../../design/stdlib/sync.md). Imports ship inside the compiler and
 need no network or separately installed Plenty sources.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

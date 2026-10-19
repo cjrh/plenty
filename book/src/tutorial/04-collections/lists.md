@@ -4,7 +4,7 @@ A list contains values of one type. Use `list[T]` in signatures and annotations.
 An empty list needs an annotation or a typed constructor such as `list[i64]()`.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut original: list[i64] = [10, 20]?
     mut changed = copy(original)?
     changed.append(30)?
@@ -34,7 +34,7 @@ List construction, copying, and growth return allocation
 Collections can nest. Update an inner list directly through its indices:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut rows = [[1, 2]?, [3]?]?
     rows[0][-1] += 7
     print(rows)?
@@ -53,7 +53,7 @@ unchanged.
 Indices can be expressions, including elements of another list:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut values = [30, 10, 20]?
     order = [1, 2, 0]?
     print(values[order[0]])?

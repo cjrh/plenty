@@ -7,7 +7,7 @@ components and puts data into one of them safely.
 ```plenty
 import std.url
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.url.UrlError]:
     url = std.url.parse("https://example.com:8443/docs/a%20b?tag=x%26y&page=2#top", 2048)?
     print(url.scheme, url.path)?
     print(str.repr(&url.host)?, str.repr(&url.port)?)?
@@ -50,7 +50,7 @@ in a `Url`:
 import std.url
 from std.url import Component, Pair, Url
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.url.UrlError]:
     path = "/files/".concat(&std.url.encode("a/b report.txt", Component.Segment)?)?
     mut pairs = list[Pair]()?
     pairs.append(Pair("q", "fish & chips"))?
@@ -79,7 +79,7 @@ name is data and is escaped; as a `Path`, it is a separator and is kept.
 import std.url
 from std.url import Url
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(str.repr(std.url.parse("/docs/page", 2048))?)?
     print(str.repr(std.url.parse("http://example.com/a b", 2048))?)?
     print(str.repr(std.url.parse("http://example.com/100%", 2048))?)?

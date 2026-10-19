@@ -7,7 +7,7 @@ also recognizes Unicode line/paragraph separators and the other Python-style
 text line boundaries.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print("first\r\n\nlast\n".splitlines()?)?
     print("first\r\nlast".splitlines(True)?)?
     print("".splitlines()?)?

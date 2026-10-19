@@ -7,7 +7,7 @@ Each generator item is a Result because advancement can fail after opening:
 import std.fs as fs
 import std.path as path
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     write_text("sample.txt", "abc")?
     root = path.from_text(".")?
     for result in fs.entries(fs.read_dir(&root)?):

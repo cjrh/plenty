@@ -16,7 +16,7 @@ class Cell[T]:
 def read[T](cell: &Cell[T]) -> T:
     cell.get()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut count = Cell(7u8)
     count.replace(9)
     print(read(&count))?
@@ -44,7 +44,7 @@ class Cell[T]:
     def get(self) -> T:
         self.value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     numbers = Cell([1, 2]?)
     Ok(())
 ```

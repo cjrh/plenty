@@ -5,7 +5,7 @@
 same value.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(str.from(42)?)?
     print(str.from(-0.0f32)?)?
     print(str.from(True)?)?
@@ -23,7 +23,7 @@ True
 reporting formatting allocation failures and output errors:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     values = [1, 2]?
     print(str.repr(values)?)?
     print(values)?
@@ -41,7 +41,7 @@ The inner `?` handles formatting; the outer `?` handles printing. To inspect a
 `Result` wrapper itself, pass it to `str.repr`:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     result: Result[i64, str] = Err("not ready")
     print(str.repr(result)?)?
     Ok(())

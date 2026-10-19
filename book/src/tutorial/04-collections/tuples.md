@@ -9,7 +9,7 @@ components, and `_` discards a component. Indices must be integer literals.
 def measurement() -> (i64, str):
     (42, "cm")
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     value, unit = measurement()
     print(value)?
     print(unit)?
@@ -30,7 +30,7 @@ differing component decides the result, just as in `sort()`. Comparisons leave
 both values available:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     first = (1, "apple")
     second = (1, "pear")
     print(first < second, first <= first)?
@@ -50,7 +50,7 @@ Distinct tuple components can be borrowed and read independently. The borrow
 below protects component 1 while component 0 remains readable:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut pair = (1, [2]?)
     items = &mut pair[1]
     first = pair[0]
@@ -70,7 +70,7 @@ Copyable components can be changed through mutable references too. A saved
 copy has its own inline storage:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut pair = (1, 2)
     saved = pair
     first = &mut pair[0]
@@ -89,7 +89,7 @@ Use a reference for the write; direct `pair[0] = 5` is not supported.
 Reading an exclusively borrowed component is rejected:
 
 ```plenty-error
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut pair = (1, [2]?)
     items = &mut pair[1]
     print(pair[1])?

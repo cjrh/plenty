@@ -9,7 +9,7 @@ def counter(total: i64) -> Closure[[], i64]:
         total = total + 1
         total
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut callbacks = {"open": counter(10), "close": counter(100)}?
     print(callbacks["open"]())?
     match callbacks.pop("close"):

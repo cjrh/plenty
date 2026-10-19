@@ -10,6 +10,8 @@ Each route maps a method and a path pattern to a value of your own route
 type, normally an enum. The handler receives that value and matches on it.
 
 ```plenty
+import std.http
+
 import std.bytes
 import std.http.server
 import std.net
@@ -25,7 +27,7 @@ pub enum Route:
 pub class Greeting:
     pub opening: str
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError]:
         text = self.opening.concat(&exchange.params[0])?.concat("\n")?
         exchange.send_text(200, &text)?
         Ok(())
@@ -39,7 +41,7 @@ pub class App:
                 greeting.handle(exchange)?
         Ok(())
 
-def get(port: u16, path: &str) -> Result[str, Failure]:
+def get(port: u16, path: &str) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
@@ -58,7 +60,7 @@ def get(port: u16, path: &str) -> Result[str, Failure]:
     body = text.split("\r\n\r\n")?[1].strip()?
     Ok(status.concat(&body)?)
 
-def client(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.net.NetError]:
     print(get(port, "/")?)?
     print(get(port, "/index.html")?)?
     print(get(port, "/hello/Ada%20L")?)?
@@ -175,3 +177,10 @@ Each connection must finish its handshake within
 says nothing is closed then. Between the client's handshake messages the
 connection waits on the server's thread too. Routing, deadlines and shutdown work as for
 plain HTTP.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
+
+The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+Keep concrete errors in helpers; the handler boundary erases them. See the
+[server contract](../../design/stdlib/http-server.md).

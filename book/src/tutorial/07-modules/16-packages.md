@@ -43,7 +43,7 @@ geometry = { path = "../shapes" }
 import geometry
 from report import show
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     square = geometry.Square(4)
     show(square.area())
 ```
@@ -51,7 +51,7 @@ def main() -> Result[(), Failure]:
 Other files under `src/` are the package's own modules, imported as before:
 
 ```plenty project-file app/src/report.plenty
-pub def show(area: i64) -> Result[(), Failure]:
+pub def show(area: i64) -> Result[(), IoError]:
     print("area:")?
     print(area)?
     Ok(())

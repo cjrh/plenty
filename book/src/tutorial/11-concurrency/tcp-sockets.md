@@ -73,13 +73,17 @@ can wait on all of them in one call with a
 under a key you choose, and `wait` reports which keys are ready:
 
 ```plenty
+import std.ready
+
+import std.net
+
 import std.bytes
 from std.net import connect, listen, loopback_v4
 from std.ready import Interest, selector
 from std.sync import CancellationToken
 from std.time import deadline_after, milliseconds, monotonic_now
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.ready.WaitError | std.net.NetError | RangeError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     listener = listen(&loopback_v4(0u16), 8)?
@@ -106,3 +110,6 @@ Only the second connection has input, so the wait reports one event, key 2.
 The server would now call `read_before` on that stream, which returns at once.
 Name lookup, UDP datagrams and IPv6 addresses are in the
 [reference](../../design/stdlib/net.md).
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

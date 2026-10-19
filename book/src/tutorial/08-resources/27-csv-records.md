@@ -9,7 +9,7 @@ import std.bytes
 import std.csv
 import std.io
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ParseError | std.csv.CsvError | std.bytes.BytesError]:
     text = "item,price,note\r\npen,3,\"blue, fine\"\r\nbook,12,\"says \"\"read me\"\"\"\r\ncard,2,\"two\nlines\"\r\n"
     mut input = std.csv.reader(std.io.cursor(std.bytes.from_text(text)?), &std.csv.rfc4180(), 16)?
     mut record = std.csv.record()?
@@ -51,7 +51,7 @@ import std.csv
 import std.io
 from std.csv import CsvError
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | CsvError | std.bytes.BytesError]:
     text = "a,b\nc\nd,e\nf,g\"h\ni,j\n"
     mut input = std.csv.reader(std.io.cursor(std.bytes.from_text(text)?), &std.csv.rfc4180(), 16)?
     mut record = std.csv.record()?
@@ -98,7 +98,7 @@ import std.csv
 import std.io
 from std.csv import Newline
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.csv.CsvError]:
     mut dialect = std.csv.rfc4180()
     dialect.newline = Newline.Lf
     dialect.max_field = 12

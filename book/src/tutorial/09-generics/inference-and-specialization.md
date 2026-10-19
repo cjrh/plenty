@@ -14,7 +14,7 @@ example, this function needs `empty[u8]()` because it has no input mentioning `T
 def empty[T]() -> Result[list[T], AllocError]:
     []
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     values = empty[u8]()?
     print(values)?
     Ok(())
@@ -29,7 +29,7 @@ An annotation on the receiving binding does not change that rule:
 def empty[T]() -> Result[list[T], AllocError]:
     []
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     values: list[u8] = empty()?
     Ok(())
 ```

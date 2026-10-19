@@ -4,7 +4,7 @@ A list has one owner responsible for its mutable contents. Assigning it to
 another binding transfers that responsibility:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     original = [10, 20]?
     mut changed = original
     changed.append(30)?

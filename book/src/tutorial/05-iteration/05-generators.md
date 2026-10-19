@@ -9,7 +9,7 @@ def countdown(start: i64) -> Generator[i64]:
         yield remaining
         remaining = remaining - 1
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), IoError]:
     numbers = countdown(3)
     print("created")?
     for number in numbers:
@@ -58,7 +58,7 @@ an exhausted generator keeps returning `Nothing`:
 def once() -> Generator[str]:
     yield "hello"
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), IoError]:
     mut messages = once()
     print(next(&mut messages))?
     print(next(&mut messages))?

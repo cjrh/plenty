@@ -12,7 +12,7 @@ pub class Node[T]:
 ```plenty
 import forest
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut root = forest.Node[i64](1, [forest.Node[i64](2, []?)]?)
     root.children[0].value = 9
     print(root.value)?

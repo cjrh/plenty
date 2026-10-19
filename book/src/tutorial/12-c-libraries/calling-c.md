@@ -18,7 +18,7 @@ pub def absolute(value: i32) -> Option[i32]:
 ```plenty
 import c_math
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(c_math.absolute(-42i32))?
     print(c_math.absolute(-2147483648i32))?
     Ok(())

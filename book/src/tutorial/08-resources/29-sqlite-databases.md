@@ -14,7 +14,7 @@ with the method for its type:
 ```plenty
 import std.db.sqlite
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError]:
     mut db = std.db.sqlite.memory(65536)?
     db.execute("CREATE TABLE books(title TEXT NOT NULL, year INTEGER, rating REAL)")?
     mut insert = db.prepare("INSERT INTO books VALUES (?, ?, ?)")?
@@ -50,7 +50,7 @@ or another optional read, and a number stored as text is not an integer:
 ```plenty
 import std.db.sqlite
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError]:
     mut db = std.db.sqlite.memory(65536)?
     mut query = db.prepare("SELECT '42', NULL")?
     query.step()?
@@ -86,7 +86,7 @@ def transfer(db: &mut Connection, amount: i64) -> Result[(), DbError]:
     change.run()?
     tx.commit()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | DbError]:
     mut db = std.db.sqlite.memory(65536)?
     db.execute("CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER CHECK (balance >= 0))")?
     db.execute("INSERT INTO accounts VALUES ('alice', 10), ('bob', 0)")?

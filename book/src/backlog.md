@@ -31,7 +31,9 @@ not mean all candidates or every concurrency diagnostic are implemented.
    satisfies it, borrowing the active payload without allocation. Entrypoint
    reports now select this protocol, and typed contexts format eligible causes.
    Tutorial examples now propagate incidental failures instead of unwrapping;
-   scoped spawn still rejects error sums containing `ThreadError` (issue #323).
+   most tutorial signatures now preserve concrete errors or sums. Scoped spawn
+   still rejects error sums containing `ThreadError` (issue #323), and the HTTP
+   `Handler` protocol still requires erased errors (issue #325).
    Continue migrating examples,
    libraries where appropriate, fixtures and documentation before removing
    builtin `Failure`. Use non-error sums and the mutual-TLS lesson as acceptance

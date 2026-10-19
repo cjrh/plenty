@@ -49,3 +49,6 @@ List and dictionary entries can also supply a borrowed job, but their loans
 protect the whole collection. Even after `join()`, wait until the `with` block
 ends before resizing or replacing that collection. Stored callbacks have the
 same thread-eligibility restrictions as local ones.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

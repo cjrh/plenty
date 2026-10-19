@@ -5,7 +5,7 @@ absence is expected. It returns an `Option`: `Some(value)` if found, or `Nothing
 if absent. Match the two possibilities explicitly:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     scores = {"Ada": 12, "Grace": 0}?
     match scores.get("Ada"):
         case Some(score):
@@ -42,7 +42,7 @@ implemented.
 for an out-of-range index. It takes one `i64` index, including negative indices:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     names = ["Ada", "Bea"]?
     print(names.get(-1))?
     match names.get(2):

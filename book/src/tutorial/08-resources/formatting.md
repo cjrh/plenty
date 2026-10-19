@@ -9,7 +9,7 @@ budget includes punctuation and padding.
 ```plenty
 import std.fmt
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     mut out = std.fmt.string_formatter(80, 8)?
     out.text("count=")?
     out.integer(12, 4)?
@@ -41,7 +41,7 @@ pub class Label:
         out.debug_text(&self.name)?
         out.text(")")
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | FormatError]:
     label = Label("ready")
     print(std.fmt.to_string(&label, 80, 8)?)?
     print(std.fmt.to_debug(&label, 80, 8)?)?
@@ -102,7 +102,7 @@ pub class Reading:
     pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
         out.format(f"line {self.line}: {self.value:.1f}")
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | FormatError]:
     reading = Reading(7, 21.25)
     print(f"[{reading}] [{reading:>14}]"?)?
     mut out = std.fmt.string_formatter(10, 8)?

@@ -4,13 +4,26 @@ A thread pool reuses workers for many jobs. Set its worker count and queue
 capacity at construction:
 
 ```plenty
+def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
+    match result:
+        case Ok(future):
+            Ok(future)
+        case Err(SubmitError.Full(_)):
+            Err("submission queue is full")
+        case Err(SubmitError.Shutdown(_)):
+            Err("executor has shut down")
+        case Err(SubmitError.OutOfMemory(_)):
+            Err("submission allocation failed")
+        case Err(SubmitError.CapacityOverflow(_)):
+            Err("submission capacity overflow")
+
 def square(value: i64) -> i64:
     value * value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | PoolMapError | FutureError | str | PoolError]:
     with ThreadPoolExecutor(2, 4)? as pool:
-        first = pool.submit(square, 6)?
-        second = pool.submit(square, 9)?
+        first = submitted(pool.submit(square, 6))?
+        second = submitted(pool.submit(square, 9))?
         print(first.result()?)?
         print(second.result()?)?
         print(pool.map(square, range(6))?)?
@@ -34,7 +47,7 @@ window of jobs outstanding. Job and
 result storage can fail to allocate.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | PoolMapError | PoolError]:
     with ThreadPoolExecutor(2, 2)? as pool:
         factor = 3
         scale = def [factor](value: i64) -> i64:
@@ -54,10 +67,23 @@ finish. Mutable, one-shot, or borrowed closures cannot be shared this way.
 You can submit a closure to move several values into a job explicitly:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
+    match result:
+        case Ok(future):
+            Ok(future)
+        case Err(SubmitError.Full(_)):
+            Err("submission queue is full")
+        case Err(SubmitError.Shutdown(_)):
+            Err("executor has shut down")
+        case Err(SubmitError.OutOfMemory(_)):
+            Err("submission allocation failed")
+        case Err(SubmitError.CapacityOverflow(_)):
+            Err("submission capacity overflow")
+
+def main() -> Result[(), AllocError | IoError | FutureError | str | PoolError]:
     with ThreadPoolExecutor(2, 2)? as pool:
         values = [3, 6, 9]?
-        future = pool.submit(def once [values]() -> list[i64]: values)?
+        future = submitted(pool.submit(def once [values]() -> list[i64]: values))?
         print(future.result()?)?
     Ok(())
 ```
@@ -74,3 +100,7 @@ deadlocks. Files, native effects and foreign calls follow the same rules as for 
 Dropping a future leaves its job running; an unclaimed result is cleaned up.
 A future may also outlive the pool's scope: shutdown finishes the job, and the
 handle retains the result until you retrieve or drop it.
+
+Submission errors retain an unstarted job. Here `submitted` deliberately
+releases that job and preserves the failure reason as a message. Match the
+original `SubmitError` instead when you want to recover or retry the job.

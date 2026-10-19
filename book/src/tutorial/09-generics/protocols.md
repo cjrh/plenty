@@ -17,7 +17,7 @@ class Message:
 def read_message[T: Readable](source: &T) -> str:
     source.read()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     message = Message("hello")
     print(read_message(&message))?
     Ok(())

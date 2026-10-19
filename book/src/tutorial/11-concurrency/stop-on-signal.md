@@ -25,7 +25,7 @@ pub class Hello:
         Ok(())
 
 # Plays the supervisor: a shell sends SIGTERM to its parent, this program.
-def supervisor() -> Result[(), Failure]:
+def supervisor() -> Result[(), AllocError | IoError]:
     mut command = std.process.shell("kill -TERM $PPID")?
     command.spawn()?.wait()?
     Ok(())
@@ -79,3 +79,10 @@ A program that is not a server can wait on the handle directly with
 [selector](tcp-sockets.md#wait-on-many-connections) with
 `signals.watch(&mut selector, key)` and take the signal with
 `signals.received()`.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
+
+The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+Keep concrete errors in helpers; the handler boundary erases them. See the
+[server contract](../../design/stdlib/http-server.md).

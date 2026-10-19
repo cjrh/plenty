@@ -6,7 +6,7 @@ are accepted, with surrounding Unicode whitespace ignored. Numeric prefixes,
 underscores, and non-ASCII digits are not accepted.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(str.repr(u8.parse(" 255 "))?)?
     print(str.repr(u8.parse("256"))?)?
     print(str.repr(i64.parse("hello"))?)?
@@ -34,7 +34,7 @@ def shade(percent: &str) -> Result[u8, ParseError]:
                 case RangeError.OutOfRange:
                     Err(ParseError.OutOfRange)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(str.repr(shade("50"))?)?
     print(str.repr(shade("150"))?)?
     print(str.repr(shade("half"))?)?

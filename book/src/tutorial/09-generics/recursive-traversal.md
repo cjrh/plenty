@@ -28,7 +28,7 @@ def increment(node: &mut links.Node[i64]) -> ():
         case Nothing:
             pass
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut chain = links.Node[i64](3, Some(Box(links.Node[i64](6, Nothing))?))
     print(total(&chain))?
     increment(&mut chain)
@@ -81,7 +81,7 @@ def increment(head: &mut Node) -> ():
             case Nothing:
                 break
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut chain = Node(3, Some(Box(Node(6, Nothing))?))
     increment(&mut chain)
     print(total(&chain))?

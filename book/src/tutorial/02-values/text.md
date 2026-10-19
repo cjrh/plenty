@@ -34,7 +34,7 @@ Compare strings in Unicode scalar order, inspect ASCII characters, or convert
 a single character to its code point:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ParseError]:
     print("apple" < "pear")?
     print("abc".isalpha())?
     print("123".isdigit())?

@@ -4,7 +4,7 @@ A comprehension produces a new collection from an iterable and optional filters.
 The element expression runs only after the filters pass.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     squares = [n * n for n in range(8) if n % 2 == 0]?
     print(squares)?
     print({n: n * n for n in [2, 3]?}?)?
@@ -49,7 +49,7 @@ Unpacking works in comprehensions too. This one collects dictionary items into
 a list of tuples:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut counts = {"apple": 2, "pear": 3}?
     for fruit, count in (&mut counts).items():
         *count = *count + 1
@@ -70,7 +70,7 @@ reads each copyable value before storing it in the snapshot tuple.
 Text comprehensions collect Unicode scalars:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print([character for character in "hé"]?)?
     Ok(())
 ```

@@ -8,7 +8,7 @@ def add(offset: i64) -> Closure[[i64], i64]:
     def [offset](n: i64) -> i64:
         offset + n
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), IoError]:
     pair = (add(10), add(100))
     print(pair[0](2))?
     first, second = pair

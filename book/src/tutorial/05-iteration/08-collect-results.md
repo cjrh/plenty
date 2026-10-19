@@ -7,7 +7,7 @@ allocation failure:
 def squares() -> Result[list[i64], AllocError]:
     [n * n for n in range(6) if n % 2 == 0]
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(squares()?)?
     Ok(())
 ```
@@ -26,7 +26,7 @@ def collect() -> Result[list[i64], AllocError]:
     source = numbers()
     list[i64].from(source)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(collect()?)?
     Ok(())
 ```
@@ -41,7 +41,7 @@ handle failures inside the producer's body.
 Sets provide the same constructor, removing duplicates in first-seen order:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(set[i64].from([3, 1, 3, 2]?)?)?
     Ok(())
 ```

@@ -4,7 +4,7 @@ A local callback may need to inspect data that its caller will use again.
 Use `&` in a capture list to keep ownership outside the closure:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut values = [4]?
     read = def [&values]() -> i64:
         values[0]
@@ -30,7 +30,7 @@ or sum types. Pass them to other functions through reference parameters:
 def invoke(f: &Closure[[], i64]) -> i64:
     f()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     value = 7
     read = def [&value]() -> i64:
         value
@@ -49,7 +49,7 @@ closure; the same rule protects all of their captured owners.
 Use `&mut` to modify an existing binding rather than moving it into private state:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut count = 0
     mut increment = def [&mut count]() -> ():
         count = count + 1

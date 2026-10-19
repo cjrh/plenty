@@ -10,7 +10,7 @@ def make_job(n: i64) -> Result[OnceClosure[[], list[i64]], AllocError]:
         values
     Ok(job)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut jobs = [make_job(10)?, make_job(20)?]?
     match jobs.pop(0):
         case Some(job):

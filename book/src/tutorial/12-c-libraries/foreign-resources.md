@@ -16,6 +16,11 @@ extern def position_raw(file: RawFile) -> i64 = "ftell"
 # The adapter expands to (data, byte_len), followed by count and file.
 extern def write_raw(text: &str as utf8, count: u64, file: RawFile) -> u64 = "fwrite"
 
+pub enum ScratchError:
+    Create
+    Write
+    Position
+
 pub class Scratch:
     raw: RawFile
     def __init__(self) -> ():
@@ -23,30 +28,30 @@ pub class Scratch:
     def __del__(self) -> ():
         if not self.raw.is_null():
             drop(close_raw(self.raw))
-    pub def write(self: &mut Scratch, text: &str) -> Result[(), Failure]:
+    pub def write(self: &mut Scratch, text: &str) -> Result[(), ScratchError]:
         if len(text) == 0:
             return Ok(())
         if write_raw(text, 1u64, self.raw) != 1u64:
-            return Err(Failure.Unspecified)
+            return Err(ScratchError.Write)
         Ok(())
-    pub def position(self: &mut Scratch) -> Result[i64, Failure]:
+    pub def position(self: &mut Scratch) -> Result[i64, ScratchError]:
         value = position_raw(self.raw)
         if value < 0:
-            return Err(Failure.Unspecified)
+            return Err(ScratchError.Position)
         Ok(value)
 
-pub def create() -> Result[Scratch, Failure]:
+pub def create() -> Result[Scratch, ScratchError]:
     mut owner = Scratch()
     owner.raw = create_raw()
     if owner.raw.is_null():
-        return Err(Failure.Unspecified)
+        return Err(ScratchError.Create)
     Ok(owner)
 ```
 
 ```plenty
 import c_scratch
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), c_scratch.ScratchError | IoError]:
     mut file = c_scratch.create()?
     text = "é\0A"
     file.write(&text)?

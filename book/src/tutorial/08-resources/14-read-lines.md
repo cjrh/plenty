@@ -18,7 +18,7 @@ def count_lines() -> Result[i64, IoError]:
             count = count + 1
     Ok(count)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(count_lines()?)?
     Ok(())
 ```

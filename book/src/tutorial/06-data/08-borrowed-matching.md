@@ -15,7 +15,7 @@ def number(value: &Result[i64, i64]) -> &i64:
         case Err(payload):
             payload
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut outcome: Result[i64, i64] = Err(7)
     selected = number(&outcome)
     print(*selected)?
@@ -36,7 +36,7 @@ Assign through a mutable payload reference to change the original slot, keeping
 its enclosing variants:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut nested: Option[Result[i64, str]] = Some(Ok(4))
     match &mut nested:
         case Some(Ok(number)):
@@ -59,7 +59,7 @@ enum Shape:
     Circle(i64)
     Square(i64)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut shape = Shape.Circle(3)
     before = shape
     match &mut shape:

@@ -10,7 +10,7 @@ class Pair:
     def x_ref(self: &mut Pair) -> &mut i64:
         &mut self.x
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut pair = Pair(1, 2)
     x = pair.x_ref()
     pair.y = 7

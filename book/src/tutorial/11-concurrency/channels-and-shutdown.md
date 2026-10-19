@@ -5,14 +5,14 @@ capacity to bound queued memory: a sender waits when the queue is full, and a
 receiver waits when it is empty.
 
 ```plenty
-def produce(sender: Sender[i64]) -> Result[(), Failure]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
 def main() -> Result[(), Failure]:
     sender, receiver = channel[i64](2)?
-    job = def once [sender]() -> Result[(), Failure]:
+    job = def once [sender]() -> Result[(), SendError[i64]]:
         produce(sender)
     with spawn(job)? as task:
         mut total = 0
@@ -45,7 +45,7 @@ when the last receiver drops, so a join reached while `receiver` is still alive
 could wait forever. The compiler rejects it:
 
 ```plenty-error
-def produce(sender: Sender[i64]) -> Result[(), Failure]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
@@ -103,3 +103,6 @@ Channel construction can fail. Its positive capacity fixes the queue's storage
 up front; sending and receiving introduce no further allocations. Messages still
 use their ordinary types: sending a list moves it, and receiving returns its
 ownership. A failed send returns the unsent value inside its error.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

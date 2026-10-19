@@ -3,7 +3,7 @@
 Arithmetic requires matching types:
 
 ```plenty-error
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), IoError]:
     small = 7u8
     print(small + 1i64)?
     Ok(())
@@ -93,7 +93,7 @@ Integer arithmetic overflow is a runtime error. An unsigned type has no negative
 values, so unary minus requires a signed integer or a float:
 
 ```plenty-error
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), IoError]:
     small = 7u8
     print(-small)?
     Ok(())

@@ -14,7 +14,7 @@ produces the same run:
 ```plenty
 import std.random
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.random.RandomError]:
     mut rng = std.random.seeded(1234567u64)
     print(rng.next_u64())?
     print(rng.between(1, 7)?, rng.between(1, 7)?, rng.between(1, 7)?)?
@@ -48,7 +48,7 @@ through:
 ```plenty
 import std.random
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.random.RandomError]:
     mut first = std.random.seeded(42u64)
     mut second = std.random.seeded(42u64)
     print(first.next_u64() == second.next_u64())?
@@ -84,7 +84,7 @@ every run, so this program prints sizes rather than values:
 import std.bytes
 import std.secrets
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.secrets.SecretsError]:
     token = std.secrets.token_urlsafe(32)?
     print(len(token))?
     print(len(std.secrets.token_hex(16)?))?

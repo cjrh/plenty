@@ -5,13 +5,15 @@ bytes delivered before failure. Its copy error distinguishes reading from
 writing. Existing `std.io` streams can enter this API through bridges:
 
 ```plenty
+import std.http.typed
+
 import std.bytes
 import std.io
 import std.io.typed
 from std.http.typed import fixed_body
 from std.io.typed import CopyFailure, copy_all
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.http.typed.FramingError[std.io.StreamError] | std.bytes.BytesError]:
     mut bytes = std.bytes.with_capacity(3)?
     bytes.resize(3, 65u8)?
     mut scratch = std.bytes.with_capacity(2)?

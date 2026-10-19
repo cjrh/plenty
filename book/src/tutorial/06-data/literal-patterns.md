@@ -29,7 +29,7 @@ def describe(command: Command) -> str:
         case Command.Say(words):
             words
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(opcode("cpy"))?
     print(opcode("dec"))?
     print(opcode("jmp"))?
@@ -55,7 +55,7 @@ such a match ends with `case _:`, and a payload position needs `_` or a name
 after its literals:
 
 ```plenty-error
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), IoError]:
     count = 3
     match count:
         case 1:
@@ -77,7 +77,7 @@ def label(enabled: bool) -> str:
         case False:
             "off"
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(label(True))?
     print(label(3 > 4))?
     Ok(())

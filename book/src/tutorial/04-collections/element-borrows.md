@@ -3,7 +3,7 @@
 Borrow an element when you want to inspect or change it without moving its owner:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut counts = {"visits": 1}?
     value = &mut counts["visits"]
     *value = 2
@@ -30,7 +30,7 @@ def count_eq[T](values: &list[T], target: &T) -> i64:
             count = count + 1
     count
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     values = [1, 2, 1]?
     target = 1
     print(count_eq(&values, &target))?

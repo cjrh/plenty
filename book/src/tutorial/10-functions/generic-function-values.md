@@ -10,7 +10,7 @@ def increment(value: u8) -> u8:
 def apply[T](operation: Callable[[T], T], value: T) -> T:
     operation(value)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(apply(increment, 41u8))?
     Ok(())
 ```
@@ -26,7 +26,7 @@ To choose a generic function's own type arguments, use brackets without calling 
 def identity[T](value: T) -> T:
     value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     keep = identity[u8]
     print(keep(42))?
     Ok(())
@@ -43,7 +43,7 @@ A concrete callable annotation can also supply those type arguments:
 def identity[T](value: T) -> T:
     value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     keep: Callable[[u8], u8] = identity
     print(keep(42))?
     Ok(())

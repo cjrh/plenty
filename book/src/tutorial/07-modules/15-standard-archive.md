@@ -17,7 +17,7 @@ import std.bytes
 import std.io
 import std.path
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.io.Partial | std.archive.ArchiveError | std.bytes.BytesError]:
     mut writer = std.archive.tar_writer(std.io.cursor(std.bytes.empty()?))?
     writer.add_dir(&std.path.from_text("notes")?, 493, 1700000000)?
     writer.add_file(&std.path.from_text("notes/todo.txt")?, &std.bytes.from_text("buy milk")?, 420, 1700000000)?
@@ -62,7 +62,7 @@ import std.io
 import std.path
 from std.archive import Method
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.io.Partial | std.archive.ArchiveError | std.bytes.BytesError]:
     mut writer = std.archive.zip_writer(std.io.cursor(std.bytes.empty()?))?
     mut text = std.bytes.empty()?
     for _ in range(0, 50):
@@ -104,7 +104,7 @@ import std.io
 import std.path
 from std.sync import CancellationToken
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.archive.ArchiveError | std.bytes.BytesError | std.fs.FsError]:
     parent = std.fs.root(&std.path.from_text(".")?)?
     mut scratch = std.fs.temporary_dir(&parent, &std.path.from_text("archive-lesson-")?, 8)?
     mut writer = std.archive.tar_writer(std.io.cursor(std.bytes.empty()?))?

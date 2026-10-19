@@ -46,7 +46,7 @@ Update the condition's inputs before a `continue` when needed; otherwise a
 advances to the next element:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     for n in range(6):
         if n == 1:
             continue
@@ -71,7 +71,7 @@ the loop.
 Statements directly after an unconditional exit are rejected:
 
 ```plenty-error
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), IoError]:
     while True:
         break
         print("unreachable")?

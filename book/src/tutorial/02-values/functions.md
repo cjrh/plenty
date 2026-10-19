@@ -57,7 +57,7 @@ def count(values: &mut list[i64] = []?) -> Result[i64, AllocError]:
     values.append(7)?
     Ok(len(values))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(count()?)?
     print(count()?)?
     mut saved = [1, 2]?

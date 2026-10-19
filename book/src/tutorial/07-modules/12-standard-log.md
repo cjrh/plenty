@@ -16,7 +16,7 @@ import std.io
 import std.log
 from std.log import Level, Clock
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.log.LogError]:
     sink = std.log.text_sink(std.io.stdout(), 1024)?
     mut log = std.log.logger(sink, Level.Info, Clock.Off)
     log.info("listening", [std.log.integer("port", 8080), std.log.text("host", "db.local")]?)?
@@ -48,13 +48,13 @@ sink lets each caller pick the destination:
 import std.log
 from std.log import Level, Clock, Logger
 
-def connect[S](log: &mut Logger[S], attempts: i64) -> Result[(), Failure]:
+def connect[S](log: &mut Logger[S], attempts: i64) -> Result[(), AllocError | std.log.LogError]:
     for attempt in range(attempts):
         log.warn("retrying", [std.log.integer("attempt", attempt + 1)]?)?
     log.info("connected", []?)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.log.LogError]:
     mut log = std.log.logger(std.log.memory_sink(10)?, Level.Trace, Clock.Off)
     connect(&mut log, 2)?
     for event in &log.sink.events:

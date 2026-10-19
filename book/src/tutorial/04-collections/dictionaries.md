@@ -4,7 +4,7 @@ A `dict[K, V]` maps keys of one type to values of another. Keys may be integers,
 booleans, or strings; values can include collections.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut scores: dict[str, i64] = {"Ada": 10, "Grace": 20}?
     scores["Ada"] = 12
     scores.insert("Lin", 30)?
@@ -28,7 +28,7 @@ Indexed assignment updates an existing key; `insert` can add a new one and
 returns an allocation result. Nested values update directly too:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut groups = {"first": [10, 20]?}?
     groups["first"][0] = 11
     print(groups)?

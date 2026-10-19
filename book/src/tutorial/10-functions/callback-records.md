@@ -14,7 +14,7 @@ def counter(total: i64) -> Closure[[i64], i64]:
         total = total + amount
         total
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut first = Handler(counter(10))
     mut second = Handler(counter(100))
     print(first.call(3))?

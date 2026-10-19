@@ -31,7 +31,7 @@ def run[F: OnceCallable[[], i64]](job: F) -> i64:
         case Err(SpawnError.Unavailable(job)):
             job()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     n = 42
     job = def once [n]() -> i64:
         n
@@ -46,3 +46,6 @@ def main() -> Result[(), Failure]:
 Using `?` in a function returning `Failure` discards the creation error and drops
 the unstarted job. A reusable closure can also be moved into `spawn`; its captures
 are dropped after the worker's single invocation.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

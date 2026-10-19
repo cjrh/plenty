@@ -18,7 +18,7 @@ def subtract(total: &mut i64, value: i64) -> i64:
     *total = *total - value
     *total
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut handlers = [Handler(10, accumulate), Handler(100, subtract)]?
     for handler in &mut handlers:
         print(handler.call(3))?

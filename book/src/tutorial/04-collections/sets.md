@@ -4,7 +4,7 @@ A `set[T]` stores each distinct value once. Its elements can be integers,
 booleans, or strings:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut names: set[str] = set()?
     names.add("Ada")?
     names.add("Ada")?

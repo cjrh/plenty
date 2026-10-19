@@ -7,7 +7,7 @@ returns `Result[list[str], AllocError]`:
 def fields(line: &str) -> Result[list[str], AllocError]:
     line.split("::")
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     line = "Ada::Bea::::"
     match fields(&line):
         case Ok(parts):

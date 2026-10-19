@@ -55,7 +55,7 @@ pub class Secret:
 ```plenty-error
 from secret import Secret
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), IoError]:
     item = Secret(42)
     print(item.value)?
     Ok(())

@@ -20,7 +20,7 @@ def collect(inbox: &Receiver[i64], deadline: &Deadline) -> i64:
                 break
     total
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError | SendError[i64] | ChannelError]:
     sender, receiver = channel[i64](4)?
     sender.send(1)?
     sender.send(2)?
@@ -55,17 +55,30 @@ asks you to stop, wait on a
 [cancellation token](cooperative-cancellation.md) with the span as the budget:
 
 ```plenty
+def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
+    match result:
+        case Ok(future):
+            Ok(future)
+        case Err(SubmitError.Full(_)):
+            Err("submission queue is full")
+        case Err(SubmitError.Shutdown(_)):
+            Err("executor has shut down")
+        case Err(SubmitError.OutOfMemory(_)):
+            Err("submission allocation failed")
+        case Err(SubmitError.CapacityOverflow(_)):
+            Err("submission capacity overflow")
+
 from std.time import seconds
 
 def pause(stop: CancellationToken, ready: Sender[i64]) -> Result[bool, SendError[i64]]:
     ready.send(1)?
     Ok(stop.wait_timeout(seconds(3600).as_timeout_ms()))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | SendError[i64] | FutureError | RecvError | str | ChannelError | PoolError]:
     stop = CancellationToken()?
     with ThreadPoolExecutor(1, 1)? as pool:
         ready, started = channel[i64](1)?
-        future = pool.submit(pause, stop.share(), ready)?
+        future = submitted(pool.submit(pause, stop.share(), ready))?
         started.recv()?
         drop(started)
         stop.cancel()
@@ -83,3 +96,7 @@ is true when cancellation ended the wait and false when the span elapsed.
 Deadlines use the monotonic clock, so changing the system time neither extends
 nor shortens them. They limit waiting, not execution: a wait can return late on
 a busy machine. See the [time reference](../../design/stdlib/time.md).
+
+Submission errors retain an unstarted job. Here `submitted` deliberately
+releases that job and preserves the failure reason as a message. Match the
+original `SubmitError` instead when you want to recover or retry the job.

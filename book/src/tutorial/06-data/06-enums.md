@@ -18,7 +18,7 @@ def describe(reading: Reading) -> str:
         case Reading.Invalid(reason):
             reason
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(describe(Reading.Missing))?
     print(describe(Reading.Value(42)))?
     print(describe(Reading.Invalid("sensor offline")))?
@@ -42,7 +42,7 @@ enum Switch:
     On
     Off
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), IoError]:
     match Switch.On:
         case Switch.On:
             print("on")?
@@ -79,7 +79,7 @@ def width(slot: Slot) -> i64:
         case Slot.Full(Shape.Dot) | Slot.Empty:
             0
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(width(Slot.Full(Shape.Rect(3, 4))))?
     print(width(Slot.Full(Shape.Circle(5))))?
     print(width(Slot.Empty))?

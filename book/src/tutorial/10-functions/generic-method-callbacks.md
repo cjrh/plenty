@@ -13,7 +13,7 @@ class Cell[T]:
 def double(value: u8) -> u16:
     u16(value) * 2
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     original = Cell(7u8)
     transform = double
     changed = original.map(&transform)

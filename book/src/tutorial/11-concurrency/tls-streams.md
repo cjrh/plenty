@@ -106,3 +106,6 @@ certificate is `ExpiredCertificate`.
 methods wait without a deadline.
 
 See [`std.tls`](../../design/stdlib/tls.md) for the full reference.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

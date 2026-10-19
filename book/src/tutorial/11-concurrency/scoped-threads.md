@@ -30,3 +30,14 @@ A task cannot escape its block or be stored for later.
 
 Scopes cannot forcibly cancel workers. Keep their computations finite or give
 them a shutdown protocol. Fatal traps terminate the process without unwinding.
+
+## Error types at thread start
+
+The `Failure` signature above is a workaround for a current compiler limit.
+Scoped `spawn(...)?` requires exactly `ThreadError` (or `SpawnError[F]` for an
+owned job), or the erasing `Failure` type. It does not yet accept a sum containing
+the start error, so examples combining a start with allocation or printing keep
+`Failure`. Worker functions can still return precise errors, as `squares` does.
+Ordinary calls and `?` outside this special start operation support error sums.
+For a small scope, a helper returning `Result[T, ThreadError]` can preserve the
+start error and let its caller compose it with other errors.

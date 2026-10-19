@@ -34,7 +34,7 @@ Ordinary `print` requires a handled result:
 An expression statement cannot silently discard a result:
 
 ```plenty-error
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print("hello")
     Ok(())
 ```

@@ -24,7 +24,7 @@ Save the application beside it, for example as `main.plenty`:
 import geometry
 from geometry import Point as Position
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     point: Position = geometry.make_point()
     print(point.squared_length())?
     print(point.x)?

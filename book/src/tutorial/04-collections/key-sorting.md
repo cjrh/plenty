@@ -12,7 +12,7 @@ class Point:
 def horizontal(point: &Point) -> i64:
     point.x
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut points = [Point(3, 1), Point(1, 2), Point(2, 4)]?
     points.sort_by_key(horizontal)
     for point in &points:
@@ -38,7 +38,7 @@ shared-call closure can be bound to a name and passed as the key too.
 is fallible and therefore needs `?`:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     scores = [72, 95, 58]?
     print(sorted(&scores)?)?
     print(scores)?

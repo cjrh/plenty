@@ -5,7 +5,9 @@ its value. An f-string builds a new `str`, which can fail to allocate, so it
 returns a `Result` like a list literal does: write `?` after it.
 
 ```plenty
-def main() -> Result[(), Failure]:
+import std.fmt
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     name = "Ada"
     year = 1843
     scores = [90, 85]?
@@ -34,7 +36,9 @@ After a colon, a format spec chooses width, alignment, fill, sign, digit
 grouping, precision, and a type, as in Python:
 
 ```plenty
-def main() -> Result[(), Failure]:
+import std.fmt
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     item = "tea"
     price = 3.14159
     count = 1234567
@@ -54,7 +58,9 @@ A spec can take its width or precision from a nested field, and its fill or
 alignment from a nested `str` field:
 
 ```plenty
-def main() -> Result[(), Failure]:
+import std.fmt
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     width = 8
     digits = 2
     align = "^"
@@ -70,7 +76,9 @@ def main() -> Result[(), Failure]:
 the field's source before its value, which helps when debugging:
 
 ```plenty
-def main() -> Result[(), Failure]:
+import std.fmt
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     name = "Ada"
     year = 1843
     print(f"{name!r} {name=} {year=}"?)?
@@ -88,7 +96,9 @@ The compiler checks every spec against the field's type. A precision does not
 apply to an integer:
 
 ```plenty-error
-def main() -> Result[(), Failure]:
+import std.fmt
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     count = 3
     print(f"{count:.2f}"?)?
     Ok(())

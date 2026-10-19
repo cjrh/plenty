@@ -47,7 +47,7 @@ pub class Site:
         exchange.send_text(200, &str.from(body.len())?.concat(" bytes")?)?
         Ok(())
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | std.tls.TlsError | RangeError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     base = "https://localhost:".concat(&str.from(i64(port))?)?
@@ -115,3 +115,10 @@ neither the request nor the response.
 
 The HTTPS support is a separate module: a program that imports only
 `std.http.client` does not include the TLS library.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
+
+The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+Keep concrete errors in helpers; the handler boundary erases them. See the
+[server contract](../../design/stdlib/http-server.md).

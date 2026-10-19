@@ -14,7 +14,7 @@ def innermost(top: &Folder) -> str:
         folder = &folder.inside[0]
     folder.name
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     notes = Folder("notes", []?)
     work = Folder("work", [notes]?)
     home = Folder("home", [work]?)

@@ -12,7 +12,7 @@ class Buffer:
         self.values = list[i64].with_capacity(size)?
         Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(Buffer(8)?)?
     Ok(())
 ```

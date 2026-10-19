@@ -9,7 +9,7 @@ import std.bytes
 import std.encoding
 from std.encoding import Endian
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.bytes.BytesError]:
     mut frame = std.bytes.empty()?
     std.encoding.append_u16(&mut frame, 513u16, Endian.Big)?
     std.encoding.append_u32(&mut frame, 7u32, Endian.Little)?
@@ -50,7 +50,7 @@ import std.bytes
 import std.encoding
 from std.encoding import Endian
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError]:
     print(std.encoding.base64_from_text("aGk=")?.to_text()?)?
     print(str.repr(std.encoding.hex_from_text("abc"))?)?
     print(str.repr(std.encoding.hex_from_text("0g"))?)?

@@ -4,7 +4,7 @@ A reusable closure borrows its captured state on each call. Sometimes the purpos
 of the callback is to hand over an owned value. Mark that callback `once`:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     values = [2, 3, 5]?
     take = def once [values]() -> list[i64]:
         values

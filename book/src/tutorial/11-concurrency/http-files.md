@@ -50,7 +50,7 @@ pub class Site:
                         exchange.send_text(401, "who are you?")?
         Ok(())
 
-def fetch(port: u16, request: &str) -> Result[str, Failure]:
+def fetch(port: u16, request: &str) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
@@ -67,16 +67,16 @@ def fetch(port: u16, request: &str) -> Result[str, Failure]:
     Ok(reply.to_text()?)
 
 # The value of the field `name` in a response, or "".
-def field(reply: &str, name: &str) -> Result[str, Failure]:
+def field(reply: &str, name: &str) -> Result[str, AllocError | IoError]:
     for line in reply.split("\r\n")?:
         if line.startswith(name):
             return Ok(line.split(": ")?[1].concat("")?)
     Ok("")
 
-def get(path: &str, extra: &str) -> Result[str, Failure]:
+def get(path: &str, extra: &str) -> Result[str, AllocError | IoError]:
     Ok("GET ".concat(path)?.concat(" HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n")?.concat(extra)?.concat("\r\n")?)
 
-def client(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.net.NetError]:
     page = fetch(port, &get("/files/index.html", "")?)?
     print(page.split("\r\n")?[0])?
     print(field(&page, "Content-Type")?)?
@@ -158,3 +158,10 @@ Keys are at least 32 random bytes, kept secret and stable across restarts;
 when the program restarts. To replace a key, put the new one first and keep
 the old one after it until old cookies have expired: `find_signed` accepts
 any listed key, and `signed_cookie` always signs with the first.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
+
+The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+Keep concrete errors in helpers; the handler boundary erases them. See the
+[server contract](../../design/stdlib/http-server.md).

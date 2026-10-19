@@ -10,7 +10,7 @@ def keep_small(value: u8) -> u8:
 def keep_large(value: i64) -> i64:
     value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(keep_small(7u8))?
     print(keep_large(9))?
     Ok(())
@@ -36,7 +36,7 @@ def sum_to[T: IntType](stop: T) -> Result[T, AllocError]:
 def first[T](values: &list[T]) -> &T:
     &values[0]
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(sum_to(5u16)?)?
     values = identity([3, 4]?)
     print(first(&values))?
@@ -67,7 +67,7 @@ that only succeed or fail:
 def keep_result[T, E](result: Result[T, E]) -> Result[T, E]:
     result
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     written = print("saved")
     keep_result(written)?
     Ok(())

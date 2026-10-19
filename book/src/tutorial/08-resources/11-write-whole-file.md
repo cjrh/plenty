@@ -12,7 +12,7 @@ def save_and_read() -> Result[str, IoError]:
     write_text("plenty-example.txt", "Hello, é!\n")?
     read_text("plenty-example.txt")
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(str.repr(save_and_read())?)?
     Ok(())
 ```

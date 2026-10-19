@@ -16,7 +16,7 @@ import std.crypto
 import std.encoding
 from std.crypto import Algorithm
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.crypto.CryptoError | std.bytes.BytesError]:
     data = std.bytes.from_text("abc")?
     digest = std.crypto.sha256(&data)?
     print(digest.len())?
@@ -53,17 +53,17 @@ import std.encoding
 from std.bytes import Bytes
 from std.crypto import Algorithm
 
-def sign(key: &Bytes, message: &str) -> Result[Bytes, Failure]:
+def sign(key: &Bytes, message: &str) -> Result[Bytes, AllocError | IoError | std.crypto.CryptoError]:
     mut mac = std.crypto.hmac(Algorithm.Sha256, key)?
     mac.update_text(message)?
     Ok(mac.finish()?)
 
-def check(key: &Bytes, message: &str, tag: &Bytes) -> Result[bool, Failure]:
+def check(key: &Bytes, message: &str, tag: &Bytes) -> Result[bool, AllocError | IoError | std.crypto.CryptoError]:
     mut mac = std.crypto.hmac(Algorithm.Sha256, key)?
     mac.update_text(message)?
     Ok(mac.verify(tag, 0, tag.len())?)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.crypto.CryptoError | std.bytes.BytesError]:
     key = std.bytes.from_text("server key")?
     tag = sign(&key, "user=ada")?
     print(std.encoding.hex_text(&tag, 0, 8)?)?

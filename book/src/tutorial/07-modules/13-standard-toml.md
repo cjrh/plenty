@@ -10,7 +10,7 @@ takes explicit limits.
 import std.toml
 from std.toml import Entry, Toml
 
-def show(entries: &list[Entry], indent: &str) -> Result[(), Failure]:
+def show(entries: &list[Entry], indent: &str) -> Result[(), AllocError | IoError]:
     for entry in entries:
         name = (indent + entry.key)?
         match &entry.value:
@@ -29,7 +29,7 @@ def show(entries: &list[Entry], indent: &str) -> Result[(), Failure]:
                 print(name, "is something else")?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.toml.TomlError]:
     bounds = std.toml.limits()
     text = "# Service settings\ntitle = \"cache\"\n\n[server]\nhost = \"0.0.0.0\"\nport = 8080\n\n[server.tls]\nenabled = true\n\n[[backend]]\nurl = \"http://a.internal\"\n\n[[backend]]\nurl = \"http://b.internal\"\n\n[release]\ndate = 2026-10-01\n"
     value = std.toml.parse_text(text, &bounds)?
@@ -74,7 +74,7 @@ that both start at 1.
 import std.toml
 from std.toml import Limits
 
-def attempt(text: &str, bounds: &Limits) -> Result[(), Failure]:
+def attempt(text: &str, bounds: &Limits) -> Result[(), IoError]:
     match std.toml.parse_text(text, bounds):
         case Ok(_):
             print("ok")?
@@ -82,7 +82,7 @@ def attempt(text: &str, bounds: &Limits) -> Result[(), Failure]:
             print(error.fault, "at line", error.line, "column", error.column)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     bounds = std.toml.limits()
     attempt("name = \"Tom\"\nname = \"Pradyun\"", &bounds)?
     attempt("[fruit]\na = 1\n[fruit]\nb = 2", &bounds)?
@@ -112,7 +112,7 @@ points at the start of the line that repeats it.
 import std.toml
 from std.toml import Entry, Toml
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.toml.TomlError]:
     bounds = std.toml.limits()
     mut package = list[Entry]()?
     package.append(Entry("name", Toml.Text("player")))?

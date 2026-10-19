@@ -4,11 +4,15 @@
 another program from a list of arguments and collects what it prints:
 
 ```plenty
+import std.bytes
+
+import std.io
+
 import std.env
 import std.process
 from std.process import Stdio
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError]:
     print(std.env.get("PLENTY_LESSON_UNSET")?)?
     mut command = std.process.command("printf")?
     command.arg("%s\n")?
@@ -37,11 +41,13 @@ When shell syntax is what you want, ask for it by name. `shell` runs
 `/bin/sh -c` with your script. `communicate` also feeds the child's input:
 
 ```plenty
+import std.io
+
 import std.bytes
 import std.process
 from std.process import Stdio
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.io.StreamError | std.bytes.BytesError]:
     mut command = std.process.shell("tr a-z A-Z; echo \"mode: $MODE\" >&2; exit 3")?
     command.env("MODE", "loud")?
     command.stdin(Stdio.Piped)
@@ -75,7 +81,7 @@ can be stopped:
 import std.process
 import std.time
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut missing = std.process.command("plenty-no-such-program")?
     match missing.spawn():
         case Ok(_):

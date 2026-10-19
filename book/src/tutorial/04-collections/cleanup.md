@@ -7,7 +7,7 @@ responsibility. Borrowing lends access while leaving cleanup with the owner.
 Use `drop(value)` to release an owner early:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut numbers = [1, 2, 3]?
     drop(numbers)
     numbers = [4]?

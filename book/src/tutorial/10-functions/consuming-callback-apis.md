@@ -16,7 +16,7 @@ def defer[T](value: T) -> OnceClosure[[], T]:
     def once [value]() -> T:
         value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     take = defer([3, 5]?)
     print(callbacks.run(take))?
     Ok(())

@@ -7,7 +7,7 @@ The function takes two values of the element type and returns one of that type.
 def add[T: IntType](left: T, right: T) -> T:
     left + right
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | PoolMapError | PoolError]:
     with ThreadPoolExecutor(2, 2)? as pool:
         print(pool.reduce_tree(add, range(1, 6))?)?
         print(pool.reduce_tree(add, range(0))?)?

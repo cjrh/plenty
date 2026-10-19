@@ -7,7 +7,7 @@ two bytes and `🙂` takes four. A failed append leaves the old contents intact.
 import std.text
 import std.unicode
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.text.TextError]:
     mut message = std.text.builder(32)?
     message.append("Hello, ")?
     message.append("é🙂")?

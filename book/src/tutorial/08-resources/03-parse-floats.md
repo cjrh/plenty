@@ -5,7 +5,7 @@ Overflow returns `OutOfRange`; underflow can round to zero. Explicit `inf`,
 `infinity`, and `nan` are accepted case-insensitively, with optional signs.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(str.repr(f32.parse("1.25e2"))?)?
     print(str.repr(f32.parse("1e100"))?)?
     print(str.repr(f64.parse("-0.0"))?)?

@@ -16,7 +16,7 @@ import std.bytes
 import std.compress
 from std.compress import Format
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.compress.CompressError | std.bytes.BytesError]:
     mut text = std.bytes.empty()?
     for _ in range(0, 100):
         text.extend(&std.bytes.from_text("to be or not to be ")?)?
@@ -52,7 +52,7 @@ import std.compress
 import std.io
 from std.compress import Format
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.io.StreamError | std.io.Partial | std.compress.CompressError | std.bytes.BytesError]:
     line = std.bytes.from_text("one line of a log\n")?
     mut writer = std.compress.compressor(Format.Gzip, std.io.cursor(std.bytes.empty()?), 6)?
     for _ in range(0, 1000):
@@ -94,7 +94,7 @@ import std.compress
 import std.io
 from std.compress import Format
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.compress.CompressError | std.bytes.BytesError]:
     data = std.bytes.from_text("checked at the end")?
     mut packed = std.compress.compress(Format.Gzip, &data, 6)?
     last = packed.len() - 1

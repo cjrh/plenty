@@ -10,7 +10,7 @@ export def positive(value: i32) -> Result[i32, i32] = "calc_positive":
     else:
         Ok(value)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | i32]:
     print(positive(42)?)?
     print(str.repr(positive(-1))?)?
     Ok(())

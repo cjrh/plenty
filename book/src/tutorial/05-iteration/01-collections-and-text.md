@@ -4,7 +4,7 @@
 characters of a string. A character is a one-character `str`.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut total = 0
     for n in range(1, 5):
         total = total + n

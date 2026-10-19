@@ -24,7 +24,7 @@ def total(chain: Chain[i64]) -> i64:
                 remaining = rest
     answer
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut chain = Chain[i64].Empty
     for value in range(1, 4):
         chain = Chain[i64].Link(value, Box(chain)?)

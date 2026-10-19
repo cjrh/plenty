@@ -14,7 +14,7 @@ def checksum(view: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
         total += i64(view.get(index)?)
     Ok(total)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | BytesError]:
     mut frame = std.bytes.with_capacity(8)?
     frame.push(2u8)?
     frame.extend(&std.bytes.from_text("hi")?)?
@@ -50,7 +50,7 @@ bytes out from under a reader:
 ```plenty-error
 import std.bytes
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut frame = std.bytes.from_text("hi")?
     view = &frame
     frame.push(0u8)?
@@ -68,7 +68,7 @@ edge with `from_list` and `to_list`; each is an explicit copy:
 ```plenty
 import std.bytes
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut record = std.bytes.from_list(&encode_utf8("name=")?)?
     record.extend(&std.bytes.from_list(&[255u8, 0u8]?)?)?
     write_stdout_bytes(&record.slice(0, 5)?.to_list()?)?
@@ -87,7 +87,7 @@ end of a run, and `matches_text` compares in place without copying:
 ```plenty
 import std.bytes
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     line = std.bytes.from_text("name=Ada;  role=engineer")?
     stops = std.bytes.from_text("=;")?
     blank = std.bytes.from_text(" ")?
@@ -121,7 +121,7 @@ without consuming the buffer:
 ```plenty
 import std.bytes
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut word = std.bytes.from_text("plenty")?
     word[0] = 80u8
     word[-1] -= 32u8
@@ -152,7 +152,9 @@ program's read-only data, so it never allocates. It has a length, indexing, and
 iteration:
 
 ```plenty
-def main() -> Result[(), Failure]:
+import std.bytes
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     magic = b"\x89PNG"
     print(magic, len(magic), magic[1])?
     mut total = 0
@@ -179,7 +181,7 @@ from std.bytes import ByteSource
 def starts_png[S: ByteSource](data: &S) -> bool:
     data.len() >= 4 and data[0] == 137u8 and data[1] == 80u8
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     magic = b"\x89PNG"
     mut header = std.bytes.from_bytes(magic)?
     header.extend(b"\r\n\x1a\n")?

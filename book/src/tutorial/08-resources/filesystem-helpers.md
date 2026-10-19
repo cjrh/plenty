@@ -11,11 +11,13 @@ file and releases its partial contents without deleting a named path.
 This example uses a random private directory inside the working directory:
 
 ```plenty
+import std.io
+
 import std.fs as fs
 import std.path as path
 from std.sync import CancellationToken
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.io.StreamError | fs.FsError]:
     current = path.from_text(".")?
     parent = fs.root(&current)?
     prefix = path.from_text("plenty-example-")?

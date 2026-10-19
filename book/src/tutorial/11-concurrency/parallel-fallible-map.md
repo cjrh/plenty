@@ -10,7 +10,7 @@ def square(n: i64) -> Result[i64, str]:
     else:
         Ok(n * n)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ParallelError[str] | PoolError]:
     with ThreadPoolExecutor(2, 2)? as pool:
         print(pool.map_result(square, range(5))?)?
         match pool.map_result(square, [3, -1, -2]?):

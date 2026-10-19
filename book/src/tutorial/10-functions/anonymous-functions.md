@@ -8,7 +8,7 @@ is one expression and its value is returned:
 def apply(f: Callable[[i64], i64], value: i64) -> i64:
     f(value)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(apply(def(x: i64) -> i64: x * 2, 4))?
     print(apply(
         def(x: i64) -> i64: x + 1 if x > 0 else 0,
@@ -29,7 +29,7 @@ Outside brackets, the body is an indented block with the same rules as a named
 function:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     transform = def(value: i64) -> i64:
         adjusted = value * 2
         if adjusted > 10:

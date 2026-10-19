@@ -15,7 +15,7 @@ def choose(k: i64) -> Result[BoxedCallable[[i64], i64], AllocError]:
         span[1] * value
     BoxedCallable(multiply)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     callbacks: dict[str, BoxedCallable[[i64], i64]] = {
         "add": choose(3)?,
         "multiply": choose(0)?,

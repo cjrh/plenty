@@ -19,7 +19,7 @@ def run_or_submit[F: OnceCallable[[], i64]](
         ):
             Ok(job())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | FutureError | PoolError]:
     with ThreadPoolExecutor(1, 1)? as pool:
         pool.shutdown()
         number = 42

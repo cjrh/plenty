@@ -26,7 +26,7 @@ def without_ticks(event: Event) -> str:
         case _ as other:
             describe(other)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(without_ticks(Event.Tick))?
     print(without_ticks(Event.Key("enter")))?
     print(without_ticks(Event.Resize(80, 24)))?
@@ -54,7 +54,7 @@ def bump(count: &mut Option[i64]) -> ():
         case _ as empty:
             *empty = Some(1)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut count: Option[i64] = Nothing
     bump(&mut count)
     bump(&mut count)

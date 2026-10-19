@@ -5,7 +5,7 @@ length is known; the list must contain exactly as many elements as targets.
 The statement moves its elements, and `_` discards an element.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     first, second = "north east".split(" ")?
     print(first, second, 2)?
     mut visits = dict[(i64, i64), i64].new()?
@@ -32,7 +32,7 @@ existing key.
 Consume dictionary values directly when the dictionary is finished:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     groups = {"first": [1, 2]?, "second": [3]?}?
     for group in groups.into_values()?:
         print(group)?

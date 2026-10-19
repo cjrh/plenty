@@ -18,7 +18,7 @@ def parse_limit(text: &str) -> Result[i64, Context[ParseError]]:
 def flush_output() -> Result[(), Context[IoError]]:
     context(flush_stdout(), "flush output")
 
-def limit(path: &Path) -> Result[i64, Failure]:
+def limit(path: &Path) -> Result[i64, AllocError | IoError | Context[ParseError]]:
     match read_limit(path):
         case Ok(bytes):
             Ok(parse_limit(&decode_utf8(bytes)?)?)
@@ -27,7 +27,7 @@ def limit(path: &Path) -> Result[i64, Failure]:
             print(native_code(error.cause))?
             Ok(10)
 
-def run() -> Result[(), Failure]:
+def run() -> Result[(), AllocError | IoError | Context[IoError] | Context[ParseError]]:
     path = from_text("limit.txt")?
     print(limit(&path)?)?
     match parse_limit("ten"):
@@ -59,8 +59,8 @@ True
 through and wrap an `Err`, including operations whose success is `()`, as
 `flush_output` shows. `main` uses the direct form,
 `Context(label, Subject.Absent, cause)`. Nothing is wrapped implicitly: `?`
-still needs the function's exact error type, so `read_limit` returns
-`Context[IoError]` and says so.
+needs a compatible declared error, so `read_limit` returns `Context[IoError]`
+and callers can include that context in an error sum.
 
 `describe()` builds one line: the label, the quoted path if there is one, and
 the cause. It allocates, so it returns a Result. `error.cause` is the untouched
@@ -72,9 +72,9 @@ does not choose an exit status, so `main` returns `i32` and decides. If memory
 runs out while describing, `report` still writes the label with a fixed
 message, and a failed path copy in `path_context` keeps the label and cause.
 
-Here `run` returns `Failure`, which keeps no details, so a failing `run` would
-report only `error: run: Failure.Unspecified`. Return a `Context` or your own
-enum from the functions whose failures you want explained. See
+Here `run` preserves its allocation, I/O, and contextual errors in a sum.
+The outer context adds the operation label without discarding the cause.
+Return a `Context` or your own enum when a failure needs more explanation. See
 [the module reference](../../design/stdlib/error.md) for nesting contexts and
 the rules standard modules follow.
 

@@ -84,3 +84,6 @@ Change it on the main thread before starting workers, or give a child its own
 directory with `Command.current_dir`. See
 [native effects on worker threads](../../design/facilities/03-concurrency/effects.md)
 for the rules each native operation follows.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

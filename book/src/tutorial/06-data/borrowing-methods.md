@@ -11,7 +11,7 @@ class Pair:
     def left_ref(self: &mut Pair) -> &mut i64:
         &mut self.left
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut pair = Pair(1, 2)
     left = pair.left_ref()
     *left = 8
@@ -40,7 +40,7 @@ from std.bytes import Bytes, BytesError
 def clear(buffer: &mut Bytes) -> Result[(), BytesError]:
     buffer.fill(0, buffer.len(), 0u8)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | BytesError]:
     mut buffer = std.bytes.from_list([1u8, 2u8]?)?
     clear(&mut buffer)?
     print(buffer.to_list()?)?

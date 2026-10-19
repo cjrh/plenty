@@ -15,7 +15,7 @@ class Span:
     def length(self) -> i64:
         self.end - self.start
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     span = Span(10, 5)
     print(span)?
     print(span.length())?

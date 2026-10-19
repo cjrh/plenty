@@ -5,7 +5,7 @@ when the key is absent. It requires a mutable dictionary and transfers ownership
 of the stored value, including nested collections:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut groups = {"ready": [1, 2]?, "waiting": [3]?}?
     match groups.pop("ready"):
         case Some(items):
@@ -37,7 +37,7 @@ Lists also have `pop`. With no argument it removes the last element; an `i64`
 index selects another position. Negative indices count from the end:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut tasks = [[1]?, [2]?, [3]?]?
     match tasks.pop(1):
         case Some(task):

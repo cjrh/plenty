@@ -30,7 +30,7 @@ pub class Trickle:
             case Err(_):
                 Err(StreamError.OutOfRange)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | StreamError | std.bytes.BytesError]:
     mut source = Trickle(std.bytes.from_text("0123456789")?, 0)
     mut buffer = std.bytes.with_capacity(8)?
     buffer.resize(8, 46u8)?
@@ -60,7 +60,7 @@ small writes in a fixed-size buffer and passes them on in larger pieces:
 import std.bytes
 import std.io
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.io.Partial | std.io.StreamError | std.bytes.BytesError]:
     mut input = std.io.buffered_reader(std.io.cursor(std.bytes.from_text("red\ngreen\nblue")?), 4)?
     mut output = std.io.buffered_writer(std.io.stdout(), 16)?
     mut line = std.bytes.empty()?
@@ -104,7 +104,7 @@ import std.bytes
 import std.io
 from std.io import SeekFrom
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.io.Partial | std.bytes.BytesError | std.io.StreamError]:
     mut file = std.io.buffered_writer(std.io.open_file("streams-lesson.bin", "w+")?, 8)?
     record = std.bytes.from_list(&[1u8, 0u8, 255u8, 10u8, 7u8]?)?
     std.io.write_all(&mut file, &record, 0, 5)?

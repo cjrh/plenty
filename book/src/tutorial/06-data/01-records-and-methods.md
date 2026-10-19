@@ -15,7 +15,7 @@ class Point:
         self.x = self.x + amount
         self.y = self.y + amount
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut point = Point(y=4, x=3)
     print(point.squared_length())?
     point.shift(amount=1)
@@ -46,7 +46,7 @@ class Counter:
     def wrapping_add(self: &Counter, other: i64) -> i64:
         self.total + other
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     counter = Counter(1)
     print(counter.wrapping_add(2))?
     Ok(())

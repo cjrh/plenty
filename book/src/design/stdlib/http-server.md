@@ -23,6 +23,10 @@ deployment guidance; the server is production-ready.
 | `protocol Transport` | `read_before`, `write_before` and `shutdown` with the signatures of `TcpStream`'s; `write_before` is generic in its `S: ByteSource` source |
 | `reason(status: i64)` | `str`: the reason phrase for a common status, or `""` |
 
+The current `Handler` protocol requires this exact erased error type. A handler
+cannot yet substitute a concrete error or sum; helper methods called by the
+handler can preserve their errors until this boundary.
+
 `serve` takes ownership of the listener and runs on the calling thread. It
 starts `config.workers` scoped worker threads, then accepts connections on
 its own thread and passes each to the queue once it has input (see

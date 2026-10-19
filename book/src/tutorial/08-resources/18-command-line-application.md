@@ -10,7 +10,7 @@ mistaken for the end of the file.
 Save this module as `report.plenty`:
 
 ```plenty-file report.plenty
-pub def summarize(path: &str) -> Result[str, Failure]:
+pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError]:
     mut count = 0
     mut total = 0
     with open(path)? as file:
@@ -33,26 +33,26 @@ Save this application beside it as `main.plenty`:
 ```plenty
 from report import summarize
 
-def run() -> Result[(), Failure]:
+enum UsageError:
+    Arguments
+
+type AppError = AllocError | IoError | ParseError | UsageError
+
+def run() -> Result[(), AppError]:
     arguments = args()?
     if len(arguments) == 1:
         print("usage: number-report INPUT OUTPUT")?
         return Ok(())
     if len(arguments) != 3:
         write_stderr("usage: number-report INPUT OUTPUT\n")?
-        return Err(Failure.Unspecified)
+        return Err(UsageError.Arguments)
     report = summarize(arguments[1])?
     write_text(arguments[2], report)?
     print("saved report")?
     Ok(())
 
-def main() -> Result[(), Failure]:
-    match run():
-        case Ok(_):
-            Ok(())
-        case Err(_):
-            write_stderr("report failed; check paths and integer input\n")?
-            Err(Failure.Unspecified)
+def main() -> Result[(), AppError]:
+    run()
 ```
 ```output
 usage: number-report INPUT OUTPUT
@@ -69,10 +69,9 @@ For an input containing `10`, a blank line, and `20`, the output file contains
 `count=2 total=30` followed by a newline. `write_text` replaces the output file;
 choose a path whose contents may be replaced.
 
-`Failure` discards error details, so this diagnostic cannot distinguish a bad
-integer from an I/O or allocation error. Keep concrete error types when callers
-need that distinction. Values and their total must fit `i64`; arithmetic overflow
-is a runtime trap.
+`AppError` preserves usage, parsing, I/O, and allocation errors. Returning the
+error from `main` reports its cause on standard error and exits unsuccessfully.
+Values and their total must fit `i64`; arithmetic overflow is a runtime trap.
 
 See the
 [text I/O reference](../../design/facilities/02-io/index.md)

@@ -39,7 +39,7 @@ pub class Site:
                 exchange.send(200, "text/plain", &body)?
         Ok(())
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | RangeError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
@@ -105,3 +105,10 @@ A request that fails because a reused connection was closed by the server
 is sent again on a new connection, but only for methods that are safe to
 repeat, such as `GET` and `PUT`. A `POST` is never sent twice; its error is
 returned so the program can decide what to do.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
+
+The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+Keep concrete errors in helpers; the handler boundary erases them. See the
+[server contract](../../design/stdlib/http-server.md).

@@ -5,7 +5,7 @@ newline. Success returns the number of Unicode characters. An I/O error can
 follow a partial write, so retrying the whole string can duplicate output.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     result = write_stdout("Hello!\n")
     print(result?)?
     Ok(())

@@ -16,7 +16,7 @@ class Cell[T]:
 def read[T, R: Readable[T]](source: &R) -> T:
     source.read()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     cell = Cell(7u8)
     print(read(&cell))?
     Ok(())

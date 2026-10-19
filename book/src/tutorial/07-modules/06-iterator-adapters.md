@@ -52,7 +52,7 @@ def naturals() -> Generator[i64]:
         yield n
         n += 1
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), IoError]:
     offset = 100
     for n in take(map(naturals(), def [offset](n: i64) -> i64: n + offset), 3):
         print(n)?

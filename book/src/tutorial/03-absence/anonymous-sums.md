@@ -8,7 +8,7 @@ def parse_small(text: str) -> Result[u8, ParseError | RangeError]:
     number = i64.parse(text)?
     u8.try_from(number)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     match parse_small("300"):
         case Ok(number):
             print(number)?
@@ -34,7 +34,7 @@ again by its constructors.
 Sums also work outside errors:
 
 ```plenty
-def describe(value: i64 | str) -> Result[(), Failure]:
+def describe(value: i64 | str) -> Result[(), IoError]:
     match value:
         case number: i64:
             print(number)?
@@ -42,7 +42,7 @@ def describe(value: i64 | str) -> Result[(), Failure]:
             print(text)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     describe(42)?
     describe("ready")?
     Ok(())

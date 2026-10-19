@@ -8,7 +8,7 @@ class Link:
     value: i64
     next: Option[Box[Link]]
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut chain = Some(Box(Link(1, Some(Box(Link(2, Nothing))?)))?)
     while True:
         match chain:

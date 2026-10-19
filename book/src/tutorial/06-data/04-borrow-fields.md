@@ -7,7 +7,7 @@ class Basket:
     count: i64
     items: list[str]
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut basket = Basket(0, []?)
     count = &mut basket.count
     *count = 2
@@ -33,7 +33,7 @@ class Position:
     x: i64
     y: i64
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut position = Position(1, 2)
     x = &mut position.x
     y = &mut position.y

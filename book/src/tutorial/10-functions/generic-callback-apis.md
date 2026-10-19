@@ -11,7 +11,7 @@ def apply[T, F: Callable[[T], T]](f: &F, value: T) -> T:
 def double(value: i64) -> i64:
     value * 2
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     offset = 2u8
     add = def [offset](value: u8) -> u8:
         offset + value
@@ -31,7 +31,7 @@ parentheses to be the operand of `&`:
 def apply[T, F: Callable[[T], T]](f: &F, value: T) -> T:
     f(value)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     offset = 2
     print(apply(&(def [offset](value: i64) -> i64: offset + value), 3))?
     print(apply(&(def(value: i64) -> i64: value * value), 3))?
@@ -89,7 +89,7 @@ def apply[T, U, F: Callable[[T], U]](callback: &F, value: T) -> U:
 def double(value: i64) -> i64:
     value * 2
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     offset = 7
     add = def [offset](value: i64) -> i64:
         offset + value

@@ -18,7 +18,7 @@ def invoke[F: Callable[[], i64]](job: &Job[F]) -> i64:
         case Job.Empty:
             0
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     value = 42
     callback = def [value]() -> i64:
         value

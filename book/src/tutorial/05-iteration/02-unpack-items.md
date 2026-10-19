@@ -6,7 +6,7 @@ are shared references; scalar and string values remain values. Use an exclusive
 borrow to update values. Keys stay immutable.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut counts = {"apple": 2, "pear": 3}?
     for fruit, count in (&mut counts).items():
         *count = *count + 1

@@ -10,7 +10,7 @@ should not be held whole.
 import std.json
 from std.json import Json
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.json.JsonError]:
     bounds = std.json.limits()
     value = std.json.parse_text("{\"name\": \"Ada\", \"tags\": [\"x\", \"y\"], \"age\": 36, \"ratio\": 0.5}", &bounds)?
     match &value:
@@ -62,7 +62,7 @@ that both start at 1.
 import std.json
 from std.json import Limits
 
-def attempt(text: &str, bounds: &Limits) -> Result[(), Failure]:
+def attempt(text: &str, bounds: &Limits) -> Result[(), AllocError | IoError | std.json.JsonError]:
     match std.json.parse_text(text, bounds):
         case Ok(value):
             print("ok", std.json.encode_text(&value, bounds)?)?
@@ -70,7 +70,7 @@ def attempt(text: &str, bounds: &Limits) -> Result[(), Failure]:
             print(error.fault, "at byte", error.offset, "line", error.line, "column", error.column)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.json.JsonError]:
     mut bounds = std.json.limits()
     attempt("[1, 2,\n  oops]", &bounds)?
     attempt("[1, 2", &bounds)?
@@ -109,7 +109,7 @@ import std.io
 import std.json
 from std.json import Event
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ParseError | std.json.JsonError | std.bytes.BytesError]:
     bounds = std.json.limits()
     mut reader = std.io.cursor(std.bytes.from_text("[{\"id\": 7, \"ok\": true}, {\"id\": 18446744073709551615}]")?)
     mut decoder = std.json.decoder(&bounds)?

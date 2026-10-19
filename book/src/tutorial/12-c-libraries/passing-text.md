@@ -15,7 +15,7 @@ pub extern def byte_length(text: &str as c_string) -> Result[u64, CStrError] = "
 ```plenty
 import c_text
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | CStrError]:
     text = "é"
     print(c_text.byte_length(&text)?)?
     with_nul = "a\0b"

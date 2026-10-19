@@ -18,7 +18,7 @@ With a top-down walker, edit its directory list before asking for another row:
 import std.fs as fs
 import std.path as path
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     root = path.from_text("../tree")?
     mut walker = fs.walk(&root, True)?
     while walker.next()?:
@@ -50,7 +50,7 @@ To continue siblings after an error, match `walker.next()` instead of using `?`:
 import std.fs as fs
 import std.path as path
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     root = path.from_text("missing-root")?
     mut walker = fs.walk(&root, True)?
     match walker.next():

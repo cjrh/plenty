@@ -9,7 +9,7 @@ enum Choice[T: IntType]:
     Empty
     Value(T)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     selected = Choice[u8].Value(7)
     match selected:
         case Choice.Empty:

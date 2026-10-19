@@ -15,7 +15,7 @@ its limit:
 ```plenty
 import std.regex
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.regex.RegexError]:
     limits = std.regex.limits()
     year = std.regex.compile("\\b(19|20)\\d\\d\\b", &limits)?
     text = "Released 1999, revised 2024, not 12345."
@@ -50,7 +50,7 @@ dollar sign:
 ```plenty
 import std.regex
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.regex.RegexError]:
     limits = std.regex.limits()
     date = std.regex.compile("(?P<year>\\d{4})-(?P<month>\\d{2})", &limits)?
     text = "from 2024-05 to 1999-12"
@@ -93,7 +93,7 @@ a matcher, and a search that would do too much work, are limit errors:
 import std.regex
 from std.regex import Limits
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.regex.RegexError]:
     limits = std.regex.limits()
     print(str.repr(std.regex.compile("total: (\\d+", &limits))?)?
     print(str.repr(std.regex.compile("(a{1000}){1000}", &limits))?)?

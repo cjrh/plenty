@@ -65,7 +65,7 @@ pub class Site:
                 exchange.send_text(200, &text)?
         Ok(())
 
-def fetch(port: u16, request: &str) -> Result[str, Failure]:
+def fetch(port: u16, request: &str) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
@@ -86,7 +86,7 @@ def fetch(port: u16, request: &str) -> Result[str, Failure]:
             summary = summary.concat(" | ")?.concat(&line)?
     Ok(summary.concat(" | ")?.concat(&text.split("\r\n\r\n")?[1].strip()?)?)
 
-def client(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.net.NetError]:
     form = "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 28\r\nConnection: close\r\n\r\nname=Ada&city=S%C3%A3o+Paulo"
     print(fetch(port, form)?)?
     print(fetch(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: 3\r\nConnection: close\r\n\r\nAda")?)?
@@ -140,3 +140,10 @@ only because the program trusts `127.0.0.1`, and reads it from the right:
 `203.0.113.7` is the first address that is not a trusted proxy, so it is the
 client. `198.51.100.4` came from the client itself and is ignored. With no
 `trust` call, the header is ignored and the client is the peer.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
+
+The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+Keep concrete errors in helpers; the handler boundary erases them. See the
+[server contract](../../design/stdlib/http-server.md).

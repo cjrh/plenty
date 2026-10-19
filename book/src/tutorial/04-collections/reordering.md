@@ -5,7 +5,7 @@ Both change the list in place, need a `mut` owner, and allocate nothing, so
 neither takes `?`.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut scores = [72, 95, 58, 81]?
     scores.sort()
     print(scores)?
@@ -28,7 +28,7 @@ their first components, then the next where the first are equal. To sort
 records by a key, put the key first:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut ranked = [(72, "Ada"), (95, "Bea"), (72, "Abe")]?
     ranked.sort()
     print(ranked)?
@@ -44,7 +44,7 @@ Bea
 Other element types need a [key function](key-sorting.md); natural sorting rejects them:
 
 ```plenty-error
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut flags = [True, False]?
     flags.sort()
     Ok(())
@@ -59,7 +59,7 @@ sort does not order bool elements; it orders integers, floats, str, and tuples o
 the end, and a missing index is a runtime error.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut rows = [[0, 1]?, [2, 3]?, [4, 5]?]?
     rows.swap(0, -1)
     print(rows)?
@@ -79,7 +79,7 @@ side is evaluated first, and then each value is assigned to its target from
 left to right. That makes an exchange a single statement:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut values = [10, 20, 30]?
     values[0], values[2] = values[2], values[0]
     print(values)?
@@ -100,7 +100,7 @@ The right side is a [tuple](tuples.md) written without its parentheses. Reading
 be moved out by reading it, so this form does not exchange owned elements:
 
 ```plenty-error
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut rows = [[0, 1]?, [2, 3]?]?
     rows[0], rows[1] = rows[1], rows[0]
     Ok(())

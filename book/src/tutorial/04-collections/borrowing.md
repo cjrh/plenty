@@ -12,7 +12,7 @@ def add(values: &mut list[i64], value: i64) -> Result[(), AllocError]:
     values.append(value)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut numbers = [1, 2]?
     print(first(numbers))?
     add(&mut numbers, 3)?

@@ -7,7 +7,7 @@ backwards.
 ```plenty
 from std.time import monotonic_now, sleep, milliseconds, seconds
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError]:
     pause = milliseconds(5)
     start = monotonic_now()
     sleep(&pause)
@@ -34,7 +34,7 @@ negative:
 ```plenty
 from std.time import milliseconds, seconds
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError]:
     short = milliseconds(250)
     long = seconds(1)
     match short.checked_sub(&long):
@@ -66,7 +66,7 @@ clock that was stepped back by two seconds:
 ```plenty
 from std.time import Timestamp, wall_now
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError]:
     first = Timestamp(1700000010, 0)
     second = Timestamp(1700000008, 500000000)
     match second.duration_since(&first):
@@ -91,7 +91,7 @@ happened. The compiler rejects mixing them:
 ```plenty-error
 from std.time import monotonic_now, wall_now
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     started = monotonic_now()
     print(wall_now().duration_since(&started)?.as_seconds())?
     Ok(())

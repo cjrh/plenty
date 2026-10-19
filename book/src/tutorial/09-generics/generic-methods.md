@@ -11,7 +11,7 @@ class Number:
     def convert[T: IntType](self) -> T:
         T(self.value)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     number = Number(7)
     small: u8 = number.convert[u8]()
     print(small)?

@@ -15,7 +15,7 @@ pub export def increment(value: &mut i32) -> () = "calc_increment":
 ```plenty
 import calc
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(calc.add(20, 22))?
     mut value = 10i32
     calc.increment(&mut value)

@@ -11,7 +11,7 @@ def count_arguments() -> Result[bool, IoError]:
     values = args()?
     Ok(len(values) >= 1)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(count_arguments()?)?
     Ok(())
 ```

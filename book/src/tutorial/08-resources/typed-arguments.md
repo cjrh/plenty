@@ -9,9 +9,11 @@ The fixture models `finder --limit -2 first.csv -- --last.csv`. Real programs
 use `raw = args_bytes()?` and `parse(&schema, &raw, 1)` to skip the executable name.
 
 ```plenty
+import std.cli
+
 from std.cli import Spec, Kind, Value, parse
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.cli.CliError]:
     schema = [
         Spec("--limit", Kind.Integer, False, False, False, "maximum rows"),
         Spec("FILE", Kind.Path, True, True, True, "input files")

@@ -76,3 +76,6 @@ The compiler checks worker helpers, captured data, and destructors. Foreign
 calls, File values, indirect function calls, and generators are not yet eligible.
 Worker code can use checked `print`, but output from different threads may
 arrive in any order.
+
+Spawning functions retain `Failure` here because of the current
+[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

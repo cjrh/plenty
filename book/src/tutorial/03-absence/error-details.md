@@ -3,8 +3,11 @@
 Keep a concrete error type when the caller needs the cause. For example,
 `IoError` preserves an input/output cause, while `str` can carry a message.
 
-`Result[T, Failure]` deliberately discards the cause: each `?` may accept a
+Prefer concrete errors or [error sums](anonymous-sums.md) in application code.
+The legacy `Result[T, Failure]` deliberately discards the cause: each `?` may accept a
 different error type, drop it, and return `Failure.Unspecified`.
+This example demonstrates the information that erasure loses; it is not the
+default pattern for combining errors.
 
 ```plenty
 def validate(name: str) -> Result[(), str]:

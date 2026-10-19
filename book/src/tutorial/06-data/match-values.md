@@ -20,7 +20,7 @@ def paint_cost(shape: Shape) -> i64:
             width * height
     area * 10
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(paint_cost(Shape.Dot))?
     print(paint_cost(Shape.Square(3)))?
     print(paint_cost(Shape.Rect(2, 5)))?
@@ -49,7 +49,7 @@ def half(number: i64) -> Option[i64]:
         case _:
             Nothing
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut halves = [0, 0]?
     for index in range(2):
         found: Option[i64] = match index:
@@ -79,7 +79,7 @@ The block must be the whole right-hand side. Inside a larger expression it is
 rejected; bind it first:
 
 ```plenty-error
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     number = 3
     doubled = 2 * match number:
         case 3:
@@ -97,7 +97,7 @@ a `match` block is a value only as the whole right side of a binding, a single-t
 Cases that disagree are rejected at the case that differs:
 
 ```plenty-error
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     number = 3
     label = match number:
         case 3:

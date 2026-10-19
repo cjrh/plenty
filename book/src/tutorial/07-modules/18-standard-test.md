@@ -17,7 +17,8 @@ version = "0.1.0"
 
 ```plenty project-file stats/src/lib.plenty
 from std.bytes import from_text
-from std.io import Writer, write_all
+from std.io import Writer, Partial, write_all
+from std.bytes import BytesError
 
 pub def total(values: &list[i64]) -> i64:
     mut sum = 0
@@ -28,11 +29,11 @@ pub def total(values: &list[i64]) -> i64:
 pub def mean(values: &list[i64]) -> f64:
     f64(total(values)) / f64(len(values))
 
-pub def save(path: &str, values: &list[i64]) -> Result[(), Failure]:
+pub def save(path: &str, values: &list[i64]) -> Result[(), AllocError | IoError]:
     write_text(path, &str.from(total(values))?)?
     Ok(())
 
-pub def report[W: Writer](out: &mut W, values: &list[i64]) -> Result[(), Failure]:
+pub def report[W: Writer](out: &mut W, values: &list[i64]) -> Result[(), AllocError | BytesError | Partial]:
     line = from_text(&str.from(total(values))?)?
     write_all(out, &line, 0, line.len())?
     Ok(())
@@ -45,21 +46,22 @@ stops the test at the first failure:
 ```plenty project-file stats/tests/sums.plenty
 import std.bytes
 import std.test
+import std.io
 from stats import mean, report, save, total
 
-def test_total() -> Result[(), Failure]:
+def test_total() -> Result[(), AllocError | IoError | std.test.TestError]:
     values = [1, 2, 3]?
     std.test.equal(&total(&values), &6)?
     empty: list[i64] = []?
     std.test.equal(&total(&empty), &0)?
     Ok(())
 
-def test_mean() -> Result[(), Failure]:
+def test_mean() -> Result[(), AllocError | IoError | std.test.TestError]:
     values = [1, 2]?
     std.test.close(mean(&values), 1.5, 0.000001)?
     Ok(())
 
-def test_save() -> Result[(), Failure]:
+def test_save() -> Result[(), AllocError | IoError | std.test.TestError]:
     scratch = std.test.scratch()?
     path = scratch.file("total.txt")?
     values = [4, 5]?
@@ -67,14 +69,14 @@ def test_save() -> Result[(), Failure]:
     std.test.equal(&read_text(&path)?, &"9")?
     Ok(())
 
-def test_order_does_not_matter() -> Result[(), Failure]:
+def test_order_does_not_matter() -> Result[(), AllocError | IoError | std.test.TestError]:
     mut rng = std.test.rng()?
     mut values = [1, 2, 3, 4, 5]?
     rng.shuffle(&mut values)
     std.test.equal(&total(&values), &15)?
     Ok(())
 
-def test_report_survives_short_writes() -> Result[(), Failure]:
+def test_report_survives_short_writes() -> Result[(), AllocError | std.bytes.BytesError | std.io.Partial | std.test.TestError]:
     mut out = std.test.fake_stream(std.bytes.empty()?)?
     out.limit(1)
     values = [9, 10]?
@@ -82,7 +84,7 @@ def test_report_survives_short_writes() -> Result[(), Failure]:
     std.test.equal(&out.output.to_text()?, &"19")?
     Ok(())
 
-def test_save_reports_a_full_disk() -> Result[(), Failure]:
+def test_save_reports_a_full_disk() -> Result[(), AllocError | IoError | std.test.TestError]:
     scratch = std.test.scratch()?
     path = scratch.file("total.txt")?
     values = [4, 5]?
