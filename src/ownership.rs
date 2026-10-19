@@ -577,10 +577,34 @@ pub(crate) fn site_after(ops: &[Op], inherited: Option<Site>) -> Option<Site> {
 }
 
 #[derive(Default)]
+enum Successors {
+    #[default]
+    None,
+    One([usize; 1]),
+    Two([usize; 2]),
+    Many(Box<[usize]>),
+}
+
+impl Successors {
+    fn as_slice(&self) -> &[usize] {
+        match self {
+            Self::None => &[],
+            Self::One(edges) => edges,
+            Self::Two(edges) => edges,
+            Self::Many(edges) => edges,
+        }
+    }
+}
+
+#[cfg(test)]
+mod graph_tests;
+
+#[derive(Default)]
 struct Node<'a> {
     /// Borrowed from the body: cloning every operation dominated the graph's cost.
     op: Option<&'a Op>,
-    successors: Vec<usize>,
+    // Only a match with more than two arms needs separate edge storage.
+    successors: Successors,
     site: Option<Site>,
 }
 
@@ -612,15 +636,19 @@ fn graph<'a>(
                 let failure = graph(cleanup, site, 0, None, nodes);
                 nodes.push(Node {
                     op: None,
-                    successors: vec![next, failure],
+                    successors: Successors::Two([next, failure]),
                     site,
                 });
             }
             Op::Match(arms) => {
-                let successors = arms
-                    .iter()
-                    .map(|a| graph(&a.body, site, next, targets, nodes))
-                    .collect();
+                let mut entry =
+                    |arm: &'a crate::op::MatchArm| graph(&arm.body, site, next, targets, nodes);
+                let successors = match arms.as_ref() {
+                    [] => Successors::None,
+                    [arm] => Successors::One([entry(arm)]),
+                    [first, second] => Successors::Two([entry(first), entry(second)]),
+                    _ => Successors::Many(arms.iter().map(entry).collect()),
+                };
                 nodes.push(Node {
                     op: None,
                     successors,
@@ -647,7 +675,7 @@ fn graph<'a>(
                     let body = graph(&arm.body, after, next, targets, nodes);
                     nodes.push(Node {
                         op: None,
-                        successors: vec![body, fall],
+                        successors: Successors::Two([body, fall]),
                         site: after,
                     });
                     fall = graph(&arm.condition, before, nodes.len() - 1, targets, nodes);
@@ -655,7 +683,7 @@ fn graph<'a>(
                 let then = graph(then, site, next, targets, nodes);
                 nodes.push(Node {
                     op: None,
-                    successors: vec![then, fall],
+                    successors: Successors::Two([then, fall]),
                     site,
                 });
             }
@@ -666,22 +694,22 @@ fn graph<'a>(
                 let branch = nodes.len();
                 nodes.push(Node {
                     op: None,
-                    successors: vec![body, next],
+                    successors: Successors::Two([body, next]),
                     site,
                 });
                 let test = graph(condition, site, branch, targets, nodes);
-                nodes[header].successors.push(test);
+                nodes[header].successors = Successors::One([test]);
                 next = header;
                 continue;
             }
             Op::Break => nodes.push(Node {
                 op: None,
-                successors: vec![targets.expect("checked loop").1],
+                successors: Successors::One([targets.expect("checked loop").1]),
                 site,
             }),
             Op::Continue => nodes.push(Node {
                 op: None,
-                successors: vec![targets.expect("checked loop").0],
+                successors: Successors::One([targets.expect("checked loop").0]),
                 site,
             }),
             Op::Return | Op::TailCall(_) | Op::TailCallIndirect(_) | Op::Unreachable => {
@@ -689,7 +717,7 @@ fn graph<'a>(
             }
             _ => nodes.push(Node {
                 op: Some(op),
-                successors: vec![next],
+                successors: Successors::One([next]),
                 site,
             }),
         }
@@ -1323,7 +1351,7 @@ impl Checker<'_> {
             let mut todo = vec![entry];
             while let Some(n) = todo.pop() {
                 if !std::mem::replace(&mut seen[n], true) {
-                    todo.extend(&nodes[n].successors);
+                    todo.extend(nodes[n].successors.as_slice());
                 }
             }
             // Ascending, as liveness visits successors before their predecessors.
@@ -1346,7 +1374,7 @@ impl Checker<'_> {
                 let mut changed = false;
                 for &i in &reachable {
                     before.0.clear();
-                    for &s in &nodes[i].successors {
+                    for &s in nodes[i].successors.as_slice() {
                         before.union(&live[s], &mut scratch);
                     }
                     match &nodes[i].op {
@@ -1387,8 +1415,12 @@ impl Checker<'_> {
             // whether reaching it re-enters a loop that contains `from`.
             let later_use = |from: usize, loan: usize| -> Option<(Site, bool)> {
                 let mut seen = BTreeSet::new();
-                let mut todo: std::collections::VecDeque<_> =
-                    nodes[from].successors.iter().map(|&s| (s, false)).collect();
+                let mut todo: std::collections::VecDeque<_> = nodes[from]
+                    .successors
+                    .as_slice()
+                    .iter()
+                    .map(|&s| (s, false))
+                    .collect();
                 while let Some((n, repeated)) = todo.pop_front() {
                     if !live[n].contains(&loan) || !seen.insert(n) {
                         continue;
@@ -1411,6 +1443,7 @@ impl Checker<'_> {
                     todo.extend(
                         nodes[n]
                             .successors
+                            .as_slice()
                             .iter()
                             .map(|&s| (s, repeated || (n < from && from <= s))),
                     );
@@ -1422,7 +1455,7 @@ impl Checker<'_> {
             let mut after = Live::default();
             for &i in &reachable {
                 after.0.clear();
-                for &s in &nodes[i].successors {
+                for &s in nodes[i].successors.as_slice() {
                     after.union(&live[s], &mut scratch);
                 }
                 let site = nodes[i].site;
