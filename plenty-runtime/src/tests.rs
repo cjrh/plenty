@@ -1,7 +1,7 @@
 //! Exercise raw ABI boundaries without generated machine code, also under Miri.
 use crate::aggregates::collection;
 use crate::aggregates::{Type, Variant};
-use crate::generators::{plenty_generator_new, Generator};
+use crate::generators::Generator;
 use crate::memory::{plenty_release, plenty_retain, Header};
 use crate::strings::{self, plenty_concat, plenty_contains, plenty_str_eq};
 use std::cell::RefCell;
@@ -2290,35 +2290,6 @@ fn oversized_generator_frame_fails_before_reading_metadata() {
     );
 }
 
-#[cfg(feature = "allocation-checks")]
-#[test]
-fn native_checked_generator_abi_consumes_captures_on_both_paths() {
-    static MANAGED: [&Type; 1] = [&LIST_INT];
-    for budget in 0..=1 {
-        unsafe {
-            let child = collection(0, 0, 0, 0, &LIST_INT);
-            let captures = [child];
-            let mut out = 0;
-            crate::accounting::fail_after(Some(budget));
-            crate::generators::plenty_generator_try_new(
-                never_resume,
-                1,
-                MANAGED.as_ptr().cast(),
-                captures.as_ptr(),
-                1,
-                &mut out,
-            );
-            crate::accounting::fail_after(None);
-            if budget == 0 {
-                assert_eq!(out, crate::aggregates::wrap(0, 1));
-            } else {
-                assert_eq!(out >> 64, 0);
-                plenty_release(out as *mut Header);
-            }
-        }
-    }
-}
-
 #[test]
 fn partial_class_cleanup_skips_hook_until_explicitly_armed() {
     unsafe {
@@ -2375,7 +2346,8 @@ fn deeply_nested_generator_frames_drop_iteratively() {
     unsafe {
         let mut child = guard(1);
         for _ in 0..1000 {
-            let frame = plenty_generator_new(never_resume, 1, MANAGED.as_ptr().cast());
+            let frame =
+                crate::generators::try_new(never_resume, 1, MANAGED.as_ptr().cast()).unwrap();
             *frame.cast::<u8>().add(64).cast::<u128>() = child;
             child = frame as u128;
         }
