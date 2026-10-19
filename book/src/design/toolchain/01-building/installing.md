@@ -6,6 +6,9 @@ Extract it anywhere and put its `bin/` directory on `PATH`. No installer, root
 access, fixed location, Rust, Cargo, or source checkout is needed. The README
 in the archive repeats these instructions.
 
+For a step-by-step download guide and persistent PATH examples for Bash, Zsh,
+and Fish, start with [Setting up](../../../tutorial/00-setting-up.md).
+
 ```text
 plenty-VERSION-x86_64-unknown-linux-gnu/
   bin/plenty                  compiler and project tool

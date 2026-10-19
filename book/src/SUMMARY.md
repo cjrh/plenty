@@ -13,6 +13,7 @@
 # Learn Plenty
 
 - [Learning Plenty](tutorial/index.md)
+    - [Setting up](tutorial/00-setting-up.md)
     - [1. Your first program](tutorial/01-first-program/index.md)
         - [Run a program](tutorial/01-first-program/run-a-program.md)
         - [Change and check a program](tutorial/01-first-program/change-and-check.md)

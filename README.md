@@ -30,6 +30,9 @@ maintainers, see [releasing Plenty](book/src/development/releasing.md).
 
 ## Run a program
 
+Follow [Setting up](book/src/tutorial/00-setting-up.md) to install Plenty and add
+it to your PATH. Save this program as `sum.plenty`:
+
 ```python
 type int = i64
 
@@ -47,9 +50,9 @@ def main() -> ():
 ```
 
 ```sh
-cargo run -- examples/sum.plenty
-cargo run -- --check examples/sum.plenty
-cargo run -- --compile examples/sum.plenty -o /tmp/plenty-sum
+plenty sum.plenty
+plenty --check sum.plenty
+plenty --compile sum.plenty -o /tmp/plenty-sum
 /tmp/plenty-sum
 ```
 

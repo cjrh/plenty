@@ -3,14 +3,14 @@
 Change the greeting or calculation, then run the file again. Each run starts
 a fresh process.
 
-Use `cargo run -- --check hello.plenty` to check syntax and types without
+Use `plenty --check hello.plenty` to check syntax and types without
 running the program. A check needs no linker. A run or native compilation needs
 a `cc`-compatible linker driver installed.
 
 To keep an executable:
 
 ```sh
-cargo run -- --compile hello.plenty -o /tmp/hello-plenty
+plenty --compile hello.plenty -o /tmp/hello-plenty
 /tmp/hello-plenty
 ```
 

@@ -14,10 +14,14 @@ Hello, Plenty!
 42
 ```
 
-From the repository, run `cargo run -- hello.plenty`. If you have an installed
-compiler, such as a [release archive](../../design/toolchain/01-building/installing.md),
-use `plenty hello.plenty`. A run compiles your file to a native
-executable and then runs it.
+In the directory where you saved the file, run:
+
+```sh
+plenty hello.plenty
+```
+
+A run compiles your file to a native executable and then runs it. If your shell
+cannot find `plenty`, follow [Setting up](../00-setting-up.md) first.
 
 Execution begins at `main`. Indentation groups its statements; use four spaces.
 `print` prints one value followed by a newline. Put executable statements inside

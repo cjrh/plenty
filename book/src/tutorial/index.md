@@ -3,7 +3,8 @@
 Plenty combines Python-shaped syntax with explicit types, ownership, and native
 compilation. The examples are self-contained and teach implemented features.
 
-Follow the eight core parts to build a small command-line tool:
+Start with [Setting up](00-setting-up.md) to install a release and put `plenty`
+on your PATH. Then follow the eight core parts to build a small command-line tool:
 
 1. [Your first program](01-first-program/index.md): compile, run, and check.
 2. [Values, functions, and control flow](02-values/index.md): name values,
