@@ -29,6 +29,13 @@ by this or any other program, is taken from the
 [compiled-function cache](cache.md) instead; the object is the same either
 way.
 
+Workers claim one job at a time to balance functions of different sizes, but
+send completed results in batches of up to 32 jobs. This reduces result-channel
+wakeups on warm-cache builds. A partial batch is sent when a worker finishes or
+stops after an error; the main thread still places each job in declaration order.
+Batching can delay placement until the worker fills its batch and retains up to
+31 additional completed jobs per worker before sending them.
+
 A body can need symbols that are declared on first use: type descriptors, its
 trap-site table, foreign imports. Their order decides the object's bytes, so a
 worker building IR does not declare them. It names each in a placeholder

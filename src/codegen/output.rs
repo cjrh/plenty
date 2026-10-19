@@ -94,6 +94,11 @@ struct Built {
 /// A job's functions, or why the job failed. Errors cross threads as text.
 type Finished = std::result::Result<Vec<Built>, String>;
 
+// Amortize channel wakeups without retaining a worker's entire output or
+// assigning chunks whose expensive functions could leave other workers idle.
+const RESULT_BATCH_SIZE: usize = 32;
+type Batch = Vec<(usize, Finished)>;
+
 impl Output {
     pub(super) fn new(targets: Targets, cache: Option<Arc<Cache>>) -> Result<Self> {
         let mut builder = ObjectBuilder::new(
@@ -170,7 +175,7 @@ impl Output {
         let total = jobs.len();
         let queue = Mutex::new(jobs.into_iter().enumerate());
         let stop = AtomicBool::new(false);
-        let (finished, results) = mpsc::channel::<(usize, Finished)>();
+        let (finished, results) = mpsc::channel::<Batch>();
         let targets = self.targets.clone();
         let cache = self.cache.clone();
         let coverage = self.coverage;
@@ -217,7 +222,7 @@ impl Output {
     fn place_in_order(
         &mut self,
         total: usize,
-        results: &mpsc::Receiver<(usize, Finished)>,
+        results: &mpsc::Receiver<Batch>,
         runtime: &Runtime,
     ) -> Result<()> {
         let mut early = HashMap::new();
@@ -228,10 +233,10 @@ impl Output {
                 }
                 // Every sender is gone only if a worker panicked; the scope
                 // raises that panic once this returns.
-                let Ok((done, finished)) = results.recv() else {
+                let Ok(batch) = results.recv() else {
                     return Err("a code generation thread stopped".into());
                 };
-                early.insert(done, finished);
+                early.extend(batch);
             };
             for built in finished? {
                 self.place(built.id, built.code, |module, relocs| {
@@ -266,8 +271,9 @@ fn work<J>(
     stop: &AtomicBool,
     build: &impl Fn(J, &mut Worker) -> Result<()>,
     worker: &mut Worker,
-    finished: &mpsc::Sender<(usize, Finished)>,
+    finished: &mpsc::Sender<Batch>,
 ) {
+    let mut batch = Vec::with_capacity(RESULT_BATCH_SIZE);
     while !stop.load(Ordering::Relaxed) {
         // The guard is a temporary of this statement, so the lock is not held
         // while building.
@@ -280,9 +286,19 @@ fn work<J>(
         if result.is_err() {
             stop.store(true, Ordering::Relaxed);
         }
-        if finished.send((index, result.map(|()| built))).is_err() {
-            break;
+        batch.push((index, result.map(|()| built)));
+        if batch.len() == RESULT_BATCH_SIZE {
+            if finished.send(batch).is_err() {
+                return;
+            }
+            batch = Vec::with_capacity(RESULT_BATCH_SIZE);
         }
+    }
+    // A later job can fail on another worker while this worker owns earlier
+    // results. Flush those results even after cancellation so placement can
+    // reach the first error in declaration order.
+    if !batch.is_empty() {
+        let _ = finished.send(batch);
     }
 }
 
@@ -398,6 +414,96 @@ mod tests {
             ordinary: super::super::host_isa().unwrap(),
             single_pass: super::super::target_isa("single_pass").unwrap(),
         }
+    }
+
+    #[test]
+    fn result_batches_flush_on_completion_failure_and_cancellation() {
+        for (count, fail, cancel, expected) in [
+            (0, None, None, vec![]),
+            (67, None, None, vec![32, 32, 3]),
+            (67, Some(35), None, vec![32, 4]),
+            (67, None, Some(5), vec![6]),
+        ] {
+            let targets = targets();
+            let output = Output::new(targets.clone(), None).unwrap();
+            let declared = Declared::snapshot(&output.module, targets.ordinary.clone());
+            let mut worker = Worker::new(targets, Arc::new(declared), None, false);
+            let queue = Mutex::new((0..count).collect::<Vec<_>>().into_iter().enumerate());
+            let stop = AtomicBool::new(false);
+            let (sender, receiver) = mpsc::channel();
+            work(
+                &queue,
+                &stop,
+                &|job, _| {
+                    if Some(job) == cancel {
+                        stop.store(true, Ordering::Relaxed);
+                    }
+                    if Some(job) == fail {
+                        Err("failed".into())
+                    } else {
+                        Ok(())
+                    }
+                },
+                &mut worker,
+                &sender,
+            );
+            drop(sender);
+            let batches: Vec<_> = receiver.into_iter().collect();
+            assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), expected);
+            for (expected_index, (index, result)) in batches.into_iter().flatten().enumerate() {
+                assert_eq!(index, expected_index);
+                assert_eq!(result.is_err(), Some(index) == fail);
+            }
+        }
+    }
+
+    #[test]
+    fn batched_build_reports_first_error_in_job_order() {
+        for workers in [0, 1, 2, 8] {
+            let mut output = Output::new(targets(), None).unwrap();
+            let runtime = super::super::declare_runtime(&mut output.module, false).unwrap();
+            let error = output
+                .build((0..100).collect(), workers, &runtime, |job, _| {
+                    if job == 35 || job == 36 {
+                        Err(format!("job {job}").into())
+                    } else {
+                        Ok(())
+                    }
+                })
+                .unwrap_err();
+            assert_eq!(error.to_string(), "job 35");
+        }
+
+        // Keep the first job in flight until a second worker starts a later
+        // failure. Both errors are partial batches and job order must win.
+        let mut output = Output::new(targets(), None).unwrap();
+        let runtime = super::super::declare_runtime(&mut output.module, false).unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Mutex::new(receiver);
+        let error = output
+            .build(vec![0, 1], 2, &runtime, |job, _| {
+                if job == 0 {
+                    receiver.lock().unwrap().recv().unwrap();
+                } else {
+                    sender.send(()).unwrap();
+                }
+                Err(format!("job {job}").into())
+            })
+            .unwrap_err();
+        assert_eq!(error.to_string(), "job 0");
+    }
+
+    #[test]
+    fn worker_panic_disconnects_partial_batches_and_propagates() {
+        let mut output = Output::new(targets(), None).unwrap();
+        let runtime = super::super::declare_runtime(&mut output.module, false).unwrap();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            output.build((0..100).collect(), 2, &runtime, |job, _| {
+                assert_ne!(job, 5, "worker panic with buffered results");
+                Ok(())
+            })
+        }));
+        assert!(panic.is_err());
     }
 
     /// `y = x`, then `count` times `if y > i: y = y + 3`. Each conditional
@@ -573,6 +679,10 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
     fn assert_same_object_for_any_worker_count(mut source: String) {
         source.push_str("def main() -> ():\n    pass\n");
         let serial = object(&source, 1, Build::default());
+        assert!(
+            serial == object(&source, 0, Build::default()),
+            "caller-thread fallback changed the object"
+        );
         assert!(
             serial == object(&source, 2, Build::default()),
             "two workers changed the object"
