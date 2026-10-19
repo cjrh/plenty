@@ -37,13 +37,15 @@ patterns that would wait forever:
 - **Relocking in the block.** Locking a place that an enclosing lock block in
   the same function already holds is an error. Places are compared as written:
   `m` and `*m` match.
-- **Nesting locks of one type.** Locking a `Mutex[T]` inside a lock block that
-  holds another `Mutex[T]` of the same `T` is an error, whatever the places.
-  Two references or two shared handles (`b = a.share()`) can name one mutex,
-  and types cannot tell them apart. To hold two mutexes of the same value type
-  at once, wrap one value in a distinct class. A relock inside a called
-  function, or two computed elements of one list of mutexes, is not detected
-  and deadlocks at run time.
+- **Nesting locks that could alias.** Locking a `Mutex[T]` inside a lock block
+  that holds another `Mutex[T]` of the same `T` is an error when either place
+  is reached through a reference, a `Shared` handle, or a computed index
+  (`cells[i]`). Such places can name one mutex (`r = &a`, `b = a.share()`,
+  `i == j`), and only types are compared. Two owned places built from local
+  names, fields, and constant indices, such as `a` and `b` or `cells[0]` and
+  `cells[1]`, are distinct mutexes and may nest. Otherwise wrap one value in a
+  distinct class. A relock inside a called function is not detected and
+  deadlocks at run time.
 - **Joining under a lock.** A scoped task cannot be joined, by `task.join()` or
   by leaving its `with` block, while the joining function holds a lock on a
   `Mutex[T]` and the worker can reach a `Mutex[T]` of the same `T`: as an

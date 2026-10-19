@@ -1709,6 +1709,18 @@ impl Lower<'_> {
         let Expression::Index(base, index) = &e.kind else {
             unreachable!()
         };
+        if matches!(self.place_type(base), Some(Ty::Shared(_))) {
+            let element = Expr {
+                at: e.at.clone(),
+                kind: Expression::Index(Box::new(super::shared::content(base)), index.clone()),
+            };
+            if self.place_type(&element).is_some_and(|ty| ty.affine()) {
+                return Err(e.at.error(
+                    "cannot move an element out of a Shared owner; borrow it with `&handle[i]`, or copy it with copy(handle[i])",
+                ));
+            }
+            return self.index(&element, ops);
+        }
         if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple()) {
             let (reference, loan) = self.borrow(e, false, ops)?;
             let Ty::Ref(value, _) = reference else {

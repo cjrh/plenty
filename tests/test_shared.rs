@@ -215,6 +215,12 @@ fn a_share_that_could_own_itself_is_rejected() {
         ),
         &format!("Shared[Inbox] can reach itself through Receiver[Shared[Inbox]], {cycle}"),
     );
+    rejects(
+        &format!(
+            "{HEADER}\nclass Left:\n    right: Mutex[Option[Shared[Right]]]\n\nclass Right:\n    left: Shared[Left]\n\ndef main() -> Result[(), Failure]:\n    l = Shared(Left(Mutex[Option[Shared[Right]]](Nothing)))?\n    Ok(())\n"
+        ),
+        &format!("Shared[Left] can reach itself through Mutex[Option[Shared[Right]]], {cycle}"),
+    );
     rejects_body(
         "callbacks = Shared(Mutex[list[BoxedCallable[[], i64]]]([]?))?",
         "can store a BoxedCallable[[], i64] through Mutex[list[BoxedCallable[[], i64]]], and its captures cannot be checked",
@@ -321,11 +327,27 @@ def main() -> Result[(), Failure]:
 }
 
 #[test]
-fn a_nested_lock_of_the_same_type_is_rejected() {
+fn a_nested_lock_of_the_same_type_is_rejected_when_it_could_alias() {
+    let alias = "both are a `Mutex[i64]`, and a reference, shared handle, or computed index can make them one mutex";
     rejects_body(
         "a = Shared(Mutex(0))?\nb = a.share()\nwith a.lock() as x:\n    with b.lock() as y:\n        *y = 1",
-        "this locks `b` while an enclosing `with` block holds a lock on `a`; both are a `Mutex[i64]` and may be one mutex reached through different handles",
+        &format!("this locks `b` while an enclosing `with` block holds a lock on `a`; {alias}"),
     );
+    rejects(
+        &format!(
+            "{HEADER}\ndef add(m: &Mutex[i64]) -> ():\n    n = Mutex(2)\n    with m.lock() as a:\n        with n.lock() as b:\n            *a = *a + *b\n\ndef main() -> Result[(), Failure]:\n    Ok(())\n"
+        ),
+        &format!("this locks `n` while an enclosing `with` block holds a lock on `m`; {alias}"),
+    );
+    rejects_body(
+        "cells = [Mutex(1), Mutex(2)]?\ni = 0\nj = 1\nwith cells[i].lock() as x, cells[j].lock() as y:\n    pass",
+        &format!("this locks `cells[?]` while an enclosing `with` block holds a lock on `cells[?]`; {alias}"),
+    );
+    // Distinct owned places are distinct mutexes.
+    let source = program(
+        "a = Mutex(1)\nb = Mutex(2)\nwith a.lock() as x, b.lock() as y:\n    *x = *x + *y\ncells = [Mutex(3), Mutex(4)]?\nwith cells[0].lock() as x, cells[1].lock() as y:\n    *x = *x + *y\nprint(a.into_inner())?\nwith cells[0].lock() as x:\n    print(*x)?",
+    );
+    assert_eq!(output(&source), "3\n7");
     // Distinct guarded types may nest.
     let source = program(
         "a = Shared(Mutex(1))?\nb = Shared(Mutex[str](\"s\"))?\nwith a.lock() as x, b.lock() as y:\n    *x = *x + len(*y)\nwith a.lock() as x:\n    print(*x)?",
@@ -392,6 +414,43 @@ fn temporaries_and_misuse_have_specific_diagnostics() {
     );
     rejects_body("h = Shared(1)?\ng = h.share(2)", "share takes no arguments");
     rejects_body("h = Shared[i64](\"text\")?", "expected i64, got str");
+    rejects_body(
+        "h = Shared([1, 2]?)?\nh[0] = 9",
+        "a Shared owner gives shared access only",
+    );
+    rejects_body(
+        "h = Shared(([\"a\"]?, 1))?\nx = h[0]",
+        "cannot move an element out of a Shared owner; borrow it with `&handle[i]`",
+    );
+    rejects_body(
+        "x = 1\ny = *x",
+        "dereference requires a reference, a Box, or a Shared handle",
+    );
+    rejects_body(
+        "h = Shared(Mutex(1))?\nv = h.into_inner()",
+        "cannot move out of a Shared owner; other owners may still use its Mutex[i64]",
+    );
+    rejects_body(
+        "h = Shared(Mutex(1))?\nwith h.lock() as v:\n    drop(h)",
+        "cannot move `h` while it is borrowed",
+    );
+    rejects(
+        &format!(
+            "{HEADER}\ndef take[T](h: Shared[T]) -> T:\n    return *h\n\ndef main() -> Result[(), Failure]:\n    s = take(Shared([1]?)?)\n    Ok(())\n"
+        ),
+        "cannot move out of a Shared owner",
+    );
+    rejects(
+        &format!(
+            "{HEADER}\ndef bump(counter: Shared[Mutex[i64]]) -> i64:\n    0\n\ndef main() -> Result[(), Failure]:\n    h = Shared(Mutex(1))?\n    with ThreadPoolExecutor(1, 1)? as pool:\n        with h.lock() as v:\n            drop(pool.submit(bump, h))\n    Ok(())\n"
+        ),
+        "cannot move `h` while it is borrowed",
+    );
+    // Copyable elements copy out; nested handles lock through every level.
+    let source = program(
+        "h = Shared(([\"a\"]?, 7))?\nprint(h[1])?\nprint(copy(h[0])?)?\nn = Shared(Shared(Mutex(1))?)?\nwith n.lock() as v:\n    *v = 5\nwith n.lock() as v:\n    print(*v)?",
+    );
+    assert_eq!(output(&source), "7\n[\"a\"]\n5");
 }
 
 /// `share()` and borrows allocate nothing; a failed construction drops its

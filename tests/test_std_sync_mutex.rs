@@ -287,11 +287,8 @@ from std.sync import Mutex as Guarded
 def main() -> Result[(), Failure]:
     a = sync.Mutex[i64](1)
     b: Guarded[i64] = Guarded(2)
-    mut extra = 0
-    with b.lock() as y:
-        extra = *y
-    with a.lock() as x:
-        *x = *x + extra
+    with a.lock() as x, b.lock() as y:
+        *x = *x + *y
     print(a.into_inner())?
     Ok(())
 "#;

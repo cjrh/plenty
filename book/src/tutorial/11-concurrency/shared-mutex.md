@@ -89,8 +89,9 @@ def main() -> Result[(), ThreadError | IoError]:
 ```
 
 Nesting a lock inside the block of another mutex of the same type is also
-rejected: two references can name one mutex. Wrap one value in a distinct class
-to hold both at once. The compiler cannot see a relock inside a called
+rejected when either one is reached through a reference or a computed index:
+two references can name one mutex. Two separately owned mutexes, such as two
+local names, may nest. The compiler cannot see a relock inside a called
 function, a join inside a function called while the lock is held, or two
 threads taking two locks in opposite orders. Keep lock blocks short and take
 nested locks in one fixed order. See

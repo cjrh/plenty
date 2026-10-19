@@ -153,6 +153,7 @@ impl Lower<'_> {
             unreachable!("caller checked the handle type")
         };
         if content.affine() {
+            let content = content.to_string().replace("std.sync.Mutex[", "Mutex[");
             return Err(e.at.error(format!(
                 "cannot move out of a Shared owner; other owners may still use its {content}; borrow it with `&*handle`, or call `share()` for another owner"
             )));

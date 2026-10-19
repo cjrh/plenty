@@ -368,6 +368,9 @@ impl Lower<'_> {
             Expression::Member(base, _, _) => self.assignment_indices(base, slots, ops),
             Expression::Unary(op, base) if op == "*" => self.assignment_indices(base, slots, ops),
             Expression::Index(base, index) => {
+                if matches!(self.place_type(base), Some(Ty::Shared(_))) {
+                    return Err(e.at.error(shared::MUTATION));
+                }
                 self.assignment_indices(base, slots, ops)?;
                 let key = match self.place_type(base) {
                     Some(Ty::List(_)) => Ty::I64,
@@ -495,7 +498,9 @@ impl Lower<'_> {
                         Ok((Ty::Ref(content.clone(), false), loan))
                     }
                     _ if reference_binding => Ok((reference, loan)),
-                    _ => Err(e.at.error("`*` requires a reference or a Box")),
+                    _ => Err(e
+                        .at
+                        .error("`*` requires a reference, a Box, or a Shared handle")),
                 };
             }
         }

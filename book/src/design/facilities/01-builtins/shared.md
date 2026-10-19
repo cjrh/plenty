@@ -10,7 +10,8 @@ scope, the same atomic, mutex, or immutable value. It is a prelude name, like
 |---|---|---|
 | `Shared[T](value)`, `Shared(value)` | `Result[Shared[T], AllocError]` | Move `value` into one new allocation |
 | `handle.share()` | `Shared[T]` | Another owner of the same value |
-| `handle.field`, `handle.method(...)`, `handle[i]` | as for `T` | Use the content through a shared borrow |
+| `handle.field`, `handle.method(...)` | as for `T` | Use the content through a shared borrow |
+| `handle[i]` | element | Copy a copyable element; borrow an affine one with `&handle[i]` |
 | `&*handle` | `&T` | Borrow the content |
 | `*handle` | `T` | Copy copyable content |
 | `with handle.lock() as value:` | binds `value: &mut V` | Lock a `Shared[Mutex[V]]`; see [mutexes](../03-concurrency/mutex.md) |
@@ -67,8 +68,8 @@ owner can drop on any holder's thread, the content's destructors are checked as
 if every holder could run them. Mutexes reachable through a handle count for the
 compiler's lock checks: a [join, result wait, or pool shutdown](../03-concurrency/mutex.md#waits-the-compiler-rejects)
 while holding a lock on a `Mutex[V]` that a worker can reach through a share is
-rejected, and so is nesting two locks of the same `Mutex[V]` type, since two
-handles can name one mutex.
+rejected, and so is nesting a lock through a handle inside a lock on another
+`Mutex[V]` of the same `V`, since two handles can name one mutex.
 
 ## Lowering
 

@@ -48,6 +48,26 @@ fn other_method(name: &str, at: &Token) -> Box<dyn Error> {
 }
 
 impl Lower<'_> {
+    /// Whether the mutex at `e` could also be named by a different written
+    /// place: it is reached through a reference, a shared handle, or a
+    /// computed index.
+    fn aliasable(&self, e: &Expr) -> bool {
+        match &ungroup(e).kind {
+            Expression::Name(name) => self
+                .names
+                .get(name)
+                .is_none_or(|local| matches!(local.ty, Ty::Ref(..) | Ty::Shared(_))),
+            Expression::Member(base, _, _) => self.aliasable(base),
+            Expression::Index(base, index) => {
+                !matches!(ungroup(index).kind, Expression::Number(_)) || self.aliasable(base)
+            }
+            Expression::Unary(op, base) if op == "*" => {
+                matches!(self.place_type(base), Some(Ty::Shared(_))) || self.aliasable(base)
+            }
+            _ => true,
+        }
+    }
+
     pub(super) fn with_lock(
         &mut self,
         manager: &Expr,
@@ -78,8 +98,9 @@ impl Lower<'_> {
                 .error("lock() requires a named mutex or a field of one")
         })?;
         let element = crate::mutex::element(&class);
+        let aliasable = self.aliasable(base);
         for context in &self.contexts {
-            let Kind::Lock(held, guarded) = &context.kind else {
+            let Kind::Lock(held, guarded, other) = &context.kind else {
                 continue;
             };
             if *held == place && !place.contains("[?]") {
@@ -87,11 +108,12 @@ impl Lower<'_> {
                     "`{place}` is already locked by an enclosing `with` block, so this lock would wait for itself forever; use the existing binding, or release the lock before relocking"
                 )));
             }
-            // Shared handles and references can name one mutex through
-            // different places, so mutexes are told apart only by type.
-            if *guarded == element {
+            // References, shared handles, and computed indices can name one
+            // mutex through different places; there, mutexes are told apart
+            // only by type. Distinct owned places are distinct mutexes.
+            if *guarded == element && (aliasable || *other) {
                 return Err(manager.at.error(format!(
-                    "this locks `{place}` while an enclosing `with` block holds a lock on `{held}`; both are a `Mutex[{element}]` and may be one mutex reached through different handles, so this lock could wait for itself forever; lock them one at a time, or wrap one value in a distinct class"
+                    "this locks `{place}` while an enclosing `with` block holds a lock on `{held}`; both are a `Mutex[{element}]`, and a reference, shared handle, or computed index can make them one mutex, so this lock could wait for itself forever; lock them one at a time, or wrap one value in a distinct class"
                 )));
             }
         }
@@ -140,7 +162,7 @@ impl Lower<'_> {
             slot: guard,
             exit,
             loan: None,
-            kind: Kind::Lock(place, element.clone()),
+            kind: Kind::Lock(place, element.clone(), aliasable),
             at: site(&manager.at, true),
         });
         let result = self.block_inner(body, ops, &Tail::Discard)?;

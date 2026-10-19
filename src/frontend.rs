@@ -3253,7 +3253,9 @@ impl Lower<'_> {
                             "exponentiation with `**` is not supported; use `base.pow(exponent)`",
                         )),
                         _ => {
-                            return Err(value.at.error("dereference requires a reference or a Box"))
+                            return Err(value
+                                .at
+                                .error("dereference requires a reference, a Box, or a Shared handle"))
                         }
                     };
                     let loan = self.reference_origin(value, ops)?;

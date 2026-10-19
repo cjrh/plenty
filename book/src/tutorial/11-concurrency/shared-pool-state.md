@@ -78,6 +78,6 @@ released: link back to it with an index into a list that owns the values.
 The compiler's lock checks see through handles. Shutting a pool down while
 holding a lock on a mutex one of its jobs can reach is rejected, as is waiting
 for such a job's result when the future comes straight from `submit`. Nesting
-two locks of the same `Mutex[T]` type is rejected too, because two handles can
-name one mutex. See [shared owners](../../design/facilities/01-builtins/shared.md)
+a lock through a handle inside a lock on another `Mutex[T]` of the same type is
+rejected too, because two handles can name one mutex. See [shared owners](../../design/facilities/01-builtins/shared.md)
 for the full rules.

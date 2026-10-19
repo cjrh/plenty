@@ -828,10 +828,10 @@ impl Lower<'_> {
         match &ungroup(e).kind {
             Expression::Index(base, index) => match self.place_type(base)? {
                 // Elements are reached through the content, as `(*handle)[i]`.
-                Ty::Shared(content) => match &*content {
-                    Ty::List(element) | Ty::Dict(_, element) => Some((**element).clone()),
-                    _ => None,
-                },
+                Ty::Shared(_) => self.place_type(&Expr {
+                    at: e.at.clone(),
+                    kind: Expression::Index(Box::new(shared::content(base)), index.clone()),
+                }),
                 Ty::List(element) | Ty::Dict(_, element) => Some((*element).clone()),
                 Ty::Enum(t) if t.tuple() => {
                     let Expression::Number(n) = &ungroup(index).kind else {
