@@ -352,6 +352,11 @@ consistent with equality. A sorted map would need both bounds; if ordering is
 derived structurally, every key type with no float fields is also totally
 ordered, and the two constraints could share one admission walk.
 
+That proposal recommends a `__cmp__` hook that also defines `==`. A type that
+defines `__cmp__` is therefore not a key type: its equality is user code, so a
+structural hash would not agree with it. Such values are keyed by a projection
+of the fields their `__cmp__` compares.
+
 ## Open questions
 
 1. Name: `KeyType`, `Hashable`, or `Key`. `KeyType` matches `IntType`.
