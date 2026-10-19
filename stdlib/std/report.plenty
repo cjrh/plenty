@@ -1,4 +1,5 @@
 from std.bytes import Bytes, BytesError, with_capacity
+from std.io import StreamError, classify
 
 pub enum FormatError:
     InvalidSpec
@@ -112,8 +113,8 @@ pub class Formatter:
                             at += moved
                             self._written += moved
                         case Err(error):
-                            match error:
-                                case IoError.System(4):
+                            match classify(error):
+                                case StreamError.Interrupted:
                                     pass
                                 case _:
                                     self._failed = True
