@@ -1,0 +1,86 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  RUST_VERSION: 1.99.0
+  MDBOOK_VERSION: 0.5.4
+
+jobs:
+  build:
+    name: Build book
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install mdBook
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          cargo +"$RUST_VERSION" install mdbook --version "$MDBOOK_VERSION" --locked
+      - name: Check and build documentation
+        run: |
+          python3 -B scripts/check_links.py book/src
+          mdbook build book
+          python3 -B scripts/check_book_output.py book/book
+      - name: Configure Pages
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+        with:
+          enablement: false
+      - name: Upload book
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: book/book
+
+  deploy:
+    name: Deploy book
+    needs: build
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Check inside the deployment lock, after any environment approval.
+      - name: Skip superseded revisions
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [ "$GITHUB_SHA" = "$current_sha" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Skipped superseded commit $GITHUB_SHA; main is $current_sha." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Deploy Pages
+        if: steps.current.outputs.deploy == 'true'
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+      - name: Record deployment
+        if: steps.current.outputs.deploy == 'true'
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          echo "Published commit $GITHUB_SHA to $PAGE_URL" >> "$GITHUB_STEP_SUMMARY"

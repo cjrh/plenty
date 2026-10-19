@@ -6,6 +6,7 @@ language = "en"
 src = "src"
 
 [output.html]
+site-url = "/plenty/"
 # highlight.js grammars for Plenty fences, compiler diagnostics and output.
 additional-js = ["theme/plenty-highlight.js"]
 additional-css = ["theme/plenty-highlight.css"]

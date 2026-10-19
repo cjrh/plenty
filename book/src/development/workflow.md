@@ -119,6 +119,73 @@ example `python3 -B scripts/check_links.py book/src proposals`.
 Check the workflow helpers with
 `python3 -B -m unittest discover -s scripts -p 'test_*.py'`.
 
+## Documentation site
+
+[The public book](https://cjrh.github.io/plenty/) follows `main`, so it describes
+development rather than a particular release. `.github/workflows/docs.yml`
+builds every push to `main`, PR targeting `main` (including forks), and manual
+dispatch. Only a main push or main dispatch can deploy. It does not publish
+packages, push branches, or depend on release tags.
+
+Use the same pinned tools as the workflow:
+
+```sh
+rustup toolchain install 1.99.0 --profile minimal
+cargo +1.99.0 install mdbook --version 0.5.4 --locked
+python3 -B scripts/check_links.py book/src
+mdbook build book
+python3 -B scripts/check_book_output.py book/book
+mdbook serve book --open
+```
+
+The build needs no Plenty compiler. Do not use `mdbook test` for Plenty fences;
+the tutorial integration tests above execute those examples. The output checker
+verifies rendered local links stay inside the artifact and reach existing files,
+and checks search, print, 404 and custom highlighting assets. Source checking
+alone cannot catch a malformed `SUMMARY.md` that leaves a chapter unrendered.
+Neither checker validates external URLs or heading anchors.
+
+The Pages artifact is only `book/book`, which remains ignored. The HTML
+`site-url` is `/plenty/` so nested missing-page requests load 404 assets from the
+correct location; ordinary chapters and custom assets keep relative paths and
+work with local preview. For a production-path check, serve the generated tree
+at `/plenty/` and open a nested tutorial/reference page, search, print view and a
+missing nested URL. Check navigation, anchors, and Plenty, diagnostic and output
+fences. Do the same on the public site after deployment.
+
+### First publication and recovery
+
+After review, merge and authorization to publish, an administrator must:
+
+1. Check account/repository visibility and organization policies allow Pages
+   and the pinned actions. Choose **Settings > Pages > Build and deployment >
+   Source: GitHub Actions**. The workflow does not enable Pages automatically.
+2. Set the `github-pages` environment's deployment branch policy to `main`
+   only, preserving any required reviewers.
+3. Run **Documentation** from current `main`, approve its environment if
+   required, and inspect the deployed URL and source commit in the run summary.
+
+Build jobs have only `contents: read`; PRs do not configure/upload Pages or use
+the deployment environment. The deploy job has `pages: write`, `id-token: write`
+and `contents: read` for a main-tip API check. It uses the built-in token, with
+no PAT. Actions are pinned by SHA; the upload action also pins its nested action.
+
+Deployment jobs share one concurrency group and do not cancel a running
+deployment. After acquiring that slot and any environment approval, a run checks
+the live main SHA and skips if superseded. Queue ordering is not guaranteed:
+rerun current main if its pending deployment was replaced by an older run that
+then skipped. A commit arriving after the check can briefly leave the previous
+revision live until the next successful run; serialization prevents an older
+deployment finishing after a newer deployment. API failures fail closed.
+
+Failed checks or deployments leave the last successful site available. Rerun
+current main for transient failures; fix or revert bad content through review
+and deploy the resulting main commit. Do not roll back by dispatching an old
+branch or deleting the site. Tool/action upgrades require another complete book
+build and theme/navigation check. See the official
+[Pages workflow guide](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
+and [mdBook HTML configuration](https://rust-lang.github.io/mdBook/format/configuration/renderers.html).
+
 ## GitHub source highlighting
 
 Plenty is its own language. Until GitHub supports it through Linguist, the root

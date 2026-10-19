@@ -11,7 +11,8 @@ the [standard library](book/src/design/stdlib/index.md), and compiler/runtime ar
 links to implemented features and restrictions. Future work lives in the
 [backlog](book/src/backlog.md); proposals explain design alternatives.
 
-The book is an mdBook:
+Read the [online documentation](https://cjrh.github.io/plenty/) for the current
+`main` development version. The book is an mdBook; for a local preview:
 
 ```sh
 mdbook serve book --open
