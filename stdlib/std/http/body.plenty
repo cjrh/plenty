@@ -175,10 +175,17 @@ def parameters(value: &str) -> Result[Parameters, BodyError]:
     data = lifted(std.bytes.from_text(value))?
     count = data.len()
     mut at = 0
-    while at < count and (token_byte(code(&data, at)) or code(&data, at) == 47):
+    while at < count and token_byte(code(&data, at)):
         at += 1
     if at == 0:
         return Err(BodyError.Malformed)
+    if at < count and code(&data, at) == 47:
+        at += 1
+        subtype = at
+        while at < count and token_byte(code(&data, at)):
+            at += 1
+        if at == subtype:
+            return Err(BodyError.Malformed)
     essence = lowered(&data, 0, at)?
     mut pairs = allocated(list[Pair].new())?
     while True:
