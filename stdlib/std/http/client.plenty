@@ -308,16 +308,27 @@ pub class Unstreamed:
 # Bytes of a streamed body read and sent at a time.
 const upload_chunk: i64 = 16384
 
-# Counts kept by a client, as `stats()` reports them.
+# Counts kept by a client, as `stats()` reports them. Every connection
+# counted in `opened` is pooled, held by a request or a response, or counted
+# in `discarded` once it has closed, so with none held `opened` is `idle()`
+# plus `discarded`. Every request sent, counting replays and redirects, went
+# on a connection counted in `opened` or `reused`.
 pub class Stats:
+    # Connections opened.
     pub opened: u64
+    # Requests sent on a pooled connection.
     pub reused: u64
+    # Requests replayed on a new connection.
     pub retried: u64
+    # Redirects followed.
     pub redirected: u64
+    # Connections closed, whatever the reason.
     pub discarded: u64
 
 # The live counters. Atomics, so that threads sharing a client count without
-# taking the pool lock, and every event is counted exactly once.
+# taking the pool lock, and every event is counted exactly once. The client
+# and each of its connections share them: a connection counts itself as
+# discarded when it closes, on whichever path drops it.
 class Counters:
     opened: Atomic[u64]
     reused: Atomic[u64]
@@ -328,8 +339,9 @@ class Counters:
 def bump(counter: &Atomic[u64]) -> ():
     drop(counter.fetch_add(1, Ordering.Relaxed))
 
+# Each counter is read on its own, so no ordering between them is promised.
 def loaded(counter: &Atomic[u64]) -> u64:
-    counter.load(Ordering.Acquire)
+    counter.load(Ordering.Relaxed)
 
 pub class Request:
     pub method: str
@@ -606,6 +618,16 @@ pub class Wire[T]:
     _failure: Option[ClientError]
     _key: str
     _since: u64
+    # Set once the connection is counted as opened, so that dropping it
+    # counts it as discarded.
+    _counters: Option[Shared[Counters]]
+
+    def __del__(self) -> ():
+        match &self._counters:
+            case Some(counters):
+                bump(&counters.discarded)
+            case Nothing:
+                pass
 
     def noted(self: &mut Wire[T], error: ClientError) -> StreamError:
         match error:
@@ -781,7 +803,7 @@ pub class Client[T, C]:
     _connector: C
     _config: Config
     _pool: Mutex[list[BufReader[Wire[T]]]]
-    _stats: Counters
+    _stats: Shared[Counters]
 
     pub def stats(self) -> Stats:
         Stats(loaded(&self._stats.opened), loaded(&self._stats.reused), loaded(&self._stats.retried), loaded(&self._stats.redirected), loaded(&self._stats.discarded))
@@ -793,13 +815,15 @@ pub class Client[T, C]:
             waiting = len(pool)
         waiting
 
-    # Closes every pooled connection, one at a time so that no connection
-    # closes under the lock.
+    # Closes the connections pooled when it is called, one at a time so that
+    # none closes under the lock. It takes the oldest each time and stops
+    # after as many as were idle at the start: connections parked meanwhile
+    # go after those, and other threads parking cannot keep it running.
     pub def close_idle(self) -> ():
-        while True:
+        for _ in range(self.idle()):
             mut taken: Option[BufReader[Wire[T]]] = Nothing
             with self._pool.lock() as pool:
-                taken = pool.pop()
+                taken = pool.pop(0)
             match taken:
                 case Some(conn):
                     drop(conn)
@@ -929,23 +953,29 @@ pub class Client[T, C]:
                 return
         self.recycle(&mut owned)
 
-    # Puts a connection in the pool. The connection it displaces, the oldest
-    # for its origin or the oldest of all, is closed after the lock is
-    # released.
+    # Pools a connection whose response has ended, idle from now. It closes
+    # instead when bytes beyond the response are already buffered or the
+    # pool keeps nothing.
     def park(self, conn: BufReader[Wire[T]]) -> ():
         config = &self._config
         if config.max_idle == 0 or config.max_idle_per_origin == 0 or conn.buffered() != 0:
-            bump(&self._stats.discarded)
             return
         mut owned = conn
         owned.inner._since = now_ns()
+        self.store(owned)
+
+    # Puts a connection last in the pool. The connection it displaces, the
+    # oldest for its origin or the oldest of all, closes after the lock is
+    # released, and so does `conn` itself if the pool cannot grow.
+    def store(self, conn: BufReader[Wire[T]]) -> ():
+        config = &self._config
         mut evicted: Option[BufReader[Wire[T]]] = Nothing
-        mut kept = True
+        mut refused: Option[BufReader[Wire[T]]] = Nothing
         with self._pool.lock() as pool:
             mut same = 0
             mut oldest = -1
             for index in range(len(pool)):
-                if pool[index].inner._key == owned.inner._key:
+                if pool[index].inner._key == conn.inner._key:
                     same += 1
                     if oldest < 0:
                         oldest = index
@@ -953,11 +983,12 @@ pub class Client[T, C]:
                 evicted = pool.pop(oldest)
             elif len(pool) >= config.max_idle:
                 evicted = pool.pop(0)
-            kept = pool.append(owned).is_ok()
-        if evicted.is_some():
-            bump(&self._stats.discarded)
-        if not kept:
-            bump(&self._stats.discarded)
+            # Room first: a failed append would drop `conn` here, under the
+            # lock. After a successful reserve, append cannot fail.
+            if pool.reserve(1).is_ok():
+                drop(pool.append(conn))
+            else:
+                refused = Some(conn)
 
     # Takes one connection out of the pool: an expired one if there is any,
     # otherwise the most recently parked one for `key`. Expired connections
@@ -987,48 +1018,58 @@ pub class Client[T, C]:
 
     # The most recently parked live connection for `key`. Expired, closed
     # and unexpectedly readable connections are closed on the way, each
-    # with the pool lock released.
-    def take_idle(self, key: &str, cancel: &CancellationToken) -> Option[BufReader[Wire[T]]]:
+    # with the pool lock released. A probe that `cancel` cut short has
+    # learned nothing about its connection, which goes back to the pool
+    # still idle since it was parked.
+    def take_idle(self, key: &str, cancel: &CancellationToken) -> Result[Option[BufReader[Wire[T]]], ClientError]:
         now = now_ns()
         idle_span = self._config.idle_timeout.as_nanoseconds()
         mut probe = match std.bytes.with_capacity(1):
             case Ok(made):
                 made
             case Err(_):
-                return Nothing
+                return Ok(Nothing)
         if probe.resize(1, 0u8).is_err():
-            return Nothing
+            return Ok(Nothing)
         while True:
             match self.checkout(key, now, idle_span):
                 case Taken.Expired(conn):
                     drop(conn)
-                    bump(&self._stats.discarded)
                 case Taken.Candidate(conn):
                     mut owned = conn
                     # A live idle connection has nothing to read; end of
                     # input or stray bytes mean it cannot carry a request.
                     match owned.inner._stream.read_before(&mut probe, 0, 1, &deadline_of(0u64), cancel):
                         case Err(ClientError.Net(NetError.TimedOut)):
-                            return Some(owned)
+                            return Ok(Some(owned))
+                        case Err(ClientError.Net(NetError.Cancelled)):
+                            self.store(owned)
+                            return Err(ClientError.Net(NetError.Cancelled))
                         case _:
-                            bump(&self._stats.discarded)
+                            drop(owned)
                 case Taken.Empty:
-                    return Nothing
-        Nothing
+                    return Ok(Nothing)
+        Ok(Nothing)
 
     def open(self, endpoint: &Endpoint, key: &str, until: u64, cancel: &CancellationToken) -> Result[BufReader[Wire[T]], ClientError]:
         limit = least(after(now_ns(), self._config.connect_timeout.as_nanoseconds()), until)
         stream = self._connector.open(endpoint, &deadline_of(limit), cancel)?
-        bump(&self._stats.opened)
         failure: Option[ClientError] = Nothing
-        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, 0, failure, *key, 0u64)
-        match std.io.buffered_reader(wire, 4096):
+        counters: Option[Shared[Counters]] = Nothing
+        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, 0, failure, *key, 0u64, counters)
+        mut conn = match std.io.buffered_reader(wire, 4096):
             case Ok(reader):
-                Ok(reader)
+                reader
             case Err(StreamError.Allocation(cause)):
-                Err(ClientError.Allocation(cause))
+                return Err(ClientError.Allocation(cause))
             case Err(_):
-                Err(ClientError.InvalidConfig)
+                return Err(ClientError.InvalidConfig)
+        # Counted only once it can carry the request, so that a connection
+        # closed for want of a buffer is neither opened nor discarded, and
+        # `opened + reused` stays the number of requests sent.
+        bump(&self._stats.opened)
+        conn.inner._counters = Some(self._stats.share())
+        Ok(conn)
 
     # One request on one connection, replayed on a new connection when a
     # reused one failed before any response byte arrived, the method is
@@ -1062,10 +1103,17 @@ pub class Client[T, C]:
         mut retried = 0
         mut fresh = False
         while True:
+            # A request that is cancelled or out of time fails before it
+            # takes a connection: one taken from the pool would fail for the
+            # request's sake and close, though another request could use it.
+            if cancel.is_cancelled():
+                return Err(ClientError.Net(NetError.Cancelled))
+            if now_ns() >= until:
+                return Err(ClientError.Net(NetError.TimedOut))
             mut reused = False
             mut found: Option[BufReader[Wire[T]]] = Nothing
             if not fresh:
-                found = self.take_idle(&key, cancel)
+                found = self.take_idle(&key, cancel)?
             mut conn = match found:
                 case Some(pooled):
                     reused = True
@@ -1313,9 +1361,9 @@ pub def client(config: Config) -> Result[Client[Plain, TcpConnector], ClientErro
 
 # A client over any connector, such as an in-memory one for tests. To share
 # the client between threads, put it in a `Shared`: `Shared(connector(...)?)?`.
-pub def connector[T, C](opener: C, config: Config) -> Result[Client[T, C], ClientError]:
+pub def connector[T: Transport, C: Connector[T]](opener: C, config: Config) -> Result[Client[T, C], ClientError]:
     if not checked(&config):
         return Err(ClientError.InvalidConfig)
     pool = alloc(list[BufReader[Wire[T]]].new())?
-    counters = Counters(Atomic[u64](0), Atomic[u64](0), Atomic[u64](0), Atomic[u64](0), Atomic[u64](0))
+    counters = alloc(Shared(Counters(Atomic[u64](0), Atomic[u64](0), Atomic[u64](0), Atomic[u64](0), Atomic[u64](0))))?
     Ok(Client(opener, config, Mutex(pool), counters))

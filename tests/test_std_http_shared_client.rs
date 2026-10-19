@@ -1,7 +1,9 @@
 //! `std.http.client` shared between threads through `Shared[Client[T, C]]`:
 //! executor jobs reuse each other's keep-alive connections, the pool limits
-//! and idle timeout hold under concurrency, `Stats` totals stay exact, and the
-//! pool lock is never held across a request. Servers run on loopback ports.
+//! and idle timeout hold under concurrency, `Stats` totals stay exact, a
+//! cancelled or expired request leaves other jobs' connections alone, and the
+//! pool lock is held neither while a connection opens nor across a request.
+//! Servers run on loopback ports.
 mod support;
 use support::assert_http_program as runs;
 use support::check_file_error as rejected;
@@ -38,7 +40,7 @@ def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[
             Err("submission failed")
 
 # `count` GETs of `url`; the sum of their statuses.
-def fetches(client: Shared[hc.Client[hc.Plain, hc.TcpConnector]], url: str, count: i64) -> Result[i64, AllocError | hc.ClientError | RangeError]:
+def fetches[T, C](client: Shared[hc.Client[T, C]], url: str, count: i64) -> Result[i64, AllocError | hc.ClientError | RangeError]:
     never = CancellationToken()?
     mut total = 0
     for _ in range(count):
@@ -57,7 +59,7 @@ def streams(client: Shared[hc.Client[hc.Plain, hc.TcpConnector]], url: str, coun
         client.finish(response)
     Ok(total)
 
-def line(client: &hc.Client[hc.Plain, hc.TcpConnector]) -> Result[str, AllocError]:
+def line[T, C](client: &hc.Client[T, C]) -> Result[str, AllocError]:
     s = client.stats()
     "opened=".concat(&str.from(s.opened)?)?.concat(" reused=")?.concat(&str.from(s.reused)?)?.concat(" retried=")?.concat(&str.from(s.retried)?)?.concat(" redirected=")?.concat(&str.from(s.redirected)?)?.concat(" discarded=")?.concat(&str.from(s.discarded)?)?.concat(" idle=")?.concat(&str.from(client.idle())?)
 
@@ -115,8 +117,9 @@ server saw 120 requests"##,
 
 /// `max_idle_per_origin`, `max_idle` and `max_idle = 0` bound the pool while
 /// four jobs return connections at once, and the totals stay exact: every
-/// request opened or reused a connection, and a pooled connection is idle or
-/// was counted as discarded.
+/// request opened or reused a connection, and every opened connection is idle
+/// or was counted as discarded, including those `Connection: close` ended and
+/// those `close_idle` closed.
 #[test]
 fn pool_limits_hold_under_concurrency() {
     runs(
@@ -138,15 +141,12 @@ def bounded(url: &str, max_idle: i64, per_origin: i64) -> Result[(), Failure]:
     mut limit = max_idle
     if per_origin < limit:
         limit = per_origin
-    print(sum, "idle<=limit:", client.idle() <= limit, "exact:", s.opened + s.reused == 100)?
+    print(sum, "idle<=limit:", client.idle() <= limit, "exact:", s.opened + s.reused == 100, s.opened == u64(client.idle()) + s.discarded)?
     if max_idle == 0:
-        # `Connection: close` responses are not pooled and not counted as
-        # discarded.
         print("no reuse:", s.opened == 100 and s.reused == 0 and client.idle() == 0)?
-    else:
-        print("accounted:", s.opened == u64(client.idle()) + s.discarded)?
     client.close_idle()
-    print("closed:", client.idle())?
+    closed = client.stats()
+    print("closed:", client.idle(), closed.opened == closed.discarded)?
     Ok(())
 
 def main() -> Result[(), Failure]:
@@ -161,15 +161,13 @@ def main() -> Result[(), Failure]:
         stop.cancel()
     Ok(())
 "##,
-        r##"20000 idle<=limit: True exact: True
-accounted: True
-closed: 0
-20000 idle<=limit: True exact: True
-accounted: True
-closed: 0
-20000 idle<=limit: True exact: True
+        r##"20000 idle<=limit: True exact: True True
+closed: 0 True
+20000 idle<=limit: True exact: True True
+closed: 0 True
+20000 idle<=limit: True exact: True True
 no reuse: True
-closed: 0
+closed: 0 True
 server saw 300 requests"##,
     );
 }
@@ -208,23 +206,185 @@ server saw 2 requests"##,
     );
 }
 
+/// A request whose token is already cancelled, or whose deadline has passed,
+/// fails before it touches the pool: the connections parked by others stay
+/// idle and uncounted as discarded, and the request is never written.
+#[test]
+fn a_cancelled_or_expired_request_leaves_the_pool_alone() {
+    runs(
+        SHARED,
+        r##"
+# Parks three live connections.
+def three(client: &hc.Client[hc.Plain, hc.TcpConnector], url: &str) -> Result[(), Failure]:
+    never = CancellationToken()?
+    mut a = client.send(hc.request("GET", url)?, &later()?, &never)?
+    mut b = client.send(hc.request("GET", url)?, &later()?, &never)?
+    mut c = client.send(hc.request("GET", url)?, &later()?, &never)?
+    mut body = std.bytes.empty()?
+    a.read_all(&mut body)?
+    b.read_all(&mut body)?
+    c.read_all(&mut body)?
+    client.finish(a)
+    client.finish(b)
+    client.finish(c)
+    Ok(())
+
+def outcome(result: Result[hc.Fetched, hc.ClientError]) -> str:
+    match result:
+        case Ok(_):
+            "answered"
+        case Err(hc.ClientError.Net(std.net.NetError.Cancelled)):
+            "cancelled"
+        case Err(hc.ClientError.Net(std.net.NetError.TimedOut)):
+            "timed out"
+        case Err(_):
+            "failed"
+
+def run(url: &str) -> Result[(), Failure]:
+    client = Shared(hc.client(hc.config()?)?)?
+    three(&*client, url)?
+    print(line(&*client)?)?
+    never = CancellationToken()?
+    gone = CancellationToken()?
+    gone.cancel()
+    print(outcome(client.get(url, &later()?, &gone)))?
+    past = std.time.deadline_after(&std.time.monotonic_now(), &std.time.milliseconds(0u32))?
+    print(outcome(client.get(url, &past, &never)))?
+    print(line(&*client)?)?
+    print(client.get(url, &later()?, &never)?.status)?
+    print(line(&*client)?)?
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    with spawn(serve, listener, stop.share())? as server:
+        url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
+        # The server stops however `run` ends, so a failure is reported
+        # rather than left waiting on the server.
+        ran = run(&url)
+        stop.cancel()
+        ran?
+    Ok(())
+"##,
+        r##"opened=3 reused=0 retried=0 redirected=0 discarded=0 idle=3
+cancelled
+timed out
+opened=3 reused=0 retried=0 redirected=0 discarded=0 idle=3
+200
+opened=3 reused=1 retried=0 redirected=0 discarded=0 idle=3
+server saw 4 requests"##,
+    );
+}
+
+/// The pool lock is not held while a connection opens: a job whose connector
+/// blocks, as a handshake that never finishes would, does not stop another
+/// job's requests through the same client, which finish and then cancel the
+/// blocked one. Were the lock held across the connector's `open`, the other
+/// job would wait for it until the blocked connect timed out after
+/// `connect_timeout`, and the first job would report a timeout.
+#[test]
+fn a_blocked_connector_does_not_hold_up_other_requests() {
+    runs(
+        SHARED,
+        r##"
+from std.http.client import ClientError, Endpoint, Plain, TcpConnector
+from std.net import NetError
+from std.time import Deadline
+
+# Opens TCP for every port but 9. For port 9 it cancels `entered`, then waits
+# until the caller's token is cancelled or the deadline passes.
+pub class Gate:
+    pub entered: CancellationToken
+
+    pub def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Plain, ClientError]:
+        if endpoint.port != 9u16:
+            return TcpConnector().open(endpoint, deadline, cancel)
+        self.entered.cancel()
+        if cancel.wait_timeout(deadline.remaining(&std.time.monotonic_now()).as_timeout_ms()):
+            return Err(ClientError.Net(NetError.Cancelled))
+        Err(ClientError.Net(NetError.TimedOut))
+
+def blocked(client: Shared[hc.Client[Plain, Gate]], halt: CancellationToken) -> Result[str, AllocError | RangeError]:
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(30u32))?
+    match client.get("http://127.0.0.1:9/", &deadline, &halt):
+        case Ok(_):
+            Ok("answered")
+        case Err(ClientError.Net(NetError.Cancelled)):
+            Ok("cancelled")
+        case Err(ClientError.Net(NetError.TimedOut)):
+            Ok("timed out")
+        case Err(_):
+            Ok("failed")
+
+# Once `blocked` is inside the connector, sends 20 requests. It cancels
+# `blocked` however it ends.
+def busy(client: Shared[hc.Client[Plain, Gate]], url: str, entered: CancellationToken, halt: CancellationToken) -> Result[i64, AllocError | ClientError | RangeError]:
+    mut total: Result[i64, AllocError | ClientError | RangeError] = Ok(0)
+    if entered.wait_timeout(5000u64):
+        total = fetches(client, url, 20)
+    halt.cancel()
+    total
+
+def run(url: &str) -> Result[(), Failure]:
+    entered = CancellationToken()?
+    client = Shared(hc.connector[Plain, Gate](Gate(entered.share()), hc.config()?)?)?
+    halt = CancellationToken()?
+    with ThreadPoolExecutor(2, 2)? as pool:
+        waiting = submitted(pool.submit(blocked, client.share(), halt.share()))?
+        working = submitted(pool.submit(busy, client.share(), *url, entered.share(), halt.share()))?
+        print(working.result()??, waiting.result()??)?
+    print(line(&*client)?)?
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    with spawn(serve, listener, stop.share())? as server:
+        url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
+        # The server stops however `run` ends, so a failure is reported
+        # rather than left waiting on the server.
+        ran = run(&url)
+        stop.cancel()
+        ran?
+    Ok(())
+"##,
+        r##"4000 cancelled
+opened=1 reused=19 retried=0 redirected=0 discarded=0 idle=1
+server saw 20 requests"##,
+    );
+}
+
 /// The pool lock is not held while a request waits: a job stuck on a server
 /// that never answers does not stop another job's requests through the same
-/// client, which finish and then cancel the stuck one. Were the lock held
-/// across the exchange, the second job could never take a connection and the
-/// program would hang.
+/// client, which start once the stuck request has reached the server, finish,
+/// and then cancel it. Were the lock held across the exchange, the second job
+/// would wait for it until the stuck request timed out after 30 s, and the
+/// stuck job would report that failure instead.
 #[test]
 fn a_stalled_origin_does_not_hold_up_other_requests() {
     runs(
         SHARED,
         r##"
 # Accepts connections and never answers until `stop` is cancelled.
-def silent(listener: TcpListener, stop: CancellationToken) -> Result[(), Failure]:
+# `received` is cancelled once a request's first bytes have arrived.
+def silent(listener: TcpListener, received: CancellationToken, stop: CancellationToken) -> Result[(), Failure]:
     mut held = list[TcpStream].new()?
+    mut buffer = std.bytes.empty()?
+    buffer.resize(64, 0u8)?
     while not stop.is_cancelled():
         match listener.accept(&later()?, &stop):
             case Ok(stream):
-                held.append(stream)?
+                mut owned = stream
+                match owned.read_before(&mut buffer, 0, 64, &later()?, &stop):
+                    case Ok(count):
+                        if count > 0:
+                            received.cancel()
+                    case Err(_):
+                        pass
+                held.append(owned)?
             case Err(_):
                 pass
     Ok(())
@@ -241,10 +401,25 @@ def stuck(client: Shared[hc.Client[hc.Plain, hc.TcpConnector]], url: str, halt: 
                 case _:
                     Ok("failed")
 
-def then_halt(client: Shared[hc.Client[hc.Plain, hc.TcpConnector]], url: str, halt: CancellationToken) -> Result[i64, AllocError | hc.ClientError | RangeError]:
-    total = fetches(client, url, 20)?
+# Once the stuck request has reached the server, sends 20 requests. It
+# cancels the stuck request however it ends.
+def then_halt(client: Shared[hc.Client[hc.Plain, hc.TcpConnector]], url: str, received: CancellationToken, halt: CancellationToken) -> Result[i64, AllocError | hc.ClientError | RangeError]:
+    mut total: Result[i64, AllocError | hc.ClientError | RangeError] = Ok(0)
+    if received.wait_timeout(5000u64):
+        total = fetches(client, url, 20)
     halt.cancel()
-    Ok(total)
+    total
+
+def run(url: &str, quiet_url: &str, received: &CancellationToken) -> Result[(), Failure]:
+    client = Shared(hc.client(hc.config()?)?)?
+    halt = CancellationToken()?
+    with ThreadPoolExecutor(2, 2)? as pool:
+        waiting = submitted(pool.submit(stuck, client.share(), *quiet_url, halt.share()))?
+        busy = submitted(pool.submit(then_halt, client.share(), *url, received.share(), halt.share()))?
+        print(busy.result()??, waiting.result()??)?
+    # The stuck connection closed when its request was cancelled.
+    print(line(&*client)?)?
+    Ok(())
 
 def main() -> Result[(), Failure]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -252,27 +427,27 @@ def main() -> Result[(), Failure]:
     quiet = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     quiet_url = "http://127.0.0.1:".concat(&str.from(i64(quiet.local_address()?.port))?)?.concat("/")?
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server, spawn(silent, quiet, stop.share())? as sink:
+    received = CancellationToken()?
+    with spawn(serve, listener, stop.share())? as server, spawn(silent, quiet, received.share(), stop.share())? as sink:
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
-        client = Shared(hc.client(hc.config()?)?)?
-        halt = CancellationToken()?
-        with ThreadPoolExecutor(2, 2)? as pool:
-            waiting = submitted(pool.submit(stuck, client.share(), quiet_url, halt.share()))?
-            busy = submitted(pool.submit(then_halt, client.share(), url, halt.share()))?
-            print(busy.result()??, waiting.result()??)?
-        print(line(&*client)?)?
+        # The servers stop however `run` ends, so a failure is reported
+        # rather than left waiting on them.
+        ran = run(&url, &quiet_url, &received)
         stop.cancel()
+        ran?
     Ok(())
 "##,
         r##"4000 cancelled
-opened=2 reused=19 retried=0 redirected=0 discarded=0 idle=1
+opened=2 reused=19 retried=0 redirected=0 discarded=1 idle=1
 server saw 20 requests"##,
     );
 }
 
 /// An `https` client shares like a plain one: its connector holds only a TLS
 /// configuration, which may be used from any worker. A connector that holds
-/// something that cannot cross threads is rejected when the client is shared.
+/// something that cannot cross threads is rejected when the client is shared,
+/// and one whose `open` borrows it exclusively is rejected where the client is
+/// made, not inside `std.http.client`.
 #[test]
 fn https_clients_share_and_ineligible_connectors_are_rejected() {
     let dir = tempfile::tempdir().unwrap();
@@ -300,7 +475,7 @@ from std.http.client import ClientError, Endpoint, Plain
 from std.sync import CancellationToken
 from std.time import Deadline
 
-class Lazy:
+pub class Lazy:
     pool: ThreadPoolExecutor
 
     pub def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Plain, ClientError]:
@@ -312,4 +487,28 @@ def main() -> Result[(), Failure]:
 "##,
     );
     assert!(error.contains("cannot hold ThreadPoolExecutor"), "{error}");
+    let error = rejected(
+        r##"import std.http.client as hc
+from std.http.client import ClientError, Endpoint, Plain, TcpConnector
+from std.sync import CancellationToken
+from std.time import Deadline
+
+pub class Counting:
+    pub count: i64
+
+    pub def open(self: &mut Counting, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Plain, ClientError]:
+        self.count += 1
+        TcpConnector().open(endpoint, deadline, cancel)
+
+def main() -> Result[(), Failure]:
+    client = Shared(hc.connector[Plain, Counting](Counting(0), hc.config()?)?)?
+    Ok(())
+"##,
+    );
+    assert!(
+        error.contains("main.plenty:14:")
+            && error.contains("Counting does not satisfy std.http.client.Connector")
+            && !error.contains("client.plenty"),
+        "{error}"
+    );
 }
