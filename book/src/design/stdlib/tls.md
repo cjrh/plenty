@@ -285,9 +285,9 @@ its socket without `close_notify`. A stream may move to a worker. Starting a
 session draws randomness and verifying a certificate reads the clock; both are
 allowed in workers.
 
-The back-end methods `tls_feed`, `tls_take`, `tls_read`, `tls_write`, and
-`tls_detail` are
-public on `Bytes` only so that `std.tls` can call them.
+The back-end methods `tls_feed`, `tls_take`, `tls_read`, and `tls_detail` are
+public on `Bytes` only so that `std.tls` can call them. Writing uses the
+builtin `__tls_write`, which `std.tls` calls on any `ByteSource`.
 
 ## Costs
 
