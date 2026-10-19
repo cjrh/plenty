@@ -29,6 +29,11 @@ indices are not proven disjoint, and invalidating mutation or movement conflicts
 Nested fields and collection elements can be projected through these references.
 Borrowing itself allocates nothing.
 
+Integer node IDs do not borrow their target collection. They permit sequential
+updates to different nodes, but do not make simultaneous indexed loans disjoint.
+Use the [arena lesson](../../../tutorial/09-generics/arena-trees.md) for owned
+storage with parent links and a traversal worklist.
+
 An ordinary `&T` parameter implicitly borrows an owned argument: `inspect(value)`
 and `inspect(&value)` lend the same owner. An `&mut T` parameter requires
 `&mut value`, except when forwarding an existing exclusive reference. Methods

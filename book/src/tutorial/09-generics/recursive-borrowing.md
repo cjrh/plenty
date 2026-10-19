@@ -47,3 +47,8 @@ reference binding `view` can be reassigned only to a reference borrowed from `vi
 
 [Matching borrowed values](../06-data/08-borrowed-matching.md) also leaves the
 owner in place while inspecting its contents.
+
+The same descendant-cursor pattern can lend exclusive access while updating
+each node. See the complete [mutable chain walk](../../design/examples/data-structures/linked-stack.md).
+For branching traversal, a stack of references is currently unsupported; an
+[arena with a worklist of IDs](arena-trees.md) is an alternative.

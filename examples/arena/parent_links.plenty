@@ -1,0 +1,34 @@
+from arena import Arena, Key
+
+class Node:
+    name: str
+    parent: Option[Key[Node]]
+
+def name(node: &Node) -> str:
+    node.name
+
+def parent(node: &Node) -> Option[Key[Node]]:
+    match &node.parent:
+        case Some(key):
+            Some(key.duplicate())
+        case Nothing:
+            Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut nodes = Arena[Node](1)?
+    root = nodes.insert(Node("root", Nothing))?
+    leaf = nodes.insert(Node("leaf", Some(root.duplicate())))?
+    match nodes.read(&leaf, parent):
+        case Some(parent_id):
+            match parent_id:
+                case Some(id):
+                    print(nodes.read(&id, name))?
+                    drop(nodes.remove(&root))
+                    # Removing a node leaves inbound links for the application
+                    # to remove or handle through checked lookup.
+                    print(nodes.read(&id, name))?
+                case Nothing:
+                    print("no parent")?
+        case Nothing:
+            print("missing leaf")?
+    Ok(())

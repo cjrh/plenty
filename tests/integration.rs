@@ -112,6 +112,8 @@ mod test_conversion_errors;
 mod test_copyable_tuple_mutation;
 #[path = "test_data_callable_bounds.rs"]
 mod test_data_callable_bounds;
+#[path = "test_data_structure_patterns.rs"]
+mod test_data_structure_patterns;
 #[path = "test_dictionary_lookup.rs"]
 mod test_dictionary_lookup;
 #[path = "test_dictionary_removal.rs"]

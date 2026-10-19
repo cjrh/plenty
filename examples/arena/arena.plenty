@@ -1,0 +1,100 @@
+# Experimental API, not std.arena. Namespace uniqueness is the caller's
+# responsibility; see the arena proposal before reusing this module.
+pub class Key[T]:
+    _namespace: i64
+    _slot: i64
+    _generation: i64
+
+    pub def duplicate(self) -> Key[T]:
+        Key[T](self._namespace, self._slot, self._generation)
+
+class Slot[T]:
+    generation: i64
+    value: Option[T]
+    next_free: i64
+
+pub class Arena[T]:
+    _namespace: i64
+    _slots: list[Slot[T]]
+    _free: i64
+    _count: i64
+    _generation_limit: i64
+
+    pub def __init__(self, namespace: i64, generation_limit: i64 = i64.MAX) -> Result[(), AllocError]:
+        self._namespace = namespace
+        self._slots = list[Slot[T]].new()?
+        self._free = -1
+        self._count = 0
+        self._generation_limit = generation_limit
+        Ok(())
+
+    # Duplicating an arena would duplicate its handle namespace.
+    def __del__(self) -> ():
+        pass
+
+    pub def len(self) -> i64:
+        self._count
+
+    pub def contains(self, key: &Key[T]) -> bool:
+        if key._namespace != self._namespace or key._slot < 0 or key._slot >= len(self._slots):
+            return False
+        if self._slots[key._slot].generation != key._generation:
+            return False
+        match &self._slots[key._slot].value:
+            case Some(_):
+                True
+            case Nothing:
+                False
+
+    pub def insert(self: &mut Arena[T], value: T) -> Result[Key[T], AllocError]:
+        mut index = self._free
+        if index == -1:
+            index = len(self._slots)
+            self._slots.append(Slot[T](0, Some(value), -1))?
+        else:
+            self._free = self._slots[index].next_free
+            replace(self._slots[index].value, Some(value))
+        self._count += 1
+        Ok(Key[T](self._namespace, index, self._slots[index].generation))
+
+    pub def remove(self: &mut Arena[T], key: &Key[T]) -> Option[T]:
+        if not self.contains(key):
+            return Nothing
+        value = replace(self._slots[key._slot].value, Nothing)
+        self._count -= 1
+        # Retire exhausted slots instead of allowing a generation to wrap.
+        if self._slots[key._slot].generation < self._generation_limit:
+            self._slots[key._slot].generation += 1
+            self._slots[key._slot].next_free = self._free
+            self._free = key._slot
+        value
+
+    pub def read[R, F: Callable[[&T], R]](self, key: &Key[T], use: F) -> Option[R]:
+        if not self.contains(key):
+            return Nothing
+        match &self._slots[key._slot].value:
+            case Some(value):
+                Some(use(value))
+            case Nothing:
+                Nothing
+
+    pub def update[R, F: Callable[[&mut T], R]](self: &mut Arena[T], key: &Key[T], use: F) -> Option[R]:
+        if not self.contains(key):
+            return Nothing
+        match &mut self._slots[key._slot].value:
+            case Some(value):
+                Some(use(value))
+            case Nothing:
+                Nothing
+
+    pub def update_two[R, F: Callable[[&mut T, &mut T], R]](self: &mut Arena[T], first: &Key[T], second: &Key[T], use: F) -> Option[R]:
+        if not self.contains(first) or not self.contains(second) or first._slot == second._slot:
+            return Nothing
+        # Indexed loans cannot coexist today. Temporarily move both owners
+        # into locals; the exclusive arena loan prevents callback re-entry.
+        mut left = replace(self._slots[first._slot].value, Nothing).unwrap()
+        mut right = replace(self._slots[second._slot].value, Nothing).unwrap()
+        result = use(&mut left, &mut right)
+        replace(self._slots[first._slot].value, Some(left))
+        replace(self._slots[second._slot].value, Some(right))
+        Some(result)

@@ -40,6 +40,10 @@ including nested fields, cannot be copied. Explicit fallible shutdown should
 return `Result`; a destructor provides fallback cleanup rather than reporting
 shutdown failure.
 
+Bounded-stack destruction does not make a recursive traversal bounded-stack.
+An explicit descendant cursor or worklist is still needed for unbounded-depth
+input. See [linked-data examples](../../examples/data-structures/index.md).
+
 Suspended or never-started generators drop their remaining captures and locals
 without resuming the body. Statements following `yield` are not cleanup hooks.
 [Resource scopes](../08-errors/03-resource-scopes.md) insert exit calls into

@@ -1,0 +1,51 @@
+pub class Node:
+    pub value: i64
+    pub next: Option[Box[Node]]
+
+pub class Linked:
+    pub head: Option[Box[Node]]
+
+pub def push(xs: &mut Linked, value: i64) -> Result[(), AllocError]:
+    mut node = Box(Node(value, Nothing))?
+    node.next = replace(xs.head, Nothing)
+    xs.head = Some(node)
+    Ok(())
+
+pub def pop(xs: &mut Linked) -> Option[i64]:
+    match replace(xs.head, Nothing):
+        case Some(node):
+            mut removed: Node = node
+            xs.head = replace(removed.next, Nothing)
+            Some(removed.value)
+        case Nothing:
+            Nothing
+
+pub def total(xs: &Linked) -> i64:
+    mut answer = 0
+    match &xs.head:
+        case Some(head):
+            mut cursor: &Node = head
+            while True:
+                answer += cursor.value
+                match &cursor.next:
+                    case Some(next):
+                        cursor = next
+                    case Nothing:
+                        break
+        case Nothing:
+            pass
+    answer
+
+pub def bump(xs: &mut Linked) -> ():
+    match &mut xs.head:
+        case Some(head):
+            mut cursor: &mut Node = head
+            while True:
+                cursor.value += 1
+                match &mut cursor.next:
+                    case Some(next):
+                        cursor = next
+                    case Nothing:
+                        break
+        case Nothing:
+            pass

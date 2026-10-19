@@ -1,0 +1,15 @@
+pub class Tree:
+    pub value: i64
+    pub left: Option[Box[Tree]]
+    pub right: Option[Box[Tree]]
+
+pub def rotate_right(root: Box[Tree]) -> Box[Tree]:
+    mut old = root
+    match replace(old.left, Nothing):
+        case Some(left):
+            mut pivot = left
+            old.left = replace(pivot.right, Nothing)
+            pivot.right = Some(old)
+            pivot
+        case Nothing:
+            old

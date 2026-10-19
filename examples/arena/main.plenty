@@ -1,0 +1,22 @@
+from arena import Arena
+
+def value(x: &i64) -> i64:
+    *x
+
+def transfer(left: &mut i64, right: &mut i64) -> bool:
+    *left -= 3
+    *right += 3
+    True
+
+def main() -> Result[(), AllocError | IoError]:
+    mut nodes = Arena[i64](1)?
+    first = nodes.insert(10)?
+    second = nodes.insert(20)?
+    print(nodes.update_two(&first, &second, transfer))?
+    print(nodes.read(&first, value))?
+    print(nodes.read(&second, value))?
+    print(nodes.remove(&first))?
+    replacement = nodes.insert(30)?
+    print(nodes.contains(&first))?
+    print(nodes.read(&replacement, value))?
+    Ok(())

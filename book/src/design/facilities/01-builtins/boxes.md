@@ -6,6 +6,11 @@ and destroying the box add no allocation; explicit copying and operations on its
 content retain their own costs. Boxes provide a heap boundary for
 [recursive data](../../language/03-types/recursive-data.md).
 
+For insertion into a borrowed structure, allocate a detached node before moving
+existing contents into it. Otherwise a failed allocation can destroy the old
+contents as part of its input. The [insertion lesson](../../../tutorial/09-generics/recursive-insertion.md)
+demonstrates preservation without adding a successful-path allocation.
+
 Where a T is required, `Box[T]` converts to T by moving out the content and
 freeing the box, without failure. This applies to arguments, returns, annotated
 bindings, assignments, constructor fields, and collection elements. Borrowed

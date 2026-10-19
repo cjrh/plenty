@@ -10,3 +10,6 @@ for the corresponding contracts and limits.
 
 The [finder experiment](finder.md) tests these facilities against a realistic
 CLI task and records where the implemented surface still blocks it.
+
+[Linked data structures](data-structures/index.md) compares owned chains and
+trees with arena IDs, including fallible insertion and allocation-free rotation.

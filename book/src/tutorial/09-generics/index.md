@@ -17,3 +17,5 @@ data is an optional extension at the end.
 - [Remove a child and clean up a recursive structure](recursive-cleanup.md)
 - [Traverse recursive data through a borrow](recursive-traversal.md)
 - [Reborrow while following a recursive structure](recursive-borrowing.md)
+- [Preserve a chain when insertion fails](recursive-insertion.md)
+- [Represent parent links with node IDs](arena-trees.md)
