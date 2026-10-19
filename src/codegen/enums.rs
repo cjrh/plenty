@@ -55,7 +55,7 @@ impl Lowerer<'_, '_> {
     }
 
     /// Byte offset of a field slot inside its owner's inline record storage.
-    fn record_offset<'t>(fields: impl Iterator<Item = &'t Ty>) -> i64 {
+    pub(super) fn record_offset<'t>(fields: impl Iterator<Item = &'t Ty>) -> i64 {
         fields.map(|t| t.slot_bytes() as i64).sum()
     }
 
@@ -80,7 +80,7 @@ impl Lowerer<'_, '_> {
 
     /// Load field `index` of a record value, copying its own inline storage
     /// out of the record so it survives the record's release.
-    fn record_field(
+    pub(super) fn record_field(
         &mut self,
         record: cranelift_codegen::ir::Value,
         offset: i64,

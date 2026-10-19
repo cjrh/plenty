@@ -59,3 +59,25 @@ storing. Cranelift's atomics are all sequentially consistent, so each requested
 `Ordering` is validated at compile time and then strengthened. On x86-64 a
 load is a `mov`, a store and a fence add `mfence`, and read-modify-write
 operations use `lock`-prefixed instructions or a `lock cmpxchg` loop.
+
+## Mutexes
+
+`std.sync.Mutex[T]` is the generic class in `stdlib/std/sync.plenty`: an
+`Atomic[u32]` state word and the value, stored inline, so moves, destruction,
+and worker eligibility are ordinary class behavior. Its fields are private;
+`lock()` and `into_inner()` are compiler intrinsics. A lock block stores the
+mutex reference in a hidden guard local and roots the value's exclusive loan
+there, while the mutex's own shared loan stays live until the block's exit.
+The ownership checker treats the guard as live from the lock to the unlock and
+rejects a join reached while a live guard's `T` matches a `Mutex[T]` the
+worker's inputs can reach.
+
+Locking follows mutex 2 of Drepper's "Futexes Are Tricky": state 0 is
+unlocked, 1 locked, and 2 locked with possible waiters. Lock is an inline
+`atomic_cas` from 0 to 1. On failure, `plenty_mutex_lock_slow` exchanges in 2
+and, until the exchange returns 0, sleeps with `FUTEX_WAIT_PRIVATE` on value 2;
+`EINTR` and `EAGAIN` retry the exchange. Unlock is an inline `atomic_rmw`
+exchange to 0, and calls `plenty_mutex_wake` (`FUTEX_WAKE_PRIVATE` of one
+waiter) only when it replaced 2. The runtime issues the `futex` system call
+directly. Nothing allocates; a held lock is never abandoned by unwinding,
+because traps terminate the process.

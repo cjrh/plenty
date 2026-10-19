@@ -78,6 +78,7 @@ mod foreign;
 mod generators;
 mod inline;
 mod metadata;
+mod mutex;
 mod numeric;
 mod output;
 mod references;
@@ -738,6 +739,10 @@ struct Runtime {
     caller_leave: FuncId,
     thread_start: FuncId,
     thread_join: FuncId,
+    /// `plenty_mutex_lock_slow(*const u32)` and `plenty_mutex_wake(*const u32)`:
+    /// the futex paths of a contended `Mutex`.
+    mutex_lock_slow: FuncId,
+    mutex_wake: FuncId,
     thread_adapters: HashMap<String, FuncId>,
     /// Type metadata declared so far. Only the thread placing code in the
     /// object declares symbols; the lock lets threads building IR share the
@@ -901,6 +906,8 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             types::I32,
         )?,
         thread_join: one_arg(module, "plenty_thread_join", PTR_TY)?,
+        mutex_lock_slow: one_arg(module, "plenty_mutex_lock_slow", PTR_TY)?,
+        mutex_wake: one_arg(module, "plenty_mutex_wake", PTR_TY)?,
         thread_adapters: Default::default(),
         generator_init: {
             let mut sig = module.make_signature();
@@ -1703,6 +1710,7 @@ impl Lowerer<'_, '_> {
             Op::Channel(operation) => self.lower_channel(operation)?,
             Op::Control(operation) => self.lower_control(operation)?,
             Op::Atomic(operation) => self.lower_atomic(operation)?,
+            Op::Mutex(operation) => self.lower_mutex(operation)?,
             Op::Executor(operation) => self.lower_executor(operation)?,
             Op::Try {
                 source,

@@ -26,6 +26,7 @@ mod io;
 mod libraries;
 mod math;
 mod memory;
+mod mutex;
 mod numbers;
 mod open_modes;
 mod ranges;

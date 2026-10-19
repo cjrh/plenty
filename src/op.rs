@@ -578,6 +578,7 @@ pub enum Op {
     Channel(crate::channel::ChannelOp),
     Control(crate::control::ControlOp),
     Atomic(crate::atomic::AtomicOp),
+    Mutex(crate::mutex::MutexOp),
     Executor(crate::executor::ExecutorOp),
     ClosureNew(Arc<crate::closure::ClosureType>),
     ClosureCall(Arc<crate::closure::ClosureType>),
@@ -1621,6 +1622,15 @@ fn step(
             for ty in inputs.iter().rev() {
                 if stack.pop().as_ref() != Some(ty) {
                     return Err("invalid atomic argument".into());
+                }
+            }
+            stack.push(output);
+        }
+        Op::Mutex(operation) => {
+            let (inputs, output) = operation.signature();
+            for ty in inputs.iter().rev() {
+                if stack.pop().as_ref() != Some(ty) {
+                    return Err("invalid mutex argument".into());
                 }
             }
             stack.push(output);

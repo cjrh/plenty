@@ -44,6 +44,7 @@ mod lexer;
 mod library;
 mod library_metadata;
 pub mod lsp;
+mod mutex;
 mod net;
 mod nominal;
 mod numeric;

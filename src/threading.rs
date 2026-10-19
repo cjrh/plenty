@@ -334,6 +334,31 @@ pub fn endpoints(roots: impl IntoIterator<Item = Ty>, sender: bool, borrowed: bo
     found
 }
 
+/// Guarded types of the `Mutex[T]` values that `roots` can reach, owned or
+/// borrowed. Like `endpoints`, this matches by type, not by identity.
+#[expect(
+    clippy::mutable_key_type,
+    reason = "nominal identities exclude definition cells"
+)]
+pub fn mutexes(roots: impl IntoIterator<Item = Ty>) -> Vec<Ty> {
+    let mut pending: Vec<_> = roots.into_iter().collect();
+    let mut seen = HashSet::new();
+    let mut found = Vec::new();
+    while let Some(ty) = pending.pop() {
+        if !seen.insert(ty.clone()) {
+            continue;
+        }
+        if let Some(class) = crate::mutex::class(&ty) {
+            let element = crate::mutex::element(class);
+            if !found.contains(&element) {
+                found.push(element);
+            }
+        }
+        contained(&ty, &mut pending);
+    }
+    found
+}
+
 /// A value of `ty` owns a pool, so its drop drains accepted work and joins the
 /// workers. A reference leaves that to the pool's owner.
 #[expect(
@@ -403,6 +428,12 @@ fn inspect(
         }
         // Atomic instructions are the shared-mutation contract for workers.
         Op::Atomic(op) => {
+            let (inputs, output) = op.signature();
+            types.extend(inputs);
+            types.push(output);
+        }
+        // A lock makes its holder the value's only accessor.
+        Op::Mutex(op) => {
             let (inputs, output) = op.signature();
             types.extend(inputs);
             types.push(output);

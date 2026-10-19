@@ -240,6 +240,10 @@ impl Lower<'_> {
                     Some(Ty::Atomic(element)) => {
                         return super::atomic::method_output(&element, name);
                     }
+                    Some(ty) if crate::mutex::class(&ty).is_some() => {
+                        let class = crate::mutex::class(&ty)?;
+                        return (name == "into_inner").then(|| crate::mutex::element(class));
+                    }
                     Some(Ty::CancellationToken) => {
                         return match name.as_str() {
                             "share" => Some(Ty::CancellationToken),

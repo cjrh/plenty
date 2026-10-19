@@ -1,5 +1,6 @@
 //! Definite ownership and last-use loans over an explicit access control-flow graph.
 use crate::executor::ExecutorOp;
+use crate::mutex::MutexOp;
 use crate::op::{Op, Ty};
 use crate::threading::{endpoints, owns_executor, Task, ThreadOp};
 use std::cell::RefCell;
@@ -114,6 +115,14 @@ pub enum Kind {
         /// The join belongs to a `with` block exit, not an explicit `join()`.
         automatic: bool,
     },
+    /// A join that a worker waiting for a mutex this function holds could
+    /// keep waiting forever.
+    BlockedLock {
+        /// Guarded type of the held mutex and of one the worker can reach.
+        element: String,
+        /// The join belongs to a `with` block exit, not an explicit `join()`.
+        automatic: bool,
+    },
     /// A pool shutdown that a job waiting to send could keep waiting forever.
     BlockedShutdown {
         /// Message type of the job's sender and the surviving receiver.
@@ -220,6 +229,16 @@ impl fmt::Display for Error {
                     "an empty queue"
                 },
                 if *worker_sends { "send" } else { "receive" },
+            ),
+            Kind::BlockedLock { element, automatic } => format!(
+                "{} a task whose worker can lock a `Mutex[{element}]` while this function \
+                 holds a lock on a `Mutex[{element}]`: the worker could wait for that lock, \
+                 and this join, forever",
+                if *automatic {
+                    "leaving this `with` block joins"
+                } else {
+                    "this join waits for"
+                },
             ),
             Kind::BlockedShutdown { message, automatic } => format!(
                 "{} after a job that holds `Sender[{message}]` was submitted, while {} still \
@@ -435,6 +454,9 @@ fn leaving(mut error: Box<Error>, at: Option<Site>, exit: Option<&str>) -> Box<E
     };
     let note = match error.kind {
         Kind::BlockedJoin {
+            automatic: true, ..
+        }
+        | Kind::BlockedLock {
             automatic: true, ..
         } => format!("{exit} leaves the block here"),
         Kind::BlockedShutdown {
@@ -763,7 +785,10 @@ impl Checker<'_> {
             };
             self.blocked_endpoints(&messages, worker_sends, state, site, kind, advice)
         };
-        let Some(mut error) = blocked(true).or_else(|| blocked(false)) else {
+        let Some(mut error) = blocked(true)
+            .or_else(|| blocked(false))
+            .or_else(|| self.held_lock(task, state, site, automatic))
+        else {
             return Ok(());
         };
         // An automatic join is reported at the `with` statement that starts the task.
@@ -778,6 +803,66 @@ impl Checker<'_> {
             }
         }
         Err(error)
+    }
+
+    /// A lock guard this function still holds on a `Mutex[T]` while the task's
+    /// worker can reach a `Mutex[T]`. Mutexes are matched by guarded type, so
+    /// this neither identifies mutexes nor proves the worker locks one.
+    fn held_lock(
+        &self,
+        task: &Task,
+        state: &State,
+        site: Option<Site>,
+        automatic: bool,
+    ) -> Option<Box<Error>> {
+        let reachable = crate::threading::mutexes(task.inputs.iter().cloned());
+        if reachable.is_empty() {
+            return None;
+        }
+        let mut guards = Vec::new();
+        crate::threading::walk(self.body, &mut |op| {
+            if let Op::Mutex(MutexOp::Lock(slot)) = op {
+                guards.push(*slot as usize);
+            }
+        });
+        guards.into_iter().find_map(|slot| {
+            if !matches!(
+                state[slot],
+                Slot::Owned
+                    | Slot::Moved {
+                        definite: false,
+                        ..
+                    }
+            ) {
+                return None;
+            }
+            let Ty::Ref(mutex, _) = &self.locals[slot] else {
+                return None;
+            };
+            let element = crate::mutex::element(crate::mutex::class(mutex)?);
+            if !reachable.contains(&element) {
+                return None;
+            }
+            let mut error = self.error(
+                Kind::BlockedLock {
+                    element: element.to_string(),
+                    automatic,
+                },
+                None,
+                site,
+            );
+            let advice = if automatic {
+                "end the lock's `with` block before this one, or start the task outside it"
+            } else {
+                "end the lock's `with` block before joining"
+            };
+            if let Some(at) = self.bound(slot) {
+                error
+                    .notes
+                    .push((at, format!("the lock is acquired here; {advice}")));
+            }
+            Some(error)
+        })
     }
 
     /// Record the message types a job accepted by a pool can send.
@@ -947,6 +1032,7 @@ impl Checker<'_> {
                     }
                 }
                 Op::Executor(ExecutorOp::Shutdown) => self.shutdown(None, state, site)?,
+                Op::Mutex(MutexOp::Unlock(slot)) => state[*slot as usize] = Slot::Unset,
                 Op::Executor(ExecutorOp::Result(_)) => {
                     self.future_result(&ops[..index], state, site)?;
                 }

@@ -35,6 +35,7 @@ mod generators;
 mod generics;
 pub(crate) mod ide;
 mod modules;
+mod mutex;
 mod numeric;
 mod patterns;
 mod protocols;
@@ -3314,9 +3315,14 @@ impl Lower<'_> {
                     ));
                 }
                 if element.facts().atomic {
-                    return Err(e
-                        .at
-                        .error("values containing atomics do not support membership equality"));
+                    let subject = if mutex::holds_mutex(&element) {
+                        "mutexes"
+                    } else {
+                        "atomics"
+                    };
+                    return Err(e.at.error(format!(
+                        "values containing {subject} do not support membership equality"
+                    )));
                 }
                 self.same(
                     Some(a),
@@ -3388,6 +3394,11 @@ impl Lower<'_> {
                         .error("values containing channel endpoints, executors, or futures do not support equality"));
                 }
                 if matches!(op.as_str(), "==" | "!=") && a.facts().atomic {
+                    if mutex::holds_mutex(&a) {
+                        return Err(e.at.error(
+                            "values containing mutexes do not support equality; compare values read inside `with mutex.lock() as value:`",
+                        ));
+                    }
                     return Err(e.at.error(
                         "values containing atomics do not support equality; compare values read with load()",
                     ));
@@ -3549,6 +3560,11 @@ impl Lower<'_> {
                         let (ty, loans) = self.observe(argument, ops)?;
                         if ty.prints_generator_frame() {
                             return Err(e.at.error("generators cannot be printed"));
+                        }
+                        if ty.facts().atomic && mutex::holds_mutex(&ty) {
+                            return Err(e.at.error(
+                                "mutexes cannot be printed; print a value read inside `with mutex.lock() as value:`",
+                            ));
                         }
                         if ty.facts().atomic {
                             return Err(e.at.error(

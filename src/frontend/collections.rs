@@ -2040,6 +2040,14 @@ impl Lower<'_> {
         if matches!(self.place_type(base), Some(Ty::Atomic(_))) {
             return self.atomic_method(base, name, args, ops);
         }
+        if self
+            .place_type(base)
+            .as_ref()
+            .and_then(crate::mutex::class)
+            .is_some()
+        {
+            return self.mutex_method(base, name, args, ops);
+        }
         if matches!(self.place_type(base), Some(Ty::Executor | Ty::Future(_))) {
             return self.executor_method(base, name, args, ops);
         }
@@ -2145,6 +2153,9 @@ impl Lower<'_> {
                 let (source, loans) = self.observe(&args[0], ops)?;
                 if source.restricted_storage() {
                     return Err(base.at.error("generators cannot be formatted"));
+                }
+                if source.facts().atomic && super::mutex::holds_mutex(&source) {
+                    return Err(base.at.error(super::mutex::FORMAT));
                 }
                 if source.facts().atomic {
                     return Err(base
@@ -2399,6 +2410,9 @@ impl Lower<'_> {
             ops.push(Op::Eq);
             Self::end_reads(loans, ops);
             return Ok(Some(Ty::Bool));
+        }
+        if let Some(class) = crate::mutex::class(&ty).cloned() {
+            return self.temporary_mutex_method(base, &class, name, args, &loans, ops);
         }
         if classes::inherent_receiver(&ty) {
             return self.temporary_class_method(base, name, None, args, (ty, loans), ops);

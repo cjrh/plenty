@@ -38,7 +38,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.thread", ""),
     ("std.channel", ""),
     ("std.concurrent", ""),
-    ("std.sync", ""),
+    ("std.sync", include_str!("../../stdlib/std/sync.plenty")),
     ("std.atomic", include_str!("../../stdlib/std/atomic.plenty")),
     ("std.io", include_str!("../../stdlib/std/io.plenty")),
     (
@@ -1954,6 +1954,11 @@ pub(super) fn check_member_at(
                 return Err(diagnostic.error(format!(
                     "{kind} `{class}` is private to its defining module; declare it `pub {kind}` to allow access to its public members from another module, including a generic function defined there"
                 )));
+            }
+            if class == crate::mutex::CLASS {
+                return Err(diagnostic.error(
+                    "a Mutex's fields are private; reach its value with `with mutex.lock() as value:`",
+                ));
             }
             return Err(diagnostic.error(format!(
                 "`{class}.{member}` is private to its defining module; declare the member public to allow access from another module"

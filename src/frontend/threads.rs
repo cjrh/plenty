@@ -170,7 +170,7 @@ impl Lower<'_> {
             slot,
             exit,
             loan: None,
-            thread: true,
+            kind: contexts::Kind::Thread,
             at: site(&call.at, true),
         });
         if let Some(name) = name {
