@@ -55,15 +55,24 @@ pub(crate) struct Program {
     pub(crate) source_paths: Vec<std::path::PathBuf>,
 }
 
+/// Every symbol the lexer accepts, so a symbol token needs no allocation.
+const SYMBOLS: [&str; 37] = [
+    "(", ")", "[", "]", "{", "}", ".", ":", ",", "+", "-", "*", "%", "/", "=", "!", "<", ">", "&",
+    "|", "^", "~", "?", "->", "==", "!=", "<=", ">=", "//", "<<", ">>", "+=", "-=", "*=", "/=",
+    "//=", "%=",
+];
+
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
-    Word(String),
-    Number(String),
-    Text(String),
+    /// Word, number and text tokens share their text: the parser clones a
+    /// token for every position it records.
+    Word(Arc<str>),
+    Number(Arc<str>),
+    Text(Arc<str>),
     /// An `f"..."` literal's text and fields; see `fstrings`.
     Format(Vec<fstrings::Part>),
     Bytes(Vec<u8>),
-    Symbol(String),
+    Symbol(&'static str),
     Newline,
     Indent,
     Dedent,
@@ -125,7 +134,16 @@ struct Token {
 
 impl Token {
     fn is(&self, text: &str) -> bool {
-        matches!(&self.kind, Kind::Word(s) | Kind::Symbol(s) if s == text)
+        self.text() == Some(text)
+    }
+
+    /// The spelling of a word or symbol.
+    fn text(&self) -> Option<&str> {
+        match &self.kind {
+            Kind::Word(s) => Some(s),
+            Kind::Symbol(s) => Some(s),
+            _ => None,
+        }
     }
 
     fn error(&self, message: impl std::fmt::Display) -> Box<dyn Error> {
@@ -418,7 +436,7 @@ impl<'a> Lexer<'a> {
                             text.push(ch);
                         }
                     }
-                    self.push(out, Kind::Text(text), line, column);
+                    self.push(out, Kind::Text(text.into()), line, column);
                 }
                 c if c.is_ascii_alphabetic() && self.literal_prefix().is_some() => {
                     let (prefix, width) = self.literal_prefix().expect("checked prefix");
@@ -490,7 +508,7 @@ impl<'a> Lexer<'a> {
                 b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'.' | b':' | b',' | b'+' | b'-'
                 | b'*' | b'%' | b'/' | b'=' | b'!' | b'<' | b'>' | b'&' | b'|' | b'^' | b'~'
                 | b'?' => {
-                    let mut symbol = (c as char).to_string();
+                    let begin = self.pos;
                     if let Some(next) = bytes.get(self.pos + 1) {
                         if matches!(
                             (c, *next),
@@ -503,15 +521,15 @@ impl<'a> Lexer<'a> {
                                 | (b'<', b'<')
                                 | (b'>', b'>')
                         ) {
-                            symbol.push(*next as char);
                             self.pos += 1;
                             self.column += 1;
                         }
                     }
-                    if matches!(symbol.as_str(), "+" | "-" | "*" | "/" | "//" | "%")
-                        && bytes.get(self.pos + 1) == Some(&b'=')
+                    if matches!(
+                        &source[begin..=self.pos],
+                        "+" | "-" | "*" | "/" | "//" | "%"
+                    ) && bytes.get(self.pos + 1) == Some(&b'=')
                     {
-                        symbol.push('=');
                         self.pos += 1;
                         self.column += 1;
                     }
@@ -530,6 +548,11 @@ impl<'a> Lexer<'a> {
                             );
                         }
                     }
+                    let text = &source[begin..=self.pos];
+                    let symbol = SYMBOLS
+                        .iter()
+                        .find(|symbol| **symbol == text)
+                        .expect("the lexer accepts only listed symbols");
                     self.pos += 1;
                     self.column += 1;
                     self.push(out, Kind::Symbol(symbol), line, column);
@@ -1210,7 +1233,7 @@ impl Parser {
         let t = self.take();
         if let Kind::Word(ref s) = t.kind {
             if !reserved(s) && !s.starts_with("__plenty_") {
-                return Ok(s.clone());
+                return Ok(s.to_string());
             }
         }
         Err(t.error("expected an identifier (keywords and __plenty_ names are reserved)"))
@@ -1288,7 +1311,7 @@ impl Parser {
         let t = self.take();
         if let Kind::Word(ref name) = t.kind {
             if !reserved(name) {
-                let mut name = name.clone();
+                let mut name = name.to_string();
                 while self.eat(".") {
                     name.push('.');
                     name.push_str(&self.name()?);
@@ -1569,7 +1592,7 @@ impl Parser {
                 if !(foreign && foreign::loader_symbol(symbol_name)) {
                     foreign::check_symbol(symbol_name, &symbol)?;
                 }
-                Some(symbol_name.clone())
+                Some(symbol_name.to_string())
             } else if foreign {
                 address_parameter = Some(
                     inputs
@@ -1949,7 +1972,7 @@ impl Parser {
                         value: self.statement_value()?,
                     }
                 } else if matches!(&self.peek().kind, Kind::Symbol(s)
-                    if matches!(s.as_str(), "+=" | "-=" | "*=" | "/=" | "//=" | "%="))
+                    if matches!(&**s, "+=" | "-=" | "*=" | "/=" | "//=" | "%="))
                 {
                     let operator = self.take();
                     let Kind::Symbol(symbol) = operator.kind else {
@@ -2048,34 +2071,36 @@ impl Parser {
         }
         let at = self.take();
         let kind = match &at.kind {
-            Kind::Number(n) => Expression::Number(n.clone()),
-            Kind::Text(s) => Expression::Text(s.clone()),
+            Kind::Number(n) => Expression::Number(n.to_string()),
+            Kind::Text(s) => Expression::Text(s.to_string()),
             Kind::Format(parts) => self.format_literal(parts)?,
             Kind::Bytes(b) => Expression::Bytes(b.clone()),
-            Kind::Word(s) if s == "True" || s == "False" => Expression::Bool(s == "True"),
-            Kind::Word(s) if s == "not" => Expression::Unary(s.clone(), Box::new(self.expr(3)?)),
-            Kind::Word(s) if s == "lambda" => {
+            Kind::Word(s) if matches!(&**s, "True" | "False") => Expression::Bool(&**s == "True"),
+            Kind::Word(s) if &**s == "not" => {
+                Expression::Unary(s.to_string(), Box::new(self.expr(3)?))
+            }
+            Kind::Word(s) if &**s == "lambda" => {
                 return Err(at.error(if self.in_brackets[self.pos - 1] {
                     "`lambda` is not supported; write an anonymous function as `def(name: T) -> U: expression`"
                 } else {
                     "`lambda` is not supported; write an anonymous function as `def(name: T) -> U:` with an indented body"
                 }));
             }
-            Kind::Word(s) if s == "try" => {
+            Kind::Word(s) if &**s == "try" => {
                 return Err(at.error("collection literals already return Result; remove `try` and use postfix `?` to propagate errors"));
             }
-            Kind::Symbol(s) if s == "&" => {
+            Kind::Symbol(s) if &**s == "&" => {
                 let op = if self.eat("mut") { "&mut" } else { "&" };
                 Expression::Unary(op.into(), Box::new(self.expr(10)?))
             }
-            Kind::Symbol(s) if s == "-" || s == "+" || s == "*" || s == "~" => {
-                Expression::Unary(s.clone(), Box::new(self.expr(10)?))
+            Kind::Symbol(s) if matches!(&**s, "-" | "+" | "*" | "~") => {
+                Expression::Unary(s.to_string(), Box::new(self.expr(10)?))
             }
-            Kind::Symbol(s) if s == "(" => self.parenthesized()?,
-            Kind::Symbol(s) if s == "[" || s == "{" => self.collection_display(s)?,
+            Kind::Symbol(s) if &**s == "(" => self.parenthesized()?,
+            Kind::Symbol(s) if matches!(&**s, "[" | "{") => self.collection_display(s)?,
             Kind::Word(s) if !reserved(s) && !s.starts_with("__plenty_") => {
                 if matches!(
-                    s.as_str(),
+                    &**s,
                     "Option"
                         | "Result"
                         | "SpawnError"
@@ -2091,7 +2116,7 @@ impl Parser {
                 {
                     self.pos -= 1;
                     Expression::Type(Box::new(self.ty()?))
-                } else if matches!(s.as_str(), "list" | "dict" | "set" | "range" | "channel")
+                } else if matches!(&**s, "list" | "dict" | "set" | "range" | "channel")
                     && self.peek().is("[")
                 {
                     self.pos -= 1;
@@ -2103,9 +2128,9 @@ impl Parser {
                         Expression::Constructor(Box::new(ty), self.arguments()?)
                     }
                 } else if self.eat("(") {
-                    Expression::Call(s.clone(), self.arguments()?)
+                    Expression::Call(s.to_string(), self.arguments()?)
                 } else {
-                    Expression::Name(s.clone())
+                    Expression::Name(s.to_string())
                 }
             }
             _ if at.is("match") => return Err(at.error(MATCH_VALUE_POSITION)),
@@ -2262,7 +2287,7 @@ impl Parser {
             let mut right = self.expr(prec + 1)?;
             if power && matches!(&right.kind, Expression::Unary(op, _) if op == "*") {
                 right.at = Token {
-                    kind: Kind::Symbol("**".into()),
+                    kind: Kind::Symbol("**"),
                     ..token.clone()
                 };
             }
@@ -2531,11 +2556,8 @@ fn reject_unsigned_negation(ty: &Ty, at: &Token) -> Result<()> {
     )))
 }
 fn binary(t: &Token) -> Option<(String, u8)> {
-    let s = match &t.kind {
-        Kind::Word(s) | Kind::Symbol(s) => s,
-        _ => return None,
-    };
-    let precedence = match s.as_str() {
+    let s = t.text()?;
+    let precedence = match s {
         "or" => 1,
         "and" => 2,
         "==" | "!=" | "<" | ">" | "<=" | ">=" | "in" | "not in" => 3,
@@ -2547,7 +2569,7 @@ fn binary(t: &Token) -> Option<(String, u8)> {
         "*" | "%" | "/" | "//" => 9,
         _ => return None,
     };
-    Some((s.clone(), precedence))
+    Some((s.to_string(), precedence))
 }
 
 #[derive(Clone)]

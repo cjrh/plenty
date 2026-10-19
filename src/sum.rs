@@ -90,7 +90,7 @@ impl crate::nominal::Nominal<EnumType> {
     }
     pub fn discards_error(&self) -> bool {
         self.is_result()
-            && matches!(self.local().variants[1].fields.as_slice(), [Ty::Enum(t)] if t.name == "Failure")
+            && matches!(self.local().variants[1].fields.as_slice(), [Ty::Enum(t)] if &*t.name == "Failure")
     }
     /// Whether this Result can receive the source's error through `?`.
     pub fn accepts_result_error(&self, source: &Self) -> bool {

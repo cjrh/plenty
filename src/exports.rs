@@ -55,7 +55,7 @@ pub(crate) fn error_variants(ty: &Ty) -> Option<&[crate::sum::Variant]> {
     match ty {
         Ty::Enum(t)
             if matches!(
-                t.name.as_str(),
+                &*t.name,
                 "AllocError" | "ParseError" | "RangeError" | "Failure"
             ) =>
         {

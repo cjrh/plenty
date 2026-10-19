@@ -219,9 +219,7 @@ impl Ty {
         while let Some(ty) = work.pop() {
             match ty {
                 Self::Generator(_) => return true,
-                Self::Enum(t)
-                    if t.get().restricted_storage && seen.insert((0, t.name.as_str())) =>
-                {
+                Self::Enum(t) if t.get().restricted_storage && seen.insert((0, &*t.name)) => {
                     work.extend(t.local().variants.iter().flat_map(|v| &v.fields));
                 }
                 Self::Closure(t) if inspect_captures && seen.insert((1, t.name.as_str())) => {
@@ -353,8 +351,8 @@ impl Ty {
             }
             Ty::Callable(t) => t.identity_name(),
             Ty::BoxedCallable(t) => t.identity_name().replacen("Callable", "BoxedCallable", 1),
-            Ty::Enum(t) => t.name.clone(),
-            Ty::Class(t) => t.name.clone(),
+            Ty::Enum(t) => t.name.to_string(),
+            Ty::Class(t) => t.name.to_string(),
             Ty::List(t) => format!("list[{}]", t.identity_name()),
             Ty::Set(t) => format!("set[{}]", t.identity_name()),
             Ty::Dict(k, v) => format!("dict[{}, {}]", k.identity_name(), v.identity_name()),
