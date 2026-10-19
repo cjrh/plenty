@@ -2233,8 +2233,6 @@ pub(crate) unsafe fn collection_at(
                     wrap(wrap(wrap(0, error as u64), 1), 1)
                 }
             },
-            11 => try_dictionary_snapshot(&mut *(a as *mut Collection), &*descriptor, true)
-                .unwrap_or_else(|_| crate::fail("dictionary snapshot allocation failed")),
             119 => match try_box_new(&*descriptor, a) {
                 Ok(boxed) => wrap(boxed as u128, 0),
                 Err(error) => {
