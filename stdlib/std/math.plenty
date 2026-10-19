@@ -1,5 +1,5 @@
 # The public algorithms and error policy are Plenty code. Numeric methods are
-# IEEE/platform primitives. See book/src/design/facilities/math.md for contracts.
+# IEEE/platform primitives. See book/src/design/stdlib/math.md for contracts.
 
 pub enum MathError:
     Domain
