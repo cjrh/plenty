@@ -20,6 +20,7 @@ pub enum CookieError:
     TooManyCookies
     InvalidKey
     Http(HttpError)
+    Crypto(CryptoError)
     Allocation(AllocError)
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, CookieError]:
@@ -257,8 +258,8 @@ def crypto[T](result: Result[T, CryptoError]) -> Result[T, CookieError]:
             Ok(value)
         case Err(CryptoError.Allocation(cause)):
             Err(CookieError.Allocation(cause))
-        case Err(_):
-            Err(CookieError.InvalidKey)
+        case Err(other):
+            Err(CookieError.Crypto(other))
 
 def checked_keys(keys: &list[Bytes]) -> Result[(), CookieError]:
     if len(keys) == 0:
