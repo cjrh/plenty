@@ -164,4 +164,8 @@ that worktree; rebuild when compiler or runtime sources change.
 
 Measure compilation cost when changing checking or
 lowering; the [architecture guide](../design/toolchain/02-architecture/emission.md)
-describes reproducible performance evidence.
+describes reproducible performance evidence. The opt-in
+[compiler profiler](profiling.md) subdivides lowering, ownership checks and
+native compilation. Use `compile_bench --workload check|scale|aot` to isolate a
+workload, and `--no-warmup` when the report should contain only the requested
+repetitions. Normal tests never start a profiling session automatically.

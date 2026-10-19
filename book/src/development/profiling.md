@@ -34,13 +34,68 @@ release build of the compiler in `target/`; pass `--target-dir` to keep both.
 The compiler turns hotpath's live-metrics HTTP server off unless
 `HOTPATH_METRICS_SERVER_OFF` is set.
 
+## Selecting a benchmark workload
+
+The first two `compile_bench` arguments are generated units (not lines) and
+repetitions. A unit contains a protocol, class, enum and functions. Choose one
+workload per invocation to avoid mixing source sizes and checking with AOT:
+
+```sh
+cargo build --locked --release --features profile --example compile_bench
+PLENTY_CACHE=off PLENTY_PROFILE=1 HOTPATH_OUTPUT_PATH=check.txt \
+    target/release/examples/compile_bench 1000 10 --workload check --no-warmup
+PLENTY_CACHE=off PLENTY_PROFILE=1 HOTPATH_OUTPUT_PATH=scale.txt \
+    target/release/examples/compile_bench 1000 10 --workload scale --no-warmup
+PLENTY_CACHE=off PLENTY_PROFILE=1 HOTPATH_OUTPUT_PATH=aot.txt \
+    target/release/examples/compile_bench 1000 10 --workload aot --no-warmup
+```
+
+| Selection | Work performed |
+|---|---|
+| `--workload check` | Check the requested unit count only. |
+| `--workload scale` | Check **four times** the requested unit count only; the metadata shows this actual count. No ratio is printed without a base check. |
+| `--workload aot` | Compile and link the requested unit count only, including its frontend checks. |
+| `--workload check-and-scale` (default) | Check both sizes and print the scaling ratio. |
+| `--workload all` or legacy `--aot` | Check both sizes and also compile/link the base size. |
+
+Without `--no-warmup`, each selected workload runs once before its timed
+repetitions. That warm-up is excluded from benchmark medians but **included in
+the profiler report**. With `--no-warmup`, ten repetitions mean ten calls of the
+selected workload. Source generation and benchmark setup are still within the
+outer `main` measurement. `workload` and `warmup` appear in the printed metadata;
+`--help` lists the options. Conflicting selections and invalid counts fail
+before profiling starts.
+
+All modes work without profiling. Features alone never start a session;
+`PLENTY_PROFILE` is still required. Use `profile-alloc` for allocation reports.
+Disable the cache deliberately for cold-build measurements; for warm-cache
+comparisons use an isolated `PLENTY_CACHE_DIR`, retain it between runs, and omit
+`PLENTY_CACHE=off`. Cache hits skip Cranelift but still build IR and assemble the
+object. These modes do not collect a whole-test-suite profile.
+
 ## Reading the report
 
 Each row is one measured function: the coarse phases of the
 [compiler pipeline](../design/toolchain/02-architecture/index.md), such as
 `modules::parse`, `frontend::lower_function`, `ownership::check`,
-`op::check`, `codegen::build_user_function`, `output::compile` (Cranelift,
-with its cache lookups), `codegen::emit_object` and `toolchain::link`.
+`op::check`, `codegen::build_user_function`, `output::compile`,
+`codegen::emit_object` and `toolchain::link`.
+
+Additional rows subdivide the larger phases:
+
+| Parent | Subphase rows and boundaries |
+|---|---|
+| `output::compile` | `output::cranelift_compile`: Cranelift compilation or cache lookup/compilation, including cache bookkeeping; `output::collect_code`: copy machine code and convert relocations after success; `output::clear_context`: clear reusable compiler state, including after a compilation error. These do not expose individual Cranelift passes. |
+| `ownership::check` | `ownership::prepare_futures`, `ownership::initialize_state`, `ownership::check_moves` (outer sequence and final release), and `ownership::check_loans`. |
+| `ownership::check_loans` | For bodies with loans: `ownership::loan_graph` (CFG, reachability and loan tables), `ownership::loan_liveness` (fixed point), and `ownership::validate_loans` (conflict checks and diagnostics). The no-loan scan remains in the parent. |
+| `frontend::lower_function` | `frontend::setup_function` (initial state, parameters and parameter loans), `frontend::lower_function_body` (the outer body-lowering call), and `frontend::finish_function` (return inference and final operation-body construction). |
+| `frontend::lower` | Also reports `generics::expand_data` and `tail_calls::validate`; both can return early when there is no relevant work. |
+
+Recursive ownership walks and nested expression/block lowering are not annotated
+on every visit. A loan-bearing function produces one graph/liveness/validation
+measurement per ownership check, regardless of CFG nesting. Function lowering
+can recursively specialize or re-lower a function during inference; those
+nested function-level measurements remain inclusive.
 
 - Time is inclusive: `frontend::lower` contains every `lower_function` call.
 - `% Total` is relative to the whole run. Functions that run on every core,
@@ -48,7 +103,10 @@ with its cache lookups), `codegen::emit_object` and `toolchain::link`.
   `output::compile`, sum the time of all threads and can exceed 100%.
 - Allocation rows are exclusive by default: bytes allocated by the function
   itself and unmeasured functions it calls, not by measured functions below
-  it.
+  it. Adding subphase rows moves allocation attribution from parents to children;
+  compare sums with the same instrumentation, or deliberately use cumulative
+  allocation mode. Parent time still includes its children: never sum all rows
+  as independent costs.
 - A function measured per call costs about 40 ns, so only phase-level
   functions are measured. To find hot functions inside a phase, use a
   sampling profiler such as `perf record` on a build without the feature.
@@ -65,7 +123,10 @@ built but not recording, recording time, and recording allocations: the
 fastest of three runs was 646, 648, 644 and 662 ms for the AOT build. Noise
 from other load was larger than these differences. A clean release build of
 the compiler with the feature compiled 27 more crates and took 10 s longer
-(91 s against 81 s with `-j 3`).
+(91 s against 81 s with `-j 3`). Those measurements predate the finer subphase
+annotations; measure overhead again when evaluating short-function costs and
+confirm optimizations on a feature-disabled build. Use sampling to identify
+Cranelift passes and hot leaf functions rather than adding per-operation rows.
 
 `cargo test --all-features` builds the feature too. The instrumented functions
 then record nothing, because no test sets `PLENTY_PROFILE` except

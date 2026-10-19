@@ -192,6 +192,7 @@ fn expression_endings(
     }
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
     // Only a function with a call in source tail position has anything to
     // validate. Without one, skip the whole-program tables built below.

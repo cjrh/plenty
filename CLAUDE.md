@@ -88,6 +88,7 @@ issue ownership, discussion, and PR review state live in the database.
 | `PLENTY_CACHE=off cargo test ...` | Run without the compiled-function cache; `.cargo/config.toml` points it at `target/plenty-cache` for tests and `cargo run` |
 | `cargo test --locked --test integration test_std_url::` | Run one test file's tests: integration tests are modules of `tests/integration.rs`, which must list each `tests/test_*.rs` file |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Lint compiler and runtime; CI's `lint` job also runs this, `cargo fmt --all -- --check`, and the link check below |
+| `cargo run --locked --release --features profile --example compile_bench -- 1000 10 --workload aot --no-warmup` | Isolated AOT benchmark; set `PLENTY_PROFILE=1` explicitly for a phase report, optionally `PLENTY_CACHE=off` for cold builds. See `book/src/development/profiling.md`; `check` and `scale` select check-only workloads. |
 | `cargo run -- FILE` | Compile and run a Plenty program (needs `cc`) |
 | `cargo run -- --check FILE` | Type-check without linking or running |
 | `cargo run -- --compile FILE -o OUT` | Produce a native executable |
