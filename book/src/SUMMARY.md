@@ -480,6 +480,8 @@
         - [Transport wrapper and capability examples](proposals/library-owned-operations/examples.md)
         - [C++ and Rust precedents](proposals/library-owned-operations/precedents.md)
     - [GCC backend (`plenty_codegen_gcc`)](proposals/codegen-gcc.md)
+    - [User-defined ordering](proposals/user-type-ordering.md)
+    - [User-defined dictionary keys and set members](proposals/user-type-hashing.md)
     - [Completed proposals](proposals/completed/index.md)
         - [Runtime allocation audit](proposals/completed/allocation-audit.md)
         - [References, ownership, and explicit copying](proposals/completed/references-and-copying.md)
