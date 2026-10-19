@@ -92,6 +92,21 @@ domain. A non-reusing runtime token is one possible narrow primitive; an owned
 issuer with enforced domain separation is another. Concurrency, copying,
 serialization, and exhaustion determine which contract is sound and convenient.
 
+[`std.atomic`](../design/stdlib/atomic.md) and
+[`std.sync.Mutex`](../design/stdlib/sync.md) now provide synchronized mutation
+through scoped shared borrows. An atomic counter could serve one identity issuer,
+but separate counters can issue the same numbers: issuer uniqueness and lifetime
+remain part of the arena contract. Atomics do not by themselves provide shared
+ownership of an issuer or arena.
+
+Issue #326 separately explores a counted shared owner for user data and a
+thread-shared HTTP pool. Its eventual access, cycle, and destruction rules may
+offer another representation for shared nodes or a shared identity issuer.
+These examples and the arena prototype do not depend on that design, and do not
+choose its cycle policy. Reassess the representation guidance when that feature
+ships; retain arenas for workloads that need checked logical identity and
+explicit removal independently of shared-owner lifetimes.
+
 ## Rust and intrusive collections
 
 Rust also supports safe owned singly linked lists and trees. It already provides
