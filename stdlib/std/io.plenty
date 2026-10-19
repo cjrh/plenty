@@ -522,15 +522,11 @@ pub def from_file(file: File) -> FileStream:
 # The process streams. Each adapter is a zero-cost handle: the descriptor
 # stays owned by the process and is never closed.
 pub class Stdin:
-    _descriptor: u8
-
     pub def read(self: &mut Stdin, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         ranged(start, stop, buffer.len())?
         moved(buffer.read_stdin(start, stop))
 
 pub class Stdout:
-    _descriptor: u8
-
     pub def write[S: ByteSource](self: &mut Stdout, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         ranged(start, stop, source.len())?
         moved(__io_std_write(source, start, stop, 1u8))
@@ -539,8 +535,6 @@ pub class Stdout:
         finished(flush_stdout())
 
 pub class Stderr:
-    _descriptor: u8
-
     pub def write[S: ByteSource](self: &mut Stderr, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         ranged(start, stop, source.len())?
         moved(__io_std_write(source, start, stop, 2u8))
@@ -549,10 +543,10 @@ pub class Stderr:
         finished(flush_stderr())
 
 pub def stdin() -> Stdin:
-    Stdin(0u8)
+    Stdin()
 
 pub def stdout() -> Stdout:
-    Stdout(1u8)
+    Stdout()
 
 pub def stderr() -> Stderr:
-    Stderr(2u8)
+    Stderr()
