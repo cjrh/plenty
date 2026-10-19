@@ -119,7 +119,14 @@ digits, so a limit can leave part of a number. On stderr failure, inspect
 `completed()` and `failed()`; subsequent writes return `OutputClosed` without
 writing again. A limit error is recoverable, as the example shows.
 
-This explicit formatting API does not yet change the report produced when
-`main` returns an error. Use [`std.fmt`](formatting.md) for floats, widths,
+When `main` returns `Err`, its concrete error type selects the reporting path.
+A type with this public `format` method produces a human-readable report with
+the prefix `error: main returned ` and a final newline. A sum selects this path
+only when all its members support it; other types retain structural reporting.
+The automatic reporter allows 16,384 bytes and 64 nesting levels. If formatting
+fails after writing part of the message, it appends ` [report unavailable]` and
+a newline without trying the method again. Stderr failures stop output.
+
+Use [`std.fmt`](formatting.md) for floats, widths,
 debug escaping or an arbitrary byte writer. The
 [reference](../../design/stdlib/report.md) lists the complete reporting API.

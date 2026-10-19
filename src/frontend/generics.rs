@@ -139,6 +139,7 @@ pub(super) fn prepare(
         templates: HashMap::new(),
         defaults: HashMap::new(),
         call_wrappers: HashMap::new(),
+        deferred_reporting: HashMap::new(),
         cache: HashMap::new(),
         specialization_depths: HashMap::new(),
         // One entry per function: sized up front, these are not rehashed
@@ -195,6 +196,9 @@ pub(super) struct Engine {
     /// Retained after lowering without keeping complete function bodies alive.
     pub(super) defaults: HashMap<String, Vec<Option<Expr>>>,
     pub(super) call_wrappers: HashMap<(String, Vec<usize>), String>,
+    /// Conditional Context methods retain their declarations without lowering
+    /// an unsupported cause's formatting body merely by constructing Context.
+    deferred_reporting: HashMap<String, Arc<Function>>,
     cache: HashMap<(String, Vec<Ty>), String>,
     /// First-requiring dependency depth, also inherited by lifted code.
     specialization_depths: HashMap<String, usize>,
@@ -233,6 +237,19 @@ pub(super) struct Declared {
 }
 
 impl Engine {
+    pub(super) fn defer_reporting_method(&mut self, function: Function) {
+        let function = Arc::new(function);
+        self.record(&function);
+        self.deferred_reporting
+            .insert(function.name.clone(), function);
+    }
+
+    pub(super) fn require_reporting_method(&mut self, name: &str) -> Option<Arc<Function>> {
+        let function = self.deferred_reporting.remove(name)?;
+        self.pending.push_back(Arc::clone(&function));
+        Some(function)
+    }
+
     pub(super) fn reporting_protocol(&self) -> Option<&protocols::Protocol> {
         self.protocols
             .get("std.report.Formattable")

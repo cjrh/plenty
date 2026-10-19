@@ -34,6 +34,165 @@ def start(path: &Path) -> Result[i64, Context[Context[IoError]]]:
     Ok(len(context(load(path), "load settings")?))
 "#;
 
+const FORMATTABLE_CAUSE: &str = r#"from std.error import Context, Subject
+from std.report import Formatter, FormatError, render, to_string, string_formatter, stderr_formatter, finish
+from std.path import from_text
+pub enum Cause:
+    Rejected
+    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+        output.text("rejected")
+"#;
+
+#[test]
+fn typed_context_protocol_requires_its_entire_cause_to_be_formattable() {
+    for cause in [
+        "IoError.Closed",
+        "Context(\"inner\", Subject.Absent, IoError.Closed)",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("main.plenty");
+        std::fs::write(
+            &file,
+            format!(
+                r#"{FORMATTABLE_CAUSE}
+from std.report import Formattable
+def accept[T: Formattable](value: &T) -> ():
+    pass
+def main() -> ():
+    error = Context("outer", Subject.Absent, {cause})
+    accept(&error)
+"#
+            ),
+        )
+        .unwrap();
+        let error = plenty::check_file(&file, None).unwrap_err().to_string();
+        assert!(error.contains("does not satisfy"), "{error}");
+    }
+}
+
+#[test]
+fn typed_context_formatting_nests_without_duplicating_the_cause() {
+    run_both(
+        &format!(
+            r#"{FORMATTABLE_CAUSE}
+def main() -> Result[(), Failure]:
+    inner = Context("read", Subject.At(from_text("settings.txt")?), Cause.Rejected)
+    outer = Context("start", Subject.Absent, inner)
+    print(to_string(&outer, 100, 3)?)?
+    print(outer.cause.cause == Cause.Rejected)?
+    print(outer.cause.describe_with("custom description")?)?
+    unavailable = Context("load", Subject.Unavailable(AllocError.OutOfMemory), Cause.Rejected)
+    print(to_string(&unavailable, 100, 2)?)?
+    Ok(())
+"#
+        ),
+        0,
+        "start: read \"settings.txt\": rejected\nTrue\nread \"settings.txt\": custom description\nload <path unavailable>: rejected\n",
+        "",
+    );
+}
+
+#[test]
+fn typed_context_formatting_preserves_partial_output_and_depth() {
+    run_both(
+        &format!(
+            r#"{FORMATTABLE_CAUSE}
+def main() -> Result[(), Failure]:
+    error = Context("open", Subject.Absent, Cause.Rejected)
+    mut shallow = string_formatter(100, 1)?
+    print(str.repr(render(&error, &mut shallow))?)?
+    print(finish(&shallow)?)?
+    render(&Cause.Rejected, &mut shallow)?
+    print(finish(&shallow)?)?
+    mut short = string_formatter(5, 2)?
+    print(str.repr(render(&error, &mut short))?)?
+    print(finish(&short)?)?
+    print(error.cause == Cause.Rejected)?
+    Ok(())
+"#
+        ),
+        0,
+        "Result[(), std.report.FormatError].Err(std.report.FormatError.RecursionLimit)\nopen: \nopen: rejected\nResult[(), std.report.FormatError].Err(std.report.FormatError.LimitExceeded)\nopen\nTrue\n",
+        "",
+    );
+}
+
+#[test]
+fn typed_context_keeps_owned_cause_after_formatter_failure() {
+    run_both(
+        &format!(
+            r#"{FORMATTABLE_CAUSE}
+pub class Owned:
+    pub text: str
+    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+        output.text(&self.text)?
+        Err(FormatError.InvalidSpec)
+    def __del__(self) -> ():
+        print("drop", self.text).unwrap()
+def main() -> Result[(), Failure]:
+    error = Context("load", Subject.Absent, Owned("payload"))
+    mut output = string_formatter(100, 2)?
+    print(str.repr(render(&error, &mut output))?)?
+    print(finish(&output)?)?
+    print(error.cause.text)?
+    Ok(())
+"#
+        ),
+        0,
+        "Result[(), std.report.FormatError].Err(std.report.FormatError.InvalidSpec)\nload: payload\npayload\ndrop payload\n",
+        "",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn typed_context_without_a_path_formats_without_allocating() {
+    run_both(
+        &format!(
+            r#"{FORMATTABLE_CAUSE}
+def main() -> Result[(), Failure]:
+    error = Context("read", Subject.Absent, Cause.Rejected)
+    mut output = stderr_formatter(100, 2)?
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    render(&error, &mut output)?
+    print("__test_end_no_allocations__")?
+    print("__test_restore_allocations__")?
+    print(error.cause == Cause.Rejected)?
+    Ok(())
+"#
+        ),
+        0,
+        "True\n",
+        "read: rejected",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn typed_context_path_display_failure_preserves_its_cause() {
+    run_both(
+        &format!(
+            r#"{FORMATTABLE_CAUSE}
+def main() -> Result[(), Failure]:
+    path = from_text("a/long/enough/path/to/require/an/allocation")?
+    error = Context("read", Subject.At(path), Cause.Rejected)
+    mut output = stderr_formatter(100, 2)?
+    print("__test_fail_allocations_after_0__")?
+    result = render(&error, &mut output)
+    print("__test_restore_allocations__")?
+    print(str.repr(result)?)?
+    print(error.cause == Cause.Rejected)?
+    print(output.completed())?
+    Ok(())
+"#
+        ),
+        0,
+        "Result[(), std.report.FormatError].Err(std.report.FormatError.Bytes(std.bytes.BytesError.Allocation(AllocError.OutOfMemory)))\nTrue\n6\n",
+        "read \"",
+    );
+}
+
 #[test]
 fn context_helpers_preserve_unit_success_and_typed_errors() {
     run_both(

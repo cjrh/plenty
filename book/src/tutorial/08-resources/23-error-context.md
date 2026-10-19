@@ -77,3 +77,40 @@ report only `error: run: Failure.Unspecified`. Return a `Context` or your own
 enum from the functions whose failures you want explained. See
 [the module reference](../../design/stdlib/error.md) for nesting contexts and
 the rules standard modules follow.
+
+For a human-readable cause, give its type the public `std.report` formatting
+method. Contexts then format their operation labels and delegate to that cause:
+
+```plenty
+from std.error import Context, Subject
+from std.report import Formatter, FormatError, to_string
+
+pub enum SettingsError:
+    Invalid
+
+    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+        output.text("invalid setting")
+
+def main() -> Result[(), FormatError | IoError]:
+    inner = Context("parse", Subject.Absent, SettingsError.Invalid)
+    outer = Context("load settings", Subject.Absent, inner)
+    print(to_string(&outer, 120, 8)?)?
+    print(to_string(&outer, 120, 8)?)?
+    Ok(())
+```
+
+```output
+load settings: parse: invalid setting
+load settings: parse: invalid setting
+```
+
+Formatting borrows both contexts and includes the cause once. Returning an
+`Err` with this context type from `main` selects the same wording automatically,
+with the entrypoint's prefix and newline. A context whose cause has no formatting
+method still uses structural entrypoint reporting. The existing `describe`,
+`describe_with`, `report` and `report_with` methods keep their behavior.
+
+Without a path, context formatting adds no allocation. A present path still
+uses fallible `Path.display`; failure leaves the typed cause intact and may
+leave part of the report already written. See
+[bounded reports](report-formatting.md) for limits and failure handling.

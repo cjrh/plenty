@@ -387,7 +387,7 @@ def main() -> Result[(), Failure]:
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
     assert!(
         error.contains(
-            "worker `work` reaches the generic function at std/error.plenty:5:5 \
+            "worker `work` reaches the generic function at std/error.plenty:7:5 \
              through `outer` -> `Parser.parse`: indirect callable effects"
         ),
         "{error}"

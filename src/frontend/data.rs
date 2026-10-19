@@ -118,6 +118,58 @@ impl DataTypes {
         self.arguments.borrow().get(name).cloned()
     }
 
+    /// The reporting method of the toolchain's Context is available only when
+    /// its cause can be reported. Nominal identity and source provenance both
+    /// matter: a user type with the same short name has no special behavior.
+    pub(super) fn report_context(
+        &self,
+        ty: &Ty,
+        standard_sources: &HashSet<Arc<str>>,
+    ) -> Option<(Ty, protocols::Protocol)> {
+        let (name, arguments) = self.arguments(ty)?;
+        if name != "std.error.Context" {
+            return None;
+        }
+        let declaration = self.classes.get(&name)?;
+        if !declaration
+            .at
+            .source
+            .as_ref()
+            .is_some_and(|source| standard_sources.contains(source))
+        {
+            return None;
+        }
+        let [cause] = arguments.as_slice() else {
+            return None;
+        };
+        let mut method = declaration
+            .methods
+            .iter()
+            .find(|method| method.name == "format")?
+            .clone();
+        let name = "std.report.Formattable".to_owned();
+        method.inputs[0].1 = TypeRef {
+            concrete: None,
+            at: declaration.at.clone(),
+            name: Some("&".into()),
+            args: vec![TypeRef {
+                concrete: None,
+                at: declaration.at.clone(),
+                name: Some(name.clone()),
+                args: vec![],
+            }],
+        };
+        Some((
+            cause.clone(),
+            protocols::Protocol {
+                name,
+                at: declaration.at.clone(),
+                type_params: vec![],
+                methods: vec![method],
+            },
+        ))
+    }
+
     pub(super) fn factories(&self) -> Vec<Function> {
         let mut classes: Vec<_> = self
             .classes
@@ -739,9 +791,18 @@ impl generics::Engine {
             }
             let signature = protocols::signature(f, aliases)?;
             if crate::record::is_method(&f.name) {
-                self.methods.insert(f.name.clone(), signature);
+                self.methods.insert(f.name.clone(), signature.clone());
             }
-            self.declare(f.clone());
+            let conditional = f.name.ends_with(".format")
+                && signature.0.first().is_some_and(|receiver| {
+                    matches!(receiver, Ty::Ref(owner, false)
+                        if aliases.data.report_context(owner, &self.standard_sources).is_some())
+                });
+            if conditional {
+                self.defer_reporting_method(f.clone());
+            } else {
+                self.declare(f.clone());
+            }
         }
         Ok(functions
             .into_iter()

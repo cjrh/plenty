@@ -103,6 +103,7 @@ mod test_concurrency_modules;
 mod test_consuming_threads;
 #[path = "test_container_conveniences.rs"]
 mod test_container_conveniences;
+mod test_context_reporting_bounds;
 #[path = "test_contexts.rs"]
 mod test_contexts;
 #[path = "test_conversion_errors.rs"]
@@ -119,6 +120,7 @@ mod test_dictionary_removal;
 mod test_dictionary_snapshots;
 #[path = "test_element_references.rs"]
 mod test_element_references;
+mod test_entry_report_format;
 #[path = "test_entrypoint.rs"]
 mod test_entrypoint;
 #[path = "test_enum_allocation.rs"]

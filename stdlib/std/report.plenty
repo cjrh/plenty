@@ -191,3 +191,23 @@ pub def to_string[T: Formattable](value: &T, max_bytes: i64, max_depth: i64) -> 
     mut output = string_formatter(max_bytes, max_depth)?
     render(value, &mut output)?
     finish(&output)
+
+# Compiler-selected entrypoint boundary. Ownership stays here so formatting
+# failure never replaces the original error or skips its ordinary destruction.
+def entry_report[T: Formattable](value: T) -> i32:
+    drop(flush_stdout())
+    mut output = Formatter(Destination.Stderr, 16384, 0, 0, 64, False)
+    result = entry_record(&value, &mut output)
+    match result:
+        case Ok(_):
+            pass
+        case Err(_):
+            if not output.failed():
+                mut fallback = Formatter(Destination.Stderr, 22, 0, 0, 0, False)
+                drop(fallback.text(" [report unavailable]\n"))
+    1i32
+
+def entry_record[T: Formattable](value: &T, output: &mut Formatter) -> Result[(), FormatError]:
+    output.text("error: main returned ")?
+    render(value, output)?
+    output.text("\n")

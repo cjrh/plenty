@@ -2,8 +2,8 @@
 
 Status: enum methods, ordinary enum protocol satisfaction, the concrete
 [`std.report`](../design/stdlib/report.md) formatting core, and its automatic
-dispatch over [anonymous sums](error-sets.md) are implemented. Entrypoint selection
-and typed context formatting remain the agreed direction below.
+dispatch over [anonymous sums](error-sets.md), entrypoint selection and typed
+context formatting are implemented.
 Current behavior is defined by [entry reports](../design/toolchain/01-building/entry-report.md),
 [formatting](../design/facilities/01-builtins/formatting.md), and
 [`std.error`](../design/stdlib/error.md). Scheduling belongs in B71 in the
@@ -22,11 +22,12 @@ messages. It is useful beyond errors; a nominal error marker is not required.
 Application reporting chooses destination, prefix, fallback, and exit status.
 Formatting a value does not itself print or terminate the process.
 
-Today entrypoint reports use structural rendering, with special explanations for
-some builtins. `Context.describe()` also uses structural cause text, while
+Entrypoint reports select `Formattable` when the concrete type satisfies it,
+otherwise use structural rendering with special explanations for some builtins.
+`Context.describe()` still uses structural cause text, while
 `describe_with()` accepts caller-provided wording. `std.report.Formattable`
 provides borrowed formatting into a concrete destination; entrypoint reports and
-`Context` do not select it automatically yet. Classes and enums can also supply
+eligible `Context` values use it. Classes and enums can also supply
 the existing `std.fmt` display/debug methods. Those methods use a generic writer
 and allocated scratch and remain useful for richer application formatting.
 
@@ -78,7 +79,7 @@ general contract. The first version grants only the specified formatting behavio
 
 ## Reporting at the application boundary
 
-The target entrypoint policy chooses human-readable formatting when the concrete
+The entrypoint policy chooses human-readable formatting when the concrete
 error type satisfies the protocol, otherwise structural representation. For a sum
 with an unformattable member, use structural reporting for the sum as a whole;
 do not introduce a hidden per-member relaxation of the protocol bound.
@@ -89,19 +90,20 @@ entrypoint still returns status one. Intermediate propagation remains silent.
 Output failures, including a closed stderr pipe, must not trigger another report.
 Preserve the existing entrypoint treatment of stderr failure.
 
-Streaming can fail after emitting a prefix or part of a message. The detailed
-reporter contract must define a bounded fallback suffix/newline for that case;
-it cannot promise atomic output without providing buffering. Do not retry a
-user formatter after partial output. Ordinary traps retain their existing
+Streaming can fail after emitting a prefix or part of a message. Normal output
+has a 16,384-byte budget and depth limit 64. A formatting failure appends the
+fixed suffix ` [report unavailable]\n` outside that budget; a terminal transport
+failure stops output instead. Reports are not atomic, and the reporter never
+retries a user formatter after partial output. Ordinary traps retain their existing
 non-unwinding semantics; a best-effort reporter cannot catch arbitrary traps.
 
-Adapt context formatting to present the operation/path and then the typed cause.
-Keep explicit caller-provided descriptions useful. Avoid duplicating the cause
+Context formatting presents the operation/path and then the typed cause.
+Explicit caller-provided descriptions remain useful. This avoids duplicating the cause
 in both a wrapper's message and an automatically appended chain. A heterogeneous
 `source()` interface, dynamic error objects, and general cause-chain traversal
 are deferred; typed context composition does not depend on them.
 
-## Acceptance criteria and decisions before coding
+## Acceptance criteria
 
 Check class and enum protocol satisfaction, missing-method diagnostics, borrowed
 payload preservation, sum dispatch for every member, singleton/alias behavior,
@@ -113,8 +115,8 @@ string collection failure, nested contexts, custom formatter failure before and
 after output, unsupported structural rendering, closed stderr, exactly-once
 payload destruction, and identical compile-and-run/native executable reports.
 
-Resolve partial-output fallback wording and context convenience API compatibility
-before coding those reporting interfaces. The formatter method, result and
-destination API are defined in the `std.report` reference. These remaining design
-details belong within the agreed architecture; the reference and tutorial must
-continue to distinguish implemented formatting from planned automatic reporting.
+The existing context description/report convenience APIs preserve their behavior.
+Conditional `Context[E]` formatting is a narrow compiler-supported rule for the
+trusted standard type, rather than a general conditional-method feature. The
+formatter method, result and destination API are defined in the `std.report`
+reference; the entrypoint reference defines reporting limits and fallback.

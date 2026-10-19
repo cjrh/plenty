@@ -26,6 +26,7 @@ pub class Context[E]:
 | `path_context(result, operation, &path)` | `Result[T, Context[E]]` | Wraps an `Err`, copying the path only then |
 | `error.describe()` | `Result[str, AllocError]` | One-line text ending in `str.repr` of the cause |
 | `error.describe_with(&cause_text)` | `Result[str, AllocError]` | The same text with a caller-supplied cause |
+| `error.format(&mut output)` | `Result[(), FormatError]` | Borrowed `std.report` formatting when `E` satisfies `Formattable` |
 | `error.report()` | `()` | Writes `error: ` and the description to standard error |
 | `error.report_with(description)` | `()` | The same for a description `Result` the caller built |
 | `native_code(error)` | `Option[i32]` | The OS code of `IoError.System(code)`; otherwise `Nothing` |
@@ -110,7 +111,21 @@ outer.describe_with(&outer.cause.describe()?)
 That gives `load settings: read_bytes "missing/settings": IoError.System(2)`.
 An application error enum can match its variants and call the method that fits
 each payload. [`std.report.Formattable`](report.md) provides borrowed formatting
-for application types; `Context` does not implement it automatically yet.
+for application types. `Context[E]` supports this protocol when `E` does:
+it emits the operation and subject, then calls `render` on the typed cause
+exactly once. Nested contexts therefore produce nested operation labels without
+duplicating the cause. Each nested `render` counts toward the depth limit.
+
+This conditional method is compiler-supported for the embedded `std.error`
+type; it does not introduce conditional methods for arbitrary generic classes.
+An unformattable cause keeps the existing description APIs and structural
+entrypoint reporting. `describe` and `describe_with` retain their existing
+behavior even when the cause has a `format` method.
+
+Formatting an absent or unavailable subject adds no allocation. A present path
+uses the allocating `Path.display`; failure is returned as
+`FormatError.Bytes(BytesError.Allocation(...))`, preserving the cause and any
+already-written prefix. Operation and cause text are emitted unchanged.
 
 ## Reports
 
@@ -130,10 +145,11 @@ Neither fallback allocates:
 `report_with(description)` applies the same rules to a description the caller
 built, such as the nested one above; pass the `Result` unhandled.
 
-Returning `Err(context)` from `main` still produces the
-[entrypoint report](../toolchain/01-building/entry-report.md), which renders the
-context structurally and shows a path as its byte list. Call `report` for the
-format above.
+Returning `Err(context)` from `main` produces the
+[entrypoint report](../toolchain/01-building/entry-report.md). It selects the
+typed formatting method when the cause is formattable, otherwise renders the
+context structurally and shows a path as its byte list. The explicit `report`
+and `report_with` APIs keep their description-based behavior.
 
 ## Conventions for standard modules
 
@@ -162,8 +178,9 @@ format above.
   generator is rejected where `Context[E]` is first used, because every method
   of a class instance is checked together.
 - No OS description text is added to a native code.
-- A standard-error pipe whose reader has gone terminates the process with
-  `SIGPIPE`, as for any `write_stderr`. Only the entrypoint report suppresses it.
+- The legacy `report` and `report_with` methods use `write_stderr`: a pipe whose
+  reader has gone terminates the process with `SIGPIPE`. The `std.report`
+  formatter and entrypoint reporter suppress it and preserve normal cleanup.
 - A piecewise fallback report is not atomic against concurrent writers.
 - `Subject` has no network address or other non-path variant.
 

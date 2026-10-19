@@ -83,8 +83,10 @@ Do not replay a record blindly after a partial write; inspect `completed()`.
 
 ## Current boundaries
 
-This module is an explicit API. Entrypoint reports still use their existing
-[structural rendering](../toolchain/01-building/entry-report.md). Floating-point formatting,
+The same protocol selects human-readable
+[entrypoint reports](../toolchain/01-building/entry-report.md); types without it
+retain structural rendering. `std.error.Context[E]` supports the protocol when
+its cause does. Floating-point formatting,
 width, escaping and arbitrary writer destinations remain in
 [`std.fmt`](fmt.md). The [tutorial](../../tutorial/08-resources/report-formatting.md)
 shows borrowed enum and sum reporting.

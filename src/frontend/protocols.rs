@@ -277,6 +277,28 @@ pub(super) fn check(
     bound: &Token,
     call: &Token,
 ) -> Result<()> {
+    if protocol
+        .methods
+        .iter()
+        .any(|method| method.name == "format")
+    {
+        if let Some((cause, required)) = aliases.data.report_context(actual, standard_sources) {
+            // A matching signature alone cannot advertise Context.format for
+            // an unsupported cause. This also applies to user protocols with
+            // the same method, including bounds whose body never calls it.
+            check(
+                &required,
+                &cause,
+                methods,
+                templates,
+                aliases,
+                access,
+                standard_sources,
+                &required.at,
+                call,
+            )?;
+        }
+    }
     if matches!(actual, Ty::Enum(sum) if sum.anonymous()) {
         if !reporting(protocol, standard_sources) {
             return Err(call.error(format!(

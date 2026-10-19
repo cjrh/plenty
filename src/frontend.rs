@@ -5120,6 +5120,50 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     } else {
         false
     };
+    // The reporting contract is optional: types without its exact public
+    // implementation retain the existing structural entrypoint diagnostic.
+    // Its canonical types imply that the trusted std.report module is loaded.
+    let entry_report = if require_main {
+        if let ([Ty::Enum(result)], Some(protocol)) = (
+            sigs["main"].outputs.as_slice(),
+            generics.reporting_protocol().cloned(),
+        ) {
+            let error = &result.get().variants[1].fields[0];
+            if protocols::check(
+                &protocol,
+                error,
+                &generics.methods,
+                &generics.templates,
+                &aliases,
+                &access,
+                &generics.standard_sources,
+                &protocol.at,
+                &protocol.at,
+            )
+            .is_ok()
+            {
+                let (symbol, function) = generics.instantiate(
+                    "std.report.entry_report",
+                    vec![error.clone()],
+                    &protocol.at,
+                    &aliases,
+                    &access,
+                    "main",
+                )?;
+                if let Some(function) = function {
+                    register_signature(&function, &aliases, &mut sigs, &mut returned_fields)?;
+                    generics.declare(function);
+                }
+                Some(symbol)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     if generator_parameters {
         generics.pending.retain(|f| {
             !sigs[&f.name]
@@ -5185,9 +5229,14 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                     },
                     vec![
                         Op::Enum(crate::sum::EnumOp::Take(t.clone(), 1, 0)),
-                        Op::Collection(CollectionOp::ReportEntryError(
-                            t.get().variants[1].fields[0].clone(),
-                        )),
+                        entry_report.as_ref().map_or_else(
+                            || {
+                                Op::Collection(CollectionOp::ReportEntryError(
+                                    t.get().variants[1].fields[0].clone(),
+                                ))
+                            },
+                            |symbol| Op::Call(symbol.clone()),
+                        ),
                     ],
                 ),
             ]);

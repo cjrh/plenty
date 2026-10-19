@@ -880,6 +880,42 @@ impl Lower<'_> {
         super::ide::method_call(&base.at, name, &callee);
         self.sync_data()?;
         if name == "format" {
+            if let Some(ty) = self.place_type(base).map(unbox) {
+                if self
+                    .aliases
+                    .data
+                    .report_context(&ty, &self.generics.standard_sources)
+                    .is_some()
+                {
+                    let protocol = self.generics.reporting_protocol().ok_or_else(|| {
+                        base.at
+                            .error("Context formatting requires std.report.Formattable")
+                    })?;
+                    protocols::check(
+                        protocol,
+                        &ty,
+                        &self.generics.methods,
+                        &self.generics.templates,
+                        self.aliases,
+                        self.access,
+                        &self.generics.standard_sources,
+                        &protocol.at,
+                        &base.at,
+                    )?;
+                    if let Some(function) = self.generics.require_reporting_method(&callee) {
+                        // Instances created before the initial signature pass
+                        // were deliberately absent from its pending queue.
+                        if !self.sigs.contains_key(&callee) {
+                            register_signature(
+                                &function,
+                                self.aliases,
+                                self.sigs,
+                                self.returned_fields,
+                            )?;
+                        }
+                    }
+                }
+            }
             if let Some(ty @ Ty::Enum(_)) = self.place_type(base).map(unbox) {
                 if matches!(&ty, Ty::Enum(sum) if sum.anonymous()) {
                     self.report_sum_method(&ty, &callee, &base.at)?;
