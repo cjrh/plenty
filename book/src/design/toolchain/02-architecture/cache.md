@@ -49,6 +49,27 @@ Every damaged or stale entry is a miss, never an error: an entry carries a
 checksum of its payload, and Cranelift rejects entries written by another
 version of itself.
 
+Plenty buffers the key's `Hash` byte stream before feeding it to SHA-256.
+The byte stream and serialized entries remain compatible with the pinned
+Cranelift version (0.131.1); unit tests compare buffered keys to Cranelift's
+keys and exercise entry exchange in both directions. Dependency upgrades
+must retain these checks: the upstream key implementation is not a stable
+serialization format.
+
+Within one compilation, each distinct key has a lazily initialized memory
+entry. Concurrent requests for that key share its disk read, decoding, or
+compilation; unrelated keys can initialize in parallel. The memory entry
+keeps only machine bytes, alignment, and unresolved relocations. Relocations
+are resolved using each current function's symbol table and function ID;
+source locations and other parameterized Cranelift metadata are not reused.
+Cranelift's optional cache-check mode continues through its original path,
+including recompilation and comparison of full metadata.
+
+This saves duplicate decoding at the cost of retaining all distinct machine
+code and relocation buffers until the compilation's cache is dropped. There
+is no separate memory eviction limit. In-memory reuse counts as a hit, but
+adds no disk bytes read; the reported time saved is still an estimate.
+
 ## Location and controls
 
 | Setting | Effect |

@@ -367,28 +367,30 @@ fn compile(
     let compiled = crate::profile_block!(
         "output::cranelift_compile",
         match cache {
-            Some(cache) => {
-                let mut store = cache.store();
-                let hit = context
-                    .compile_with_cache(isa, &mut store, &mut ControlPlane::default())
-                    .map(|(_, hit)| hit)
-                    .map_err(|error| format!("{:?}", error.inner));
-                hit.map(|hit| store.finish(hit))
-            }
+            Some(cache) => cache.compile(context, isa).map(Some),
             None => context
                 .compile(isa, &mut ControlPlane::default())
-                .map(|_| ())
+                .map(|_| None)
                 .map_err(|error| format!("{:?}", error.inner)),
         }
     );
-    let code = compiled.map(|()| {
+    let code = compiled.map(|compiled| {
         crate::profile_block!("output::collect_code", {
-            let buffer = &context.compiled_code().unwrap().buffer;
+            let (alignment, bytes, relocs) = match compiled.as_deref() {
+                Some(code) => (
+                    code.alignment,
+                    code.bytes.as_slice(),
+                    code.relocs.as_slice(),
+                ),
+                None => {
+                    let buffer = &context.compiled_code().unwrap().buffer;
+                    (buffer.alignment as u64, buffer.data(), buffer.relocs())
+                }
+            };
             Code {
-                alignment: buffer.alignment as u64,
-                bytes: buffer.data().to_vec(),
-                relocs: buffer
-                    .relocs()
+                alignment,
+                bytes: bytes.to_vec(),
+                relocs: relocs
                     .iter()
                     .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &context.func, id))
                     .collect(),
@@ -738,12 +740,17 @@ def main() -> ():
         };
         let ints = shows("list[i64]", "");
         let strs = shows("list[str]", "\n\n# shifted\n");
-        let dir = tempfile::tempdir().unwrap();
-        let cold = cached(dir.path(), true);
-        assert!(object(&ints, 2, Build::default()) == object(&ints, 2, cold));
-        let warm = cached(dir.path(), true);
-        assert!(object(&strs, 2, Build::default()) == object(&strs, 2, warm.clone()));
-        assert!(warm.cache.unwrap().stats().hits > 0);
+        for check in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let cold = cached(dir.path(), check);
+            assert!(object(&ints, 2, Build::default()) == object(&ints, 2, cold.clone()));
+            // Reuse the same Cache to exercise parameter changes on memory
+            // hits, then a fresh Cache for disk hits.
+            assert!(object(&strs, 2, Build::default()) == object(&strs, 2, cold));
+            let warm = cached(dir.path(), check);
+            assert!(object(&strs, 2, Build::default()) == object(&strs, 2, warm.clone()));
+            assert!(warm.cache.unwrap().stats().hits > 0);
+        }
     }
 
     /// The build's ISA with `flags` changed, as the cache key sees it.
@@ -848,6 +855,84 @@ def main() -> ():
                 compute_cache_key(&*isa_with(&[(name, value)]), &function),
                 "{name}"
             );
+        }
+    }
+
+    #[test]
+    fn memoized_stencils_keep_each_functions_own_relocations() {
+        let isa = targets().ordinary;
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::open(&CacheMode::Directory(dir.path().to_path_buf())).unwrap();
+        let mut context = Context::new();
+        for callee in [3, 7, 42] {
+            let func = constant(types::I64, 1, Some(callee));
+            let id = FuncId::from_u32(callee + 100);
+            let plain = compile(&mut context, &*isa, id, func.clone(), None).unwrap();
+            let cached = compile(&mut context, &*isa, id, func, Some(&cache)).unwrap();
+            assert_eq!(plain.bytes, cached.bytes);
+            assert_eq!(plain.alignment, cached.alignment);
+            assert!(!cached.relocs.is_empty());
+            assert_eq!(plain.relocs.len(), cached.relocs.len());
+            for (plain, cached) in plain.relocs.iter().zip(&cached.relocs) {
+                assert_eq!(format!("{:?}", plain.name), format!("{:?}", cached.name));
+                assert_eq!(plain.offset, cached.offset);
+                assert_eq!(plain.kind, cached.kind);
+                assert_eq!(plain.addend, cached.addend);
+            }
+        }
+        assert_eq!(cache.stats().misses, 1);
+        assert_eq!(cache.stats().hits, 2);
+        assert_eq!(cache.stats().bytes_read, 0, "duplicates reuse decoded code");
+
+        // A fresh compile decodes the disk entry exactly once, even when
+        // workers ask for that stencil concurrently.
+        let cache = Cache::open(&CacheMode::Directory(dir.path().to_path_buf())).unwrap();
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let cache = &cache;
+                let isa = &isa;
+                scope.spawn(move || {
+                    let mut context = Context::new();
+                    context.func = constant(types::I64, 1, Some(3));
+                    cache.compile(&mut context, &**isa).unwrap()
+                });
+            }
+        });
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 8);
+        assert_eq!(stats.misses, 0);
+        assert_eq!(stats.bytes_read, cache_size(dir.path()));
+    }
+
+    fn cache_size(path: &std::path::Path) -> u64 {
+        crate::cache::summary(&CacheMode::Directory(path.to_path_buf()))
+            .unwrap()
+            .bytes
+    }
+
+    #[test]
+    fn cache_entries_interoperate_with_upstream_compilation() {
+        let isa = targets().ordinary;
+        for upstream_first in [true, false] {
+            let dir = tempfile::tempdir().unwrap();
+            let cache = Cache::open(&CacheMode::Directory(dir.path().to_path_buf())).unwrap();
+            let function = constant(types::I64, 123, Some(7));
+            let mut context = Context::new();
+            for upstream in [upstream_first, !upstream_first] {
+                context.clear();
+                context.func = function.clone();
+                if upstream {
+                    let mut store = cache.store();
+                    let (_, hit) = context
+                        .compile_with_cache(&*isa, &mut store, &mut ControlPlane::default())
+                        .unwrap();
+                    store.finish(hit);
+                } else {
+                    cache.compile(&mut context, &*isa).unwrap();
+                }
+            }
+            assert_eq!(cache.stats().hits, 1);
+            assert_eq!(cache.stats().misses, 1);
         }
     }
 
