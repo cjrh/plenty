@@ -4,6 +4,7 @@
 //! There is no fallback source: a failed call never yields weaker bytes.
 use std::io;
 
+#[cfg(target_os = "linux")]
 type Source = unsafe extern "C" fn(*mut u8, usize, u32) -> isize;
 
 #[cfg(target_os = "linux")]
@@ -22,6 +23,7 @@ pub(crate) fn read(_target: &mut [u8]) -> io::Result<u128> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
+#[cfg(target_os = "linux")]
 fn read_with(source: Source, target: &mut [u8]) -> io::Result<u128> {
     if target.is_empty() {
         return Ok(0);
