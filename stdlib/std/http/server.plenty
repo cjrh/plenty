@@ -1306,12 +1306,7 @@ def request[T: Transport, R, H: Handler[T, R]](reader: BufReader[Conn[T]], head:
             allow = methods
         case Err(_):
             return Nothing
-    body_framing = match std.http.request_framing(&head):
-        case Ok(found):
-            found
-        case Err(_):
-            return Nothing
-    body = match std.http.body_reader(conn, &body_framing, &config.limits):
+    body = match std.http.body_reader(conn, &framing, &config.limits):
         case Ok(made):
             made
         case Err(_):
