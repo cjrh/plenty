@@ -34,7 +34,14 @@ to its parent. A path is refused when:
   `.env` or `.git`,
 - it contains a NUL byte,
 - any component is a symbolic link, the last is not a regular file (a
-  directory, FIFO or device), or it does not exist or cannot be opened.
+  directory, FIFO or device), or opening a component fails because it does
+  not exist, is not a directory where one is needed, is a directory where a
+  file is needed, has too long a name, or is not permitted (`ENOENT`,
+  `ENOTDIR`, `EISDIR`, `ENAMETOOLONG`, `EACCES`, `ELOOP`, `ENXIO`).
+
+Any other open failure, such as `EMFILE`, `EIO` or `ENOMEM`, is a server
+fault rather than a refusal: `open_file` and `serve` return
+`FilesError.Io`.
 
 Cleaning the path as a string would not be enough: a link inside the
 directory can lead out of it, and a path checked before opening can be
@@ -86,10 +93,11 @@ head has gone out; the server then closes the connection.
 
 ## Errors
 
-`FilesError` is `Io(IoError)` from reading the open file's metadata,
-`Stream(StreamError)` from reading it, `Http(HttpError)` from writing the
-response, `Truncated`, and `Allocation`. A refused or missing path is not an
-error.
+`FilesError` is `Io(IoError)` from opening a path component with an error
+outside the refusal list under [Confinement](#confinement) or from reading
+the open file's metadata, `Stream(StreamError)` from reading it,
+`Http(HttpError)` from writing the response, `Truncated`, and `Allocation`.
+A refused or missing path is not an error.
 
 ## Limits
 
