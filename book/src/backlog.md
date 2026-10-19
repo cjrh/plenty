@@ -32,8 +32,10 @@ not mean all candidates or every concurrency diagnostic are implemented.
    reports now select this protocol, and typed contexts format eligible causes.
    Tutorial examples now propagate incidental failures instead of unwrapping;
    most tutorial signatures now preserve concrete errors or sums. Scoped spawn
-   still rejects error sums containing `ThreadError` (issue #323), and the HTTP
-   `Handler` protocol still requires erased errors (issue #325).
+   propagation widens start errors into declared sums (issue #323); the HTTP
+   `Handler` protocol still requires erased errors (issue #325). Owned closure
+   starts and executor submissions still need `Failure` or a generic helper,
+   because their error names a closure type a signature cannot write.
    Continue migrating examples,
    libraries where appropriate, fixtures and documentation before removing
    builtin `Failure`. Use non-error sums and the mutual-TLS lesson as acceptance

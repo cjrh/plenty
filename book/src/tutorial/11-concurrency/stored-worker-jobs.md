@@ -9,7 +9,7 @@ def counter(total: i64) -> Closure[[], i64]:
         total = total + 1
         total
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError]:
     mut jobs = (counter(10), counter(100))
     with spawn(&mut jobs[0])? as first, spawn(&mut jobs[1])? as second:
         print(first.join())?
@@ -34,7 +34,7 @@ def make(offset: i64) -> Closure[[i64], i64]:
     def [offset](n: i64) -> i64:
         offset + n
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError]:
     with spawn(make, 10)? as task:
         callback = task.join()
         print(callback(3))?
@@ -49,6 +49,3 @@ List and dictionary entries can also supply a borrowed job, but their loans
 protect the whole collection. Even after `join()`, wait until the `with` block
 ends before resizing or replacing that collection. Stored callbacks have the
 same thread-eligibility restrictions as local ones.
-
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).

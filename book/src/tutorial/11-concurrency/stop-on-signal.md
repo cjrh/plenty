@@ -10,6 +10,7 @@ the [HTTP server](http-server.md) can drain instead:
 import std.http.server
 import std.net
 import std.process
+import std.ready
 import std.signal
 from std.http.server import Exchange
 from std.net import TcpStream
@@ -30,7 +31,7 @@ def supervisor() -> Result[(), AllocError | IoError]:
     command.spawn()?.wait()?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError | std.signal.SignalError | std.http.server.ServerError | std.net.NetError | AllocError | std.ready.WaitError]:
     signals = std.signal.listen()?
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
@@ -80,9 +81,6 @@ A program that is not a server can wait on the handle directly with
 `signals.watch(&mut selector, key)` and take the signal with
 `signals.received()`.
 
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
-
-The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
 Keep concrete errors in helpers; the handler boundary erases them. See the
 [server contract](../../design/stdlib/http-server.md).

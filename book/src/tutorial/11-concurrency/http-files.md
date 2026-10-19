@@ -11,6 +11,7 @@ import std.fs
 import std.http
 import std.http.cookie
 import std.http.files
+import std.io
 import std.http.server
 import std.net
 import std.path
@@ -96,7 +97,7 @@ def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoErro
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError | std.fs.FsError | AllocError | std.io.StreamError | std.http.server.ServerError | std.secrets.SecretsError | std.net.NetError]:
     parent = std.fs.root(&std.path.from_text(".")?)?
     mut directory = std.fs.temporary_dir(&parent, &std.path.from_text("plenty-site-")?, 8)?
     for name in ["index.html", ".env"]?:
@@ -159,9 +160,6 @@ when the program restarts. To replace a key, put the new one first and keep
 the old one after it until old cookies have expired: `find_signed` accepts
 any listed key, and `signed_cookie` always signs with the first.
 
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
-
-The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
 Keep concrete errors in helpers; the handler boundary erases them. See the
 [server contract](../../design/stdlib/http-server.md).

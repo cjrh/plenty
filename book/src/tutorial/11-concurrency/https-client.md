@@ -71,7 +71,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | AllocError | std.tls.TlsError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Count)?
     routes.add("PUT", "/upload", Route.Count)?
@@ -116,9 +116,6 @@ neither the request nor the response.
 The HTTPS support is a separate module: a program that imports only
 `std.http.client` does not include the TLS library.
 
-Spawning functions retain `Failure` here because of the current
-[error-type restriction at thread start](scoped-threads.md#error-types-at-thread-start).
-
-The HTTP `Handler` protocol also currently requires `Result[(), Failure]`.
+The HTTP `Handler` protocol currently requires `Result[(), Failure]`.
 Keep concrete errors in helpers; the handler boundary erases them. See the
 [server contract](../../design/stdlib/http-server.md).
