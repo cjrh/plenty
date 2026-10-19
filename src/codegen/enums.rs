@@ -35,7 +35,25 @@ pub(super) fn pack_value(
     b.ins().uextend(types::I128, word)
 }
 
+/// The tag word of a 128-bit slot. Slot words are split and joined with
+/// `isplit`/`iconcat`, which only name the two registers: x64 lowers every
+/// 128-bit shift, even by a constant 64, as a dozen-instruction
+/// variable-shift sequence that also dominated register allocation (issue #301).
+pub(super) fn high_word(
+    b: &mut FunctionBuilder<'_>,
+    value: cranelift_codegen::ir::Value,
+) -> cranelift_codegen::ir::Value {
+    b.ins().isplit(value).1
+}
+
 impl Lowerer<'_, '_> {
+    pub(super) fn high_word(
+        &mut self,
+        value: cranelift_codegen::ir::Value,
+    ) -> cranelift_codegen::ir::Value {
+        high_word(self.bcx, value)
+    }
+
     /// Byte offset of a field slot inside its owner's inline record storage.
     fn record_offset<'t>(fields: impl Iterator<Item = &'t Ty>) -> i64 {
         fields.map(|t| t.slot_bytes() as i64).sum()
@@ -172,18 +190,16 @@ impl Lowerer<'_, '_> {
             let result = match op {
                 EnumOp::TagRef(..) => {
                     let packed = self.read_reference(reference);
-                    let tags = self.bcx.ins().ushr_imm(packed, 64);
-                    let tags = self.raw_word(tags);
+                    let tags = self.high_word(packed);
                     let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
                     self.bcx.ins().band_imm(tags, mask as i64)
                 }
                 EnumOp::FieldRef(_, tag, field, _) => {
                     let fields = &t.get().variants[*tag].fields;
                     if fields.len() == 1 {
-                        let one = self.bcx.ins().iconst(types::I64, t.tag_bits() as i64);
-                        let one = self.bcx.ins().uextend(types::I128, one);
-                        let step = self.bcx.ins().ishl_imm(one, 64);
-                        self.bcx.ins().iadd(reference, step)
+                        let (address, shift) = self.bcx.ins().isplit(reference);
+                        let shift = self.bcx.ins().iadd_imm(shift, t.tag_bits() as i64);
+                        self.bcx.ins().iconcat(address, shift)
                     } else {
                         // The payload word in the slot addresses the record.
                         let address = self.raw_word(reference);
@@ -260,8 +276,7 @@ impl Lowerer<'_, '_> {
             }
             EnumOp::Tag(_) => {
                 let (value, _) = self.pop_typed(inputs[0].clone())?;
-                let tags = self.bcx.ins().ushr_imm(value, 64);
-                let tags = self.raw_word(tags);
+                let tags = self.high_word(value);
                 let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
                 let tag = self.bcx.ins().band_imm(tags, mask as i64);
                 self.release(value, &inputs[0]);
@@ -316,8 +331,7 @@ impl Lowerer<'_, '_> {
             let targets = crate::sum::members(target);
             if let Ty::Enum(from) = source {
                 if from.anonymous() {
-                    let tags = self.bcx.ins().ushr_imm(value, 64);
-                    let tags = self.raw_word(tags);
+                    let tags = self.high_word(value);
                     let mask = (from.get().variants.len().next_power_of_two() - 1).max(1);
                     let old_tag = self.bcx.ins().band_imm(tags, mask as i64);
                     let mut tag = self.bcx.ins().iconst(types::I64, 0);
@@ -329,9 +343,9 @@ impl Lowerer<'_, '_> {
                     }
                     let payload = self.tagged_payload(value, from.tag_bits());
                     let wrapped = self.wrap_tagged(payload, 0, to.tag_bits());
-                    let tag = self.bcx.ins().uextend(types::I128, tag);
-                    let tag = self.bcx.ins().ishl_imm(tag, 64);
-                    return self.bcx.ins().bor(wrapped, tag);
+                    let (word, tags) = self.bcx.ins().isplit(wrapped);
+                    let tags = self.bcx.ins().bor(tags, tag);
+                    return self.bcx.ins().iconcat(word, tags);
                 }
             }
             return self.wrap_tagged(
@@ -422,8 +436,7 @@ impl Lowerer<'_, '_> {
         &mut self,
         value: cranelift_codegen::ir::Value,
     ) -> cranelift_codegen::ir::Value {
-        let tags = self.bcx.ins().ushr_imm(value, 64);
-        let tags = self.raw_word(tags);
+        let tags = self.high_word(value);
         self.bcx.ins().band_imm(tags, 1)
     }
     fn sum_payload(&mut self, value: cranelift_codegen::ir::Value) -> cranelift_codegen::ir::Value {
@@ -434,11 +447,9 @@ impl Lowerer<'_, '_> {
         value: cranelift_codegen::ir::Value,
         bits: u32,
     ) -> cranelift_codegen::ir::Value {
-        let word = self.raw_word(value);
-        let word = self.bcx.ins().uextend(types::I128, word);
-        let tags = self.bcx.ins().ushr_imm(value, 64 + bits as i64);
-        let tags = self.bcx.ins().ishl_imm(tags, 64);
-        self.bcx.ins().bor(word, tags)
+        let (word, tags) = self.bcx.ins().isplit(value);
+        let tags = self.bcx.ins().ushr_imm(tags, bits as i64);
+        self.bcx.ins().iconcat(word, tags)
     }
     pub(super) fn wrap_sum(
         &mut self,
@@ -453,13 +464,10 @@ impl Lowerer<'_, '_> {
         tag: usize,
         bits: u32,
     ) -> cranelift_codegen::ir::Value {
-        let word = self.raw_word(value);
-        let word = self.bcx.ins().uextend(types::I128, word);
-        let tags = self.bcx.ins().ushr_imm(value, 64);
+        let (word, tags) = self.bcx.ins().isplit(value);
         let tags = self.bcx.ins().ishl_imm(tags, bits as i64);
         let tags = self.bcx.ins().bor_imm(tags, tag as i64);
-        let tags = self.bcx.ins().ishl_imm(tags, 64);
-        self.bcx.ins().bor(word, tags)
+        self.bcx.ins().iconcat(word, tags)
     }
     pub(super) fn lower_try(
         &mut self,
