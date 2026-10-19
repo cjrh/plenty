@@ -9,8 +9,9 @@ from a `std.io` `Reader`. Framing comes from [`std.http`](http.md) and
 sockets from [`std.net`](net.md); [`std.http.https`](#https) adds `https`
 URLs through [`std.tls`](tls.md). Both modules are checked Plenty in
 `stdlib/std/http/` and add no runtime primitives. The tutorial lessons
-[Send HTTP requests](../../tutorial/11-concurrency/http-client.md) and
-[Send HTTPS requests](../../tutorial/11-concurrency/https-client.md) show
+[Send HTTP requests](../../tutorial/11-concurrency/http-client.md),
+[Share one HTTP client between workers](../../tutorial/11-concurrency/shared-http-client.md)
+and [Send HTTPS requests](../../tutorial/11-concurrency/https-client.md) show
 complete programs.
 
 ## Clients
@@ -29,8 +30,9 @@ complete programs.
 | `client.stats()` | `Stats` |
 
 Both constructors fail with `InvalidConfig` for a config outside the bounds
-below. A client is used by one thread at a time; its methods take it by
-exclusive borrow. Give each thread its own client.
+below. Every method borrows the client shared, so one client serves many
+threads through [`Shared`](../facilities/01-builtins/shared.md) handles; see
+[Sharing a client between threads](#sharing-a-client-between-threads).
 
 `deadline` bounds the whole exchange, including later reads of the body of
 the `Response` that `send` returns. `cancel` stops it: a wait in progress
@@ -115,6 +117,37 @@ a pooled connection the client checks, without waiting, that nothing has
 arrived on it: a connection the server closed, or one with unexpected
 bytes, is closed and another is used. A connection idle longer than
 `idle_timeout` is closed when the pool is next used.
+
+## Sharing a client between threads
+
+A client's pool is one value behind a `std.sync` mutex, and its counters are
+atomics, so threads share a client by sharing the value:
+
+```text
+client = Shared(std.http.client.client(config)?)?
+job = pool.submit(fetch_all, client.share(), url)?
+```
+
+Each job owns a handle and calls `get`, `send`, `finish` and the rest through
+it; a connection one thread parks is reused by whichever thread asks next.
+The lock is held only while a connection is taken out of the pool or put back
+in: connecting, TLS, writing, waiting for a response and reading a body all
+run with the lock released, as do closing a stale, expired or displaced
+connection and the readiness probe before reuse. A request to a slow origin
+therefore does not delay requests to another through the same client.
+
+`max_idle`, `max_idle_per_origin` and `idle_timeout` bound the shared pool as a
+whole, and `Stats` counts every event exactly once: after all jobs finish,
+`opened + reused` is the number of requests sent, counting replays, and when
+every response allowed reuse, `opened` is `idle()` plus `discarded`. `stats()` reads each counter without
+the lock, so a snapshot taken while jobs run may show one counter ahead of
+another.
+
+Sharing a client is subject to the `Shared` rules: the connector's type must
+be able to cross threads. `TcpConnector` and `HttpsConnector`, whose TLS
+configuration is immutable, qualify. A single-threaded client pays an
+uncontended lock and unlock per checkout and return, and an atomic increment
+per counted event; neither allocates.
 
 ## Replaying requests
 
@@ -202,7 +235,7 @@ and its per-operation timeout.
 | Item | Meaning |
 |---|---|
 | `protocol Transport` | `read_before` and `write_before` with `TcpStream`'s parameters, returning `Result[i64, ClientError]`; `write_before` is generic in its `S: ByteSource` source |
-| `protocol Connector[T]` | `open(self: &mut, endpoint: &Endpoint, deadline, cancel) -> Result[T, ClientError]` |
+| `protocol Connector[T]` | `open(self, endpoint: &Endpoint, deadline, cancel) -> Result[T, ClientError]`; the connector is borrowed shared, since threads sharing a client open connections at the same time |
 | `Endpoint(scheme, host, port: u16, tunnel: Option[Tunnel])` | Where to connect: the origin, or the proxy; `host` is lowercase without brackets |
 | `Tunnel(host, port: u16, authorization: Option[str], limits: Limits)` | The proxy to reach the origin through with `CONNECT`; `limits` bounds the proxy's reply head |
 | `dial(&endpoint, &deadline, &cancel)` | `Result[TcpStream, ClientError]`: a TCP connection to the endpoint, through its tunnel if it has one |
@@ -210,7 +243,8 @@ and its per-operation timeout.
 
 A connector decides how to reach an endpoint. `dial` resolves the host and
 tries each address in turn. An in-memory connector makes code that uses a
-client testable without sockets.
+client testable without sockets; one that hands out scripted connections
+keeps them in a `Mutex`, since `open` borrows it shared.
 
 ## HTTPS
 
@@ -272,10 +306,6 @@ with unread bytes buffered.
 
 ## Limits
 
-- One thread per client. The pool is not shared between threads: std.sync
-  has no mutex, and a pool passed around through channels cannot look up a
-  connection by origin without taking every other thread's connections out
-  of it. Give each thread its own client.
 - No cookie jar. Read `Set-Cookie` fields from `response.head` and send a
   `Cookie` field yourself; the client drops it when the origin changes.
 - No content decoding. The client does not send `Accept-Encoding`, so

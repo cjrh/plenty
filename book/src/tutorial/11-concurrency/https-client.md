@@ -53,7 +53,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError
     base = "https://localhost:".concat(&str.from(i64(port))?)?
     roots = std.tls.roots_from_pem(&ca_pem())?
     tls = std.tls.client_config(&roots)?
-    mut client = std.http.https.client(std.http.client.config()?, tls)?
+    client = std.http.https.client(std.http.client.config()?, tls)?
 
     home = client.get(&base.concat("/")?, &deadline, &never)?
     print(home.status, home.body.to_text()?)?
