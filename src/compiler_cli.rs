@@ -1,8 +1,9 @@
 //! The single-file compiler interface shared by `plentyc` and `plenty`.
 //! Included by path into both binaries so each keeps its own `main`.
+use plenty::project::exit_code;
 use std::error::Error;
 use std::path::Path;
-use std::process::{Command, ExitCode, ExitStatus};
+use std::process::{Command, ExitCode};
 
 /// Compiler usage; `{0}` is replaced with the program name.
 const USAGE: &str = "\
@@ -409,18 +410,4 @@ fn compile(
 fn read_source(path: &Path) -> Result<String, Box<dyn Error>> {
     std::fs::read_to_string(path)
         .map_err(|error| format!("reading {}: {error}", path.display()).into())
-}
-
-pub fn exit_code(status: ExitStatus) -> ExitCode {
-    if let Some(code) = status.code() {
-        return ExitCode::from(code as u8);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        if let Some(signal) = status.signal() {
-            return ExitCode::from((128 + signal) as u8);
-        }
-    }
-    ExitCode::FAILURE
 }

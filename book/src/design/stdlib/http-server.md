@@ -141,7 +141,7 @@ The handler receives an `Exchange[T]` for one request.
 | `path`, `query` | The target's path and the text after its first `?`, both still percent-encoded; an absolute-form target's scheme and authority are removed |
 | `params: list[str]` | Captures, percent-decoded |
 | `peer: Option[SocketAddress]` | The address the connection came from: a reverse proxy's, when there is one (see [`std.http.proxy`](http-proxy.md)) |
-| `read_body(&mut buffer, start, stop)` | `Result[i64, HttpError]`: part of the request body; `0` is the end |
+| `read_body(&mut buffer, start, stop)` | `Result[i64, HttpError]`: part of the request body; `0` from a non-empty range is the end, and an empty range returns `0` without reading |
 | `read_all(&mut out)` | `Result[i64, HttpError]`: append the rest of the body, within `limits.max_body` |
 | `send(status, content_type, &body)` | Whole response with `Content-Type` and `Content-Length` |
 | `send_text(status, text)` | `send` with `text/plain; charset=utf-8` |
