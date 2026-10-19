@@ -72,8 +72,9 @@ can be moved or renamed, and paths may contain spaces; update `PATH` to match.
 Plenty writes nothing inside it: the [compiled-function cache](../02-architecture/cache.md)
 lives in `~/.cache/plenty`, and temporary files in `TMPDIR`.
 
-`plenty --version` prints the compiler's version and target, for example
-`plenty 0.1.0 (x86_64-unknown-linux-gnu)`.
+`plenty --version` prints the compiler's version and target:
+`plenty X.Y.Z (x86_64-unknown-linux-gnu)`, with `X.Y.Z` replaced by the installed
+version (including any pre-release suffix).
 
 ## Upgrade and switch versions
 

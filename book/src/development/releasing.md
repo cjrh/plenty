@@ -20,6 +20,24 @@ run `cargo release --execute`, create release tags, or push.
 `plenty --version` reports the `plenty` package version. Tags are `vX.Y.Z`, or
 `vX.Y.Z-PRE` for a pre-release; asset names use the same version.
 
+The root `Cargo.toml` is the source for the current compiler version. The CLI,
+LSP server information, source-cache paths, compilation fingerprints, and the
+minimum compiler version written by `plenty new`/`plenty init` use Cargo's
+`CARGO_PKG_VERSION` at build time. Release scripts read the same manifest to
+name archives and fill the packaged README; packaging rejects a compiler whose
+reported version disagrees. Rebuild executables after bumping the manifest.
+
+Do not globally replace older version strings. The private runtime has an
+independent version; new user packages start at `0.1.0`; example manifests,
+minimum-version requirements, test fixtures, dependency pins, and historical
+documentation references describe their own versions. Compiler-output examples
+use `X.Y.Z` placeholders so they do not require edits on every release.
+
+The [documentation release catalog](documentation-versions.md#admit-a-published-release)
+is separate from a version bump. Admit a version only after its release is
+published, preserving earlier archive pins. Development labels identify their
+source revision automatically; archived labels come from the selected release.
+
 ## Tools
 
 `release.toml` was tested with cargo-release 1.1.6:

@@ -171,7 +171,10 @@ subdir = "packages/audio"
 
 `manifest-version` and `[package]` with `name` and `version` are required.
 `version` and `plenty-version` are `MAJOR.MINOR.PATCH`. `plenty-version` is the
-minimum toolchain version; an older toolchain rejects the package. Unknown keys
+minimum toolchain version; an older toolchain rejects the package. The numbers
+above are sample package versions and compatibility requirements, not the
+current compiler version. `plenty new` and `plenty init` start the new package at
+`0.1.0` and set `plenty-version` from the compiler that creates it. Unknown keys
 and tables are errors, so a misspelled setting is never ignored. The manifest is
 a subset of TOML 1.0: basic and literal strings, decimal integers, booleans,
 arrays, tables, inline tables, and arrays of tables. Dotted keys, dates, floats,
