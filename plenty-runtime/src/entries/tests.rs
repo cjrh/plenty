@@ -83,6 +83,167 @@ fn assert_addresses(entries: &Entries, index: usize, entry: Entry) {
 }
 
 #[test]
+fn wide_sort_preserves_rows_and_inline_addresses() {
+    for ty in [&RANGE, &NESTED] {
+        for count in [0, 1, 2, 15, 16, 17, 127, 1024] {
+            for pattern in 0..7 {
+                let values: Vec<_> = (0..count)
+                    .map(|i| match pattern {
+                        0 => i,
+                        1 => count - i,
+                        2 => 7,
+                        3 => i % 5,
+                        4 => i.min(count - i),
+                        5 => (i * 7919 + 97) % 1009,
+                        _ => {
+                            if i == count / 2 && i + 1 < count {
+                                i + 1
+                            } else if i == count / 2 + 1 {
+                                i - 1
+                            } else {
+                                i
+                            }
+                        }
+                    } as u128)
+                    .collect();
+                let mut expected = values.clone();
+                expected.sort_unstable();
+                for fallback in [false, true] {
+                    let mut entries = Entries::new(ty, None);
+                    entries.try_reserve(count).unwrap();
+                    for &value in &values {
+                        push(&mut entries, value);
+                    }
+                    let base = entries.data.as_ptr();
+                    let capacity = entries.capacity();
+                    let mut compare = |a, b| {
+                        number(Entry { key: a, value: 0 }, ty)
+                            .cmp(&number(Entry { key: b, value: 0 }, ty))
+                    };
+                    if fallback {
+                        entries.sort_rows(0, count, 0, &mut compare);
+                    } else {
+                        entries.sort_unstable_by(compare);
+                    }
+                    assert_eq!(entries.data.as_ptr(), base);
+                    assert_eq!(entries.capacity(), capacity);
+                    for (i, entry) in entries.iter().enumerate() {
+                        assert_eq!(number(entry, ty), expected[i]);
+                        assert_addresses(&entries, i, entry);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn inconsistent_sort_comparison_keeps_every_row_and_address() {
+    let mut entries = filled(&NESTED, 4096);
+    let mut count = 0;
+    entries.sort_unstable_by(|_, _| {
+        count += 1;
+        if count % 3 == 0 {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        }
+    });
+    let mut values = Vec::new();
+    for (i, entry) in entries.iter().enumerate() {
+        assert_addresses(&entries, i, entry);
+        values.push(number(entry, &NESTED));
+    }
+    values.sort_unstable();
+    assert_eq!(values, (0..4096).collect::<Vec<_>>());
+    assert!(count < 4096 * 100);
+}
+
+#[test]
+fn panicking_sort_comparison_preserves_inline_owners() {
+    let mut entries = filled(&NESTED, 257);
+    for i in 0..257 {
+        entries.swap(i, (i * 97) % 257);
+    }
+    let mut calls = 0;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        entries.sort_unstable_by(|a, b| {
+            calls += 1;
+            assert!(calls != 100, "injected comparator panic");
+            number(Entry { key: a, value: 0 }, &NESTED)
+                .cmp(&number(Entry { key: b, value: 0 }, &NESTED))
+        });
+    }));
+    assert!(result.is_err());
+    let mut values = Vec::new();
+    for (i, entry) in entries.iter().enumerate() {
+        assert_addresses(&entries, i, entry);
+        values.push(number(entry, &NESTED));
+    }
+    values.sort_unstable();
+    assert_eq!(values, (0..257).collect::<Vec<_>>());
+}
+
+#[test]
+#[ignore = "release-mode timing comparison; run with --ignored --nocapture"]
+fn benchmark_wide_sort() {
+    for pattern in 0..7 {
+        let mut timings = [Vec::new(), Vec::new()];
+        let mut comparisons = [0, 0];
+        for repeat in 0..7 {
+            for algorithm in [repeat % 2, 1 - repeat % 2] {
+                let mut entries = Entries::new(&NESTED, None);
+                entries.try_reserve(100_000).unwrap();
+                for i in 0..100_000u128 {
+                    push(
+                        &mut entries,
+                        match pattern {
+                            0 => (i * 7919 + 97) % 100_003,
+                            1 => i,
+                            2 => 100_000 - i,
+                            3 => i % 5,
+                            4 => 7,
+                            5 => i.min(100_000 - i),
+                            _ => {
+                                if i == 50_000 {
+                                    50_001
+                                } else if i == 50_001 {
+                                    50_000
+                                } else {
+                                    i
+                                }
+                            }
+                        },
+                    );
+                }
+                let mut count = 0;
+                let mut compare = |a, b| {
+                    count += 1;
+                    number(Entry { key: a, value: 0 }, &NESTED)
+                        .cmp(&number(Entry { key: b, value: 0 }, &NESTED))
+                };
+                let time = std::time::Instant::now();
+                if algorithm == 0 {
+                    entries.heap_sort_rows(0, 100_000, &mut compare);
+                } else {
+                    entries.sort_unstable_by(&mut compare);
+                }
+                timings[algorithm].push(time.elapsed());
+                comparisons[algorithm] = count;
+                std::hint::black_box(entries);
+            }
+        }
+        for samples in &mut timings {
+            samples.sort();
+        }
+        println!(
+            "pattern {pattern}: heap {:?} / {} comparisons; intro {:?} / {} comparisons",
+            timings[0][3], comparisons[0], timings[1][3], comparisons[1]
+        );
+    }
+}
+
+#[test]
 fn tail_drain_keeps_extracted_scalar_and_inline_rows_in_place() {
     for ty in [&INTEGER, &RANGE, &NESTED] {
         let mut entries = filled(ty, 1024);
@@ -138,7 +299,7 @@ fn non_tail_removal_repairs_suffix_and_extraction_scratch() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
-fn tail_pop_append_and_drain_reuse_capacity_without_allocating() {
+fn sort_tail_pop_append_and_drain_reuse_capacity_without_allocating() {
     struct Restore;
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -147,10 +308,16 @@ fn tail_pop_append_and_drain_reuse_capacity_without_allocating() {
     }
     for ty in [&INTEGER, &RANGE, &NESTED] {
         let mut entries = filled(ty, 128);
+        for i in 0..128 {
+            entries.swap(i, (i * 97) % 128);
+        }
         let base = entries.data.as_ptr();
         let capacity = entries.capacity();
         let restore = Restore;
         crate::accounting::fail_after(Some(0));
+        entries.sort_unstable_by(|a, b| {
+            number(Entry { key: a, value: 0 }, ty).cmp(&number(Entry { key: b, value: 0 }, ty))
+        });
         for index in 128..1024 {
             // SAFETY: the tail is live and its value is read before reuse.
             let removed = unsafe { entries.remove(entries.len() - 1) };
