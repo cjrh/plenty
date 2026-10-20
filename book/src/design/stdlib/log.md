@@ -128,7 +128,7 @@ error is counted in `Drained.failed` and draining continues;
 from many producers:
 
 ```text
-def consume(receiver: Receiver[Event]) -> Result[Drained, Failure]:
+def consume(receiver: Receiver[Event]) -> Result[Drained, LogError]:
     mut lines = std.log.text_sink(std.io.stderr(), 4096)?
     Ok(std.log.drain(&receiver, &mut lines))
 ```

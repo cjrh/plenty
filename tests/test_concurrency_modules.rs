@@ -56,7 +56,7 @@ def answer() -> str:
 def take(inbox: &Receiver[str]) -> str:
     inbox.recv().unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | RecvError | SendError[i64] | SubmitError[OnceClosure[[], str]] | ThreadError]:
     sender, receiver = bounded[str](1)?
     with std.thread.spawn(publish, sender)?, receiver as inbox:
         print(take(&inbox))?
@@ -94,7 +94,7 @@ from std.channel import channel, select_recv_nowait as select, select_recv_timeo
 from std.channel import SendError, RecvError, RecvTimeoutError, SelectError
 from std.time import deadline_at, instant_at
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ChannelError | IoError | SendError[i64]]:
     left, inbox = channel[i64](1)?
     other, second = channel[i64](1)?
     left.send(1)?
@@ -133,7 +133,7 @@ def wait(token: Token) -> bool:
     token.wait()
     token.is_cancelled()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[Closure[[], bool]] | ThreadError]:
     token = Token()?
     child = token.share()
     with start(wait, child)? as task:
@@ -157,7 +157,7 @@ fn aliases_preserve_both_channel_join_hang_diagnostics() {
         ("def worker(rx: Receiver[i64]) -> ():\n    drop(rx.recv().unwrap())\n", "rx", "could block the worker's receive"),
         ("def worker(tx: Sender[i64]) -> ():\n    tx.send(1).unwrap()\n    tx.send(2).unwrap()\n", "tx", "could block the worker's send"),
     ] {
-        let source = format!("from std.thread import spawn as start\nfrom std.channel import channel as bounded, Sender, Receiver\n{worker}\ndef main() -> Result[(), Failure]:\n    tx, rx = bounded[i64](1)?\n    with start(worker, {endpoint})? as task:\n        task.join()\n    Ok(())\n");
+        let source = format!("from std.thread import spawn as start\nfrom std.channel import channel as bounded, Sender, Receiver\n{worker}\ndef main() -> Result[(), ChannelError | ThreadError]:\n    tx, rx = bounded[i64](1)?\n    with start(worker, {endpoint})? as task:\n        task.join()\n    Ok(())\n");
         rejected(&source, expected);
     }
 }
@@ -171,7 +171,7 @@ import std.channel as pipe
 def produce(sender: pipe.Sender[i64]) -> ():
     sender.send(1).unwrap()
     sender.send(2).unwrap()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ChannelError | FutureError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = pipe.channel[i64](1)?
     with work.ThreadPoolExecutor(1, 1)? as pool:
         future = pool.submit(produce, sender)?
@@ -190,7 +190,7 @@ fn imported_operations_still_reject_borrowed_jobs_and_uncertified_effects() {
 from std.concurrent import ThreadPoolExecutor as Pool
 def read(value: &i64) -> i64:
     *value
-def main() -> Result[(), Failure]:
+def main() -> Result[(), PoolError | SubmitError[OnceClosure[[], i64]]]:
     value = 1
     with Pool(1, 1)? as pool:
         pool.submit(read, &value)?
@@ -206,7 +206,7 @@ from native import foreign_call
 def worker(token: Token) -> i64:
     token.cancel()
     foreign_call()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ThreadError]:
     with start(worker, Token()?)? as task:
         task.join()
     Ok(())
@@ -245,7 +245,7 @@ from std.sync import CancellationToken as Token
 from std.thread import spawn as start
 def wait(token: &Token) -> ():
     token.wait()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ThreadError]:
     token = Token()?
     with start(wait, &token)? as task:
         drop(token)
@@ -257,7 +257,7 @@ def main() -> Result[(), Failure]:
     rejected(
         r#"
 from std.sync import CancellationToken as Token
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     token = Token()?
     moved = token
     token.cancel()
@@ -273,7 +273,7 @@ fn imports_across_files_share_identity_without_reexporting_private_names() {
         r#"
 from std.sync import CancellationToken as Token
 import bridge
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     token: Token = bridge.make()?
     token.cancel()
     print(bridge.cancelled(&token))?
@@ -327,7 +327,7 @@ fn relocated_compiler_imports_facilities_offline() {
         &compiler,
     );
     let path = dir.path().join("main.plenty");
-    std::fs::write(&path, "from std.thread import spawn as start\nfrom std.sync import CancellationToken as Token\nimport std.channel as ch\nimport std.concurrent as jobs\ndef main() -> Result[(), Failure]:\n    token = Token()?\n    token.cancel()\n    print(token.is_cancelled())?\n    Ok(())\n").unwrap();
+    std::fs::write(&path, "from std.thread import spawn as start\nfrom std.sync import CancellationToken as Token\nimport std.channel as ch\nimport std.concurrent as jobs\ndef main() -> Result[(), AllocError | IoError]:\n    token = Token()?\n    token.cancel()\n    print(token.is_cancelled())?\n    Ok(())\n").unwrap();
     let output = Command::new("timeout")
         .arg("30s")
         .arg(compiler)

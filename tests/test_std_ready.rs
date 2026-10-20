@@ -41,7 +41,7 @@ from std.ready import Interest, Readiness, WaitError, read_before, wait, wait_un
 from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now, sleep
 
-def show(result: Result[Readiness, WaitError]) -> Result[(), Failure]:
+def show(result: Result[Readiness, WaitError]) -> Result[(), IoError]:
     match result:
         case Ok(r):
             print(r.readable, r.writable, r.hangup, r.error)?
@@ -53,7 +53,7 @@ def show(result: Result[Readiness, WaitError]) -> Result[(), Failure]:
             print("stream error")?
     Ok(())
 
-def piped(script: &str) -> Result[std.process.Child, Failure]:
+def piped(script: &str) -> Result[std.process.Child, IoError]:
     mut command = std.process.shell(script)?
     command.stdout(Stdio.Piped)
     Ok(command.spawn()?)
@@ -68,7 +68,7 @@ fn waits_report_readiness_timeout_hangup_and_cancellation() {
     runs(
         &with_show(
             r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError]:
     mut child = piped("sleep 0.2; printf hi")?
     mut out = std.io.from_file(child.take_stdout().unwrap())
     token = CancellationToken()?
@@ -100,7 +100,7 @@ fn writes_wait_for_space_and_closed_handles_are_errors() {
     runs(
         &with_show(
             r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError]:
     mut command = std.process.shell("head -c 3 >/dev/null")?
     command.stdin(Stdio.Piped)
     mut child = command.spawn()?
@@ -151,7 +151,7 @@ def attempt(stream: &mut FileStream, buffer: &mut std.bytes.Bytes, deadline: &De
         case _:
             "other"
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError | ThreadError | std.bytes.BytesError]:
     mut child = piped("printf abcdef; sleep 0.05; printf ghi")?
     stream = std.io.from_file(child.take_stdout().unwrap())
     cancel = CancellationToken()?
@@ -200,7 +200,7 @@ fn waiting_workers_stay_idle_and_release_every_descriptor() {
 import std.fs
 import std.path
 
-def count(directory: &str) -> Result[i64, Failure]:
+def count(directory: &str) -> Result[i64, IoError]:
     mut entries = std.fs.read_dir(&std.path.from_text(directory)?)?
     mut total = 0
     while entries.next()?.is_some():
@@ -209,7 +209,7 @@ def count(directory: &str) -> Result[i64, Failure]:
 
 # User plus system CPU ticks. The test program's name has no spaces, so
 # fields 14 and 15 of /proc/self/stat are at fixed positions.
-def cpu_ticks() -> Result[i64, Failure]:
+def cpu_ticks() -> Result[i64, AllocError | IoError | ParseError]:
     stat = read_text("/proc/self/stat")?
     fields = stat.split(" ")?
     Ok(i64.parse(fields[13])? + i64.parse(fields[14])?)
@@ -227,7 +227,7 @@ def consume(file: File) -> bool:
     mut owned = file
     owned.close().is_ok()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ParseError | RangeError | ThreadError]:
     descriptors = count("/proc/self/fd")?
     threads = count("/proc/self/task")?
     mut child = piped("sleep 5")?
@@ -274,7 +274,7 @@ import std.env
 import std.path
 def worker() -> ():
     std.env.set_current_dir(&std.path.from_text("/").unwrap()).unwrap()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     with spawn(worker)?:
         pass
     Ok(())
@@ -292,7 +292,7 @@ class Resource:
         std.env.set_current_dir(&std.path.from_text("/").unwrap()).unwrap()
 def worker(value: Resource) -> i64:
     value.value
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     with spawn(worker, Resource(1))?:
         pass
     Ok(())
@@ -308,7 +308,7 @@ def main() -> Result[(), Failure]:
     let path = root.path().join("main.plenty");
     std::fs::write(
         &path,
-        "import native\ndef worker(token: native.Token) -> ():\n    pass\ndef main() -> Result[(), Failure]:\n    with spawn(worker, native.token())?:\n        pass\n    Ok(())\n",
+        "import native\ndef worker(token: native.Token) -> ():\n    pass\ndef main() -> Result[(), ThreadError]:\n    with spawn(worker, native.token())?:\n        pass\n    Ok(())\n",
     )
     .unwrap();
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
@@ -325,7 +325,7 @@ fn shared_file_loans_still_exclude_concurrent_mutation() {
 def reader(file: &mut File) -> ():
     file.read().unwrap()
     pass
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     mut file = open("/dev/null", "r")?
     with spawn(reader, &mut file)?:
         file.close()?
@@ -344,7 +344,7 @@ fn failed_start_closes_a_moved_handle_once() {
 import std.fs
 import std.path
 
-def count(directory: &str) -> Result[i64, Failure]:
+def count(directory: &str) -> Result[i64, IoError]:
     mut entries = std.fs.read_dir(&std.path.from_text(directory)?)?
     mut total = 0
     while entries.next()?.is_some():
@@ -354,11 +354,11 @@ def count(directory: &str) -> Result[i64, Failure]:
 def consume(file: File) -> bool:
     file.closed
 
-def attempt(file: File) -> Result[bool, Failure]:
+def attempt(file: File) -> Result[bool, ThreadError]:
     with spawn(consume, file)? as task:
         return Ok(task.join())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     descriptors = count("/proc/self/fd")?
     mut child = piped("printf x")?
     pipe = child.take_stdout().unwrap()
@@ -370,7 +370,7 @@ def main() -> Result[(), Failure]:
     Ok(())
 "#,
         ),
-        "__test_fail_thread_starts__\nResult[bool, Failure].Err(Failure.Unspecified)\n__test_restore_thread_starts__\n0\n",
+        "__test_fail_thread_starts__\nResult[bool, ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\n0\n",
     );
 }
 
@@ -381,7 +381,7 @@ fn a_selector_waits_on_several_pipes() {
             r#"
 from std.ready import Selector, selector
 
-def keys(chosen: &mut Selector, deadline: &Deadline, cancel: &CancellationToken) -> Result[u64, Failure]:
+def keys(chosen: &mut Selector, deadline: &Deadline, cancel: &CancellationToken) -> Result[u64, IoError]:
     ready = chosen.wait(deadline, cancel).unwrap()
     mut total = 0u64
     for index in range(ready):
@@ -390,7 +390,7 @@ def keys(chosen: &mut Selector, deadline: &Deadline, cancel: &CancellationToken)
         total += event.key
     Ok(total)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError]:
     mut slow = piped("sleep 5")?
     mut quick = piped("printf x")?
     slow_out = slow.take_stdout().unwrap()

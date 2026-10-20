@@ -31,7 +31,7 @@ def mapped[F: Callable[[i64], i64]](pool: &ThreadPoolExecutor, worker: F) -> Res
     pool.map(worker, range(4))
 def fallible[F: Callable[[i64], Result[i64, str]]](pool: &ThreadPoolExecutor, worker: F) -> Result[list[i64], ParallelError[str]]:
     pool.map_result(worker, range(3))
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
     with ThreadPoolExecutor(3, 1)? as pool:
         capture = Capture([2, 3]?)
         scale = def [capture](n: i64) -> i64:
@@ -76,7 +76,7 @@ class Capture:
     sender: Sender[i64]
     def __del__(self) -> ():
         self.sender.send(99).unwrap()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ChannelError | IoError | PoolError | RecvError]:
     sender, receiver = channel[i64](16)?
     with ThreadPoolExecutor(3, 1)? as pool:
         capture = Capture(sender)
@@ -169,7 +169,7 @@ def inspect[E](error: ParallelError[E]) -> E:
             fail_unreachable()
 def fail_unreachable() -> range[i64]:
     range(0)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ParallelError[str] | PoolError]:
     with ThreadPoolExecutor(3, 1)? as pool:
         print(pool.map_result(square, range[u8](5))?)?
         print(pool.map_result(square, range(0))?)?
@@ -204,7 +204,7 @@ def work(value: Input) -> Result[Input, Input]:
         Err(value)
     else:
         Ok(value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ChannelError | IoError | PoolError | RecvError]:
     signal, wait = channel[i64](1)?
     dropped, count = channel[i64](8)?
     with ThreadPoolExecutor(3, 1)? as pool:
@@ -260,7 +260,7 @@ def subtract[T: IntType](left: T, right: T) -> T:
     left - right
 def add(left: f64, right: f64) -> f64:
     left + right
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
     for workers in range[u64](1, 5):
         with ThreadPoolExecutor(workers, 1)? as pool:
             print(pool.reduce_tree(subtract, range(1, 6))?)?
@@ -284,7 +284,7 @@ def left[T](a: T, b: T) -> T:
 def callback(n: i64) -> Closure[[], i64]:
     def [n]() -> i64:
         n
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
     with ThreadPoolExecutor(3, 2)? as pool:
         values = [[1, 2]?, [3]?, [4]?, [5]?, [6]?]?
         print(pool.reduce_tree(left, values)?)?

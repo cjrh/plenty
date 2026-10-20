@@ -23,8 +23,8 @@ deployment guidance; the server is production-ready.
 | `protocol Transport` | `read_before`, `write_before` and `shutdown` with the signatures of `TcpStream`'s; `write_before` is generic in its `S: ByteSource` source |
 | `reason(status: i64)` | `str`: the reason phrase for a common status, or `""` |
 
-`E` is the handler's own error type: `HttpError`, a sum such as
-`AllocError | HttpError`, or `Failure`. Calls infer it from `handle`, as they
+`E` is the handler's own error type: `HttpError`, or a sum such as
+`AllocError | HttpError`. Calls infer it from `handle`, as they
 infer `R` from the router; a generic function that passes a handler on
 declares it too, as in `def run[E, H: Handler[TcpStream, Route, E]](handler: &H)`.
 The server needs nothing from the error: it answers and counts every `Err`

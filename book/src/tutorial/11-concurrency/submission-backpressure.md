@@ -33,5 +33,5 @@ def main() -> Result[(), AllocError | IoError | FutureError | PoolError]:
 42
 ```
 
-Propagating a submission error into `Failure` with `?` instead drops the
+Erasing a submission error into legacy `Failure` with `?` instead drops the
 unstarted job.

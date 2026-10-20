@@ -70,6 +70,7 @@ const DRAINING_SERVER: &str = r##"import std.bytes
 import std.http
 import std.http.server
 import std.net
+import std.ready
 import std.signal
 import std.time
 from std.http.server import Exchange
@@ -80,7 +81,7 @@ pub enum Route:
     Stream
 
 pub class Ticker:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.bytes.BytesError | std.http.HttpError]:
         exchange.start(std.http.response(200, "OK")?)?
         tick = std.bytes.from_text("tick\n")?
         while not exchange.stopping():
@@ -90,7 +91,7 @@ pub class Ticker:
         exchange.write(&bye, 0, bye.len())?
         Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError | std.ready.WaitError | std.signal.SignalError]:
     signals = std.signal.listen()?
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/stream", Route.Stream)?
@@ -141,12 +142,13 @@ fn sigterm_drains_a_streaming_response() {
 #[test]
 fn sigint_reaches_a_waiting_program() {
     let mut program = Running::start(
-        r##"import std.signal
+        r##"import std.ready
+import std.signal
 from std.signal import Signal, SignalError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError | SignalError | std.ready.WaitError]:
     mut signals = std.signal.listen()?
     match std.signal.listen():
         case Err(SignalError.AlreadyListening):
@@ -182,7 +184,7 @@ import std.signal
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError | std.ready.WaitError | std.signal.SignalError]:
     mut signals = std.signal.listen()?
     mut selector = std.ready.selector(4)?
     signals.watch(&mut selector, 7u64)?
@@ -211,10 +213,11 @@ def main() -> Result[(), Failure]:
 fn sleeper(close: bool) -> String {
     let closing = if close { "    signals.close()?\n" } else { "" };
     format!(
-        r##"import std.signal
+        r##"import std.ready
+import std.signal
 import std.time
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | std.ready.WaitError | std.signal.SignalError]:
     mut signals = std.signal.listen()?
 {closing}    print("ready")?
     std.time.sleep(&std.time.seconds(20u32))
@@ -256,7 +259,7 @@ fn a_program_that_does_not_listen_keeps_the_default_action() {
     let mut program = Running::start(
         r##"import std.time
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print("ready")?
     std.time.sleep(&std.time.seconds(20u32))
     Ok(())
@@ -273,7 +276,7 @@ fn a_child_process_keeps_the_default_action() {
         r##"import std.process
 import std.signal
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | std.signal.SignalError]:
     signals = std.signal.listen()?
     mut command = std.process.command("sleep")?
     command.arg("20")?
@@ -297,11 +300,11 @@ fn a_worker_cannot_listen() {
         &path,
         r##"import std.signal
 
-def worker() -> Result[(), Failure]:
+def worker() -> Result[(), std.signal.SignalError]:
     std.signal.listen()?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | std.signal.SignalError]:
     with spawn(worker)? as task:
         task.join()?
     Ok(())

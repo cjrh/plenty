@@ -22,8 +22,8 @@ argument/result transfer and cleanup, but scheduling and joining have no bounded
 latency. A join waits as long as the worker needs.
 
 Scoped `spawn(...)?` propagates the start error like any `?`: the enclosing
-Result's error must be the start error, an anonymous sum containing it, or
-`Failure`. `spawn(...).unwrap()` traps on a failed start.
+Result's error must be the start error, or an anonymous sum containing it.
+`spawn(...).unwrap()` traps on a failed start.
 
 The prelude spellings remain supported. There is no detached thread, global
 pool, forced interruption, or import-only exemption from ownership checks.

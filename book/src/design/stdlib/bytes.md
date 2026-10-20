@@ -96,7 +96,7 @@ def ends_line[S: ByteSource](line: &S) -> bool:
     count = line.len()
     count >= 2 and line[count - 2] == 13u8 and line[count - 1] == 10u8
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | IoError]:
     mut head = std.bytes.from_text("Host: example")?
     head.extend(b"\r\n")?
     print(head.find_bytes(b": ", 0, head.len())?, ends_line(&head), ends_line(b"no"))?

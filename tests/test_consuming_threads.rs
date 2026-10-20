@@ -108,6 +108,10 @@ print(answer).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_residuals_and_unclaimed_worker_results_destroy_exactly_once() {
+    // B71: keeps `Failure` deliberately. Converting the failed start to
+    // `Failure` drops the unstarted job, which this test observes; a precise
+    // `SpawnError[F]` returns the job instead (covered by
+    // `failed_owned_start_in_error_sum_returns_the_job`). Delete with `Failure`.
     runs(r#"
 class Guard:
     id: i64
