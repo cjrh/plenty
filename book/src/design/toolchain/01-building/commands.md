@@ -40,3 +40,7 @@ Compile-and-run inherits standard streams, environment, and working directory.
 It propagates the child's exit code; Unix signal termination becomes 128 plus
 the signal number. Temporary objects and runtime files are removed on success
 and failure. Compile-and-run startup time includes compilation and linking.
+
+The proposed [`plenty script` workflow](../../../proposals/single-file-scripts.md)
+would add embedded manifests, script arguments and reusable executables. It is
+not implemented; the commands above describe current behavior.

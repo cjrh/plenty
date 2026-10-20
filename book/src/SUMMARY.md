@@ -468,6 +468,7 @@
         - [Arena prototype assessment](proposals/arenas/prototype.md)
     - [Typed ranges, generic calls, and expression-local inference](proposals/typed-ranges-and-expression-inference.md)
     - [Explicit applications, modules, and executable lessons](proposals/entrypoints-modules-and-tutorials.md)
+    - [Single-file scripts with embedded manifests](proposals/single-file-scripts.md)
     - [C interop and dynamic libraries](proposals/ffi-and-dynamic-libraries.md)
     - [Generated library contracts and C headers](proposals/ffi-export-contracts.md)
     - [Fallible memory, parallel execution, and SIMD](proposals/memory-parallelism-and-simd.md)
