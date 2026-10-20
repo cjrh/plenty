@@ -296,6 +296,7 @@ impl Lower<'_> {
         let mut actual = Vec::new();
         let mut loans = Vec::new();
         let mut reservation = None;
+        let start = ops.len();
         for (index, (arg, (_, expected))) in args.iter().zip(&signature.inputs).enumerate() {
             let ty = if let Ty::Ref(inner, mutable) = expected {
                 let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
@@ -325,6 +326,7 @@ impl Lower<'_> {
             loans[0] = self.activate_receiver(loan, ops);
         }
         self.record_direct_call(&symbol, at, &loans, ops);
+        self.passes(start, &sig.inputs, ops);
         self.push_call(Op::Call(symbol.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&symbol, &sig, &loans, ops);
         Self::end_reads(loans, ops);

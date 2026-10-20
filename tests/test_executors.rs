@@ -452,6 +452,82 @@ fn future_result_tracks_unwrapped_and_matched_submission_results() {
 }
 
 #[test]
+fn future_result_tracks_drop_job_submission_results() {
+    // Issue #348: `drop_job()` keeps the submission's job on the future.
+    for (body, holder) in [
+        (
+            "future = pool.submit(produce, sender).drop_job()?\n        future.result()?",
+            "`receiver`",
+        ),
+        (
+            "future = pool.submit(produce, sender).drop_job().unwrap()\n        future.result()?",
+            "`receiver`",
+        ),
+        (
+            "(pool.submit(produce, sender).drop_job()?).result()?",
+            "`receiver`",
+        ),
+        (
+            "match pool.submit(produce, sender).drop_job():\n            case Ok(future):\n                future.result()?\n            case Err(error):\n                drop(error)",
+            "`receiver`",
+        ),
+        (
+            "match pool.submit(produce, sender).drop_job():\n            case Ok(future):\n                kept = (receiver, future.result()?)\n                drop(kept)\n                return Ok(())\n            case Err(error):\n                drop(error)",
+            "the expression being evaluated",
+        ),
+    ] {
+        let source = format!(
+            "{PRODUCE}def main() -> Result[(), ChannelError | FutureError | PoolError | SubmitError[()]]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        {body}
+        drop(receiver)
+    Ok(())
+"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!(
+                "this result() waits for a job that holds `Sender[i64]` while {holder} \
+                 still holds `Receiver[i64]`"
+            )) && error.contains("the job is submitted here"),
+            "{body}\n{error}"
+        );
+    }
+}
+
+#[test]
+fn a_drop_job_future_waits_after_the_receiver_is_dropped() {
+    runs(
+        &format!(
+            "{PRODUCE}def main() -> Result[(), AllocError | IoError | ChannelError | FutureError | PoolError | SubmitError[()]]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender).drop_job()?
+        drop(receiver)
+        future.result()?
+    print(\"done\")?
+    Ok(())
+"
+        ),
+        "done\n",
+    );
+}
+
+#[test]
+fn a_successful_drop_job_submission_is_checked_at_shutdown() {
+    blocked_shutdown(
+        "def main() -> Result[(), ChannelError | PoolError | SubmitError[()]]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        drop(pool.submit(produce, sender).drop_job()?)
+    drop(receiver)
+    Ok(())
+",
+    );
+}
+
+#[test]
 fn a_temporary_future_wait_is_checked_after_try() {
     let error = support::check_source(&format!(
         "{PRODUCE}def main() -> Result[(), ChannelError | FutureError | PoolError | SubmitError[OnceClosure[[], ()]]]:
@@ -1013,6 +1089,71 @@ fn a_wait_inside_a_statement_rejects_endpoints_its_value_already_holds() {
     }
 }
 
+/// `main` for issue #350 probes: `index` evaluates a lock's computed index.
+fn lock_index_main(index: &str) -> String {
+    format!(
+        "from std.sync import Mutex
+def keep(receiver: Receiver[i64], done: bool) -> i64:
+    drop(receiver)
+    0
+def slot(done: bool) -> i64:
+    0
+def main() -> Result[(), AllocError | ChannelError | IoError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    cells = [Mutex[i64](0)]?
+    flags = [Mutex[bool](False)]?
+    shared = [Shared(Mutex[i64](0))?]?
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+{index}            *cell = 1
+            print(*cell)?
+    print(\"done\")?
+    Ok(())
+"
+    )
+}
+
+#[test]
+fn a_wait_inside_a_lock_place_rejects_endpoints_its_index_already_holds() {
+    // Issue #350: the computed index holds the receiver from its move through
+    // the nested wait, as any other `with` manager does.
+    for (statement, at) in [
+        (
+            "        with cells[keep(receiver, future.result().is_ok())].lock() as cell:\n",
+            "21:14",
+        ),
+        (
+            "        with flags[0].lock() as flag, cells[keep(receiver, future.result().is_ok())].lock() as cell:\n",
+            "21:39",
+        ),
+        (
+            "        with shared[keep(receiver, future.result().is_ok())].lock() as cell:\n",
+            "21:14",
+        ),
+    ] {
+        let error = blocked_shutdown(&lock_index_main(statement));
+        assert!(
+            error.contains(
+                "this result() waits for a job that holds `Sender[i64]` while the expression \
+                 being evaluated still holds `Receiver[i64]`"
+            ) && error.contains(&format!(
+                "{at}: note: the expression here holds `Receiver[i64]`, moved from \
+                 `receiver`, until the statement completes"
+            )),
+            "{statement}\n{error}"
+        );
+    }
+    runs(
+        &format!(
+            "{PRODUCE}{}",
+            lock_index_main(
+                "        drop(receiver)\n        with cells[slot(future.result().is_ok())].lock() as cell:\n"
+            )
+        ),
+        "1\ndone\n",
+    );
+}
+
 #[test]
 fn a_match_case_value_holds_its_endpoints_through_the_cases_shutdown() {
     // Issue #347: the case's pool shuts down after its final expression has
@@ -1086,4 +1227,149 @@ fn statements_that_wait_before_moving_an_endpoint_are_accepted() {
         ),
         "1\ndone\n",
     );
+}
+
+/// Helpers that wait for a future's result or shut a pool down, reached by
+/// direct, transitive, recursive, and indirect calls (issue #349).
+const HELPERS: &str = "def finished(future: Future[()]) -> bool:
+    future.result().is_ok()
+
+def through(future: Future[()]) -> bool:
+    finished(future)
+
+def countdown(future: Future[()], n: i64) -> bool:
+    if n == 0:
+        return future.result().is_ok()
+    countdown(future, n - 1)
+
+def apply(wait: Callable[[Future[()]], bool], future: Future[()]) -> bool:
+    wait(future)
+
+def ignore(future: Future[()]) -> bool:
+    drop(future)
+    True
+
+def keep(receiver: Receiver[i64], done: bool) -> i64:
+    drop(receiver)
+    0
+
+def stop(pool: ThreadPoolExecutor) -> ():
+    drop(pool)
+
+def shut(pool: &ThreadPoolExecutor) -> ():
+    pool.shutdown()
+
+";
+
+fn with_helpers(main: &str) -> String {
+    format!("from std.concurrent import Future\n{PRODUCE}{HELPERS}{main}")
+}
+
+#[test]
+fn calls_that_wait_for_a_passed_future_check_the_callers_receivers() {
+    for (call, callee) in [
+        ("finished(future)", "finished"),
+        ("through(future)", "through"),
+        ("countdown(future, 3)", "countdown"),
+        // A call through a value is assumed to wait.
+        ("apply(finished, future)", "apply"),
+    ] {
+        let error = support::check_source(&with_helpers(&format!(
+            "def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+        ok = {call}
+        drop(receiver)
+    Ok(())
+"
+        )))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains(&format!(
+                "this call to `{callee}` can wait for the result of a job that holds \
+                 `Sender[i64]` while `receiver` still holds `Receiver[i64]`"
+            )),
+            "{error}"
+        );
+        assert!(error.contains("before the call"), "{error}");
+        assert!(error.contains("the job is submitted here"), "{error}");
+    }
+}
+
+#[test]
+fn a_call_that_waits_while_its_statement_holds_a_receiver_is_rejected() {
+    let error = support::check_source(&with_helpers(
+        "def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+        index = keep(receiver, finished(future))
+    Ok(())
+",
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains(
+            "this call to `finished` can wait for the result of a job that holds `Sender[i64]` \
+             while the expression being evaluated still holds `Receiver[i64]`"
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn calls_that_shut_down_a_passed_pool_check_the_callers_receivers() {
+    for (call, callee) in [("stop(pool)", "stop"), ("shut(&pool)", "shut")] {
+        let error = support::check_source(&with_helpers(&format!(
+            "def main() -> Result[(), ChannelError | PoolError]:
+    sender, receiver = channel[i64](1)?
+    pool = ThreadPoolExecutor(1, 1)?
+    drop(pool.submit(produce, sender).drop_job())
+    {call}
+    drop(receiver)
+    Ok(())
+"
+        )))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains(&format!(
+                "this call to `{callee}` can shut down a pool after a job that holds \
+                 `Sender[i64]` was submitted, while `receiver` still holds `Receiver[i64]`"
+            )),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn calls_after_the_receiver_drops_or_that_do_not_wait_run() {
+    for body in [
+        "    drop(receiver)
+    ok = finished(future)
+    drop(other)",
+        "    ok = ignore(future)
+    drop(receiver)
+    drop(other)",
+        "    drop(receiver)
+    stop(pool)
+    drop(other)",
+    ] {
+        let source = with_helpers(&format!(
+            "def main() -> Result[(), AllocError | IoError | ChannelError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    sender, receiver = channel[i64](1)?
+    unrelated, other = channel[str](1)?
+    pool = ThreadPoolExecutor(1, 1)?
+    future = pool.submit(produce, sender)?
+{body}
+    drop(unrelated)
+    print(\"done\")?
+    Ok(())
+"
+        ));
+        runs(&source, "done\n");
+    }
 }

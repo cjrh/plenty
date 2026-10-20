@@ -9,7 +9,9 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
+mod calls;
 mod futures;
+pub use calls::Program;
 
 /// Source position of the operations that follow an `Op::Site` marker in the
 /// same sequence. Nested blocks inherit it until they place their own marker.
@@ -224,6 +226,9 @@ pub struct Error {
     pub notes: Vec<(Site, String)>,
     pub source: Option<Arc<str>>,
     pub required: Option<Arc<Instantiation>>,
+    /// The wait or shutdown belongs to a function this call reaches
+    /// (issue #349): `Some(None)` when the callee has no source name.
+    pub call: Option<Option<String>>,
 }
 
 impl Error {
@@ -264,6 +269,24 @@ impl fmt::Display for Error {
             Some(place) => format!("`{place}`"),
             None => "a temporary value".into(),
         };
+        let call = self.call.as_ref().map(|name| match name {
+            Some(name) => format!("this call to `{name}`"),
+            None => "this call".to_owned(),
+        });
+        let result_wait = match &call {
+            Some(call) => format!("{call} can wait for the result of"),
+            None => "this result() waits for".into(),
+        };
+        let result_end = if call.is_some() {
+            "this call"
+        } else {
+            "this result wait"
+        };
+        let shuts_down = |automatic: bool| match &call {
+            Some(call) => format!("{call} can shut down a pool"),
+            None if automatic => "leaving its scope shuts down this pool".into(),
+            None => "this shuts down a pool".into(),
+        };
         let message = match &self.kind {
             Kind::Moved(true) => format!("use of moved {binding}"),
             Kind::Moved(false) => format!("use of possibly moved {binding}"),
@@ -293,9 +316,9 @@ impl fmt::Display for Error {
                 format!("a borrow of {place} cannot remain live across yield")
             }
             Kind::BlockedFuture { message } => format!(
-                "this result() waits for a job that holds `Sender[{message}]` while \
+                "{result_wait} a job that holds `Sender[{message}]` while \
                  {} still holds `Receiver[{message}]`: a full queue could block \
-                 the job's send, and this result wait, forever",
+                 the job's send, and {result_end}, forever",
                 if self.in_flight == InFlight::None {
                     place
                 } else {
@@ -344,9 +367,9 @@ impl fmt::Display for Error {
                 wait: Wait::Result,
                 ..
             } => format!(
-                "this result() waits for a job that can lock a `Mutex[{element}]` while this \
+                "{result_wait} a job that can lock a `Mutex[{element}]` while this \
                  function holds a lock on a `Mutex[{element}]`: the job could wait for that \
-                 lock, and this result wait, forever"
+                 lock, and {result_end}, forever"
             ),
             Kind::BlockedLock {
                 element,
@@ -356,21 +379,13 @@ impl fmt::Display for Error {
                 "{} after a job that can lock a `Mutex[{element}]` was submitted, while this \
                  function holds a lock on a `Mutex[{element}]`: the job could wait for that \
                  lock, and the shutdown, forever",
-                if *automatic {
-                    "leaving its scope shuts down this pool"
-                } else {
-                    "this shuts down a pool"
-                },
+                shuts_down(*automatic),
             ),
             Kind::BlockedShutdown { message, automatic } => format!(
                 "{} after a job that holds `Sender[{message}]` was submitted, while {} still \
                  holds `Receiver[{message}]`: a full queue could block the job's send, and the \
                  shutdown, forever",
-                if *automatic {
-                    "leaving its scope shuts down this pool"
-                } else {
-                    "this shuts down a pool"
-                },
+                shuts_down(*automatic),
                 self.holder()
             ),
         };
@@ -478,8 +493,9 @@ struct Loop {
     breaks: Vec<State>,
 }
 
-struct Checker<'a> {
+struct Checker<'a, 'p> {
     body: &'a [Op],
+    program: &'a Program<'p>,
     locals: &'a [Ty],
     parameters: usize,
     origins: &'a Origins,
@@ -505,9 +521,16 @@ struct Checker<'a> {
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
-pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) -> Result<()> {
+pub fn check(
+    ops: &[Op],
+    locals: &[Ty],
+    parameters: usize,
+    origins: &Origins,
+    program: &Program,
+) -> Result<()> {
     let checker = Checker {
         body: ops,
+        program,
         locals,
         parameters,
         origins,
@@ -774,7 +797,7 @@ fn graph<'a>(
     next
 }
 
-impl Checker<'_> {
+impl Checker<'_, '_> {
     fn error(&self, kind: Kind, place: Option<String>, primary: Option<Site>) -> Box<Error> {
         Box::new(Error {
             kind,
@@ -784,6 +807,7 @@ impl Checker<'_> {
             notes: Vec::new(),
             source: self.origins.source.clone(),
             required: self.origins.required.clone(),
+            call: None,
         })
     }
 
@@ -1169,7 +1193,23 @@ impl Checker<'_> {
     }
 
     fn future_result(&self, before: &[Op], state: &State, site: Option<Site>) -> Result<()> {
-        let jobs = self.futures.before(before);
+        self.awaits(
+            self.futures.before(before),
+            state,
+            site,
+            "waiting for the result",
+        )
+    }
+
+    /// Reject a wait for the result of a job from `jobs` while this function
+    /// keeps alive what that job can block on. `before` completes the advice.
+    fn awaits(
+        &self,
+        jobs: &[(Hazard, Option<Site>)],
+        state: &State,
+        site: Option<Site>,
+        before: &str,
+    ) -> Result<()> {
         let (sends, locks) = split(jobs);
         let blocked = self
             .blocked(
@@ -1177,11 +1217,11 @@ impl Checker<'_> {
                 state,
                 site,
                 |message| Kind::BlockedFuture { message },
-                |_| "drop it, or end its `with` block, before waiting for the result".into(),
+                |_| format!("drop it, or end its `with` block, before {before}"),
             )
             .or_else(|| {
-                let advice = "end the lock's `with` block before waiting for the result";
-                self.held_lock(&locks, Wait::Result, false, advice, state, site)
+                let advice = format!("end the lock's `with` block before {before}");
+                self.held_lock(&locks, Wait::Result, false, &advice, state, site)
             });
         let Some(mut error) = blocked else {
             return Ok(());
@@ -1245,6 +1285,51 @@ impl Checker<'_> {
             error.notes.push((at, "the job is submitted here".into()));
         }
         Err(error)
+    }
+
+    /// A call handed the futures and pools in `slots` can wait for those
+    /// futures' results and shut those pools down, directly or through
+    /// further calls, while this frame keeps its endpoints and locks. Jobs a
+    /// callee submits itself are not seen here. `callee` is `None` for a call
+    /// through a value.
+    fn call_waits(
+        &self,
+        callee: Option<&str>,
+        slots: &[u8],
+        state: &State,
+        site: Option<Site>,
+    ) -> Result<()> {
+        let effects = std::cell::OnceCell::new();
+        let effects = || effects.get_or_init(|| self.program.effects(callee));
+        let named = || {
+            callee
+                .map(crate::record::method_display)
+                .filter(|name| !name.starts_with("__plenty_"))
+                .map(str::to_owned)
+        };
+        for &slot in slots {
+            let result = match &self.locals[slot as usize] {
+                Ty::Future(result) => {
+                    let jobs = self.futures.of(slot);
+                    if jobs.is_empty() || !effects().waits(result) {
+                        continue;
+                    }
+                    self.awaits(jobs, state, site, "the call")
+                }
+                _ if self.submitted.borrow().is_empty() || !effects().shuts() => continue,
+                _ => self.shutdown(None, state, site).map_err(|mut error| {
+                    for note in &mut error.notes {
+                        note.1 = note.1.replace("shutting the pool down", "the call");
+                    }
+                    error
+                }),
+            };
+            result.map_err(|mut error| {
+                error.call = Some(named());
+                error
+            })?;
+        }
+        Ok(())
     }
 
     /// A function exit releases every local, the last declared first.
@@ -1311,8 +1396,28 @@ impl Checker<'_> {
         let mut written = site.filter(|site| !site.scope_end);
         // Sends of a job that `submit(...)?` moves into a pool only on success.
         let mut accepted = Vec::new();
+        // Futures and pools handed to the next call, from `Op::Passes`.
+        let mut passing: Option<&[u8]> = None;
         for (index, op) in ops.iter().enumerate() {
+            let callee = match op {
+                Op::Call(name) => Some(Some(name.as_str())),
+                Op::ClosureCall(closure) if !closure.name.is_empty() => {
+                    Some(Some(closure.name.as_str()))
+                }
+                Op::ClosureCall(_) | Op::CallIndirect(_) | Op::BoxedCallableCall(_) => Some(None),
+                // The frame, and every endpoint it holds, is released first.
+                Op::TailCall(_) | Op::TailCallIndirect(_) => {
+                    passing = None;
+                    None
+                }
+                _ => None,
+            };
+            if let (Some(callee), Some(slots)) = (callee, passing) {
+                passing = None;
+                self.call_waits(callee, slots, state, site)?;
+            }
             match op {
+                Op::Passes(slots) => passing = Some(slots),
                 Op::Site(at) => {
                     site = Some(*at);
                     if !at.scope_end {
@@ -1352,10 +1457,18 @@ impl Checker<'_> {
                 }
                 Op::Executor(ExecutorOp::Submit(job, _)) => {
                     let sends = Hazard::of(&job.input).map(|hazard| (hazard, site));
-                    let result = ops[index + 1..]
-                        .iter()
-                        .find(|op| !matches!(op, Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_)));
-                    if matches!(result, Some(Op::Try { .. })) {
+                    fn next(ops: &[Op]) -> &[Op] {
+                        let start = ops.iter().position(|op| {
+                            !matches!(op, Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_))
+                        });
+                        &ops[start.unwrap_or(ops.len())..]
+                    }
+                    let mut result = next(&ops[index + 1..]);
+                    // `submit(...).drop_job()?` also moves the job only on success.
+                    if let Some(rest) = futures::after_drop_job(result) {
+                        result = next(rest);
+                    }
+                    if matches!(result.first(), Some(Op::Try { .. })) {
                         accepted.extend(sends);
                     } else {
                         self.submit(sends);
