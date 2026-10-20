@@ -70,19 +70,24 @@ pub enum Route:
     Late
     Declared
 
+# The deliberate errors routes return, so a test can see how each is answered.
+pub enum Deliberate:
+    Fail
+    Unexpected
+
 pub class App:
     pub label: str
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), std.bytes.BytesError | Deliberate | std.http.HttpError | AllocError]:
         answer(&self.label, route, exchange)
 
 pub class NetApp:
     pub label: str
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.bytes.BytesError | Deliberate | std.http.HttpError | AllocError]:
         answer(&self.label, route, exchange)
 
-pub def answer[T: Transport](label: &str, route: &Route, exchange: &mut Exchange[T]) -> Result[(), Failure]:
+pub def answer[T: Transport](label: &str, route: &Route, exchange: &mut Exchange[T]) -> Result[(), std.bytes.BytesError | Deliberate | std.http.HttpError | AllocError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, label)?
@@ -94,7 +99,7 @@ pub def answer[T: Transport](label: &str, route: &Route, exchange: &mut Exchange
                 exchange.read_all(&mut body)?
                 exchange.send(200, "application/octet-stream", &body)?
             case Route.Fail:
-                return Err(Failure.Unspecified)
+                return Err(Deliberate.Fail)
             case Route.Stream:
                 exchange.start(std.http.response(200, "OK")?)?
                 piece = std.bytes.from_text("abcdef")?
@@ -116,7 +121,7 @@ pub def answer[T: Transport](label: &str, route: &Route, exchange: &mut Exchange
                 exchange.start(std.http.response(200, "OK")?)?
                 piece = std.bytes.from_text("part")?
                 exchange.write(&piece, 0, 4)?
-                return Err(Failure.Unspecified)
+                return Err(Deliberate.Fail)
             case Route.Authority:
                 authority = exchange.authority.concat("|")?
                 exchange.send_text(200, &authority)?
@@ -130,12 +135,12 @@ pub def answer[T: Transport](label: &str, route: &Route, exchange: &mut Exchange
                     case Err(HttpError.Broken):
                         pass
                     case _:
-                        return Err(Failure.Unspecified)
+                        return Err(Deliberate.Unexpected)
                 match exchange.read_all(&mut out):
                     case Err(HttpError.Broken):
                         pass
                     case _:
-                        return Err(Failure.Unspecified)
+                        return Err(Deliberate.Unexpected)
             case Route.Declared:
                 # Declares a length but writes nothing, as a HEAD answer may.
                 mut head = std.http.response(200, "OK")?
@@ -161,7 +166,7 @@ pub def routes() -> Result[Router[Route], ServerError]:
     table.add("GET", "/declared", Route.Declared)?
     Ok(table)
 
-pub def counts(report: &Report) -> Result[str, Failure]:
+pub def counts(report: &Report) -> Result[str, AllocError]:
     mut text = "connections=".concat(str.from(report.connections)?)?
     text = text.concat(" requests=")?.concat(str.from(report.requests)?)?
     text = text.concat(" handler_errors=")?.concat(str.from(report.handler_errors)?)?
@@ -172,7 +177,7 @@ pub def counts(report: &Report) -> Result[str, Failure]:
     Ok(text)
 
 # Serves one scripted connection and prints its counts.
-pub def scripted(input: &str, step: i64, hang: bool, config: &Config) -> Result[(), Failure]:
+pub def scripted(input: &str, step: i64, hang: bool, config: &Config) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     table = routes()?
     app = App("home")
     stop = CancellationToken()?
@@ -206,7 +211,7 @@ pub class Gated:
     pub entered: CancellationToken
     pub gate: CancellationToken
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.bytes.BytesError | std.http.HttpError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home")?
@@ -232,7 +237,7 @@ pub class Gated:
                     std.time.sleep(&std.time.milliseconds(20u32))
         Ok(())
 
-pub def gated() -> Result[Gated, Failure]:
+pub def gated() -> Result[Gated, AllocError]:
     Ok(Gated(CancellationToken()?, CancellationToken()?))
 
 pub def routes() -> Result[std.http.server.Router[Route], std.http.server.ServerError]:
@@ -271,7 +276,7 @@ pub def fetch(port: u16, raw: &str) -> Result[str, NetError]:
     mut stream = connect_to(port, raw)?
     until(&mut stream, "")
 
-pub def counts(report: &Report) -> Result[str, Failure]:
+pub def counts(report: &Report) -> Result[str, AllocError]:
     mut text = "connections=".concat(str.from(report.connections)?)?
     text = text.concat(" requests=")?.concat(str.from(report.requests)?)?
     text = text.concat(" handler_errors=")?.concat(str.from(report.handler_errors)?)?
@@ -290,7 +295,7 @@ fn scripted_requests_are_routed_framed_and_pipelined() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     config = std.http.server.config()
     scripted("GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /hello/a%2Fb HTTP/1.1\r\nHost: x\r\n\r\nGET /files/x/y/z HTTP/1.1\r\nHost: x\r\n\r\nGET /files/ HTTP/1.1\r\nHost: x\r\n\r\nGET /query?a=1&b HTTP/1.1\r\nHost: x\r\n\r\nPOST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\nHEAD /stream HTTP/1.1\r\nHost: x\r\n\r\nGET /stream HTTP/1.1\r\nHost: x\r\n\r\nGET /sized HTTP/1.1\r\nHost: x\r\n\r\nGET /silent HTTP/1.1\r\nHost: x\r\n\r\n", 5, False, &config)?
     Ok(())
@@ -308,7 +313,7 @@ fn head_streams_end_without_writing_the_declared_length() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     config = std.http.server.config()
     scripted("HEAD /declared HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n", 5, False, &config)?
     Ok(())
@@ -326,7 +331,7 @@ fn head_responses_count_no_body_bytes() {
         r##"import std.log
 from std.log import Event
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | ChannelError | std.http.server.ServerError | AllocError | IoError]:
     (sender, receiver) = channel[Event](16u64)?
     mut config = std.http.server.config()
     config.events = Some(std.log.channel_sink(sender))
@@ -362,7 +367,7 @@ fn faults_are_answered_and_counted() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     mut config = std.http.server.config()
     print("--- bad")?
     scripted("GET / HTTP/1.1\r\nHost: x\r\nBad Header\r\n\r\n", 64, False, &config)?
@@ -484,7 +489,7 @@ fn reading_after_answering_reports_a_broken_body() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     config = std.http.server.config()
     scripted("POST /late HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nhi", 64, False, &config)?
     Ok(())
@@ -512,7 +517,7 @@ def client(port: u16, app: &Gated, stop: CancellationToken) -> ():
     print(until(&mut second, "").unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     app = gated()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -553,7 +558,7 @@ def client(port: u16, path: str, stop: CancellationToken) -> ():
     print(text.endswith("bye\n|0||"), text.endswith("tick\n|")).unwrap()
     print(str.repr(until(&mut idle, "").unwrap()).unwrap()).unwrap()
 
-def run(path: str, drain_ms: u32) -> Result[(), Failure]:
+def run(path: str, drain_ms: u32) -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     app = gated()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -571,7 +576,7 @@ def run(path: str, drain_ms: u32) -> Result[(), Failure]:
     print(elapsed < 3000000000u64)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     run("/polite", 5000u32)?
     run("/stubborn", 200u32)?
     Ok(())
@@ -610,7 +615,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(fetch(port, "GET /missing HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     app = gated()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -656,10 +661,11 @@ fn routes_match_in_order_and_patterns_are_checked() {
         "",
         r##"import std.http.server
 import std.net
+from std.http import HttpError
 from std.http.server import Match, Router, ServerError
 from std.sync import CancellationToken
 
-def shown(table: &Router[str], method: &str, path: &str) -> Result[(), Failure]:
+def shown(table: &Router[str], method: &str, path: &str) -> Result[(), AllocError | IoError]:
     result = table.find(method, path)
     match &result:
         case Ok(Match.Found(index, _)):
@@ -670,10 +676,10 @@ def shown(table: &Router[str], method: &str, path: &str) -> Result[(), Failure]:
     Ok(())
 
 pub class Nobody:
-    pub def handle(self, route: &str, exchange: &mut std.http.server.Exchange[std.net.TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &str, exchange: &mut std.http.server.Exchange[std.net.TcpStream]) -> Result[(), HttpError]:
         Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | AllocError | IoError]:
     mut table = std.http.server.router[str]()?
     print(str.repr(&table.add("GET", "/users/{id}", "user"))?)?
     print(str.repr(&table.add("GET", "/users/{other}", "other"))?)?
@@ -738,7 +744,7 @@ fn a_worker_that_cannot_start_fails_serve() {
     runs(
         LOOPBACK,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | AllocError | IoError]:
     table = routes()?
     app = gated()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 4)?
@@ -763,10 +769,10 @@ fn allocation_failure_closes_the_connection_cleanly() {
     let attempts = 150;
     let main = format!(
         r##"
-def sample() -> Result[Bytes, Failure]:
+def sample() -> Result[Bytes, std.bytes.BytesError]:
     Ok(std.bytes.from_text("POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nX-Long-Field-Name-Beyond-Inline: a-value-beyond-inline-storage\r\n\r\n3\r\nabc\r\n0\r\n\r\nGET /hello/a-name-beyond-inline HTTP/1.1\r\nHost: x\r\n\r\n")?)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     table = routes()?
     app = App("home")
     config = std.http.server.config()
@@ -840,7 +846,7 @@ def capped(port: u16, stop: CancellationToken) -> ():
     print(str.repr(until(&mut second, "").unwrap()).unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     app = gated()?
     mut config = std.http.server.config()
@@ -927,7 +933,7 @@ def crowded(port: u16, app: &Gated, stop: CancellationToken) -> ():
     print(str.repr(until(&mut silent, "").unwrap()).unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     app = gated()?
     mut config = std.http.server.config()
@@ -986,7 +992,7 @@ from std.log import Event
 from std.tls import TlsStream
 
 pub class Secure:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), std.http.HttpError]:
         exchange.send_text(200, "secure")?
         Ok(())
 
@@ -1041,7 +1047,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(closes(&mut plain)).unwrap()
     stop.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
@@ -1096,7 +1102,7 @@ from std.log import Event
 from std.tls import TlsStream
 
 pub class Secure:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), std.http.HttpError]:
         exchange.send_text(200, "secure")?
         Ok(())
 
@@ -1159,7 +1165,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(closes(&mut hello)).unwrap()
     stop.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
@@ -1218,7 +1224,7 @@ def attempt(table: &mut Router[i64], method: &str, pattern: &str, path: &str) ->
     table.add(method, pattern, 1)?
     table.find(method, path)
 
-def needed(method: &str, pattern: &str, path: &str) -> Result[i64, Failure]:
+def needed(method: &str, pattern: &str, path: &str) -> Result[i64, std.http.server.ServerError | AllocError | IoError]:
     for budget in range(200):
         mut table = std.http.server.router[i64]()?
         marker = "__test_fail_allocations_after_".concat(str.from(budget)?)?.concat("__")?
@@ -1229,7 +1235,7 @@ def needed(method: &str, pattern: &str, path: &str) -> Result[i64, Failure]:
             return Ok(budget)
     Ok(-1)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.http.server.ServerError | AllocError | IoError]:
     base = needed("GET", "/f/{name}", "/f/a")?
     print(needed("PROPFIND-BEYOND-INLINE", "/f/{name}", "/f/a")? - base)?
     print(needed("GET", "/f/{name}", "/f/a-name-beyond-inline")? - base)?
@@ -1256,13 +1262,13 @@ pub enum Site:
 pub class Greeter:
     pub opening: str
 
-    pub def handle(self, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+    pub def handle(self, exchange: &mut Exchange[Script]) -> Result[(), std.http.HttpError | AllocError]:
         text = self.opening.concat(&exchange.params[0])?
         exchange.send_text(200, &text)?
         Ok(())
 
 pub class SiteApp:
-    pub def handle(self, route: &Site, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+    pub def handle(self, route: &Site, exchange: &mut Exchange[Script]) -> Result[(), std.http.HttpError | AllocError]:
         match route:
             case Site.Home:
                 exchange.send_text(200, "home")?
@@ -1270,7 +1276,7 @@ pub class SiteApp:
                 greeter.handle(exchange)?
         Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     mut table = std.http.server.router[Site]()?
     table.add("GET", "/", Site.Home)?
     table.add("GET", "/index.html", Site.Home)?
@@ -1300,6 +1306,7 @@ fn route_dispatch_is_checked_at_compile_time() {
         format!(
             r##"import std.http.server
 import std.net
+from std.http import HttpError
 from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
@@ -1312,11 +1319,11 @@ pub enum Other:
     Home
 
 pub class App:
-    pub def handle(self, route: &{route}, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &{route}, exchange: &mut Exchange[TcpStream]) -> Result[(), HttpError]:
         match route:
 {arms}        Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | AllocError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/hello/{{name}}", Route.Hello("hello"))?
@@ -1355,7 +1362,7 @@ def main() -> Result[(), Failure]:
 
 /// Issue #325: `Handler[T, R, E]` takes `E` from `handle`, so a handler
 /// keeps its own error type: one `HttpError`, or a sum with an application
-/// error. Either `Err` is answered and counted as a `Failure` one is, a body
+/// error. Either `Err` is answered and counted as a `Deliberate` one is, a body
 /// the client failed to deliver stays the client's error, routing is
 /// unchanged, and a generic caller can write the bound with `E` inferred.
 #[test]
@@ -1397,7 +1404,7 @@ pub class Summed:
         Ok(())
 
 # Generic over any handler of the scripted routes, whatever its error type.
-def play[E, H: Handler[Script, Route, E]](handler: &H, input: &str, config: &Config) -> Result[(), Failure]:
+def play[E, H: Handler[Script, Route, E]](handler: &H, input: &str, config: &Config) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     cancel = CancellationToken()?
@@ -1407,7 +1414,7 @@ def play[E, H: Handler[Script, Route, E]](handler: &H, input: &str, config: &Con
     print(counts(&report)?)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     mut config = std.http.server.config()
     config.limits.max_body = 4
     print("--- one error")?
@@ -1500,7 +1507,7 @@ def secure_client(port: u16, stop: CancellationToken) -> ():
     print(ask(port, "/wait", "Error\n")).unwrap()
     stop.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     mut config = std.http.server.config()
     config.workers = 1
@@ -1552,7 +1559,7 @@ pub class App:
     pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> {output}:
 {body}
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | AllocError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 4)?

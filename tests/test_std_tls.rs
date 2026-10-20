@@ -11,14 +11,14 @@ from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 from std.tls import ClientConfig, ServerConfig, TlsError, TlsStream
 
-def fixture(name: &str) -> Result[str, Failure]:
+def fixture(name: &str) -> Result[str, AllocError | IoError]:
     Ok(read_text(&("FIXTURES/" + name)?)?)
 
-def client_for(roots: &str) -> Result[ClientConfig, Failure]:
+def client_for(roots: &str) -> Result[ClientConfig, AllocError | IoError]:
     pem = fixture(roots)?
     Ok(std.tls.client_config(&std.tls.roots_from_pem(&pem).unwrap()).unwrap())
 
-def server_for(chain: &str) -> Result[ServerConfig, Failure]:
+def server_for(chain: &str) -> Result[ServerConfig, AllocError | IoError]:
     Ok(std.tls.server_config(&fixture(chain)?, &fixture("leaf.key")?).unwrap())
 
 def handshake(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]:
@@ -49,7 +49,7 @@ fn program(declarations: &str, body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{}{declarations}\ndef main() -> Result[(), Failure]:\n    cancel = CancellationToken()?\n    deadline = deadline_after(&monotonic_now(), &milliseconds(10000))?\n    listener = listen(&loopback_v4(0u16), 8).unwrap()\n    address = listener.local_address().unwrap()\n{body}    Ok(())\n",
+        "{}{declarations}\ndef main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:\n    cancel = CancellationToken()?\n    deadline = deadline_after(&monotonic_now(), &milliseconds(10000))?\n    listener = listen(&loopback_v4(0u16), 8).unwrap()\n    address = listener.local_address().unwrap()\n{body}    Ok(())\n",
         HEADER.replace("FIXTURES", &fixtures())
     )
 }
@@ -147,7 +147,7 @@ with spawn(echo, &listener, &server, &deadline, &cancel)? as worker:
 }
 
 const VERIFY: &str = r#"
-def attempt(chain: &str, roots: &str, name: &str) -> Result[(), Failure]:
+def attempt(chain: &str, roots: &str, name: &str) -> Result[(), RangeError | ThreadError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(10000))?
     listener = listen(&loopback_v4(0u16), 8).unwrap()
@@ -422,7 +422,7 @@ fn only_programs_reaching_tls_link_the_tls_stack() {
     modules.sort();
     assert!(modules.len() > 30 && modules.contains(&"std.bytes".to_owned()));
     let plain = |import: &str| {
-        format!("{import}\ndef main() -> Result[(), Failure]:\n    print(\"hi\")?\n    Ok(())\n")
+        format!("{import}\ndef main() -> Result[(), IoError]:\n    print(\"hi\")?\n    Ok(())\n")
     };
     assert_eq!(symbols(&plain("")), 0);
     for module in &modules {
@@ -467,16 +467,16 @@ match std.tls.system_roots():
 const SESSION: &str = r#"
 from std.tls import ClientBuilder, ClientCertificates, CipherSuite, ServerBuilder, TlsVersion, TrustRoots
 
-def roots(name: &str) -> Result[TrustRoots, Failure]:
+def roots(name: &str) -> Result[TrustRoots, AllocError | IoError]:
     Ok(std.tls.roots_from_pem(&fixture(name)?).unwrap())
 
-def client_builder(name: &str) -> Result[ClientBuilder, Failure]:
+def client_builder(name: &str) -> Result[ClientBuilder, AllocError | IoError]:
     Ok(std.tls.client_builder(&roots(name)?).unwrap())
 
-def server_builder(chain: &str) -> Result[ServerBuilder, Failure]:
+def server_builder(chain: &str) -> Result[ServerBuilder, AllocError | IoError]:
     Ok(std.tls.server_builder(&fixture(chain)?, &fixture("leaf.key")?).unwrap())
 
-def report(stream: &TlsStream) -> Result[(), Failure]:
+def report(stream: &TlsStream) -> Result[(), IoError]:
     print(stream.application_protocol().unwrap())?
     print(stream.server_name().unwrap())?
     match stream.peer_certificate().unwrap():
@@ -515,7 +515,7 @@ def ping(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken
 
 # One session: the server's report, then the client's, then the server's
 # result. A failure prints where it happened.
-def session(server: &ServerConfig, client: &ClientConfig, name: &str) -> Result[(), Failure]:
+def session(server: &ServerConfig, client: &ClientConfig, name: &str) -> Result[(), RangeError | ThreadError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(10000))?
     listener = listen(&loopback_v4(0u16), 8).unwrap()
@@ -756,7 +756,7 @@ TlsError.InvalidConfiguration
 }
 
 const SHOWN: &str = r#"
-def shown(result: Result[(), TlsError]) -> Result[(), Failure]:
+def shown(result: Result[(), TlsError]) -> Result[(), IoError]:
     match result:
         case Ok(_):
             print("ok")?

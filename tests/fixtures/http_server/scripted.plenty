@@ -46,8 +46,12 @@ pub enum Route:
     Hello
     Fail
 
+# The error the `/fail` route returns, so a test can see how it is answered.
+pub enum Deliberate:
+    Fail
+
 pub class App:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), std.bytes.BytesError | Deliberate | std.http.HttpError | AllocError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home")?
@@ -59,7 +63,7 @@ pub class App:
                 param = exchange.params[0].concat("")?
                 exchange.send_text(200, &param)?
             case Route.Fail:
-                return Err(Failure.Unspecified)
+                return Err(Deliberate.Fail)
         Ok(())
 
 pub def routes() -> Result[Router[Route], ServerError]:
@@ -70,7 +74,7 @@ pub def routes() -> Result[Router[Route], ServerError]:
     table.add("GET", "/fail", Route.Fail)?
     Ok(table)
 
-pub def counts(report: &Report) -> Result[str, Failure]:
+pub def counts(report: &Report) -> Result[str, AllocError]:
     mut text = "requests=".concat(str.from(report.requests)?)?
     text = text.concat(" handler_errors=")?.concat(str.from(report.handler_errors)?)?
     text = text.concat(" protocol_errors=")?.concat(str.from(report.protocol_errors)?)?
@@ -79,7 +83,7 @@ pub def counts(report: &Report) -> Result[str, Failure]:
 
 # Serves each `ff`-terminated input of a hex blob on its own connection,
 # delivered `step` bytes at a time, and prints a `--` line before each.
-pub def replay(blob_hex: &str, step: i64) -> Result[(), Failure]:
+pub def replay(blob_hex: &str, step: i64) -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.http.server.ServerError | AllocError | IoError]:
     table = routes()?
     app = App()
     config = std.http.server.config()

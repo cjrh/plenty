@@ -73,7 +73,7 @@ pub class App:
     pub proxies: Proxies
     pub baseline_files: i64
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), std.http.body.BodyError | std.bytes.BytesError | std.http.cookie.CookieError | std.http.HttpError | std.net.NetError | std.io.StreamError | AllocError | IoError]:
         match route:
             case Route.Form:
                 match std.http.body.read_form(exchange, &self.form):
@@ -167,7 +167,7 @@ pub class App:
         Ok(())
 
 # Open file descriptors of this process.
-pub def open_files() -> Result[i64, Failure]:
+pub def open_files() -> Result[i64, IoError]:
     mut names = std.fs.root(&std.path.from_text("/proc/self/fd")?)?.names()?
     mut count = 0
     while True:
@@ -178,10 +178,10 @@ pub def open_files() -> Result[i64, Failure]:
                 break
     Ok(count)
 
-pub def file_delta(baseline: i64) -> Result[str, Failure]:
+pub def file_delta(baseline: i64) -> Result[str, AllocError | IoError]:
     Ok("fds=".concat(str.from(open_files()? - baseline)?)?)
 
-pub def routes() -> Result[Router[Route], Failure]:
+pub def routes() -> Result[Router[Route], std.http.server.ServerError]:
     mut table = std.http.server.router[Route]()?
     table.add("POST", "/form", Route.Form)?
     table.add("POST", "/json", Route.Json)?
@@ -191,17 +191,17 @@ pub def routes() -> Result[Router[Route], Failure]:
     table.add("GET", "/search", Route.Search)?
     Ok(table)
 
-pub def app() -> Result[App, Failure]:
+pub def app() -> Result[App, std.http.proxy.ProxyError | IoError]:
     storage = std.fs.root(&std.path.from_text("$STORAGE")?)?
     # Keep the storage root live for both the baseline and request measurements.
     baseline = open_files()?
     Ok(App(std.http.body.form_limits(), std.http.body.multipart_limits(), std.json.limits(), storage, std.http.proxy.proxies(Forwarding.XForwardedFor)?, baseline))
 
 # Serves `input` as one connection from `peer` and prints what was written.
-pub def serve(app: &App, input: &str, peer: Option[SocketAddress]) -> Result[(), Failure]:
+pub def serve(app: &App, input: &str, peer: Option[SocketAddress]) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     play(app, input, peer, False)
 
-pub def play(app: &App, input: &str, peer: Option[SocketAddress], cut: bool) -> Result[(), Failure]:
+pub def play(app: &App, input: &str, peer: Option[SocketAddress], cut: bool) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     cancel = CancellationToken()?
@@ -213,7 +213,7 @@ pub def play(app: &App, input: &str, peer: Option[SocketAddress], cut: bool) -> 
     print("")?
     Ok(())
 
-pub def at(text: &str) -> Result[Option[SocketAddress], Failure]:
+pub def at(text: &str) -> Result[Option[SocketAddress], std.net.NetError]:
     Ok(Some(std.net.parse_address(text)?))
 "##;
 
@@ -270,12 +270,12 @@ fn runs(main: &str, expected: &str) {
 fn forms_decode_and_reject_malformed_bodies() {
     runs(
         r##"
-def form(body: &str) -> Result[str, Failure]:
+def form(body: &str) -> Result[str, AllocError]:
     mut text = "POST /form HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-www-form-urlencoded; charset=UTF-8\r\nConnection: close\r\nContent-Length: "
     text = text.concat(str.from(body.byte_len())?)?.concat("\r\n\r\n")?.concat(body)?
     Ok(text)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
     mut app = app()?
     serve(&app, &form("a=1&b=two+words&&c&d=%C3%A9%26&e=%2B")?, Nothing)?
     serve(&app, &form("a=%zz")?, Nothing)?
@@ -306,7 +306,7 @@ HTTP/1.1 400 Bad Request||Bad Request
 fn form_limits_bound_bytes_and_fields() {
     runs(
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
     mut app = app()?
     app.form.max_bytes = 4
     serve(&app, "POST /form HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 5\r\nConnection: close\r\n\r\na=123", Nothing)?
@@ -333,7 +333,7 @@ HTTP/1.1 500 Internal Server Error||Internal Server Error
 fn json_bodies_are_typed_bounded_and_echoed() {
     runs(
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
     mut app = app()?
     serve(&app, "POST /json HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 14\r\nConnection: close\r\n\r\n{\"a\": [1, 2]} ", Nothing)?
     serve(&app, "POST /json HTTP/1.1\r\nHost: x\r\nContent-Type: application/problem+json; charset=utf-8\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntrue", Nothing)?
@@ -366,15 +366,15 @@ HTTP/1.1 413 Content Too Large||Content Too Large
 /// Multipart helpers: `upload(parts)` wraps already formatted parts in a
 /// request with boundary `XyZ`.
 const UPLOAD: &str = r##"
-def upload(parts: &str) -> Result[str, Failure]:
+def upload(parts: &str) -> Result[str, AllocError]:
     mut text = "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=\"XyZ\"\r\nConnection: close\r\nContent-Length: "
     text = text.concat(str.from(parts.byte_len())?)?.concat("\r\n\r\n")?.concat(parts)?
     Ok(text)
 
-def field(name: &str, value: &str) -> Result[str, Failure]:
+def field(name: &str, value: &str) -> Result[str, AllocError]:
     Ok("--XyZ\r\nContent-Disposition: form-data; name=\"".concat(name)?.concat("\"\r\n\r\n")?.concat(value)?.concat("\r\n")?)
 
-def file(name: &str, value: &str) -> Result[str, Failure]:
+def file(name: &str, value: &str) -> Result[str, AllocError]:
     Ok("--XyZ\r\nContent-Disposition: form-data; name=\"".concat(name)?.concat("\"; filename=\"f.txt\"\r\nContent-Type: text/csv\r\n\r\n")?.concat(value)?.concat("\r\n")?)
 "##;
 
@@ -386,7 +386,7 @@ fn multipart_fields_and_files_are_parsed() {
     runs(
         &format!(
             r##"{UPLOAD}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
     mut app = app()?
     print(file_delta(app.baseline_files)?)?
     serve(&app, "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=\"XyZ\"\r\nContent-Length: 208\r\nConnection: close\r\n\r\npreamble\r\n--XyZ\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nhello\r\n--XyZ  \r\ncontent-disposition: form-data; name=\"doc\"; filename=\"a b.txt\"\r\nContent-Type: text/csv\r\n\r\nx,y\r\n--XyXnot\r\n1,2\r\n--XyZ--\r\nepilogue", Nothing)?
@@ -428,7 +428,7 @@ fn multipart_limits_and_malformed_bodies_leave_no_files() {
     runs(
         &format!(
             r##"{UPLOAD}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
     mut app = app()?
     big = "0123456789abcdef"
     app.multipart.max_file = 15
@@ -491,7 +491,7 @@ fn multipart_header_of_exactly_max_head_is_accepted_on_any_read_boundary() {
     runs(
         &format!(
             r##"{UPLOAD}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
     mut app = app()?
     # `Content-Disposition: form-data; name="a"` is 40 bytes.
     app.multipart.max_head = 40
@@ -532,7 +532,7 @@ fn a_cancelled_upload_releases_its_file() {
     runs(
         &format!(
             r##"{UPLOAD}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
     mut app = app()?
     print(file_delta(app.baseline_files)?)?
     mut text = "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=XyZ\r\nContent-Length: 1000\r\n\r\n"
@@ -596,7 +596,7 @@ fn multipart_checks_allow_inherited_descriptors() {
 fn cookies_are_read_leniently_and_written_strictly() {
     runs(
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
     mut app = app()?
     serve(&app, "GET /cookies HTTP/1.1\r\nHost: x\r\nCookie: a=1; b=\"two\"; bad name=3; c=x,y; =4; d\r\nCookie: e=\r\nConnection: close\r\n\r\n", Nothing)?
     serve(&app, "GET /cookies HTTP/1.1\r\nHost: x\r\nCookie: a=1; b=2; c=3; d=4; e=5\r\nConnection: close\r\n\r\n", Nothing)?
@@ -670,7 +670,7 @@ x=y; Domain=a.example; SameSite=Strict
 fn forwarded_clients_need_trusted_proxies() {
     runs(
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
     mut app = app()?
     get = "GET /client HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 6.6.6.6, 203.0.113.9, 10.0.0.7\r\nX-Forwarded-Proto: https\r\nForwarded: for=7.7.7.7\r\nConnection: close\r\n\r\n"
     serve(&app, get, Nothing)?
@@ -747,7 +747,7 @@ False
 fn set_cookie_shares_its_arguments() {
     runs(
         r##"
-def made() -> Result[std.http.cookie.SetCookie, Failure]:
+def made() -> Result[std.http.cookie.SetCookie, std.http.cookie.CookieError | AllocError | IoError]:
     name = "a-cookie-name".concat("-too-long-for-inline-storage")?
     value = "a-cookie-value".concat("-too-long-for-inline-storage")?
     print("__test_begin_no_allocations__")?
@@ -755,7 +755,7 @@ def made() -> Result[std.http.cookie.SetCookie, Failure]:
     print("__test_end_no_allocations__")?
     Ok(cookie?)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.http.cookie.CookieError | AllocError | IoError]:
     cookie = made()?
     print(cookie.name, cookie.value)?
     print(std.http.cookie.set_cookie("", "x").is_err())?

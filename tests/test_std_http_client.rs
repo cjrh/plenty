@@ -98,11 +98,11 @@ pub class Scripts:
             case Nothing:
                 Err(ClientError.Net(NetError.Refused))
 
-def described(endpoint: &Endpoint) -> Result[str, Failure]:
+def described(endpoint: &Endpoint) -> Result[str, AllocError]:
     Ok("[connect ".concat(&endpoint.scheme)?.concat("://")?.concat(&endpoint.host)?.concat(":")?.concat(&str.from(i64(endpoint.port))?)?.concat("]")?)
 
 # A connection that answers with each of `replies` in turn, then closes.
-pub def script(replies: list[str], hang: bool) -> Result[Script, Failure]:
+pub def script(replies: list[str], hang: bool) -> Result[Script, std.bytes.BytesError | AllocError]:
     mut input = std.bytes.empty()?
     mut ends = list[i64].new()?
     for index in range(len(replies)):
@@ -110,13 +110,13 @@ pub def script(replies: list[str], hang: bool) -> Result[Script, Failure]:
         ends.append(input.len())?
     Ok(Script(input, ends, 0, 0, hang, -1, 0, True, False))
 
-pub def scripted(connections: list[Script], config: hc.Config) -> Result[hc.Client[Script, Scripts], Failure]:
+pub def scripted(connections: list[Script], config: hc.Config) -> Result[hc.Client[Script, Scripts], hc.ClientError]:
     Ok(hc.connector[Script, Scripts](Scripts(Mutex(connections), True), config)?)
 
-pub def later() -> Result[Deadline, Failure]:
+pub def later() -> Result[Deadline, RangeError]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
 
-pub def show(result: Result[hc.Fetched, ClientError]) -> Result[(), Failure]:
+pub def show(result: Result[hc.Fetched, ClientError]) -> Result[(), std.bytes.BytesError | AllocError | IoError]:
     print("")?
     match result:
         case Ok(fetched):
@@ -127,13 +127,13 @@ pub def show(result: Result[hc.Fetched, ClientError]) -> Result[(), Failure]:
             print(error)?
     Ok(())
 
-pub def stats[T, C](client: &hc.Client[T, C]) -> Result[(), Failure]:
+pub def stats[T, C](client: &hc.Client[T, C]) -> Result[(), AllocError | IoError]:
     s = client.stats()
     line = "opened=".concat(&str.from(s.opened)?)?.concat(" reused=")?.concat(&str.from(s.reused)?)?.concat(" retried=")?.concat(&str.from(s.retried)?)?.concat(" redirected=")?.concat(&str.from(s.redirected)?)?.concat(" discarded=")?.concat(&str.from(s.discarded)?)?.concat(" idle=")?.concat(&str.from(client.idle())?)?
     print(line)?
     Ok(())
 
-def ok(body: &str) -> Result[str, Failure]:
+def ok(body: &str) -> Result[str, AllocError]:
     Ok("HTTP/1.1 200 OK\r\nContent-Length: ".concat(&str.from(body.byte_len())?)?.concat("\r\n\r\n")?.concat(body)?)
 
 "##;
@@ -146,7 +146,7 @@ fn pooled_connections_are_reused_and_closed_ones_replaced() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     first = script([ok("one")?, ok("two")?]?, True)?
     mut client = scripted([first]?, hc.config()?)?
@@ -261,7 +261,7 @@ fn only_idempotent_requests_fail_over_to_a_new_connection() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     # The server reads the second request and closes without answering.
     a = script([ok("a")?, ""]?, False)?
@@ -351,7 +351,7 @@ fn cancellation_and_expiry_leave_connections_alone() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     gone = CancellationToken()?
     gone.cancel()
@@ -424,10 +424,10 @@ pub class Pieces:
         self.at += count
         Ok(count)
 
-def pieces(text: &str) -> Result[Pieces, Failure]:
+def pieces(text: &str) -> Result[Pieces, std.bytes.BytesError]:
     Ok(Pieces(std.bytes.from_text(text)?, 0, 4, False))
 
-def done(result: Result[hc.Response[Script], ClientError], client: &mut hc.Client[Script, Scripts]) -> Result[(), Failure]:
+def done(result: Result[hc.Response[Script], ClientError], client: &mut hc.Client[Script, Scripts]) -> Result[(), std.bytes.BytesError | hc.ClientError | AllocError | IoError]:
     print("")?
     match result:
         case Ok(response):
@@ -441,7 +441,7 @@ def done(result: Result[hc.Response[Script], ClientError], client: &mut hc.Clien
             print(error)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     a = script([ok("s1")?, ok("c1")?]?, True)?
     mut client = scripted([a]?, hc.config()?)?
@@ -593,7 +593,7 @@ fn response_framing_faults_and_interim_responses() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     a = script(["HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc"]?, False)?
     mut client = scripted([a]?, hc.config()?)?
@@ -673,7 +673,7 @@ fn reads_after_a_failed_body_read_report_broken() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     a = script(["HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc", ok("b")?]?, True)?
     mut client = scripted([a]?, hc.config()?)?
@@ -721,10 +721,10 @@ fn redirects_rewrite_methods_and_drop_credentials_across_origins() {
     runs(
         SCRIPTED,
         r##"
-def moved(status: i64, location: &str) -> Result[str, Failure]:
+def moved(status: i64, location: &str) -> Result[str, AllocError]:
     Ok("HTTP/1.1 ".concat(&str.from(status)?)?.concat(" X\r\nLocation: ")?.concat(location)?.concat("\r\nContent-Length: 3\r\n\r\nold")?)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     mut config = hc.config()?
     config.sensitive.append("X-Api-Key")?
@@ -802,10 +802,10 @@ fn redirect_fragments_are_dropped_before_the_query_is_split() {
     runs(
         SCRIPTED,
         r##"
-def moved(location: &str) -> Result[str, Failure]:
+def moved(location: &str) -> Result[str, AllocError]:
     Ok("HTTP/1.1 302 Found\r\nLocation: ".concat(location)?.concat("\r\nContent-Length: 0\r\n\r\n")?)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     a = script([moved("/a#x?y")?, moved("/b?x#y")?, moved("#f?g")?, moved("?q#r?s")?, moved("//h/c#t?u")?, ok("done")?]?, True)?
     mut client = scripted([a]?, hc.config()?)?
@@ -825,7 +825,7 @@ fn a_proxy_gets_absolute_targets_and_its_own_credentials() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     mut config = hc.config()?
     mut via = hc.proxy("http://proxy.local:3128")?
@@ -876,7 +876,7 @@ fn invalid_requests_fail_before_connecting() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     mut client = scripted([]?, hc.config()?)?
     mut host = hc.request("GET", "http://h/")?
@@ -964,7 +964,7 @@ pub enum Route:
     Echo
 
 pub class Site:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.bytes.BytesError | std.http.HttpError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home\n")?
@@ -978,10 +978,10 @@ pub class Site:
                 exchange.send(200, "application/octet-stream", &body)?
         Ok(())
 
-def later() -> Result[std.time.Deadline, Failure]:
+def later() -> Result[std.time.Deadline, RangeError]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     mut client = hc.client(hc.config()?)?
     base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
@@ -999,7 +999,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     Ok(())
 
 # Accepts connections and never answers until `stop` is cancelled.
-def silent(listener: TcpListener, stop: CancellationToken) -> Result[(), Failure]:
+def silent(listener: TcpListener, stop: CancellationToken) -> Result[(), RangeError | AllocError]:
     mut held = list[TcpStream].new()?
     while not stop.is_cancelled():
         match listener.accept(&later()?, &stop):
@@ -1013,7 +1013,7 @@ def canceller(token: CancellationToken) -> ():
     std.time.sleep(&std.time.milliseconds(100u32))
     token.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), hc.ClientError | std.net.NetError | RangeError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/old", Route.Old)?
@@ -1079,12 +1079,12 @@ fn allocation_failure_is_reported() {
     let result = output(&format!(
         "{SCRIPTED}{}",
         r##"
-def quiet(replies: list[str]) -> Result[Script, Failure]:
+def quiet(replies: list[str]) -> Result[Script, std.bytes.BytesError | AllocError]:
     mut made = script(replies, True)?
     made.echo = False
     Ok(made)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     for attempt in range(300):
         first = quiet(["HTTP/1.1 307 Temporary Redirect\r\nLocation: /next/page-beyond-inline\r\nContent-Length: 0\r\n\r\n", "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nX-Field-Beyond-Inline: a-value-beyond-inline\r\n\r\n4\r\nbody\r\n0\r\n\r\n"]?)?
@@ -1137,14 +1137,14 @@ fn fetch_keeps_the_final_head_and_pools_its_connection() {
     runs(
         SCRIPTED,
         r##"
-def head_of(fetched: &hc.Fetched) -> Result[(), Failure]:
+def head_of(fetched: &hc.Fetched) -> Result[(), IoError]:
     head = &fetched.head
     print(fetched.status, head.status, head.minor, head.reason)?
     for index in range(len(head.headers)):
         print(head.headers[index].name, head.headers[index].value)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     moved = "HTTP/1.1 302 Found\r\nLocation: /final\r\nContent-Length: 0\r\n\r\n"
     final = "HTTP/1.1 203 Translated Here\r\nX-One: 1\r\nX-Two: two\r\nContent-Length: 4\r\n\r\nbody"
@@ -1196,7 +1196,7 @@ fn fetch_allocates_no_more_than_send_read_all_and_finish() {
         r##"
 from std.bytes import BytesError
 
-def client() -> Result[hc.Client[Script, Scripts], Failure]:
+def client() -> Result[hc.Client[Script, Scripts], std.bytes.BytesError | hc.ClientError | AllocError]:
     mut made = script(["HTTP/1.1 200 OK\r\nX-Field-Beyond-Inline: a-value-beyond-inline\r\nContent-Length: 4\r\n\r\nbody"]?, True)?
     made.echo = False
     Ok(hc.connector[Script, Scripts](Scripts(Mutex([made]?), False), hc.config()?)?)
@@ -1226,7 +1226,7 @@ def tag(result: &Result[(), ClientError], idle: i64) -> str:
         case Err(_):
             "other"
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     for attempt in range(200):
         mut one = client()?
@@ -1273,7 +1273,7 @@ fn request_shares_its_method_and_url() {
         "",
         r##"import std.http.client as hc
 
-def needed(method: &str, url: &str) -> Result[i64, Failure]:
+def needed(method: &str, url: &str) -> Result[i64, AllocError | IoError]:
     for budget in range(20):
         marker = "__test_fail_allocations_after_".concat(str.from(budget)?)?.concat("__")?
         print(marker)?
@@ -1283,7 +1283,7 @@ def needed(method: &str, url: &str) -> Result[i64, Failure]:
             return Ok(budget)
     Ok(-1)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), hc.ClientError | AllocError | IoError]:
     print(needed("GET", "http://h/")?)?
     mut url = ""
     mut method = ""

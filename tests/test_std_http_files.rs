@@ -52,7 +52,7 @@ pub class App:
     pub site: Root
     pub keys: list[Bytes]
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), std.http.cookie.CookieError | std.http.files.FilesError | std.http.HttpError | AllocError]:
         match route:
             case Route.Files:
                 path = exchange.params[0].concat("")?
@@ -66,22 +66,22 @@ pub class App:
                         exchange.send_text(401, "unsigned")?
         Ok(())
 
-pub def key(fill: u8) -> Result[Bytes, Failure]:
+pub def key(fill: u8) -> Result[Bytes, std.bytes.BytesError]:
     mut data = std.bytes.empty()?
     data.resize(32, fill)?
     Ok(data)
 
-pub def app(keys: list[Bytes]) -> Result[App, Failure]:
+pub def app(keys: list[Bytes]) -> Result[App, IoError]:
     Ok(App(std.fs.root(&std.path.from_text("$SITE")?)?, keys))
 
-pub def routes() -> Result[Router[Route], Failure]:
+pub def routes() -> Result[Router[Route], std.http.server.ServerError]:
     mut table = std.http.server.router[Route]()?
     table.add("*", "/s/{path...}", Route.Files)?
     table.add("GET", "/session", Route.Session)?
     Ok(table)
 
 # Serves one request line plus `fields` and prints the response.
-pub def ask(app: &App, line: &str, fields: &str) -> Result[(), Failure]:
+pub def ask(app: &App, line: &str, fields: &str) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     cancel = CancellationToken()?
@@ -159,7 +159,7 @@ fn run(main: &str) -> String {
 #[test]
 fn files_are_served_with_type_and_validators() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     app = app([]?)?
     ask(&app, "GET /s/index.html", "")?
     ask(&app, "GET /s/css/a.css", "")?
@@ -188,7 +188,7 @@ def main() -> Result[(), Failure]:
 #[test]
 fn paths_outside_the_root_are_not_found() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     app = app([]?)?
     for target in ["/s/link.txt", "/s/up/secret.txt", "/s/..%2fsecret.txt", "/s/%2e%2e/secret.txt", "/s/css/..%2f..%2fsecret.txt", "/s/%2fetc%2fpasswd", "/s//etc/passwd", "/s/a%00b", "/s/.git/config", "/s/css", "/s/css/", "/s/pipe", "/s/missing", "/s/css%2f.%2fa.css"]?:
         ask(&app, &"GET ".concat(target)?, "")?
@@ -202,7 +202,7 @@ def main() -> Result[(), Failure]:
 fn conditional_requests_answer_not_modified() {
     let output = run(&format!(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     app = app([]?)?
     ask(&app, "GET /s/index.html", "If-None-Match: {tag}\r\n")?
     ask(&app, "GET /s/index.html", "If-None-Match: \"other\", {strong}\r\n")?
@@ -237,7 +237,7 @@ def main() -> Result[(), Failure]:
 #[test]
 fn large_files_stream_in_chunks() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     app = app([]?)?
     ask(&app, "GET /s/big.bin", "")?
     Ok(())
@@ -250,7 +250,7 @@ def main() -> Result[(), Failure]:
 #[test]
 fn media_types_and_http_dates() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.http.files.FilesError | AllocError | IoError]:
     for name in ["a.HTML", "b.js", "c.json", "d.svg", "e.png", "f.jpeg", "g.wasm", "h.woff2", "i.tar.gz", "noext", ".css"]?:
         print(std.http.files.media_type(name))?
     for seconds in [0, 784111777, 951782400, 253402300799, 253402300800, -1]?:
@@ -293,7 +293,7 @@ Option[i64].Nothing
 #[test]
 fn file_metadata_observes_the_open_file() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     site = std.fs.root(&std.path.from_text("$SITE")?)?
     stream = site.read_file(&std.path.from_text("index.html")?)?
     site.remove_file(&std.path.from_text("index.html")?)?
@@ -313,7 +313,7 @@ def main() -> Result[(), Failure]:
 #[test]
 fn signed_values_verify_under_any_listed_key() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | AllocError | IoError]:
     old = [key(1u8)?]?
     rotated = [key(2u8)?, key(1u8)?]?
     signed = std.http.cookie.sign(&old, "session", "user42")?
@@ -365,7 +365,7 @@ fn signed_cookies_are_found_in_requests() {
     let tag = signature(&[1; 32], b"session=user42");
     let output = run(&format!(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
     app = app([key(2u8)?, key(1u8)?]?)?
     ask(&app, "GET /session", "Cookie: theme=dark; session=user42.{tag}\r\n")?
     ask(&app, "GET /session", "Cookie: session=user43.{tag}\r\n")?
@@ -429,6 +429,7 @@ import std.path
 import std.test
 from std.bytes import ByteSource, Bytes
 from std.fs import Root
+from std.http import HttpError
 from std.http.body import BodyError, Content, MultipartLimits
 from std.http.server import Exchange
 from std.io import StreamError
@@ -472,7 +473,7 @@ pub class Upload:
     pub refused: CancellationToken
     pub wrong: CancellationToken
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), std.bytes.BytesError | HttpError | StreamError | std.test.TestError | IoError]:
         if self.files:
             std.test.fail_files_after(self.budget, 28i32)?
         else:
@@ -504,20 +505,20 @@ pub class Upload:
         exchange.send_text(200, "done")?
         Ok(())
 
-def open_files() -> Result[i64, Failure]:
+def open_files() -> Result[i64, IoError]:
     mut names = std.fs.root(&std.path.from_text("/proc/self/fd")?)?.names()?
     mut count = 0
     while names.next()?.is_some():
         count += 1
     Ok(count)
 
-def request() -> Result[Bytes, Failure]:
+def request() -> Result[Bytes, std.bytes.BytesError | AllocError]:
     body = "--XyZ\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nhello\r\n--XyZ\r\nContent-Disposition: form-data; name=\"doc\"; filename=\"a.txt\"\r\nContent-Type: text/csv\r\n\r\nx,y\r\n1,2\r\n3\r\n--XyZ--"
     mut text = "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=XyZ\r\nConnection: close\r\nContent-Length: "
     text = text.concat(str.from(body.byte_len())?)?.concat("\r\n\r\n")?.concat(body)?
     Ok(std.bytes.from_text(&text)?)
 
-def exhaust(files: bool) -> Result[(), Failure]:
+def exhaust(files: bool) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | std.test.TestError | AllocError | IoError]:
     scratch = std.test.scratch()?
     mut table = std.http.server.router[Route]()?
     table.add("POST", "/upload", Route.Upload)?
@@ -539,10 +540,10 @@ def exhaust(files: bool) -> Result[(), Failure]:
     std.test.fail("the upload never parsed")?
     Ok(())
 
-def test_allocation_failures_are_reported_and_release_files() -> Result[(), Failure]:
+def test_allocation_failures_are_reported_and_release_files() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | std.test.TestError | AllocError | IoError]:
     exhaust(False)
 
-def test_storage_failures_are_reported_and_release_files() -> Result[(), Failure]:
+def test_storage_failures_are_reported_and_release_files() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | std.test.TestError | AllocError | IoError]:
     exhaust(True)
 "##;
 
@@ -611,7 +612,7 @@ pub class Site:
     pub root: Root
     pub keys: list[Bytes]
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.http.files.FilesError | std.http.HttpError | AllocError]:
         match route:
             case Route.Files:
                 path = exchange.params[0].concat("")?
@@ -656,7 +657,7 @@ def client(port: u16, cookie: str, stop: CancellationToken) -> ():
     print(ask(port, "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: session=user42\r\n\r\n", "first")).unwrap()
     stop.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.net.NetError | std.http.server.ServerError | ThreadError | std.tls.TlsError | AllocError | IoError]:
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/s/{path...}", Route.Files)?
     table.add("POST", "/login", Route.Login)?

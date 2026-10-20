@@ -8,6 +8,7 @@ import std.time
 from std.http.proxy import Forwarding, Proxies
 from std.http.server import Exchange, Report
 from std.net import TcpStream
+from std.ready import WaitError
 from std.sync import CancellationToken
 
 # The upstream of tests/test_std_http_server_proxy.rs. Paths under /stream/
@@ -35,7 +36,7 @@ pub class App:
     pub proxies: Proxies
     pub piece: std.bytes.Bytes
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.bytes.BytesError | std.http.HttpError | std.net.NetError | AllocError]:
         match route:
             case Route.Info:
                 text = info(exchange, &self.proxies)?
@@ -76,14 +77,14 @@ pub class App:
                 exchange.write(&bye, 0, bye.len())?
         Ok(())
 
-def field(exchange: &Exchange[TcpStream], name: &str) -> Result[str, Failure]:
+def field(exchange: &Exchange[TcpStream], name: &str) -> Result[str, AllocError]:
     match std.http.find(&exchange.request.headers, name):
         case Some(index):
             Ok(exchange.request.headers[index].value.concat("")?)
         case Nothing:
             Ok("-")
 
-def info(exchange: &Exchange[TcpStream], proxies: &Proxies) -> Result[str, Failure]:
+def info(exchange: &Exchange[TcpStream], proxies: &Proxies) -> Result[str, std.net.NetError | AllocError]:
     mut text = "authority=".concat(&exchange.authority)?
     for name in ["Host", "X-Forwarded-For", "X-Forwarded-Proto", "Expect"]?:
         text = text.concat("\n")?.concat(name)?.concat("=")?.concat(field(exchange, name)?)?
@@ -104,7 +105,7 @@ def info(exchange: &Exchange[TcpStream], proxies: &Proxies) -> Result[str, Failu
             text = text.concat("\nclient=invalid")?
     Ok(text)
 
-def routes() -> Result[std.http.server.Router[Route], Failure]:
+def routes() -> Result[std.http.server.Router[Route], std.http.server.ServerError | AllocError]:
     mut table = std.http.server.router[Route]()?
     for prefix in ["", "/stream"]?:
         table.add("GET", prefix.concat("/info")?, Route.Info)?
@@ -117,7 +118,7 @@ def routes() -> Result[std.http.server.Router[Route], Failure]:
         table.add("GET", prefix.concat("/tick")?, Route.Tick)?
     Ok(table)
 
-def counts(report: &Report) -> Result[str, Failure]:
+def counts(report: &Report) -> Result[str, AllocError]:
     mut text = "connections=".concat(str.from(report.connections)?)?
     text = text.concat(" requests=")?.concat(str.from(report.requests)?)?
     text = text.concat(" handler_errors=")?.concat(str.from(report.handler_errors)?)?
@@ -128,7 +129,7 @@ def counts(report: &Report) -> Result[str, Failure]:
     Ok(text)
 
 # Prints the port, serves until SIGTERM, then prints the report.
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.proxy.ProxyError | std.http.server.ServerError | std.signal.SignalError | ThreadError | WaitError | AllocError | IoError]:
     signals = std.signal.listen()?
     table = routes()?
     mut proxies = std.http.proxy.proxies(Forwarding.XForwardedFor)?
