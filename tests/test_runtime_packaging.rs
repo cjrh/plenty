@@ -15,7 +15,13 @@ fn relocated_compiler_uses_only_objects_and_a_packaged_archive() {
     let paths = std::env::var_os("PATH").unwrap();
     let cc = std::env::split_paths(&paths)
         .map(|p| p.join("cc"))
-        .find(|p| p.is_file())
+        // ccache's `cc` finds the real compiler by searching PATH, which would
+        // find the wrapper below and exec it again forever (issue #345).
+        .find(|p| {
+            p.is_file()
+                && p.canonicalize()
+                    .map_or(true, |real| real.file_name() != Some("ccache".as_ref()))
+        })
         .expect("system linker driver");
     let log = temp.path().join("link-args");
     support::write_script(
