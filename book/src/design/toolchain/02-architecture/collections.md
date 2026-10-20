@@ -22,10 +22,14 @@ backward shifts, without moving payloads or scanning the whole table.
 New keys reuse free slots at the logical tail; replacement preserves position.
 Live-row cursors make traversal, snapshots, copying, formatting, and destruction
 follow insertion order without visiting dead rows. Capacity follows peak occupancy
-and explicit reservation, and persists until destruction. Hashes are not randomized.
+and explicit reservation, and persists until destruction. Hashes use SipHash-2-4
+with a process-wide secret key obtained from OS entropy. The key is shared across
+worker threads; dictionary insertion order remains independent of bucket placement.
+See the [hashing contract](../../facilities/01-builtins/collections.md) for
+initialization, failure behavior, and complexity limits.
 
-Tuple keys recursively hash scalar fields and string bytes using their static
-metadata. Inline storage addresses never participate in the hash, so copied
+Tuple keys recursively hash scalar fields, string bytes, and byte-literal
+contents using their static metadata. Inline storage addresses never participate in the hash, so copied
 keys, relocated rows, lookup temporaries, and newly constructed equal strings
 all retain the same hash. Tuple hashing and equality allocate nothing.
 

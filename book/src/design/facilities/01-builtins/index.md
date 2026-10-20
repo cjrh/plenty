@@ -14,6 +14,8 @@ method names. Their contracts complement the language rules for
 - [Boxes](boxes.md): explicit heap ownership and content access.
 - [Shared owners](shared.md): one value with several counted owners.
 - [Text](text.md): Unicode values and character lookup.
+- [Byte literals](../../language/03-types/bytes.md): immutable `bytes` values,
+  byte lookup, and iteration; distinct from owned [`std.bytes.Bytes`](../../stdlib/bytes.md) buffers.
 - [Text search](text-search.md), [building](text-building.md), and
   [splitting](text-splitting.md).
 - [Collections](collections.md): common behavior, followed by

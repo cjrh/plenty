@@ -20,6 +20,7 @@ runtime.
 | Set | Element, with no promised order |
 | Range | Integer of the range's element type |
 | String | Unicode scalar value as `str` |
+| [`bytes`](../03-types/bytes.md) | Byte as `u8` |
 | [`std.bytes.Bytes`](../../stdlib/bytes.md#index-syntax-and-iteration) | Byte as `u8` |
 | Generator | Declared yielded value |
 
@@ -36,7 +37,7 @@ Borrowed temporary iterable owners remain alive through the loop and drop
 when its scope exits, including on early exit.
 
 Borrowed dictionary and set iteration yields shared references to keys or
-elements. Borrowed range, string, and `Bytes` iteration also yields shared
+elements. Borrowed range, string, `bytes`, and `Bytes` iteration also yields shared
 references; each refers to a computed value in an iteration-local slot and
 cannot escape that iteration. `for b in &mut buffer` is rejected for `Bytes`;
 write through an index instead. Comparisons and printing observe references uniformly;
@@ -59,5 +60,6 @@ Its source loan prohibits invalidating dictionary mutation.
 Loop targets permit flat tuple unpacking. Iteration itself, including string
 scalar production and generator `next`, adds no allocation; iterable creation
 and body expressions keep their own contracts. There is no arbitrary user
-iterator protocol, special-method dispatch, async iteration, or generator
-expression.
+iterator protocol, special-method dispatch, or async iteration.
+[Generator expressions](03-generators.md#generator-expressions) construct
+lazy owned frames and follow the generator iteration rules.
