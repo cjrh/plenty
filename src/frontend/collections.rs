@@ -1749,12 +1749,14 @@ impl Lower<'_> {
     ) -> Result<()> {
         let saved = self.names.clone();
         let start = self.locals.len();
+        let iterable_start = ops.len();
         let Iteration {
             condition,
             mut body,
             step,
             ..
         } = self.iteration(name, iterable, None, ops)?;
+        self.building(&iterable.at, iterable_start, ops, false);
         self.loop_steps.push(step.clone());
         self.loop_scopes.push(self.locals.len());
         let result = self.block(statements, &mut body, &Tail::Discard);

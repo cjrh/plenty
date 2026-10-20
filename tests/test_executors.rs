@@ -954,3 +954,136 @@ def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], 
         accepted(body);
     }
 }
+
+/// `main` for issue #347 probes: `sender` goes to the job, `receiver` stays.
+fn building_main(body: &str) -> String {
+    format!(
+        "def keep(receiver: Receiver[i64], done: bool) -> bool:
+    drop(receiver)
+    done
+def finished(result: Result[(), FutureError]) -> bool:
+    result.is_ok()
+def count(sender: Sender[i64]) -> i64:
+    drop(sender)
+    1
+def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    sender, receiver = channel[i64](1)?
+{body}    print(\"done\")?
+    Ok(())
+"
+    )
+}
+
+#[test]
+fn a_wait_inside_a_statement_rejects_endpoints_its_value_already_holds() {
+    // Issue #347: the tuple, or the call's arguments, hold the receiver from
+    // its move until the statement completes, across the nested wait.
+    let pool = "    with ThreadPoolExecutor(1, 1)? as pool:\n        future = pool.submit(produce, sender)?\n";
+    for (statement, at) in [
+        (
+            "        pair = (receiver, future.result()?)\n        inbox, _ = pair\n        drop(inbox)\n",
+            "20:16",
+        ),
+        ("        drop((receiver, future.result()?))\n", "20:9"),
+        (
+            "        if keep(receiver, finished(future.result())):\n            pass\n",
+            "20:12",
+        ),
+        (
+            "        match keep(receiver, finished(future.result())):\n            case True:\n                pass\n            case False:\n                pass\n",
+            "20:15",
+        ),
+        (
+            "        for done in [keep(receiver, finished(future.result()))]?:\n            pass\n",
+            "20:64",
+        ),
+    ] {
+        let error = blocked_shutdown(&building_main(&format!("{pool}{statement}")));
+        assert!(
+            error.contains(
+                "this result() waits for a job that holds `Sender[i64]` while the expression \
+                 being evaluated still holds `Receiver[i64]`"
+            ) && error.contains(&format!(
+                "{at}: note: the expression here holds `Receiver[i64]`, moved from \
+                 `receiver`, until the statement completes; wait in an earlier statement, \
+                 before moving the endpoint"
+            )),
+            "{statement}\n{error}"
+        );
+    }
+}
+
+#[test]
+fn a_match_case_value_holds_its_endpoints_through_the_cases_shutdown() {
+    // Issue #347: the case's pool shuts down after its final expression has
+    // moved the receiver into the `match` value, before the binding stores it.
+    let error = blocked_shutdown(&building_main(
+        "    kept = match True:
+        case True:
+            pool = ThreadPoolExecutor(1, 1)?
+            drop(pool.submit(produce, sender)?)
+            receiver
+        case False:
+            drop(sender)
+            receiver
+    drop(kept)
+",
+    ));
+    assert!(
+        error.contains(
+            "shuts down this pool after a job that holds `Sender[i64]` was submitted, while the \
+             expression being evaluated still holds `Receiver[i64]`"
+        ) && error.contains(
+            "22:13: note: the expression here holds `Receiver[i64]`, moved from `receiver`, \
+             until the statement completes; use the endpoint outside the pool's scope"
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn statements_that_wait_before_moving_an_endpoint_are_accepted() {
+    // Issue #347: a value that takes the endpoint after the wait, or only an
+    // endpoint the job cannot block on, does not hold one through the wait.
+    runs(
+        &format!(
+            "{PRODUCE}{}",
+            building_main(
+                "    drop(receiver)
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+        pair = (future.result()?, 1)
+        print(pair[1])?
+",
+            )
+        ),
+        "1\ndone\n",
+    );
+    runs(
+        &format!(
+            "{PRODUCE}{}",
+            building_main(
+                "    other, inbox = channel[str](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+        drop(receiver)
+        pair = (inbox, future.result()?)
+        kept, _ = pair
+        drop(kept)
+        drop(other)
+    kept = match True:
+        case True:
+            spare, unused = channel[i64](1)?
+            drop(unused)
+            spare
+        case False:
+            spare, unused = channel[i64](1)?
+            drop(unused)
+            spare
+    print(count(kept))?
+",
+            )
+        ),
+        "1\ndone\n",
+    );
+}

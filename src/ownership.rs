@@ -2,7 +2,7 @@
 use crate::executor::ExecutorOp;
 use crate::hash::HashMap;
 use crate::mutex::MutexOp;
-use crate::op::{Op, Ty};
+use crate::op::{Building, Op, Ty};
 use crate::threading::{endpoints, owns_executor, Task, ThreadOp};
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -206,6 +206,8 @@ pub enum InFlight {
     Propagated,
     /// The value of a `return` or of the function's final expression.
     Returned,
+    /// A statement's expression that has not finished evaluating.
+    Building,
 }
 
 /// A rejected operation, the place it touches, and the related source sites.
@@ -241,6 +243,7 @@ impl Error {
             None => match self.in_flight {
                 InFlight::Propagated => "the error that `?` propagates".into(),
                 InFlight::Returned => "the returned value".into(),
+                InFlight::Building => "the expression being evaluated".into(),
                 InFlight::None => "an unnamed value".into(),
             },
         }
@@ -494,6 +497,11 @@ struct Checker<'a> {
     /// moved, each with its `return` or final expression site. The frontend
     /// names them in `Op::Returning`; an exited path forgets them.
     returning: RefCell<Vec<(u8, Site)>>,
+    /// Endpoint-holding slots that the statement-level values under
+    /// construction moved, from `Op::Building`, each with its expression's
+    /// site, and the length of that list where each open statement began.
+    building: RefCell<Vec<(u8, Site)>>,
+    statements: RefCell<Vec<usize>>,
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -506,6 +514,8 @@ pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) ->
         submitted: RefCell::default(),
         propagating: RefCell::default(),
         returning: RefCell::default(),
+        building: RefCell::default(),
+        statements: RefCell::default(),
         futures: crate::profile_block!(
             "ownership::prepare_futures",
             futures::Futures::new(ops, locals.len())
@@ -669,7 +679,7 @@ fn graph<'a>(
     let mut next = next;
     for (op, site) in ops.iter().zip(sites).rev() {
         match op {
-            Op::Site(_) | Op::CallerSite(_) | Op::Returning(..) => continue,
+            Op::Site(_) | Op::CallerSite(_) | Op::Returning(..) | Op::Building(_) => continue,
             Op::Try { cleanup, .. } => {
                 let failure = graph(cleanup, site, 0, None, nodes);
                 nodes.push(Node {
@@ -925,7 +935,13 @@ impl Checker<'_> {
                 error.notes.push((at, format!("{holds}; {advice}")));
             }
         }
-        for &(slot, at) in self.returning.borrow().iter() {
+        let returning = self.returning.borrow();
+        let building = self.building.borrow();
+        let in_flight = returning
+            .iter()
+            .map(|entry| (entry, InFlight::Returned))
+            .chain(building.iter().map(|entry| (entry, InFlight::Building)));
+        for (&(slot, at), holder) in in_flight {
             // A binding that still owns its value on some path is reported
             // above as a holder.
             if matches!(
@@ -953,7 +969,7 @@ impl Checker<'_> {
             let first = error.is_none();
             let error = error.get_or_insert_with(|| {
                 let mut error = self.error(kind(message.to_string()), None, site);
-                error.in_flight = InFlight::Returned;
+                error.in_flight = holder;
                 error
             });
             let endpoint = if worker_sends { "Receiver" } else { "Sender" };
@@ -961,24 +977,39 @@ impl Checker<'_> {
                 .place(slot, &[], false)
                 .map(|place| format!(", moved from `{place}`,"))
                 .unwrap_or_default();
-            let advice = match error.kind {
-                Kind::BlockedShutdown {
-                    automatic: true, ..
-                } => "drop the endpoint before the pool's scope ends instead of returning it",
-                Kind::BlockedJoin {
-                    automatic: true, ..
-                } => "drop the endpoint before the block ends instead of returning it",
-                // The wait is part of the returned expression itself.
-                _ => "wait before moving the endpoint into the returned value",
-            };
-            error.notes.push((
-                at,
+            let also = if first { "" } else { "also " };
+            let note = if holder == InFlight::Returned {
+                let advice = match error.kind {
+                    Kind::BlockedShutdown {
+                        automatic: true, ..
+                    } => "drop the endpoint before the pool's scope ends instead of returning it",
+                    Kind::BlockedJoin {
+                        automatic: true, ..
+                    } => "drop the endpoint before the block ends instead of returning it",
+                    // The wait is part of the returned expression itself.
+                    _ => "wait before moving the endpoint into the returned value",
+                };
                 format!(
-                    "the value returned here {}holds `{endpoint}[{message}]`{moved} until this \
-                     function returns; {advice}",
-                    if first { "" } else { "also " }
-                ),
-            ));
+                    "the value returned here {also}holds `{endpoint}[{message}]`{moved} until \
+                     this function returns; {advice}"
+                )
+            } else {
+                let advice = match error.kind {
+                    // The cleanup of a `match` case whose value holds it.
+                    Kind::BlockedShutdown {
+                        automatic: true, ..
+                    } => "use the endpoint outside the pool's scope",
+                    Kind::BlockedJoin {
+                        automatic: true, ..
+                    } => "use the endpoint outside the task's block",
+                    _ => "wait in an earlier statement, before moving the endpoint",
+                };
+                format!(
+                    "the expression here {also}holds `{endpoint}[{message}]`{moved} until \
+                     the statement completes; {advice}"
+                )
+            };
+            error.notes.push((at, note));
         }
         if let Some((residual, at)) = &*self.propagating.borrow() {
             if let Some(message) = endpoints([residual.clone()], !worker_sends, false)
@@ -1256,11 +1287,15 @@ impl Checker<'_> {
         site: Option<Site>,
     ) -> Result<bool> {
         let entry = self.returning.borrow().len();
+        let built = (self.building.borrow().len(), self.statements.borrow().len());
         let continues = self.sequence_ops(ops, state, loops, site)?;
         // A returned value is in flight only on the path that returns it. A
-        // function's final value continues to the frame's release.
+        // function's final value continues to the frame's release. A value
+        // under construction on an exited path is gone with it.
         if !continues {
             self.returning.borrow_mut().truncate(entry);
+            self.building.borrow_mut().truncate(built.0);
+            self.statements.borrow_mut().truncate(built.1);
         }
         Ok(continues)
     }
@@ -1288,6 +1323,22 @@ impl Checker<'_> {
                     .returning
                     .borrow_mut()
                     .extend(slots.iter().map(|&slot| (slot, *at))),
+                Op::Building(building) => {
+                    let mut values = self.building.borrow_mut();
+                    match building {
+                        Building::Open(at, slots) => {
+                            self.statements.borrow_mut().push(values.len());
+                            values.extend(slots.iter().map(|&slot| (slot, *at)));
+                        }
+                        Building::Hold(at, slots) => {
+                            values.extend(slots.iter().map(|&slot| (slot, *at)))
+                        }
+                        Building::Close => {
+                            let entry = self.statements.borrow_mut().pop().unwrap_or(0);
+                            values.truncate(entry);
+                        }
+                    }
+                }
                 Op::Thread(ThreadOp::Start(_, slot)) => state[*slot as usize] = Slot::Owned,
                 Op::Thread(ThreadOp::Join(task)) => self.join(task, state, site, false)?,
                 Op::Thread(ThreadOp::Finish(task, slot)) => {
@@ -1327,11 +1378,15 @@ impl Checker<'_> {
                     // A failing `?` drops the operands already evaluated, so
                     // a partly built returned value is gone before cleanup.
                     let returning = self.returning.take();
+                    let building = self.building.take();
+                    let statements = self.statements.take();
                     let checked = self
                         .sequence(cleanup, &mut failed, &mut Vec::new(), site)
                         .and_then(|_| self.release(&mut failed, site));
                     self.propagating.replace(outer);
                     self.returning.replace(returning);
+                    self.building.replace(building);
+                    self.statements.replace(statements);
                     checked.map_err(|error| leaving(error, site, Some("`?`")))?;
                     self.submit(accepted.drain(..));
                 }

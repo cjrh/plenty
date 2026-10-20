@@ -1805,7 +1805,7 @@ impl Lowerer<'_, '_> {
             Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
             Op::Site(site) => self.position.set(site),
             Op::CallerSite(site) => self.position.set_call(site),
-            Op::Returning(..) => {}
+            Op::Returning(..) | Op::Building(_) => {}
             // Consumed by `tail_abi::prepare`, which decides whether the call
             // after it keeps this frame.
             Op::ForwardsReferences => {}

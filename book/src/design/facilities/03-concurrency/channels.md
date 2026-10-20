@@ -135,9 +135,30 @@ call inside the returned expression counts even if the call consumes it, so
 inside the returned expression, such as `future.result()?`, is likewise
 rejected while an earlier operand holds a matching endpoint.
 
+A statement's expression is a holder while it is evaluated, and so is the
+value it builds until the statement stores, drops, or tests it. A wait nested in
+the expression, such as `task.join()` or `future.result()?`, is rejected while an
+operand evaluated before it holds a matching endpoint:
+
+```text
+with spawn(consumer)? as task:   # consumer captures the receiver
+    pair = (sender, task.join())  # rejected: the tuple holds `sender` during the join
+```
+
+Join in an earlier statement, `result = task.join()`, after the endpoint is
+gone. The final expression of a `match` case used as a value is a holder through
+that case's cleanup, so a case whose value is an endpoint cannot end a pool or
+task block that the endpoint blocks. The check covers bindings, assignments,
+unpacking, discarded expressions, `yield`, `if`, `elif`, and `while` conditions,
+`for` iterables, `match` subjects, and `with` managers other than a lock. It has
+the limits of the returned-value check: it follows the bindings the expression
+moves, counts one moved into a call that consumes it, and does not see a wait
+inside a called function.
+
 The diagnostic reports the join or the `with` statement, each binding,
-propagated error, or returned value that holds a matching endpoint, the early exit that reaches the join, and, for an explicit
-join, where the task starts.
+propagated error, returned value, or unfinished expression that holds a matching
+endpoint, the early exit that reaches the join, and, for an explicit join, where
+the task starts.
 
 Pool shutdown checks sending jobs against surviving receivers.
 See [shutdown and live receivers](executors.md#shutdown-and-live-receivers).

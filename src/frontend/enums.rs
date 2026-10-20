@@ -469,6 +469,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<BlockResult> {
         let temporary_start = self.expression_temps.len();
+        let value_start = ops.len();
         let ty = match self.value(value, ops)? {
             // Matching a box matches its content: an owned box is consumed,
             // a borrowed one lends its content.
@@ -502,6 +503,7 @@ impl Lower<'_> {
         };
         let source = self.slot(ty, &value.at)?;
         ops.push(Op::StoreLocal(source));
+        self.building(&value.at, value_start, ops, false);
         self.finish_temporaries(temporary_start, ops);
         let subject = patterns::Subject { source, borrowed };
         self.match_patterns(value, cases, &matched, subject, tail, ops)

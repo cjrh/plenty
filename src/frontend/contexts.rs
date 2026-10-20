@@ -72,6 +72,7 @@ impl Lower<'_> {
         }
         let saved = self.names.clone();
         let start = self.locals.len();
+        let manager_start = ops.len();
         let (ty, loan) = if let Expression::Unary(op, base) = &ungroup(manager).kind {
             if op == "&mut" {
                 let (ty, loan) = self.borrow(base, true, ops)?;
@@ -82,6 +83,7 @@ impl Lower<'_> {
         } else {
             (self.value(manager, ops)?, None)
         };
+        self.building(&manager.at, manager_start, ops, false);
         let owner = match &ty {
             Ty::Ref(inner, true) if loan.is_some() => (**inner).clone(),
             ty => ty.clone(),

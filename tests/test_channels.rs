@@ -1203,3 +1203,41 @@ def main() -> ():
         blocked_join(body);
     }
 }
+
+#[test]
+fn a_join_inside_a_statement_rejects_endpoints_its_value_already_holds() {
+    // Issue #347: the tuple holds the sender while `task.join()` waits for a
+    // consumer that receives until every sender is gone.
+    let program = |statement: &str| {
+        format!(
+            "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    other, inbox = channel[str](1).unwrap()
+    consumer = def once [receiver]() -> Result[i64, RecvError]:
+        receiver.recv()
+    with spawn(consumer).unwrap() as task:
+        sender.send(4).unwrap()
+{statement}        out, got = pair
+        drop(out)
+        drop(inbox)
+        print(str.repr(got).unwrap()).unwrap()
+"
+        )
+    };
+    let error = support::check_source(&program("        pair = (sender, task.join())\n"))
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        error,
+        "8:25: this join waits for a task whose worker holds `Receiver[i64]` while the \
+         expression being evaluated still holds `Sender[i64]`: an empty queue could block the \
+         worker's receive, and this join, forever\n  \
+         8:16: note: the expression here holds `Sender[i64]`, moved from `sender`, until the \
+         statement completes; wait in an earlier statement, before moving the endpoint\n  \
+         6:10: note: the task starts here"
+    );
+    runs(
+        &program("        drop(sender)\n        pair = (other, task.join())\n"),
+        "Result[i64, RecvError].Ok(4)\n",
+    );
+}
