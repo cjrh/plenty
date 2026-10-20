@@ -119,6 +119,25 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
             }
         }
         (Ty::Ref(a, am), Ty::Ref(b, bm)) if am == bm => Some(Ty::Ref(Arc::new(refine(a, b)?), *am)),
+        // Member order follows identity names, which change as producers
+        // resolve; pair members by refinement instead of position.
+        (Ty::Enum(a), Ty::Enum(b)) if a.anonymous() && b.anonymous() => {
+            let mut left = crate::sum::members(pattern);
+            let right = crate::sum::members(actual);
+            if left.len() != right.len() {
+                return None;
+            }
+            let mut refined = Vec::with_capacity(right.len());
+            for member in &right {
+                let (slot, ty) = left
+                    .iter()
+                    .enumerate()
+                    .find_map(|(slot, t)| refine(t, member).map(|ty| (slot, ty)))?;
+                left.swap_remove(slot);
+                refined.push(ty);
+            }
+            Some(crate::sum::anonymous(refined))
+        }
         (Ty::Enum(a), Ty::Enum(b)) if a.is_option() && b.is_option() => {
             Some(crate::sum::option(refine(
                 &a.get().variants[1].fields[0],

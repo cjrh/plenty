@@ -198,6 +198,34 @@ impl Ty {
     pub fn heap_storable(&self) -> bool {
         self.storage_barrier().is_none()
     }
+    /// Whether the type becomes heap-storable once its signature-only closures
+    /// take concrete producers, as a declared return type's do (issue #336).
+    pub fn heap_storable_once_resolved(&self) -> bool {
+        match self {
+            Self::Closure(t) if t.name.is_empty() => !t.borrowed,
+            Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => t
+                .get()
+                .variants
+                .iter()
+                .flat_map(|v| &v.fields)
+                .all(Self::heap_storable_once_resolved),
+            _ => self.heap_storable(),
+        }
+    }
+    /// An anonymous sum with a signature-only closure member. Only a declared
+    /// return type can resolve one, from what the body returns or propagates.
+    pub fn unresolved_sum_member(&self) -> bool {
+        match self {
+            Self::Ref(t, _) => t.unresolved_sum_member(),
+            Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => {
+                let anonymous = t.anonymous();
+                t.get().variants.iter().flat_map(|v| &v.fields).any(|f| {
+                    (anonymous && f.unresolved_producer().is_some()) || f.unresolved_sum_member()
+                })
+            }
+            _ => false,
+        }
+    }
     /// The first reason a heap owner cannot embed this type.
     pub fn storage_barrier(&self) -> Option<StorageBarrier> {
         match self {

@@ -191,6 +191,59 @@ pub fn accepts(target: &Ty, source: &Ty) -> bool {
     }
 }
 
+/// Resolves signature-only closures among `target`'s members from the
+/// concrete producers in `source`, so `?` can return a retained job through
+/// a declared error (issue #336). Each unresolved member takes at most one
+/// producer; None means nothing in `target` can accept the source this way.
+pub fn infer_producers(target: &Ty, source: &Ty) -> Option<Ty> {
+    target.unresolved_producer()?;
+    let mut allowed = members(target);
+    let mut changed = false;
+    for member in members(source) {
+        if allowed.contains(&member) {
+            continue;
+        }
+        let (slot, refined) = allowed.iter().enumerate().find_map(|(slot, t)| {
+            t.unresolved_producer()?;
+            crate::generator::refine(t, &member)
+                .filter(Ty::heap_storable)
+                .map(|refined| (slot, refined))
+        })?;
+        allowed[slot] = refined;
+        changed = true;
+    }
+    changed.then(|| anonymous(allowed))
+}
+
+/// A declared member that already took a different producer for a closure
+/// that `source` would otherwise propagate, for diagnostics.
+pub fn producer_conflict(target: &Ty, source: &Ty) -> Option<Ty> {
+    fn job(ty: &Ty) -> Option<(&str, Ty)> {
+        let Ty::Enum(t) = ty else { return None };
+        let (base, _) = t.name.split_once('[')?;
+        match t.get().variants.first()?.fields.as_slice() {
+            [closure @ Ty::Closure(_)] => Some((base, closure.clone())),
+            _ => None,
+        }
+    }
+    let allowed = members(target);
+    members(source).into_iter().find_map(|member| {
+        let (base, closure) = job(&member)?;
+        allowed
+            .iter()
+            .find(|t| {
+                job(t).is_some_and(|(b, c)| {
+                    matches!((&c, &closure), (Ty::Closure(c), Ty::Closure(closure))
+                        if b == base
+                            && c.name != closure.name
+                            && c.signature == closure.signature
+                            && c.once == closure.once)
+                })
+            })
+            .cloned()
+    })
+}
+
 /// A payload-free marker for callers that deliberately discard error details.
 pub fn failure() -> Ty {
     Ty::Enum(crate::nominal::Nominal::new(EnumType {

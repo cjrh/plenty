@@ -29,7 +29,10 @@ still deadlock.
 
 `SubmitError[F]` has `Full(job)`, `Shutdown(job)`, `OutOfMemory(job)`, and
 `CapacityOverflow(job)`. Each owns the complete unstarted job for retry,
-synchronous invocation, or drop. Blocking submit never returns Full. Shutdown is
+synchronous invocation, or drop. A named submission's job is a one-shot closure
+binding the arguments, so `pool.submit(stopped, token)?` can propagate as
+`SubmitError[OnceClosure[[], bool]]`; a signature names jobs as for
+[owned starts](jobs.md). Blocking submit never returns Full. Shutdown is
 reported before job allocation; waiting for space precedes allocation and transfer.
 `submit_nowait` can contend on synchronization.
 

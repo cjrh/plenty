@@ -17,6 +17,12 @@ active member directly, without an anonymous wrapper. For example, a
 the normalized `A | B` spelling. The structural fallback for an error returned
 by `main` follows the same rule; named enums keep their usual qualified variants.
 
+A closure signature such as `OnceClosure[[], i64]` names no concrete
+environment, so it is a member only in a function's declared return type,
+directly or inside a member such as `SpawnError[OnceClosure[[], i64]]`. The
+body's returned or propagated closure resolves it; see
+[closure return inference](../06-functions/04-consuming-and-stored-closures.md).
+
 `|` binds less tightly than references and type applications. Use `&(A | B)`
 to borrow a sum. `&A | B` attempts to store a reference as a member and is
 rejected, as are other members forbidden by owned storage rules. Callable

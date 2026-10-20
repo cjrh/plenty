@@ -573,6 +573,14 @@ impl Lower<'_> {
             }
             (Some(ty), Some(expected)) => {
                 let ty = self.unbox_to(ty, &expected, ops);
+                // A closure signature among the members takes this producer,
+                // as a returned closure resolves a declared one (issue #336).
+                let expected = match crate::sum::infer_producers(&expected, &ty) {
+                    Some(refined) if ty != expected && !crate::sum::accepts(&expected, &ty) => {
+                        refined
+                    }
+                    _ => expected,
+                };
                 if ty != expected && crate::sum::accepts(&expected, &ty) {
                     ops.push(Op::Enum(crate::sum::EnumOp::Widen(
                         Box::new(ty),
