@@ -196,15 +196,27 @@ fn split(hazards: &[(Hazard, Option<Site>)]) -> (Vec<Ty>, Vec<Ty>) {
     (sends, locks)
 }
 
+/// A value that leaves the frame only after an exit's joins and pool
+/// shutdowns, so the endpoints it holds stay alive through them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum InFlight {
+    #[default]
+    None,
+    /// The error that a failing `?` propagates.
+    Propagated,
+    /// The value of a `return` or of the function's final expression.
+    Returned,
+}
+
 /// A rejected operation, the place it touches, and the related source sites.
 #[derive(Debug)]
 pub struct Error {
     pub kind: Kind,
     /// Binding or field path, absent for a compiler temporary.
     pub place: Option<String>,
-    /// The surviving endpoint belongs to the error that `?` propagates, not
-    /// to a binding. `place` is then absent.
-    pub propagated: bool,
+    /// The value that holds the surviving endpoint when no binding does.
+    /// `place` is then absent.
+    pub in_flight: InFlight,
     /// Absent only for operations that carry no source marker.
     pub primary: Option<Site>,
     pub notes: Vec<(Site, String)>,
@@ -226,8 +238,11 @@ impl Error {
     fn holder(&self) -> String {
         match &self.place {
             Some(place) => format!("`{place}`"),
-            None if self.propagated => "the error that `?` propagates".into(),
-            None => "an unnamed value".into(),
+            None => match self.in_flight {
+                InFlight::Propagated => "the error that `?` propagates".into(),
+                InFlight::Returned => "the returned value".into(),
+                InFlight::None => "an unnamed value".into(),
+            },
         }
     }
 }
@@ -276,8 +291,13 @@ impl fmt::Display for Error {
             }
             Kind::BlockedFuture { message } => format!(
                 "this result() waits for a job that holds `Sender[{message}]` while \
-                 {place} still holds `Receiver[{message}]`: a full queue could block \
-                 the job's send, and this result wait, forever"
+                 {} still holds `Receiver[{message}]`: a full queue could block \
+                 the job's send, and this result wait, forever",
+                if self.in_flight == InFlight::None {
+                    place
+                } else {
+                    self.holder()
+                }
             ),
             Kind::BlockedJoin {
                 message,
@@ -470,6 +490,10 @@ struct Checker<'a> {
     /// only after that cleanup, so its endpoints are as live as a binding's.
     /// An error erased into `Failure` is dropped before the cleanup.
     propagating: RefCell<Option<(Ty, Option<Site>)>>,
+    /// Endpoint-holding slots that the value of the exit being checked
+    /// moved, each with its `return` or final expression site. The frontend
+    /// names them in `Op::Returning`; an exited path forgets them.
+    returning: RefCell<Vec<(u8, Site)>>,
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -481,6 +505,7 @@ pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) ->
         origins,
         submitted: RefCell::default(),
         propagating: RefCell::default(),
+        returning: RefCell::default(),
         futures: crate::profile_block!(
             "ownership::prepare_futures",
             futures::Futures::new(ops, locals.len())
@@ -644,7 +669,7 @@ fn graph<'a>(
     let mut next = next;
     for (op, site) in ops.iter().zip(sites).rev() {
         match op {
-            Op::Site(_) | Op::CallerSite(_) => continue,
+            Op::Site(_) | Op::CallerSite(_) | Op::Returning(..) => continue,
             Op::Try { cleanup, .. } => {
                 let failure = graph(cleanup, site, 0, None, nodes);
                 nodes.push(Node {
@@ -744,7 +769,7 @@ impl Checker<'_> {
         Box::new(Error {
             kind,
             place,
-            propagated: false,
+            in_flight: InFlight::None,
             primary,
             notes: Vec::new(),
             source: self.origins.source.clone(),
@@ -900,6 +925,61 @@ impl Checker<'_> {
                 error.notes.push((at, format!("{holds}; {advice}")));
             }
         }
+        for &(slot, at) in self.returning.borrow().iter() {
+            // A binding that still owns its value on some path is reported
+            // above as a holder.
+            if matches!(
+                state.get(slot as usize),
+                Some(
+                    Slot::Owned
+                        | Slot::Moved {
+                            definite: false,
+                            ..
+                        }
+                )
+            ) {
+                continue;
+            }
+            let parameter = (slot as usize) < self.parameters;
+            let Some(message) = endpoints(
+                [self.locals[slot as usize].clone()],
+                !worker_sends,
+                parameter,
+            )
+            .into_iter()
+            .find(|message| messages.contains(message)) else {
+                continue;
+            };
+            let first = error.is_none();
+            let error = error.get_or_insert_with(|| {
+                let mut error = self.error(kind(message.to_string()), None, site);
+                error.in_flight = InFlight::Returned;
+                error
+            });
+            let endpoint = if worker_sends { "Receiver" } else { "Sender" };
+            let moved = self
+                .place(slot, &[], false)
+                .map(|place| format!(", moved from `{place}`,"))
+                .unwrap_or_default();
+            let advice = match error.kind {
+                Kind::BlockedShutdown {
+                    automatic: true, ..
+                } => "drop the endpoint before the pool's scope ends instead of returning it",
+                Kind::BlockedJoin {
+                    automatic: true, ..
+                } => "drop the endpoint before the block ends instead of returning it",
+                // The wait is part of the returned expression itself.
+                _ => "wait before moving the endpoint into the returned value",
+            };
+            error.notes.push((
+                at,
+                format!(
+                    "the value returned here {}holds `{endpoint}[{message}]`{moved} until this \
+                     function returns; {advice}",
+                    if first { "" } else { "also " }
+                ),
+            ));
+        }
         if let Some((residual, at)) = &*self.propagating.borrow() {
             if let Some(message) = endpoints([residual.clone()], !worker_sends, false)
                 .into_iter()
@@ -908,7 +988,7 @@ impl Checker<'_> {
                 let first = error.is_none();
                 let error = error.get_or_insert_with(|| {
                     let mut error = self.error(kind(message.to_string()), None, site);
-                    error.propagated = true;
+                    error.in_flight = InFlight::Propagated;
                     error
                 });
                 let endpoint = if worker_sends { "Receiver" } else { "Sender" };
@@ -1167,7 +1247,25 @@ impl Checker<'_> {
         Ok(())
     }
 
+    /// Check `ops`, and report whether control continues past them.
     fn sequence(
+        &self,
+        ops: &[Op],
+        state: &mut State,
+        loops: &mut Vec<Loop>,
+        site: Option<Site>,
+    ) -> Result<bool> {
+        let entry = self.returning.borrow().len();
+        let continues = self.sequence_ops(ops, state, loops, site)?;
+        // A returned value is in flight only on the path that returns it. A
+        // function's final value continues to the frame's release.
+        if !continues {
+            self.returning.borrow_mut().truncate(entry);
+        }
+        Ok(continues)
+    }
+
+    fn sequence_ops(
         &self,
         ops: &[Op],
         state: &mut State,
@@ -1186,6 +1284,10 @@ impl Checker<'_> {
                         written = site;
                     }
                 }
+                Op::Returning(at, slots) => self
+                    .returning
+                    .borrow_mut()
+                    .extend(slots.iter().map(|&slot| (slot, *at))),
                 Op::Thread(ThreadOp::Start(_, slot)) => state[*slot as usize] = Slot::Owned,
                 Op::Thread(ThreadOp::Join(task)) => self.join(task, state, site, false)?,
                 Op::Thread(ThreadOp::Finish(task, slot)) => {
@@ -1222,10 +1324,14 @@ impl Checker<'_> {
                     let residual = (source.is_result() && !target.discards_error())
                         .then(|| (source.get().variants[1].fields[0].clone(), site));
                     let outer = self.propagating.replace(residual);
+                    // A failing `?` drops the operands already evaluated, so
+                    // a partly built returned value is gone before cleanup.
+                    let returning = self.returning.take();
                     let checked = self
                         .sequence(cleanup, &mut failed, &mut Vec::new(), site)
                         .and_then(|_| self.release(&mut failed, site));
                     self.propagating.replace(outer);
+                    self.returning.replace(returning);
                     checked.map_err(|error| leaving(error, site, Some("`?`")))?;
                     self.submit(accepted.drain(..));
                 }

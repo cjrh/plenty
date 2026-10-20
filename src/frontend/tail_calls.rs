@@ -161,7 +161,7 @@ fn expression_endings(
     let last = ops.iter().rev().find(|op| {
         !matches!(
             op,
-            Op::Loan(_) | Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_)
+            Op::Loan(_) | Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_) | Op::Returning(..)
         )
     });
     match last {

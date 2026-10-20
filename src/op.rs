@@ -724,6 +724,11 @@ pub enum Op {
     /// Call expression position after evaluating arguments; runtime caller
     /// attribution only, without changing ownership diagnostic positions.
     CallerSite(crate::ownership::Site),
+    /// Endpoint-holding slots that the value of the following `return`, or
+    /// of the function's final expression, moves, and that statement's
+    /// position. That value leaves the frame only after the exit's joins and
+    /// pool shutdowns; ownership checks only.
+    Returning(crate::ownership::Site, Arc<[u8]>),
     Yield(Ty),
     Next(u8),
     MoveLocal(u8),
@@ -1824,6 +1829,7 @@ fn step(
         | Op::Access(..)
         | Op::Site(_)
         | Op::CallerSite(_)
+        | Op::Returning(..)
         | Op::ForwardsReferences => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;

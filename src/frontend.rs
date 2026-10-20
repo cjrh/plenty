@@ -4086,6 +4086,9 @@ impl Lower<'_> {
             )?,
             None => None,
         };
+        // Only the value's own operations: an exit guard also moves its
+        // binding, to drop it before the join.
+        let marker = self.returning(at, &returned);
         self.refine_return(ty, at)?;
         let returned_loan = if self.return_origin.is_some() {
             Some(self.check_return_reference(e.unwrap(), &returned)?)
@@ -4109,8 +4112,60 @@ impl Lower<'_> {
             }
             returned.push(Op::Return);
         }
+        if let Some(marker) = marker {
+            returned.insert(0, marker);
+        }
         ops.extend(returned);
         Ok(())
+    }
+    /// The marker naming the endpoint-holding slots that `value`, the
+    /// operations of a returned value, moves. The value keeps their endpoints through
+    /// the exit's joins and pool shutdowns. A move inside a `?` failure path
+    /// leaves with the error instead, so those cleanups are skipped. A slot
+    /// moved into a call that consumes it is still counted: the checker does
+    /// not track which operand values reach the result.
+    fn returning(&self, at: &Token, value: &[Op]) -> Option<Op> {
+        fn moves(ops: &[Op], out: &mut Vec<u8>) {
+            for op in ops {
+                match op {
+                    Op::MoveLocal(slot) if !out.contains(slot) => out.push(*slot),
+                    Op::Match(arms) => arms.iter().for_each(|arm| moves(&arm.body, out)),
+                    Op::If {
+                        then,
+                        elifs,
+                        otherwise,
+                    } => {
+                        moves(then, out);
+                        for arm in elifs.iter() {
+                            moves(&arm.condition, out);
+                            moves(&arm.body, out);
+                        }
+                        moves(otherwise, out);
+                    }
+                    Op::Loop { condition, body } => {
+                        moves(condition, out);
+                        moves(body, out);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut slots = Vec::new();
+        moves(value, &mut slots);
+        let inputs = &self.sigs.get(&self.function_name)?.inputs;
+        slots.retain(|&slot| {
+            let slot = slot as usize;
+            let (ty, borrowed) = match slot.checked_sub(self.parameters) {
+                Some(local) => (self.locals.get(local), false),
+                None => (inputs.get(slot).map(|(_, ty)| ty), true),
+            };
+            ty.is_some_and(|ty| {
+                [true, false].into_iter().any(|sender| {
+                    !crate::threading::endpoints([ty.clone()], sender, borrowed).is_empty()
+                })
+            })
+        });
+        (!slots.is_empty()).then(|| Op::Returning(site(at, false), slots.into()))
     }
     fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: &Tail) -> Result<BlockResult> {
         let start = self.locals.len();
@@ -4208,6 +4263,7 @@ impl Lower<'_> {
                     return exited_block(body, i);
                 }
                 Statement::Expr(e) => {
+                    let value_start = ops.len();
                     let ty = self.tail_expression(
                         e,
                         match tail {
@@ -4233,6 +4289,11 @@ impl Lower<'_> {
                     }
                     if last && self.yield_type.is_none() {
                         self.refine_return(ty.clone(), &e.at)?;
+                        // The function's result is in flight through the
+                        // frame's release, which shuts its pools down.
+                        if let Some(marker) = self.returning(&e.at, &ops[value_start..]) {
+                            ops.insert(value_start, marker);
+                        }
                     }
                     ty
                 }
