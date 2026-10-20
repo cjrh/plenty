@@ -144,10 +144,13 @@ impl Lower<'_> {
                 return Err(call.at.error("`?` requires a function returning Result"));
             };
             // The same rule as ordinary `?`: the start error may widen into a sum.
+            let target = self.infer_propagated_producers(target, &source);
             if !target.accepts_result_error(&source) {
+                let error = &source.get().variants[1].fields[0];
+                let hint =
+                    super::producer_conflict_hint(&target.get().variants[1].fields[0], error);
                 return Err(call.at.error(format!(
-                    "spawn propagation requires a Result whose error accepts {}, or Failure",
-                    source.get().variants[1].fields[0]
+                    "spawn propagation requires a Result whose error accepts {error}, or Failure{hint}"
                 )));
             }
             let mut cleanup = Vec::new();

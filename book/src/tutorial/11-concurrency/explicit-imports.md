@@ -17,7 +17,9 @@ def stopped(stop: Stop) -> bool:
     stop.wait()
     stop.is_cancelled()
 
-def main() -> Result[(), Failure]:
+type Errors = AllocError | ChannelError | IoError | SendError[str] | RecvError | ThreadError | PoolError | FutureError | SubmitError[OnceClosure[[], bool]]
+
+def main() -> Result[(), Errors]:
     sender, receiver = bounded[str](1)?
     sender.send("hello")?
     drop(sender)
@@ -50,5 +52,7 @@ The module references list the complete surfaces:
 [`std.sync`](../../design/stdlib/sync.md). Imports ship inside the compiler and
 need no network or separately installed Plenty sources.
 
-`main` keeps `Failure` because `submit` reports `SubmitError[F]` for a job
-type that a signature cannot name.
+`submit(stopped, stop.share())` binds the function and its argument into a
+one-shot job, so its error is `SubmitError[OnceClosure[[], bool]]`. A spawn of
+a named function with arguments reports `ThreadError` instead: its moved
+arguments are dropped, not returned.

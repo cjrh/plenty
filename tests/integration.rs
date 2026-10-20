@@ -297,6 +297,8 @@ mod test_reference_rebinding;
 mod test_reference_tail_calls;
 #[path = "test_result_handling.rs"]
 mod test_result_handling;
+#[path = "test_retained_job_errors.rs"]
+mod test_retained_job_errors;
 #[path = "test_returned_references.rs"]
 mod test_returned_references;
 #[path = "test_returns.rs"]

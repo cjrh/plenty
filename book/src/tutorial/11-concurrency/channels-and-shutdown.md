@@ -10,7 +10,9 @@ def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
         sender.send(n * n)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+type Errors = ChannelError | IoError | SendError[i64] | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]]
+
+def main() -> Result[(), Errors]:
     sender, receiver = channel[i64](2)?
     job = def once [sender]() -> Result[(), SendError[i64]]:
         produce(sender)
@@ -104,7 +106,5 @@ up front; sending and receiving introduce no further allocations. Messages still
 use their ordinary types: sending a list moves it, and receiving returns its
 ownership. A failed send returns the unsent value inside its error.
 
-The first `main` keeps `Failure` because an owned closure job fails to start
-with `SpawnError[F]`, and `F` is the closure's own type, which a signature
-cannot name. A generic helper can keep it, as in
-[owned worker jobs](owned-worker-jobs.md).
+The `Errors` alias names every failure `main` propagates. A job that fails to
+start returns inside `SpawnError`, as in [owned worker jobs](owned-worker-jobs.md).

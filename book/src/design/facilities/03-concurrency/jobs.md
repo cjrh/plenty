@@ -15,8 +15,13 @@ The error does not retain the native code. Returning, matching,
 dropping, and retrying the error and job allocate nothing. Capture expressions
 have already run, but the worker has not. `?` widens the error into an enclosing
 sum containing `SpawnError[F]`, which keeps the job; erasing it into `Failure`
-deliberately drops the recovered job. A closure literal's type cannot be
-written, so a signature names `SpawnError[F]` through a generic parameter.
+deliberately drops the recovered job. A generic signature names the job as
+`F`. A nongeneric one writes its signature, such as
+`SpawnError[OnceClosure[[], list[i64]]]`, alone or in a sum; `?` resolves that
+member to the job it propagates, as for a
+[returned closure](../../language/06-functions/04-consuming-and-stored-closures.md).
+Each such member names one producer, so start several jobs from one factory
+function or a generic helper.
 
 After success, only the worker owns the captures. One-shot invocation moves them
 into the body; reusable invocation borrows them once and then drops the environment.

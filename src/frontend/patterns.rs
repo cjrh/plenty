@@ -867,6 +867,27 @@ impl Lower<'_> {
                 if bound.iter().any(|(other, _)| other == name) {
                     return Err(pattern.at.error("duplicate payload binding"));
                 }
+                let member = if member.unresolved_producer().is_some() {
+                    // A closure signature names the member whose concrete
+                    // producer it describes, as an annotated binding would (issue #336).
+                    let candidates: Vec<Ty> = crate::sum::members(content)
+                        .into_iter()
+                        .filter(|field| {
+                            crate::generator::refine(&member, field).as_ref() == Some(field)
+                        })
+                        .collect();
+                    match candidates.as_slice() {
+                        [one] => one.clone(),
+                        [] => member,
+                        _ => {
+                            return Err(pattern.at.error(format!(
+                                "member type {member} matches several closure members of {ty}; match a single job member through a generic helper"
+                            )))
+                        }
+                    }
+                } else {
+                    member
+                };
                 if member == *ty {
                     bound.push((name.clone(), member));
                     return Ok(Checked::Binding(name.clone()));

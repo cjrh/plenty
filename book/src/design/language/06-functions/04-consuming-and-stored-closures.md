@@ -22,6 +22,16 @@ returns no closure value on any path, such as one that only returns `Err`, is
 rejected with `cannot infer the concrete one-shot closure returned by this
 function` (or `closure` for a reusable one).
 
+`?` returns its error, so it also resolves a closure signature in the declared
+error, including inside a retained-job error such as `SpawnError` or
+`SubmitError` and as an [anonymous sum](../03-types/anonymous-sums.md) member.
+The first closure returned or propagated fixes that position's producer;
+another producer is rejected. Several closures from one factory function share
+its producer. A member pattern with the same signature, such as
+`case failed: SpawnError[OnceClosure[[], i64]]:`, names the resolved member.
+Only declared return types infer this way: a closure signature in a parameter's
+or local binding's sum is rejected.
+
 Uncalled environments drop captures in reverse order. After entry, the body
 owns cleanup: moved result captures survive and the rest drop on exit. Argument
 failure drops the pending environment without entering the body. One-shot

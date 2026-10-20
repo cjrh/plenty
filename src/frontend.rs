@@ -650,7 +650,7 @@ impl TypeRef {
                     .at
                     .error("concrete type name exceeds the implementation limit"));
             }
-            let restricted = members.iter().any(|t| !t.heap_storable());
+            let restricted = members.iter().any(|t| !t.heap_storable_once_resolved());
             let normalized = crate::sum::anonymous(members);
             if restricted && matches!(&normalized, Ty::Enum(t) if t.anonymous()) {
                 return Err(self
@@ -2936,6 +2936,31 @@ impl Lower<'_> {
         (self.yield_type.is_none() && target.accepts_result_error(source))
             .then(|| source.get().variants[0].fields[0].clone())
     }
+    /// `?` returns its error, so like a returned closure it resolves a
+    /// signature-only closure in the declared error (issue #336). The refined
+    /// return type then constrains later paths; a second producer for the
+    /// same member is rejected as a mismatch.
+    fn infer_propagated_producers(
+        &mut self,
+        target: crate::nominal::Nominal<crate::sum::EnumType>,
+        source: &crate::nominal::Nominal<crate::sum::EnumType>,
+    ) -> crate::nominal::Nominal<crate::sum::EnumType> {
+        if !target.is_result() || !source.is_result() {
+            return target;
+        }
+        let Some(error) = crate::sum::infer_producers(
+            &target.get().variants[1].fields[0],
+            &source.get().variants[1].fields[0],
+        ) else {
+            return target;
+        };
+        let refined = crate::sum::result(target.get().variants[0].fields[0].clone(), error);
+        self.return_type = Some(Some(refined.clone()));
+        let Ty::Enum(refined) = refined else {
+            unreachable!("Result is an enum")
+        };
+        refined
+    }
     fn value(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
         self.expr(e, ops)?
             .ok_or_else(|| e.at.error("expected a value, got ()"))
@@ -2989,6 +3014,7 @@ impl Lower<'_> {
                 "`?` operand and function return must use the same Result or Option family{note}"
             )));
         }
+        let target = self.infer_propagated_producers(target, &source);
         if !source.is_option() && !target.accepts_result_error(&source) {
             let target_error = &target.get().variants[1].fields[0];
             let source_error = &source.get().variants[1].fields[0];
@@ -3002,15 +3028,20 @@ impl Lower<'_> {
                     .map(|t| t.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                return Err(e.at.error(format!("`?` operand error {source_error} cannot propagate as {target_error}; missing alternatives: {missing}")));
+                let hint = producer_conflict_hint(target_error, source_error);
+                return Err(e.at.error(format!("`?` operand error {source_error} cannot propagate as {target_error}; missing alternatives: {missing}{hint}")));
             }
             if literal {
                 let error = &target.get().variants[1].fields[0];
                 return Err(e.at.error(format!("`?` requires identical Result error types; a collection literal fails with AllocError, which cannot propagate as {error}; return Result[_, AllocError] or Result[_, Failure], or match the literal and convert the error explicitly")));
             }
-            return Err(e
-                .at
-                .error("`?` requires identical Result error types; convert the error explicitly"));
+            let hint = producer_conflict_hint(
+                &target.get().variants[1].fields[0],
+                &source.get().variants[1].fields[0],
+            );
+            return Err(e.at.error(format!(
+                "`?` requires identical Result error types; convert the error explicitly{hint}"
+            )));
         }
         let success = usize::from(source.is_option());
         let payload = source.get().variants[success].fields[0].clone();
@@ -4319,7 +4350,11 @@ impl Lower<'_> {
                         continue;
                     }
                     let context = if let Some(ann) = annotation {
-                        ann.resolve(self.aliases)?
+                        let context = ann.resolve(self.aliases)?;
+                        if context.as_ref().is_some_and(Ty::unresolved_sum_member) {
+                            return Err(ann.at.error(UNRESOLVED_SUM_MEMBER));
+                        }
+                        context
                     } else {
                         self.names.get(name).map(|l| l.ty.clone())
                     };
@@ -4767,6 +4802,15 @@ pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
     crate::op::check(&program.ops)
 }
 
+/// Explains why a second job closure cannot share an inferred error member.
+fn producer_conflict_hint(target: &Ty, source: &Ty) -> String {
+    crate::sum::producer_conflict(target, source)
+        .map(|member| format!("; {member} already names another closure, and one declared closure type names one producer: propagate one job, start jobs through a generic helper, or recover the job locally"))
+        .unwrap_or_default()
+}
+
+const UNRESOLVED_SUM_MEMBER: &str = "a closure signature in an anonymous sum names no concrete environment; only a function's declared return type can infer it, from the closure the body returns or propagates; use a generic parameter bounded by OnceCallable or Callable";
+
 fn register_signature(
     f: &Function,
     aliases: &TypeAliases,
@@ -4810,6 +4854,15 @@ fn register_resolved(
         Some(resolved) => resolved,
         None => protocols::signature(f, aliases)?,
     };
+    if let Some((_, written)) = f
+        .inputs
+        .iter()
+        .zip(&types)
+        .find(|(_, ty)| ty.unresolved_sum_member())
+        .map(|(input, _)| input)
+    {
+        return Err(written.at.error(UNRESOLVED_SUM_MEMBER));
+    }
     let inputs: Vec<_> = f
         .inputs
         .iter()

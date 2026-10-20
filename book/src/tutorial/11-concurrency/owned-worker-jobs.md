@@ -4,7 +4,7 @@ An owned closure can move its inputs into a worker. Use a one-shot closure when
 the worker also moves those inputs into its result.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | SpawnError[OnceClosure[[], list[i64]]]]:
     values = [3, 4]?
     with spawn(def once [values]() -> list[i64]: values)? as task:
         print(task.join())?
@@ -16,8 +16,14 @@ def main() -> Result[(), Failure]:
 ```
 
 If thread creation fails, the error is `SpawnError[F].Unavailable(job)`, which
-retains the complete job. Recover it to retry or run it locally, as this helper
-does:
+retains the complete job. `F` is the closure's own type. The signature writes
+`OnceClosure[[], list[i64]]`, and `?` fills in the concrete closure it
+propagates, so `main` returns the unstarted job unchanged.
+
+A signature names one closure there: a second `spawn` of a different closure
+literal is rejected. Make each job with one factory function, or use a generic
+helper, which names the job as `F`. Recover the job to retry or run it
+locally, as this helper does:
 
 ```plenty
 def attempt[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[F]]:
@@ -43,9 +49,5 @@ def main() -> Result[(), IoError]:
 42
 ```
 
-Using `?` in a function returning `Failure` discards the creation error and drops
-the unstarted job. A reusable closure can also be moved into `spawn`; its captures
-are dropped after the worker's single invocation.
-
-The first `main` keeps `Failure` because `F` there is the closure's own type,
-which a signature cannot name; the generic `attempt` helper names it as `F`.
+A reusable closure can also be moved into `spawn`; its captures are dropped
+after the worker's single invocation.
