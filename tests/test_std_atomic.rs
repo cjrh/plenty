@@ -2,7 +2,8 @@
 mod support;
 use support::check_file_error as rejected;
 
-const HEADER: &str = "from std.atomic import Atomic, Ordering, fence\n";
+const HEADER: &str =
+    "from std.atomic import Atomic, Ordering, fence\nfrom std.fmt import FormatError\n";
 
 fn program(body: &str) -> String {
     let body = body
@@ -10,7 +11,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}def main() -> Result[(), AllocError | FormatError | IoError]:\n{body}    Ok(())\n"
+    )
 }
 
 fn build(source: &str) -> (tempfile::TempDir, std::process::Output) {
@@ -176,9 +179,9 @@ print(a.into_inner())?
 #[test]
 fn fetch_add_and_fetch_sub_trap_on_overflow() {
     for (body, line) in [
-        ("a = Atomic[u8](250)\nprint(a.fetch_add(5, Ordering.Relaxed))?\nprint(a.fetch_add(1, Ordering.Relaxed))?", 5),
-        ("a = Atomic[i16](-32767)\nprint(a.fetch_sub(1, Ordering.Relaxed))?\nprint(a.fetch_sub(1, Ordering.Relaxed))?", 5),
-        ("a = Atomic[u64](0)\na.fetch_sub(1, Ordering.SeqCst)", 4),
+        ("a = Atomic[u8](250)\nprint(a.fetch_add(5, Ordering.Relaxed))?\nprint(a.fetch_add(1, Ordering.Relaxed))?", 6),
+        ("a = Atomic[i16](-32767)\nprint(a.fetch_sub(1, Ordering.Relaxed))?\nprint(a.fetch_sub(1, Ordering.Relaxed))?", 6),
+        ("a = Atomic[u64](0)\na.fetch_sub(1, Ordering.SeqCst)", 5),
     ] {
         let source = program(body);
         let (_dir, output) = build(&source);
@@ -201,7 +204,7 @@ def work(hits: &Atomic[u64], rounds: i64) -> ():
         hits.fetch_wrapping_sub(1, Ordering.Relaxed)
         hits.fetch_wrapping_add(1, Ordering.Relaxed)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     hits = Atomic[u64](0)
     with spawn(work, &hits, 250000)? as a, spawn(work, &hits, 250000)? as b, spawn(work, &hits, 250000)? as c, spawn(work, &hits, 250000)? as d:
         hits.load(Ordering.Acquire)
@@ -225,7 +228,7 @@ def work(total: &Atomic[i64], rounds: i64) -> ():
         total.fetch_add(3, Ordering.Relaxed)
         total.fetch_sub(1, Ordering.Relaxed)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     total = Atomic[i64](0)
     with spawn(work, &total, 200000)?, spawn(work, &total, 200000)?, spawn(work, &total, 200000)?, spawn(work, &total, 200000)?:
         pass
@@ -261,7 +264,7 @@ def mark(slot: &Option[Atomic[u8]]) -> ():
         case Nothing:
             pass
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ChannelError | IoError | RecvError | SendError[Atomic[u64]] | ThreadError]:
     flags = [Atomic(False), Atomic(False), Atomic(False)]?
     with spawn(flip, &flags, 1)?:
         pass
@@ -319,8 +322,9 @@ fn borrowed_atomics_cannot_move() {
             "conflicting borrow: cannot move `h` while `h.hits` is borrowed",
         ),
     ] {
-        let source =
-            format!("{HEADER}{worker}def main() -> Result[(), Failure]:\n    {body}\n    Ok(())\n");
+        let source = format!(
+            "{HEADER}{worker}def main() -> Result[(), ThreadError]:\n    {body}\n    Ok(())\n"
+        );
         let error = rejected(&source);
         assert!(error.contains(message), "{source}\n{error}");
     }
@@ -344,7 +348,7 @@ def work(stats: &Stats, base: i64) -> ():
     for i in range(50000):
         stats.record(base + i)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     stats = Stats(hits=Atomic[u32](0), largest=Atomic(i64.MIN), seen=Atomic(False))
     with spawn(work, &stats, 0)?, spawn(work, &stats, 1000000)?, spawn(work, &stats, -5)?:
         pass
@@ -416,7 +420,7 @@ from std.atomic import Atomic as Cell, Ordering as Order, fence as barrier
 def bump(value: &atomic.Atomic[i32]) -> i32:
     value.fetch_add(2, atomic.Ordering.SeqCst)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     x = atomic.Atomic[i32](-3)
     print(bump(&x))?
     y: Cell[i32] = Cell(1)
@@ -575,7 +579,7 @@ fn unsupported_element_types_name_the_allowed_ones() {
         "{error}"
     );
     let generic = format!(
-        "{HEADER}def made[T](value: T) -> T:\n    a = Atomic[T](value)\n    a.swap(value, Ordering.Relaxed)\n\ndef main() -> Result[(), Failure]:\n    print(made(-9i16))?\n    print(made(True))?\n    Ok(())\n"
+        "{HEADER}def made[T](value: T) -> T:\n    a = Atomic[T](value)\n    a.swap(value, Ordering.Relaxed)\n\ndef main() -> Result[(), IoError]:\n    print(made(-9i16))?\n    print(made(True))?\n    Ok(())\n"
     );
     assert_eq!(output(&generic), "-9\nTrue");
     let error = rejected(&generic.replace("made(True)", "made(\"text\")"));

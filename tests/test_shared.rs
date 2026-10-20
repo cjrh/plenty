@@ -8,6 +8,7 @@ const HEADER: &str = "\
 from std.atomic import Atomic, Ordering
 from std.sync import CancellationToken, Mutex
 from std.concurrent import ThreadPoolExecutor, Future, SubmitError
+from std.fmt import FormatError
 
 class Point:
     x: i64
@@ -42,7 +43,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}\ndef main() -> Result[(), AllocError | IoError | PoolError | FormatError]:\n{body}    Ok(())\n")
 }
 
 fn output(source: &str) -> String {
@@ -193,7 +194,7 @@ fn executors_and_futures_cannot_be_shared() {
     );
     rejects(
         &format!(
-            "{HEADER}\nclass Holder:\n    pending: Option[Future[i64]]\n\ndef main() -> Result[(), Failure]:\n    s = Shared(Holder(Nothing))?\n    Ok(())\n"
+            "{HEADER}\nclass Holder:\n    pending: Option[Future[i64]]\n\ndef main() -> Result[(), AllocError]:\n    s = Shared(Holder(Nothing))?\n    Ok(())\n"
         ),
         "cannot hold Future[i64]",
     );
@@ -205,19 +206,19 @@ fn a_share_that_could_own_itself_is_rejected() {
         "so a value could hold a share of itself and never be released; link back with an index";
     rejects(
         &format!(
-            "{HEADER}\nclass Node:\n    links: Mutex[list[Shared[Node]]]\n\ndef main() -> Result[(), Failure]:\n    n = Shared(Node(Mutex[list[Shared[Node]]]([]?)))?\n    Ok(())\n"
+            "{HEADER}\nclass Node:\n    links: Mutex[list[Shared[Node]]]\n\ndef main() -> Result[(), AllocError]:\n    n = Shared(Node(Mutex[list[Shared[Node]]]([]?)))?\n    Ok(())\n"
         ),
         &format!("Shared[Node] can reach itself through Mutex[list[Shared[Node]]], {cycle}"),
     );
     rejects(
         &format!(
-            "{HEADER}\nclass Inbox:\n    queue: Receiver[Shared[Inbox]]\n\ndef main() -> Result[(), Failure]:\n    tx, rx = channel[Shared[Inbox]](1)?\n    n = Shared(Inbox(rx))?\n    Ok(())\n"
+            "{HEADER}\nclass Inbox:\n    queue: Receiver[Shared[Inbox]]\n\ndef main() -> Result[(), AllocError | ChannelError]:\n    tx, rx = channel[Shared[Inbox]](1)?\n    n = Shared(Inbox(rx))?\n    Ok(())\n"
         ),
         &format!("Shared[Inbox] can reach itself through Receiver[Shared[Inbox]], {cycle}"),
     );
     rejects(
         &format!(
-            "{HEADER}\nclass Left:\n    right: Mutex[Option[Shared[Right]]]\n\nclass Right:\n    left: Shared[Left]\n\ndef main() -> Result[(), Failure]:\n    l = Shared(Left(Mutex[Option[Shared[Right]]](Nothing)))?\n    Ok(())\n"
+            "{HEADER}\nclass Left:\n    right: Mutex[Option[Shared[Right]]]\n\nclass Right:\n    left: Shared[Left]\n\ndef main() -> Result[(), AllocError]:\n    l = Shared(Left(Mutex[Option[Shared[Right]]](Nothing)))?\n    Ok(())\n"
         ),
         &format!("Shared[Left] can reach itself through Mutex[Option[Shared[Right]]], {cycle}"),
     );
@@ -227,7 +228,7 @@ fn a_share_that_could_own_itself_is_rejected() {
     );
     // An immutable DAG cannot: each value exists before any share of it.
     let source = format!(
-        "{HEADER}\nclass Tree:\n    value: i64\n    kids: list[Shared[Tree]]\n\ndef main() -> Result[(), Failure]:\n    leaf = Shared(Tree(1, []?))?\n    left = Shared(Tree(2, [leaf.share()]?))?\n    root = Tree(3, [left.share(), leaf.share()]?)\n    print(root.kids[0].kids[0].value + root.kids[1].value)?\n    Ok(())\n"
+        "{HEADER}\nclass Tree:\n    value: i64\n    kids: list[Shared[Tree]]\n\ndef main() -> Result[(), AllocError | IoError]:\n    leaf = Shared(Tree(1, []?))?\n    left = Shared(Tree(2, [leaf.share()]?))?\n    root = Tree(3, [left.share(), leaf.share()]?)\n    print(root.kids[0].kids[0].value + root.kids[1].value)?\n    Ok(())\n"
     );
     assert_eq!(output(&source), "2");
 }
@@ -248,7 +249,7 @@ def work(hits: Shared[Atomic[u64]], stats: Shared[Mutex[Stats]], rounds: i64) ->
             data.total = data.total + i
     rounds
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | str]:
     hits = Shared[Atomic[u64]](Atomic(0))?
     stats = Shared[Mutex[Stats]](Mutex(Stats(0, 0)))?
     with ThreadPoolExecutor(4, 4)? as pool:
@@ -282,7 +283,7 @@ def hold(state: Shared[Noisy], stop: CancellationToken) -> i64:
     stop.wait()
     len(state.label)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | str]:
     drops = Shared[Atomic[u64]](Atomic(0))?
     stop = CancellationToken()?
     state = Shared(Noisy("pooled", drops.share()))?
@@ -313,7 +314,7 @@ def peek(counter: &Shared[Mutex[i64]]) -> ():
     with counter.lock() as value:
         *value = *value + 100
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     counter = Shared(Mutex(0))?
     with spawn(bump, counter.share(), 10000)?, spawn(bump, counter.share(), 10000)?:
         pass
@@ -335,7 +336,7 @@ fn a_nested_lock_of_the_same_type_is_rejected_when_it_could_alias() {
     );
     rejects(
         &format!(
-            "{HEADER}\ndef add(m: &Mutex[i64]) -> ():\n    n = Mutex(2)\n    with m.lock() as a:\n        with n.lock() as b:\n            *a = *a + *b\n\ndef main() -> Result[(), Failure]:\n    Ok(())\n"
+            "{HEADER}\ndef add(m: &Mutex[i64]) -> ():\n    n = Mutex(2)\n    with m.lock() as a:\n        with n.lock() as b:\n            *a = *a + *b\n\ndef main() -> ():\n    pass\n"
         ),
         &format!("this locks `n` while an enclosing `with` block holds a lock on `m`; {alias}"),
     );
@@ -369,7 +370,7 @@ def bump(counter: Shared[Mutex[i64]]) -> i64:
             .lines()
             .map(|line| format!("    {line}\n"))
             .collect::<String>();
-        format!("{HEADER}{job}\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+        format!("{HEADER}{job}\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | ThreadError | str]:\n{body}    Ok(())\n")
     };
     rejects(
         &with_job(
@@ -436,13 +437,13 @@ fn temporaries_and_misuse_have_specific_diagnostics() {
     );
     rejects(
         &format!(
-            "{HEADER}\ndef take[T](h: Shared[T]) -> T:\n    return *h\n\ndef main() -> Result[(), Failure]:\n    s = take(Shared([1]?)?)\n    Ok(())\n"
+            "{HEADER}\ndef take[T](h: Shared[T]) -> T:\n    return *h\n\ndef main() -> Result[(), AllocError]:\n    s = take(Shared([1]?)?)\n    Ok(())\n"
         ),
         "cannot move out of a Shared owner",
     );
     rejects(
         &format!(
-            "{HEADER}\ndef bump(counter: Shared[Mutex[i64]]) -> i64:\n    0\n\ndef main() -> Result[(), Failure]:\n    h = Shared(Mutex(1))?\n    with ThreadPoolExecutor(1, 1)? as pool:\n        with h.lock() as v:\n            drop(pool.submit(bump, h))\n    Ok(())\n"
+            "{HEADER}\ndef bump(counter: Shared[Mutex[i64]]) -> i64:\n    0\n\ndef main() -> Result[(), AllocError | PoolError]:\n    h = Shared(Mutex(1))?\n    with ThreadPoolExecutor(1, 1)? as pool:\n        with h.lock() as v:\n            drop(pool.submit(bump, h))\n    Ok(())\n"
         ),
         "cannot move `h` while it is borrowed",
     );

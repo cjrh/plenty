@@ -58,7 +58,7 @@ fn receiving_joins_report_surviving_senders() {
 fn receiving_joins_check_every_exit_and_failed_later_start() {
     for exit in ["return Ok(())", "break", "continue", "print(1)?"] {
         let error = rejected(&format!(
-            "def main() -> Result[(), Failure]:
+            "def main() -> Result[(), ChannelError | IoError]:
     sender, receiver = channel[i64](1)?
     for i in range(1):
         with spawn(consume, receiver.share()).unwrap():
@@ -77,7 +77,7 @@ fn receiving_joins_check_every_exit_and_failed_later_start() {
         );
     }
     rejected(
-        "def main() -> Result[(), Failure]:
+        "def main() -> Result[(), ChannelError | ThreadError]:
     sender, receiver = channel[i64](1)?
     other = receiver.share()
     with spawn(consume, receiver)?, spawn(consume, other)?, sender as outbox:
@@ -87,7 +87,7 @@ fn receiving_joins_check_every_exit_and_failed_later_start() {
     );
     // Moving the sender later does not release it on an earlier failing path.
     rejected(
-        "def main() -> Result[(), Failure]:
+        "def main() -> Result[(), ChannelError | IoError | ThreadError]:
     sender, receiver = channel[i64](1)?
     with spawn(consume, receiver)? as task:
         print(1)?
@@ -102,7 +102,7 @@ fn receiving_joins_check_every_exit_and_failed_later_start() {
 fn receiving_joins_allow_guarded_early_exits() {
     for exit in ["return Ok(())", "break", "continue", "print(1)?"] {
         support::check_source(&format!(
-            "{CONSUME}def main() -> Result[(), Failure]:
+            "{CONSUME}def main() -> Result[(), ChannelError | IoError | ThreadError]:
     for i in range(1):
         sender, receiver = channel[i64](1)?
         with spawn(consume, receiver)?, sender as outbox:
@@ -119,7 +119,7 @@ fn receiving_joins_find_aggregate_capture_shared_and_borrowed_holders() {
     let error = rejected(
         "class Hub:
     sender: Sender[i64]
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ChannelError]:
     sender, receiver = channel[i64](1)?
     spare = sender.share()
     hub = Hub(sender.share())

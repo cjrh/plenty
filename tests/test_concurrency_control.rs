@@ -188,7 +188,7 @@ fn selection_waits_for_owned_inline_values_and_accepts_shared_aliases() {
         r#"
 left, first = channel[range[i64]](1).unwrap()
 right, second = channel[list[i64]](1).unwrap()
-job = def once [right]() -> Result[(), Failure]:
+job = def once [right]() -> Result[(), AllocError | SendError[list[i64]]]:
     right.send([8, 9]?)?
     Ok(())
 with spawn(job).unwrap() as task:

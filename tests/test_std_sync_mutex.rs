@@ -3,7 +3,7 @@
 mod support;
 use support::check_file_error as rejected;
 
-const HEADER: &str = "from std.sync import Mutex\n";
+const HEADER: &str = "from std.fmt import FormatError\nfrom std.sync import Mutex\n";
 
 fn program(body: &str) -> String {
     let body = body
@@ -11,7 +11,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}def main() -> Result[(), AllocError | IoError | FormatError]:\n{body}    Ok(())\n"
+    )
 }
 
 fn output(source: &str) -> String {
@@ -68,7 +70,7 @@ def check(stats: &Mutex[Stats], rounds: i64) -> ():
             if data.total < 3 * data.count or data.total > 4 * data.count:
                 data.torn = True
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     stats = Mutex[Stats](Stats(0, 0, False))
     with spawn(record, &stats, 3)?, spawn(record, &stats, 4)?, spawn(record, &stats, 3)?, spawn(record, &stats, 4)?, spawn(check, &stats, 50000)?:
         check(&stats, 50000)
@@ -100,7 +102,7 @@ def failing(m: &Mutex[i64]) -> Result[i64, str]:
         bad?
     Ok(0)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     m = Mutex(0)
     print(early(&m))?
     match failing(&m):
@@ -154,7 +156,7 @@ def put[T](m: &Mutex[list[T]], value: T) -> Result[(), AllocError]:
         values.append(value)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     shared = Pair(Mutex([1]?), Mutex(0))
     put(&shared.items, 5)?
     with shared.items.lock() as items, shared.size.lock() as size:
@@ -194,7 +196,7 @@ def bump(m: &mut Mutex[i64]) -> ():
     with (*m).lock() as v:
         *v = *v + 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut m = Mutex(1)
     bump(&mut m)
     m = Mutex(10)
@@ -214,7 +216,7 @@ def work(m: &Mutex[i64]) -> ():
     with m.lock() as v:
         *v = *v + 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     m = Mutex(1)
     with spawn(work, &m)? as task:
         with m.lock() as v:
@@ -234,7 +236,7 @@ fn locks_nest_and_workers_start_inside_them() {
 def double(value: i64) -> i64:
     value * 2
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     nested = Mutex(Mutex(3))
     with nested.lock() as inner:
         with inner.lock() as value:
@@ -258,7 +260,7 @@ def main() -> Result[(), Failure]:
 fn locks_allocate_nothing_and_into_inner_keeps_the_heap_balanced() {
     let source = format!(
         r#"{HEADER}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | FormatError]:
     words = Mutex([f"word {{n}}"? for n in range(2000)]?)
     print("__test_begin_no_allocations__")?
     with words.lock() as values:
@@ -284,7 +286,7 @@ fn import_aliases_name_the_same_type() {
     let source = r#"import std.sync as sync
 from std.sync import Mutex as Guarded
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     a = sync.Mutex[i64](1)
     b: Guarded[i64] = Guarded(2)
     with a.lock() as x, b.lock() as y:
@@ -325,25 +327,25 @@ fn joining_while_holding_a_reachable_lock_is_rejected() {
     let hang = "a task whose worker can lock a `Mutex[i64]` while this function holds a lock on a `Mutex[i64]`: the worker could wait for that lock, and this join, forever";
     rejects(
         &format!(
-            "{HEADER}{worker}def main() -> Result[(), Failure]:\n    m = Mutex(1)\n    with m.lock() as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
+            "{HEADER}{worker}def main() -> Result[(), ThreadError]:\n    m = Mutex(1)\n    with m.lock() as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
         ),
         &format!("leaving this `with` block joins {hang}"),
     );
     rejects(
         &format!(
-            "{HEADER}{worker}def main() -> Result[(), Failure]:\n    m = Mutex(1)\n    with spawn(work, &m)? as task:\n        with m.lock() as a:\n            task.join()\n    Ok(())\n"
+            "{HEADER}{worker}def main() -> Result[(), ThreadError]:\n    m = Mutex(1)\n    with spawn(work, &m)? as task:\n        with m.lock() as a:\n            task.join()\n    Ok(())\n"
         ),
         &format!("this join waits for {hang}"),
     );
     rejects(
         &format!(
-            "{HEADER}{worker}def main() -> Result[(), Failure]:\n    m = Mutex(1)\n    with m.lock() as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
+            "{HEADER}{worker}def main() -> Result[(), ThreadError]:\n    m = Mutex(1)\n    with m.lock() as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
         ),
         "note: the lock is acquired here; end the lock's `with` block before this one, or start the task outside it",
     );
     rejects(
         &format!(
-            "{HEADER}{worker}def main() -> Result[(), Failure]:\n    m = Mutex(1)\n    with m.lock() as v, spawn(work, &m)?:\n        pass\n    Ok(())\n"
+            "{HEADER}{worker}def main() -> Result[(), ThreadError]:\n    m = Mutex(1)\n    with m.lock() as v, spawn(work, &m)?:\n        pass\n    Ok(())\n"
         ),
         &format!("leaving this `with` block joins {hang}"),
     );
