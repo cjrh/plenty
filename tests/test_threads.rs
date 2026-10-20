@@ -14,7 +14,7 @@ def worker(item: Item, values: list[i64], output: &mut i64) -> list[i64]:
     values
 def apply[F: Callable[[], i64]](job: F) -> i64:
     job()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     mut output = 0
     with spawn(worker, Item(7), [1, 2]?, &mut output)? as task:
         print(task.join())?
@@ -79,7 +79,7 @@ def attempt_closure() -> Result[(), ThreadError]:
     with spawn(apply, job)?:
         pass
     Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut count = 0
     print("__test_fail_thread_starts__")?
     print(str.repr(attempt(&mut count))?)?
@@ -96,7 +96,7 @@ fn named_workers_join_once_and_transfer_owned_results() {
         r#"
 def squares(n: i64) -> Result[list[i64], AllocError]:
     [i * i for i in range(n)]
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     with spawn(squares, 4)? as first, spawn(squares, 3)? as second:
         print(first.join()?)?
         print(second.join()?)?
@@ -117,7 +117,7 @@ def sum_values(values: &list[i64]) -> i64:
     total
 def bump(value: &mut i64) -> ():
     *value = *value + 1
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     values = [2, 3, 4]?
     mut n = 7
     with spawn(sum_values, &values)? as a, spawn(sum_values, &values)? as b:
@@ -135,7 +135,7 @@ def main() -> Result[(), Failure]:
 fn borrowed_closures_keep_capture_dependencies_alive() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     mut values = [1, 2]?
     mut job = def [&mut values]() -> Result[i64, AllocError]:
         values.append(3)?
@@ -151,7 +151,7 @@ def main() -> Result[(), Failure]:
 
 #[test]
 fn race_diagnostics_point_at_the_use_and_the_spawn_scope() {
-    let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), Failure]:\n    mut value = 1\n";
+    let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), IoError | ThreadError]:\n    mut value = 1\n";
     // The thread holds its borrow until the scoped join, even after an
     // explicit join, so every note names the `with` block and not the join.
     let scoped = "\n  6:29: note: the exclusive borrow of `value` starts here\n  6:10: note: the borrow is held until the end of this `with` block";
@@ -180,7 +180,7 @@ fn race_diagnostics_point_at_the_use_and_the_spawn_scope() {
 
 #[test]
 fn rejects_races_escaping_handles_and_double_joins() {
-    let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), Failure]:\n    mut value = 1\n";
+    let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), IoError | ThreadError]:\n    mut value = 1\n";
     for (body, expected) in [
         ("with spawn(worker, &mut value)? as task:\n        print(value)?", "conflicting borrow"),
         ("with spawn(worker, &mut value)? as task:\n        value = 3", "conflicting borrow"),
@@ -211,7 +211,7 @@ def total(node: &Node) -> i64:
             node.value
 def add[T: IntType](value: &mut T, amount: T) -> ():
     *value = *value + amount
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     node = Node(2, Some(Box(Node(3, Nothing))?))
     with spawn(total, &node)? as task:
         print(task.join())?
@@ -248,7 +248,7 @@ def nested(n: i64) -> Result[i64, ThreadError]:
         return Ok(1)
     with spawn(nested, n - 1)? as task:
         return task.join()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     with spawn(fail)? as task:
         print(str.repr(task.join()).unwrap())?
     with spawn(span)? as task:
@@ -270,15 +270,15 @@ fn all_normal_exits_join_before_reclaiming_borrowed_storage() {
         r#"
 def update(n: &mut i64) -> ():
     *n = *n + 1
-def early(n: &mut i64) -> Result[(), Failure]:
+def early(n: &mut i64) -> Result[(), ThreadError]:
     with spawn(update, n)?:
         return Ok(())
-def failed(n: &mut i64) -> Result[(), Failure]:
+def failed(n: &mut i64) -> Result[(), ThreadError]:
     with spawn(update, n)?:
-        error: Result[(), Failure] = Err(Failure.Unspecified)
+        error: Result[(), ThreadError] = Err(ThreadError.System(1))
         error?
     Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     mut n = 0
     early(&mut n)?
     print(str.repr(failed(&mut n)).unwrap())?
@@ -290,7 +290,7 @@ def main() -> Result[(), Failure]:
     print(n)?
     Ok(())
 "#,
-        "Result[(), Failure].Err(Failure.Unspecified)\n5\n",
+        "Result[(), ThreadError].Err(ThreadError.System(1))\n5\n",
     );
 }
 
@@ -309,7 +309,7 @@ class Resource:
         pass
 def worker(value: &Resource) -> i64:
     value.value
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     value = Resource(1)
     with spawn(worker, &value)?:
         pass
@@ -323,7 +323,7 @@ def identity(n: i64) -> i64:
     n
 def worker(callback: Callable[[i64], i64]) -> i64:
     callback(1)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     with spawn(worker, identity)?:
         pass
     Ok(())
@@ -334,7 +334,7 @@ def main() -> Result[(), Failure]:
             r#"
 def worker(data: &i64) -> &i64:
     data
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     data = 1
     with spawn(worker, &data)?:
         pass
@@ -363,12 +363,12 @@ def wrap(cause: ParseError) -> str:
 class Parser:
     pub def parse(self, text: &str) -> Result[i64, str]:
         map_error(i64.parse(text), wrap)
-def outer(text: str) -> Result[(), Failure]:
+def outer(text: str) -> Result[(), str]:
     drop(Parser().parse(&text))
     Ok(())
-def work(text: str) -> Result[(), Failure]:
+def work(text: str) -> Result[(), str]:
     outer(text)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     with spawn(work, "12")?:
         pass
     Ok(())
@@ -402,7 +402,7 @@ def middle() -> i64:
     helper()
 def work() -> i64:
     middle()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     with spawn(work)?:
         pass
     Ok(())
@@ -417,7 +417,7 @@ def values() -> Generator[i64]:
 def work() -> i64:
     numbers = values()
     7
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     with spawn(work)?:
         pass
     Ok(())
@@ -440,7 +440,7 @@ def attempt(a: &mut i64, b: &mut i64) -> Result[(), ThreadError]:
     with spawn(update, a)?, spawn(update, b)?:
         pass
     Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut a = 1
     mut b = 2
     print("__test_one_thread_start__")?
@@ -469,7 +469,7 @@ fn imported_helpers_cannot_hide_uncertified_foreign_effects() {
     )
     .unwrap();
     let path = root.path().join("main.plenty");
-    std::fs::write(&path, "import helper\ndef main() -> Result[(), Failure]:\n    with spawn(helper.work)?:\n        pass\n    Ok(())\n").unwrap();
+    std::fs::write(&path, "import helper\ndef main() -> Result[(), ThreadError]:\n    with spawn(helper.work)?:\n        pass\n    Ok(())\n").unwrap();
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
     assert!(
         error.contains("foreign calls have no worker-thread effect contract"),
@@ -488,13 +488,13 @@ class Resource:
         print(self.name).unwrap()
 def make(name: str) -> Result[Resource, AllocError]:
     Ok(Resource(name))
-def run(join: bool) -> Result[(), Failure]:
+def run(join: bool) -> Result[(), AllocError | IoError | ThreadError]:
     with spawn(make, "finished")? as task:
         if join:
             resource = task.join()?
             print(resource.name)?
     Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     run(True)?
     run(False)?
     with spawn(make, "discarded").unwrap():
@@ -514,7 +514,7 @@ def attempt(job: &mut Closure[[], i64]) -> Result[i64, ThreadError]:
         return Ok(task.join())
 def bump(value: &mut i64) -> ():
     *value = *value + 1
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     mut value = 0
     print("__test_begin_no_allocations__")?
     print("__test_fail_allocations_after_0__")?
@@ -544,7 +544,7 @@ class Pair:
     right: i64
 def bump(n: &mut i64) -> ():
     *n = *n + 1
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     text = "hello"
     job = def [&text]() -> str:
         text
@@ -566,7 +566,7 @@ fn closure_loans_block_parent_access_until_exit_and_tasks_cannot_suspend() {
     for access in ["print(values)?", "values.append(3)?", "drop(job)"] {
         let source = format!(
             r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     mut values = [1]?
     mut job = def [&mut values]() -> Result[(), AllocError]:
         values.append(2)
@@ -600,7 +600,7 @@ fn worker_allocation_failure_is_local_and_preserves_parent_owners() {
 def work() -> Result[list[i64], AllocError]:
     print("__test_fail_allocations_after_0__").unwrap()
     [1, 2, 3]
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     values = [7]?
     with spawn(work)? as task:
         print(str.repr(task.join()).unwrap())?
@@ -622,11 +622,11 @@ class Counter:
         print(self.value).unwrap()
 def bump(counter: &mut Counter) -> ():
     counter.value = counter.value + 1
-def run() -> Result[(), Failure]:
+def run() -> Result[(), ThreadError]:
     with Counter(5) as counter:
         with spawn(bump, counter)?:
             return Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     run()?
     Ok(())
 "#,
@@ -764,7 +764,7 @@ def attempt(a: &mut i64, b: &mut i64) -> Result[(), ThreadError | IoError]:
     with spawn(update, a)?, spawn(take, Item("item"), [Item("nested")].unwrap())?, spawn(update, b)?:
         print("unexpected body")?
     Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut a = 1
     mut b = 2
     print("__test_one_thread_start__")?

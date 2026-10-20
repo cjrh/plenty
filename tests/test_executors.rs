@@ -28,13 +28,13 @@ def identity[T](value: T) -> T:
     value
 def square(value: i64) -> i64:
     value * value
-def later() -> Result[Future[list[i64]], Failure]:
+def later() -> Result[Future[list[i64]], AllocError | PoolError | SubmitError[OnceClosure[[], list[i64]]]]:
     with ThreadPoolExecutor(2, 1)? as pool:
         values = [3, 4]?
         job = def once [values]() -> list[i64]:
             values
         return Ok(pool.submit(job)?)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[Closure[[], i64]] | SubmitError[OnceClosure[[], i64]] | SubmitError[OnceClosure[[], list[i64]]] | SubmitError[OnceClosure[[], str]]]:
     with ThreadPoolExecutor(2, 2)? as pool:
         a = pool.submit(square, 6)?
         b = pool.submit(identity, "hello")?
@@ -134,7 +134,7 @@ def run(work: Work) -> i64:
     work.id
 def square(n: i64) -> i64:
     n * n
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | PoolMapError | SubmitError[OnceClosure[[], i64]]]:
     sender, receiver = channel[i64](1)?
     inputs = [Work(0, sender.share(), receiver.share()), Work(1, sender, receiver)]?
     with ThreadPoolExecutor(2, 1)? as pool:
@@ -186,7 +186,7 @@ def nothing() -> ():
     pass
 def identity(value: i64) -> i64:
     value
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     with ThreadPoolExecutor(1, 1)? as pool:
         future = pool.submit(nothing)?
         future.result()?
@@ -301,12 +301,14 @@ class Guard:
         pass
 def work(guard: Guard) -> Guard:
     guard
-def leave(sender: &Sender[i64], mode: i64) -> Result[(), Failure]:
+enum Exit:
+    Requested
+def leave(sender: &Sender[i64], mode: i64) -> Result[(), Exit | PoolError | SubmitError[OnceClosure[[], Guard]]]:
     with ThreadPoolExecutor(2, 1)? as pool:
         pool.submit(work, Guard(sender.share()))?
         if mode == 0:
             return Ok(())
-        failed: Result[(), Failure] = Err(Failure.Unspecified)
+        failed: Result[(), Exit] = Err(Exit.Requested)
         failed?
     Ok(())
 def count(receiver: Receiver[i64]) -> i64:
@@ -406,7 +408,7 @@ fn future_result_rejects_a_live_receiver_at_the_wait() {
         ("        moved = future\n", "moved.result()"),
     ] {
         let source = format!(
-            "{PRODUCE}def main() -> Result[(), Failure]:
+            "{PRODUCE}def main() -> Result[(), ChannelError | FutureError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = channel[i64](1)?
     with ThreadPoolExecutor(1, 1)? as pool:
         future = pool.submit(produce, sender)?
@@ -452,7 +454,7 @@ fn future_result_tracks_unwrapped_and_matched_submission_results() {
 #[test]
 fn a_temporary_future_wait_is_checked_after_try() {
     let error = support::check_source(&format!(
-        "{PRODUCE}def main() -> Result[(), Failure]:
+        "{PRODUCE}def main() -> Result[(), ChannelError | FutureError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     with ThreadPoolExecutor(1, 1)? as pool:
         sender, receiver = channel[i64](1)?
         (pool.submit(produce, sender)?).result()?
@@ -467,6 +469,9 @@ fn a_temporary_future_wait_is_checked_after_try() {
 
 #[test]
 fn future_waits_keep_distinct_jobs_and_message_types_separate() {
+    // B71: keeps `Failure`. The three submissions bind different functions
+    // returning `()`, and one declared `SubmitError[OnceClosure[[], ()]]`
+    // member names only one producer, so no precise error type can be written.
     accepted(
         "def noop() -> ():
     pass
@@ -497,7 +502,7 @@ fn future_result_accepts_dropped_or_ended_receiver_guards_and_early_exits() {
         "if leave:\n            drop(receiver)\n        else:\n            return Ok(())",
     ] {
         accepted(&format!(
-            "def main() -> Result[(), Failure]:
+            "def main() -> Result[(), ChannelError | FutureError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     leave = True
     with ThreadPoolExecutor(1, 1)? as pool:
         sender, receiver = channel[i64](1)?
@@ -514,7 +519,7 @@ fn future_result_accepts_dropped_or_ended_receiver_guards_and_early_exits() {
 fn timed_and_nonblocking_future_operations_allow_live_receivers() {
     runs(
         &format!(
-            "{PRODUCE}def main() -> Result[(), Failure]:
+            "{PRODUCE}def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     with ThreadPoolExecutor(1, 1)? as pool:
         sender, receiver = channel[i64](1)?
         future = pool.submit(produce, sender)?
@@ -562,7 +567,7 @@ fn result_errors_remain_recoverable_after_receiver_cleanup() {
 def fail(sender: Sender[str]) -> Result[(), i64]:
     drop(sender)
     Err(42)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ChannelError | FutureError | IoError | PoolError | SubmitError[OnceClosure[[], Result[(), i64]]]]:
     with ThreadPoolExecutor(1, 1)? as pool:
         sender, receiver = channel[str](1)?
         future = pool.submit(fail, sender)?
@@ -582,7 +587,7 @@ def main() -> Result[(), Failure]:
 fn receiver_outside_the_pool_block_cannot_reach_the_shutdown() {
     // Issue #74: without the check this program hangs when the pool shuts down.
     let error = blocked_shutdown(
-        "def main() -> Result[(), Failure]:
+        "def main() -> Result[(), ChannelError | IoError | PoolError | RecvError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = channel[i64](1)?
     with ThreadPoolExecutor(1, 1)? as pool:
         future = pool.submit(def once [sender]() -> (): produce(sender))?
@@ -607,7 +612,7 @@ fn receiver_outside_the_pool_block_cannot_reach_the_shutdown() {
 fn receiver_guard_order_decides_whether_it_outlives_the_shutdown() {
     runs(
         &format!(
-            "{PRODUCE}def main() -> Result[(), Failure]:
+            "{PRODUCE}def main() -> Result[(), ChannelError | IoError | PoolError | RecvError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = channel[i64](1)?
     with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
         future = pool.submit(produce, sender)?
@@ -620,7 +625,7 @@ fn receiver_guard_order_decides_whether_it_outlives_the_shutdown() {
     );
     // Contexts exit in reverse order: this guard outlives the pool.
     let error = blocked_shutdown(
-        "def main() -> Result[(), Failure]:
+        "def main() -> Result[(), ChannelError | IoError | PoolError | RecvError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = channel[i64](1)?
     with receiver as inbox, ThreadPoolExecutor(1, 1)? as pool:
         future = pool.submit(produce, sender)?
@@ -635,7 +640,7 @@ fn receiver_guard_order_decides_whether_it_outlives_the_shutdown() {
     // A guard inside the pool's block ends before the pool does.
     runs(
         &format!(
-            "{PRODUCE}def main() -> Result[(), Failure]:
+            "{PRODUCE}def main() -> Result[(), ChannelError | IoError | PoolError | RecvError | SubmitError[OnceClosure[[], ()]]]:
     with ThreadPoolExecutor(1, 1)? as pool:
         sender, receiver = channel[i64](1)?
         with receiver as inbox:
@@ -691,7 +696,7 @@ fn every_way_a_pool_shuts_down_is_checked_for_surviving_receivers() {
         ("print(n)?", "14:23: note: `?` leaves the pool's scope here"),
     ] {
         let error = blocked_shutdown(&format!(
-            "def main() -> Result[(), Failure]:
+            "def main() -> Result[(), ChannelError | IoError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = channel[i64](1)?
     for n in range(2):
         with ThreadPoolExecutor(1, 1)? as pool:
@@ -716,7 +721,7 @@ fn every_way_a_pool_shuts_down_is_checked_for_surviving_receivers() {
         ("pool = ThreadPoolExecutor(1, 1)?", "13:5"),
     ] {
         let error = blocked_shutdown(&format!(
-            "def main() -> Result[(), Failure]:
+            "def main() -> Result[(), ChannelError | IoError | PoolError | RecvError | SubmitError[OnceClosure[[], ()]]]:
     mut pool = ThreadPoolExecutor(1, 1)?
     sender, receiver = channel[i64](1)?
     future = pool.submit(produce, sender)?
@@ -741,7 +746,7 @@ fn every_way_a_pool_shuts_down_is_checked_for_surviving_receivers() {
 
     // A temporary pool shuts down at the end of its statement.
     let error = blocked_shutdown(
-        "def main() -> Result[(), Failure]:
+        "def main() -> Result[(), ChannelError | IoError | PoolError | RecvError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = channel[i64](1)?
     future = ThreadPoolExecutor(1, 1)?.submit(produce, sender)?
     print(receiver.recv()?)?
@@ -757,7 +762,7 @@ fn every_way_a_pool_shuts_down_is_checked_for_surviving_receivers() {
 #[test]
 fn shutdown_of_a_borrowed_pool_counts_receivers_the_caller_keeps() {
     let error = blocked_shutdown(
-        "def run(pool: &ThreadPoolExecutor, inbox: &Receiver[i64], sender: Sender[i64]) -> Result[(), Failure]:
+        "def run(pool: &ThreadPoolExecutor, inbox: &Receiver[i64], sender: Sender[i64]) -> Result[(), SubmitError[OnceClosure[[], ()]]]:
     future = pool.submit(produce, sender)?
     pool.shutdown()
     Ok(())
@@ -775,7 +780,7 @@ fn shutdown_of_a_borrowed_pool_counts_receivers_the_caller_keeps() {
 #[test]
 fn a_job_submitted_in_one_iteration_is_seen_by_a_shutdown_in_the_next() {
     let error = blocked_shutdown(
-        "def main() -> Result[(), Failure]:
+        "def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = channel[i64](1)?
     mut pool = ThreadPoolExecutor(1, 1)?
     for n in range(3):
@@ -797,7 +802,7 @@ fn a_job_submitted_in_one_iteration_is_seen_by_a_shutdown_in_the_next() {
 fn shutdowns_without_a_matching_live_receiver_are_accepted() {
     for body in [
         // The pool is declared first, so the receiver is released before it.
-        "def main() -> Result[(), Failure]:
+        "def main() -> Result[(), ChannelError | IoError | PoolError | RecvError | SubmitError[OnceClosure[[], ()]]]:
     pool = ThreadPoolExecutor(1, 1)?
     sender, receiver = channel[i64](1)?
     future = pool.submit(produce, sender)?
@@ -812,7 +817,7 @@ fn shutdowns_without_a_matching_live_receiver_are_accepted() {
         drop(receiver)
 ",
         // A `submit(...)?` that fails has not moved its job into the pool.
-        "def main() -> Result[(), Failure]:
+        "def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     with ThreadPoolExecutor(1, 1)? as pool:
         sender, receiver = channel[i64](1)?
         future = pool.submit(produce, sender)?
@@ -822,7 +827,7 @@ fn shutdowns_without_a_matching_live_receiver_are_accepted() {
         // The job is submitted after the earlier pool has shut down.
         "def one() -> i64:
     1
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], ()]] | SubmitError[OnceClosure[[], i64]]]:
     sender, receiver = channel[i64](1)?
     with ThreadPoolExecutor(1, 1)? as setup:
         ready = setup.submit(one)?
@@ -831,7 +836,7 @@ def main() -> Result[(), Failure]:
     Ok(())
 ",
         // The live receiver carries a different message type.
-        "def main() -> Result[(), Failure]:
+        "def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = channel[i64](1)?
     texts, lines = channel[str](1)?
     with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
@@ -842,7 +847,7 @@ def main() -> Result[(), Failure]:
         // The job holds the receiver and the parent the sender.
         "def consume(inbox: Receiver[i64]) -> ():
     pass
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = channel[i64](1)?
     with ThreadPoolExecutor(1, 1)? as pool:
         future = pool.submit(consume, receiver)?
