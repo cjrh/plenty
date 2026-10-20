@@ -30,7 +30,7 @@ impl Program {
 }
 
 const DESCRIPTORS: &str = r#"
-def descriptors() -> Result[i64, Failure]:
+def descriptors() -> Result[i64, AllocError | IoError]:
     root = path.from_text("/proc/self/fd")?
     mut directory = fs.read_dir(&root)?
     mut count = 0
@@ -75,7 +75,7 @@ fn entries_are_detached_and_preserve_raw_names_and_special_types() {
 import std.fs as fs
 import std.path as path
 {DESCRIPTORS}
-def collect(root: &path.Path) -> Result[list[fs.DirEntry], Failure]:
+def collect(root: &path.Path) -> Result[list[fs.DirEntry], AllocError | IoError]:
     mut saved = list[fs.DirEntry].new()?
     mut directory = fs.read_dir(root)?
     while True:
@@ -88,12 +88,12 @@ def collect(root: &path.Path) -> Result[list[fs.DirEntry], Failure]:
     directory.close()?
     match directory.next()?:
         case Some(_):
-            return Err(Failure.Unspecified)
+            return Err(IoError.Closed)
         case Nothing:
             pass
     Ok(saved)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     before = descriptors()?
@@ -149,7 +149,7 @@ fn metadata_follows_links_only_at_the_requested_boundary() {
         r#"
 import std.fs as fs
 import std.path as path
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     link = root.join(&path.from_text("link")?)?
@@ -166,7 +166,7 @@ def main() -> Result[(), Failure]:
     print(fs.symlink_metadata(&dangling)?.is_symlink())?
     match fs.metadata(&dangling):
         case Ok(_):
-            return Err(Failure.Unspecified)
+            return Err(IoError.Closed)
         case Err(error):
             print(error)?
     Ok(())
@@ -188,7 +188,7 @@ fn lexical_paths_keep_identity_and_report_checked_text_conversion() {
     let program = Program::new(
         r#"
 import std.path as path
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     base = path.from_text("a/link/..")?
     child = path.from_text("x")?
     joined = base.join(&child)?
@@ -199,19 +199,19 @@ def main() -> Result[(), Failure]:
         case Some(parent):
             print(parent.to_text()?)?
         case Nothing:
-            return Err(Failure.Unspecified)
+            return Err(IoError.Closed)
     match joined.file_name()?:
         case Some(name):
             print(name.to_text()?)?
         case Nothing:
-            return Err(Failure.Unspecified)
+            return Err(IoError.Closed)
     absolute = base.join(&path.from_text("/root")?)?
     print(absolute.to_text()?)?
     raw = path.from_bytes([255u8, 10u8]?)
     print(raw.display()?)?
     match raw.to_text():
         case Ok(_):
-            return Err(Failure.Unspecified)
+            return Err(IoError.Closed)
         case Err(error):
             print(error)?
     Ok(())
@@ -227,7 +227,7 @@ fn walking_program(prune: bool, top_down: bool, inject_missing: bool) -> Program
 import std.fs as fs
 import std.path as path
 {DESCRIPTORS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     before = descriptors()?
@@ -258,7 +258,7 @@ def main() -> Result[(), Failure]:
                         print(cause)?
                     case fs.WalkError.Allocation(error):
                         print(error)?
-                        return Err(Failure.Unspecified)
+                        return Err(IoError.Closed)
     walker.close()
     print(walker.next()?)?
     print(descriptors()? == before)?
@@ -323,7 +323,7 @@ fn empty_missing_nondirectory_and_denied_roots_distinguish_eof_from_errors() {
         r#"
 import std.fs as fs
 import std.path as path
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     match fs.read_dir(&root):
@@ -380,15 +380,15 @@ fn cleanup_on_break_return_and_propagated_error_leaves_no_directory_handles() {
 import std.fs as fs
 import std.path as path
 {DESCRIPTORS}
-def early(root: &path.Path) -> Result[(), Failure]:
+def early(root: &path.Path) -> Result[(), AllocError | IoError]:
     directory = fs.read_dir(root)?
     return Ok(())
-def failed(root: &path.Path) -> Result[(), Failure]:
+def failed(root: &path.Path) -> Result[(), AllocError | IoError]:
     directory = fs.read_dir(root)?
     missing = root.join(&path.from_text("missing")?)?
     drop(fs.metadata(&missing)?)
     Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     before = descriptors()?
@@ -399,7 +399,7 @@ def main() -> Result[(), Failure]:
         early(&root)?
         match failed(&root):
             case Ok(_):
-                return Err(Failure.Unspecified)
+                return Err(IoError.Closed)
             case Err(_):
                 pass
     print(descriptors()? == before)?
@@ -429,7 +429,7 @@ fn large_flat_and_deep_trees_keep_directory_handles_bounded() {
 import std.fs as fs
 import std.path as path
 {DESCRIPTORS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     before = descriptors()?
@@ -462,7 +462,7 @@ fn allocation_failure_during_advance_is_terminal_and_releases_the_handle() {
 import std.fs as fs
 import std.path as path
 {DESCRIPTORS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     before = descriptors()?
@@ -472,7 +472,7 @@ def main() -> Result[(), Failure]:
     print("__test_restore_allocations__").unwrap()
     match construction:
         case Ok(_):
-            return Err(Failure.Unspecified)
+            return Err(IoError.Closed)
         case Err(error):
             print(error)?
     print(descriptors()? == before + 1)?
@@ -481,7 +481,7 @@ def main() -> Result[(), Failure]:
     print("__test_restore_allocations__").unwrap()
     match result:
         case Ok(_):
-            return Err(Failure.Unspecified)
+            return Err(IoError.Closed)
         case Err(error):
             print(error)?
     print(directory.closed())?

@@ -10,7 +10,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError]:\n{body}    Ok(())\n")
 }
 
 /// Runs a program and shortens the qualified names in rendered results.
@@ -470,7 +470,7 @@ import std.bytes
 import std.encoding
 from std.encoding import Endian
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError]:
     mut frame = std.bytes.from_text("abcd")?
     view = &frame
     std.encoding.pack_u16(&mut frame, 0, 1u16, Endian.Big)?
@@ -490,7 +490,7 @@ def work(data: Bytes) -> ():
     encoded = std.encoding.base64_encode(&data, 0, data.len()).unwrap()
     print(encoded.to_text().unwrap(), std.encoding.unpack_u16(&data, 0, Endian.Big).unwrap()).unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | ThreadError]:
     data = std.bytes.from_text("foobar")?
     with spawn(work, data)?:
         pass

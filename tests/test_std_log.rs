@@ -32,7 +32,7 @@ import std.io
 import std.bytes
 from std.log import Level, Clock
 from std.time import Timestamp
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.log.LogError]:
     sink = std.log.text_sink(std.io.cursor(std.bytes.empty()?), 256)?
     mut log = std.log.logger(sink, Level.Info, Clock.Fixed(Timestamp(1700000000, 1234u32)))
     print(log.enabled(&Level.Debug), log.enabled(&Level.Info), log.enabled(&Level.Error))?
@@ -61,7 +61,7 @@ fn caller_timestamps_win_and_wall_clock_stamps_unstamped_events() {
 import std.log
 from std.log import Level, Clock
 from std.time import Timestamp
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.log.LogError]:
     mut log = std.log.logger(std.log.memory_sink(4)?, Level.Trace, Clock.Wall)
     mut given = std.log.event(Level.Info, "replayed", []?)
     given.time = Some(Timestamp(5, 6u32))
@@ -95,7 +95,7 @@ import std.log
 import std.io
 import std.bytes
 from std.log import Level, Clock
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.log.LogError]:
     mut log = std.log.logger(std.log.text_sink(std.io.cursor(std.bytes.empty()?), 40)?, Level.Trace, Clock.Off)
     print(str.repr(log.info("this message is far too long", []?))?)?
     print(str.repr(log.info("k", [std.log.text("bad key", "x")]?))?)?
@@ -128,7 +128,7 @@ import std.io
 import std.bytes
 from std.log import Level, Clock, Event
 from std.time import Timestamp
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.log.LogError]:
     mut log = std.log.logger(std.log.text_sink(std.io.cursor(std.bytes.empty()?), 80)?, Level.Info, Clock.Fixed(Timestamp(5, 1500000000u32)))
     print(str.repr(log.info("fixed", []?))?)?
     print(str.repr(log.emit(Event(Level.Info, "given", []?, Some(Timestamp(5, 1000000000u32)))))?)?
@@ -164,7 +164,7 @@ pub class Flaky:
         Ok(1)
     pub def flush(self: &mut Flaky) -> Result[(), StreamError]:
         Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.log.LogError]:
     mut log = std.log.logger(std.log.text_sink(Flaky(0, 0), 64)?, Level.Info, Clock.Off)
     print(str.repr(log.info("m", []?))?)?
     print(log.emitted(), log.failed(), log.sink.writer.accepted)?
@@ -188,7 +188,7 @@ import std.io
 import std.bytes
 from std.log import Level, Clock, Event
 from std.channel import channel
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.log.LogError | ChannelError | std.bytes.BytesError]:
     mut mem = std.log.logger(std.log.memory_sink(2)?, Level.Trace, Clock.Off)
     for i in range(4):
         drop(mem.info("m", [std.log.integer("i", i)]?))
@@ -233,16 +233,16 @@ from std.log import Level, Clock, Event, ChannelSink, Drained, TextSink
 from std.io import Cursor
 from std.channel import channel
 from std.thread import spawn
-def produce(sink: ChannelSink, id: i64) -> Result[(u64, u64), Failure]:
+def produce(sink: ChannelSink, id: i64) -> Result[(u64, u64), AllocError]:
     mut log = std.log.logger(sink, Level.Info, Clock.Off)
     for i in range(200):
         drop(log.info("tick", [std.log.integer("worker", id), std.log.integer("i", i)]?))
     Ok((log.emitted(), log.failed()))
-def consume(receiver: Receiver[Event]) -> Result[(Drained, TextSink[Cursor]), Failure]:
+def consume(receiver: Receiver[Event]) -> Result[(Drained, TextSink[Cursor]), AllocError | std.bytes.BytesError | std.log.LogError]:
     mut sink = std.log.text_sink(std.io.cursor(std.bytes.empty()?), 64)?
     report = std.log.drain(&receiver, &mut sink)
     Ok((report, sink))
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ChannelError]:
     (sender, receiver) = channel[Event](8u64)?
     first = std.log.channel_sink(sender)
     second = first.share()
@@ -273,7 +273,7 @@ fn stderr_sink_serves_command_line_programs() {
 import std.log
 import std.io
 from std.log import Level, Clock
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.log.LogError]:
     threshold = std.log.parse_level("debug")?
     mut log = std.log.logger(std.log.text_sink(std.io.stderr(), 512)?, threshold, Clock.Off)
     log.debug("parsed", [std.log.integer("files", 2)]?)?
@@ -299,7 +299,7 @@ import std.io
 import std.bytes
 from std.log import Level, Clock, Event
 from std.time import Timestamp
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.log.LogError]:
     first = std.log.event(Level.Info, "ready", [std.log.integer("port", 80), std.log.text("host", "example"), std.log.floating("load", 0.5)]?)
     second = std.log.event(Level.Debug, "filtered", []?)
     third = std.log.event(Level.Warn, "kept", []?)
@@ -330,11 +330,11 @@ Result[std.log.MemorySink, std.log.LogError].Err(std.log.LogError.Allocation(All
 fn ownership_and_sink_contracts_remain_checked() {
     for (source, expected) in [
         (
-            "import std.log\nfrom std.log import Level, Clock\ndef main() -> Result[(), Failure]:\n    mut log = std.log.logger(5, Level.Info, Clock.Off)\n    Ok(())\n",
+            "import std.log\nfrom std.log import Level, Clock\ndef main() -> Result[(), AllocError | IoError]:\n    mut log = std.log.logger(5, Level.Info, Clock.Off)\n    Ok(())\n",
             "does not satisfy std.log.Sink",
         ),
         (
-            "import std.log\nfrom std.log import Level, Clock, Field\ndef main() -> Result[(), Failure]:\n    fields = list[Field].new()?\n    event = std.log.event(Level.Info, \"m\", fields)\n    drop(fields)\n    Ok(())\n",
+            "import std.log\nfrom std.log import Level, Clock, Field\ndef main() -> Result[(), AllocError | IoError]:\n    fields = list[Field].new()?\n    event = std.log.event(Level.Info, \"m\", fields)\n    drop(fields)\n    Ok(())\n",
             "moved",
         ),
     ] {

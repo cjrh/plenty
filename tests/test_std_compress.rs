@@ -12,21 +12,21 @@ from std.bytes import ByteSource, Bytes
 from std.compress import Format, CompressError
 from std.io import StreamError
 
-def hex(data: &Bytes) -> Result[str, Failure]:
+def hex(data: &Bytes) -> Result[str, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_text(data, 0, data.len())?)
 
-def unhex(text: &str) -> Result[Bytes, Failure]:
+def unhex(text: &str) -> Result[Bytes, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_from_text(text)?)
 
 # The decoded text, or the error's name.
-def shown(result: Result[Bytes, CompressError]) -> Result[str, Failure]:
+def shown(result: Result[Bytes, CompressError]) -> Result[str, AllocError | IoError | std.bytes.BytesError]:
     match result:
         case Ok(data):
             Ok(data.to_text()?)
         case Err(error):
             Ok(str.repr(error)?)
 
-def repeated(text: &str, count: i64) -> Result[Bytes, Failure]:
+def repeated(text: &str, count: i64) -> Result[Bytes, AllocError | IoError | std.bytes.BytesError]:
     piece = std.bytes.from_text(text)?
     mut out = std.bytes.with_capacity(piece.len() * count)?
     for _ in range(0, count):
@@ -34,7 +34,7 @@ def repeated(text: &str, count: i64) -> Result[Bytes, Failure]:
     Ok(out)
 
 # Deterministic bytes that do not compress.
-def noise(count: i64) -> Result[Bytes, Failure]:
+def noise(count: i64) -> Result[Bytes, AllocError | IoError | std.bytes.BytesError]:
     mut out = std.bytes.with_capacity(count)?
     mut x = 88172645463325252
     for _ in range(0, count):
@@ -44,7 +44,7 @@ def noise(count: i64) -> Result[Bytes, Failure]:
         out.push(u8.wrapping_from(x >> 24))?
     Ok(out)
 
-def trip(format: Format, level: i64, data: &Bytes) -> Result[bool, Failure]:
+def trip(format: Format, level: i64, data: &Bytes) -> Result[bool, AllocError | IoError | std.compress.CompressError | std.encoding.EncodingError]:
     packed = std.compress.compress(format, data, level)?
     plain = std.compress.decompress(format, &packed, data.len())?
     Ok(hex(&plain)? == hex(data)?)
@@ -127,7 +127,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | std.compress.CompressError | std.io.Partial | std.io.StreamError | std.io.CopyError]:\n{body}    Ok(())\n")
 }
 
 /// Runs the program with `input` on stdin and returns its raw stdout.
@@ -459,13 +459,13 @@ fn codec_states_cannot_be_forged() {
 fn compressing_works_in_worker_threads() {
     let source = format!(
         r#"{HEADER}
-def work(text: str) -> Result[(), Failure]:
+def work(text: str) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.compress.CompressError]:
     data = std.bytes.from_text(text)?
     packed = std.compress.compress(Format.Gzip, &data, 6)?
     print(std.compress.decompress(Format.Gzip, &packed, 100)?.to_text()?)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     with spawn(work, "from a thread")?:
         pass
     Ok(())
@@ -493,7 +493,7 @@ fn programs_that_never_compress_do_not_link_the_codecs() {
             .count();
         (count, data.len())
     };
-    let plain = "def main() -> Result[(), Failure]:\n    print(\"hi\")?\n    Ok(())\n";
+    let plain = "def main() -> Result[(), AllocError | IoError]:\n    print(\"hi\")?\n    Ok(())\n";
     let (count, plain_size) = symbols(plain);
     assert_eq!(count, 0);
     let (count, size) = symbols(&program(

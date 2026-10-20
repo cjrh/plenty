@@ -30,7 +30,7 @@ fn buffer_operations_read_literals_and_buffers_alike() {
         r#"
 import std.bytes
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut head = std.bytes.from_bytes(b"GET / HTTP/1.1\r\nHost: a\r\n\r\n")?
     crlf = std.bytes.from_text("\r\n")?
     print(head.find_bytes(b"\r\n", 0, head.len())?, head.find_bytes(&crlf, 15, head.len())?)?
@@ -66,7 +66,7 @@ fn literal_sources_follow_the_range_rule() {
         r#"
 import std.bytes
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut out = std.bytes.from_text("abcd")?
     print(str.repr(out.extend_range(b"xy", 1, 3))?)?
     print(str.repr(out.extend_range(b"xy", -1, 1))?)?
@@ -97,7 +97,7 @@ import std.compress
 import std.io
 from std.compress import Format
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.io.StreamError | std.io.Partial | std.bytes.BytesError | std.compress.CompressError]:
     mut out = std.io.stdout()
     out.write(b"direct\n", 0, 7)?
     std.io.write_all(&mut out, b"[all]\n", 1, 6)?
@@ -159,7 +159,7 @@ pub class Upper:
     pub def flush(self: &mut Upper) -> Result[(), StreamError]:
         Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.Partial | std.io.StreamError]:
     mut upper = Upper(std.bytes.empty()?)
     std.io.write_all(&mut upper, b"literal ", 0, 8)?
     std.io.write_all(&mut upper, &std.bytes.from_text("buffer")?, 0, 6)?
@@ -191,7 +191,7 @@ pub class Old:
     pub def flush(self: &mut Old) -> Result[(), StreamError]:
         Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | StreamError]:
     mut old = Old(std.bytes.empty()?)
     std.io.write_all(&mut old, b"x", 0, 1)?
     Ok(())
@@ -215,7 +215,7 @@ pub class Sized:
     pub def len(self) -> i64:
         self.count
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     data = std.bytes.from_text("abc")?
     print(data.find_bytes(&Sized(1), 0, 3)?)?
     Ok(())
@@ -238,7 +238,7 @@ protocol Measured:
 def measure[M: Measured](value: &M) -> i64:
     value.len()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     literal = b"four"
     print(literal.len(), measure(&literal), measure(b""))?
     Ok(())
@@ -302,7 +302,7 @@ class Twice[T]:
     inner: T
     def put[S: Sized](self: &mut Twice[T], item: &S) -> i64:
         2 * item.size()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut total = Total(1)
     feed(&mut total)
     mut twice = Twice(0u8)
@@ -404,7 +404,7 @@ def tally[S: ByteSource](source: &S) -> i64:
         total += i64(*byte)
     total + source.len()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.Partial]:
     mut head = std.bytes.from_bytes(b"GET / HTTP/1.1\r\n\r\n")?
     mut out = std.bytes.with_capacity(64)?
     crlf = std.bytes.from_text("\r\n")?

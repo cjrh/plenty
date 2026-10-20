@@ -25,7 +25,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("import std.test\n\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n{body}    Ok(())\n")
 }
 
 fn stderr(output: &Output) -> String {
@@ -137,7 +137,7 @@ fn failed_assertions_show_their_values() {
             "{body}\nexpected {expected:?}\ngot {report:?}"
         );
         assert!(
-            report.ends_with("error: main returned Failure.Unspecified: Failure keeps no details of the original error\n"),
+            report.ends_with("error: main returned std.test.TestError.Assertion\n"),
             "{report}"
         );
     }
@@ -146,7 +146,7 @@ fn failed_assertions_show_their_values() {
 #[test]
 fn output_before_a_failure_is_flushed_first() {
     let output = run_program(
-        "import std.test\n\ndef main() -> Result[(), Failure]:\n    print(\"before\")?\n    std.test.equal(&1, &2)?\n    Ok(())\n",
+        "import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n    print(\"before\")?\n    std.test.equal(&1, &2)?\n    Ok(())\n",
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n");
     assert!(stderr(&output).starts_with("main.plenty:5:5: assertion failed: left == right\n"));
@@ -247,7 +247,7 @@ fn scratch_uses_tmpdir() {
     let executable = dir.path().join("program");
     std::fs::write(
         &path,
-        "import std.test\n\ndef main() -> Result[(), Failure]:\n    scratch = std.test.scratch()?\n    print(scratch.path().to_text()?)?\n    Ok(())\n",
+        "import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n    scratch = std.test.scratch()?\n    print(scratch.path().to_text()?)?\n    Ok(())\n",
     )
     .unwrap();
     plenty::compile_file_to_executable(&path, &executable, None).unwrap();
@@ -283,7 +283,7 @@ fn seeds_come_from_the_environment() {
     let executable = dir.path().join("program");
     std::fs::write(
         &path,
-        "import std.random\nimport std.test\n\ndef main() -> Result[(), Failure]:\n    mut rng = std.test.rng()?\n    mut expected = std.random.seeded(std.test.seed()?)\n    print(std.test.seed()?, rng.next_u64() == expected.next_u64())?\n    Ok(())\n",
+        "import std.random\nimport std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n    mut rng = std.test.rng()?\n    mut expected = std.random.seeded(std.test.seed()?)\n    print(std.test.seed()?, rng.next_u64() == expected.next_u64())?\n    Ok(())\n",
     )
     .unwrap();
     plenty::compile_file_to_executable(&path, &executable, None).unwrap();
@@ -319,7 +319,7 @@ print("__test_end_no_allocations__")?
     assert!(output.status.success(), "{}", stderr(&output));
 
     let output = run_program(
-        "import std.test\n\ndef main() -> Result[(), Failure]:\n    values = [1, 2, 3]?\n    other = [9]?\n    print(\"__test_fail_allocations_after_0__\")?\n    std.test.equal(&values, &other)?\n    Ok(())\n",
+        "import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n    values = [1, 2, 3]?\n    other = [9]?\n    print(\"__test_fail_allocations_after_0__\")?\n    std.test.equal(&values, &other)?\n    Ok(())\n",
     );
     assert_eq!(output.status.code(), Some(1));
     assert!(
@@ -394,7 +394,7 @@ fn test_functions_run_in_their_own_processes() {
             ("tests/arithmetic.plenty", ARITHMETIC),
             (
                 "tests/program.plenty",
-                "def main() -> Result[(), Failure]:\n    print(\"program output\")?\n    Ok(())\n",
+                "def main() -> Result[(), AllocError | IoError]:\n    print(\"program output\")?\n    Ok(())\n",
             ),
             (
                 "tests/support/helpers.plenty",
@@ -539,7 +539,7 @@ fn discovery_errors_name_the_file() {
             "test function `test_x` must take no parameters",
         ),
         (
-            "type Outcome = Result[(), Failure]\n\ndef test_x() -> Outcome:\n    Ok(())\n",
+            "type Outcome = Result[(), AllocError | IoError]\n\ndef test_x() -> Outcome:\n    Ok(())\n",
             "test function `test_x` must take no parameters",
         ),
         (
@@ -590,6 +590,7 @@ fn returned_errors_are_named_only_when_they_say_something() {
 def test_explained() -> Result[(), std.test.TestError]:
     std.test.check(False, "explained")
 
+# B71: deliberately returns `Failure`, which carries nothing to name.
 def test_silent() -> Result[(), Failure]:
     Err(Failure.Unspecified)
 
@@ -625,19 +626,19 @@ const RENDEZVOUS: &str = r#"import std.fs
 import std.path
 from std.time import milliseconds, seconds, sleep
 
-def meet(mine: &str, theirs: &str) -> Result[(), Failure]:
+def meet(mine: &str, theirs: &str) -> Result[(), AllocError | IoError]:
     write_text(mine, "here")?
     other = std.path.from_text(theirs)?
     for _ in range(500):
         if std.fs.metadata(&other).is_ok():
             return Ok(())
         sleep(&milliseconds(10u32))
-    Err(Failure.Unspecified)
+    Err(IoError.Closed)
 
-def test_first() -> Result[(), Failure]:
+def test_first() -> Result[(), AllocError | IoError]:
     meet("first.flag", "second.flag")
 
-def test_second() -> Result[(), Failure]:
+def test_second() -> Result[(), AllocError | IoError]:
     meet("second.flag", "first.flag")
 
 def test_forever() -> ():
@@ -808,7 +809,7 @@ fn test_builds_inject_allocation_and_file_failures() {
             ("tests/faults.plenty", FAULTS),
             (
                 "tests/program.plenty",
-                "import std.test\n\ndef main() -> Result[(), Failure]:\n    std.test.fail_allocations_after(0u32)?\n    std.test.is_err(&[1])?\n    std.test.restore_allocations()?\n    Ok(())\n",
+                "import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n    std.test.fail_allocations_after(0u32)?\n    std.test.is_err(&[1])?\n    std.test.restore_allocations()?\n    Ok(())\n",
             ),
         ],
     );
@@ -837,7 +838,7 @@ fn only_test_builds_link_the_hooks() {
     let source = root.join("main.plenty");
     write(
         &source,
-        "import std.test\n\ndef main() -> Result[(), Failure]:\n    std.test.fail_allocations_after(0u32)?\n    Ok(())\n",
+        "import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n    std.test.fail_allocations_after(0u32)?\n    Ok(())\n",
     );
     let shipped = root.join("shipped");
     plenty::compile_file_to_executable(&source, &shipped, None).unwrap();

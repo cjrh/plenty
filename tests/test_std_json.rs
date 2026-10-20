@@ -36,10 +36,10 @@ pub class Trickle:
         self.at += count
         Ok(count)
 
-def unhex(digits: &str) -> Result[Bytes, Failure]:
+def unhex(digits: &str) -> Result[Bytes, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_from_text(digits)?)
 
-def placed(error: &JsonError) -> Result[str, Failure]:
+def placed(error: &JsonError) -> Result[str, AllocError | IoError]:
     Ok(" ".join(&[str.repr(&error.fault)?, str.from(error.offset)?, str.from(error.line)?, str.from(error.column)?]?)?)
 
 def wide() -> Limits:
@@ -47,7 +47,7 @@ def wide() -> Limits:
     bounds.max_depth = 1024
     bounds
 
-def described(result: Result[Json, JsonError]) -> Result[str, Failure]:
+def described(result: Result[Json, JsonError]) -> Result[str, AllocError | IoError | std.json.JsonError]:
     match result:
         case Ok(value):
             bounds = wide()
@@ -55,18 +55,18 @@ def described(result: Result[Json, JsonError]) -> Result[str, Failure]:
         case Err(error):
             placed(&error)
 
-def settled(result: Result[(), JsonError]) -> Result[str, Failure]:
+def settled(result: Result[(), JsonError]) -> Result[str, AllocError | IoError]:
     match result:
         case Ok(_):
             Ok("ok")
         case Err(error):
             placed(&error)
 
-def trickled(source: &Bytes, bounds: &Limits, step: i64) -> Result[str, Failure]:
+def trickled(source: &Bytes, bounds: &Limits, step: i64) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.json.JsonError]:
     mut reader = Trickle(source.copy()?, 0, step)
     described(std.json.read_value(&mut reader, bounds))
 
-def check(digits: &str, bounds: &Limits) -> Result[(), Failure]:
+def check(digits: &str, bounds: &Limits) -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.json.JsonError | std.bytes.BytesError]:
     source = unhex(digits)?
     whole = described(std.json.parse(&source, bounds))?
     one = trickled(&source, bounds, 1)?
@@ -88,7 +88,7 @@ def waiting(event: &Event) -> bool:
             False
 
 # Appends the name of every event available without more input.
-def drain(decoder: &mut std.json.Decoder, names: &mut list[str]) -> Result[(), Failure]:
+def drain(decoder: &mut std.json.Decoder, names: &mut list[str]) -> Result[(), AllocError | IoError]:
     while True:
         outcome = decoder.next()
         match outcome:
@@ -102,7 +102,7 @@ def drain(decoder: &mut std.json.Decoder, names: &mut list[str]) -> Result[(), F
     Ok(())
 
 # The events of `source` when it arrives as [0, split) and then the rest.
-def events(source: &Bytes, bounds: &Limits, split: i64) -> Result[str, Failure]:
+def events(source: &Bytes, bounds: &Limits, split: i64) -> Result[str, AllocError | IoError | std.json.JsonError]:
     mut decoder = std.json.decoder(bounds)?
     mut names = list[str]()?
     decoder.feed(source, 0, split)?
@@ -119,7 +119,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | std.json.JsonError | ParseError | std.io.StreamError]:\n{body}    Ok(())\n")
 }
 
 /// Runs a program and shortens the qualified names in rendered values.
@@ -1060,7 +1060,7 @@ pub class Sip:
     pub def flush(self: &mut Sip) -> Result[(), StreamError]:
         Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.bytes.BytesError | std.json.JsonError]:
     bounds = std.json.limits()
     text = "[1,\n \"two\", 3]"
     mut steady = Flaky(std.bytes.from_text(text)?, 0, 100, False, 0)
@@ -1327,7 +1327,7 @@ def encode_point(encoder: &mut std.json.Encoder, point: &Point) -> Result[(), Js
     encoder.integer(point.y)?
     encoder.end_array()
 
-def attempt(text: &str) -> Result[(), Failure]:
+def attempt(text: &str) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.json.JsonError]:
     bounds = std.json.limits()
     source = std.bytes.from_text(text)?
     mut decoder = std.json.decoder(&bounds)?
@@ -1342,7 +1342,7 @@ def attempt(text: &str) -> Result[(), Failure]:
             print(placed(&error)?)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.json.JsonError]:
     attempt(" [3, -4]")?
     attempt("[3, 4.5]")?
     attempt("[3, \"4\"]")?
@@ -1371,7 +1371,7 @@ def work(data: Bytes) -> ():
     value = std.json.parse(&data, &bounds).unwrap()
     print(std.json.encode_text(&value, &bounds).unwrap()).unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | ThreadError]:
     data = std.bytes.from_text(" { \"a\" : [ 1 , 2 ] } ")?
     with spawn(work, data)?:
         pass

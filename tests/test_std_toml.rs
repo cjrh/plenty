@@ -87,19 +87,19 @@ pub class Faulty:
         self.at += count
         Ok(count)
 
-def unhex(digits: &str) -> Result[Bytes, Failure]:
+def unhex(digits: &str) -> Result[Bytes, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_from_text(digits)?)
 
-def placed(error: &TomlError) -> Result[str, Failure]:
+def placed(error: &TomlError) -> Result[str, AllocError | IoError]:
     Ok(" ".join(&[str.repr(&error.fault)?, str.from(error.offset)?, str.from(error.line)?, str.from(error.column)?]?)?)
 
-def padded(value: i64, width: i64) -> Result[str, Failure]:
+def padded(value: i64, width: i64) -> Result[str, AllocError | IoError]:
     mut text = str.from(value)?
     while text.byte_len() < width:
         text = ("0" + text)?
     Ok(text)
 
-def stamp(moment: &DateTime) -> Result[str, Failure]:
+def stamp(moment: &DateTime) -> Result[str, AllocError | IoError]:
     date = "-".join(&[padded(moment.year, 4)?, padded(moment.month, 2)?, padded(moment.day, 2)?]?)?
     time = ":".join(&[padded(moment.hour, 2)?, padded(moment.minute, 2)?, padded(moment.second, 2)?]?)?
     fields = " ".join(&[date, time, str.from(moment.nanosecond)?, str.from(moment.offset_minutes)?]?)?
@@ -134,12 +134,12 @@ def sectioned(value: &Toml) -> bool:
 
 # A compact, typed rendering: floats always show a point or exponent, and
 # strings are quoted with escapes.
-def show(value: &Toml) -> Result[str, Failure]:
+def show(value: &Toml) -> Result[str, AllocError | IoError]:
     rendered(value, False)
 
 # With `ordered`, each table lists its plain entries before its sections, as
 # the writer does, so a written and reread tree renders the same.
-def rendered(value: &Toml, ordered: bool) -> Result[str, Failure]:
+def rendered(value: &Toml, ordered: bool) -> Result[str, AllocError | IoError]:
     match value:
         case Toml.Bool(flag):
             if *flag:
@@ -170,20 +170,20 @@ def rendered(value: &Toml, ordered: bool) -> Result[str, Failure]:
                             parts.append("".join(&[str.repr(&entry.key)?, "=", rendered(&entry.value, ordered)?]?)?)?
             Ok("".join(&["{", ",".join(&parts)?, "}"]?)?)
 
-def described(result: Result[Toml, TomlError]) -> Result[str, Failure]:
+def described(result: Result[Toml, TomlError]) -> Result[str, AllocError | IoError]:
     match result:
         case Ok(value):
             show(&value)
         case Err(error):
             placed(&error)
 
-def trickled(source: &Bytes, bounds: &Limits, step: i64) -> Result[str, Failure]:
+def trickled(source: &Bytes, bounds: &Limits, step: i64) -> Result[str, AllocError | IoError | std.bytes.BytesError]:
     mut reader = Trickle(source.copy()?, 0, step)
     described(std.toml.read_value(&mut reader, bounds))
 
 # Encoding a parsed tree and parsing the text again gives the same tree, and
 # encoding that gives the same text.
-def stable(value: &Toml, limited: &Limits) -> Result[str, Failure]:
+def stable(value: &Toml, limited: &Limits) -> Result[str, AllocError | IoError | std.toml.TomlError]:
     mut bounds = std.toml.limits()
     bounds.max_depth = limited.max_depth
     first = std.toml.encode_text(value, &bounds)?
@@ -195,7 +195,7 @@ def stable(value: &Toml, limited: &Limits) -> Result[str, Failure]:
         return Ok(" ".join(&["UNSTABLE", str.repr(&second)?]?)?)
     Ok("")
 
-def check(digits: &str, bounds: &Limits) -> Result[(), Failure]:
+def check(digits: &str, bounds: &Limits) -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.toml.TomlError | std.bytes.BytesError]:
     source = unhex(digits)?
     parsed = std.toml.parse(&source, bounds)
     mut whole = ""
@@ -217,7 +217,7 @@ def check(digits: &str, bounds: &Limits) -> Result[(), Failure]:
     print(whole)?
     Ok(())
 
-def encoded(value: &Toml, bounds: &Limits) -> Result[str, Failure]:
+def encoded(value: &Toml, bounds: &Limits) -> Result[str, AllocError | IoError]:
     match std.toml.encode_text(value, bounds):
         case Ok(text):
             Ok(str.repr(&text)?)
@@ -231,7 +231,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}\ndef main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.bytes.BytesError | std.toml.TomlError]:\n{body}    Ok(())\n")
 }
 
 /// Runs a program and shortens the qualified names in rendered values.

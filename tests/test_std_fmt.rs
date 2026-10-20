@@ -13,7 +13,7 @@ enum Named:
     Pair(i64, str)
 class Wrapper[T]:
     value: T
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     error: IoError | ThreadError = ThreadError.System(11i32)
     result: Result[(), IoError | ThreadError] = Err(ThreadError.System(11i32))
     print(error, str.repr(&error)?)?
@@ -51,7 +51,7 @@ def main() -> Result[(), Failure]:
 fn scalars_bounds_bases_width_and_escaping() {
     assert_eq!(run(r#"
 import std.fmt
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     mut out = std.fmt.string_formatter(500, 8)?
     out.text("é🙂")?
     out.integer(i64.MIN, 0)?
@@ -93,7 +93,7 @@ def number(value: &i64, out: &mut Formatter[Cursor]) -> Result[(), FormatError]:
     out.integer(*value, 0)
 def quoted(value: &str, out: &mut Formatter[Cursor]) -> Result[(), FormatError]:
     out.debug_text(value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     person = Person("Amy")
     print(std.fmt.to_string(&person, 100, 8)?, std.fmt.to_debug(&person, 100, 8)?)?
     values = [1, -2, 3]?
@@ -132,7 +132,7 @@ pub class Sink:
         Ok(1)
     pub def flush(self: &mut Sink) -> Result[(), StreamError]:
         Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.fmt.FormatError]:
     for mode in range(4):
         mut scratch = std.bytes.with_capacity(32)?
         scratch.resize(32, 0u8)?
@@ -162,7 +162,7 @@ def failed[T](value: Result[T, FormatError]) -> bool:
             False
         case Err(_):
             True
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     mut out = std.fmt.string_formatter(3, 2)?
     print(failed(out.unsigned(1u64, 3, 0)), failed(out.integer(1, -1)), failed(out.floating(1.0, -1)))?
     print(out.completed())?
@@ -197,7 +197,7 @@ pub enum Number:
             case Number.Value(value):
                 out.text("value=")?
                 out.integer(*value, 0)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.fmt.FormatError]:
     mut scratch = std.bytes.with_capacity(32)?
     scratch.resize(32, 0u8)?
     data = std.bytes.with_capacity(256)?
@@ -253,7 +253,7 @@ fn floats_cover_extremes_and_bytes_fill_preserves_tail() {
         run(r#"
 import std.fmt
 import std.bytes
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError | std.bytes.BytesError]:
     mut out = std.fmt.string_formatter(256, 0)?
     out.floating(f64.INF, 0)?
     out.text(" ")?
@@ -283,10 +283,10 @@ def main() -> Result[(), Failure]:
 #[test]
 fn ordinary_visibility_ownership_and_contract_errors_remain_checked() {
     for (source, expected) in [
-        ("import std.fmt\nfrom std.fmt import Formatter, FormatError\nenum E:\n    V\n    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:\n        out.text(\"value\")\ndef main() -> Result[(), Failure]:\n    value = E.V\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n", "enum `E` is private"),
-        ("import std.fmt\ndef main() -> Result[(), Failure]:\n    value = 42\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n", "display"),
-        ("import std.fmt\ndef main() -> Result[(), Failure]:\n    mut out = std.fmt.string_formatter(32, 8)?\n    view = &out\n    out.text(\"changed\")?\n    print(view.completed())?\n    Ok(())\n", "conflicting borrow"),
-        ("import std.fmt\ndef main() -> Result[(), Failure]:\n    out = std.fmt.string_formatter(32, 8)?\n    drop(copy(out))\n    Ok(())\n", "cannot be copied"),
+        ("import std.fmt\nfrom std.fmt import Formatter, FormatError\nenum E:\n    V\n    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:\n        out.text(\"value\")\ndef main() -> Result[(), AllocError | IoError]:\n    value = E.V\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n", "enum `E` is private"),
+        ("import std.fmt\ndef main() -> Result[(), AllocError | IoError]:\n    value = 42\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n", "display"),
+        ("import std.fmt\ndef main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:\n    mut out = std.fmt.string_formatter(32, 8)?\n    view = &out\n    out.text(\"changed\")?\n    print(view.completed())?\n    Ok(())\n", "conflicting borrow"),
+        ("import std.fmt\ndef main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:\n    out = std.fmt.string_formatter(32, 8)?\n    drop(copy(out))\n    Ok(())\n", "cannot be copied"),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("main.plenty");
@@ -344,7 +344,7 @@ fn relocated_compiler_has_formatting_without_repository_or_rust_tools() {
     let compiler = directory.path().join("compiler");
     support::install_executable(Path::new(env!("CARGO_BIN_EXE_plenty")), &compiler);
     let source = directory.path().join("main.plenty");
-    std::fs::write(&source, "import std.fmt\ndef main() -> Result[(), Failure]:\n    mut out = std.fmt.string_formatter(32, 0)?\n    out.floating(1.25, 0)?\n    print(std.fmt.finish(&out)?)?\n    Ok(())\n").unwrap();
+    std::fs::write(&source, "import std.fmt\ndef main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:\n    mut out = std.fmt.string_formatter(32, 0)?\n    out.floating(1.25, 0)?\n    print(std.fmt.finish(&out)?)?\n    Ok(())\n").unwrap();
     let check = std::process::Command::new(&compiler)
         .arg("--check")
         .arg(&source)

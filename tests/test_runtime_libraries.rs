@@ -77,7 +77,7 @@ pub def check(path: &str, discovery: &str, expected: &str) -> u32:
         &format!(
             r#"
 import native
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | LoadError]:
     path = "{}"
     expected = "contract"
     for name in ["fixture_good", "fixture_stale", "fixture_null", "fixture_huge", "fixture_short", "fixture_missing"]?:
@@ -153,7 +153,7 @@ export def nothing() -> () = "calc_nothing":
         &format!(
             r#"
 import plugin
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | LoadError]:
     path = "{}"
     library = plugin.load(&path)?
     print(library.add(20, 22))?
@@ -184,7 +184,7 @@ def main() -> Result[(), Failure]:
         &format!(
             r#"
 import plugin
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | LoadError]:
     path = "{}"
     match plugin.load(&path):
         case Ok(_):
@@ -222,7 +222,7 @@ def code(error: LoadError) -> i64:
             6
         case LoadError.IncompatibleContract:
             7
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | LoadError]:
     errors = [LoadError.OutOfMemory, LoadError.CapacityOverflow, LoadError.InvalidPath, LoadError.OpenFailed, LoadError.InvalidSymbol, LoadError.MissingSymbol, LoadError.IncompatibleContract]?
     for error in &errors:
         print(code(*error))?
@@ -258,6 +258,7 @@ export def numeric(fail: i32) -> Result[(), u64] = "calc_numeric":
         Ok(())
 export def allocation() -> Result[i32, AllocError] = "calc_allocation":
     Err(AllocError.CapacityOverflow)
+# B71: the C export boundary accepts only Failure (not an error sum) as a Result error.
 export def failure() -> Result[(), Failure] = "calc_failure":
     Err(Failure.Unspecified)
 export def read(a: &f64, b: &f64) -> f64 = "calc_read":
@@ -283,7 +284,7 @@ export def read(a: &f64, b: &f64) -> f64 = "calc_read":
         &format!(
             r#"
 import plugin
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | LoadError]:
     path = "{}"
     library = plugin.load(&path)?
     mut value: i16 = 10
@@ -344,10 +345,10 @@ fn dynamic_owners_keep_destruction_and_instance_provenance() {
         &format!(
             r#"
 import plugin
-def acquire(path: &str) -> Result[plugin.Counter, Failure]:
+def acquire(path: &str) -> Result[plugin.Counter, AllocError | IoError | LoadError]:
     library = plugin.load(path)?
     Ok(library.create(20)?)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | LoadError]:
     path = "{}"
     library = plugin.load(&path)?
     mut counter = acquire(&path)?
@@ -373,7 +374,7 @@ def main() -> Result[(), Failure]:
         &format!(
             r#"
 import plugin
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | LoadError]:
     a = "{}"
     b = "{}"
     first = plugin.load(&a)?
@@ -427,7 +428,7 @@ export def restore_allocations() -> () = "calc_restore_allocations":
     )
     .unwrap();
     let mut source = format!(
-        "import plugin\ndef main() -> Result[(), Failure]:\n    path = \"{}\"\n",
+        "import plugin\ndef main() -> Result[(), AllocError | IoError | LoadError]:\n    path = \"{}\"\n",
         native.display()
     );
     for budget in 0..5 {
@@ -535,7 +536,7 @@ fn partial_resolution_never_publishes_a_callable_table() {
             &format!(
                 r#"
 import plugin
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | LoadError]:
     path = "{}"
     for n in range(20):
         match plugin.load(&path):

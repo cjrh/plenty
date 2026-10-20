@@ -80,10 +80,10 @@ pub class Fake:
             return Err(StreamError.Io(IoError.Other))
         Ok(())
 
-def fake(text: &str, steps: list[i64]) -> Result[Fake, Failure]:
+def fake(text: &str, steps: list[i64]) -> Result[Fake, AllocError | IoError | std.bytes.BytesError]:
     Ok(Fake(std.bytes.from_text(text)?, steps, 0, 0, 0, 0, False, False))
 
-def blank(count: i64) -> Result[Bytes, Failure]:
+def blank(count: i64) -> Result[Bytes, AllocError | IoError | std.bytes.BytesError]:
     mut buffer = std.bytes.with_capacity(count)?
     buffer.resize(count, 46u8)?
     Ok(buffer)
@@ -95,7 +95,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{PRELUDE}\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError]:\n{body}    Ok(())\n")
 }
 
 struct Run {

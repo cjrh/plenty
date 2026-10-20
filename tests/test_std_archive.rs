@@ -16,7 +16,7 @@ from std.bytes import Bytes
 from std.fs import Root
 from std.sync import CancellationToken
 
-def report(result: Result[Summary, ArchiveError]) -> Result[(), Failure]:
+def report(result: Result[Summary, ArchiveError]) -> Result[(), AllocError | IoError]:
     match result:
         case Ok(summary):
             print("ok", summary.entries, summary.files, summary.bytes, summary.skipped)?
@@ -24,13 +24,13 @@ def report(result: Result[Summary, ArchiveError]) -> Result[(), Failure]:
             print(error)?
     Ok(())
 
-def untar(parent: &Root, name: &str, policy: &Policy) -> Result[(), Failure]:
+def untar(parent: &Root, name: &str, policy: &Policy) -> Result[(), AllocError | IoError | ArchiveError]:
     file = parent.read_file(&path.from_text(name)?)?
     cancel = CancellationToken()?
     mut reader = archive.tar_reader(file)?
     report(archive.extract_tar(&mut reader, parent, &path.from_text("out")?, policy, &cancel))
 
-def unzip(parent: &Root, name: &str, policy: &Policy) -> Result[(), Failure]:
+def unzip(parent: &Root, name: &str, policy: &Policy) -> Result[(), AllocError | IoError]:
     file = parent.read_file(&path.from_text(name)?)?
     cancel = CancellationToken()?
     match archive.zip_reader(file, policy.max_entries):
@@ -41,7 +41,7 @@ def unzip(parent: &Root, name: &str, policy: &Policy) -> Result[(), Failure]:
             print(error)?
             Ok(())
 
-def save(parent: &Root, name: &str, data: Bytes) -> Result[(), Failure]:
+def save(parent: &Root, name: &str, data: Bytes) -> Result[(), AllocError | IoError | fs.FsError]:
     mut source = io.cursor(data)
     cancel = CancellationToken()?
     drop(fs.copy_from(&mut source, parent, &path.from_text(name)?, 1099511627776, &cancel)?)
@@ -55,10 +55,10 @@ def zip_into(parent: &Root, file: io.FileStream, target: &path.Path, policy: &Po
     mut reader = archive.zip_reader(file, policy.max_entries)?
     archive.extract_zip(&mut reader, parent, target, policy, cancel)
 
-def text(value: &str) -> Result[Bytes, Failure]:
+def text(value: &str) -> Result[Bytes, AllocError | IoError | std.bytes.BytesError]:
     Ok(std.bytes.from_text(value)?)
 
-def name(value: &str) -> Result[path.Path, Failure]:
+def name(value: &str) -> Result[path.Path, AllocError | IoError]:
     Ok(path.from_text(value)?)
 
 # A writer that accepts `left` more bytes, then fails like a full disk.
@@ -79,7 +79,7 @@ pub class Budget:
     pub def flush(self: &mut Budget) -> Result[(), io.StreamError]:
         self.inner.flush()
 
-def outcome(result: Result[(), ArchiveError]) -> Result[(), Failure]:
+def outcome(result: Result[(), ArchiveError]) -> Result[(), AllocError | IoError]:
     match result:
         case Ok(_):
             print("ok")?
@@ -103,7 +103,7 @@ impl Program {
             .map(|line| format!("    {line}\n"))
             .collect::<String>();
         let source = format!(
-            "{PRELUDE}\ndef main() -> Result[(), Failure]:\n    argv = args_bytes()?\n    parent = fs.root(&path.from_bytes(copy(argv[1])?))?\n{body}    Ok(())\n"
+            "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | ArchiveError | std.bytes.BytesError | fs.FsError | io.Partial]:\n    argv = args_bytes()?\n    parent = fs.root(&path.from_bytes(copy(argv[1])?))?\n{body}    Ok(())\n"
         );
         std::fs::write(&entry, &source).unwrap();
         plenty::compile_file_to_executable(&entry, &executable, None)

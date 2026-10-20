@@ -6,7 +6,7 @@ use support::compile_file as compile;
 fn run(body: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
     let source = format!(
-        "import std.text\nimport std.unicode\nimport std.bytes\ndef failed[T, E](value: Result[T, E]) -> bool:\n    match value:\n        case Ok(_):\n            False\n        case Err(_):\n            True\ndef absent[T](value: Option[T]) -> bool:\n    match value:\n        case Some(_):\n            False\n        case Nothing:\n            True\ndef main() -> Result[(), Failure]:\n{}\n    Ok(())\n",
+        "import std.text\nimport std.unicode\nimport std.bytes\ndef failed[T, E](value: Result[T, E]) -> bool:\n    match value:\n        case Ok(_):\n            False\n        case Err(_):\n            True\ndef absent[T](value: Option[T]) -> bool:\n    match value:\n        case Some(_):\n            False\n        case Nothing:\n            True\ndef main() -> Result[(), AllocError | IoError | std.text.TextError | std.bytes.BytesError]:\n{}\n    Ok(())\n",
         body.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n")
     );
     let output = std::process::Command::new(compile(dir.path(), &source))
@@ -80,7 +80,7 @@ fn builders_keep_ordinary_ownership_and_loan_checks() {
     ] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("main.plenty");
-        std::fs::write(&path, format!("import std.text\ndef main() -> Result[(), Failure]:\n    mut builder = std.text.builder(32)?\n    {body}\n    Ok(())\n")).unwrap();
+        std::fs::write(&path, format!("import std.text\nimport std.bytes\ndef main() -> Result[(), AllocError | IoError | std.text.TextError | std.bytes.BytesError]:\n    mut builder = std.text.builder(32)?\n    {body}\n    Ok(())\n")).unwrap();
         let error = plenty::check_file(&path, None).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }
@@ -115,8 +115,10 @@ fn complete_unicode_17_normalization_conformance() {
     assert!(count > 19_000, "truncated conformance fixture: {count}");
     std::fs::write(dir.path().join("corpus.tsv"), fixture).unwrap();
     let source = r#"
+import std.text
+import std.bytes
 import std.unicode
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.text.TextError | std.bytes.BytesError]:
     corpus = read_text("corpus.tsv")?
     mut count = 0
     for row in corpus.split("\n")?:

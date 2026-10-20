@@ -53,7 +53,7 @@ def show(result: Result[Duration, RangeError]) -> ():
         case Err(RangeError.OutOfRange):
             print("out of range").unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError]:
     span = seconds(2).checked_add(milliseconds(1500))?
     print(span.as_seconds(), span.as_milliseconds(), span.as_microseconds(), span.as_nanoseconds())?
     print(seconds(1) == milliseconds(1000), microseconds(1) == nanoseconds(1000), seconds(1) == seconds(2))?
@@ -97,7 +97,7 @@ fn millisecond_budgets_round_up_and_never_wrap() {
         r#"
 from std.time import nanoseconds, milliseconds
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(nanoseconds(0).as_timeout_ms(), nanoseconds(1).as_timeout_ms(), nanoseconds(999999).as_timeout_ms())?
     print(nanoseconds(1000000).as_timeout_ms(), nanoseconds(1000001).as_timeout_ms(), milliseconds(7).as_timeout_ms())?
     print(nanoseconds(u64.MAX).as_timeout_ms(), nanoseconds(u64.MAX).as_milliseconds())?
@@ -121,7 +121,7 @@ def report(deadline: &Deadline, tick: u64) -> ():
     now = instant_at(tick)
     print(tick, deadline.expired(&now), deadline.remaining(&now).as_nanoseconds()).unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError]:
     start = instant_at(1000)
     deadline = deadline_after(&start, &nanoseconds(500))?
     for tick in [0u64, 1000u64, 1499u64, 1500u64, 1501u64, u64.MAX]?:
@@ -176,7 +176,7 @@ def since(later: &Timestamp, earlier: &Timestamp) -> ():
         case Err(RangeError.OutOfRange):
             print("out of range").unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError]:
     before = Timestamp(1700000000, 900000000)
     after = Timestamp(1700000002, 100000000)
     since(&after, &before)
@@ -236,7 +236,7 @@ fn real_clocks_only_promise_order_and_minimum_sleep() {
         r#"
 from std.time import monotonic_now, wall_now, sleep, sleep_until, deadline_after, deadline_at, nanoseconds, milliseconds
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError]:
     first = monotonic_now()
     second = monotonic_now()
     print(second.duration_since(&first)?.as_nanoseconds() >= 0u64)?
@@ -275,7 +275,7 @@ def wait(stop: CancellationToken, deadline: Deadline, ready: Sender[i64]) -> boo
     # An hour-long budget: only cancellation can end this wait in time.
     stop.wait_timeout(deadline.remaining(&monotonic_now()).as_timeout_ms())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ChannelError | SendTimeoutError[i64] | RecvTimeoutError | RangeError | PoolError | FutureError | RecvError | SubmitError[OnceClosure[[], bool]]]:
     stop = CancellationToken()?
     past = deadline_at(&instant_at(0))
     budget = past.remaining(&monotonic_now()).as_timeout_ms()
@@ -324,7 +324,7 @@ def nap(count: u32) -> bool:
     wall = wall_now()
     wall.nanoseconds < 1000000000u32 and monotonic_now().duration_since(&start).unwrap().as_milliseconds() >= u64(count)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | PoolError | FutureError | ThreadError | SubmitError[OnceClosure[[], bool]]]:
     with ThreadPoolExecutor(2, 2)? as pool:
         first = pool.submit(nap, 2u32)?
         second = pool.submit(nap, 1u32)?
@@ -343,7 +343,7 @@ fn time_values_clocks_and_sleep_allocate_nothing() {
         r#"
 from std.time import monotonic_now, wall_now, sleep, sleep_until, deadline_after, nanoseconds, milliseconds, seconds, Timestamp
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print("__test_fail_allocations_after_0__")?
     print("__test_begin_no_allocations__")?
     start = monotonic_now()
@@ -375,7 +375,7 @@ from std.time import Timestamp, seconds
 def shifted(stamp: &Timestamp) -> Result[Timestamp, RangeError]:
     stamp.checked_add(seconds(1))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | RangeError]:
     data = metadata(&from_text("/")?)?
     changed = data.unix_changed()
     print(shifted(&changed)?.duration_since(&changed)?.as_seconds())?
@@ -391,7 +391,7 @@ fn clock_kinds_and_private_representations_do_not_mix() {
         r#"
 from std.time import monotonic_now, wall_now
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     start = monotonic_now()
     print(start.duration_since(&wall_now())?.as_seconds())?
     Ok(())
@@ -420,7 +420,7 @@ def main() -> ():
         r#"
 from std.time import seconds, monotonic_now
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(monotonic_now().checked_add(5)?)?
     Ok(())
 "#,
