@@ -113,6 +113,15 @@ nested function-level measurements remain inclusive.
 - Allocation counting adds work to every allocation: in the measurement below
   it added about 2% to Cranelift compilation. Compare times from a `profile`
   build.
+- The compiler executables and `compile_bench` allocate with mimalloc, and
+  `profile-alloc` counts allocations on top of it. Integration tests call the
+  compiler in-process with the system allocator, so their timings do not show
+  the executables' allocator behavior.
+- For thread contention, compare system time and voluntary context switches
+  (`/usr/bin/time -f '%e %U %S %w %c %M'`) as well as wall time. Those counters
+  include child processes: `compile_bench --workload aot` and `--compile` count
+  the linker's threads too, while `plenty --emit-object` counts only the
+  compiler.
 - hotpath's CPU sampling mode (`hotpath-cpu`) is not enabled: it needs samply
   and relaxed kernel settings, and `perf` already samples the compiler without
   a feature.

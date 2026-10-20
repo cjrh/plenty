@@ -346,7 +346,11 @@ fn read_entry(path: &Path) -> Option<(Duration, Vec<u8>)> {
     // cannot request a huge allocation.
     let size = file.metadata().ok()?.len().saturating_sub(HEADER as u64);
     let mut payload = Vec::with_capacity(usize::try_from(size).ok()?);
-    file.read_to_end(&mut payload).ok()?;
+    // Reading at most the known size skips `File::read_to_end`'s own size
+    // query and its final empty read: a warm build reads an entry for nearly
+    // every function (issue #315). Entries are replaced by rename, never
+    // extended, so a longer file is corrupt and fails the length check.
+    (&mut file).take(size).read_to_end(&mut payload).ok()?;
     if payload.len() != length || Sha256::digest(&payload).as_slice() != &header[20..] {
         return None;
     }
@@ -355,17 +359,26 @@ fn read_entry(path: &Path) -> Option<(Duration, Vec<u8>)> {
 
 fn write_entry(path: &Path, number: u64, compile_time: Duration, payload: &[u8]) -> io::Result<()> {
     let shard = path.parent().unwrap();
-    fs::create_dir_all(shard)?;
     let name = path.file_name().unwrap().to_string_lossy();
     let temporary = shard.join(format!(".{name}.{}.{number}.tmp", std::process::id()));
+    // A cold build writes an entry for nearly every function, so each costs
+    // one create, one write and one rename; the shard directory is created
+    // only when it is missing (issue #315).
+    let mut entry = Vec::with_capacity(HEADER + payload.len());
+    entry.extend_from_slice(MAGIC);
+    entry.extend_from_slice(&(compile_time.as_nanos() as u64).to_le_bytes());
+    entry.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+    entry.extend_from_slice(&Sha256::digest(payload));
+    entry.extend_from_slice(payload);
     let written = (|| {
-        let mut file = fs::File::create(&temporary)?;
-        file.write_all(MAGIC)?;
-        file.write_all(&(compile_time.as_nanos() as u64).to_le_bytes())?;
-        file.write_all(&(payload.len() as u64).to_le_bytes())?;
-        file.write_all(&Sha256::digest(payload))?;
-        file.write_all(payload)?;
-        file.flush()?;
+        let mut file = match fs::File::create(&temporary) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir_all(shard)?;
+                fs::File::create(&temporary)?
+            }
+            file => file?,
+        };
+        file.write_all(&entry)?;
         drop(file);
         fs::rename(&temporary, path)
     })();

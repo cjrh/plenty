@@ -43,6 +43,15 @@ Relocations remain specific to each function and are resolved independently.
 This adds no cache retention: decoded stencils already live until the compilation
 ends. With caching disabled, each result owns its machine-code buffer.
 
+The `plenty` and `plentyc` executables allocate with mimalloc (version 2,
+without transparent huge pages) instead of glibc malloc (issue #315). Workers
+free operations the main thread allocated and grow IR buffers at a high rate;
+glibc serializes such frees and growth on per-arena locks, so threads slept on
+each other. Emitting 1,000 units from a warm cache on 16 hardware threads made
+about 86,000 voluntary context switches with glibc and 480 with mimalloc. The
+compiler library does not choose an allocator, so tests and other programs
+that call it in-process keep their own.
+
 A body can need symbols that are declared on first use: type descriptors, its
 trap-site table, foreign imports. Their order decides the object's bytes, so a
 worker building IR does not declare them. It names each in a placeholder
@@ -118,7 +127,8 @@ functions and otherwise builds IR or compiles.
 With all 16 hardware threads the same emission took 9.9 s, against 4.2 s on
 the eight cores. The instruction count was the same; above about ten busy
 threads this machine ran at 1.1 GHz instead of 3.9 GHz. Measure on a fixed set
-of cores, for example `taskset -c 0,2,4,6,8,10,12,14`.
+of cores, for example `taskset -c 0,2,4,6,8,10,12,14`. The 2026-10-20
+measurement below did not reproduce the slowdown.
 
 The 2026-10-15 release measurement used the same eight cores while other
 builds loaded the machine, with paired runs of the compiler before and after
@@ -138,6 +148,26 @@ cores. For 5,000 units these phases took 48, 19, 35, and 20 ms instead of 99,
 after, and object emission 6.1 to 7.9 s before and 6.0 to 6.3 s after (five
 runs each).
 Peak memory was unchanged. On 1,000 units the difference was within noise.
+
+The 2026-10-20 release measurement compared glibc malloc with mimalloc in
+paired, alternating runs of `--emit-object` (no linking), with a load average
+of 4 to 7 from other builds. Medians of three runs for 5,000 units, wall time
+with user and system CPU time in seconds:
+
+| Cache | Cores | glibc | mimalloc |
+|---|---|---|---|
+| Off | 8 physical | 2.26 (7.7 + 0.41) | 1.98 (7.2 + 0.37) |
+| Off | 16 hardware threads | 2.07 (10.7 + 0.61) | 1.74 (9.9 + 0.45) |
+| Warm | 8 physical | 2.11 (3.7 + 1.55) | 1.42 (2.4 + 0.49) |
+| Warm | 16 hardware threads | 2.13 (4.8 + 3.16) | 1.39 (2.9 + 0.57) |
+
+With mimalloc, voluntary context switches fell from 556,000 to 1,200 for the
+warm 16-thread build, and peak memory was 375 MB against 388 to 414 MB. For
+1,000 units the warm build took 0.26 s instead of 0.37 s on 16 threads, and
+peak memory rose from 92 to 110 MB. Sixteen threads were as fast as eight or
+faster, so the worker count stays one per available processor. In this run the
+clock stayed near 4 GHz on 16 threads; sixteen threads executed the same
+instructions as eight in 31% more cycles, from sharing cores.
 Parsing, type resolution, class expansion, generic preparation, signatures,
 and lowering remain on one thread, about 0.75 s of the 5,000-unit frontend,
 as do declaring functions (0.1 s) and writing the object.
