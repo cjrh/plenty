@@ -32,10 +32,11 @@ runtime. Float and non-numeric arguments are compile-time errors, as is
 `try_from` on a float type; float conversions use casts.
 
 Parsing still returns `ParseError`, which distinguishes malformed text from
-an out-of-range number. `?` requires identical error types unless the caller
-deliberately erases details with `Failure`. A function that parses and then
-narrows can explicitly match the conversion error and return
-`Err(ParseError.OutOfRange)`; there is no implicit error conversion.
+an out-of-range number. A function that parses and then narrows can return
+`Result[T, ParseError | RangeError]` and propagate both operations with `?`,
+preserving each cause. It can instead explicitly match the conversion error and
+return `Err(ParseError.OutOfRange)` when that mapping is its intended contract;
+there is no implicit conversion between these distinct error types.
 
 ## Wrapping conversion
 

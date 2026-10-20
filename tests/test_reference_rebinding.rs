@@ -55,7 +55,7 @@ fn rejects(source: &str, expected: &str) {
 fn shared_cursor_walks_a_class_chain() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     head = build(10)?
     print(total(&head))?
     print(total(&head))?
@@ -69,7 +69,7 @@ def main() -> Result[(), Failure]:
 fn exclusive_cursor_modifies_every_node() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut head = build(10)?
     bump(&mut head)
     print(total(&head))?
@@ -102,7 +102,7 @@ def last_mut(head: &mut Node) -> &mut Node:
             case Nothing:
                 break
     cur
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut head = build(4)?
     print(last(&head).value)?
     tail = last_mut(&mut head)
@@ -119,7 +119,7 @@ def main() -> Result[(), Failure]:
 fn cursor_over_a_local_owner_ends_at_its_last_use() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut head = build(4)?
     mut cur = &head
     mut steps = 0
@@ -158,7 +158,7 @@ def clear_left_spine(root: &mut Tree) -> ():
         cur.value = cur.value + 10
         cur = &mut cur.children[0]
     cur.value = 0
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     leaf = Tree(3, []?)
     mut kids: list[Tree] = []?
     kids.append(leaf)?
@@ -194,7 +194,7 @@ def sum(chain: &Chain) -> i64:
                 result = result + *value
                 cur = rest
     result
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     chain = Chain.Link(3, Box(Chain.Link(7, Box(Chain.End)?))?)
     print(sum(&chain))?
     Ok(())
@@ -215,7 +215,7 @@ def step(node: &Node) -> &Node:
             node
 def pick(label: str, node: &Node) -> &Node:
     node
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     head = build(4)?
     mut cur = &head
     cur = step(cur)
@@ -233,7 +233,7 @@ def main() -> Result[(), Failure]:
 fn an_exclusive_cursor_is_usable_again_after_a_reborrow_ends() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut head = build(2)?
     mut cur = &mut head
     first = cur
@@ -251,7 +251,7 @@ def main() -> Result[(), Failure]:
 fn walking_a_chain_does_not_allocate() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut head = build(100)?
     print("__test_begin_no_allocations__")?
     print("__test_fail_allocations_after_0__")?
@@ -271,7 +271,7 @@ def main() -> Result[(), Failure]:
 fn a_million_node_chain_is_walked_and_dropped_on_a_small_stack() {
     let source = format!(
         r#"{CHAIN}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut head = build(1000000)?
     print(total(&head))?
     bump(&mut head)
@@ -303,7 +303,7 @@ def main() -> Result[(), Failure]:
 fn a_cursor_cannot_move_to_another_owner() {
     rejects(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     head = build(4)?
     other = build(2)?
     mut cur = &head
@@ -437,7 +437,7 @@ def first(head: &mut Node) -> i64:
 fn the_owner_stays_borrowed_while_the_cursor_is_live() {
     rejects(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut head = build(4)?
     mut cur = &head
     match &cur.next:
@@ -526,7 +526,7 @@ def split(head: &mut Node) -> ():
 fn an_exclusive_cursor_excludes_its_live_reborrow() {
     rejects(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut head = build(2)?
     mut cur = &mut head
     first = cur
@@ -548,7 +548,7 @@ class Bag:
     items: list[i64]
 def index(values: &list[i64]) -> i64:
     0
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut bag = Bag([1, 2]?)
     other = [7, 8]?
     view = &bag.items[index(&other)]

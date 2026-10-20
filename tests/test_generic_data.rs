@@ -33,7 +33,7 @@ class Sized[T]:
     def __init__(self, value: T, count: u8) -> Result[(), AllocError]:
         self.values = [value for n in range(count)]?
         Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     pair = Pair(7u8, "seven")
     print(pair)?
     sized = Sized(9u16, 2)?
@@ -90,7 +90,7 @@ def unpack[T](choice: Choice[T]) -> T:
             value
 def same[T](left: &Pair[T, T], right: T) -> T:
     right
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     pair = Pair[u8, str](4, "four")
     print(key(&pair))?
     choice = Choice[list[i64]].Value([2, 3]?)
@@ -136,7 +136,7 @@ class Logged[T]:
         print(self.value).unwrap()
 def wrap[T](value: T) -> Result[Cell[T], AllocError]:
     Ok(Cell[T](value))
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut cell = Cell[u8](5)
     cell.replace(9)
     print(cell.get())?
@@ -166,7 +166,7 @@ enum Choice[T]:
 type ByteChoice = Choice[u8]
 enum Envelope:
     Item(Choice[list[i64]])
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     value = ByteChoice.Value(7)
     match value:
         case Choice.Empty:
@@ -226,8 +226,8 @@ fn class_instance_method_errors_are_reported_at_the_requiring_use() {
     // All methods of an instance are checked when the instance is first
     // required, whether or not the failing one is called.
     for (code, at) in [
-        ("def main() -> Result[(), Failure]:\n    a = Cell(1)\n    b = Cell([1, 2]?)\n    Ok(())\n", "8:9"),
-        ("def main() -> Result[(), Failure]:\n    b = Cell[list[i64]]([1, 2]?)\n    b.get()\n    Ok(())\n", "7:9"),
+        ("def main() -> Result[(), AllocError]:\n    a = Cell(1)\n    b = Cell([1, 2]?)\n    Ok(())\n", "8:9"),
+        ("def main() -> Result[(), AllocError]:\n    b = Cell[list[i64]]([1, 2]?)\n    b.get()\n    Ok(())\n", "7:9"),
         ("def size(cell: &Cell[list[i64]]) -> i64:\n    1\n\ndef main() -> ():\n    pass\n", "6:17"),
     ] {
         let error = plenty::check_source(&format!("{cell}\n{code}"))
@@ -249,7 +249,7 @@ class Pair[T]:
 def wrap[T](left: T, right: T) -> Pair[T]:
     Pair(Cell(left), Cell(right))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     a = wrap(1, 2)
     b = wrap([1]?, [2]?)
     Ok(())

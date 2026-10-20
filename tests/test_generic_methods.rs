@@ -12,7 +12,7 @@ class Number:
         &self.value
 def convert[T: IntType](number: &Number) -> T:
     number.convert[T]()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     number = Number(7)
     value: u8 = number.convert[u8]() + 1
     print(value)?
@@ -32,7 +32,7 @@ def main() -> Result[(), Failure]:
 
 #[test]
 fn method_type_arguments_do_not_change_callable_field_indexing() {
-    let output = run("class Table:\n    callbacks: list[Callable[[i64], i64]]\ndef double(x: i64) -> i64:\n    x * 2\ndef main() -> Result[(), Failure]:\n    table = Table([double]?)\n    index = 0\n    print(table.callbacks[index](7))?\n    Ok(())\n");
+    let output = run("class Table:\n    callbacks: list[Callable[[i64], i64]]\ndef double(x: i64) -> i64:\n    x * 2\ndef main() -> Result[(), AllocError | IoError]:\n    table = Table([double]?)\n    index = 0\n    print(table.callbacks[index](7))?\n    Ok(())\n");
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "14\n");
 }
@@ -56,7 +56,7 @@ class Counter:
         self.value = self.value + i64(value)
 def double(value: u8) -> u16:
     u16(value) * 2
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     cell = Cell(7u8)
     callback = double
     print(cell.map(&callback)?)?

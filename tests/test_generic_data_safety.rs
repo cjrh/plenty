@@ -13,7 +13,7 @@ class Wrapper[T]:
 class Factory[T]:
     def make[U](self, unused: U, value: i64) -> Result[T, AllocError]:
         Ok(T(value))
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     wrapper = Wrapper(U(9))
     reference = wrapper.borrowed(1u8)
     print(reference.value)?
@@ -93,7 +93,7 @@ class Pair[T]:
     def __del__(self) -> ():
         write_stdout("pair drop\n").unwrap()
         pass
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     result = Pair(Resource(1), Resource(2))
     print(str.repr(result).unwrap())?
     Ok(())

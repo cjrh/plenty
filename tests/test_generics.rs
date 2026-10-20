@@ -161,12 +161,12 @@ fn instance_body_errors_are_reported_at_the_first_requiring_use() {
             "def twice[T](value: T) -> tuple[T, T]:
     (value, value)
 
-def helper() -> Result[(), Failure]:
+def helper() -> Result[(), AllocError]:
     a = twice(1)
     b = twice([1]?)
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     c = twice([2]?)
     helper()
 "
@@ -223,7 +223,7 @@ def middle[T](value: T) -> tuple[T, T]:
 def outer[T](value: T) -> tuple[T, T]:
     middle(value)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     a = outer(1)
     b = outer([1]?)
     Ok(())
@@ -244,7 +244,7 @@ fn generic_method_and_lifted_function_errors_are_reported_at_the_use() {
     def both[T](self, value: T) -> tuple[T, T]:
         (value, value)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     holder = Holder(1)
     a = holder.both(1)
     b = holder.both([1]?)
@@ -275,10 +275,10 @@ def main() -> ():
 #[test]
 fn expanding_recursion_keeps_instance_names_readable() {
     let error = rejection(
-        "def f[T](x: T) -> Result[(), Failure]:
+        "def f[T](x: T) -> Result[(), AllocError]:
     f[list[T]]([x]?)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     f[i64](1)
 ",
     );

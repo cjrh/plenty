@@ -8,7 +8,7 @@ byte counterpart of `str`.
 def is_png(header: bytes) -> bool:
     header == b"\x89PNG\r\n\x1a\n"
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     request = b"GET / HTTP/1.1\r\n"
     print(len(request), request[0], request[-1])?
     print(is_png(b"\x89PNG\r\n\x1a\n"))?

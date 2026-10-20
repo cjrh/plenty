@@ -91,12 +91,12 @@ fn payload_loan_diagnostics_point_at_the_scrutinee_and_the_payload_use() {
             "5:19: conflicting borrow: cannot read `value` while it is exclusively borrowed\n  3:16: note: the exclusive borrow of `value` starts here\n  6:13: note: the borrow is used again here",
         ),
     ] {
-        let source = format!("def main() -> Result[(), Failure]:\n{body}    Ok(())\n");
+        let source = format!("def main() -> Result[(), IoError]:\n{body}    Ok(())\n");
         let error = support::check_source(&source).unwrap_err().to_string();
         assert_eq!(error, expected, "{source}");
     }
     // The payload loan ends at its last use, inside the arm.
-    let source = "def main() -> Result[(), Failure]:\n    mut value = Some(1)\n    match &mut value:\n        case Some(number):\n            *number = 2\n            print(value)?\n        case Nothing:\n            pass\n    value = Nothing\n    print(value)?\n    Ok(())\n";
+    let source = "def main() -> Result[(), IoError]:\n    mut value = Some(1)\n    match &mut value:\n        case Some(number):\n            *number = 2\n            print(value)?\n        case Nothing:\n            pass\n    value = Nothing\n    print(value)?\n    Ok(())\n";
     if let Err(error) = support::check_source(source) {
         panic!("{source}\n{error}");
     }

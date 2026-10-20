@@ -190,7 +190,7 @@ def text(message: Option[Message]) -> str:
             "quit"
         case Nothing:
             "no message"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(area(Ok(Some(Shape.Circle(2)))))?
     print(area(Ok(Some(Shape.Rect(3, 4)))))?
     print(area(Ok(Some(Shape.Dot))))?
@@ -234,7 +234,7 @@ def ignore(pair: Result[Pair, list[str]]) -> i64:
             2
         case _:
             3
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     for round in range(3):
         a = ["one long string", "two long strings"]?
         b = ["three long strings"]?
@@ -285,7 +285,7 @@ def grow(tree: &mut Tree) -> ():
             grow(left)
         case Tree.Leaf(value):
             *value = *value + 50
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut deep = Tree.Node(Box(Tree.Node(Box(Tree.Leaf(1))?, Box(Tree.Leaf(2))?))?, Box(Tree.Leaf(3))?)
     print(leftmost(&deep))?
     grow(&mut deep)
@@ -325,7 +325,7 @@ def lengths(pair: &Pair) -> i64:
             len(text)
         case Pair.Both(Nothing, _):
             0
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut value: Result[Result[i64, i64], i64] = Ok(Err(7))
     print(*inner(&value))?
     number = writable(&mut value)
@@ -382,7 +382,7 @@ def name(shape: Option[Shape]) -> str:
             "nothing"
         case Some(_):
             "unnamed"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     shapes = [Shape.Dot, Shape.Circle(2), Shape.Rect(3, 4), Shape.Label("a long label text", 5), Shape.Named(6, "a long shape name")]?
     for shape in &shapes:
         print(kind(shape))?
@@ -416,7 +416,7 @@ def rank(reading: Reading) -> i64:
             -1
         case Reading.Both(Level.Mid, Nothing):
             -2
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(rank(Reading.Both(Level.Low, Some(1))))?
     print(rank(Reading.Both(Level.Mid, Some(2))))?
     print(rank(Reading.Both(Level.High, Some(3))))?
@@ -450,7 +450,7 @@ def view(pair: &Two) -> i64:
             0
         case Two.Both(Level.Low(a) | Level.High(a), Level.Low(b) | Level.High(b)):
             *a * 10 + *b
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     pairs = [Two.Both(Level.Low(1), Level.Low(2)), Two.Both(Level.Low(1), Level.High(2)), Two.Both(Level.High(3), Level.Low(4)), Two.Both(Level.High(5), Level.High(6))]?
     for pair in &pairs:
         print(view(pair))?
@@ -486,7 +486,7 @@ def later[F: OnceCallable[[], i64]](work: F) -> i64:
 def unused[F: OnceCallable[[], i64]](work: F, names: list[str]) -> i64:
     nothing: Option[Job[F]] = Nothing
     run(Some(Job[F].Named("a long job name", names))) * 100 + run(Some(Job[F].Skip)) * 10 + run(nothing)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     base = 40
     names = ["a long first name", "b"]?
     first = def once [base]() -> i64:
@@ -540,7 +540,7 @@ def count(items: &list[Option[Step]]) -> i64:
             case Some(Step.Stop) | Nothing:
                 total = total + 100
     total
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(descend(Some(Some(2000000)), 0))?
     for value in steps([Step.Go(Some(3)), Step.Stop, Step.Go(Nothing), Step.Go(Some(4))]?):
         print(value)?
@@ -578,7 +578,7 @@ def fill(nested: &mut Option[Option[Option[i64]]]) -> ():
             *outer = Some(Nothing)
         case Nothing:
             pass
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut counter = Counter(0, Some(Ok("original text value")))
     print(counter.record())?
     print(counter.last)?
@@ -600,7 +600,7 @@ fn nested_bindings_follow_the_borrow_rules() {
     let sibling = r#"
 enum Pair:
     Both(Option[str], Option[list[i64]])
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut pair = Pair.Both(Some("a long string value"), Some([1]?))
     match &mut pair:
         case Pair.Both(Some(text), numbers):
@@ -629,7 +629,7 @@ def main() -> Result[(), Failure]:
         "{shared}"
     );
     let moved = diagnostic(
-        "def main() -> Result[(), Failure]:\n    value: Option[Option[Box[i64]]] = Some(Some(Box(3)?))\n    match value:\n        case Some(Some(_)) | Nothing:\n            pass\n        case _:\n            pass\n    print(value)?\n    Ok(())\n",
+        "def main() -> Result[(), AllocError | IoError]:\n    value: Option[Option[Box[i64]]] = Some(Some(Box(3)?))\n    match value:\n        case Some(Some(_)) | Nothing:\n            pass\n        case _:\n            pass\n    print(value)?\n    Ok(())\n",
     );
     assert!(moved.contains("use of moved binding `value`"), "{moved}");
     let capture = diagnostic(
@@ -900,7 +900,7 @@ def by_ref(n: &i64, s: &str) -> i64:
         case _:
             0
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(op("cpy"))?
     print(op("dec"))?
     print(op("zzz"))?
@@ -986,7 +986,7 @@ class Machine:
     mode: str
     count: u16
 
-def run(program: &list[Instr]) -> Result[i64, Failure]:
+def run(program: &list[Instr]) -> Result[i64, AllocError]:
     mut stack: list[i64] = []?
     mut total = 0
     for instr in program:
@@ -1022,7 +1022,7 @@ def bump(instr: &mut Instr) -> ():
         case _:
             pass
 
-def consume(instr: Instr) -> Result[i64, Failure]:
+def consume(instr: Instr) -> Result[i64, AllocError]:
     match instr:
         case Instr.Pair(1, items):
             Ok(len(items))
@@ -1057,7 +1057,7 @@ def classify(xs: &list[i64]) -> str:
                 case False:
                     "differ"
 
-def words(text: str) -> Result[i64, Failure]:
+def words(text: str) -> Result[i64, AllocError]:
     mut n = 0
     mut i = 0
     while i < 1000:
@@ -1071,7 +1071,7 @@ def words(text: str) -> Result[i64, Failure]:
         i = i + 1
     Ok(n)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     program = [Instr.Push(0), Instr.Push(5), Instr.Op("add"), Instr.Op("other"), Instr.Pair(1, [1, 2, 3]?), Instr.Pair(2, [1]?), Instr.Jump("abc", 4), Instr.Op("stop"), Instr.Op("add")]?
     print(run(&program)?)?
     early = [Instr.Jump("stop", 9)]?
@@ -1136,7 +1136,7 @@ fn literals_leave_heap_strings_for_later_cases() {
     Word(str)
     Pair(str, list[i64])
 
-def kind(t: Token) -> Result[i64, Failure]:
+def kind(t: Token) -> Result[i64, AllocError]:
     match t:
         case Token.Word("ab" | "cd"):
             Ok(1)
@@ -1163,7 +1163,7 @@ def name(s: str) -> i64:
         case _:
             0
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     a = "a"
     ab = (a + "b")?
     print(name((a + "b")?))?
@@ -1217,7 +1217,7 @@ def c(n: &Box[str]) -> i64:
         case _:
             0
 
-def d(xs: &list[str]) -> Result[i64, Failure]:
+def d(xs: &list[str]) -> Result[i64, AllocError]:
     mut total = 0
     for x in xs:
         match x:
@@ -1227,7 +1227,7 @@ def d(xs: &list[str]) -> Result[i64, Failure]:
                 total = total + 10
     Ok(total)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut n = 1
     print(a(&mut n))?
     print(n)?
@@ -1264,7 +1264,7 @@ fn a_match_with_many_literal_cases_compiles() {
         source.push_str(&format!("        case \"op{case}\":\n            {case}\n"));
     }
     source.push_str(
-        "        case _:\n            -1\ndef main() -> Result[(), Failure]:\n    print(pick(\"op1999\"))?\n    print(pick(\"op2000\"))?\n    Ok(())\n",
+        "        case _:\n            -1\ndef main() -> Result[(), IoError]:\n    print(pick(\"op1999\"))?\n    print(pick(\"op2000\"))?\n    Ok(())\n",
     );
     runs(&source, "1999\n-1\n");
 }
@@ -1404,7 +1404,7 @@ fn a_literal_takes_the_type_of_the_value_it_matches() {
         "13:19: a string pattern cannot match a value of type i64"
     );
     runs(
-        "def f(value: i64) -> i64:\n    match value:\n        case -9223372036854775808 | 0i64 | 9223372036854775807:\n            0\n        case _:\n            1\ndef main() -> Result[(), Failure]:\n    print((f(-9223372036854775807 - 1), f(5)))?\n    Ok(())\n",
+        "def f(value: i64) -> i64:\n    match value:\n        case -9223372036854775808 | 0i64 | 9223372036854775807:\n            0\n        case _:\n            1\ndef main() -> Result[(), IoError]:\n    print((f(-9223372036854775807 - 1), f(5)))?\n    Ok(())\n",
         "(0, 1)\n",
     );
 }
@@ -1479,7 +1479,7 @@ fn a_large_enum_matches_each_variant_by_name() {
         });
     }
     source.push_str(
-        "def main() -> Result[(), Failure]:
+        "def main() -> Result[(), IoError]:
     print(pick(Kind.V0))?
     print(pick(Kind.V2))?
     print(pick(Kind.V10))?
@@ -1565,7 +1565,7 @@ def pick(pair: Pair) -> str:
             "b"
         case Pair.Of(_, _):
             "other"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(pick(Pair.Of(Kind.A, 1)))?
     print(pick(Pair.Of(Kind.A, 2)))?
     print(pick(Pair.Of(Kind.A, 3)))?
@@ -1639,7 +1639,7 @@ def word(value: str) -> str:
             "first"
         case _ as other:
             other
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     for round in range(3):
         print(forward(Item.Empty))?
         print(forward(Item.Count(4)))?
@@ -1687,7 +1687,7 @@ def reset(item: &mut Item) -> ():
             pass
         case _ as rest:
             *rest = Item.Empty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut item = Item.Names(["one long string", "two long strings"]?)
     print(shared(&item))?
     print(shared(&Item.Count(7)))?
@@ -1710,7 +1710,7 @@ def main() -> Result[(), Failure]:
 fn whole_value_bindings_follow_the_ownership_rules() {
     let owned = |body: &str| {
         diagnostic(&format!(
-            "{WHOLE}def main() -> Result[(), Failure]:\n    mut item = Item.Names([\"a\"]?)\n{body}    Ok(())\n"
+            "{WHOLE}def main() -> Result[(), AllocError | IoError]:\n    mut item = Item.Names([\"a\"]?)\n{body}    Ok(())\n"
         ))
     };
     let moved = owned(

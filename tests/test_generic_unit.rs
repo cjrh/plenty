@@ -15,7 +15,7 @@ def context[T, E](result: Result[T, E], operation: str) -> Result[T, Context[E]]
         case Err(cause):
             Err(Context[E](operation, cause))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     flushed = flush_stdout()
     context(flushed, "flush").unwrap()
     failed: Result[(), str] = Err("disk full")
@@ -53,7 +53,7 @@ class Helpers:
     def keep[T](self, value: Option[T]) -> Option[T]:
         value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     success: Result[(), str] = Ok(())
     keep(success).unwrap()
     failure: Result[(), str] = Err("failed")
@@ -120,7 +120,7 @@ def shown[T](value: &T) -> Result[str, AllocError]:
 def forward(value: &()) -> &():
     value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut present: Option[()] = Some(())
     match &mut present:
         case Some(value):

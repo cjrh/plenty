@@ -532,7 +532,7 @@ pub def squares[T: IntType](stop: T) -> Generator[T]:
         &path,
         r#"
 from helper import squares
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(list[u8].from(squares(4u8))?)?
     Ok(())
 "#,
