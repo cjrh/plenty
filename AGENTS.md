@@ -24,3 +24,13 @@
 - Keep pages small. Add a new page to `SUMMARY.md`; `tests/test_tutorial.rs` fails if a page is missing from it.
 - A `plenty-file` companion module must be on the same page as the example that uses it.
 - Record defects and gaps in implemented behavior (crashes, misleading diagnostics, missing operations, performance concerns) in the SQLite issues register `issues.db`, not in the backlog. Search it (`issues_fts`, FTS5) before adding, and include a reproduction and a suggested fix in the markdown `details`. Set `severity` to `low`, `normal`, or `high`, and work through open issues highest severity first. When an issue is scheduled, cite `issue #N` in the backlog entry; to close one, set `status` to `closed` and fill `resolution` with the fixing commit or the reason it will not be fixed. Never delete issues. See `CLAUDE.md` for schema and commands.
+
+# Writing and maintaining the tutorial
+
+- Review examples with the question: **Would we recommend writing this code this way today?** Passing compilation and output checks proves correctness, not that an example teaches a good idiom.
+- Teach the simplest clear use of implemented Plenty features for the task. Consider error handling, ownership, allocation costs, and standard-library operations. Do not equate fewer lines, newer syntax, or more abstraction with better code.
+- Preserve the learning sequence. An explicit loop or match can be the right way to introduce a concept before teaching a convenience. Explain consequential teaching simplifications and current limitations; do not let them look like general recommendations.
+- When a feature or library operation lands, revisit existing lessons and application examples it could simplify, not just the page introducing it. Remove obsolete workarounds where appropriate and update related reference links in the same PR.
+- Make larger application examples models of recommended practice using concepts already taught. Preserve useful error information, propagate failures unless recovery is intentional, and make error reporting and exit status consistent with the application's outcome.
+- Lead with recommended patterns. Keep legacy behavior, alternatives, and exhaustive contracts in clearly identified notes or linked reference pages. Teach proposed features only after they are implemented.
+- Keep examples focused and pages small. Explain why a non-obvious choice matters rather than narrating each statement. Validate changed examples and links using the [tutorial maintenance guidance in CLAUDE.md](CLAUDE.md#tutorial-maintenance).

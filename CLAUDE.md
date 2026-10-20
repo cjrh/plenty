@@ -143,6 +143,49 @@ lessons fail the suite. Proposal fences are not executed; use `text` for
 illustrative syntax and verify claims about implemented behavior separately.
 Run the local link checker after documentation edits, especially moves.
 
+### Tutorial maintenance
+
+Follow the [tutorial guidelines in AGENTS.md](AGENTS.md#writing-and-maintaining-the-tutorial).
+The tutorial teaches recommended ways to write Plenty today; the reference
+describes implemented contracts and limits. Working examples can still become
+outdated as the language grows, so executable checks do not replace an idiom
+review.
+
+When adding or changing a learner-visible feature:
+
+1. Find existing lessons and larger examples that solve the affected problem,
+   including manual workarounds and older library calls. Review them alongside
+   the lesson introducing the feature and the relevant reference pages.
+2. Ask whether each example is a good default for its task. Check error
+   preservation and propagation, ownership and borrowing, unnecessary allocation
+   or copying, and suitable standard-library operations. Prefer clarity and
+   explicit costs over cosmetic brevity.
+3. Check what the reader knows at that point in `SUMMARY.md`. Preserve a
+   deliberate introductory loop or match; use later application examples to
+   bring the taught conveniences together. Link forward when useful rather than
+   introducing several unexplained concepts to shorten one example.
+4. Distinguish a teaching simplification from a current implementation limit.
+   Explain consequential differences from application code. For example,
+   printing an error and returning success needs an intentional recovery or
+   demonstration purpose; otherwise propagate it or return a failure status.
+   Do not replace working code with syntax available only in a proposal.
+5. Update affected examples, explanations, and reference links together. Lead
+   with the recommended approach; move legacy details and exhaustive alternatives
+   out of the main teaching path where practical. Avoid unrelated rewrites.
+
+For changed executable examples, run
+`cargo test --locked --test integration test_tutorial::`.
+Keep `plenty-file` companions on the page that uses them, and retain checks for
+expected output and diagnostics. Run
+`python3 -B scripts/check_links.py book/src` after documentation edits; build the
+book when changing page organization. Prose-only edits do not require rerunning
+the compiler suite.
+
+In the PR, explain which patterns improved and why, which teaching
+simplifications or limitations remain intentional, and what was actually
+validated. For a review sweep, state its coverage rather than implying that a
+few sampled pages establish the quality of the whole tutorial.
+
 ## Project conventions
 
 - **Don't add comments that just restate the code.** Comments should give the
