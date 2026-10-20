@@ -10,9 +10,9 @@ use crate::text_io::{self, Error, Kind};
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 mod native {
     use super::*;
-    use std::ffi::OsStr;
+    use std::ffi::{CStr, OsStr};
     use std::os::fd::{AsRawFd, OwnedFd};
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::process::ExitStatusExt;
     use std::process::{Child, Command, Stdio};
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -279,6 +279,63 @@ mod native {
         }
     }
 
+    /// Copy directly into fallible Plenty storage instead of first allocating
+    /// an infallible host OsString. Plenty never mutates the process environment;
+    /// foreign callers must not mutate it concurrently with runtime calls.
+    unsafe fn environment_value(name: u128, ty: &'static Type) -> Result<u128, Error> {
+        unsafe extern "C" {
+            fn getenv(name: *const std::ffi::c_char) -> *mut std::ffi::c_char;
+        }
+        // SAFETY: the intrinsic receives a live list[u8].
+        let mut name = unsafe { contiguous(name)? };
+        if name.is_empty() || name.contains(&0) || name.contains(&b'=') {
+            return Err(Kind::InvalidInput.into());
+        }
+        name.try_reserve(1)
+            .map_err(|_| crate::memory::AllocError::OutOfMemory)?;
+        name.push(0);
+        // SAFETY: name is terminated; environment values stay live under the
+        // no-concurrent-environment-mutation contract above.
+        unsafe {
+            let value = getenv(name.as_ptr().cast());
+            if value.is_null() {
+                Ok(0)
+            } else {
+                Ok(wrap(byte_list(CStr::from_ptr(value).to_bytes(), ty)?, 1))
+            }
+        }
+    }
+
+    unsafe fn current_directory(ty: &'static Type) -> Result<u128, Error> {
+        unsafe extern "C" {
+            fn getcwd(buffer: *mut std::ffi::c_char, size: usize) -> *mut std::ffi::c_char;
+        }
+        let mut size = 256usize;
+        let mut bytes = Vec::new();
+        loop {
+            bytes
+                .try_reserve(size - bytes.len())
+                .map_err(|_| crate::memory::AllocError::OutOfMemory)?;
+            bytes.resize(size, 0u8);
+            // SAFETY: the buffer holds size writable bytes. On success getcwd
+            // writes a terminated path into that buffer, which we copy before
+            // releasing it. A supplied buffer forbids libc allocating storage.
+            if !unsafe { getcwd(bytes.as_mut_ptr().cast(), size) }.is_null() {
+                let path = unsafe { CStr::from_ptr(bytes.as_ptr().cast()) };
+                return unsafe { byte_list(path.to_bytes(), ty) };
+            }
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(34) {
+                // Linux ERANGE
+                return Err(error.into());
+            }
+            size = size
+                .checked_mul(2)
+                .filter(|size| *size <= isize::MAX as usize)
+                .ok_or(crate::memory::AllocError::CapacityOverflow)?;
+        }
+    }
+
     pub(super) unsafe fn call(
         op: i64,
         a: u128,
@@ -291,18 +348,9 @@ mod native {
         // before the caller releases its retained inputs.
         unsafe {
             match op {
-                193 => match std::env::var_os(OsStr::from_bytes(&contiguous(a)?)) {
-                    Some(value) => Ok(wrap(
-                        byte_list(value.as_bytes(), output[0].variants[1].fields[0])?,
-                        1,
-                    )),
-                    None => Ok(0),
-                },
+                193 => environment_value(a, output[0].variants[1].fields[0]),
                 194 => variables(output[0]),
-                195 => byte_list(
-                    &std::env::current_dir()?.into_os_string().into_vec(),
-                    output[0],
-                ),
+                195 => current_directory(output[0]),
                 196 => {
                     std::env::set_current_dir(OsStr::from_bytes(&contiguous(a)?))?;
                     Ok(0)

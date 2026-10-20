@@ -117,6 +117,25 @@ pub class TempFile:
     pub def close(self: &mut TempFile) -> Result[(), StreamError]:
         self.stream.close()
 
+    # Publication and unlink are separate operations; require a stable parent.
+    # Compare against the still-open original, never just its remembered path.
+    pub def remove_published(self: &mut TempFile, name: &Path) -> Result[(), FsError]:
+        if not self._published:
+            return Err(FsError.InvalidInput)
+        current = match self._root.read_file(name):
+            case Ok(stream):
+                stream
+            case Err(IoError.System(2i32)):
+                return Ok(())
+            case Err(error):
+                return Err(FsError.Io(error))
+        original = fs_io(file_metadata(&self.stream))?
+        found = fs_io(file_metadata(&current))?
+        if original.unix_device() != found.unix_device() or original.unix_inode() != found.unix_inode():
+            return Err(FsError.Replaced)
+        fs_io(self._root.remove_file(name))?
+        Ok(())
+
 pub def temporary_file(parent: &Root) -> Result[TempFile, IoError]:
     owner = parent.duplicate()?
     stream = FileStream(__fs_anonymous(parent._handle)?)
@@ -145,6 +164,19 @@ pub class TempDir:
 
     pub def keep(self: &mut TempDir) -> ():
         self._active = False
+
+    # Traverse the held directory, not a replacement opened through its name.
+    pub def cleanup_tree(self: &mut TempDir, max_entries: i64, max_depth: i64, cancel: &CancellationToken) -> Result[(), FsError]:
+        if not self._active:
+            return Ok(())
+        if max_entries < 1 or max_depth < 1 or max_depth > 64:
+            return Err(FsError.InvalidInput)
+        if not fs_io(__fs_same_dir(self._root._handle, self._parent._handle, self._name.as_bytes()))?:
+            return Err(FsError.Replaced)
+        mut budget = Budget(max_entries)
+        delete_open_directory(&self._parent, &self._name, &self._root, &mut budget, max_depth, cancel)?
+        self._active = False
+        Ok(())
 
     def __del__(self) -> ():
         drop(self.cleanup())
@@ -244,6 +276,18 @@ def delete_children(parent: &Root, name: &Path, budget: &mut Budget, depth: i64,
     if depth == 0:
         return Err(FsError.Limit)
     child = fs_io(parent.open_dir(name))?
+    delete_directory_contents(parent, name, &child, budget, depth, cancel)?
+    Ok(())
+
+def delete_open_directory(parent: &Root, name: &Path, child: &Root, budget: &mut Budget, depth: i64, cancel: &CancellationToken) -> Result[(), FsError]:
+    if cancel.is_cancelled():
+        return Err(FsError.Cancelled)
+    budget.step()?
+    if depth == 0:
+        return Err(FsError.Limit)
+    delete_directory_contents(parent, name, child, budget, depth, cancel)
+
+def delete_directory_contents(parent: &Root, name: &Path, child: &Root, budget: &mut Budget, depth: i64, cancel: &CancellationToken) -> Result[(), FsError]:
     mut names = fs_io(child.names())?
     while True:
         if cancel.is_cancelled():
@@ -255,7 +299,7 @@ def delete_children(parent: &Root, name: &Path, budget: &mut Budget, depth: i64,
                 match child.open_dir(&leaf):
                     case Ok(directory):
                         drop(directory)
-                        delete_children(&child, &leaf, budget, depth - 1, cancel)?
+                        delete_children(child, &leaf, budget, depth - 1, cancel)?
                     case Err(error):
                         match error:
                             case IoError.System(code):

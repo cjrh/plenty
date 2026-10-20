@@ -126,6 +126,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         include_str!("../../stdlib/std/db/sqlite.plenty"),
     ),
     ("std.test", include_str!("../../stdlib/std/test.plenty")),
+    (
+        "std.tempfile",
+        include_str!("../../stdlib/std/tempfile.plenty"),
+    ),
 ];
 
 impl ModuleSource {
