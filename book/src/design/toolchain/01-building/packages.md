@@ -142,6 +142,11 @@ is never reused. Reuse is per target: a stale target is recompiled whole.
 
 ## Manifest
 
+Language editions are not supported; `edition` is an unknown manifest key.
+The [editions proposal](../../../proposals/language-editions.md) explores
+per-package source compatibility independently of `plenty-version` and
+`manifest-version`.
+
 ```toml
 manifest-version = 1
 
