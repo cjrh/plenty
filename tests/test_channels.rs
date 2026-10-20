@@ -461,6 +461,171 @@ def main() -> ():
     .unwrap();
 }
 
+/// A start whose consumer waits for one message while the caller keeps
+/// `sender`, followed by the body of its `with` block.
+fn returning_start(returns: &str, body: &str) -> String {
+    format!(
+        "class Holder:
+    sender: Sender[i64]
+enum Kept:
+    Nothing
+    Endpoint(Sender[i64])
+def consume(sender: Sender[i64]) -> ():
+    drop(sender)
+def idle() -> ():
+    pass
+def start(sender: Sender[i64], receiver: Receiver[i64], fail: bool) -> {returns}:
+    consumer = def once [receiver]() -> Result[i64, RecvError]:
+        receiver.recv()
+    with spawn(consumer).unwrap():
+{body}
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    drop(start(sender, receiver, False))
+"
+    )
+}
+
+#[test]
+fn returned_endpoint_cannot_outlive_the_join_it_blocks() {
+    // Issue #346: `return` moves the sender into its value before the
+    // block's join, and the value leaves the frame only after it.
+    let error = support::check_source(
+        "def start(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), Sender[i64]]:
+    consumer = def once [receiver]() -> Result[i64, RecvError]:
+        receiver.recv()
+    with spawn(consumer).unwrap():
+        return Err(sender)
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    drop(start(sender, receiver))
+",
+    )
+    .unwrap_err()
+    .to_string();
+    assert_eq!(
+        error,
+        "4:10: leaving this `with` block joins a task whose worker holds `Receiver[i64]` while \
+         the returned value still holds `Sender[i64]`: an empty queue could block the worker's \
+         receive, and this join, forever\n  \
+         5:9: note: the value returned here holds `Sender[i64]`, moved from `sender`, until \
+         this function returns; drop the endpoint before the block ends instead of returning \
+         it\n  \
+         5:20: note: `return` leaves the block here"
+    );
+    for (returns, body) in [
+        ("Sender[i64]", "        return sender"),
+        ("(i64, Sender[i64])", "        return (1, sender)"),
+        ("Holder", "        return Holder(sender)"),
+        ("Kept", "        return Kept.Endpoint(sender)"),
+        (
+            "Result[(), Sender[i64]]",
+            "        if fail:\n            return Err(sender)\n        drop(sender)\n    Ok(())",
+        ),
+        (
+            "Result[(), Sender[i64]]",
+            "        return match fail:\n            case True:\n                Err(sender)\n            \
+             case False:\n                drop(sender)\n                Ok(())",
+        ),
+        (
+            "Result[(), Sender[i64]]",
+            "        with spawn(idle).unwrap():\n            return Err(sender)",
+        ),
+        // Approximation: a moved endpoint counts even when a call in the
+        // returned expression consumes it. Calling first is accepted.
+        ("Result[(), Sender[i64]]", "        return Ok(consume(sender))"),
+    ] {
+        let source = returning_start(returns, body);
+        let error = support::check_source(&source)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("while the returned value still holds `Sender[i64]`")
+                && error.contains("holds `Sender[i64]`, moved from `sender`, until this function returns"),
+            "{source}\n{error}"
+        );
+    }
+}
+
+#[test]
+fn returned_receiver_cannot_outlive_a_producers_join() {
+    let error = support::check_source(
+        "def start(sender: Sender[i64], receiver: Receiver[i64]) -> Option[Receiver[i64]]:
+    producer = def once [sender]() -> ():
+        sender.send(1).unwrap()
+        sender.send(2).unwrap()
+    with spawn(producer).unwrap():
+        return Some(receiver)
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    drop(start(sender, receiver))
+",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.starts_with(
+            "5:10: leaving this `with` block joins a task whose worker holds `Sender[i64]` while \
+             the returned value still holds `Receiver[i64]`: a full queue could block the \
+             worker's send"
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn returned_values_without_a_matching_endpoint_reach_the_join() {
+    // Issue #346: the check follows what the returned value moves, not its
+    // type, so `Ok(())` of `Result[(), Sender[i64]]` returns normally.
+    runs(
+        &returning_start(
+            "Result[(), Sender[i64]]",
+            "        drop(sender)\n        return Ok(())",
+        )
+        .replace(
+            "drop(start(sender, receiver, False))",
+            "match start(sender, receiver, False):\n        case Ok(_):\n            print(\"returned\").unwrap()\n        case Err(sender):\n            drop(sender)",
+        ),
+        "returned\n",
+    );
+    runs(
+        &returning_start(
+            "Result[(), Sender[i64]]",
+            "        consume(sender)\n        return Ok(())",
+        )
+        .replace(
+            "drop(start(sender, receiver, False))",
+            "print(str.repr(start(sender, receiver, False)).unwrap()).unwrap()",
+        ),
+        "Result[(), Sender[i64]].Ok(())\n",
+    );
+    for (returns, body) in [
+        (
+            "Result[(), Sender[i64]]",
+            "        drop(sender)\n        return Ok(())",
+        ),
+        ("Kept", "        drop(sender)\n        return Kept.Nothing"),
+        (
+            "Result[(), Sender[i64]]",
+            "        consume(sender)\n        return Ok(())",
+        ),
+        // The endpoint leaves the block before the join.
+        (
+            "Result[(), Sender[i64]]",
+            "        drop(sender)\n    Ok(())",
+        ),
+        // Another message type cannot reach this worker's queue.
+        (
+            "Sender[str]",
+            "        drop(sender)\n        other, unused = channel[str](1).unwrap()\n        \
+             drop(unused)\n        return other",
+        ),
+    ] {
+        let source = returning_start(returns, body);
+        support::check_source(&source).unwrap_or_else(|e| panic!("{source}\n{e}"));
+    }
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn native_worker_sends_and_waits_with_allocation_disabled() {

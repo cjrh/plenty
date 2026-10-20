@@ -608,6 +608,70 @@ fn receiver_outside_the_pool_block_cannot_reach_the_shutdown() {
 }
 
 #[test]
+fn returned_receiver_cannot_outlive_the_shutdown_it_blocks() {
+    // Issue #346: the returned value keeps the receiver until the function
+    // returns, after its pools have drained the producer.
+    let start = "def keep(receiver: Receiver[i64]) -> Receiver[i64]:
+    receiver
+def start(sender: Sender[i64], receiver: Receiver[i64]) -> Result[Receiver[i64], PoolError | SubmitError[OnceClosure[[], ()]]]:
+";
+    let main = "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    drop(start(sender, receiver))
+";
+    for (body, note) in [
+        (
+            "    with ThreadPoolExecutor(1, 1)? as pool:\n        future = pool.submit(produce, sender)?\n        return Ok(receiver)\n",
+            "13:9: note: the value returned here holds `Receiver[i64]`, moved from `receiver`, \
+             until this function returns; drop the endpoint before the pool's scope ends instead \
+             of returning it",
+        ),
+        // A pool binding shuts down as the frame is released.
+        (
+            "    pool = ThreadPoolExecutor(1, 1)?\n    future = pool.submit(produce, sender)?\n    return Ok(receiver)\n",
+            "13:5: note: the value returned here",
+        ),
+        // So does the function's final expression.
+        (
+            "    pool = ThreadPoolExecutor(1, 1)?\n    future = pool.submit(produce, sender)?\n    Ok(receiver)\n",
+            "13:5: note: the value returned here",
+        ),
+        // A returned call's arguments are in flight through the release too.
+        (
+            "    pool = ThreadPoolExecutor(1, 1)?\n    future = pool.submit(produce, sender)?\n    return Ok(keep(receiver))\n",
+            "13:5: note: the value returned here",
+        ),
+    ] {
+        let error = blocked_shutdown(&format!("{start}{body}{main}"));
+        assert!(
+            error.contains(
+                "while the returned value still holds `Receiver[i64]`: a full queue could block \
+                 the job's send, and the shutdown, forever"
+            ) && error.contains(note),
+            "{body}\n{error}"
+        );
+    }
+    // A wait inside the returned expression sees the operands moved before it.
+    let error = support::check_source(&format!(
+        "{PRODUCE}def start(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(Receiver[i64], ()), FutureError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+        return Ok((receiver, future.result()?))
+{main}"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("this result() waits for a job that holds `Sender[i64]` while the returned value still holds `Receiver[i64]`")
+            && error.contains("wait before moving the endpoint into the returned value"),
+        "{error}"
+    );
+    accepted(&format!(
+        "{start}    pool = ThreadPoolExecutor(1, 1)?\n    future = pool.submit(produce, sender)?\n    drop(receiver)\n    drop(pool)\n    unused, other = channel[i64](1).unwrap()\n    drop(unused)\n    Ok(other)\n{main}"
+    ));
+}
+
+#[test]
 fn failed_job_start_cannot_keep_its_receiver_alive_through_the_shutdown() {
     // Issue #344: the `SpawnError` keeps the consumer and its receiver until
     // the function returns, after the pool drains the producer.

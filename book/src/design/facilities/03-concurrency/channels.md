@@ -116,8 +116,27 @@ joins; the error becomes `SpawnError[()]`. Alternatively pass the endpoint to
 reports `ThreadError` and drops its arguments first. Erasing the error into
 `Failure` also drops the job, as a last resort.
 
-The diagnostic reports the join or the `with` statement, each binding or
-propagated error that holds a matching endpoint, the early exit that reaches the join, and, for an explicit
+The value a `return`, or the function's final expression, hands back is also a
+holder: the function keeps it through the joins and pool shutdowns of every
+block it leaves. The check follows the bindings that the returned expression
+moves, not its type, so `return Ok(())` of `Result[(), Sender[i64]]` is accepted
+while `return Err(sender)` inside the consumer's block is rejected:
+
+```text
+with spawn(consumer)?:   # consumer captures the receiver
+    return Err(sender)   # rejected: the join waits while the value holds `sender`
+```
+
+A tuple, class, enum payload, `Some`, or call argument that receives a moved
+endpoint counts the same way. Drop the endpoint before the block ends, or
+return it after the block. The check is conservative: an endpoint moved into a
+call inside the returned expression counts even if the call consumes it, so
+`return Ok(consume(sender))` is rejected; call `consume(sender)` first. A wait
+inside the returned expression, such as `future.result()?`, is likewise
+rejected while an earlier operand holds a matching endpoint.
+
+The diagnostic reports the join or the `with` statement, each binding,
+propagated error, or returned value that holds a matching endpoint, the early exit that reaches the join, and, for an explicit
 join, where the task starts.
 
 Pool shutdown checks sending jobs against surviving receivers.

@@ -87,9 +87,11 @@ with ThreadPoolExecutor(2, 8)? as pool, receiver as inbox:
 ```
 
 A guard nested inside the pool's block, a channel created inside it, and a
-`drop(receiver)` on every path to the shutdown also satisfy the rule. The
-diagnostic reports the shutdown or the pool's binding, each binding that holds a
-matching receiver, where the job is submitted, and the early exit that reaches
+`drop(receiver)` on every path to the shutdown also satisfy the rule. A
+[returned value](channels.md#joins-and-live-endpoints) that holds a moved
+receiver, such as `return Ok(receiver)`, outlives the shutdown and is rejected.
+The diagnostic reports the shutdown or the pool's binding, each binding or
+returned value that holds a matching receiver, where the job is submitted, and the early exit that reaches
 the shutdown.
 
 The rule has the task rule's
