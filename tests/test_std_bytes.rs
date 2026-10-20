@@ -10,7 +10,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | RangeError]:\n{body}    Ok(())\n")
 }
 
 fn output(source: &str) -> String {
@@ -212,7 +212,7 @@ def upper(view: &mut Bytes, start: i64, stop: i64) -> Result[(), BytesError]:
             view.set(index, value - 32u8)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut buffer = std.bytes.from_text("abc def")?
     view = &buffer
     print(checksum(view, 0, 3)?, checksum(view, 3, 3)?, str.repr(checksum(view, 4, 8))?)?
@@ -329,7 +329,7 @@ def first(buffer: &Bytes) -> u8:
 def bump(buffer: &mut Bytes) -> ():
     buffer[-1] += 1u8
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut frame = Frame(std.bytes.from_text("xyz")?)
     poke(&mut frame, -2, 65u8)
     bump(&mut frame.data)
@@ -456,7 +456,7 @@ fn buffers_move_across_threads_channels_and_collections() {
 def work(data: Bytes) -> ():
     print(data.len(), data.get(3).unwrap()).unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | ChannelError | SendError[std.bytes.Bytes] | RecvError | ThreadError]:
     mut buffer = std.bytes.from_text("abc")?
     buffer.push(200u8)?
     sender, receiver = channel[Bytes](1)?

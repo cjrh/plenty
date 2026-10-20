@@ -12,7 +12,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.random.RandomError | std.bytes.BytesError]:\n{body}    Ok(())\n")
 }
 
 fn output(source: &str) -> String {
@@ -426,7 +426,7 @@ def work(rng: Rng) -> ():
     first = owned.next_u64()
     print(first, owned.between(0, 100).unwrap()).unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     rng = std.random.seeded(13u64)
     with spawn(work, rng)?:
         pass

@@ -6,10 +6,15 @@ use support::run_file_stdout as run;
 
 /// The diagnostic for `line` placed in a `main` with some typed locals.
 fn error(line: &str) -> String {
+    // Written to a file so the program can name `FormatError`; source-only
+    // checking rejects imports. Diagnostics count that import as line 1.
     let source = format!(
-        "def main() -> Result[(), Failure]:\n    x = 5\n    s = \"t\"\n    y = 1.5\n    {line}\n    Ok(())\n"
+        "from std.fmt import FormatError\ndef main() -> Result[(), AllocError | IoError | FormatError]:\n    x = 5\n    s = \"t\"\n    y = 1.5\n    {line}\n    Ok(())\n"
     );
-    match plenty::check_source(&source) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("main.plenty");
+    std::fs::write(&path, source).unwrap();
+    match plenty::check_file(&path, None) {
         Ok(()) => panic!("accepted: {line}"),
         Err(error) => error.to_string(),
     }
@@ -21,7 +26,8 @@ fn python_tutorial_and_spec_examples_match_python() {
     // that a float field without a type uses `print`'s spelling (`NaN`).
     assert_eq!(
         run(r#"
-def main() -> Result[(), Failure]:
+from std.fmt import FormatError
+def main() -> Result[(), AllocError | IoError | FormatError]:
     year = 2016
     event = "Referendum"
     name = "Sjoerd"
@@ -55,7 +61,8 @@ class Point:
 def label() -> str:
     return "made by a call"
 
-def main() -> Result[(), Failure]:
+from std.fmt import FormatError
+def main() -> Result[(), AllocError | IoError | FormatError]:
     p = Point(3, -4)
     xs = [10, 20]?
     d = {"k": 5}?
@@ -118,7 +125,7 @@ def numbered(n: i64) -> Generator[str]:
             case Err(_):
                 return
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     label = Label("ready")
     print(f"{label} {label!r} {label:>7}| {label!r:.6}"?)?
     print(wrap(&5)?, wrap(&"x")?, wrap(&label)?, label.tagged()?)?
@@ -141,7 +148,8 @@ item 1"
 fn byte_values_use_their_print_spelling() {
     assert_eq!(
         run(r#"
-def main() -> Result[(), Failure]:
+from std.fmt import FormatError
+def main() -> Result[(), AllocError | IoError | FormatError]:
     data = b"ab\x00\xff"
     print(f"{data} {data!r} {data:>14}| {b'hi'}"?)?
     Ok(())
@@ -163,12 +171,13 @@ def main() -> Result[(), Failure]:
 fn source_only_compilation_imports_std_fmt_implicitly() {
     // No `import`: the compiler adds `std.fmt` for the f-string alone.
     plenty::check_source(
+        // B71: source-only checking rejects imports, so `FormatError` cannot be named here.
         "def main() -> Result[(), Failure]:\n    n = 3\n    print(f\"{n:>4}\"?)?\n    Ok(())\n",
     )
     .unwrap();
     // A user import is still rejected without a source root.
     let error = plenty::check_source(
-        "import std.fmt\ndef main() -> Result[(), Failure]:\n    print(f\"{1}\"?)?\n    Ok(())\n",
+        "import std.fmt\ndef main() -> Result[(), AllocError | IoError]:\n    print(f\"{1}\"?)?\n    Ok(())\n",
     )
     .unwrap_err()
     .to_string();
@@ -181,7 +190,7 @@ fn source_only_compilation_imports_std_fmt_implicitly() {
 #[test]
 fn result_type_and_propagation() {
     let error = plenty::check_source(
-        "def main() -> Result[(), Failure]:\n    print(f\"{1}\")?\n    Ok(())\n",
+        "def main() -> Result[(), AllocError | IoError]:\n    print(f\"{1}\")?\n    Ok(())\n",
     )
     .unwrap_err()
     .to_string();
@@ -197,7 +206,7 @@ def title(n: i64) -> Result[str, FormatError]:
     text = f"n{n}"?
     Ok(text)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | FormatError]:
     print(title(4)?)?
     Ok(())
 "#),
@@ -210,15 +219,15 @@ fn specs_are_checked_against_field_types_at_compile_time() {
     let cases = [
         (
             "print(f\"{x:.2f}\"?)?",
-            "5:16: format spec `.2f` does not apply to i64: integers take no precision",
+            "6:16: format spec `.2f` does not apply to i64: integers take no precision",
         ),
         (
             "print(f\"{s:+}\"?)?",
-            "5:16: format spec `+` does not apply to str: a sign requires an integer or float",
+            "6:16: format spec `+` does not apply to str: a sign requires an integer or float",
         ),
         (
             "print(f\"{y:d}\"?)?",
-            "5:16: format spec `d` does not apply to f64: type `d` formats integers",
+            "6:16: format spec `d` does not apply to f64: type `d` formats integers",
         ),
         (
             "print(f\"{x:,x}\"?)?",
@@ -239,7 +248,7 @@ fn specs_are_checked_against_field_types_at_compile_time() {
         ("print(f\"{x:s}\"?)?", "type `s` formats text; use `!s`"),
         (
             "print(f\"{x:z}\"?)?",
-            "5:16: format spec `z` does not apply to i64: the `z` option applies to floats",
+            "6:16: format spec `z` does not apply to i64: the `z` option applies to floats",
         ),
         ("print(f\"{s:z}\"?)?", "the `z` option applies to floats"),
         ("print(f\"{x:,n}\"?)?", "type `n` takes no grouping"),
@@ -260,23 +269,23 @@ fn specs_are_checked_against_field_types_at_compile_time() {
 #[test]
 fn template_syntax_errors_are_located() {
     let cases = [
-        ("print(f\"{x + s}\"?)?", "5:18: expected i64, got str"),
+        ("print(f\"{x + s}\"?)?", "6:18: expected i64, got str"),
         (
             "print(f\"{x?}\"?)?",
-            "5:15: `?` requires a Result or Option operand",
+            "6:15: `?` requires a Result or Option operand",
         ),
         (
             "print(f\"{x:q}\"?)?",
-            "5:16: invalid format spec `q`: unexpected `q`",
+            "6:16: invalid format spec `q`: unexpected `q`",
         ),
-        ("print(f\"{}\"?)?", "5:14: empty f-string field"),
+        ("print(f\"{}\"?)?", "6:14: empty f-string field"),
         (
             "print(f\"a } b\"?)?",
-            "5:15: single `}` in an f-string; write `}}`",
+            "6:15: single `}` in an f-string; write `}}`",
         ),
         (
             "print(f\"{x!q}\"?)?",
-            "5:16: expected the conversion `r`, `s`, or `a` after `!`",
+            "6:16: expected the conversion `r`, `s`, or `a` after `!`",
         ),
         ("print(f\"{x\"?)?", "unterminated f-string field"),
         (
@@ -294,7 +303,7 @@ fn template_syntax_errors_are_located() {
         ),
         (
             "print(f\"{undefined}\"?)?",
-            "5:14: unknown binding `undefined`",
+            "6:14: unknown binding `undefined`",
         ),
     ];
     for (line, expected) in cases {
@@ -321,7 +330,7 @@ fn spec_methods_reject_invalid_runtime_specs_and_grow_scratch() {
 import std.fmt
 from std.fmt import spec
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     mut out = std.fmt.string_formatter(10000, 8)?
     match out.text_spec("x", &spec(sign="+")):
         case Err(std.fmt.FormatError.InvalidSpec):
@@ -343,7 +352,7 @@ def main() -> Result[(), Failure]:
 fn allocation_failure_is_a_format_error_value() {
     assert_eq!(
         run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     n = 12345
     print("__test_fail_allocations_after_0__")?
     made = f"value {n:>20}"
@@ -364,11 +373,13 @@ fn fields_are_arbitrary_expressions_evaluated_in_order() {
     // Expected text is CPython 3.14 output, except `!r` quoting.
     assert_eq!(
         run(r#"
-def tick(n: i64) -> Result[i64, Failure]:
+from std.fmt import FormatError
+
+def tick(n: i64) -> Result[i64, AllocError | IoError | FormatError]:
     print(f"tick {n}"?)?
     Ok(n)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | FormatError]:
     a = 3
     b = 4.5
     xs = [1, 2, 3]?
@@ -407,7 +418,7 @@ def show(n: i64) -> Result[str, Problem]:
         case Err(_):
             Err(Problem.Format)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(show(8).unwrap())?
     match show(3):
         case Err(Problem.Odd):
@@ -427,7 +438,7 @@ fn nested_spec_fields_supply_fill_alignment_width_and_precision() {
         run(r#"
 import std.fmt
 
-def check(made: Result[str, std.fmt.FormatError]) -> Result[(), Failure]:
+def check(made: Result[str, std.fmt.FormatError]) -> Result[(), AllocError | IoError]:
     match made:
         case Ok(text):
             print(text)?
@@ -437,7 +448,7 @@ def check(made: Result[str, std.fmt.FormatError]) -> Result[(), Failure]:
             print("other")?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     w = 8
     p = 2u8
     f = "*"
@@ -478,11 +489,11 @@ fn nested_spec_fields_are_checked_at_compile_time() {
     let cases = [
         (
             "print(f\"{x:{y}}\"?)?",
-            "5:17: a nested field in a format spec is an integer width or precision, or a `str` fill or alignment, not f64",
+            "6:17: a nested field in a format spec is an integer width or precision, or a `str` fill or alignment, not f64",
         ),
         (
             "print(f\"{x:{x}{x}}\"?)?",
-            "5:16: invalid format spec `{}{}`: a nested integer field is the width or, after `.`, the precision",
+            "6:16: invalid format spec `{}{}`: a nested integer field is the width or, after `.`, the precision",
         ),
         (
             "print(f\"{x:<5{s}}\"?)?",
@@ -494,11 +505,11 @@ fn nested_spec_fields_are_checked_at_compile_time() {
         ),
         (
             "print(f\"{x:{x!r}}\"?)?",
-            "5:16: a nested f-string field is an expression without `=`, a conversion, or a spec",
+            "6:16: a nested f-string field is an expression without `=`, a conversion, or a spec",
         ),
         (
             "print(f\"{x:{x:{x}}}\"?)?",
-            "5:19: a nested f-string field cannot contain another field",
+            "6:19: a nested f-string field cannot contain another field",
         ),
         (
             "print(f\"{x:{s}{s}{x}.{x}f}\"?)?",
@@ -508,7 +519,7 @@ fn nested_spec_fields_are_checked_at_compile_time() {
             "print(f\"{s:{s}{x}d}\"?)?",
             "format spec `{}{}d` does not apply to str: type `d` requires a number",
         ),
-        ("print(f\"{x:{undefined}}\"?)?", "5:17: unknown binding `undefined`"),
+        ("print(f\"{x:{undefined}}\"?)?", "6:17: unknown binding `undefined`"),
     ];
     for (line, expected) in cases {
         let message = error(line);
@@ -523,7 +534,8 @@ fn c_n_z_and_ascii_follow_python() {
     // `debug_text` does (`\u{e9}`, double quotes) rather than `'\xe9'`.
     assert_eq!(
         run(r#"
-def main() -> Result[(), Failure]:
+from std.fmt import FormatError
+def main() -> Result[(), AllocError | IoError | FormatError]:
     x = 65
     print(f"{x:c}|{x:5c}|{x:<5c}|{x:05c}|{x:*^5c}|{x:=5c}|{233u8:c}|{128512:c}"?)?
     print(f"{1234567:n}|{1234.5678:n}|{1e20:n}|{0.0001:n}|{1.0:n}|{1.5:.3n}|{1.0:#n}|{-0.0:n}|{12:08n}|{-5:+n}|{255:#n}"?)?
@@ -543,7 +555,7 @@ def main() -> Result[(), Failure]:
         run(r#"
 import std.fmt
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     for code in [-1, 55296, 1114112]?:
         match f"{code:c}":
             case Err(std.fmt.FormatError.InvalidSpec):
@@ -584,7 +596,7 @@ class Report:
     def format(self, text: str) -> str:
         text
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | FormatError]:
     p = Point(1, -2)
     print(f"{p} {p!r} {p:>9}|"?)?
     mut out = std.fmt.string_formatter(1000, 8)?
@@ -609,7 +621,7 @@ user method"
     );
     let source = |line: &str| {
         format!(
-            "import std.fmt\ndef main() -> Result[(), Failure]:\n    mut out = std.fmt.string_formatter(10, 1)?\n    s = \"x\"\n    {line}\n    Ok(())\n"
+            "import std.fmt\ndef main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:\n    mut out = std.fmt.string_formatter(10, 1)?\n    s = \"x\"\n    {line}\n    Ok(())\n"
         )
     };
     for (line, expected) in [

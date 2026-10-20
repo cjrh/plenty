@@ -72,7 +72,7 @@ pub class Fake:
         self.flushes += 1
         Ok(())
 
-def fake(text: &str, steps: list[i64], rest: i64) -> Result[Fake, Failure]:
+def fake(text: &str, steps: list[i64], rest: i64) -> Result[Fake, AllocError | IoError | std.bytes.BytesError]:
     Ok(Fake(std.bytes.from_text(text)?, steps, rest, 0, 0, 0))
 
 def readable(dialect: &Dialect) -> bool:
@@ -95,7 +95,7 @@ def loose() -> Dialect:
     dialect
 
 # Prints every record, continuing past width errors, then the final state.
-def dump[R: Reader](input: &mut std.csv.Reader[R]) -> Result[(), Failure]:
+def dump[R: Reader](input: &mut std.csv.Reader[R]) -> Result[(), AllocError | IoError | std.csv.CsvError]:
     mut record = std.csv.record()?
     mut more = True
     while more:
@@ -116,12 +116,12 @@ def dump[R: Reader](input: &mut std.csv.Reader[R]) -> Result[(), Failure]:
     print("end", input.records(), input.line(), input.offset(), record.len())?
     Ok(())
 
-def parse(text: &str, dialect: &Dialect, capacity: i64) -> Result[(), Failure]:
+def parse(text: &str, dialect: &Dialect, capacity: i64) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.csv.CsvError]:
     mut input = std.csv.reader(std.io.cursor(std.bytes.from_text(text)?), dialect, capacity)?
     dump(&mut input)
 
 # A summary of everything a parse produced, for comparing chunkings.
-def summary(text: &str, dialect: &Dialect, capacity: i64, rest: i64) -> Result[str, Failure]:
+def summary(text: &str, dialect: &Dialect, capacity: i64, rest: i64) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.csv.CsvError]:
     mut input = std.csv.reader(fake(text, []?, rest)?, dialect, capacity)?
     mut record = std.csv.record()?
     mut out = std.bytes.empty()?
@@ -150,7 +150,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{PRELUDE}\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.csv.CsvError | ParseError]:\n{body}    Ok(())\n")
 }
 
 fn run(source: &str) -> String {

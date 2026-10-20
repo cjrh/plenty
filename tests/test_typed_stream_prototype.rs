@@ -3,7 +3,7 @@ use std::process::Command;
 const FIXTURES: &str = r#"
 import std.bytes
 from std.bytes import Bytes
-from streams import StepError, ReadFailure, WriteFailure, CopyFailure, read_exact, write_all, copy_all
+from streams import StepError, Partial, ReadFailure, WriteFailure, CopyFailure, read_exact, write_all, copy_all
 from http_body import FixedBody, FramingError, fixed_body
 pub enum Transport:
     Tls(i64, str)
@@ -11,7 +11,7 @@ pub enum Transport:
     Allocation(AllocError)
 pub enum Storage:
     Full(i64)
-def scratch() -> Result[Bytes, Failure]:
+def scratch() -> Result[Bytes, AllocError | std.bytes.BytesError]:
     mut buffer = std.bytes.with_capacity(4)?
     buffer.resize(4, 0u8)?
     Ok(buffer)
@@ -113,7 +113,7 @@ fn execute_modules(body: &str, expected: &str, standard: bool) {
 
 #[test]
 fn incompatible_protocol_error_is_diagnosed() {
-    let source = format!("{FIXTURES}\ndef main() -> Result[(), Failure]:\n    mut source = Source(0, 0)\n    mut buffer = scratch()?\n    drop(read_exact[Storage, Source](&mut source, &mut buffer, 0, 4))\n    Ok(())\n");
+    let source = format!("{FIXTURES}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:\n    mut source = Source(0, 0)\n    mut buffer = scratch()?\n    drop(read_exact[Storage, Source](&mut source, &mut buffer, 0, 4))\n    Ok(())\n");
     let workspace = fixture(&source);
     let error = plenty::check_file(&workspace.path().join("main.plenty"), None)
         .unwrap_err()
@@ -128,7 +128,7 @@ fn production_bridges_copy_fixed_and_close_delimited_bodies() {
 import std.io
 import std.io.typed
 from std.http.typed import close_body
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError | StepError[FramingError[std.io.StreamError]] | FramingError[std.io.StreamError] | CopyFailure[FramingError[std.io.StreamError], std.io.StreamError]]:
     mut data = scratch()?
     data.set(0, 65u8)?
     data.set(1, 66u8)?
@@ -160,7 +160,7 @@ fn close_body_preserves_causes_progress_and_terminal_state() {
     execute_modules(
         r#"
 from std.http.typed import close_body
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | StepError[FramingError[Transport]]]:
     mut buffer = scratch()?
     mut body = close_body(Source(1, 0))
     match body.read(&mut buffer, -1, 0):
@@ -214,7 +214,7 @@ pub class Ends:
         if self.calls == 1:
             return Ok(0)
         Err(StepError[Transport].Source(Transport.Cancelled))
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | StepError[FramingError[Transport]]]:
     mut body = close_body(Ends(0))
     mut buffer = scratch()?
     print(body.read(&mut buffer, 2, 2)?)?
@@ -242,7 +242,7 @@ pub class Legacy:
         if self.calls == 2:
             return Ok(1)
         Err(std.io.StreamError.Io(IoError.Other))
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut reader = std.io.typed.reader(Legacy(0))
     mut buffer = scratch()?
     match read_exact(&mut reader, &mut buffer, 0, 4):
@@ -268,7 +268,7 @@ def main() -> Result[(), Failure]:
 fn protocol_bounds_infer_errors_and_nested_framing_without_explicit_types() {
     execute(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | Partial[ReadFailure[Transport]] | FramingError[Transport] | CopyFailure[FramingError[Transport], Storage]]:
     mut buffer = scratch()?
     mut source = Source(0, 0)
     read_exact(&mut source, &mut buffer, 0, 2)?
@@ -301,7 +301,7 @@ fn standalone_example_keeps_the_original_transport_code() {
 fn empty_and_invalid_ranges_do_not_touch_transports() {
     execute(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | Partial[WriteFailure[Storage]]]:
     mut source = Source(0, 0)
     mut sink = Sink(0, 0, 0)
     mut buffer = scratch()?
@@ -339,7 +339,7 @@ def main() -> Result[(), Failure]:
 fn exact_read_retains_partial_progress_and_full_transport_cause() {
     execute(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut source = Source(1, 0)
     mut buffer = scratch()?
     match read_exact[Transport, Source](&mut source, &mut buffer, 0, 4):
@@ -365,7 +365,7 @@ def main() -> Result[(), Failure]:
 fn read_helpers_distinguish_eof_cancellation_invalid_progress_and_allocation() {
     execute(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut buffer = scratch()?
     for mode in range(6):
         mut source = Source(mode, 0)
@@ -399,7 +399,7 @@ def main() -> Result[(), Failure]:
 fn copy_distinguishes_write_failure_and_partial_delivery() {
     execute(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut buffer = scratch()?
     for mode in range(5):
         mut source = Source(0, 0)
@@ -430,7 +430,7 @@ def main() -> Result[(), Failure]:
 #[test]
 fn http_body_copy_has_one_error_path_and_preserves_transport_cause() {
     execute(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[Transport] | CopyFailure[FramingError[Transport], Storage]]:
     mut buffer = scratch()?
     for mode in range(6):
         mut body = fixed_body[Transport, Source](Source(mode, 0), 4)?
@@ -471,7 +471,7 @@ def main() -> Result[(), Failure]:
 fn typed_stream_path_runs_without_allocating() {
     execute(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut buffer = scratch()?
     mut body = fixed_body[Transport, Source](Source(0, 0), 2)?
     mut sink = Sink(0, 0, 0)

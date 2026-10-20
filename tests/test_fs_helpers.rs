@@ -16,7 +16,7 @@ impl Program {
         let entry = directory.path().join("main.plenty");
         let executable = directory.path().join("program");
         let source = format!(
-            "import std.fs as fs\nimport std.path as path\nimport std.io as io\nimport std.bytes\nfrom std.sync import CancellationToken\ndef show[T, E](value: Result[T, E]) -> Result[(), Failure]:\n    match value:\n        case Ok(_):\n            print(\"Ok\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n{declarations}\ndef main() -> Result[(), Failure]:\n    argv = args_bytes()?\n    location = path.from_bytes(copy(argv[1])?)\n    parent = fs.root(&location)?\n{body}\n    Ok(())\n"
+            "import std.fs as fs\nimport std.path as path\nimport std.io as io\nimport std.bytes\nfrom std.sync import CancellationToken\ndef show[T, E](value: Result[T, E]) -> Result[(), AllocError | IoError]:\n    match value:\n        case Ok(_):\n            print(\"Ok\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n{declarations}\ndef main() -> Result[(), AllocError | IoError | fs.FsError]:\n    argv = args_bytes()?\n    location = path.from_bytes(copy(argv[1])?)\n    parent = fs.root(&location)?\n{body}\n    Ok(())\n"
         );
         std::fs::write(&entry, &source).unwrap();
         plenty::compile_file_to_executable(&entry, &executable, None)
@@ -323,7 +323,7 @@ fn nofollow_file_open_resists_concurrent_symlink_replacement() {
 fn temporary_creation_failure_never_leaves_a_name_or_handle() {
     let fixture = tempfile::tempdir().unwrap();
     let declarations = r#"
-def descriptors() -> Result[i64, Failure]:
+def descriptors() -> Result[i64, AllocError | IoError]:
     location = path.from_text("/proc/self/fd")?
     mut directory = fs.read_dir(&location)?
     mut count = 0
@@ -335,7 +335,7 @@ def descriptors() -> Result[i64, Failure]:
                 return Ok(count)
     Ok(count)
 
-def probe(parent: &fs.Root, name: &path.Path, marker: &str) -> Result[(), Failure]:
+def probe(parent: &fs.Root, name: &path.Path, marker: &str) -> Result[(), AllocError | IoError]:
     before = descriptors()?
     print(marker).unwrap()
     result = fs.temporary_dir_named(parent, name)
@@ -347,11 +347,11 @@ def probe(parent: &fs.Root, name: &path.Path, marker: &str) -> Result[(), Failur
             pass
     match parent.open_dir(name):
         case Ok(_):
-            return Err(Failure.Unspecified)
+            return Err(IoError.Closed)
         case Err(_):
             pass
     if descriptors()? != before:
-        return Err(Failure.Unspecified)
+        return Err(IoError.Closed)
     Ok(())
 "#;
     let mut body = "    name = path.from_text(\"allocated-temporary-directory\")?\n".to_owned();
@@ -418,7 +418,7 @@ fn relocated_compiler_keeps_filesystem_helpers_embedded() {
     let compiler = installed.path().join("plenty");
     support::install_executable(Path::new(env!("CARGO_BIN_EXE_plenty")), &compiler);
     let entry = installed.path().join("main.plenty");
-    std::fs::write(&entry, "from std.fs import root, glob\nfrom std.path import from_text\ndef main() -> Result[(), Failure]:\n    path = from_text(\".\")?\n    owner = root(&path)?\n    pattern = from_text(\"no-such-name\")?\n    print(len(glob(&owner, &pattern, 100, 10, 1000)?))?\n    Ok(())\n").unwrap();
+    std::fs::write(&entry, "from std.fs import root, glob, FsError\nfrom std.path import from_text\ndef main() -> Result[(), AllocError | IoError | FsError]:\n    path = from_text(\".\")?\n    owner = root(&path)?\n    pattern = from_text(\"no-such-name\")?\n    print(len(glob(&owner, &pattern, 100, 10, 1000)?))?\n    Ok(())\n").unwrap();
     let executable = installed.path().join("program");
     let output = Command::new(&compiler)
         .current_dir(installed.path())
@@ -450,7 +450,7 @@ fn filesystem_owners_keep_normal_move_and_worker_checks() {
     ] {
         let directory = tempfile::tempdir().unwrap();
         let entry = directory.path().join("main.plenty");
-        let source = format!("from std.fs import Root, root\nfrom std.path import from_text\nfrom std.thread import spawn\ndef worker(owner: Root) -> i64:\n    0\ndef main() -> Result[(), Failure]:\n    location = from_text(\".\")?\n    owner = root(&location)?\n{body}    Ok(())\n");
+        let source = format!("from std.fs import Root, root\nfrom std.path import from_text\nfrom std.thread import spawn\ndef worker(owner: Root) -> i64:\n    0\ndef main() -> Result[(), AllocError | IoError | ThreadError]:\n    location = from_text(\".\")?\n    owner = root(&location)?\n{body}    Ok(())\n");
         std::fs::write(&entry, source).unwrap();
         let checked = plenty::check_file(&entry, None);
         match expected {

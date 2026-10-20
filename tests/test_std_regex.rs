@@ -9,18 +9,18 @@ import std.regex
 from std.bytes import Bytes
 from std.regex import Regex, RegexError, Limits, Limit, Match
 
-def span(start: i64, end: i64) -> Result[str, Failure]:
+def span(start: i64, end: i64) -> Result[str, AllocError | IoError]:
     parts = [str.repr(start)?, str.repr(end)?]?
     Ok("-".join(parts)?)
 
-def spans(found: &list[Match]) -> Result[str, Failure]:
+def spans(found: &list[Match]) -> Result[str, AllocError | IoError]:
     mut parts = list[str].new()?
     for index in range(len(found)):
         parts.append(span(found[index].start, found[index].end)?)?
     Ok(",".join(parts)?)
 
 # Every match, then the groups of the first match.
-def report(regex: &Regex, text: &str) -> Result[str, Failure]:
+def report(regex: &Regex, text: &str) -> Result[str, AllocError | IoError | std.regex.RegexError]:
     found = regex.find_all(text, 1000)?
     mut groups = list[str].new()?
     match regex.captures(text)?:
@@ -36,7 +36,7 @@ def report(regex: &Regex, text: &str) -> Result[str, Failure]:
     parts = [spans(&found)?, " ".join(groups)?]?
     Ok(" | ".join(parts)?)
 
-def check(pattern: &str, text: &str) -> Result[str, Failure]:
+def check(pattern: &str, text: &str) -> Result[str, AllocError | IoError | std.regex.RegexError]:
     limits = std.regex.limits()
     match std.regex.compile(pattern, &limits):
         case Ok(regex):
@@ -44,14 +44,14 @@ def check(pattern: &str, text: &str) -> Result[str, Failure]:
         case Err(error):
             Ok(str.repr(error)?)
 
-def shown[T](result: Result[T, RegexError]) -> Result[str, Failure]:
+def shown[T](result: Result[T, RegexError]) -> Result[str, AllocError | IoError]:
     match result:
         case Ok(_):
             Ok("ok")
         case Err(error):
             Ok(str.repr(error)?)
 
-def repeated(text: &str, count: i64) -> Result[str, Failure]:
+def repeated(text: &str, count: i64) -> Result[str, AllocError | IoError]:
     mut parts = list[str].new()?
     for _ in range(count):
         parts.append(copy(text)?)?
@@ -64,7 +64,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.regex.RegexError | std.bytes.BytesError]:\n{body}    Ok(())\n")
 }
 
 fn output(source: &str) -> String {
@@ -614,12 +614,12 @@ fn pathological_patterns_run_in_linear_time() {
 fn regexes_work_in_worker_threads() {
     let source = format!(
         r#"{HEADER}
-def work(text: str) -> Result[(), Failure]:
+def work(text: str) -> Result[(), AllocError | IoError | std.regex.RegexError]:
     regex = std.regex.compile("(?P<w>\\w+) (?P<x>\\w+)", &std.regex.limits())?
     print(regex.replace(&text, "${{x}} ${{w}}", 100)?)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     with spawn(work, "thread worker")?:
         pass
     Ok(())

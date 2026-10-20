@@ -16,11 +16,11 @@ from std.io import StreamError
 from std.process import Child, Command, ExitStatus, Output, Stdio
 from std.time import Instant
 
-def text(bytes: &Bytes) -> Result[str, Failure]:
+def text(bytes: &Bytes) -> Result[str, AllocError | IoError | std.bytes.BytesError]:
     Ok(bytes.to_text()?)
 
 # A command with the three streams piped.
-def piped(program: &str, arguments: &list[str]) -> Result[Command, Failure]:
+def piped(program: &str, arguments: &list[str]) -> Result[Command, AllocError | IoError]:
     mut built = std.process.command(program)?
     for argument in arguments:
         built.arg(argument)?
@@ -29,14 +29,14 @@ def piped(program: &str, arguments: &list[str]) -> Result[Command, Failure]:
     built.stderr(Stdio.Piped)
     Ok(built)
 
-def sh(script: &str) -> Result[Command, Failure]:
+def sh(script: &str) -> Result[Command, AllocError | IoError]:
     mut built = std.process.shell(script)?
     built.stdin(Stdio.Piped)
     built.stdout(Stdio.Piped)
     built.stderr(Stdio.Piped)
     Ok(built)
 
-def collected(built: &Command) -> Result[Output, Failure]:
+def collected(built: &Command) -> Result[Output, AllocError | IoError | std.io.StreamError]:
     mut child = built.spawn()?
     Ok(child.output(1000000)?)
 
@@ -55,21 +55,21 @@ def absent[T](option: &Option[T]) -> bool:
             True
 
 # Text holding a NUL, which no argument, variable or path can carry.
-def nul() -> Result[str, Failure]:
+def nul() -> Result[str, AllocError | IoError]:
     Ok(decode_utf8([110u8, 0u8, 108u8]?)?)
 
-def out_text(built: &Command) -> Result[str, Failure]:
+def out_text(built: &Command) -> Result[str, AllocError | IoError | std.io.StreamError | std.bytes.BytesError]:
     output = collected(built)?
     text(&output.stdout)
 
-def out_list(built: &Command) -> Result[list[u8], Failure]:
+def out_list(built: &Command) -> Result[list[u8], AllocError | IoError | std.io.StreamError | std.bytes.BytesError]:
     output = collected(built)?
     Ok(output.stdout.to_list()?)
 
 def elapsed(start: &Instant) -> u64:
     std.time.monotonic_now().saturating_duration_since(start).as_nanoseconds()
 
-def show(status: &ExitStatus) -> Result[(), Failure]:
+def show(status: &ExitStatus) -> Result[(), AllocError | IoError]:
     print(status.success(), status.code(), status.signal())?
     Ok(())
 "#;
@@ -80,7 +80,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{PRELUDE}\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError]:\n{body}    Ok(())\n")
 }
 
 /// Runs the program with a known environment; stdout and stderr are captured.
@@ -818,7 +818,7 @@ True Option[i32].Some(0) Option[i32].Nothing
 fn a_just_written_program_runs_while_other_threads_spawn() {
     let source = format!(
         r##"{PRELUDE}
-def churn(rounds: i64) -> Result[i64, Failure]:
+def churn(rounds: i64) -> Result[i64, AllocError | IoError]:
     mut ran = 0
     for _ in range(rounds):
         mut child = std.process.command("/bin/true")?.spawn()?
@@ -826,7 +826,7 @@ def churn(rounds: i64) -> Result[i64, Failure]:
             ran += 1
     Ok(ran)
 
-def rewrite_and_run(rounds: i64) -> Result[i64, Failure]:
+def rewrite_and_run(rounds: i64) -> Result[i64, AllocError | IoError]:
     mut ran = 0
     for _ in range(rounds):
         with open("tool", "w")? as stream:
@@ -843,7 +843,7 @@ def rewrite_and_run(rounds: i64) -> Result[i64, Failure]:
                 pass
     Ok(ran)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     with spawn(churn, 400)? as a:
         with spawn(churn, 400)? as b:
             with spawn(churn, 400)? as c:

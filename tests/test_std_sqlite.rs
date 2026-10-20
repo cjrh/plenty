@@ -9,7 +9,7 @@ from std.db.sqlite import Begin, Connection, DbError, Mode, Statement, ValueType
 
 # "ok", or the error: a SQLite failure as its extended code, primary code
 # and message, anything else by name.
-def report[T](result: Result[T, DbError]) -> Result[(), Failure]:
+def report[T](result: Result[T, DbError]) -> Result[(), AllocError | IoError]:
     match result:
         case Ok(_):
             print("ok")?
@@ -33,7 +33,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError | std.bytes.BytesError]:\n{body}    Ok(())\n")
 }
 
 fn output(source: &str) -> String {
@@ -351,7 +351,7 @@ def prepared() -> Result[Statement, DbError]:
     mut db = std.db.sqlite.memory(4096)?
     db.prepare("SELECT 7")
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError]:
     mut query = prepared()?
     query.step()?
     print(query.integer(0)?)?
@@ -420,7 +420,7 @@ fn connections_work_in_worker_threads() {
     let (_dir, path) = database("worker.db");
     let source = format!(
         r#"{HEADER}
-def work(path: str) -> Result[(), Failure]:
+def work(path: str) -> Result[(), AllocError | IoError | std.db.sqlite.DbError]:
     mut db = std.db.sqlite.connect(&path, Mode.ReadWrite, 4096)?
     mut tx = db.begin(Begin.Immediate)?
     db.execute("INSERT INTO t VALUES ('from a thread')")?
@@ -428,7 +428,7 @@ def work(path: str) -> Result[(), Failure]:
     report(db.execute("SELECT * FROM missing"))?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError | ThreadError]:
     mut db = std.db.sqlite.connect({path}, Mode.Create, 4096)?
     db.execute("CREATE TABLE t(x TEXT)")?
     with spawn(work, {path})?:
@@ -463,7 +463,7 @@ fn programs_without_databases_do_not_link_sqlite() {
             .count();
         (count, data.len())
     };
-    let plain = "def main() -> Result[(), Failure]:\n    print(\"hi\")?\n    Ok(())\n";
+    let plain = "def main() -> Result[(), AllocError | IoError]:\n    print(\"hi\")?\n    Ok(())\n";
     let (count, plain_size) = symbols(plain);
     assert_eq!(count, 0);
     let (count, size) = symbols(&program(

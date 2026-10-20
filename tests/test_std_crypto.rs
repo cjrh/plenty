@@ -9,10 +9,10 @@ import std.encoding
 from std.bytes import Bytes
 from std.crypto import Algorithm, CryptoError
 
-def hex(data: &Bytes) -> Result[str, Failure]:
+def hex(data: &Bytes) -> Result[str, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_text(data, 0, data.len())?)
 
-def unhex(text: &str) -> Result[Bytes, Failure]:
+def unhex(text: &str) -> Result[Bytes, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_from_text(text)?)
 
 "#;
@@ -23,7 +23,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.crypto.CryptoError | std.encoding.EncodingError]:\n{body}    Ok(())\n")
 }
 
 fn run(source: &str) -> std::process::Output {
@@ -350,7 +350,7 @@ def work(text: str) -> ():
     data = std.bytes.from_text(text).unwrap()
     print(hex(&std.crypto.sha256(&data).unwrap()).unwrap()).unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     with spawn(work, "abc")?:
         pass
     Ok(())
@@ -382,7 +382,7 @@ fn programs_that_never_hash_do_not_link_the_hashing_code() {
             .filter(|name| name == "plenty_crypto" || name.contains("compress256"))
             .count()
     };
-    let plain = "def main() -> Result[(), Failure]:\n    print(\"hi\")?\n    Ok(())\n";
+    let plain = "def main() -> Result[(), AllocError | IoError]:\n    print(\"hi\")?\n    Ok(())\n";
     assert_eq!(symbols(plain), 0);
     assert_eq!(
         symbols(&program(

@@ -72,7 +72,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}{DECLARATIONS}\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}{DECLARATIONS}\ndef main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n")
 }
 
 fn execute(body: &str) -> std::process::Output {

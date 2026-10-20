@@ -8,7 +8,7 @@ fn run(body: &str) -> String {
     let source = dir.path().join("main.plenty");
     std::fs::write(
         &source,
-        format!("import std.math as math\ntype Real = Result[f64, math.MathError]\ntype Integer = Result[u64, math.MathError]\ntype Rounded = Result[i64, math.MathError]\ntype Close = Result[bool, math.MathError]\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n"),
+        format!("import std.math as math\ntype Real = Result[f64, math.MathError]\ntype Integer = Result[u64, math.MathError]\ntype Rounded = Result[i64, math.MathError]\ntype Close = Result[bool, math.MathError]\ndef main() -> Result[(), AllocError | IoError | math.MathError]:\n{body}    Ok(())\n"),
     )
     .unwrap();
     plenty::check_file(&source, None).unwrap();

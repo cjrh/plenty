@@ -44,7 +44,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.secrets.SecretsError]:\n{body}    Ok(())\n")
 }
 
 fn output(source: &str) -> String {
@@ -262,7 +262,7 @@ def work(count: i64) -> ():
     token = std.secrets.token_hex(count).unwrap()
     print(len(token)).unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     with spawn(work, 24)?:
         pass
     Ok(())
