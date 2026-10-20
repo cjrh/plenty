@@ -18,6 +18,10 @@
 > (B28); text and byte buffers, views, and broader error types (B27); more
 > targets (B18).
 
+The [native-platform assessment](cross-platform.md) expands the target/ABI
+requirements; a [GCC backend](codegen-gcc.md) would be a separate compiler
+backend choice, not automatic OS or FFI portability.
+
 Plenty should support ordinary C libraries without making every application
 author become an FFI expert. A binding author supplies an explicit, trusted
 contract; application code uses typed functions, ownership, borrowing, `Result`,

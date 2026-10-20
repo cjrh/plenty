@@ -9,6 +9,10 @@
 > B73 in the [backlog](../backlog.md) owns arena delivery; B11 owns broader
 > borrowed traversal and collection-loan precision.
 
+For representation and destruction rationale, see
+[recursive owned data](recursive-data.md). This assessment focuses on how to
+write and manipulate those structures using today's language.
+
 ## Make the correct representation easy to use
 
 The goal is that a safe, efficient implementation should also be the obvious

@@ -11,6 +11,12 @@
 > [backlog](../backlog.md), including coverage-guided fuzzing. The requirements below retain the original design rationale;
 > the linked references own shipped names, signatures, and backend choices.
 
+The [library scope](standard-library-scope.md) supplies the broader context.
+[Typed stream composition](error-composition.md) is a separate API evolution:
+its additive body readers do not replace the current client or complete these
+qualification gates. [Platform qualification](cross-platform/delivery.md)
+also remains distinct from HTTP behavior on the current supported host.
+
 The bundled server should remain usable in production without requiring a
 third-party replacement for a demonstration server. Go's combined HTTP
 client/server surface motivated this goal in issue #49; no Go compatibility

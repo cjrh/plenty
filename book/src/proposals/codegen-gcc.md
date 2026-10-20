@@ -14,6 +14,10 @@
 > aggregate values. Native emission supports only `x86_64-unknown-linux-gnu`
 > (B18).
 
+This backend design is separate from the [native-platform assessment](cross-platform.md):
+another code generator does not by itself port the runtime, standard library,
+or [foreign-call contracts](ffi-and-dynamic-libraries.md).
+
 ## Goal
 
 Add a second AOT backend that uses GCC, through `libgccjit`, to make native

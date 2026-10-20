@@ -93,3 +93,11 @@ anonymous sum when every normalized member satisfies its contract. The compiler
 dispatches to the active member through a shared borrow without allocation.
 This is specific to that standard-library protocol: a user-defined protocol with
 the same signature does not gain sum forwarding.
+
+## Design history
+
+The [original protocol design](../../../proposals/completed/protocols-generics-and-context-managers.md)
+records the shipped foundation. [Protocol method bodies](../../../proposals/protocol-method-bodies.md)
+propose defaults, final methods, and explicit private-hook grants; those
+extensions are not implemented. For an existing-language solution, see
+[library-owned operations](../../../proposals/library-owned-operations.md).

@@ -1,7 +1,9 @@
 # Typestate and owned transitions
 
-Status: design exploration of existing facilities and limits, not a new
-language feature. Scheduling belongs in [B72](../backlog.md).
+**Status: Investigation complete.** This explores existing facilities and
+limits, not a new language feature. [Moves](../design/language/05-ownership/01-bindings-moves-and-copies.md)
+and [destruction](../design/language/05-ownership/06-destruction.md) define current
+behavior. Scheduling belongs in [B72](../backlog.md).
 
 The separate [linear-obligations proposal](linear-obligations.md) (issue #149)
 addresses non-abandonment of an owner, including retry errors. Typestate can

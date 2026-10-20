@@ -7,6 +7,10 @@
 > **Remaining:** public allocator selection, allocator lifetimes, and routing of
 > container buffers (B13).
 
+The [memory and SIMD assessment](../memory-parallelism-and-simd.md) retains
+the public allocator and buffer design alternatives. This audit records the
+allocation contract that shipped, not those future APIs.
+
 Allocation is fallible by default in the current language. This audit covers
 generated programs, not compiler memory. Public allocating operations return
 `Result`; there are no `try_` alternatives or prefix `try` displays. Postfix `?`

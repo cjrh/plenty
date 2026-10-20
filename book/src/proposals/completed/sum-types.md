@@ -20,8 +20,12 @@
 > Omitting a user-defined enum's qualifier was declined: a bare name is always
 > a binding and a qualified name is always a variant.
 >
+> **Shipped since this proposal:** enum methods and protocol satisfaction,
+> [human-readable reports](error-formatting.md), and
+> [general anonymous sums](../error-sets.md).
+>
 > **Remaining:** jump-table dispatch (B19); deep operations on recursive enums
-> (B33). Guards, enum methods, enums as dictionary keys or set elements, and `match` as an
+> (B33). Guards, enums as dictionary keys or set elements, and `match` as an
 > expression are unscheduled.
 
 ## Contract

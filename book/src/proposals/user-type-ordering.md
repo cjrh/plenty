@@ -8,6 +8,10 @@ ordering. The current contracts are [classes](../design/language/03-types/classe
 [B37](../backlog.md). Equality is shared with the sibling
 [hashing proposal](user-type-hashing.md).
 
+[Timsort](timsort.md) is a separate algorithm and stability proposal. A
+comparison hook determines the order; it does not choose the sorting
+algorithm, require workspace allocation, or guarantee stability.
+
 ## Problem
 
 Ordering accepts integers, floats, `str`, and tuples of those. Every other type

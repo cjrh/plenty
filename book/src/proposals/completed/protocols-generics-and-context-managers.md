@@ -10,14 +10,21 @@
 > **Shipped differently:** a protocol requirement ends in `:` with a `pass`
 > body, and the protocol's own name stands for the implementer; there is no
 > `Self`. Generic bodies are checked for each concrete instance, not
-> symbolically against their bounds. `?` may erase an error to `Failure`.
+> symbolically against their bounds. `?` supports lossless
+> [anonymous-sum widening](../../design/language/03-types/anonymous-sums.md)
+> and may still erase an error to `Failure` during migration.
 > `File` is a builtin context manager. `with &mut existing`, returned
 > references, and a `Result`-returning `main` shipped.
 >
 > **Remaining:** combined bounds, protocol composition, and bounds on data
-> (B29); typed error composition (B14); stored references (B11). Erased `dyn`
+> (B29); builtin `Failure` removal (B14/B71); stored references (B11). Erased `dyn`
 > protocol values, fallible `__exit__`, `yield` inside `with`, and `?` in
 > generators are unscheduled.
+
+The [protocol-body proposal](../protocol-method-bodies.md) records the later
+agreed default/final method and private-hook design; none of it is implemented
+by this completed proposal. [Error composition](../error-composition.md)
+connects the shipped sum, mapping, and reporting extensions.
 
 ## Starting point
 
