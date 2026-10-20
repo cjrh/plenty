@@ -66,7 +66,7 @@ pub class Tally:
     pub def flush(self: &mut Tally) -> Result[(), StreamError]:
         Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.io.Partial | IoError]:
     mut tally = Tally(std.bytes.empty()?)
     std.io.write_all(&mut tally, b"ab", 0, 2)?
     std.io.write_all(&mut tally, &std.bytes.from_text("cd")?, 0, 2)?
@@ -108,7 +108,7 @@ Helpers that take several steps keep the progress made before a failure:
 | `CloseError.FlushAndClose(flush, close)` | Both failed |
 
 These types do not convert to each other. Match the result, or use `?` in a
-function returning `Failure`.
+function whose error sum lists each of them.
 
 ## Helpers
 

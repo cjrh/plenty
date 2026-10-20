@@ -37,7 +37,7 @@ under test:
 import fuzz_input
 import std.bytes
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError]:
     mut data = std.bytes.empty()?
     mut at = 0u64
     while at < fuzz_input.size():

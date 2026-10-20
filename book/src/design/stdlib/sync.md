@@ -48,7 +48,7 @@ def record(stats: &Mutex[Stats], value: i64) -> ():
         data.count = data.count + 1
         data.total = data.total + value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | IoError]:
     stats = Mutex[Stats](Stats(0, 0))
     with spawn(record, &stats, 3)?, spawn(record, &stats, 4)?:
         pass
