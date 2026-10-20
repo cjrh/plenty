@@ -1352,10 +1352,18 @@ impl Checker<'_> {
                 }
                 Op::Executor(ExecutorOp::Submit(job, _)) => {
                     let sends = Hazard::of(&job.input).map(|hazard| (hazard, site));
-                    let result = ops[index + 1..]
-                        .iter()
-                        .find(|op| !matches!(op, Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_)));
-                    if matches!(result, Some(Op::Try { .. })) {
+                    fn next(ops: &[Op]) -> &[Op] {
+                        let start = ops.iter().position(|op| {
+                            !matches!(op, Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_))
+                        });
+                        &ops[start.unwrap_or(ops.len())..]
+                    }
+                    let mut result = next(&ops[index + 1..]);
+                    // `submit(...).drop_job()?` also moves the job only on success.
+                    if let Some(rest) = futures::after_drop_job(result) {
+                        result = next(rest);
+                    }
+                    if matches!(result.first(), Some(Op::Try { .. })) {
                         accepted.extend(sends);
                     } else {
                         self.submit(sends);

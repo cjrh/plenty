@@ -452,6 +452,82 @@ fn future_result_tracks_unwrapped_and_matched_submission_results() {
 }
 
 #[test]
+fn future_result_tracks_drop_job_submission_results() {
+    // Issue #348: `drop_job()` keeps the submission's job on the future.
+    for (body, holder) in [
+        (
+            "future = pool.submit(produce, sender).drop_job()?\n        future.result()?",
+            "`receiver`",
+        ),
+        (
+            "future = pool.submit(produce, sender).drop_job().unwrap()\n        future.result()?",
+            "`receiver`",
+        ),
+        (
+            "(pool.submit(produce, sender).drop_job()?).result()?",
+            "`receiver`",
+        ),
+        (
+            "match pool.submit(produce, sender).drop_job():\n            case Ok(future):\n                future.result()?\n            case Err(error):\n                drop(error)",
+            "`receiver`",
+        ),
+        (
+            "match pool.submit(produce, sender).drop_job():\n            case Ok(future):\n                kept = (receiver, future.result()?)\n                drop(kept)\n                return Ok(())\n            case Err(error):\n                drop(error)",
+            "the expression being evaluated",
+        ),
+    ] {
+        let source = format!(
+            "{PRODUCE}def main() -> Result[(), ChannelError | FutureError | PoolError | SubmitError[()]]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        {body}
+        drop(receiver)
+    Ok(())
+"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!(
+                "this result() waits for a job that holds `Sender[i64]` while {holder} \
+                 still holds `Receiver[i64]`"
+            )) && error.contains("the job is submitted here"),
+            "{body}\n{error}"
+        );
+    }
+}
+
+#[test]
+fn a_drop_job_future_waits_after_the_receiver_is_dropped() {
+    runs(
+        &format!(
+            "{PRODUCE}def main() -> Result[(), AllocError | IoError | ChannelError | FutureError | PoolError | SubmitError[()]]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender).drop_job()?
+        drop(receiver)
+        future.result()?
+    print(\"done\")?
+    Ok(())
+"
+        ),
+        "done\n",
+    );
+}
+
+#[test]
+fn a_successful_drop_job_submission_is_checked_at_shutdown() {
+    blocked_shutdown(
+        "def main() -> Result[(), ChannelError | PoolError | SubmitError[()]]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        drop(pool.submit(produce, sender).drop_job()?)
+    drop(receiver)
+    Ok(())
+",
+    );
+}
+
+#[test]
 fn a_temporary_future_wait_is_checked_after_try() {
     let error = support::check_source(&format!(
         "{PRODUCE}def main() -> Result[(), ChannelError | FutureError | PoolError | SubmitError[OnceClosure[[], ()]]]:

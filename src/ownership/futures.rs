@@ -21,10 +21,35 @@ fn transparent(op: &Op) -> bool {
             | Op::UseLoan(_)
             | Op::Access(..)
             | Op::Loan(_)
+            // Scope cleanup after an extraction, such as `drop_job()`'s
+            // moved source, leaves the extracted value on the stack.
+            | Op::DropLocal(_)
     ) || matches!(
         op,
         Op::Enum(EnumOp::Unwrap(_) | EnumOp::Field(..) | EnumOp::Take(..) | EnumOp::Widen(..))
     ) || matches!(op, Op::Enum(EnumOp::New(ty, tag)) if ty.get().variants[*tag].fields.len() == 1)
+}
+
+/// The ops after the conversion that `drop_job()` applies to a submission
+/// Result at the start of `ops` (see `Generator::drop_job`), when there is
+/// one. The converted Result fails exactly when the submission failed.
+pub(super) fn after_drop_job(ops: &[Op]) -> Option<&[Op]> {
+    let [Op::StoreLocal(source), Op::LoadLocal(load), Op::Enum(EnumOp::Tag(_)), Op::PushInt(_), Op::Eq, Op::Match(arms), rest @ ..] =
+        ops
+    else {
+        return None;
+    };
+    let [ok, _] = &arms[..] else {
+        return None;
+    };
+    if source != load || ok.body.first() != Some(&Op::MoveLocal(*source)) {
+        return None;
+    }
+    let end = rest
+        .iter()
+        .position(|op| !matches!(op, Op::DropLocal(_)))
+        .unwrap_or(rest.len());
+    Some(&rest[end..])
 }
 
 impl Futures {
