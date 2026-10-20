@@ -56,7 +56,10 @@ pub(crate) struct Program {
     pub(crate) exports: Vec<crate::exports::Export>,
     pub(crate) imported_symbols: HashSet<String>,
     pub(crate) source_paths: Vec<std::path::PathBuf>,
+    pub(crate) inputs: Inputs,
 }
+
+pub(crate) use modules::inputs::{standard_digest, Inputs};
 
 /// Every symbol the lexer accepts, so a symbol token needs no allocation.
 const SYMBOLS: [&str; 37] = [
@@ -4673,6 +4676,78 @@ pub(crate) fn compile_graph(
     lower(modules::load_graph(path, graph, require_main)?, heap)
 }
 
+/// The sources of one application build, as the program cache names them.
+pub(crate) enum Sources<'a> {
+    /// A standalone source, which can import only `std`.
+    Text(&'a str),
+    /// The entry file of `graph.packages[0]`, with text `plenty test` adds
+    /// to its end.
+    Graph {
+        entry: std::path::PathBuf,
+        graph: std::borrow::Cow<'a, crate::project::SourceGraph>,
+        appendix: Option<String>,
+    },
+}
+
+impl<'a> Sources<'a> {
+    /// A file and its imports below `root`, as [`compile_file`] loads them.
+    pub(crate) fn file(
+        path: &std::path::Path,
+        root: Option<&std::path::Path>,
+    ) -> Result<Sources<'a>> {
+        let (entry, graph) = modules::file_graph(path, root)?;
+        Ok(Sources::Graph {
+            entry,
+            graph: std::borrow::Cow::Owned(graph),
+            appendix: None,
+        })
+    }
+
+    pub(crate) fn compile(&self, heap: &mut Heap) -> Result<Program> {
+        match self {
+            Sources::Text(source) => compile(source, heap),
+            Sources::Graph {
+                entry,
+                graph,
+                appendix,
+            } => lower(
+                modules::load_graph_with(entry, graph, true, appendix.as_deref())?,
+                heap,
+            ),
+        }
+    }
+
+    /// Everything that names this build apart from the files it imports, or
+    /// `None` when loading would fail.
+    pub(crate) fn identity(&self) -> Option<Vec<u8>> {
+        let mut identity = Vec::new();
+        match self {
+            Sources::Text(source) => {
+                identity.extend_from_slice(b"text\n");
+                identity.extend_from_slice(source.as_bytes());
+            }
+            Sources::Graph {
+                entry,
+                graph,
+                appendix,
+            } => {
+                identity.extend_from_slice(b"graph\n");
+                identity.extend_from_slice(modules::identity(entry, graph)?.as_bytes());
+                identity.extend_from_slice(format!("\n{appendix:?}").as_bytes());
+            }
+        }
+        Some(identity)
+    }
+
+    /// Whether a build now would read exactly `inputs`.
+    pub(crate) fn current(&self, inputs: &Inputs) -> bool {
+        match self {
+            Sources::Text(_) => *inputs == Inputs::default(),
+            Sources::Graph { graph, .. } => inputs.current(graph),
+        }
+    }
+}
+
 pub(crate) use modules::harness::{TestFile, TestReturn, RETURNED_ERR};
 
 /// What `plenty test` runs from the test file at `path`; see [`modules::harness`].
@@ -4680,18 +4755,9 @@ pub(crate) fn discover_tests(path: &std::path::Path) -> Result<TestFile> {
     modules::harness::discover(path)
 }
 
-/// Compile a file of test functions with the generated `main` that runs them.
-pub(crate) fn compile_test_graph(
-    path: &std::path::Path,
-    graph: &crate::project::SourceGraph,
-    tests: &[(String, TestReturn)],
-    heap: &mut Heap,
-) -> Result<Program> {
-    let appendix = modules::harness::appendix(tests);
-    lower(
-        modules::load_graph_with(path, graph, true, Some(&appendix))?,
-        heap,
-    )
+/// The `main` that `plenty test` adds to a file of test functions.
+pub(crate) fn test_appendix(tests: &[(String, TestReturn)]) -> String {
+    modules::harness::appendix(tests)
 }
 
 pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
@@ -5138,6 +5204,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         public_api,
         at,
         require_main,
+        inputs,
     } = resolved;
     let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
     modules::check_api(&public_api, &aliases, &access)?;
@@ -5372,6 +5439,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         }
     }
     Ok(Program {
+        inputs,
         source_paths,
         imported_symbols,
         ops,

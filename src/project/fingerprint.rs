@@ -24,7 +24,7 @@ pub(super) fn digest(
         hash.update(text.as_bytes());
     };
     field(env!("CARGO_PKG_VERSION"));
-    field(&compiler_identity());
+    field(crate::cache::compiler_identity());
     field(kind);
     field(&entry.display().to_string());
     field(&format!(
@@ -70,21 +70,6 @@ fn walk(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// Hashing the compiler binary would cost more than a small build, so its
-/// path, size, and modification time stand in for its contents.
-fn compiler_identity() -> String {
-    let Ok(path) = std::env::current_exe() else {
-        return String::new();
-    };
-    let metadata = std::fs::metadata(&path).ok();
-    format!(
-        "{} {:?} {:?}",
-        path.display(),
-        metadata.as_ref().map(|m| m.len()),
-        metadata.and_then(|m| m.modified().ok())
-    )
 }
 
 /// One target's stored digest, under `target/PROFILE/.fingerprint/`.

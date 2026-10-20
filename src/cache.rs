@@ -34,7 +34,9 @@ use cranelift_codegen::incremental_cache::CacheKvStore;
 use sha2::{Digest, Sha256};
 
 mod compiled;
+mod program;
 pub(crate) use compiled::MachineCode;
+pub(crate) use program::{compiler_identity, Lookup, ProgramKey};
 
 /// Where the compiled-function cache lives, if anywhere.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -72,8 +74,10 @@ impl CacheMode {
 
 /// Changes whenever the entry format or the meaning of the key changes.
 const SCHEMA: &str = "1";
-/// Entries live below the cache directory here; other caches may join later.
+/// Compiled functions live below the cache directory here.
 const ENTRIES: &str = "fn";
+/// Program objects live here; see [`program`].
+const PROGRAMS: &str = "program";
 /// Bytes kept by default when trimming: `PLENTY_CACHE_LIMIT` overrides.
 const DEFAULT_LIMIT: u64 = 1 << 30;
 /// Trimming walks the whole directory, so a process that wrote entries runs
@@ -82,6 +86,7 @@ const SWEEP_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// A temporary file older than this belongs to a crashed compiler.
 const STALE_TEMPORARY: Duration = Duration::from_secs(60 * 60);
 const MAGIC: &[u8; 4] = b"PLFN";
+const PROGRAM_MAGIC: &[u8; 4] = b"PLPG";
 /// Magic, compile time in nanoseconds, payload length, payload SHA-256.
 const HEADER: usize = 4 + 8 + 8 + 32;
 
@@ -108,6 +113,9 @@ fn parse_limit(text: &str) -> Option<u64> {
 /// Counts for one compilation, printed by `--cache-stats`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
+    /// Whether the program cache served the whole object, when this build
+    /// consulted it.
+    pub program: Option<bool>,
     pub hits: u64,
     pub misses: u64,
     pub bytes_read: u64,
@@ -119,9 +127,15 @@ pub struct Stats {
 
 impl std::fmt::Display for Stats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("compile cache: ")?;
+        match self.program {
+            Some(true) => f.write_str("program hit, ")?,
+            Some(false) => f.write_str("program miss, ")?,
+            None => {}
+        }
         write!(
             f,
-            "compile cache: {} hits, {} misses, {} read, {} written, about {:.0?} saved",
+            "{} hits, {} misses, {} read, {} written, about {:.0?} saved",
             self.hits,
             self.misses,
             Size(self.bytes_read),
@@ -158,6 +172,8 @@ pub(crate) struct Cache {
     key_prefix: Vec<u8>,
     writes_disabled: AtomicBool,
     wrote: AtomicBool,
+    /// 0: the program cache was not consulted; 1: a hit; 2: a miss.
+    program: std::sync::atomic::AtomicU8,
     hits: AtomicU64,
     misses: AtomicU64,
     bytes_read: AtomicU64,
@@ -201,6 +217,7 @@ impl Cache {
             key_prefix: key_prefix(),
             writes_disabled: AtomicBool::new(false),
             wrote: AtomicBool::new(false),
+            program: std::sync::atomic::AtomicU8::new(0),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
             bytes_read: AtomicU64::new(0),
@@ -221,6 +238,10 @@ impl Cache {
 
     pub(crate) fn stats(&self) -> Stats {
         Stats {
+            program: match self.program.load(Ordering::Relaxed) {
+                0 => None,
+                outcome => Some(outcome == 1),
+            },
             hits: self.hits.load(Ordering::Relaxed),
             misses: self.misses.load(Ordering::Relaxed),
             bytes_read: self.bytes_read.load(Ordering::Relaxed),
@@ -241,7 +262,7 @@ impl Cache {
 
     #[cfg_attr(feature = "profile", hotpath::measure)]
     fn read(&self, key: &[u8]) -> Option<(Duration, Vec<u8>)> {
-        read_entry(&self.path(key))
+        read_entry(&self.path(key), MAGIC)
     }
 
     #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -251,7 +272,7 @@ impl Cache {
         }
         let path = self.path(key);
         let number = self.temporaries.fetch_add(1, Ordering::Relaxed);
-        if let Err(error) = write_entry(&path, number, compile_time, payload) {
+        if let Err(error) = write_entry(&path, MAGIC, number, compile_time, payload) {
             self.writes_disabled.store(true, Ordering::Relaxed);
             warn(&format!("cannot write {}: {error}", path.display()));
             return;
@@ -332,11 +353,11 @@ impl CacheKvStore for Store<'_> {
 /// The header is read separately so the payload lands in its own buffer:
 /// slicing it out of a whole-file read would copy it a second time on every
 /// hit.
-fn read_entry(path: &Path) -> Option<(Duration, Vec<u8>)> {
+fn read_entry(path: &Path, magic: &[u8; 4]) -> Option<(Duration, Vec<u8>)> {
     let mut file = fs::File::open(path).ok()?;
     let mut header = [0; HEADER];
     file.read_exact(&mut header).ok()?;
-    if &header[..4] != MAGIC {
+    if &header[..4] != magic {
         return None;
     }
     let field = |at: usize| u64::from_le_bytes(header[at..at + 8].try_into().unwrap());
@@ -357,7 +378,13 @@ fn read_entry(path: &Path) -> Option<(Duration, Vec<u8>)> {
     Some((Duration::from_nanos(compile_ns), payload))
 }
 
-fn write_entry(path: &Path, number: u64, compile_time: Duration, payload: &[u8]) -> io::Result<()> {
+fn write_entry(
+    path: &Path,
+    magic: &[u8; 4],
+    number: u64,
+    compile_time: Duration,
+    payload: &[u8],
+) -> io::Result<()> {
     let shard = path.parent().unwrap();
     let name = path.file_name().unwrap().to_string_lossy();
     let temporary = shard.join(format!(".{name}.{}.{number}.tmp", std::process::id()));
@@ -365,7 +392,7 @@ fn write_entry(path: &Path, number: u64, compile_time: Duration, payload: &[u8])
     // one create, one write and one rename; the shard directory is created
     // only when it is missing (issue #315).
     let mut entry = Vec::with_capacity(HEADER + payload.len());
-    entry.extend_from_slice(MAGIC);
+    entry.extend_from_slice(magic);
     entry.extend_from_slice(&(compile_time.as_nanos() as u64).to_le_bytes());
     entry.extend_from_slice(&(payload.len() as u64).to_le_bytes());
     entry.extend_from_slice(&Sha256::digest(payload));
@@ -399,9 +426,10 @@ struct Entry {
 
 fn entries(dir: &Path) -> Vec<Entry> {
     let mut found = Vec::new();
-    let Ok(shards) = fs::read_dir(dir.join(ENTRIES)) else {
-        return found;
-    };
+    let shards = [ENTRIES, PROGRAMS]
+        .into_iter()
+        .filter_map(|kind| fs::read_dir(dir.join(kind)).ok())
+        .flatten();
     for shard in shards.flatten() {
         let Ok(files) = fs::read_dir(shard.path()) else {
             continue;
@@ -488,7 +516,7 @@ pub fn clean(mode: &CacheMode) -> io::Result<Option<(u64, u64)>> {
     let Some(directory) = mode.directory() else {
         return Ok(None);
     };
-    if !directory.join(ENTRIES).exists() {
+    if !directory.join(ENTRIES).exists() && !directory.join(PROGRAMS).exists() {
         return Ok(Some((0, 0)));
     }
     trim(&directory, 0).map(Some)

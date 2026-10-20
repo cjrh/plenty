@@ -62,7 +62,8 @@ use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::ObjectModule;
 
-use crate::cache::Cache;
+use crate::cache::{Cache, Lookup, ProgramKey};
+use crate::frontend::Sources;
 use crate::lexer;
 mod atomic;
 mod casts;
@@ -164,16 +165,7 @@ pub fn compile_source_to_executable_with_options(
     options: &crate::CompileOptions,
 ) -> Result<()> {
     crate::validate_target(options.target.as_deref())?;
-    let mut heap = Heap::default();
-    let program = crate::frontend::compile(source, &mut heap)?;
-    compile_ops_to_executable(
-        program.ops,
-        &heap,
-        output,
-        program.returns_status,
-        options,
-        false,
-    )
+    compile_sources_to_executable(&Sources::Text(source), output, options, false)
 }
 
 /// Compile a file and its absolute imports. The source root defaults to the
@@ -190,16 +182,7 @@ pub fn compile_file_to_executable_with_options(
     options: &crate::CompileOptions,
 ) -> Result<()> {
     crate::validate_target(options.target.as_deref())?;
-    let mut heap = Heap::default();
-    let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
-    compile_ops_to_executable(
-        program.ops,
-        &heap,
-        output,
-        program.returns_status,
-        options,
-        false,
-    )
+    compile_sources_to_executable(&Sources::file(path, root)?, output, options, false)
 }
 
 /// Compile the entry file of `graph.packages[0]`; each package sees only its
@@ -221,16 +204,12 @@ fn compile_graph_to_executable(
     test_hooks: bool,
 ) -> Result<()> {
     crate::validate_target(options.target.as_deref())?;
-    let mut heap = Heap::default();
-    let program = crate::frontend::compile_graph(path, graph, true, &mut heap)?;
-    compile_ops_to_executable(
-        program.ops,
-        &heap,
-        output,
-        program.returns_status,
-        options,
-        test_hooks,
-    )
+    let sources = Sources::Graph {
+        entry: path.to_path_buf(),
+        graph: std::borrow::Cow::Borrowed(graph),
+        appendix: None,
+    };
+    compile_sources_to_executable(&sources, output, options, test_hooks)
 }
 
 /// Compile a test file that defines `main` for `plenty test`, with the
@@ -254,16 +233,12 @@ pub(crate) fn compile_tests_to_executable(
     options: &crate::CompileOptions,
 ) -> Result<()> {
     crate::validate_target(options.target.as_deref())?;
-    let mut heap = Heap::default();
-    let program = crate::frontend::compile_test_graph(path, graph, tests, &mut heap)?;
-    compile_ops_to_executable(
-        program.ops,
-        &heap,
-        output,
-        program.returns_status,
-        options,
-        true,
-    )
+    let sources = Sources::Graph {
+        entry: path.to_path_buf(),
+        graph: std::borrow::Cow::Borrowed(graph),
+        appendix: Some(crate::frontend::test_appendix(tests)),
+    };
+    compile_sources_to_executable(&sources, output, options, true)
 }
 
 /// Historical stack syntax, retained for backend regression tests.
@@ -309,11 +284,76 @@ fn compile_ops_to_executable(
 
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
-    let rt_path = workspace.path().join("libplenty_runtime.a");
     let build = Build::new(options, test_hooks);
     let cache = build.cache.clone();
     compile_to_object(ops, heap, &obj_path, returns_status, build)?;
     report_cache(options, cache.as_deref());
+    link_object(&workspace, &obj_path, output, options, test_hooks)
+}
+
+/// [`compile_ops_to_executable`] for an application's sources, through the
+/// program cache.
+fn compile_sources_to_executable(
+    sources: &Sources,
+    output: &Path,
+    options: &crate::CompileOptions,
+    test_hooks: bool,
+) -> Result<()> {
+    let workspace = tempfile::tempdir()?;
+    let obj_path = workspace.path().join("program.o");
+    let build = Build::new(options, test_hooks);
+    let cache = build.cache.clone();
+    program_object(sources, &obj_path, build)?;
+    report_cache(options, cache.as_deref());
+    link_object(&workspace, &obj_path, output, options, test_hooks)
+}
+
+/// Write the object for `sources` to `object`: the program cache's, when its
+/// entry for them is current, or else a new build's, which then becomes the
+/// entry (issue #317).
+#[cfg_attr(feature = "profile", hotpath::measure)]
+fn program_object(sources: &Sources, object: &Path, build: Build) -> Result<()> {
+    let started = std::time::Instant::now();
+    // Builds that check cache hits recompile every function; they are tests
+    // of the function cache.
+    let cached = build
+        .cache
+        .clone()
+        .filter(|_| !build.check_cache_hits && !build.functions_only)
+        .and_then(|cache| {
+            let settings = format!(
+                "optimize {} test hooks {} coverage {}",
+                build.optimize, build.test_hooks, build.coverage
+            );
+            Some((cache, ProgramKey::new(&sources.identity()?, &settings)))
+        });
+    let mut seen = false;
+    if let Some((cache, key)) = &cached {
+        match cache.load_program(key, |inputs| sources.current(inputs), object)? {
+            Lookup::Hit => return Ok(()),
+            Lookup::Miss { seen: before } => seen = before,
+        }
+    }
+    let mut heap = Heap::default();
+    let program = sources.compile(&mut heap)?;
+    op::check(&program.ops)?;
+    compile_to_object(program.ops, &heap, object, program.returns_status, build)?;
+    if let Some((cache, key)) = &cached {
+        cache.store_program(key, &program.inputs, object, started.elapsed(), seen);
+    }
+    Ok(())
+}
+
+/// Link the application object at `obj_path` with the runtime, and the fuzz
+/// driver or test hooks the options ask for, in `workspace`.
+fn link_object(
+    workspace: &tempfile::TempDir,
+    obj_path: &Path,
+    output: &Path,
+    options: &crate::CompileOptions,
+    test_hooks: bool,
+) -> Result<()> {
+    let rt_path = workspace.path().join("libplenty_runtime.a");
     std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
     if let Some(libfuzzer) = &options.fuzz {
         let driver = workspace.path().join("plenty_fuzz_driver.o");
@@ -331,7 +371,7 @@ fn compile_ops_to_executable(
         }
         inputs.push("-lstdc++".into());
         return crate::toolchain::link(
-            &obj_path,
+            obj_path,
             &rt_path,
             RUNTIME_LINK_ARGS,
             output,
@@ -342,7 +382,7 @@ fn compile_ops_to_executable(
     }
     if !test_hooks {
         return crate::toolchain::link(
-            &obj_path,
+            obj_path,
             &rt_path,
             RUNTIME_LINK_ARGS,
             output,
@@ -354,7 +394,7 @@ fn compile_ops_to_executable(
     let hooks = workspace.path().join("plenty_test_hooks.o");
     std::fs::write(&hooks, TEST_HOOKS)?;
     crate::toolchain::link(
-        &obj_path,
+        obj_path,
         &rt_path,
         RUNTIME_LINK_ARGS,
         output,
@@ -375,6 +415,8 @@ struct Build {
     coverage: bool,
     /// Reuse compiled functions from here, and add this build's to it.
     cache: Option<Arc<Cache>>,
+    /// Never reuse or record a whole program's object.
+    functions_only: bool,
     /// Compile every cached function again and assert the code matches
     /// (Cranelift's `enable_incremental_compilation_cache_checks`). Only
     /// tests set it: the flag is part of the cache key, so these builds use
@@ -389,6 +431,7 @@ impl Build {
             test_hooks,
             coverage: options.fuzz.is_some(),
             cache: Cache::open(&options.cache),
+            functions_only: !options.program_cache,
             check_cache_hits: false,
         }
     }
@@ -436,16 +479,7 @@ pub(crate) const RUNTIME_LINK_ARGS: &str =
 /// `plenty_main`; link exactly one application object with the matching runtime.
 pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
     crate::validate_target(None)?;
-    let mut heap = Heap::default();
-    let program = crate::frontend::compile(source, &mut heap)?;
-    op::check(&program.ops)?;
-    compile_to_object(
-        program.ops,
-        &heap,
-        output,
-        program.returns_status,
-        Build::from_environment(),
-    )
+    program_object(&Sources::Text(source), output, Build::from_environment())
 }
 
 /// Emit an application object, resolving absolute Plenty imports.
@@ -462,12 +496,10 @@ pub fn compile_file_to_object_with_options(
     options: &crate::CompileOptions,
 ) -> Result<()> {
     crate::validate_target(None)?;
-    let mut heap = Heap::default();
-    let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
-    op::check(&program.ops)?;
+    let sources = Sources::file(path, root)?;
     let build = Build::new(options, false);
     let cache = build.cache.clone();
-    compile_to_object(program.ops, &heap, output, program.returns_status, build)?;
+    program_object(&sources, output, build)?;
     report_cache(options, cache.as_deref());
     Ok(())
 }
