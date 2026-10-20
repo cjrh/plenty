@@ -129,7 +129,7 @@ fn loaded_wrappers_keep_raw_addresses_private_and_enforce_moves() {
         ("    owner = library.create()?\n    library.finish(owner)\n    print(library.read(&owner))?\n", "moved"),
         ("    owner = library.create()?\n    raw = owner._handle\n", "private"),
     ] {
-        std::fs::write(&entry, format!("import plugin\ndef main() -> Result[(), Failure]:\n    path = \"./libcalc.so\"\n    library = plugin.load(&path)?\n{body}    Ok(())\n")).unwrap();
+        std::fs::write(&entry, format!("import plugin\ndef main() -> Result[(), AllocError | LoadError | IoError]:\n    path = \"./libcalc.so\"\n    library = plugin.load(&path)?\n{body}    Ok(())\n")).unwrap();
         let error = plenty::check_file(&entry, None).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }

@@ -11,7 +11,7 @@ def count(n: i64, total: i64) -> i64:
     if n % 2 == 0:
         return step(n - 1, total + 1)
     step(n - 1, total + 1)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(count(500000, 0))?
     Ok(())
 "#,
@@ -43,7 +43,7 @@ def interval() -> range[u8]:
 def relay() -> range[u8]:
     operation = interval
     operation()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(guarded())?
     for n in relay():
         print(n)?

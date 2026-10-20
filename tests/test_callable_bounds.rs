@@ -8,7 +8,7 @@ def identity[T](value: T) -> T:
     value
 def invoke[F: Callable[[u8], u8]](f: F) -> u8:
     f(42)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(invoke(identity))?
     Ok(())
 "#);
@@ -55,7 +55,7 @@ def twice[T, F: Callable[[], T]](f: &mut F) -> T:
     f()
 def forward[T, F: Callable[[], T]](f: &mut F) -> T:
     twice(f)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut value = 0
     mut inner = def [&mut value]() -> i64:
         value = value + 1
@@ -96,7 +96,7 @@ def read[T, F: Callable[[], T]](f: &F) -> T:
     f()
 def widen(value: u8) -> i64:
     i64(value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     function = widen
     print(apply(&function, 7u8))?
     value = 12u16
@@ -128,7 +128,7 @@ def twice[F: Callable[[i64], i64]](f: &F, value: i64) -> i64:
     f(f(value))
 def increment(value: i64) -> i64:
     value + 1
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     function = increment
     offset = 3
     closure = def [offset](value: i64) -> i64:

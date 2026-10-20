@@ -10,7 +10,7 @@ const COUNT: &str =
     "def count(n: i64) -> Generator[i64]:\n    for i in range(n):\n        yield i\n";
 
 fn main_body(body: &str) -> String {
-    format!("{COUNT}def main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{COUNT}def main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n")
 }
 
 #[rstest]
@@ -19,7 +19,7 @@ fn main_body(body: &str) -> String {
     "collections"
 )]
 #[case::annotated_dictionary_value(
-    "def main() -> Result[(), Failure]:\n    x: dict[str, OnceClosure[[], i64]] = {}?\n    Ok(())\n",
+    "def main() -> Result[(), AllocError | IoError]:\n    x: dict[str, OnceClosure[[], i64]] = {}?\n    Ok(())\n",
     "collections"
 )]
 #[case::class_field(

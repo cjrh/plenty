@@ -172,7 +172,7 @@ int main(void) {
             b"42\n41\n"
         );
         let app = root.join("main.plenty");
-        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    owner = calc.create(41)?\n    print(calc.read(&owner))?\n    Ok(())\n").unwrap();
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), AllocError | IoError]:\n    owner = calc.create(41)?\n    print(calc.read(&owner))?\n    Ok(())\n").unwrap();
         let options = plenty::CompileOptions {
             link_args: vec![library.into_os_string()],
             ..Default::default()
@@ -410,6 +410,7 @@ export def parse() -> Result[i64, ParseError] = "calc_parse":
     Err(ParseError.OutOfRange)
 export def narrow(value: i64) -> Result[u8, RangeError] = "calc_narrow":
     u8.try_from(value)
+# B71: Failure is a supported export error until it is removed.
 export def failed() -> Result[(), Failure] = "calc_failed":
     Err(Failure.Unspecified)
 "#;
@@ -467,7 +468,7 @@ int main(void) {
             success(Command::new(&executable).output().unwrap());
         }
         let app = root.join("main.plenty");
-        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    print(str.repr(calc.checked(0)).unwrap())?\n    print(str.repr(calc.checked(-1)).unwrap())?\n    mut x = 40i32\n    print(str.repr(calc.touch(&mut x)).unwrap())?\n    print(x)?\n    print(str.repr(calc.allocation(0)).unwrap())?\n    print(str.repr(calc.allocation(1)).unwrap())?\n    print(str.repr(calc.allocation(2)).unwrap())?\n    print(str.repr(calc.parse()).unwrap())?\n    print(str.repr(calc.failed()).unwrap())?\n    Ok(())\n").unwrap();
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), IoError]:\n    print(str.repr(calc.checked(0)).unwrap())?\n    print(str.repr(calc.checked(-1)).unwrap())?\n    mut x = 40i32\n    print(str.repr(calc.touch(&mut x)).unwrap())?\n    print(x)?\n    print(str.repr(calc.allocation(0)).unwrap())?\n    print(str.repr(calc.allocation(1)).unwrap())?\n    print(str.repr(calc.allocation(2)).unwrap())?\n    print(str.repr(calc.parse()).unwrap())?\n    print(str.repr(calc.failed()).unwrap())?\n    Ok(())\n").unwrap();
         let options = plenty::CompileOptions {
             link_args: vec![library.into_os_string()],
             ..Default::default()
@@ -538,7 +539,7 @@ int main(void) {
             assert_eq!(output.stdout, b"42\n");
         }
         let app = root.join("main.plenty");
-        std::fs::write(&app, "import calc\ndef work() -> Result[(), AllocError]:\n    first = calc.create(11)?\n    second = calc.create(22)?\n    calc.create(-1)?\n    Ok(())\ndef main() -> Result[(), Failure]:\n    print(str.repr(work()).unwrap())?\n    Ok(())\n").unwrap();
+        std::fs::write(&app, "import calc\ndef work() -> Result[(), AllocError]:\n    first = calc.create(11)?\n    second = calc.create(22)?\n    calc.create(-1)?\n    Ok(())\ndef main() -> Result[(), IoError]:\n    print(str.repr(work()).unwrap())?\n    Ok(())\n").unwrap();
         let options = plenty::CompileOptions {
             link_args: vec![library.into_os_string()],
             ..Default::default()
@@ -564,7 +565,7 @@ int main(void) {
                 ),
                 ("calc.limit()", "AllocError.OutOfMemory"),
             ] {
-                std::fs::write(&app, format!("import calc\ndef main() -> Result[(), Failure]:\n    {limit}\n    result = calc.create(33)\n    calc.restore()\n    print(\"__test_restore_allocations__\").unwrap()\n    match result:\n        case Ok(owner):\n            print(\"created\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n")).unwrap();
+                std::fs::write(&app, format!("import calc\ndef main() -> Result[(), IoError]:\n    {limit}\n    result = calc.create(33)\n    calc.restore()\n    print(\"__test_restore_allocations__\").unwrap()\n    match result:\n        case Ok(owner):\n            print(\"created\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n")).unwrap();
                 plenty::compile_file_to_executable_with_options(&app, &executable, None, &options)
                     .unwrap();
                 let output = success(Command::new(&executable).output().unwrap());
@@ -641,7 +642,7 @@ int main(void) {
             );
         }
         let app = root.join("main.plenty");
-        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    mut owner = calc.create(11)?\n    print(calc.read(&owner, &owner))?\n    print(str.repr(calc.replace(&mut owner, 42)).unwrap())?\n    print(calc.read(&owner, &owner))?\n    Ok(())\n").unwrap();
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), AllocError | IoError]:\n    mut owner = calc.create(11)?\n    print(calc.read(&owner, &owner))?\n    print(str.repr(calc.replace(&mut owner, 42)).unwrap())?\n    print(calc.read(&owner, &owner))?\n    Ok(())\n").unwrap();
         let options = plenty::CompileOptions {
             link_args: vec![library.into_os_string()],
             ..Default::default()
@@ -651,7 +652,7 @@ int main(void) {
             success(Command::new(executable).output().unwrap()).stdout,
             b"22\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\n84\n42\n"
         );
-        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    mut owner = calc.create(11)?\n    loan = &owner\n    calc.replace(&mut owner, 42)?\n    print(calc.read(loan, loan))?\n    Ok(())\n").unwrap();
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), AllocError | IoError]:\n    mut owner = calc.create(11)?\n    loan = &owner\n    calc.replace(&mut owner, 42)?\n    print(calc.read(loan, loan))?\n    Ok(())\n").unwrap();
         let error = plenty::check_file(&app, None).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
     }
@@ -729,7 +730,7 @@ int main(void) {
             );
         }
         let app = root.join("main.plenty");
-        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    print(str.repr(calc.consume(calc.create(11)?, 0)).unwrap())?\n    print(str.repr(calc.consume(calc.create(22)?, 1)).unwrap())?\n    calc.discard(calc.create(33)?)\n    drop(calc.identity(calc.create(44)?)?)\n    Ok(())\n").unwrap();
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), AllocError | IoError]:\n    print(str.repr(calc.consume(calc.create(11)?, 0)).unwrap())?\n    print(str.repr(calc.consume(calc.create(22)?, 1)).unwrap())?\n    calc.discard(calc.create(33)?)\n    drop(calc.identity(calc.create(44)?)?)\n    Ok(())\n").unwrap();
         let options = plenty::CompileOptions {
             link_args: vec![library.into_os_string()],
             ..Default::default()
@@ -740,7 +741,7 @@ int main(void) {
             b"released\nResult[i64, i32].Ok(11)\nreleased\nResult[i64, i32].Err(-1)\nreleased\nreleased\n"
         );
         if cfg!(feature = "runtime-checks") {
-            std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    owner = calc.create(55)?\n    print(\"__test_fail_allocations_after_0__\").unwrap()\n    result = calc.identity(owner)\n    print(\"__test_restore_allocations__\").unwrap()\n    match result:\n        case Ok(unexpected):\n            print(\"unexpected success\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n").unwrap();
+            std::fs::write(&app, "import calc\ndef main() -> Result[(), AllocError | IoError]:\n    owner = calc.create(55)?\n    print(\"__test_fail_allocations_after_0__\").unwrap()\n    result = calc.identity(owner)\n    print(\"__test_restore_allocations__\").unwrap()\n    match result:\n        case Ok(unexpected):\n            print(\"unexpected success\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n").unwrap();
             // Warm the producer's output before injecting process allocation failure.
             let text = std::fs::read_to_string(&app).unwrap().replace(
                 "    owner =",
@@ -766,7 +767,7 @@ int main(void) {
                 }
             );
         }
-        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    owner = calc.create(11)?\n    calc.discard(owner)\n    calc.discard(owner)\n    Ok(())\n").unwrap();
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), AllocError | IoError]:\n    owner = calc.create(11)?\n    calc.discard(owner)\n    calc.discard(owner)\n    Ok(())\n").unwrap();
         let error = plenty::check_file(&app, None).unwrap_err().to_string();
         assert!(error.contains("moved"), "{error}");
     }

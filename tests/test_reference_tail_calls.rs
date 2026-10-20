@@ -119,7 +119,7 @@ def method(p: &Pair) -> i64:
 def result(g: &Guard) -> &str:
     local = Guard("result")
     return g.view()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     pair = Pair(make("left"), make("right"))
     print(field(&pair))?
     mut some = Some(make("some"))
@@ -339,7 +339,7 @@ def invoke(f: &Closure[[], i64], n: i64) -> i64:
     if n == 0:
         return f()
     invoke(f, n - 1)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut head = Node(1, Inner(0))
     print(shared(&head, 1000000, 0))?
     print(exclusive(&mut head, 1000000))?
@@ -412,7 +412,7 @@ def each(tree: &Tree, n: i64, acc: i64) -> i64:
     acc
 def visit(node: &Node, tree: &Tree, n: i64, acc: i64) -> i64:
     each(tree, n - 1, acc + node.value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut head = Node(1, Inner(0))
     print(field(&mut head, 1000000))?
     print(project(&mut head, 1000000))?
@@ -460,7 +460,7 @@ def last_expression(node: &mut Node, n: i64) -> &mut Node:
     if n == 0:
         return node
     last_expression(node, n - 1)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut head = Node(1)
     print(head.spin(1000000, 0))?
     head.bump(1000000)
@@ -499,7 +499,7 @@ def last(node: &Node) -> i64:
             last(next)
         case Nothing:
             node.value
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut head = Node(0, Nothing)
     for n in range(100000):
         head = Node(n + 1, Some(Box(head).unwrap()))
@@ -591,7 +591,7 @@ def build(node: &Node, n: i64, total: i64) -> Sum:
     if n == 0:
         return Sum(total, node.value)
     build(node, n - 1, total + node.value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     head = Node(3, Some(Box(Node(2, Some(Box(Node(1, Nothing)).unwrap()))).unwrap()))
     print(walk(&head, 1000000))?
     print(scan(&head, 1000000))?

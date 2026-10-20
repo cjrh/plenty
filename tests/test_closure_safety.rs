@@ -121,7 +121,7 @@ def double(n: i64) -> i64:
     n * 2
 def invoke(f: &Callable[[i64], i64], n: i64) -> i64:
     f(n)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     for n in range(3):
         resource = Resource(n)
         f = def [resource]() -> i64:

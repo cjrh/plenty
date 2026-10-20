@@ -32,12 +32,15 @@ pub class Resource:
     pub def set(self: &mut Resource, value: i64) -> ():
         set_raw(self.raw, value)
 
-pub def create(mode: i32) -> Result[Resource, Failure]:
+pub enum NativeError:
+    Failed
+
+pub def create(mode: i32) -> Result[Resource, NativeError]:
     mut owner = Resource()
     if open_raw(&mut owner.raw, mode) != 0:
-        return Err(Failure.Unspecified)
+        return Err(NativeError.Failed)
     if owner.raw.is_null():
-        return Err(Failure.Unspecified)
+        return Err(NativeError.Failed)
     Ok(owner)
 
 # Consumes only on success; return the unchanged owner on failure.
@@ -49,15 +52,15 @@ pub def transfer(resource: Resource, fail: i32) -> Result[(), Resource]:
     Ok(())
 
 # Consumes even on error; disarm the local destructor before calling C.
-pub def consume(resource: Resource, fail: i32) -> Result[(), Failure]:
+pub def consume(resource: Resource, fail: i32) -> Result[(), NativeError]:
     mut owner = resource
     pointer = owner.raw
     owner.raw = Raw.null()
     if consume_raw(pointer, fail) != 0:
-        return Err(Failure.Unspecified)
+        return Err(NativeError.Failed)
     Ok(())
 
-pub def acquire_pair(fail: i32) -> Result[(), Failure]:
+pub def acquire_pair(fail: i32) -> Result[(), NativeError | IoError]:
     first = create(0)?
     second = create(fail)?
     print(first.value() + second.value())?

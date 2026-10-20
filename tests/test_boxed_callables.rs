@@ -150,7 +150,7 @@ def id(n: i64) -> i64:
     n
 def worker(callback: &BoxedCallable[[i64], i64]) -> i64:
     callback(1)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ThreadError | IoError]:
     callback = BoxedCallable(id)?
     with spawn(worker, &callback)? as task:
         task.join()
@@ -163,7 +163,7 @@ def id(n: i64) -> i64:
     n
 def worker(holder: &Holder) -> i64:
     holder.callback(1)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ThreadError | IoError]:
     holder = Holder(BoxedCallable(id)?)
     with spawn(worker, &holder)? as task:
         task.join()

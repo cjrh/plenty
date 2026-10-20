@@ -24,7 +24,7 @@ def total(items: &list[i64]) -> i64:
         sum = sum + item
     sum
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     items = [1, 2, 3]?
     print(total(&items))?
     table: dict[str, i64] = {}?
@@ -491,7 +491,7 @@ fn the_size_limit_trims_old_entries() {
 const MAIN: &str = "import util
 import std.json
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(util.double(21))?
     Ok(())
 ";

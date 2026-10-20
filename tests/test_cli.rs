@@ -30,7 +30,7 @@ fn values_are_typed_ordered_and_repeated_without_consuming_input() {
     run(
         &format!(
             r#"{IMPORTS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | CliError | IoError]:
     schema = [Spec("--verbose", Kind.Flag, False, False, False, "verbose"), Spec("--count", Kind.Integer, False, True, True, "count"), Spec("FILE", Kind.Path, True, True, True, "input files")]?
     arguments = args_bytes()?
     parsed = parse(&schema, &arguments, 1)?
@@ -120,7 +120,7 @@ fn empty_tokens_negative_positionals_and_termination_are_values() {
     run(
         &format!(
             r#"{IMPORTS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | CliError | IoError]:
     schema = [Spec("N", Kind.Integer, True, True, False, "number"), Spec("TEXT", Kind.Text, True, True, True, "text")]?
     arguments = args_bytes()?
     parsed = parse(&schema, &arguments, 1)?
@@ -179,7 +179,7 @@ fn help_is_generated_in_schema_order() {
     run(
         &format!(
             r#"{IMPORTS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | CliError | IoError]:
     schema = [Spec("--count", Kind.Integer, False, False, False, "maximum rows"), Spec("FILE", Kind.Path, True, True, True, "input files")]?
     drop(write_stdout(help(&schema, "finder")?))
     Ok(())
@@ -196,7 +196,7 @@ fn help_token_is_an_ordinary_text_option_value() {
     run(
         &format!(
             r#"{IMPORTS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | CliError | IoError]:
     schema = [Spec("--label", Kind.Text, False, True, False, "label")]?
     raw = args_bytes()?
     parsed = parse(&schema, &raw, 1)?
@@ -205,7 +205,7 @@ def main() -> Result[(), Failure]:
         case Value.Text(text):
             print(text)?
         case _:
-            return Err(Failure.Unspecified)
+            return Err(CliError.UnexpectedArgument(-1))
     Ok(())
 "#
         ),
@@ -226,7 +226,7 @@ fn native_path_arguments_preserve_invalid_utf8_and_text_rejects_it() {
         run(
             &format!(
                 r#"{IMPORTS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | CliError | IoError]:
     schema = [Spec("INPUT", Kind.{kind}, True, True, False, "input")]?
     arguments = args_bytes()?
     match parse(&schema, &arguments, 1):
@@ -254,7 +254,7 @@ fn parser_and_help_report_allocation_failure_without_trapping() {
     run(
         &format!(
             r#"{IMPORTS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | CliError | IoError]:
     schema = [Spec("--count", Kind.Integer, False, True, False, "count")]?
     arguments = args_bytes()?
     print("__test_fail_allocations_after_0__")?
@@ -287,7 +287,7 @@ fn partial_parses_release_owned_values_at_each_allocation_failure() {
     run(
         &format!(
             r#"{IMPORTS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | CliError | IoError]:
     schema = [Spec("--text", Kind.Text, False, True, True, "text"), Spec("FILE", Kind.Path, True, True, True, "file")]?
     raw = [encode_utf8("--text")?, encode_utf8("a long text value that requires heap allocation")?, encode_utf8("a/long/path/that/also/requires/storage")?, encode_utf8("--text")?, encode_utf8("another long text value to allocate")?]?
     mut successes = 0
@@ -300,14 +300,14 @@ def main() -> Result[(), Failure]:
         match parsed:
             case Ok(result):
                 if len(result.entries) != 3:
-                    return Err(Failure.Unspecified)
+                    return Err(CliError.UnexpectedArgument(-1))
                 successes += 1
             case Err(error):
                 match error:
                     case CliError.Allocation(_):
                         failures += 1
                     case _:
-                        return Err(Failure.Unspecified)
+                        return Err(CliError.UnexpectedArgument(-1))
     print(successes > 0, failures > 0)?
     print(len(raw))?
     Ok(())
@@ -334,7 +334,7 @@ def count(value: i64) -> i64:
         case _:
             0
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | PoolError | SubmitError[OnceClosure[[], i64]] | FutureError | IoError]:
     with ThreadPoolExecutor(2, 2)? as pool:
         first = pool.submit(count, 17)?
         second = pool.submit(count, -42)?
@@ -362,7 +362,7 @@ fn relocated_toolchain_parses_without_sources_or_rust_tools() {
         &source,
         format!(
             r#"{IMPORTS}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | CliError | IoError]:
     schema = [Spec("--number", Kind.Integer, False, True, False, "number")]?
     raw = args_bytes()?
     parsed = parse(&schema, &raw, 1)?

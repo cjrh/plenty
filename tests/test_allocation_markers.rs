@@ -12,7 +12,7 @@ fn worker_allocations_do_not_trip_parent_region() {
 def work() -> ():
     values = [1, 2, 3].unwrap()
     drop(values)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ThreadError | IoError]:
     print("__test_begin_no_allocations__")?
     with spawn(work)?:
         pass
@@ -40,7 +40,7 @@ def work() -> ():
     drop(values)
     print("__test_begin_no_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ThreadError | IoError]:
     print("__test_begin_no_allocations__")?
     with spawn(work)?:
         pass
@@ -66,7 +66,7 @@ fn worker_region_cannot_hide_parent_allocation_attempts() {
 def work() -> ():
     print("__test_begin_no_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ThreadError | IoError]:
     print("__test_begin_no_allocations__")?
     values = [1, 2, 3]?
     drop(values)
@@ -87,7 +87,7 @@ def main() -> Result[(), Failure]:
 fn injected_failures_inside_a_region_are_not_allocations() {
     let output = support::run(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print("__test_fail_allocations_after_0__")?
     print("__test_begin_no_allocations__")?
     values = [1, 2, 3]
@@ -113,7 +113,7 @@ def main() -> Result[(), Failure]:
 fn successes_within_a_failure_budget_still_trip_a_region() {
     let output = support::run(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print("__test_fail_allocations_after_1__")?
     print("__test_begin_no_allocations__")?
     # The first allocation succeeds and the rest fail; only the success counts.

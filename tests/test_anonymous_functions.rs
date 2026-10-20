@@ -5,7 +5,7 @@ use support::{check_source, run};
 #[test]
 fn multiline_functions_have_independent_control_flow_and_locals() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     transform = def(value: i64) -> i64:
         mut result = 0
         for n in range(value):
@@ -37,7 +37,7 @@ def nested() -> Callable[[], Callable[[i64], i64]]:
     def() -> Callable[[i64], i64]:
         def(value: i64) -> i64:
             value + 1
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(make[u8]()(42))?
     print(make[str]()("hello"))?
     print(nested()()(5))?
@@ -80,14 +80,14 @@ const APPLY: &str = "def apply(f: Callable[[i64], i64], value: i64) -> i64:\n   
 fn the_issue_27_examples_compile_and_run() {
     assert_eq!(
         output(&format!(
-            "{APPLY}def main() -> Result[(), Failure]:\n    print(apply(def(x: i64) -> i64: x * 2, 4))?\n    Ok(())\n"
+            "{APPLY}def main() -> Result[(), AllocError | IoError]:\n    print(apply(def(x: i64) -> i64: x * 2, 4))?\n    Ok(())\n"
         )),
         "8\n"
     );
     assert_eq!(
         output(
             r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), SpawnError[OnceClosure[[], i64]] | IoError]:
     n = 5
     with spawn(def once [n]() -> i64: n)? as task:
         print(task.join())?
@@ -108,7 +108,7 @@ def both(f: Callable[[i64], i64], g: Callable[[i64], i64], value: i64) -> i64:
 def adder() -> Callable[[i64], Callable[[i64], i64]]:
     (def(a: i64) -> Callable[[i64], i64]: def(b: i64) -> i64: b + 1)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(apply(def(x: i64) -> i64: x * 2, 4))?
     print(apply(def(x: i64) -> i64: (x * 2), 4))?
     print(apply(def(x: i64) -> i64: apply(def(y: i64) -> i64: y + 1, x), 4))?
@@ -136,7 +136,7 @@ fn inline_functions_are_values_in_every_bracketed_position() {
 class Holder[F: Callable[[i64], i64]]:
     callback: F
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     first, second = (def(x: i64) -> i64: x + 1, def(x: i64) -> i64: x + 2)
     print(first(1) + second(1))?
     handlers = [def(x: i64) -> i64: x + 1, def(x: i64) -> i64: x * 9]?
@@ -160,7 +160,7 @@ def main() -> Result[(), Failure]:
 fn an_inline_string_body_is_the_value_not_documentation() {
     assert_eq!(
         output(
-            "def main() -> Result[(), Failure]:\n    print((def() -> str: \"hi\")())?\n    Ok(())\n"
+            "def main() -> Result[(), AllocError | IoError]:\n    print((def() -> str: \"hi\")())?\n    Ok(())\n"
         ),
         "hi\n"
     );
@@ -182,7 +182,7 @@ def run[T, F: OnceCallable[[], T]](callback: F) -> T:
 def identity[T](value: T) -> T:
     (def(inner: T) -> T: inner)(value)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     offset = 10
     print(twice(&(def [offset](x: i64) -> i64: x + offset), 1))?
     print(twice(&(def(x: i64) -> i64: x + 1), 1))?
@@ -347,7 +347,7 @@ fn the_body_form_follows_the_position() {
     assert!(error.contains("expected a newline after `:`"), "{error}");
     // Parentheses are brackets: the one-expression form can be bound.
     assert_eq!(
-        output("def main() -> Result[(), Failure]:\n    f = (def(x: i64) -> i64: x * 2)\n    print(f(4))?\n    Ok(())\n"),
+        output("def main() -> Result[(), IoError]:\n    f = (def(x: i64) -> i64: x * 2)\n    print(f(4))?\n    Ok(())\n"),
         "8\n"
     );
 }
@@ -373,14 +373,15 @@ fn lambda_names_the_plenty_spelling() {
 #[test]
 fn inline_closures_are_thread_and_pool_jobs() {
     let source = r#"
-def produce(sender: Sender[i64]) -> Result[(), Failure]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
+# B71: three jobs with distinct closure types cannot share one declared SpawnError, so main keeps `Failure`.
 def main() -> Result[(), Failure]:
     sender, receiver = channel[i64](2)?
-    with spawn(def once [sender]() -> Result[(), Failure]: produce(sender))? as task:
+    with spawn(def once [sender]() -> Result[(), SendError[i64]]: produce(sender))? as task:
         mut total = 0
         with receiver as inbox:
             while True:
@@ -403,7 +404,7 @@ def main() -> Result[(), Failure]:
     assert_eq!(output(source), "30\n3\n[3, 6, 9]\n");
     // Same rule and wording as a named closure moved into `spawn`.
     let error = diagnostic(
-        "def main() -> Result[(), Failure]:\n    values = [1]?\n    with spawn(def [&values]() -> i64: len(values))? as task:\n        print(task.join())?\n    Ok(())\n",
+        "def main() -> Result[(), AllocError | ThreadError | IoError]:\n    values = [1]?\n    with spawn(def [&values]() -> i64: len(values))? as task:\n        print(task.join())?\n    Ok(())\n",
     );
     assert!(
         error.contains(
@@ -421,7 +422,7 @@ def countdown(n: i64, f: Callable[[i64], i64]) -> i64:
         return f(0)
     countdown(n - 1, def(x: i64) -> i64: x + 1)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(countdown(1000000, def(x: i64) -> i64: x))?
     Ok(())
 "#;
@@ -432,7 +433,7 @@ def main() -> Result[(), Failure]:
 fn brackets_in_string_literals_do_not_select_the_inline_form() {
     assert_eq!(
         output(
-            "def main() -> Result[(), Failure]:\n    text = \"(\"\n    f = def(x: i64) -> i64:\n        x + len(\"[{(\")\n    print(f(1))?\n    print(text)?\n    Ok(())\n"
+            "def main() -> Result[(), IoError]:\n    text = \"(\"\n    f = def(x: i64) -> i64:\n        x + len(\"[{(\")\n    print(f(1))?\n    print(text)?\n    Ok(())\n"
         ),
         "4\n(\n"
     );

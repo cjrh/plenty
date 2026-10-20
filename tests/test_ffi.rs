@@ -94,7 +94,7 @@ fn scalar_and_opaque_calls_link_statically_and_dynamically() {
             temp.path(),
             r#"
 import native
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     native.reset()
     print(native.narrow(-2, 250, -300, 65000, -70000, 4000000000, -9, 42))?
     print(native.small(-127))?
@@ -221,7 +221,7 @@ fn borrowed_scalar_outputs_and_text_adapters_match_c() {
         temp.path(),
         r#"
 import native
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | CStrError | IoError]:
     mut a = 0i8
     mut b = 0u16
     mut c = 0.0f32
@@ -266,7 +266,7 @@ fn owned_foreign_handles_drop_on_success_failure_and_transfer() {
         temp.path(),
         r#"
 import native
-def main() -> Result[(), Failure]:
+def main() -> Result[(), native.NativeError | native.Resource | CStrError | IoError]:
     mut first = native.create(0)?
     first.set(17)
     print(first.value())?
@@ -309,7 +309,7 @@ fn c_string_allocation_failure_reclaims_earlier_buffers_and_skips_c_call() {
         let source = format!(
             r#"
 import native
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | native.NativeError | IoError]:
     a = "hello"
     b = "é"
     print("__test_fail_allocations_after_{budget}__")?

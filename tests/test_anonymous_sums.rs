@@ -632,7 +632,7 @@ def read(value: A | B | C) -> i64:
             0
         case c: C:
             0
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     success: Result[list[i64], A | B] = Ok([3, 4]?)
     print("__test_fail_allocations_after_0__")?
     print("__test_begin_no_allocations__")?

@@ -11,7 +11,7 @@ fn recursive_captured_frames_are_rejected_without_panicking() {
 #[test]
 fn nested_one_shot_owners_relocate_and_transfer_their_captures() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     values = [8, 9]?
     inner = def once [values]() -> list[i64]:
         values
@@ -39,7 +39,7 @@ class Resource:
 def numbers(resource: Resource) -> Generator[i64]:
     yield resource.id
     yield resource.id + 1
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut source = numbers(Resource(4))
     print(next(source).unwrap())?
     take = def once [mut source]() -> i64:

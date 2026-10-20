@@ -35,7 +35,7 @@ fn fixture(source: &str) -> String {
 
 #[test]
 fn nested_standard_helpers_restore_the_caller_after_a_tail_calling_callback() {
-    let error = fixture("def standard_identity(n: i64) -> i64:\n    n\ndef callback(n: i64) -> i64:\n    standard_identity(n)\ndef standard_forward(n: i64) -> i64:\n    callback(n)\ndef standard_inner(n: i64) -> i64:\n    n // 0\ndef standard_outer(n: i64) -> i64:\n    value = standard_forward(n)\n    standard_inner(value)\ndef main() -> Result[(), Failure]:\n    print(standard_outer(1))?\n    Ok(())\n");
+    let error = fixture("def standard_identity(n: i64) -> i64:\n    n\ndef callback(n: i64) -> i64:\n    standard_identity(n)\ndef standard_forward(n: i64) -> i64:\n    callback(n)\ndef standard_inner(n: i64) -> i64:\n    n // 0\ndef standard_outer(n: i64) -> i64:\n    value = standard_forward(n)\n    standard_inner(value)\ndef main() -> Result[(), IoError]:\n    print(standard_outer(1))?\n    Ok(())\n");
     assert_eq!(
         error,
         "error: std/fixture.plenty:8:5: division by zero\nnote: called from user.plenty:13:11\n"
@@ -44,7 +44,7 @@ fn nested_standard_helpers_restore_the_caller_after_a_tail_calling_callback() {
 
 #[test]
 fn a_standard_generator_reports_the_resume_site() {
-    let error = fixture("def standard_values() -> Generator[i64]:\n    yield 1\n    yield 1 // 0\ndef main() -> Result[(), Failure]:\n    for n in standard_values():\n        print(n)?\n    Ok(())\n");
+    let error = fixture("def standard_values() -> Generator[i64]:\n    yield 1\n    yield 1 // 0\ndef main() -> Result[(), IoError]:\n    for n in standard_values():\n        print(n)?\n    Ok(())\n");
     assert!(
         error.starts_with("error: std/fixture.plenty:3:11: division by zero\n"),
         "{error}"

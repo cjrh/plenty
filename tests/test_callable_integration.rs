@@ -11,7 +11,7 @@ def factory() -> Callable[[u8], u8]:
     small
 class Handler:
     callback: Callable[[u8], u8]
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     f = small
     callbacks = [small]?
     index = 0
@@ -39,7 +39,7 @@ def select() -> Callable[[i64, i64], i64]:
 def argument(n: i64) -> i64:
     print(n).unwrap()
     n
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(select()(argument(2), argument(3)))?
     Ok(())
 "#,
@@ -86,7 +86,7 @@ def consume(guard: Guard, n: i64) -> i64:
 def work() -> Result[i64, AllocError]:
     callback = consume
     Ok(callback(Guard(), fail()?))
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(str.repr(work()).unwrap())?
     Ok(())
 "#,
