@@ -36,6 +36,13 @@ stops after an error; the main thread still places each job in declaration order
 Batching can delay placement until the worker fills its batch and retains up to
 31 additional completed jobs per worker before sending them.
 
+With the cache enabled, a result keeps a shared owner of the cache's immutable
+machine-code bytes until placement, avoiding a separate allocation and copy for
+each job. The object builder still copies those bytes into its own sections.
+Relocations remain specific to each function and are resolved independently.
+This adds no cache retention: decoded stencils already live until the compilation
+ends. With caching disabled, each result owns its machine-code buffer.
+
 A body can need symbols that are declared on first use: type descriptors, its
 trap-site table, foreign imports. Their order decides the object's bytes, so a
 worker building IR does not declare them. It names each in a placeholder
