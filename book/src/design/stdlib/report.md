@@ -90,3 +90,7 @@ its cause does. Floating-point formatting,
 width, escaping and arbitrary writer destinations remain in
 [`std.fmt`](fmt.md). The [tutorial](../../tutorial/08-resources/report-formatting.md)
 shows borrowed enum and sum reporting.
+
+The [completed reporting proposal](../../proposals/completed/error-formatting.md)
+records why typed error data, presentation, and application reporting are
+separate contracts.

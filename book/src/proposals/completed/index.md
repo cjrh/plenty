@@ -23,3 +23,4 @@ designs and the policy for moving completed proposals.
 | [Native concurrency contract](native-concurrency.md) | [Concurrency](../../design/facilities/03-concurrency/index.md) | B13, B24, B28 |
 | [Bounded channel implementation](bounded-channels.md) | [Channels](../../design/facilities/03-concurrency/channels.md) | Deferred B22 extensions |
 | [Named arguments and fresh defaults](named-arguments-and-fresh-defaults.md) | [Signatures and calls](../../design/language/06-functions/01-signatures-and-calls.md) | B36 refinements; unpacking remains separate |
+| [Human-readable formatting and error reports](error-formatting.md) | [`std.report`](../../design/stdlib/report.md), [entry reports](../../design/toolchain/01-building/entry-report.md) | B71 extensions; builtin Failure removal is a separate migration |

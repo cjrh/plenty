@@ -17,7 +17,7 @@
 | Generics | Implemented; bodies are checked per instance, not against bounds | [Generics](../design/language/07-generics/index.md); B29 |
 | Allocation | Implemented: allocating operations return `Result`. Class, tuple, enum, generator, and range values are inline and cannot fail | [Allocation and traps](../design/language/08-errors/02-allocation-and-traps.md) |
 | Allocators | Not implemented; objects only record an internal allocator | B13 |
-| Error propagation | Implemented, with `Failure` erasure | [Sums and propagation](../design/language/08-errors/01-sums-and-propagation.md); B14 |
+| Error propagation | Implemented, including anonymous-sum widening; `Failure` erasure remains during migration | [Error composition](error-composition.md), [sums and propagation](../design/language/08-errors/01-sums-and-propagation.md); B14/B71 |
 | Parallelism | Implemented | [Concurrency](../design/facilities/03-concurrency/index.md); B24 |
 | SIMD | Not implemented | B23 |
 | Runnable lessons | Partly: Markdown fences are executed; standalone lesson sources are not | B21 |

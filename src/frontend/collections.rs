@@ -2234,7 +2234,12 @@ impl Lower<'_> {
                 }
                 let (source, loans) = self.observe(&args[0], ops)?;
                 if source.restricted_storage() {
-                    return Err(base.at.error("generators cannot be formatted"));
+                    let message = source
+                        .format_blocker()
+                        .map_or("generators cannot be formatted".into(), |b| {
+                            b.message(&source)
+                        });
+                    return Err(base.at.error(message));
                 }
                 if source.facts().shared {
                     return Err(base.at.error(super::shared::FORMAT));

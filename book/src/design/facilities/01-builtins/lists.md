@@ -111,3 +111,10 @@ drops in source order. Failure drops the whole temporary; observed sources remai
 unchanged. `copy(items)?.slice(start, stop)` explicitly preserves an affine source.
 All output storage is reserved before transfer: two allocations for a nonempty
 slice, one for an empty owner.
+
+## Sorting design alternatives
+
+[User-defined ordering](../../../proposals/user-type-ordering.md) and
+[Timsort](../../../proposals/timsort.md) are unimplemented proposals for
+comparison semantics and stable sorting respectively. They do not change
+the current sorting contract above.

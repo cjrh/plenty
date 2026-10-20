@@ -14,9 +14,11 @@
 > `join`, and `str.repr` were added later.
 >
 > **Shipped since this proposal:** [std.bytes](../../design/stdlib/bytes.md)
-> provides owned binary buffers with explicit fallible allocation.
+> provides owned binary buffers with explicit fallible allocation, and
+> [byte literals](../../design/language/03-types/bytes.md) provide immutable
+> `bytes` values.
 > **Remaining:** broader C text/buffer representations (B27); language-level
-> bytes literals and slice syntax remain B12 candidates.
+> slice syntax remains a B12 candidate.
 
 ## Language contract
 

@@ -1,13 +1,18 @@
 # Human-readable formatting and error reports
 
-Status: enum methods, ordinary enum protocol satisfaction, the concrete
-[`std.report`](../design/stdlib/report.md) formatting core, and its automatic
-dispatch over [anonymous sums](error-sets.md), entrypoint selection and typed
-context formatting are implemented.
-Current behavior is defined by [entry reports](../design/toolchain/01-building/entry-report.md),
-[formatting](../design/facilities/01-builtins/formatting.md), and
-[`std.error`](../design/stdlib/error.md). Scheduling belongs in B71 in the
-[backlog](../backlog.md).
+> **Status: Implemented.** Enum methods, ordinary enum protocol satisfaction,
+> the concrete [`std.report`](../../design/stdlib/report.md) formatting core,
+> dispatch over anonymous sums, entrypoint selection, and typed context
+> formatting have shipped. [Entry reports](../../design/toolchain/01-building/entry-report.md),
+> [formatting](../../design/facilities/01-builtins/formatting.md), and
+> [`std.error`](../../design/stdlib/error.md) define current behavior.
+>
+> Floating-point report formatting and dynamic cause-chain interfaces are
+> extensions, not prerequisites for this completed core. Builtin `Failure`
+> removal belongs to the separate [anonymous-sum migration](../error-sets.md).
+> The [composition overview](../error-composition.md) explains how mapping,
+> sums, reporting, and typed streams fit together; remaining work stays in
+> B71 of the [backlog](../../backlog.md).
 
 ## Separate data, presentation, and reporting
 

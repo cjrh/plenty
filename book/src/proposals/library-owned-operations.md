@@ -9,9 +9,11 @@ remain [protocols](../design/language/07-generics/protocols.md),
 [classes](../design/language/03-types/classes.md). Any future access extension
 belongs to [B29](../backlog.md).
 
-The later [protocol method-body sketch](protocol-method-bodies.md) explores
-sharing implementations separately from private access and fixed algorithms.
-It does not change this assessment's existing-language guarantees.
+The later [protocol-body proposal](protocol-method-bodies.md) records agreed
+default/final methods and member-specific private-hook grants. That design is
+not implemented; the wrappers and capabilities here remain the existing-language
+solution. Its [short programs](protocol-method-bodies/examples.md) contrast
+the proposed programming model with this assessment's composition approach.
 
 ## Introduction
 

@@ -7,7 +7,9 @@ Where a proposal and the reference disagree, the reference is correct.
 
 ## Status
 
-Every proposal opens with a status block. It gives one status, the reference
+Each main proposal opens with a status note; companion evidence and example
+pages identify their parent and whether their code is hypothetical. The note gives
+the reference
 pages that own the contract, what shipped differently from the text, and what
 remains with its backlog ID.
 
@@ -32,8 +34,26 @@ Partly implemented and not implemented proposals stay in this folder. Keep their
 status blocks explicit about what shipped and what remains. Superseded or
 abandoned proposals can be retained separately in `archived/` when needed; they
 are not completed implementations. The reference and tutorial remain authoritative
-for current behavior. Statuses were last scanned against merged implementation
-work on 2026-10-17.
+for current behavior. Statuses were last scanned against local `main` at
+`74fa81d8` on 2026-10-20, using the reference, implementation, and regression
+coverage. This is a status review, not a fresh execution of every feature test.
+
+## Find a design by topic
+
+| Topic | Start here | Related decisions |
+| --- | --- | --- |
+| Protocol bodies, defaults, `final`, and private hooks | [Protocol method bodies](protocol-method-bodies.md) | [Agreed rules](protocol-method-bodies/final-and-visibility.md), [short programs](protocol-method-bodies/examples.md), [existing wrappers and capabilities](library-owned-operations.md) |
+| Error composition | [Composition overview](error-composition.md) | [Anonymous sums and the `Failure` policy](error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](error-composition/streams-and-evidence.md) |
+| Ownership and state | [Typestate](typestate-and-owned-transitions.md) | [Linear obligations](linear-obligations.md), [resolution scopes](linear-scope-resolution.md), [integration boundaries](linear-integration.md) |
+| Linked structures and graphs | [Owned structures and checked identities](arenas.md) | [Recursive representation](recursive-data.md), [arena prototype](arenas/prototype.md) |
+| Collections | [Ordering](user-type-ordering.md) | [Stable sorting algorithm](timsort.md), [hashing and equality](user-type-hashing.md) |
+| Native platforms and libraries | [Cross-platform assessment](cross-platform.md) | [FFI](ffi-and-dynamic-libraries.md), [export contracts](ffi-export-contracts.md), [GCC backend](codegen-gcc.md) |
+| Allocation and parallel execution | [Memory, parallelism, and SIMD](memory-parallelism-and-simd.md) | [Allocation audit](completed/allocation-audit.md), [shipped concurrency](completed/native-concurrency.md) |
+
+These families keep distinct contracts separate: a sorting algorithm does not
+define user equality, protocol defaults do not imply private access, and error
+formatting does not determine recovery. Companion pages hold examples or
+evidence; they are not additional implementation commitments.
 
 ## Completed
 
@@ -52,17 +72,15 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Fallible memory, parallel execution, and SIMD](memory-parallelism-and-simd.md) | [Fallible allocation](../design/language/08-errors/02-allocation-and-traps.md), [concurrency](../design/facilities/03-concurrency/index.md) | B13, B23, B24 |
 | [Plenty's next language phase](next-language-phase.md) | Nine of eleven recommendations, at least in part | B13, B23, and others |
 | [Standard library scope](standard-library-scope.md) | [Embedded library](../design/stdlib/index.md), including data formats, TLS, HTTP, SQLite, signals and testing | Remaining B38–B70 scope |
-| [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | Named calls and fresh defaults under the narrower design above | B36: splats and signature markers remain separate candidates |
-| [Explicit error composition](error-composition.md) | [Result mapping](../design/stdlib/error.md); isolated typed-stream experiment | B71: sums, formatting, and independent production stream composition |
+| [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | [Named calls and fresh defaults](completed/named-arguments-and-fresh-defaults.md) under the narrower design | B36: splats and signature markers remain separate candidates |
+| [Explicit error composition](error-composition.md) | [Result mapping](../design/stdlib/error.md), anonymous sums, reporting, [typed I/O](../design/stdlib/io-typed.md) and [typed HTTP bodies](../design/stdlib/http-typed.md) | B71: broader production stream composition |
+| [Finite error sets as anonymous sums](error-sets.md) | [Normalization, injection, widening, and typed-member matching](../design/language/03-types/anonymous-sums.md) | B14/B71: `Failure` kept as a last resort; residual-set inference and guards remain deferred |
 | [Bundled HTTP acceptance](standard-http.md) | [Client](../design/stdlib/http-client.md), [server](../design/stdlib/http-server.md), TLS and deployment helpers | B66 qualification |
 
 ## Not implemented
 
 | Proposal | Backlog |
 | --- | --- |
-| [Finite error sets as general anonymous sums](error-sets.md) — agreed direction; error composition first | B14/B71 |
-| [Human-readable formatting and error reports](error-formatting.md) — enum protocols and sum formatting | B71 |
-| [Typestate and owned transitions](typestate-and-owned-transitions.md) — assessment and experiments using existing facilities | B72 |
 | [Linear obligations](linear-obligations.md), including [aggregate and error rules](linear-obligations/values-and-errors.md) — opt-in non-abandonment | B72 (issue #149) |
 | [Synchronous resolution scopes](linear-scope-resolution.md) — consuming scope policy; depends on linear obligations | B72 (issue #149) |
 | [Linearity, typestate, and execution responsibility](linear-integration.md) — shared boundaries and deferred worker/async contracts | B72 (issue #149) |
@@ -77,5 +95,6 @@ reference pages. Further extensions remain tracked in the backlog.
 | --- | --- |
 | [Native macOS, Windows, and AArch64 support](cross-platform.md) | Native ports need target-aware builds, ABI validation and OS/stdlib contracts before release packaging. B18, with B17/B12 dependencies. |
 | [Library-owned operations and backend hooks](library-owned-operations.md) | Existing composition and optional capabilities; new protocol access deferred. B29 (issue #145). |
-| [Implemented protocol methods](protocol-method-bodies.md) | Feasibility sketch and executable lowering probes; final/default methods, hidden hooks, explicit operations, and method injection. B29; not scheduled. |
+| [Protocol method bodies](protocol-method-bodies.md) | Core default/final dispatch and member-specific grants agreed; definition-time contract checking required. No automatic method injection. Not implemented or scheduled (B29). |
 | [Owned structures and checked node identities](arenas.md) | Tested patterns and arena prototype; production identity/access contract remains B73, broader borrowing B11. |
+| [Typestate and owned transitions](typestate-and-owned-transitions.md) | Existing owned transitions and their limits; linear non-abandonment is a separate proposed extension (B72). |

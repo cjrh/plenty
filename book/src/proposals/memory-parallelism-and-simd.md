@@ -14,6 +14,10 @@
 > - **SIMD: not implemented** (B23).
 >
 > This page is the only design record for B13 and B23.
+> The completed [allocation audit](completed/allocation-audit.md) and
+> [native concurrency contract](completed/native-concurrency.md) record the
+> delivered subsets. [Checked-index arenas](arenas.md) solve node identity;
+> they are distinct from the allocator-lifetime proposal here.
 >
 > **Shipped differently:** `AllocError` has two variants, `OutOfMemory` and
 > `CapacityOverflow`. Class, tuple, enum, generator, and range values are inline

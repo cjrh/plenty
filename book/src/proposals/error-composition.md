@@ -1,26 +1,38 @@
 # Explicit error composition
 
-Status: partly implemented. Library mapping and additive typed stream/body APIs
-are implemented. The `?` error contract is unchanged. Remaining work
-belongs in [B71](../backlog.md).
-The companion [error sets](error-sets.md) page records the agreed general-sum
-direction, with builtin Failure kept as a last resort; [formatting](error-formatting.md)
-records the agreed enum-capable presentation direction. Neither has shipped.
+**Status: Partly implemented.** Library mapping, general anonymous sums,
+human-readable reporting, and additive typed stream/body APIs have shipped.
+`?` supports lossless error-set widening, without user-defined conversions;
+builtin `Failure` erasure stays as a last resort, for when no precise error
+can be written (issue #342).
+Remaining work belongs in [B71](../backlog.md).
+The companion [error sets](error-sets.md) page records the sum contract and
+the last-resort role of builtin `Failure`; [formatting](completed/error-formatting.md)
+records the shipped enum-capable reporting design.
 [Typestate](typestate-and-owned-transitions.md) addresses lifecycle invariants.
+
+## Reading this family
+
+| Question | Design and current contract |
+| --- | --- |
+| How do I deliberately translate an error? | Mapping below; [`std.error`](../design/stdlib/error.md) |
+| How do I retain several possible error types? | [Anonymous-sum design](error-sets.md); [current sums](../design/language/03-types/anonymous-sums.md) |
+| How do I present an error to a person? | [Completed reporting design](completed/error-formatting.md); [`std.report`](../design/stdlib/report.md) |
+| How do stream adapters preserve a transport cause? | [Experiment and production evidence](error-composition/streams-and-evidence.md); [`std.io.typed`](../design/stdlib/io-typed.md), [`std.http.typed`](../design/stdlib/http-typed.md) |
 
 ## Problem and recommendation
 
-Plenty's `?` propagates an identical error type, except for deliberate erasure
-to `Failure`. Library adapters consequently repeat success forwarding just to
+At the original investigation baseline, `?` propagated an identical error type,
+except for deliberate erasure to `Failure`. Library adapters repeated success forwarding just to
 translate failures. A second, independent problem is that `std.io.Reader`
 fixes its error type to `StreamError`: HTTP adapters store richer causes in a
 separate field and return a generic error through the stream interface.
 
 Explicit result mapping and an isolated parameterized-stream experiment now
-provide the baseline. The next agreed language direction is general anonymous
-sums, with error composition as their first use, plus human-readable formatting
-for enums and classes. Replace builtin Failure once lossless composition and
-reporting are available. Keep named domain errors where they encode useful
+provide the baseline. General anonymous sums and human-readable formatting
+for enums and classes have since shipped. Builtin `Failure` stays as a last
+resort; issue #342 removes the export and retained-job cases that forced it.
+Keep named domain errors where they encode useful
 policy. Production stream migration remains independently reviewable; neither
 mapping nor sums alone can recover causes discarded by existing stream APIs.
 
@@ -89,9 +101,9 @@ The idea is coherent, but has three distinct meanings:
 
 | Meaning | What it provides | Fit today |
 | --- | --- | --- |
-| `E: Error` generic constraint | Operations available on one statically known `E` | Protocol bounds exist, but currently accept classes; most stdlib errors are enums |
+| `E: Error` generic constraint | Operations available on one statically known `E` | Classes and enums can satisfy protocols; a reporting bound is optional |
 | `Result[T, Error]` holding arbitrary implementations | An owned existential value with hidden concrete type | Not supported; protocols are not runtime value types |
-| `Result[T, A | B]` | One of a finite, statically declared set | New sum-type composition feature; see companion page |
+| `Result[T, A | B]` | One of a finite, statically declared set | Implemented anonymous sums; see [the companion page](error-sets.md) |
 
 A generic bound does not allow one specialization to return unrelated concrete
 types on different branches. It still needs an enum, union, or erased container.
@@ -113,9 +125,9 @@ not equivalent to a finite typed sum. [Rust trait objects](https://doc.rust-lang
 
 Do not make a reporting protocol mandatory for error payloads: Plenty currently
 allows ordinary typed data in `Err`. Reporting and recoverability are separate.
-The agreed [formatting protocol](error-formatting.md) provides presentation
-without an existential error container. Extend protocol support to enums and
-define formatting dispatch for anonymous sums whose members all qualify.
+The implemented [formatting protocol](completed/error-formatting.md) provides
+presentation without an existential error container. Enums can satisfy protocols,
+and anonymous sums forward this formatting protocol when all members qualify.
 Builtin Failure stays as a last resort, for when no precise error can be
 written (issue #342); an erased error container and heterogeneous cause-chain interface remain deferred.
 
@@ -177,116 +189,13 @@ changes belong with an implementation, not this proposal.
 
 ## Prototype findings
 
-The first implementation needs no compiler or runtime changes. `map_error`
-uses `OnceCallable`, a mutable local callback binding, and an ordinary match.
-The mutable binding accepts stateful reusable callbacks as well as named
-functions and consuming closures. A callback is owned even when unused, so
-success drops its captures. Error values need no reporting protocol.
-
-The initial representative stdlib changes covered three result adapters:
-`std/http/body.plenty` removes `json` and maps directly in `read_json` and
-`send_json`; `std/http/client.plenty` uses mapping in `framed`; and
-`std/json.plenty` uses it in `faulted`. Three explicit success-forwarding
-branches disappear. Two convenience adapters remain and one non-generic
-`bytes_fault` classifier exposes the JSON policy. The number of named
-functions is therefore unchanged, while one adapter disappears completely.
-Other conversion helpers initially remained available for comparison.
-
-A wider initial conversion of eleven adapters exceeded the compiler's global
-256 generic-function specialization cap in the offline HTTP JSON service test.
-Keeping a generic convenience adapter around `map_error` adds another instance
-for each success/callback type. The follow-up for issue #141 separates a
-256-level dependency-depth guard from a 16,384-instance total resource budget;
-independent specializations no longer consume the depth guard. It restores the
-wider eleven-adapter adoption: body allocation, byte classification, HTTP and
-storage conversions; client allocation; and JSON allocation and location-free
-errors now also use mapping. Their conversion policies are unchanged. This
-addresses the observed scaling constraint without removing finite compiler
-limits or introducing allocation. See [specialization limits](../design/toolchain/02-architecture/emission.md).
-
-Worker integration exposed a real ergonomic restriction: thin function values
-lose their target identity inside the generic helper, so thread effect checking
-rejects their indirect calls. The stdlib adopters use concrete consuming
-closures (`def once (...)`) instead; their bodies remain inspectable and allocate
-nothing. Named classifiers are called directly from these closures. This keeps
-worker checks intact but adds a wrapper at those sites. Mapping does not solve
-that existing callable-design limitation.
-
-The isolated modules in `examples/error_composition/` explore a normalized
-`StepError[E]` envelope: `Interrupted` requests retry; `Source(E)` preserves
-everything else, including cancellation and allocation failure. `Reader[E]`
-and `Writer[E]` feed `read_exact`, `write_all`, and `copy_all`; helper-generated
-failures have their own variants. Copy errors distinguish reader and writer
-types and count bytes delivered to the writer, including partial writes.
-Caller-provided scratch storage avoids allocation in the helpers.
-
-`FixedBody[E, R]` demonstrates Content-Length body framing over a typed
-transport. Its failures distinguish `Transport(E)`, truncation, invalid
-progress, invalid range, and reuse after failure. Interruption leaves it
-usable; terminal framing/transport failures mark it broken. The full body-copy
-path returns the original transport cause through `FramingError[E]` and
-`CopyFailure[FramingError[E], W]`. It contains zero error-storage fields and
-zero retrieval methods. Production `_failure` fields and `take_failure`
-methods are unchanged: the experiment does not yet justify their removal.
-
-This is one complete **body-transfer** path, not a complete HTTP client. It
-assumes a previously validated Content-Length and response semantics. It does
-not parse heads, implement chunked/close-delimited framing, perform TLS or
-network I/O, or manage connection reuse. Scripted sources exercise rich TLS-like
-errors and cancellation as typed data, not real handshakes or cancellation
-tokens. Those boundaries must be covered before a production migration.
-
-Protocol-bound inference recovers the error types from concrete methods, even
-through the framing adapter: `fixed_body(source, length)` and
-`copy_all(&mut body, &mut writer, &mut scratch)` need no explicit type arguments.
-The generic definitions and nested error signatures are still long. A normalized
-envelope keeps retry policy simple but
-requires adapters to wrap their failures. A classifier callback would leave
-transport signatures alone, at the cost of threading retry policy through
-helpers; it remains an alternative, not implemented here. Arbitrary errors
-must not be retried by guessing their meaning.
-
-Focused tests live in `tests/test_error_composition.rs` and
-`tests/test_typed_stream_prototype.rs`. They cover mapper ownership, allocation
-failure, nested results, evaluation order, progress, retry, EOF, cancellation,
-failure-side attribution, and typed transport preservation. The next decision
-is whether the stream signature cost warrants a broader framing experiment;
-mapping is independently usable today.
+The [experiment record](error-composition/streams-and-evidence.md#prototype-findings)
+records mapper adoption, specialization limits, and the typed-stream prototype.
+It distinguishes the isolated examples from the public library APIs.
 
 ## Additive production slice
 
-[`std.io.typed`](../design/stdlib/io-typed.md) now makes the prototype's typed
-protocols and progress helpers available without copying example modules.
-Its owned legacy reader/writer bridges preserve the returned `StreamError`
-and classify only explicit interruption as retryable. A consuming free function
-recovers each bridge's stream for explicit flushing, closing or seeking.
-The private optional slot supports extraction under existing field-move rules;
-it allocates no storage.
-
-[`std.http.typed`](../design/stdlib/http-typed.md) provides fixed-length and
-close-delimited body readers. Close-delimited EOF is sticky, empty reads do not
-consume input, and its connection is never reusable. Both return
-`FramingError[E]` through the typed protocol without error-storage fields or
-retrieval methods. The production tests run the prototype's cause/progress
-cases against both implementations and exercise real `std.io.Cursor`
-bridges through both framing modes. The standalone `standard.plenty` example
-is the public-module counterpart to `main.plenty`.
-
-This is still a body-transfer slice: validated heads, chunked framing, TLS
-setup, deadlines, connection recovery and client migration remain outside its
-contract. Existing HTTP adapters retain all their side channels; bridging them
-does not reconstruct causes they already discarded. No builtin Failure,
-general-sum, or reporting change is needed by these modules.
-
-On 2026-10-18, a local unoptimized compiler comparison of `main.plenty`
-against `standard.plenty` used five `--compile` runs each with
-`PLENTY_CACHE=off`. Median wall time was 0.196 s versus 0.216 s (ranges
-0.163–0.209 s and 0.181–0.225 s); linked executable sizes were 3,286,648
-and 3,290,816 bytes. Other validation builds were running concurrently, so
-these timings are a bounded smoke measurement, not a performance guarantee.
-The public fixed path adds roughly 4 KiB in this probe; it imports the legacy
-stream module to define bridges. Both copy signatures still carry two error
-types and two stream types, while fixed framing carries one error and one
-reader type. Call sites infer these parameters. No specialization-count
-instrumentation was added, and this small case does not establish scaling for
-a complete HTTP client.
+The [production slice](error-composition/streams-and-evidence.md#additive-production-slice)
+provides typed I/O helpers and fixed-length/close-delimited HTTP body readers.
+Full client migration, chunked framing, and removal of legacy side channels
+remain separate work; the evidence page records the measured scope and limits.

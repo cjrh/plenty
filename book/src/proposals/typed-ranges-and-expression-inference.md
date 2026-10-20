@@ -14,8 +14,15 @@
 >
 > **Remaining:** expected-result inference, partial explicit type arguments, and
 > literals across generic arguments (B16); an iterator protocol (B12);
-> heterogeneous callbacks (B32). Inclusive ranges and indented anonymous bodies
+> mutable/consuming erased callbacks (B32). Explicit fallible
+> [shared-call erasure](../design/language/06-functions/05-boxed-callables.md)
+> already supports heterogeneous shared-call storage. Inclusive ranges and indented anonymous bodies
 > inside delimiters are unscheduled.
+
+The completed [callable surface review](completed/callable-simplicity.md) and
+[stored-environment decision](completed/stored-closures.md) own the callback
+design history. [Allocation-free ranges](completed/allocation-free-generators.md)
+record representation, separate from the inference choices discussed here.
 
 ## Recommendation
 
