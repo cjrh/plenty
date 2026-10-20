@@ -88,6 +88,9 @@ Without a proxy, serve TLS from the program with
 - Cookies keep their `Secure` default, and the scheme is always `https`.
 
 ```text
+type HandlerError = std.http.HttpError | std.http.files.FilesError | std.http.cookie.CookieError | std.bytes.BytesError
+type SetupError = std.http.server.ServerError | std.bytes.BytesError | AllocError | IoError | std.tls.TlsError | std.net.NetError
+
 pub enum Route:
     Files
     Login
@@ -97,7 +100,7 @@ pub class Site:
     pub public: Root
     pub keys: list[Bytes]
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), HandlerError]:
         match route:
             case Route.Files:
                 path = exchange.params[0]
@@ -115,7 +118,7 @@ pub class Site:
                         exchange.send_text(401, "sign in first")?
         Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), SetupError]:
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/s/{path...}", Route.Files)?
     table.add("POST", "/login", Route.Login)?
