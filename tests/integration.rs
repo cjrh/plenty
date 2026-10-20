@@ -386,6 +386,8 @@ mod test_std_signal;
 mod test_std_sqlite;
 #[path = "test_std_sync_mutex.rs"]
 mod test_std_sync_mutex;
+#[path = "test_std_tempfile.rs"]
+mod test_std_tempfile;
 #[path = "test_std_test.rs"]
 mod test_std_test;
 #[path = "test_std_text_unicode.rs"]

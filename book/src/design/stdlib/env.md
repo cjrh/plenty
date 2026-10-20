@@ -32,10 +32,17 @@ every operation reports `IoError.Unsupported`.
 - Each result is a new allocation; failure is
   `IoError.Data(DataError.Allocation(...))`.
 
+`vars()` still builds an intermediate host snapshot with infallible allocations;
+exhaustion at that step can abort the process (issue #354). Single-variable
+lookup does not have that intermediate snapshot.
+
 There is no operation that sets or removes a variable of the running program.
 The environment is process-wide state that other threads and native code read
 without synchronization. Give a child its variables through
 [`Command.env`](process.md#building-a-command) instead.
+Native code embedding Plenty must likewise avoid concurrent mutation of the
+process environment while runtime calls read it. Single-variable lookup copies
+directly into fallible Plenty storage, without an intermediate host string.
 
 Command-line arguments are the prelude's
 [`args` and `args_bytes`](../facilities/02-io/streams-args.md), and typed
@@ -52,6 +59,8 @@ Both use [`std.path.Path`](path.md), so a directory name that is not UTF-8
 round-trips. `current_dir` fails with the system error when the directory has
 been removed. `set_current_dir` reports a missing directory as
 `IoError.System(2)` and leaves the working directory unchanged.
+`current_dir()` grows a fallible native buffer and reports allocation failure
+as `IoError.Data(DataError.Allocation(...))`.
 
 The working directory is shared by every thread, and relative paths resolve
 against it at the moment of each call. Prefer absolute paths, or
@@ -64,4 +73,5 @@ it (see [native effects](../facilities/03-concurrency/effects.md)).
 
 - Linux x86-64 GNU only.
 - No mutation of the program's own environment.
-- No home-directory, temporary-directory, or executable-path lookups.
+- No home-directory or executable-path lookups. Temporary-directory selection
+  is provided by [`std.tempfile.default_dir`](tempfile.md#constructors).

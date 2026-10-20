@@ -1,5 +1,9 @@
 # Temporary resources
 
+For ordinary scratch storage with `with` support, prefer
+[`std.tempfile`](../tempfile.md). These lower-level owners provide rooted staging
+and explicit publication.
+
 `temporary_file(&root) -> Result[TempFile, IoError]` creates an **unnamed**
 `O_TMPFILE` inode in the root's filesystem, mode 0600 restricted by umask.
 Its public `stream: std.io.FileStream` is readable and writable; `seek` back
@@ -9,6 +13,13 @@ links are refused. A successful publication can occur once. It leaves the
 stream open; `close()` reports close errors, and ordinary drop closes it.
 Closing/dropping before publication releases the unnamed inode without an
 unlink-by-name race. After publication the name persists.
+
+`remove_published(&name) -> Result[(), FsError]` explicitly removes a published
+name after comparing it with the still-open stream's device and inode. A missing
+name succeeds; a different regular file returns `FsError.Replaced`, and symlinks
+are refused. The stream remains open. Publication is still allowed only once.
+As with directory cleanup, identity checking and removal are not atomic against
+hostile concurrent renames. This operation supports `std.tempfile` ownership.
 
 Publication uses `/proc/self/fd` so unprivileged users need no special
 capability. The filesystem must support `O_TMPFILE`, and procfs must be
@@ -29,12 +40,19 @@ Entropy errors are reported without weakening the name source.
 `cleanup()` removes only an empty directory and reports errors. It is
 idempotent after success. `keep()` disarms cleanup; the directory remains.
 The destructor attempts the same empty-only cleanup and ignores errors.
-No destructor recursively deletes contents. Fatal traps/process termination
+This low-level destructor never recursively deletes contents. Fatal traps/process termination
 do not unwind; explicit cleanup is required when its success matters.
 Cleanup's native name conversion can allocate: if allocation remains exhausted
 during drop, even an empty directory can remain. File/directory handles still
 close without allocation. Creation reserves names and owner storage before
 mkdir, so allocation failure during construction leaves no directory behind.
+
+`cleanup_tree(max_entries, max_depth, &cancel) -> Result[(), FsError]` is an
+explicit recursive alternative, using the [bounded deletion](operations.md)
+budgets. It checks identity before traversing the held directory and again
+before removing its entry. Successful cleanup disarms the owner. Failure can
+leave partial cleanup and leaves it armed. `std.tempfile.TemporaryDirectory`
+uses this operation for its best-effort destructor.
 
 Temporary directories require a parent whose entries other actors do not
 rename while the owner is live. Cleanup compares the held directory's device
@@ -43,7 +61,7 @@ identity. A missing name or symlink is an I/O error. This catches replacements
 already visible at the check; Linux has no compare-inode-and-unlink syscall,
 so the check and rmdir are **not atomic against a concurrent rename**. Empty
 replacement directories can still be removed by a racing actor. Nonempty
-replacements cannot be recursively traversed by cleanup. A child-open failure
+replacements are never traversed by the empty-only cleanup. A child-open failure
 after mkdir attempts empty-only rollback under the same parent-trust contract.
 
 Temporary names/owners and copies are allocated fallibly. A temporary file

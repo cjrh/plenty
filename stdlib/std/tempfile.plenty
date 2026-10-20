@@ -1,0 +1,210 @@
+# Owned temporary resources. See book/src/design/stdlib/tempfile.md.
+import std.env
+import std.fs
+import std.secrets
+from std.fs import FsError, Root
+from std.io import FileStream, StreamError, SeekFrom
+from std.bytes import Bytes, ByteSource
+from std.path import Path, from_text, from_bytes
+from std.sync import CancellationToken
+
+def io_error[T](result: Result[T, IoError]) -> Result[T, FsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(FsError.Io(error))
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, FsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(FsError.Allocation(error))
+
+def io_allocated[T](result: Result[T, AllocError]) -> Result[T, IoError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(IoError.Data(DataError.Allocation(error)))
+
+def absolute(path: &Path) -> Result[Path, IoError]:
+    if path.is_absolute():
+        return io_allocated(path.copy())
+    base = std.env.current_dir()?
+    base.join(path)
+
+# Resolve afresh: no mutable global cache and no hidden trial-file creation.
+pub def default_dir() -> Result[Path, IoError]:
+    for name in io_allocated(["TMPDIR", "TEMP", "TMP"])?:
+        key = encode_utf8(&name)?
+        match std.env.get_bytes(&key)?:
+            case Some(bytes):
+                if len(bytes) != 0:
+                    return absolute(&from_bytes(bytes))
+            case Nothing:
+                pass
+    from_text("/tmp")
+
+pub class TemporaryFile:
+    _owner: std.fs.TempFile
+
+    pub def stream(self: &mut TemporaryFile) -> &mut FileStream:
+        &mut self._owner.stream
+
+    pub def close(self: &mut TemporaryFile) -> Result[(), StreamError]:
+        self._owner.close()
+
+    pub def __enter__(self: &mut TemporaryFile) -> &mut FileStream:
+        self.stream()
+
+    pub def __exit__(self: &mut TemporaryFile) -> ():
+        drop(self.close())
+
+pub def file(parent: &Path = default_dir()?) -> Result[TemporaryFile, IoError]:
+    root = std.fs.root(parent)?
+    Ok(TemporaryFile(std.fs.temporary_file(&root)?))
+
+def stream_error[T](result: Result[T, StreamError]) -> Result[T, FsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(FsError.Stream(error))
+
+# Keep the original descriptor private until the name has been removed, so
+# cleanup can compare identities even if another process replaces the path.
+pub class NamedTemporaryFile:
+    _owner: std.fs.TempFile
+    _name: Path
+    _path: Path
+    _active: bool
+
+    pub def path(self) -> &Path:
+        &self._path
+
+    pub def read(self: &mut NamedTemporaryFile, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        self._owner.stream.read(buffer, start, stop)
+
+    pub def write[S: ByteSource](self: &mut NamedTemporaryFile, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+        self._owner.stream.write(source, start, stop)
+
+    pub def flush(self: &mut NamedTemporaryFile) -> Result[(), StreamError]:
+        self._owner.stream.flush()
+
+    pub def sync(self: &mut NamedTemporaryFile) -> Result[(), StreamError]:
+        self._owner.stream.sync()
+
+    pub def seek(self: &mut NamedTemporaryFile, target: SeekFrom) -> Result[i64, StreamError]:
+        self._owner.stream.seek(target)
+
+    pub def close(self: &mut NamedTemporaryFile) -> Result[(), FsError]:
+        if self._active:
+            self._owner.remove_published(&self._name)?
+            self._active = False
+        stream_error(self._owner.close())
+
+    pub def keep(self: &mut NamedTemporaryFile) -> Result[Path, AllocError]:
+        path = self._path.copy()?
+        self._active = False
+        Ok(path)
+
+    pub def __enter__(self: &mut NamedTemporaryFile) -> &mut NamedTemporaryFile:
+        self
+
+    pub def __exit__(self: &mut NamedTemporaryFile) -> ():
+        drop(self.close())
+
+    def __del__(self) -> ():
+        drop(self.close())
+
+def valid_part(text: &str) -> Result[i64, FsError]:
+    bytes = io_error(encode_utf8(text))?
+    for byte in &bytes:
+        if byte == 0u8 or byte == 47u8:
+            return Err(FsError.InvalidInput)
+    Ok(len(bytes))
+
+def random_name(prefix: &str, suffix: &str) -> Result[Path, FsError]:
+    token = match std.secrets.token_hex(16):
+        case Ok(value):
+            value
+        case Err(error):
+            return Err(FsError.Entropy(error))
+    text = allocated(prefix.concat(&token))?
+    io_error(from_text(&allocated(text.concat(suffix))?))
+
+pub def named_file(parent: &Path = io_error(default_dir())?, prefix: &str = "plenty-", suffix: &str = "") -> Result[NamedTemporaryFile, FsError]:
+    prefix_size = valid_part(prefix)?
+    suffix_size = valid_part(suffix)?
+    if prefix_size > 200 or suffix_size > 200:
+        return Err(FsError.InvalidInput)
+    if prefix_size + suffix_size > 200:
+        return Err(FsError.InvalidInput)
+    base = io_error(absolute(parent))?
+    root = io_error(std.fs.root(&base))?
+    mut owner = io_error(std.fs.temporary_file(&root))?
+    for _ in range(16):
+        name = random_name(prefix, suffix)?
+        path = io_error(base.join(&name))?
+        match owner.publish(&name):
+            case Ok(_):
+                return Ok(NamedTemporaryFile(owner, name, path, True))
+            case Err(IoError.System(17i32)):
+                pass
+            case Err(error):
+                return Err(FsError.Io(error))
+    Err(FsError.Collisions)
+
+pub class TemporaryDirectory:
+    _owner: std.fs.TempDir
+    _path: Path
+    _cancel: CancellationToken
+    _max_entries: i64
+    _max_depth: i64
+
+    pub def path(self) -> &Path:
+        &self._path
+
+    pub def root(self) -> &Root:
+        self._owner.root()
+
+    pub def cleanup(self: &mut TemporaryDirectory) -> Result[(), FsError]:
+        self._owner.cleanup_tree(self._max_entries, self._max_depth, &self._cancel)
+
+    # Allocate the returned path before disarming cleanup.
+    pub def keep(self: &mut TemporaryDirectory) -> Result[Path, AllocError]:
+        path = self._path.copy()?
+        self._owner.keep()
+        Ok(path)
+
+    pub def __enter__(self: &mut TemporaryDirectory) -> &mut TemporaryDirectory:
+        self
+
+    pub def __exit__(self: &mut TemporaryDirectory) -> ():
+        drop(self.cleanup())
+
+    def __del__(self) -> ():
+        drop(self.cleanup())
+
+pub def directory(parent: &Path = io_error(default_dir())?, prefix: &str = "plenty-", max_entries: i64 = 100000, max_depth: i64 = 64) -> Result[TemporaryDirectory, FsError]:
+    if max_entries < 1 or max_depth < 1 or max_depth > 64:
+        return Err(FsError.InvalidInput)
+    base = io_error(absolute(parent))?
+    root = io_error(std.fs.root(&base))?
+    if valid_part(prefix)? > 200:
+        return Err(FsError.InvalidInput)
+    cancel = allocated(CancellationToken())?
+    for _ in range(16):
+        name = random_name(prefix, "")?
+        # Complete every wrapper allocation before creating the directory.
+        path = io_error(base.join(&name))?
+        match std.fs.temporary_dir_named(&root, &name):
+            case Ok(owner):
+                return Ok(TemporaryDirectory(owner, path, cancel, max_entries, max_depth))
+            case Err(FsError.Io(IoError.System(17i32))):
+                pass
+            case Err(error):
+                return Err(error)
+    Err(FsError.Collisions)
