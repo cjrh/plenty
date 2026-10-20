@@ -7,6 +7,7 @@ use super::*;
 use std::path::{Path, PathBuf};
 
 pub(super) mod harness;
+pub(crate) mod inputs;
 
 /// Toolchain sources have stable identities and never participate in filesystem
 /// search. Keeping them in the compiler also makes installation relocatable.
@@ -237,6 +238,9 @@ pub(super) struct Resolved {
     pub(super) public_api: Vec<TypeRef>,
     pub(super) at: Token,
     pub(super) require_main: bool,
+    /// What the program depends on outside the compiler, for the program
+    /// cache; empty for a single source.
+    pub(super) inputs: inputs::Inputs,
 }
 
 fn qualified(module: &str, name: &str) -> String {
@@ -565,6 +569,7 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
         modules: vec![],
         dependencies: vec![],
         appendix: None,
+        inputs: vec![],
     };
     let mut entry = vec![];
     for import in &module.imports {
@@ -597,6 +602,15 @@ pub(super) fn generated_interface(source: &str) -> Result<Resolved> {
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Result<Resolved> {
+    let (entry, graph) = file_graph(path, root)?;
+    load_graph(&entry, &graph, require_main)
+}
+
+/// The canonical entry and the one-package graph that [`load`] compiles.
+pub(super) fn file_graph(
+    path: &Path,
+    root: Option<&Path>,
+) -> Result<(PathBuf, crate::project::SourceGraph)> {
     let entry = path
         .canonicalize()
         .map_err(|e| format!("reading {}: {e}", path.display()))?;
@@ -612,7 +626,15 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
             dependencies: vec![],
         }],
     };
-    load_graph(&entry, &graph, require_main)
+    Ok((entry, graph))
+}
+
+/// The canonical entry and packages [`load_graph`] would use: what names a
+/// build of them in the program cache. `None` when loading would fail.
+pub(super) fn identity(path: &Path, graph: &crate::project::SourceGraph) -> Option<String> {
+    let entry = path.canonicalize().ok()?;
+    let packages = prepare_packages(graph).ok()?;
+    Some(format!("{entry:?}\n{packages:?}"))
 }
 
 /// A file's path below its source root as a dotted module path, if every
@@ -649,6 +671,8 @@ struct Loader {
     dependencies: Vec<Vec<usize>>,
     /// Taken by the first file read, which is the entry.
     appendix: Option<String>,
+    /// Each source file read, with its imports' resolutions.
+    inputs: Vec<inputs::File>,
 }
 impl Loader {
     fn file(
@@ -673,6 +697,13 @@ impl Loader {
         }
         self.active.push(source.clone());
         let mut text = source.read()?;
+        let input = match &source {
+            ModuleSource::File(path) => {
+                self.inputs.push(inputs::File::new(path, package, &text));
+                Some(self.inputs.len() - 1)
+            }
+            ModuleSource::Standard(_) => None,
+        };
         if let Some(appendix) = self.appendix.take() {
             text.push_str(&appendix);
         }
@@ -688,6 +719,9 @@ impl Loader {
         let mut deps = Vec::new();
         for import in &module.imports {
             let (dependency, owner) = self.import_path(import, package)?;
+            if let Some(input) = input {
+                self.inputs[input].import(&import.module, &dependency, owner);
+            }
             // The implicit `std.fmt` import of an f-string has no source span.
             if super::ide::active() && import.binding != fstrings::FMT_BINDING {
                 super::ide::module(
@@ -864,6 +898,55 @@ pub(super) fn load_graph_with(
     let entry = path
         .canonicalize()
         .map_err(|e| format!("reading {}: {e}", path.display()))?;
+    let packages = prepare_packages(graph)?;
+    let root = packages[0].root.clone();
+    if !entry.starts_with(&root) {
+        return Err(format!(
+            "entry {} must be inside source root {}",
+            entry.display(),
+            root.display()
+        )
+        .into());
+    }
+    let mut loader = Loader {
+        packages,
+        active: vec![],
+        loaded: HashMap::new(),
+        modules: vec![],
+        dependencies: vec![],
+        appendix: appendix.map(str::to_owned),
+        inputs: vec![],
+    };
+    let (_, at) = loader.file(ModuleSource::File(entry), 0, String::new())?;
+    let inputs = inputs::Inputs::new(std::mem::take(&mut loader.inputs));
+    let mut result = resolve(loader.modules, loader.dependencies, at, require_main)?;
+    result.inputs = inputs;
+    result.standard_sources = loader
+        .loaded
+        .keys()
+        .filter_map(|source| match source {
+            ModuleSource::Standard(_) => Some(source.path().to_string_lossy().into_owned().into()),
+            ModuleSource::File(_) => None,
+        })
+        .collect();
+    result.source_paths = loader
+        .loaded
+        .into_keys()
+        .filter_map(|source| match source {
+            ModuleSource::File(path) => Some(path),
+            ModuleSource::Standard(_) => None,
+        })
+        .collect();
+    result.source_paths.sort();
+    result.source_root = Some(root);
+    Ok(result)
+}
+
+/// `graph`'s packages with canonical roots and library paths, after the checks
+/// every load makes: reserved and colliding names, and overlapping roots.
+fn prepare_packages(
+    graph: &crate::project::SourceGraph,
+) -> Result<Vec<crate::project::SourcePackage>> {
     let mut packages = graph.packages.clone();
     for package in &mut packages {
         package.root = package
@@ -935,44 +1018,7 @@ pub(super) fn load_graph_with(
             }
         }
     }
-    let root = packages[0].root.clone();
-    if !entry.starts_with(&root) {
-        return Err(format!(
-            "entry {} must be inside source root {}",
-            entry.display(),
-            root.display()
-        )
-        .into());
-    }
-    let mut loader = Loader {
-        packages,
-        active: vec![],
-        loaded: HashMap::new(),
-        modules: vec![],
-        dependencies: vec![],
-        appendix: appendix.map(str::to_owned),
-    };
-    let (_, at) = loader.file(ModuleSource::File(entry), 0, String::new())?;
-    let mut result = resolve(loader.modules, loader.dependencies, at, require_main)?;
-    result.standard_sources = loader
-        .loaded
-        .keys()
-        .filter_map(|source| match source {
-            ModuleSource::Standard(_) => Some(source.path().to_string_lossy().into_owned().into()),
-            ModuleSource::File(_) => None,
-        })
-        .collect();
-    result.source_paths = loader
-        .loaded
-        .into_keys()
-        .filter_map(|source| match source {
-            ModuleSource::File(path) => Some(path),
-            ModuleSource::Standard(_) => None,
-        })
-        .collect();
-    result.source_paths.sort();
-    result.source_root = Some(root);
-    Ok(result)
+    Ok(packages)
 }
 
 /// Local names in scope and where each was bound. The positions serve
@@ -1650,6 +1696,7 @@ fn resolve(
         public_api: vec![],
         at,
         require_main,
+        inputs: inputs::Inputs::default(),
     };
     for (i, m) in modules.iter_mut().enumerate() {
         let mut scope = Scope {

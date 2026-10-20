@@ -53,6 +53,7 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
   compilation).
 --no-cache: compile every function instead of reusing the compiled-function
   cache (also PLENTY_CACHE=off; PLENTY_CACHE_DIR selects the directory).
+--no-program-cache: reuse compiled functions but not a whole program's object.
 --cache-stats: report the cache's hits and misses after compiling.
 --legacy before FILE or --compile selects the historical stack syntax.
 ";
@@ -156,6 +157,10 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     if let Some(index) = args.iter().position(|a| a == "--no-cache") {
         args.remove(index);
         options.cache = plenty::cache::CacheMode::Off;
+    }
+    if let Some(index) = args.iter().position(|a| a == "--no-program-cache") {
+        args.remove(index);
+        options.program_cache = false;
     }
     if let Some(index) = args.iter().position(|a| a == "--cache-stats") {
         args.remove(index);

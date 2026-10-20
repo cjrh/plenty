@@ -266,8 +266,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     if options.workload.aot() {
         let directory = tempfile::tempdir()?;
         let output = directory.path().join("program");
+        // The program cache would serve every timed build after the first
+        // without compiling anything; the function cache stays as configured.
+        let compile = plenty::CompileOptions {
+            program_cache: false,
+            ..Default::default()
+        };
         let native = measure(
-            || plenty::compile_source_to_executable(&source, &output),
+            || plenty::compile_source_to_executable_with_options(&source, &output, &compile),
             options.repetitions,
             options.warmup,
         );

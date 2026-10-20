@@ -71,7 +71,9 @@ All modes work without profiling. Features alone never start a session;
 Disable the cache deliberately for cold-build measurements; for warm-cache
 comparisons use an isolated `PLENTY_CACHE_DIR`, retain it between runs, and omit
 `PLENTY_CACHE=off`. Cache hits skip Cranelift but still build IR and assemble the
-object. These modes do not collect a whole-test-suite profile.
+object. `compile_bench` never uses [program objects](../design/toolchain/02-architecture/cache.md#program-objects);
+pass `--no-program-cache` to `plenty` for the same warm-function measurement,
+since an unchanged program otherwise skips the frontend and code generation. These modes do not collect a whole-test-suite profile.
 
 ## Reading the report
 

@@ -97,6 +97,10 @@ pub struct CompileOptions {
     pub optimize: bool,
     /// Where compiled functions are cached between compilations.
     pub cache: crate::cache::CacheMode,
+    /// Reuse a whole program's object from the cache when none of its
+    /// sources changed. Off, a build reuses only compiled functions, so it
+    /// still measures the frontend and code generation.
+    pub program_cache: bool,
     /// Print the cache's hit and miss counts after compiling.
     pub cache_stats: bool,
     /// Build a libFuzzer target linked with this libFuzzer archive (clang's
@@ -115,6 +119,7 @@ impl Default for CompileOptions {
             link_args: Vec::new(),
             optimize: false,
             cache: crate::cache::CacheMode::Environment,
+            program_cache: true,
             cache_stats: false,
             fuzz: None,
         }

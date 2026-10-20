@@ -1,7 +1,7 @@
-//! The compiled-function cache (issue #144), through the `plenty` binary:
-//! objects built from it are identical to uncached ones, concurrent compilers
-//! share a directory safely, damage degrades to compiling, and the controls
-//! work. Every test uses a directory of its own: nothing here depends on the
+//! The compiled-function cache (issue #144) and the program cache (issue
+//! #317), through the `plenty` binary: objects built from them are identical
+//! to uncached ones, concurrent compilers share a directory safely, damage
+//! degrades to compiling, edits invalidate, and the controls work. Every test uses a directory of its own: nothing here depends on the
 //! suite's shared cache, and nothing here changes it.
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -109,11 +109,14 @@ fn warm_cache_reproduces_the_uncached_object_without_misses() {
     let cache = dir.path().join("cache");
     let off = emit(dir.path(), PROGRAM, None, &[]);
     assert!(off.stderr().contains("compile cache: off"));
-    let cold = emit(dir.path(), PROGRAM, Some(&cache), &[]);
+    // Each run has its own entry file, so no program entry serves it; a
+    // program entry would be the only write.
+    let only_functions = &["--no-program-cache"];
+    let cold = emit(dir.path(), PROGRAM, Some(&cache), only_functions);
     let (hits, misses) = cold.counts();
     assert!(misses > hits, "{}", cold.stderr());
     assert!(entries(&cache).len() as u64 <= misses);
-    let warm = emit(dir.path(), PROGRAM, Some(&cache), &[]);
+    let warm = emit(dir.path(), PROGRAM, Some(&cache), only_functions);
     assert_eq!(warm.counts(), (hits + misses, 0), "{}", warm.stderr());
     assert!(off.object == cold.object, "a cold cache changed the object");
     assert!(off.object == warm.object, "a warm cache changed the object");
@@ -399,7 +402,8 @@ fn cache_commands_report_and_empty_the_directory() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("cache");
     emit(dir.path(), PROGRAM, Some(&cache), &[]);
-    let functions = entries(&cache).len();
+    // Compiled functions and the program's object.
+    let functions = entries(&cache).len() + program_entries(&cache).len();
     let stats = plenty()
         .args(["cache", "stats"])
         .env("PLENTY_CACHE_DIR", &cache)
@@ -424,6 +428,7 @@ fn cache_commands_report_and_empty_the_directory() {
         String::from_utf8_lossy(&clean.stderr).contains(&format!("Removed {functions} entries"))
     );
     assert!(entries(&cache).is_empty());
+    assert!(program_entries(&cache).is_empty());
 
     let off = plenty()
         .args(["cache", "stats"])
@@ -479,4 +484,305 @@ fn the_size_limit_trims_old_entries() {
     assert!(remaining <= total, "{remaining} > {total}");
     assert!(entries(&cache).len() <= functions);
     assert!(!entries(&cache).is_empty());
+}
+
+// ---- The program cache (issue #317) ----
+
+const MAIN: &str = "import util
+import std.json
+
+def main() -> Result[(), Failure]:
+    print(util.double(21))?
+    Ok(())
+";
+
+const UTIL: &str = "import helpers
+
+pub def double(n: i64) -> i64:
+    helpers.twice(n)
+";
+
+const HELPERS: &str = "pub def twice(n: i64) -> i64:
+    n + n
+";
+
+/// A three-module program in a directory of its own.
+fn project(dir: &Path) -> PathBuf {
+    let root = dir.join("project");
+    std::fs::create_dir(&root).unwrap();
+    for (name, text) in [
+        ("main.plenty", MAIN),
+        ("util.plenty", UTIL),
+        ("helpers.plenty", HELPERS),
+    ] {
+        std::fs::write(root.join(name), text).unwrap();
+    }
+    root
+}
+
+/// Emit `root/main.plenty`'s object, always at the same paths: the program
+/// cache names a build by its entry file.
+fn emit_project(root: &Path, cache: Option<&Path>, args: &[&str]) -> Run {
+    let object = root.join("main.o");
+    let mut command = plenty();
+    command
+        .args(["--cache-stats", "--emit-object"])
+        .arg(root.join("main.plenty"))
+        .arg("-o")
+        .arg(&object)
+        .args(args);
+    match cache {
+        Some(cache) => command.env("PLENTY_CACHE_DIR", cache),
+        None => command.env("PLENTY_CACHE", "off"),
+    };
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let object = std::fs::read(&object).unwrap();
+    Run { output, object }
+}
+
+/// `Some(true)` for a program hit, `Some(false)` for a miss.
+fn program(run: &Run) -> Option<bool> {
+    let stderr = run.stderr();
+    if stderr.contains("compile cache: program hit, ") {
+        Some(true)
+    } else if stderr.contains("compile cache: program miss, ") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn program_entries(cache: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(shards) = std::fs::read_dir(cache.join("program")) else {
+        return found;
+    };
+    for shard in shards.flatten() {
+        for file in std::fs::read_dir(shard.path()).unwrap().flatten() {
+            found.push(file.path());
+        }
+    }
+    found.sort();
+    found
+}
+
+#[test]
+fn an_unchanged_program_reuses_its_object() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let root = project(dir.path());
+    let reference = emit_project(&root, None, &[]);
+    assert_eq!(program(&reference), None);
+    let cold = emit_project(&root, Some(&cache), &[]);
+    assert_eq!(program(&cold), Some(false), "{}", cold.stderr());
+    assert_eq!(program_entries(&cache).len(), 1);
+    // The first build stores only a marker; the second stores its object.
+    let [marker] = program_entries(&cache).try_into().unwrap();
+    assert!(std::fs::metadata(&marker).unwrap().len() < 100);
+    let second = emit_project(&root, Some(&cache), &[]);
+    assert_eq!(program(&second), Some(false), "{}", second.stderr());
+    assert!(std::fs::metadata(&marker).unwrap().len() as usize > reference.object.len());
+    let warm = emit_project(&root, Some(&cache), &[]);
+    assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
+    // No function was compiled or looked up, and nothing was written.
+    assert_eq!(warm.counts(), (0, 0), "{}", warm.stderr());
+    assert!(warm.stderr().contains(" 0 B written"), "{}", warm.stderr());
+    assert!(
+        cold.object == reference.object,
+        "a cold build changed the object"
+    );
+    assert!(
+        warm.object == reference.object,
+        "a program hit changed the object"
+    );
+
+    // The executable runs the same program.
+    let executable = root.join("main");
+    let output = plenty()
+        .args(["--cache-stats", "--compile"])
+        .arg(root.join("main.plenty"))
+        .arg("-o")
+        .arg(&executable)
+        .env("PLENTY_CACHE_DIR", &cache)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("program hit"));
+    let run = Command::new(&executable).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "42\n");
+}
+
+/// Every edit to any module the program reads, to its body or its interface,
+/// misses, and the rebuilt object is the uncached one. Each rebuild replaces
+/// the program's single entry.
+#[test]
+fn editing_any_module_rebuilds_the_program() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let root = project(dir.path());
+    emit_project(&root, Some(&cache), &[]);
+    let edits: [(&str, &str, &str); 4] = [
+        // A body edit two imports away.
+        ("helpers.plenty", "n + n", "n * 2"),
+        // An interface edit, with the caller changed to match.
+        (
+            "util.plenty",
+            "pub def double(n: i64) -> i64:\n    helpers.twice(n)",
+            "pub def double(n: i64, m: i64) -> i64:\n    helpers.twice(n) + m",
+        ),
+        ("main.plenty", "util.double(21)", "util.double(21, 0)"),
+        // An edit to the entry that adds an import.
+        (
+            "main.plenty",
+            "import std.json\n",
+            "import std.json\nimport std.math\n",
+        ),
+    ];
+    for (file, from, to) in edits {
+        let path = root.join(file);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(from), "{file}: {from:?}");
+        std::fs::write(&path, text.replace(from, to)).unwrap();
+        if file == "util.plenty" {
+            // The interface edit alone does not compile; finish it first.
+            continue;
+        }
+        let reference = emit_project(&root, None, &[]);
+        let rebuilt = emit_project(&root, Some(&cache), &[]);
+        assert_eq!(
+            program(&rebuilt),
+            Some(false),
+            "{file}: {}",
+            rebuilt.stderr()
+        );
+        assert!(rebuilt.object == reference.object, "{file}");
+        let warm = emit_project(&root, Some(&cache), &[]);
+        assert_eq!(program(&warm), Some(true), "{file}: {}", warm.stderr());
+        assert!(warm.object == reference.object, "{file}");
+        assert_eq!(program_entries(&cache).len(), 1);
+    }
+}
+
+/// A new file that changes how an import resolves is noticed, though the
+/// program never read it: here it makes the import ambiguous.
+#[test]
+fn a_new_file_that_changes_resolution_is_noticed() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let root = project(dir.path());
+    emit_project(&root, Some(&cache), &[]);
+    emit_project(&root, Some(&cache), &[]);
+    std::fs::write(root.join("helpers.plentyi"), HELPERS).unwrap();
+    let output = plenty()
+        .args(["--emit-object"])
+        .arg(root.join("main.plenty"))
+        .arg("-o")
+        .arg(root.join("main.o"))
+        .env("PLENTY_CACHE_DIR", &cache)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("ambiguous module `helpers`"), "{stderr}");
+
+    // Removing it again restores the stored program.
+    std::fs::remove_file(root.join("helpers.plentyi")).unwrap();
+    let warm = emit_project(&root, Some(&cache), &[]);
+    assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
+}
+
+/// Another compiler, or the same one rebuilt, never reuses a program: the
+/// compiler embeds `std`, so this is also how a `std` edit is noticed.
+#[test]
+fn a_different_compiler_rebuilds_the_program() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let root = project(dir.path());
+    let reference = emit_project(&root, Some(&cache), &[]);
+    let copy = dir.path().join("plenty-copy");
+    std::fs::copy(env!("CARGO_BIN_EXE_plenty"), &copy).unwrap();
+    let emit_with = |compiler: &Path| {
+        let output = Command::new(compiler)
+            .args(["--cache-stats", "--emit-object"])
+            .arg(root.join("main.plenty"))
+            .arg("-o")
+            .arg(root.join("main.o"))
+            .env_remove("PLENTY_CACHE")
+            .env("PLENTY_CACHE_DIR", &cache)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        Run {
+            output,
+            object: std::fs::read(root.join("main.o")).unwrap(),
+        }
+    };
+    let first = emit_with(&copy);
+    assert_eq!(program(&first), Some(false), "{}", first.stderr());
+    assert_eq!(program(&emit_with(&copy)), Some(false));
+    assert_eq!(program(&emit_with(&copy)), Some(true));
+    // A rebuilt compiler has a new modification time.
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    std::fs::File::options()
+        .write(true)
+        .open(&copy)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    let rebuilt = emit_with(&copy);
+    assert_eq!(program(&rebuilt), Some(false), "{}", rebuilt.stderr());
+    assert!(rebuilt.object == reference.object);
+}
+
+/// Code generation settings name programs apart, and a build can opt out.
+#[test]
+fn settings_and_the_opt_out_are_respected() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let root = project(dir.path());
+    emit_project(&root, Some(&cache), &[]);
+    let optimized = plenty()
+        .args(["--cache-stats", "--release", "--compile"])
+        .arg(root.join("main.plenty"))
+        .arg("-o")
+        .arg(root.join("main"))
+        .env("PLENTY_CACHE_DIR", &cache)
+        .output()
+        .unwrap();
+    assert!(optimized.status.success());
+    let stderr = String::from_utf8_lossy(&optimized.stderr);
+    assert!(stderr.contains("program miss"), "{stderr}");
+    assert_eq!(program_entries(&cache).len(), 2);
+
+    let opted_out = emit_project(&root, Some(&cache), &["--no-program-cache"]);
+    assert_eq!(program(&opted_out), None, "{}", opted_out.stderr());
+    let (hits, misses) = opted_out.counts();
+    assert!(hits > 0 && misses == 0, "{}", opted_out.stderr());
+    assert_eq!(program_entries(&cache).len(), 2);
+}
+
+#[test]
+fn a_damaged_program_entry_is_rebuilt() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let root = project(dir.path());
+    let reference = emit_project(&root, None, &[]);
+    emit_project(&root, Some(&cache), &[]);
+    emit_project(&root, Some(&cache), &[]);
+    let [entry] = program_entries(&cache).try_into().unwrap();
+    let mut bytes = std::fs::read(&entry).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xff;
+    std::fs::write(&entry, &bytes).unwrap();
+    let repaired = emit_project(&root, Some(&cache), &[]);
+    assert_eq!(program(&repaired), Some(false), "{}", repaired.stderr());
+    assert!(repaired.object == reference.object);
+    let warm = emit_project(&root, Some(&cache), &[]);
+    assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
+    assert!(warm.object == reference.object);
 }
