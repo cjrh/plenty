@@ -5,7 +5,8 @@
 It adopts `case cause: Type:` at the case position, grouped types and inline
 normalization/injection/widening. Existing pattern guards remain unsupported.
 [Human-readable reporting](completed/error-formatting.md) has also shipped.
-Removal of builtin `Failure` and its erasure rule remains migration work. The current
+Builtin `Failure` stays as a last resort, for when no precise error can be
+written (issue #342). The current
 [propagation reference](../design/language/08-errors/01-sums-and-propagation.md)
 remains authoritative. Scheduling belongs in B14/B71 in
 the [backlog](../backlog.md). Human-readable presentation is specified separately
@@ -169,6 +170,6 @@ destruction, exhaustive matching, and no implicit allocation.
 Explicit mapping is the implemented baseline. Add ordinary non-error sum values
 to the acceptance cases, plus Result widening on both success and failure,
 generic normalization, borrowed/mutable matching, and entrypoint reporting of
-each active member. The final migration must leave no dependency on the builtin
-Failure or its erasure semantics. Production typed-stream migration remains a
+each active member. Builtin Failure and its erasure stay as a last resort, for
+when no precise error can be written (issue #342). Production typed-stream migration remains a
 separate change: sums cannot restore causes already discarded by an adapter.

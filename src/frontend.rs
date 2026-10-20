@@ -3033,7 +3033,7 @@ impl Lower<'_> {
             }
             if literal {
                 let error = &target.get().variants[1].fields[0];
-                return Err(e.at.error(format!("`?` requires identical Result error types; a collection literal fails with AllocError, which cannot propagate as {error}; return Result[_, AllocError] or Result[_, Failure], or match the literal and convert the error explicitly")));
+                return Err(e.at.error(format!("`?` requires identical Result error types; a collection literal fails with AllocError, which cannot propagate as {error}; declare a sum that includes it, such as Result[_, AllocError | {error}], or match the literal and convert the error explicitly")));
             }
             let hint = producer_conflict_hint(
                 &target.get().variants[1].fields[0],

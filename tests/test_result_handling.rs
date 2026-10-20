@@ -205,7 +205,7 @@ class Guard:
         print(self.label).unwrap()
 def fail(label: str) -> Result[(), Guard]:
     Err(Guard(label))
-# B71: propagating into Failure erases the owned error; the drop count is the point.
+# Tests `Failure` itself: erasure must drop the owned error once.
 def propagate() -> Result[(), Failure]:
     fail("propagated")?
     Ok(())

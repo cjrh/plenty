@@ -1049,8 +1049,8 @@ def worker{i}(n: i64) -> Result[list[i64], AllocError]:
 def scaled{i}(n: i64) -> i64:
     n * {i} + 1
 
-# B71: object-identity fixture left unmigrated; it mixes spawn, pool and map jobs, so a single declared error needs one producer per job.
-def run{i}(n: i64) -> Result[(), Failure]:
+# Spawn, pool and map jobs each contribute their own errors.
+def run{i}(n: i64) -> Result[(), AllocError | IoError | PoolError | PoolMapError | ThreadError]:
     for value in count{i}(n):
         print(value)?
     print(table{i}(n)?[\"k{i}\"][1] // n)?

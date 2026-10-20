@@ -3,10 +3,11 @@
 **Status: Partly implemented.** Library mapping, general anonymous sums,
 human-readable reporting, and additive typed stream/body APIs have shipped.
 `?` supports lossless error-set widening, without user-defined conversions;
-builtin `Failure` erasure still exists pending migration.
+builtin `Failure` erasure stays as a last resort, for when no precise error
+can be written (issue #342).
 Remaining work belongs in [B71](../backlog.md).
 The companion [error sets](error-sets.md) page records the sum contract and
-remaining removal of builtin `Failure`; [formatting](completed/error-formatting.md)
+the last-resort role of builtin `Failure`; [formatting](completed/error-formatting.md)
 records the shipped enum-capable reporting design.
 [Typestate](typestate-and-owned-transitions.md) addresses lifecycle invariants.
 
@@ -29,8 +30,8 @@ separate field and return a generic error through the stream interface.
 
 Explicit result mapping and an isolated parameterized-stream experiment now
 provide the baseline. General anonymous sums and human-readable formatting
-for enums and classes have since shipped. Builtin `Failure` removal remains
-a coordinated migration, including its export and retained-job boundaries.
+for enums and classes have since shipped. Builtin `Failure` stays as a last
+resort; issue #342 removes the export and retained-job cases that forced it.
 Keep named domain errors where they encode useful
 policy. Production stream migration remains independently reviewable; neither
 mapping nor sums alone can recover causes discarded by existing stream APIs.
@@ -127,8 +128,8 @@ allows ordinary typed data in `Err`. Reporting and recoverability are separate.
 The implemented [formatting protocol](completed/error-formatting.md) provides
 presentation without an existential error container. Enums can satisfy protocols,
 and anonymous sums forward this formatting protocol when all members qualify.
-Remove builtin Failure through the coordinated sum migration; an erased error
-container and heterogeneous cause-chain interface remain deferred.
+Builtin Failure stays as a last resort, for when no precise error can be
+written (issue #342); an erased error container and heterogeneous cause-chain interface remain deferred.
 
 ## Removing the stream error side channel
 

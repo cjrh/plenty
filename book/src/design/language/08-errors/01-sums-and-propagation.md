@@ -62,9 +62,9 @@ payload ownership transfers to the caller. Generator bodies reject `?` because
 their declared return family is `Generator[T]`; explicitly match instead.
 
 Prefer a concrete error or a declared sum when combining fallible operations,
-so callers can inspect or report the cause. The legacy `Failure` is a copyable
-allocation-free builtin enum containing only
-`Failure.Unspecified`. In a function returning `Result[T, Failure]`, `?`
+so callers can inspect or report the cause. Builtin `Failure` is the last
+resort, for when no precise error can be written. It is a copyable
+allocation-free builtin enum containing only `Failure.Unspecified`. In a function returning `Result[T, Failure]`, `?`
 accepts any Result error type. Failure consumes and drops the original error
 payload, then returns `Err(Failure.Unspecified)` after normal cleanup. Success
 keeps its original payload. Erasure keeps no details, allocates no wrapper,

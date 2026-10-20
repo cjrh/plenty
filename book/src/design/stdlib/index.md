@@ -109,7 +109,8 @@ remain errors. Generic constructor and error aliases retain the same types.
 Embedded modules have toolchain identities such as `std/math.plenty`,
 independent of the installation path. A diagnostic located inside a standard
 module, such as a note on a generic helper instantiated with an unsupported
-type, uses that name. Imports currently require the file-based compilation APIs.
+type, uses that name. The source-only APIs (`check_source`, `compile_source_*`)
+have no source root, so they can import `std` modules but not project modules.
 
 The [runtime packaging](../toolchain/02-architecture/runtime.md) page describes
 how the sources ship with the compiler.

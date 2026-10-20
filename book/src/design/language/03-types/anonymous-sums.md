@@ -61,8 +61,8 @@ rejects the whole bound, regardless of which member is active.
 
 This version does not infer residual sums after recovery, introduce empty
 sums, forward arbitrary member methods or protocols, or erase errors. See
-[propagation](../08-errors/01-sums-and-propagation.md) for `?` and the temporary
-`Failure` migration behavior.
+[propagation](../08-errors/01-sums-and-propagation.md) for `?` and builtin
+`Failure`, the last-resort error that erases its cause.
 
 The [anonymous-sum proposal](../../../proposals/error-sets.md) records the
 design rationale and migration boundary. The [composition overview](../../../proposals/error-composition.md)

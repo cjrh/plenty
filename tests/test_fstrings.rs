@@ -171,20 +171,14 @@ def main() -> Result[(), AllocError | IoError | FormatError]:
 fn source_only_compilation_imports_std_fmt_implicitly() {
     // No `import`: the compiler adds `std.fmt` for the f-string alone.
     plenty::check_source(
-        // B71: source-only checking rejects imports, so `FormatError` cannot be named here.
-        "def main() -> Result[(), Failure]:\n    n = 3\n    print(f\"{n:>4}\"?)?\n    Ok(())\n",
+        "def main() -> ():\n    n = 3\n    match f\"{n:>4}\":\n        case Ok(text):\n            pass\n        case Err(error):\n            pass\n",
     )
     .unwrap();
-    // A user import is still rejected without a source root.
-    let error = plenty::check_source(
-        "import std.fmt\ndef main() -> Result[(), AllocError | IoError]:\n    print(f\"{1}\"?)?\n    Ok(())\n",
+    // An explicit `std` import names `FormatError` alongside the implicit one.
+    plenty::check_source(
+        "from std.fmt import FormatError\ndef main() -> Result[(), AllocError | FormatError | IoError]:\n    n = 3\n    print(f\"{n:>4}\"?)?\n    Ok(())\n",
     )
-    .unwrap_err()
-    .to_string();
-    assert!(
-        error.contains("imports require a file-based compilation API"),
-        "{error}"
-    );
+    .unwrap();
 }
 
 #[test]

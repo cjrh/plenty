@@ -1896,7 +1896,7 @@ pub fn init(directory: &Path, name: Option<&str>, template: Template) -> Result<
         Template::Application => (
             "src/main.plenty",
             format!(
-                "def main() -> Result[(), Failure]:\n    print(\"Hello from {name}!\")?\n    Ok(())\n"
+                "def main() -> Result[(), IoError]:\n    print(\"Hello from {name}!\")?\n    Ok(())\n"
             ),
         ),
         Template::Library => (

@@ -590,7 +590,7 @@ fn returned_errors_are_named_only_when_they_say_something() {
 def test_explained() -> Result[(), std.test.TestError]:
     std.test.check(False, "explained")
 
-# B71: deliberately returns `Failure`, which carries nothing to name.
+# Tests `Failure` itself: it carries nothing to name.
 def test_silent() -> Result[(), Failure]:
     Err(Failure.Unspecified)
 

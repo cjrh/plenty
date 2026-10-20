@@ -45,6 +45,7 @@ explicit choice to terminate immediately on `Err` or `Nothing`, without normal
 scope cleanup. Neither sums nor `?` catch runtime traps or turn `Option.Nothing`
 into an error.
 
-The legacy `Failure` type discards the original cause; it is unnecessary for
-combining these errors. Its remaining behavior is described in the
-[error tutorial](../../../tutorial/03-absence/error-details.md).
+Builtin `Failure` discards the original cause. It is a last resort, for when
+no precise error can be written; these errors combine without it. The
+[error tutorial](../../../tutorial/03-absence/error-details.md) describes its
+behavior.

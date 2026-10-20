@@ -39,7 +39,8 @@ in a `Context` nor unwraps one, and the
 applies to `Context[E]` as to any error type. A `Context` moves, because it can
 own a path. Its fields are public: read `error.cause` or match it to recover the
 typed cause, at any nesting depth. `?` in a function returning
-legacy `Result[T, Failure]` erases a `Context` like any other error; list `Context[E]` in the sum to keep it.
+`Result[T, Failure]`, the last-resort erased error, discards a `Context` like any
+other error; list `Context[E]` in the sum to keep it.
 
 ## Explicit error mapping
 

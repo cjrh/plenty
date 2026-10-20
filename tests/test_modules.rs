@@ -726,8 +726,42 @@ fn cycles_collisions_and_source_root_boundaries_are_diagnosed() {
 
 #[test]
 fn in_memory_api_never_searches_the_filesystem_for_imports() {
-    let error = plenty::check_source("import lib\ndef main() -> ():\n    pass\n").unwrap_err();
-    assert!(error.to_string().contains("file-based compilation"));
+    for source in [
+        "import lib\ndef main() -> ():\n    pass\n",
+        "from std.math import gcd\nimport lib.util\ndef main() -> ():\n    pass\n",
+    ] {
+        let error = plenty::check_source(source).unwrap_err().to_string();
+        assert!(error.contains("without a source root"), "{error}");
+        assert!(error.contains("only `std` modules"), "{error}");
+    }
+    let error = plenty::check_source("import std.missing\ndef main() -> ():\n    pass\n")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("unknown standard library module `std.missing`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn in_memory_api_imports_embedded_std_modules() {
+    let dir = tempfile::tempdir().unwrap();
+    let executable = dir.path().join("program");
+    plenty::compile_source_to_executable(
+        "import std.math\nfrom std.math import MathError, gcd\nfrom std.fmt import FormatError\n\
+         def root(x: f64) -> Result[f64, MathError]:\n    std.math.sqrt(x)\n\
+         def main() -> Result[(), AllocError | FormatError | IoError | MathError]:\n\
+         \x20   print(gcd(12, 18))?\n    print(f\"{root(9.0)?:>5}\"?)?\n    Ok(())\n",
+        &executable,
+    )
+    .unwrap();
+    let output = Command::new(executable).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "6\n  3.0\n");
 }
 
 #[test]

@@ -742,7 +742,7 @@ def main() -> Result[(), ThreadError | IoError]:
     .to_string();
     assert!(
         error.contains(
-            "spawn propagation requires a Result whose error accepts ThreadError, or Failure"
+            "spawn propagation requires a Result whose error accepts ThreadError; add it to the declared error, such as Result[_, AllocError | IoError | ThreadError]"
         ),
         "{error}"
     );
