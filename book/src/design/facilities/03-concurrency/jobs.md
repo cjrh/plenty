@@ -14,9 +14,8 @@ the complete unstarted job after any
 The error does not retain the native code. Returning, matching,
 dropping, and retrying the error and job allocate nothing. Capture expressions
 have already run, but the worker has not. `?` widens the error into an enclosing
-sum containing `SpawnError[F]`, which keeps the job; erasing it into `Failure`
-deliberately drops the recovered job. A kept job's endpoints stay alive through
-the joins that the `?` exit performs, so the
+sum containing `SpawnError[F]`, which keeps the job. A kept job's endpoints stay
+alive through the joins that the `?` exit performs, so the
 [live-endpoint join rule](channels.md#joins-and-live-endpoints) counts them. A generic signature names the job as
 `F`. A nongeneric one writes its signature, such as
 `SpawnError[OnceClosure[[], list[i64]]]`, alone or in a sum; `?` resolves that
@@ -24,6 +23,30 @@ member to the job it propagates, as for a
 [returned closure](../../language/06-functions/04-consuming-and-stored-closures.md).
 Each such member names one producer, so start several jobs from one factory
 function or a generic helper.
+
+### Job-free errors
+
+`with spawn(job).drop_job()? as task:` gives up the job instead. `drop_job()`
+converts `Result[(), SpawnError[F]]` to `Result[(), SpawnError[()]]`: on failure
+it drops the job and its captures at the start, and the error keeps only its
+variant, `SpawnError[()].Unavailable(())`. On success it changes nothing. One
+`SpawnError[()]` member covers every job, so a function can start distinct
+closures and propagate one precise error:
+
+```text
+def main() -> Result[(), IoError | SpawnError[()]]:
+    with spawn(def once () -> i64: 1).drop_job()? as first:
+        print(first.join())?
+    with spawn(def once () -> str: "two").drop_job()? as second:
+        print(second.join())?
+    Ok(())
+```
+
+Because the job is gone before `?` runs its exit's joins, its endpoints cannot
+block them. The conversion copies a tag and allocates nothing. `drop_job()` also
+applies to a `SpawnError[F]` value, or a Result carrying `SubmitError[F]`, as
+for [pool submissions](executors.md). Erasing the error into `Failure` drops the
+job too, but loses the error type; use it only when no precise error fits.
 
 After success, only the worker owns the captures. One-shot invocation moves them
 into the body; reusable invocation borrows them once and then drops the environment.

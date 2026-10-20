@@ -109,10 +109,12 @@ with spawn(consumer)? as task, spawn(producer)?:  # producer captures the sender
     task.join()?
 ```
 
-Erasing the error into `Failure` drops the job before the joins. To keep a
-precise error, pass the endpoint to `spawn` as a named argument,
-`spawn(produce, sender)?`: a failed named start reports `ThreadError` and drops
-its arguments first.
+Call [`drop_job()`](jobs.md#job-free-errors) on the start,
+`spawn(producer).drop_job()?`, to drop the job, and its endpoints, before the
+joins; the error becomes `SpawnError[()]`. Alternatively pass the endpoint to
+`spawn` as a named argument, `spawn(produce, sender)?`: a failed named start
+reports `ThreadError` and drops its arguments first. Erasing the error into
+`Failure` also drops the job, as a last resort.
 
 The diagnostic reports the join or the `with` statement, each binding or
 propagated error that holds a matching endpoint, the early exit that reaches the join, and, for an explicit

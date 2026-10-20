@@ -2,7 +2,10 @@
 use super::*;
 use crate::threading::{Task, ThreadOp};
 
-pub(super) fn spawn_expression(manager: &Expr) -> Option<(&Expr, bool)> {
+/// The start call of `with spawn(...)? as task:` or `.unwrap()`, whether it
+/// propagates, and the arguments of a `drop_job()` that makes its error
+/// job-free.
+pub(super) fn spawn_expression(manager: &Expr) -> Option<(&Expr, bool, Option<&[Expr]>)> {
     let (call, propagate) = match &ungroup(manager).kind {
         Expression::Try(call) => (&**call, true),
         Expression::Method(call, name, args, _) if name == "unwrap" && args.is_empty() => {
@@ -10,15 +13,28 @@ pub(super) fn spawn_expression(manager: &Expr) -> Option<(&Expr, bool)> {
         }
         _ => return None,
     };
-    matches!(&ungroup(call).kind, Expression::Call(name, _) if name == "spawn")
-        .then_some((ungroup(call), propagate))
+    let (call, drop_job) = match &ungroup(call).kind {
+        Expression::Method(start, name, args, _) if name == "drop_job" => {
+            (&**start, Some(&args[..]))
+        }
+        _ => (call, None),
+    };
+    matches!(&ungroup(call).kind, Expression::Call(name, _) if name == "spawn").then_some((
+        ungroup(call),
+        propagate,
+        drop_job,
+    ))
 }
+
+const DROP_JOB_RECEIVER: &str =
+    "drop_job requires a SpawnError or SubmitError, or a Result whose error is one";
 
 impl Lower<'_> {
     pub(super) fn with_thread(
         &mut self,
         call: &Expr,
         propagate: bool,
+        drop_job: Option<&[Expr]>,
         name: Option<&str>,
         body: &[Stmt],
         ops: &mut Vec<Op>,
@@ -136,7 +152,14 @@ impl Lower<'_> {
         // The start, and a failed start's exit, belong to the call, not its last argument.
         self.mark(&call.at, ops);
         ops.push(Op::Thread(ThreadOp::Start(task.clone(), slot)));
-        let Ty::Enum(source) = task.start_result() else {
+        let mut source = task.start_result();
+        if let Some(args) = drop_job {
+            if !args.is_empty() {
+                return Err(call.at.error("drop_job takes no arguments"));
+            }
+            source = self.drop_job(source, &call.at, ops)?;
+        }
+        let Ty::Enum(source) = source else {
             unreachable!()
         };
         if propagate {
@@ -193,6 +216,136 @@ impl Lower<'_> {
         self.contexts.pop();
         self.names = saved;
         Ok(result)
+    }
+
+    /// `drop_job()` on a `SpawnError[F]` or `SubmitError[F]`, or on a Result
+    /// carrying one, as a method call on an expression.
+    pub(super) fn drop_job_method(
+        &mut self,
+        base: &Expr,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let actual = self.expr_expected(base, None, ops)?;
+        if let Some(actual) = &actual {
+            let receiver = classes::unbox(actual.clone());
+            if classes::inherent_receiver(&receiver) && crate::sum::job_free(&receiver).is_none() {
+                self.unbox_to(actual.clone(), &receiver, ops);
+                return self.temporary_class_method(
+                    base,
+                    "drop_job",
+                    None,
+                    args,
+                    (receiver, vec![]),
+                    ops,
+                );
+            }
+        }
+        if !args.is_empty() {
+            return Err(base.at.error("drop_job takes no arguments"));
+        }
+        let Some(ty) = actual else {
+            return Err(base.at.error(DROP_JOB_RECEIVER));
+        };
+        self.drop_job(ty, &base.at, ops).map(Some)
+    }
+
+    /// Converts the value of `ty` on the stack to its job-free form. A
+    /// failure's job, with its captures, is dropped here rather than when the
+    /// error itself is dropped, so a later `?` cleanup cannot wait on its
+    /// endpoints. Only tags are copied; nothing allocates.
+    pub(super) fn drop_job(&mut self, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
+        let Ty::Enum(t) = &ty else {
+            return Err(at.error(DROP_JOB_RECEIVER));
+        };
+        let start = self.locals.len();
+        let converted = if t.is_result() {
+            let error = t.get().variants[1].fields[0].clone();
+            let Some(Ty::Enum(free)) = crate::sum::job_free(&error) else {
+                return Err(at.error(format!("{DROP_JOB_RECEIVER}, got {ty}")));
+            };
+            let Ty::Enum(result) = crate::sum::result(
+                t.get().variants[0].fields[0].clone(),
+                Ty::Enum(free.clone()),
+            ) else {
+                unreachable!("Result is an enum")
+            };
+            let source = self.slot(ty.clone(), at)?;
+            ops.push(Op::StoreLocal(source));
+            let success = t.get().variants[0].fields[0].clone();
+            let ok = vec![
+                Op::MoveLocal(source),
+                Op::Enum(if success.affine() {
+                    crate::sum::EnumOp::Take(t.clone(), 0, 0)
+                } else {
+                    crate::sum::EnumOp::Field(t.clone(), 0, 0)
+                }),
+                Op::Enum(crate::sum::EnumOp::New(result.clone(), 0)),
+            ];
+            let mut err = vec![
+                Op::MoveLocal(source),
+                Op::Enum(crate::sum::EnumOp::Take(t.clone(), 1, 0)),
+            ];
+            let Ty::Enum(error) = error else {
+                unreachable!("job errors are enums")
+            };
+            self.forget_job(&error, &free, at, &mut err)?;
+            err.push(Op::Enum(crate::sum::EnumOp::New(result.clone(), 1)));
+            ops.extend([
+                Op::LoadLocal(source),
+                Op::Enum(crate::sum::EnumOp::Tag(t.clone())),
+                Op::PushInt(Value::I64(0)),
+                Op::Eq,
+                branch(ok, err),
+            ]);
+            Ty::Enum(result)
+        } else {
+            let Some(Ty::Enum(free)) = crate::sum::job_free(&ty) else {
+                return Err(at.error(format!("{DROP_JOB_RECEIVER}, got {ty}")));
+            };
+            self.forget_job(t, &free, at, ops)?;
+            Ty::Enum(free)
+        };
+        self.cleanup(start, ops);
+        Ok(converted)
+    }
+
+    /// Replaces the job error on the stack by the job-free variant with the
+    /// same tag, dropping the job first.
+    fn forget_job(
+        &mut self,
+        error: &crate::nominal::Nominal<crate::sum::EnumType>,
+        free: &crate::nominal::Nominal<crate::sum::EnumType>,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let held = self.slot(Ty::Enum(error.clone()), at)?;
+        let tag = self.slot(Ty::I64, at)?;
+        ops.extend([
+            Op::StoreLocal(held),
+            Op::LoadLocal(held),
+            Op::Enum(crate::sum::EnumOp::Tag(error.clone())),
+            Op::StoreLocal(tag),
+            Op::DropLocal(held),
+        ]);
+        let variants = free.get().variants.len();
+        let build = |variant: usize| {
+            vec![
+                Op::PushUnit,
+                Op::Enum(crate::sum::EnumOp::New(free.clone(), variant)),
+            ]
+        };
+        let mut chosen = build(variants - 1);
+        for variant in (0..variants - 1).rev() {
+            chosen = vec![
+                Op::LoadLocal(tag),
+                Op::PushInt(Value::I64(variant as i64)),
+                Op::Eq,
+                branch(build(variant), chosen),
+            ];
+        }
+        ops.extend(chosen);
+        Ok(())
     }
 
     pub(super) fn join_thread(

@@ -218,3 +218,157 @@ fn closure_sum_members_resolve_only_in_return_types() {
         "{error}"
     );
 }
+
+#[test]
+fn drop_job_gives_one_job_free_member_for_distinct_jobs() {
+    // Distinct closures and named-function jobs of the same signature share
+    // `SpawnError[()]` and `SubmitError[()]`, which name no producer.
+    let stdout = support::run_file_stdout(
+        r#"
+from std.concurrent import ThreadPoolExecutor, SubmitError, PoolError, FutureError
+
+def add(x: i64, y: i64) -> i64:
+    x + y
+
+def main() -> Result[(), AllocError | IoError | FutureError | PoolError | SpawnError[()] | SubmitError[()]]:
+    values = [1, 2]?
+    others = [3]?
+    with spawn(def once [others]() -> i64: others[0]).drop_job()? as first:
+        print(first.join())?
+    with spawn(def once () -> i64: 7).drop_job()? as second:
+        print(second.join())?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        print(pool.submit(def once () -> i64: 8).drop_job()?.result()?)?
+        print(pool.submit(add, 4, 5).drop_job()?.result()?)?
+        print(pool.submit(def once [values]() -> i64: values[1]).drop_job()?.result()?)?
+    Ok(())
+"#,
+    );
+    assert_eq!(stdout, "3\n7\n8\n9\n2");
+}
+
+#[test]
+fn drop_job_converts_a_matched_job_error() {
+    support::assert_stdout(
+        r#"
+def attempt[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[F]]:
+    with spawn(job)? as task:
+        return Ok(task.join())
+
+def run() -> Result[i64, SpawnError[()]]:
+    match attempt(def once () -> i64: 5):
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(error.drop_job())
+
+def main() -> Result[(), IoError | SpawnError[()]]:
+    print(run()?)?
+    Ok(())
+"#,
+        "5\n",
+    );
+}
+
+#[test]
+fn drop_job_keeps_the_submission_variant_and_drops_the_job_at_the_call() {
+    let output = support::run_file(&format!(
+        r#"
+from std.concurrent import ThreadPoolExecutor, SubmitError, PoolError
+{GUARD}
+def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()]]:
+    guard = Guard(1)
+    with ThreadPoolExecutor(1, 1)? as pool:
+        pool.shutdown()
+        rejected = pool.submit(def once [guard]() -> i64: guard.id).drop_job()
+        print("after")?
+        match rejected:
+            case Ok(_):
+                print("ran")?
+            case Err(SubmitError.Shutdown(_)):
+                print("shutdown")?
+            case Err(_):
+                print("other")?
+        again = Guard(2)
+        future = pool.submit(def once [again]() -> i64: again.id).drop_job()?
+        print(future.result().unwrap())?
+    Ok(())
+"#
+    ));
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("main returned SubmitError[()].Shutdown(())"),
+        "{stderr}"
+    );
+    // Each job's captures are destroyed by `drop_job()`, before the next line.
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "drop\nafter\nshutdown\ndrop\n"
+    );
+}
+
+#[test]
+fn drop_job_diagnostics() {
+    let error = support::check_error(
+        r#"
+def main() -> Result[(), SpawnError[()]]:
+    with spawn(def once () -> i64: 3)? as task:
+        task.join()
+    Ok(())
+"#,
+    );
+    assert!(
+        error.contains(
+            "call `drop_job()` before `?` to propagate the declared job-free SpawnError[()]"
+        ),
+        "{error}"
+    );
+    let error = support::check_file_error(
+        r#"
+from std.concurrent import ThreadPoolExecutor, SubmitError, PoolError
+def main() -> Result[(), PoolError | SubmitError[()]]:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        pool.submit(def once () -> i64: 4)?.result().unwrap()
+    Ok(())
+"#,
+    );
+    assert!(
+        error.contains(
+            "call `drop_job()` before `?` to propagate the declared job-free SubmitError[()]"
+        ),
+        "{error}"
+    );
+    let error = support::check_error(
+        r#"
+def main() -> Result[(), SpawnError[OnceClosure[[], i64]]]:
+    with spawn(def once () -> i64: 3)? as task:
+        task.join()
+    with spawn(def once () -> i64: 4)? as task:
+        task.join()
+    Ok(())
+"#,
+    );
+    assert!(
+        error.contains("call `drop_job()` on each start or submission"),
+        "{error}"
+    );
+    for (source, expected) in [
+        (
+            "def main() -> Result[(), ParseError]:\n    i64.parse(\"1\").drop_job()?\n    Ok(())\n",
+            "drop_job requires a SpawnError or SubmitError, or a Result whose error is one, got Result[i64, ParseError]",
+        ),
+        (
+            "def main() -> Result[(), SpawnError[()]]:\n    with spawn(def once () -> i64: 3).drop_job(1)? as task:\n        task.join()\n    Ok(())\n",
+            "drop_job takes no arguments",
+        ),
+    ] {
+        let error = support::check_error(source);
+        assert!(error.contains(expected), "{error}");
+    }
+    // A class keeps its own `drop_job` method.
+    support::assert_stdout(
+        "class C:\n    def drop_job(self) -> i64:\n        5\ndef main() -> Result[(), AllocError | IoError]:\n    c = C()\n    print(c.drop_job())?\n    print(C().drop_job())?\n    Ok(())\n",
+        "5\n5\n",
+    );
+}

@@ -32,7 +32,10 @@ still deadlock.
 synchronous invocation, or drop. A named submission's job is a one-shot closure
 binding the arguments, so `pool.submit(stopped, token)?` can propagate as
 `SubmitError[OnceClosure[[], bool]]`; a signature names jobs as for
-[owned starts](jobs.md). Blocking submit never returns Full. Shutdown is
+[owned starts](jobs.md). `pool.submit(job).drop_job()?` instead drops the job
+of a rejected submission at the call and gives `SubmitError[()]` with the same
+variant, such as `Shutdown(())`; one such member covers every job, as for
+[job-free start errors](jobs.md#job-free-errors). Blocking submit never returns Full. Shutdown is
 reported before job allocation; waiting for space precedes allocation and transfer.
 `submit_nowait` can contend on synchronization.
 

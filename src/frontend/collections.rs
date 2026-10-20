@@ -2170,6 +2170,13 @@ impl Lower<'_> {
         {
             return self.option_method(base, name, args, None, ops);
         }
+        if name == "drop_job"
+            && self.place_type(base).map(classes::unbox).is_none_or(|ty| {
+                crate::sum::job_free(&ty).is_some() || !classes::inherent_receiver(&ty)
+            })
+        {
+            return self.drop_job_method(base, args, ops);
+        }
         if name == "new" {
             if let Expression::Name(function) = &ungroup(base).kind {
                 if !self.names.contains_key(function)

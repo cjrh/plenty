@@ -912,14 +912,20 @@ impl Checker<'_> {
                     error
                 });
                 let endpoint = if worker_sends { "Receiver" } else { "Sender" };
-                // A failed job start keeps the job for retry; named
-                // arguments of a failed start drop instead.
-                let advice = if matches!(residual, Ty::Enum(t) if t.name.starts_with("SpawnError["))
-                {
-                    "propagate `Failure`, which drops the job first, or pass the endpoint to \
-                     `spawn` as a named argument, which a failed start drops"
-                } else {
-                    "propagate `Failure`, which drops the error first"
+                // A failed job start keeps the job for retry. `drop_job()`
+                // drops it at the start instead; named arguments of a failed
+                // start drop too. `Failure` erasure is the last resort.
+                let advice = match residual {
+                    Ty::Enum(t) if t.name.starts_with("SpawnError[") => {
+                        "call `drop_job()` on the start, which drops the job before `?` \
+                         returns, or pass the endpoint to `spawn` as a named argument, which a \
+                         failed start drops; `Failure` also drops the job, as a last resort"
+                    }
+                    Ty::Enum(t) if t.name.starts_with("SubmitError[") => {
+                        "call `drop_job()` on the submission, which drops the job before `?` \
+                         returns; `Failure` also drops the job, as a last resort"
+                    }
+                    _ => "propagate `Failure`, which drops the error first",
                 };
                 if let Some(at) = at.or(site) {
                     error.notes.push((

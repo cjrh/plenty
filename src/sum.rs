@@ -455,6 +455,20 @@ pub fn submit_error(job: Ty) -> Ty {
     structural(ty, format!("SubmitError[{}]", job.identity_name()))
 }
 
+/// The job-free form of a start error that retains its job: the same
+/// variants with `()` payloads. One such member covers every job, so a
+/// function can propagate several distinct closures through it.
+pub fn job_free(error: &Ty) -> Option<Ty> {
+    let Ty::Enum(t) = error else { return None };
+    if t.name.starts_with("SpawnError[") {
+        Some(spawn_error(Ty::Unit))
+    } else if t.name.starts_with("SubmitError[") {
+        Some(submit_error(Ty::Unit))
+    } else {
+        None
+    }
+}
+
 pub fn future_error() -> Ty {
     let Ty::Enum(template) = failure() else {
         unreachable!()

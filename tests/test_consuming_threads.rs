@@ -108,10 +108,11 @@ print(answer).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_residuals_and_unclaimed_worker_results_destroy_exactly_once() {
-    // B71: keeps `Failure` deliberately. Converting the failed start to
-    // `Failure` drops the unstarted job, which this test observes; a precise
+    // Tests `Failure` erasure itself: converting the failed start to
+    // `Failure` drops the unstarted job, which this test observes. A precise
     // `SpawnError[F]` returns the job instead (covered by
-    // `failed_owned_start_in_error_sum_returns_the_job`). Delete with `Failure`.
+    // `failed_owned_start_in_error_sum_returns_the_job`); `drop_job()` drops
+    // it at the start (`drop_job_drops_a_failed_start_before_returning`).
     runs(r#"
 class Guard:
     id: i64
@@ -138,6 +139,41 @@ other = def [guard]() -> i64:
 with spawn(other).unwrap() as task:
     print(task.join()).unwrap()
 "#, "__test_fail_thread_starts__\ndrop\nResult[(), Failure].Err(Failure.Unspecified)\n__test_restore_thread_starts__\ndrop\ndrop\n2\n");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn drop_job_drops_a_failed_start_before_returning() {
+    // The job-free error carries only the variant; the job's captures are
+    // destroyed at the start, before the function prints or returns.
+    runs(r#"
+class Guard:
+    id: i64
+    def __del__(self) -> ():
+        if self.id == 1:
+            write_stdout("job\n").unwrap()
+        else:
+            write_stdout("frame\n").unwrap()
+        pass
+def make() -> OnceClosure[[], Guard]:
+    guard = Guard(1)
+    def once [guard]() -> Guard:
+        guard
+def attempt[F: OnceCallable[[], Guard]](job: F) -> Result[(), SpawnError[()]]:
+    started = Guard(3)
+    with spawn(job).drop_job()?:
+        pass
+    drop(started)
+    Ok(())
+job = make()
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_thread_starts__").unwrap()
+failed = attempt(job)
+print("__test_end_no_allocations__").unwrap()
+print(str.repr(failed).unwrap()).unwrap()
+print("__test_restore_thread_starts__").unwrap()
+print(str.repr(attempt(make())).unwrap()).unwrap()
+"#, "__test_begin_no_allocations__\n__test_fail_thread_starts__\njob\nframe\n__test_end_no_allocations__\nResult[(), SpawnError[()]].Err(SpawnError[()].Unavailable(()))\n__test_restore_thread_starts__\njob\nframe\nResult[(), SpawnError[()]].Ok(())\n");
 }
 
 #[test]
