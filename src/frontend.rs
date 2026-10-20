@@ -3962,6 +3962,7 @@ impl Lower<'_> {
                 at.error("legacy multi-result functions cannot be called from modern Plenty")
             );
         }
+        let start = ops.len();
         let argument_loans = if method && matches!(sig.inputs.first(), Some((_, Ty::Ref(_, true))))
         {
             let mut loans = self.call_arguments(&args[..1], &sig.inputs[..1], ops)?;
@@ -3974,6 +3975,7 @@ impl Lower<'_> {
             self.call_arguments(args, &sig.inputs, ops)?
         };
         self.record_direct_call(name, at, &argument_loans, ops);
+        self.passes(start, &sig.inputs, ops);
         self.push_call(Op::Call(name.to_owned()), &sig.inputs, &argument_loans, ops);
         self.call_reference_result(name, &sig, &argument_loans, ops);
         Self::end_reads(argument_loans, ops);
@@ -4034,6 +4036,56 @@ impl Lower<'_> {
         }
 
         Ok(argument_loans)
+    }
+    /// Name the future and pool slots that a call's arguments, `ops[start..]`,
+    /// move or borrow, for a callee taking one of `inputs` (issue #349). A
+    /// future or pool inside an aggregate is not named. The
+    /// checker applies the waits and shutdowns the callee can reach to them.
+    /// Goes before the call and its lifetime fact.
+    pub(super) fn passes(&self, start: usize, inputs: &[(String, Ty)], ops: &mut Vec<Op>) {
+        // Only a direct future or pool: inspecting aggregates at every call
+        // made checking a long function quadratic in its type sizes.
+        fn handed(ty: &Ty) -> bool {
+            match ty {
+                Ty::Future(_) | Ty::Executor => true,
+                Ty::Ref(inner, _) => handed(inner),
+                _ => false,
+            }
+        }
+        fn slots(ops: &[Op], out: &mut Vec<u8>) {
+            for op in ops {
+                match op {
+                    Op::MoveLocal(slot) | Op::LoadLocal(slot) | Op::BorrowLocal(slot, _)
+                        if !out.contains(slot) =>
+                    {
+                        out.push(*slot)
+                    }
+                    Op::Match(arms) => arms.iter().for_each(|arm| slots(&arm.body, out)),
+                    Op::If {
+                        then,
+                        elifs,
+                        otherwise,
+                    } => {
+                        slots(then, out);
+                        for arm in elifs.iter() {
+                            slots(&arm.condition, out);
+                            slots(&arm.body, out);
+                        }
+                        slots(otherwise, out);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if !inputs.iter().any(|(_, ty)| handed(ty)) {
+            return;
+        }
+        let mut handed_slots = Vec::new();
+        slots(&ops[start..], &mut handed_slots);
+        handed_slots.retain(|&slot| self.slot_type(slot).is_some_and(|(ty, _)| handed(ty)));
+        if !handed_slots.is_empty() {
+            ops.push(Op::Passes(handed_slots.into()));
+        }
     }
     /// Emits a call, preceded by its lifetime fact when every reference it
     /// passes was borrowed through a reference parameter of this function.
@@ -4224,7 +4276,8 @@ impl Lower<'_> {
         };
         ops.iter().any(|op| match op {
             Op::Executor(ExecutorOp::Result(_) | ExecutorOp::Shutdown)
-            | Op::Thread(ThreadOp::Join(_) | ThreadOp::Finish(..)) => true,
+            | Op::Thread(ThreadOp::Join(_) | ThreadOp::Finish(..))
+            | Op::Passes(_) => true,
             Op::MoveLocal(slot) | Op::StoreLocal(slot) | Op::DropLocal(slot) => executor(slot),
             Op::Match(arms) => arms.iter().any(|arm| self.waits(&arm.body)),
             Op::If {
@@ -4802,6 +4855,10 @@ fn take_call(ops: &mut Vec<Op>, begin: usize) -> Option<(usize, String)> {
         unreachable!()
     };
     if index > begin && matches!(ops[index - 1], Op::ForwardsReferences) {
+        index -= 1;
+        ops.remove(index);
+    }
+    if index > begin && matches!(ops[index - 1], Op::Passes(_)) {
         index -= 1;
         ops.remove(index);
     }

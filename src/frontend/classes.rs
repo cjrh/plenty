@@ -981,6 +981,7 @@ impl Lower<'_> {
         let Ty::Ref(_, mutable) = &sig.inputs[0].1 else {
             unreachable!()
         };
+        let start = ops.len();
         let (reference, loan) = self.borrow(base, *mutable, ops)?;
         self.unbox_reference(reference, ops);
         if *mutable {
@@ -993,6 +994,7 @@ impl Lower<'_> {
             loans[0] = self.activate_receiver(loan, ops);
         }
         self.record_direct_call(&callee, &base.at, &loans, ops);
+        self.passes(start, &sig.inputs, ops);
         self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);

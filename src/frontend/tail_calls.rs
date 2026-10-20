@@ -167,6 +167,7 @@ fn expression_endings(
                 | Op::CallerSite(_)
                 | Op::Returning(..)
                 | Op::Building(_)
+                | Op::Passes(_)
         )
     });
     match last {

@@ -59,7 +59,29 @@ the job can reach a `Mutex[T]` of the same `T`, for example through a
 This is a conservative check, not a proof of deadlock freedom: endpoints are
 matched by message type, not channel identity. Completion, cancellation, queue
 capacity, and earlier receives do not discharge the check. Assignments to the
-same local are conservatively combined. Provenance is not tracked through
-function calls, collections, class fields, or multi-field aggregate storage;
-indirect submissions, moved pools, and blocking mapping callbacks retain the
+same local are conservatively combined.
+
+A call that receives the future, by value or by reference, is checked as a wait
+at the call when a function it reaches, directly or through further calls,
+calls `result()` on a `Future[T]` of the same `T`. The diagnostic names the
+call, and `finished(future)` below is rejected:
+
+```text
+def finished(future: Future[()]) -> bool:
+    future.result().is_ok()
+
+def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+        ok = finished(future)   # rejected: `receiver` is still live
+        drop(receiver)
+    Ok(())
+```
+
+Matching by type means a callee that waits for a different `Future[T]` also
+counts. A call through a `Callable`, closure, or boxed callable value, or to a
+function that makes one, is assumed to wait. Provenance is not tracked through a
+future returned from a call, collections, class fields, or multi-field aggregate
+storage; indirect submissions and blocking mapping callbacks retain the
 [executor limits](executors.md#shutdown-and-live-receivers).

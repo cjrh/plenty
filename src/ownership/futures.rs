@@ -151,4 +151,9 @@ impl Futures {
             _ => &[],
         }
     }
+
+    /// Every job a future stored in `slot` can come from.
+    pub(super) fn of(&self, slot: u8) -> &[(Hazard, Option<Site>)] {
+        self.jobs.get(slot as usize).map_or(&[], Vec::as_slice)
+    }
 }

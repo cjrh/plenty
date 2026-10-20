@@ -67,7 +67,11 @@ pools:
 A pool shuts down at `pool.shutdown()`, including through a
 `&ThreadPoolExecutor`, at `drop(pool)`, when its binding is reassigned, and
 wherever its owner leaves scope: the end of its `with` block or of the function,
-`return`, `?`, `break`, and `continue`. Locals are released last declared first,
+`return`, `?`, `break`, and `continue`. A call that receives a pool, by value or
+by reference, counts as a shutdown when a function it reaches, directly or
+through further calls, calls `shutdown()` or owns a pool. A call through a
+`Callable`, closure, or boxed callable value, or to a function that makes one,
+is assumed to shut down a pool passed to it. Locals are released last declared first,
 so a receiver bound after the pool is dropped before the pool shuts down.
 
 Jobs are not matched to pools and are never assumed to have finished. A job
@@ -109,8 +113,9 @@ rejects these safe programs:
 
 It does not cover:
 
-- a job submitted by another function through a `&ThreadPoolExecutor`;
-- a pool moved into a function that drops it;
+- a job submitted by another function, through a `&ThreadPoolExecutor` or a
+  pool it returns;
+- a pool passed to a call inside a class, tuple, or collection;
 - a `map`, `map_result`, or `reduce_tree` callback that waits to send.
 
 Blocking [future retrieval](futures.md#result-waits-and-live-receivers) has its own

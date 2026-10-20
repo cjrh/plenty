@@ -152,8 +152,10 @@ task block that the endpoint blocks. The check covers bindings, assignments,
 unpacking, discarded expressions, `yield`, `if`, `elif`, and `while` conditions,
 `for` iterables, `match` subjects, and `with` managers. It has
 the limits of the returned-value check: it follows the bindings the expression
-moves, counts one moved into a call that consumes it, and does not see a wait
-inside a called function.
+moves and counts one moved into a call that consumes it. A wait inside a called
+function is seen only for a [future](futures.md#result-waits-and-live-receivers)
+or [pool](executors.md#shutdown-and-live-receivers) passed to the call; a
+scoped task cannot be passed to a function.
 
 The diagnostic reports the join or the `with` statement, each binding,
 propagated error, returned value, or unfinished expression that holds a matching
