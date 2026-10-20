@@ -746,6 +746,10 @@ pub enum Op {
     Returning(crate::ownership::Site, Arc<[u8]>),
     /// A statement-level value under construction; ownership checks only.
     Building(Building),
+    /// Future and pool slots that the arguments of the call that follows
+    /// move or borrow. The callee may wait for such a future's result or shut
+    /// such a pool down (issue #349); ownership checks only.
+    Passes(Arc<[u8]>),
     Yield(Ty),
     Next(u8),
     MoveLocal(u8),
@@ -1621,9 +1625,10 @@ fn check_with(ops: &[Op], workers: usize) -> Result<()> {
         })
         .collect();
     let workers = workers.min(functions.len() / FUNCTIONS_PER_WORKER + 1);
+    let program = crate::ownership::Program::new(ops);
     let mut checked = crate::parallel::map(functions.len(), workers, |i| {
         let (name, f) = functions[i];
-        check_function(name, f, &sigs).map_err(|e| e.to_string())
+        check_function(name, f, &sigs, &program).map_err(|e| e.to_string())
     })
     .into_iter();
     // Top-level: locals are empty (the compiler will never have emitted a
@@ -1848,6 +1853,7 @@ fn step(
         | Op::CallerSite(_)
         | Op::Returning(..)
         | Op::Building(_)
+        | Op::Passes(_)
         | Op::ForwardsReferences => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;
@@ -2133,7 +2139,10 @@ fn step(
                 return Err("local assignment type mismatch".into());
             }
         }
-        Op::DefineFn(name, f) => check_function(name, f, sigs)?,
+        // Without the enclosing program, every call this body makes is unknown.
+        Op::DefineFn(name, f) => {
+            check_function(name, f, sigs, &crate::ownership::Program::new(&[]))?
+        }
         Op::Call(name) => check_call(name, stack, sigs)?,
         Op::ClosureNew(t) => {
             for (_, ty) in t.captures.iter().rev() {
@@ -2609,8 +2618,13 @@ fn check_match(
 }
 
 /// Check one function definition, naming its file in the error.
-fn check_function(name: &str, f: &CompiledFn, sigs: &Sigs) -> Result<()> {
-    check_body(name, f, sigs).map_err(|e| -> Box<dyn std::error::Error> {
+fn check_function(
+    name: &str,
+    f: &CompiledFn,
+    sigs: &Sigs,
+    program: &crate::ownership::Program,
+) -> Result<()> {
+    check_body(name, f, sigs, program).map_err(|e| -> Box<dyn std::error::Error> {
         // An ownership error that knows its own position already names
         // the file; the header is only a fallback. One in a generic
         // instance is positioned at the use that required the instance.
@@ -2631,7 +2645,12 @@ fn check_function(name: &str, f: &CompiledFn, sigs: &Sigs) -> Result<()> {
 /// inputs become the body's `locals` for `LoadLocal` to resolve against.
 /// At end of body the abstract stack must equal the declared outputs
 /// exactly; anything else is a type error.
-fn check_body(fn_name: &str, f: &CompiledFn, sigs: &Sigs) -> Result<()> {
+fn check_body(
+    fn_name: &str,
+    f: &CompiledFn,
+    sigs: &Sigs,
+    program: &crate::ownership::Program,
+) -> Result<()> {
     let (sig, body, yield_ty) = (&*f.sig, &*f.body, f.generator.as_ref());
     let locals: Vec<Ty> = sig
         .inputs
@@ -2645,7 +2664,7 @@ fn check_body(fn_name: &str, f: &CompiledFn, sigs: &Sigs) -> Result<()> {
     } else {
         &sig.outputs
     };
-    crate::ownership::check(body, &locals, sig.inputs.len(), &f.origins)
+    crate::ownership::check(body, &locals, sig.inputs.len(), &f.origins, program)
         .map_err(|e| -> Box<dyn std::error::Error> { e })?;
     let flow = check_sequence(
         body,

@@ -173,8 +173,11 @@ impl Lower<'_> {
         if args.len() != closure.signature.inputs.len() {
             return Err(at.error("one-shot closure argument count mismatch"));
         }
-        let loans = self.call_arguments(args, &closure.signature.function().inputs, ops)?;
+        let inputs = closure.signature.function().inputs;
+        let start = ops.len();
+        let loans = self.call_arguments(args, &inputs, ops)?;
         self.mark_call(at, ops);
+        self.passes(start, &inputs, ops);
         ops.push(Op::ClosureCall(closure.clone()));
         Self::end_reads(loans, ops);
         if let Some(loans) = self.closure_loans.get(&closure.name) {
@@ -191,8 +194,11 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        let loans = self.call_arguments(args, &closure.signature.function().inputs, ops)?;
+        let inputs = closure.signature.function().inputs;
+        let start = ops.len();
+        let loans = self.call_arguments(args, &inputs, ops)?;
         self.mark_call(at, ops);
+        self.passes(start, &inputs, ops);
         ops.push(Op::ClosureCall(closure.clone()));
         Self::end_reads(loans, ops);
         ops.push(Op::UseLoan(loan));

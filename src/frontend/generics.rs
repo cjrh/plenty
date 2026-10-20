@@ -761,6 +761,7 @@ impl Lower<'_> {
         let mut loans = Vec::new();
         let mut arguments = Vec::new();
         let mut argument_ends = Vec::new();
+        let start = ops.len();
         // Lower once, left to right, using ordinary ownership and borrow rules.
         // Generic positions get no contextual type: literals use their defaults.
         let mut reservation = None;
@@ -842,6 +843,7 @@ impl Lower<'_> {
             loans[0] = self.activate_receiver(loan, ops);
         }
         self.record_direct_call(&callee, at, &loans, ops);
+        self.passes(start, &sig.inputs, ops);
         self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
