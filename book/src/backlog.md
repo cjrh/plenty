@@ -156,6 +156,11 @@ Issue references identify related open concerns or completed fixes as stated;
 they do not approve every suggested API. Status, reproductions, discussion, and
 ownership remain in the shared `issues.db`.
 
+B17 also includes the proposed [`plenty script` workflow](proposals/single-file-scripts.md):
+single-file executables with optional embedded manifests, isolated dependency
+resolution and cached builds. Settle header and lock/storage rules before
+implementation; this is not yet scheduled.
+
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
 | B11 | Broader borrowing | Borrowed enum matching and payload loans complete. A `mut` reference binding is reassigned only through itself (issue #1). Remaining: stored references, relationships among multiple reference parameters, more precise collection loans, retargeting a reference binding to another borrow of the same owner, and field-precise loans through `mut` reference bindings. Borrowed iteration now consistently yields references (issue #30, also B12). Mutable matching of copyable enum payloads (issue #41) is complete through B35. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/language/05-ownership/04-returned-references.md). |
