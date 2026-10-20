@@ -54,7 +54,7 @@ impl GeneratorType {
     /// recursive source cannot leave a reference-counted metadata cycle behind.
     pub fn set_slots(&self, slots: Vec<Ty>) -> Result<(), String> {
         let mut work = slots.iter().collect::<Vec<_>>();
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = crate::hash::HashSet::default();
         while let Some(ty) = work.pop() {
             match ty {
                 Ty::Generator(t) => {

@@ -1,6 +1,6 @@
 //! Closed-world worker eligibility and the compiler-owned scoped task contract.
+use crate::hash::{HashMap, HashSet};
 use crate::op::{CompiledFn, Op, Ty};
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -89,18 +89,18 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let functions: HashMap<_, _> = definitions.into_iter().collect();
-    let mut checked = HashSet::new();
-    let mut checked_receivers = HashSet::new();
+    let mut checked = HashSet::default();
+    let mut checked_receivers = HashSet::default();
     for (kind, mut queue, mut types) in roots {
         let origin = match queue.first() {
             Some(worker) => format!("{kind} {}", describe(worker, &functions)),
             None => kind.to_owned(),
         };
-        let mut seen_types = HashSet::new();
+        let mut seen_types = HashSet::default();
         // The function that first queued each callee, to name the call path
         // to a rejected function: a generic instance or helper is otherwise
         // hard to trace back to the source that reached it.
-        let mut callers: HashMap<String, String> = HashMap::new();
+        let mut callers: HashMap<String, String> = HashMap::default();
         let mut current: Option<String> = None;
         // The worker itself is named by `origin`; only its callees add context.
         let root = queue.first().cloned().unwrap_or_default();
@@ -180,7 +180,7 @@ fn path(
     functions: &HashMap<&str, &CompiledFn>,
 ) -> String {
     let mut chain = Vec::new();
-    let mut seen = HashSet::from([name]);
+    let mut seen = HashSet::from_iter([name]);
     let mut at = name;
     while let Some(caller) = callers.get(at) {
         if !seen.insert(caller.as_str()) {
@@ -276,7 +276,7 @@ fn check_type(
 )]
 fn receiver_cycle(message: &Ty, receiver: &Ty) -> bool {
     let mut pending = vec![message.clone()];
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     while let Some(ty) = pending.pop() {
         if &ty == receiver {
             return true;
@@ -322,7 +322,7 @@ pub fn contained(ty: &Ty, pending: &mut Vec<Ty>) {
 )]
 pub fn endpoints(roots: impl IntoIterator<Item = Ty>, sender: bool, borrowed: bool) -> Vec<Ty> {
     let mut pending: Vec<_> = roots.into_iter().collect();
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     let mut found = Vec::new();
     while let Some(ty) = pending.pop() {
         if matches!(ty, Ty::Ref(..)) && !borrowed || !seen.insert(ty.clone()) {
@@ -346,7 +346,7 @@ pub fn endpoints(roots: impl IntoIterator<Item = Ty>, sender: bool, borrowed: bo
 )]
 pub fn mutexes(roots: impl IntoIterator<Item = Ty>) -> Vec<Ty> {
     let mut pending: Vec<_> = roots.into_iter().collect();
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     let mut found = Vec::new();
     while let Some(ty) = pending.pop() {
         if !seen.insert(ty.clone()) {
@@ -371,7 +371,7 @@ pub fn mutexes(roots: impl IntoIterator<Item = Ty>) -> Vec<Ty> {
 )]
 pub fn owns_executor(ty: &Ty) -> bool {
     let mut pending = vec![ty.clone()];
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     while let Some(ty) = pending.pop() {
         match ty {
             Ty::Executor => return true,

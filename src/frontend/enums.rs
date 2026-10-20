@@ -42,8 +42,8 @@ impl Parser {
         self.kind(Kind::Indent, "an indented enum declaration")?;
         let mut variants = Vec::new();
         let mut methods = Vec::new();
-        let mut public_members = HashSet::new();
-        let mut declared = HashSet::new();
+        let mut public_members = HashSet::default();
+        let mut declared = HashSet::default();
         while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
             let public = self.eat("pub");
             if self.peek().is("def") {
@@ -232,7 +232,7 @@ pub(super) fn resolve_types(
         .chain(enums.iter().map(Decl::Enum))
         .chain(classes.iter().map(Decl::Class))
         .collect();
-    let mut names = HashMap::new();
+    let mut names = HashMap::default();
     for (i, declaration) in declarations.iter().enumerate() {
         let name = declaration.name();
         if builtin(name) {
@@ -263,9 +263,9 @@ pub(super) fn resolve_types(
             resolved.insert(declaration.name().into(), Some(ty));
         }
     }
-    let mut active = HashSet::new();
+    let mut active = HashSet::default();
     let mut path = Vec::new();
-    let mut completed = HashSet::new();
+    let mut completed = HashSet::default();
     for root in 0..declarations.len() {
         if !matches!(declarations[root], Decl::Alias(_)) {
             continue;

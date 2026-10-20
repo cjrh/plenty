@@ -77,7 +77,7 @@ pub(super) fn prepare(
 ) -> Result<(Engine, Vec<Signature>)> {
     aliases.validate_data_bounds()?;
     functions.extend(aliases.data.factories());
-    let mut declarations = HashMap::new();
+    let mut declarations = HashMap::default();
     let conflict = |protocol: &protocols::Protocol| {
         protocol.at.error(format!(
             "protocol `{}` is already defined or conflicts with another declaration",
@@ -120,7 +120,7 @@ pub(super) fn prepare(
             }
         }
     }
-    let mut methods = HashMap::new();
+    let mut methods = HashMap::default();
     let mut signatures = Vec::with_capacity(functions.len());
     for f in functions.iter().filter(|f| f.type_params.is_empty()) {
         // Every signature is resolved here, so its errors are reported
@@ -136,24 +136,24 @@ pub(super) fn prepare(
     let mut engine = Engine {
         protocols: declarations,
         methods,
-        templates: HashMap::new(),
-        defaults: HashMap::new(),
-        call_wrappers: HashMap::new(),
-        deferred_reporting: HashMap::new(),
-        cache: HashMap::new(),
-        specialization_depths: HashMap::new(),
+        templates: HashMap::default(),
+        defaults: HashMap::default(),
+        call_wrappers: HashMap::default(),
+        deferred_reporting: HashMap::default(),
+        cache: HashMap::default(),
+        specialization_depths: HashMap::default(),
         // One entry per function: sized up front, these are not rehashed
         // key by key at every doubling (issue #57).
         pending: VecDeque::with_capacity(functions.len()),
-        functions: HashMap::with_capacity(functions.len()),
+        functions: HashMap::with_capacity_and_hasher(functions.len(), Default::default()),
         compiled: Vec::new(),
-        tail_candidates: HashMap::new(),
-        active: HashSet::new(),
-        frames: HashMap::new(),
-        required: HashMap::new(),
-        protocol_instances: HashSet::new(),
+        tail_candidates: HashMap::default(),
+        active: HashSet::default(),
+        frames: HashMap::default(),
+        required: HashMap::default(),
+        protocol_instances: HashSet::default(),
         source_root: None,
-        standard_sources: HashSet::new(),
+        standard_sources: HashSet::default(),
         source_facts: None,
     };
     for f in functions {
@@ -630,7 +630,7 @@ impl Lower<'_> {
         if template.inputs.len() != signature.inputs.len() {
             return Err(at.error("generic function arity does not match the expected Callable"));
         }
-        let mut inferred = HashMap::new();
+        let mut inferred = HashMap::default();
         for ((_, pattern), actual) in template.inputs.iter().zip(&signature.inputs) {
             infer(pattern, actual, &template, &mut inferred, self.aliases, at)?;
         }
@@ -757,7 +757,7 @@ impl Lower<'_> {
                 args.len()
             )));
         }
-        let mut inferred = HashMap::new();
+        let mut inferred = HashMap::default();
         let mut loans = Vec::new();
         let mut arguments = Vec::new();
         let mut argument_ends = Vec::new();
@@ -972,8 +972,15 @@ impl Engine {
                         // but disagrees with other evidence keeps the error
                         // naming that conflict.
                         if mentions_parameter(&pattern, template)
-                            && infer(&pattern, found, template, &mut HashMap::new(), aliases, at)
-                                .is_err()
+                            && infer(
+                                &pattern,
+                                found,
+                                template,
+                                &mut HashMap::default(),
+                                aliases,
+                                at,
+                            )
+                            .is_err()
                         {
                             return Err(at.error(format!("{actual} does not satisfy {}: signature of `{}` does not match (including receiver borrowing, type parameters, and return type)", protocol.name, requirement.name)));
                         }

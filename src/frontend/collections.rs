@@ -231,7 +231,7 @@ impl Lower<'_> {
         }
         let source = self.slot(ty.clone(), &value.at)?;
         ops.push(Op::StoreLocal(source));
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         let mut targets = Vec::new();
         for (name, ty) in names.iter().zip(fields) {
             if name != "_" && !seen.insert(name) {
@@ -348,7 +348,7 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         for target in targets {
             match &target.kind {
                 Expression::Tuple(_) => {

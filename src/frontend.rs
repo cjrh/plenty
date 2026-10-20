@@ -2,9 +2,10 @@
 //!
 //! Signatures are collected before bodies. Inference is local, expressions
 //! have zero (unit) or one result, and no backend participates in inference.
+use crate::hash::{HashMap, HashSet};
 use std::cell::Cell;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -4954,7 +4955,7 @@ fn lower_body(
                 }),
                 source_tail: Vec::new(),
                 tail_candidates: Vec::new(),
-                closure_loans: HashMap::new(),
+                closure_loans: HashMap::default(),
                 captures: f
                     .captures
                     .iter()
@@ -4967,8 +4968,8 @@ fn lower_body(
                 generics,
                 aliases,
                 access,
-                names: HashMap::new(),
-                function_places: HashMap::new(),
+                names: HashMap::default(),
+                function_places: HashMap::default(),
                 function_initializers: Vec::new(),
                 locals: Vec::new(),
                 parameters: sig.inputs.len(),
@@ -4981,7 +4982,7 @@ fn lower_body(
                 loop_scopes: Vec::new(),
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
-                reference_locals: HashMap::new(),
+                reference_locals: HashMap::default(),
                 expression_temps: Vec::new(),
                 contexts: Vec::new(),
                 return_origin: if matches!(sig.outputs.first(), Some(Ty::Ref(..))) {
@@ -5229,9 +5230,9 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     // One entry per function: sized up front, the table is not rehashed key by
     // key at every doubling while the program is lowered (issue #57).
     let declared = generics.pending.len();
-    let mut sigs = HashMap::with_capacity(declared);
+    let mut sigs = HashMap::with_capacity_and_hasher(declared, Default::default());
     generics.compiled.reserve(declared);
-    let mut returned_fields = HashMap::new();
+    let mut returned_fields = HashMap::default();
     // Every function is visited once here. A pass over the whole program
     // costs cache misses per function once the program outgrows the caches,
     // so the checks below visit only the functions they concern (issue #57).
@@ -5257,7 +5258,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     drop(prepared);
     foreign::check_symbols(boundary.iter().copied(), &sigs)?;
     let mut exports = Vec::new();
-    let mut symbols = HashSet::new();
+    let mut symbols = HashSet::default();
     let imported_symbols: HashSet<_> = boundary
         .iter()
         .filter_map(|f| {
@@ -5267,7 +5268,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                 .map(str::to_owned)
         })
         .collect();
-    let mut interface_names = HashSet::new();
+    let mut interface_names = HashSet::default();
     for f in &boundary {
         if let Some(symbol) = &f.export {
             let name = f.name.rsplit('.').next().unwrap().to_owned();

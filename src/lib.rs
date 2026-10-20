@@ -62,6 +62,7 @@ mod filesystem;
 mod foreign;
 mod frontend;
 mod generator;
+mod hash;
 mod lexer;
 mod library;
 mod library_metadata;

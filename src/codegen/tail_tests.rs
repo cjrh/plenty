@@ -19,7 +19,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     let id = module
         .declare_function("callee", Linkage::Local, &user_fn_signature(&sig))
         .unwrap();
-    let mut functions = HashMap::new();
+    let mut functions = HashMap::default();
     functions.insert(
         "callee".into(),
         UserFn {
@@ -50,7 +50,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     bcx.switch_to_block(entry);
     bcx.seal_block(entry);
     let incoming = bcx.block_params(entry).to_vec();
-    let strings = HashMap::new();
+    let strings = HashMap::default();
     let mut lower = Lowerer {
         bcx: &mut bcx,
         module: &mut symbols,

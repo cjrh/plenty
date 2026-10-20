@@ -13,11 +13,17 @@ Cloning a structural type shares its already-owned child storage. When a field
 escapes a nominal table, cloning promotes its weak edges and copies only the
 structural paths that contain them. This is a single pass through the structural
 type, without following nominal table links; stored definitions still keep weak
-edges so sharing cannot create a table ownership cycle. Callable signatures
-retain their existing copying path.
+edges so sharing cannot create a table ownership cycle. Callable and boxed
+callable signatures follow the same rule: a signature is shared unless an input
+or the output holds a weak edge.
 A complete class or enum caches its facts; a collection or box combines its
 contents' facts instead of walking again.
 Aliases normalize to `Ty` values and generate no runtime operations.
+
+The compiler's own hash tables (`src/hash.rs`) use FxHash rather than std's
+SipHash. Their keys are names and types from the program being compiled, so
+flood resistance buys nothing, and SipHash was about 11% of checking
+instructions (issue #302). Iteration order stays unspecified.
 
 Module loading canonicalizes qualified names and checks imported modules together
 before producing one application object. Import traversal is bounded to depth

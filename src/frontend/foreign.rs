@@ -124,7 +124,7 @@ pub(super) fn check_symbols<'a>(
     functions: impl Iterator<Item = &'a Function>,
     sigs: &HashMap<String, Arc<FnSig>>,
 ) -> Result<()> {
-    let mut symbols = HashMap::new();
+    let mut symbols = HashMap::default();
     fn abi(ty: &Ty) -> String {
         if matches!(ty, Ty::ForeignPtr(_) | Ty::Ref(..)) {
             "pointer".into()

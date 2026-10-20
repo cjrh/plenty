@@ -53,7 +53,7 @@ impl Sites {
 pub(super) fn define(module: &mut ObjectModule, records: &[Key]) -> Result<DataId> {
     let names_start = records.len() * RECORD;
     let mut names = Vec::new();
-    let mut name_offsets: HashMap<&str, usize> = HashMap::new();
+    let mut name_offsets: HashMap<&str, usize> = HashMap::default();
     let mut bytes = Vec::with_capacity(names_start);
     for (i, (file, line, column, standard_library)) in records.iter().enumerate() {
         let file = match file {

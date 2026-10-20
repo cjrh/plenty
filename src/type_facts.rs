@@ -1,8 +1,9 @@
 //! Properties of finite type graphs. Leaf elimination identifies both cycles and
 //! their owners; ownership facts are unions over reachable storage, not recursive
 //! calls that assume a declaration has already finished.
+use crate::hash::HashMap;
 use crate::op::Ty;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
@@ -155,7 +156,7 @@ impl Ty {
             ..Facts::default()
         };
         let mut nodes = vec![self.clone()];
-        let mut ids = HashMap::from([(self.clone(), 0)]);
+        let mut ids = HashMap::from_iter([(self.clone(), 0)]);
         let mut parents: Vec<Vec<usize>> = vec![vec![]];
         let mut degree = Vec::new();
         let mut depths = Vec::new();

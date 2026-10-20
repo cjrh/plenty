@@ -420,7 +420,7 @@ fn parse_items(
         name,
         ..Module::default()
     };
-    let mut declared = HashSet::new();
+    let mut declared = HashSet::default();
     loop {
         parser.fill(lexer, lookahead).map_err(located)?;
         if parser.peek().kind == Kind::Eof {
@@ -565,7 +565,7 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
     let mut loader = Loader {
         packages: vec![],
         active: vec![],
-        loaded: HashMap::new(),
+        loaded: HashMap::default(),
         modules: vec![],
         dependencies: vec![],
         appendix: None,
@@ -911,7 +911,7 @@ pub(super) fn load_graph_with(
     let mut loader = Loader {
         packages,
         active: vec![],
-        loaded: HashMap::new(),
+        loaded: HashMap::default(),
         modules: vec![],
         dependencies: vec![],
         appendix: appendix.map(str::to_owned),
@@ -1146,9 +1146,9 @@ impl Scope {
         }
         scope.ty(&mut f.output)?;
         for default in f.defaults.iter_mut().flatten() {
-            scope.expr(default, &Locals::new())?;
+            scope.expr(default, &Locals::default())?;
         }
-        let mut locals = Locals::new();
+        let mut locals = Locals::default();
         for (name, ty) in &f.inputs {
             let pos = Pos::of(&ty.at);
             super::ide::bind_local(&f.at, pos, name, true, Find::Before(name.clone()));
@@ -1684,7 +1684,7 @@ fn resolve(
         })
         .collect();
     let mut result = Resolved {
-        standard_sources: HashSet::new(),
+        standard_sources: HashSet::default(),
         source_paths: vec![],
         source_root: None,
         protocols: vec![],
@@ -1700,9 +1700,9 @@ fn resolve(
     };
     for (i, m) in modules.iter_mut().enumerate() {
         let mut scope = Scope {
-            captures: HashSet::new(),
-            uncaptured: HashSet::new(),
-            type_params: HashSet::new(),
+            captures: HashSet::default(),
+            uncaptured: HashSet::default(),
+            type_params: HashSet::default(),
             module: m.name.clone(),
             declared: Arc::new(m.names().cloned().collect()),
             imported: Arc::default(),
@@ -1764,7 +1764,7 @@ fn resolve(
         if super::ide::active() {
             // A function whose body does not resolve keeps its signature, so
             // the functions that call it can still be checked.
-            let mut failed = HashSet::new();
+            let mut failed = HashSet::default();
             for (f, result) in m.functions.iter_mut().zip(resolved) {
                 if let Err(error) = result {
                     super::ide::recover(&*error);

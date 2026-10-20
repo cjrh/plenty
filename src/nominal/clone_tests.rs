@@ -57,6 +57,24 @@ fn cloning_stored_fields_promotes_all_structural_paths() {
                 output: Some(t),
             }))
         },
+        |t| {
+            Ty::Callable(Arc::new(crate::op::CallableSig {
+                inputs: vec![Ty::I64, t, Ty::Str],
+                output: Some(Ty::Bool),
+            }))
+        },
+        |t| {
+            Ty::BoxedCallable(Arc::new(crate::op::CallableSig {
+                inputs: vec![t],
+                output: None,
+            }))
+        },
+        |t| {
+            Ty::BoxedCallable(Arc::new(crate::op::CallableSig {
+                inputs: vec![],
+                output: Some(t),
+            }))
+        },
     ];
     for wrap in wrappers {
         let owner = Arc::new(Types::default());
@@ -80,6 +98,23 @@ fn cloning_stored_fields_promotes_all_structural_paths() {
             witness.upgrade().is_none(),
             "stored fields must not retain the table"
         );
+    }
+}
+
+#[test]
+fn owned_callable_signatures_share_storage() {
+    let owner = Arc::new(Types::default());
+    let node = owner.class("Node");
+    node.define(definition("Node", vec![]));
+    let sig = Arc::new(crate::op::CallableSig {
+        inputs: vec![Ty::Class(node.clone()), Ty::List(Arc::new(Ty::Str))],
+        output: Some(Ty::Class(node)),
+    });
+    for ty in [Ty::Callable(sig.clone()), Ty::BoxedCallable(sig.clone())] {
+        let (Ty::Callable(cloned) | Ty::BoxedCallable(cloned)) = ty.clone() else {
+            unreachable!()
+        };
+        assert!(Arc::ptr_eq(&sig, &cloned));
     }
 }
 

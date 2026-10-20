@@ -644,7 +644,7 @@ fn finish(recorder: Recorder) -> Analysis {
             location: found.map(|(_, (location, _))| location),
         });
     }
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     let mut found = Vec::new();
     for (anchor, find, key) in &references {
         let Some(&symbol) = keys.get(key) else {
@@ -856,11 +856,14 @@ mod tests {
 
     #[test]
     fn a_diagnostic_keeps_its_position() {
-        let found = diagnostic("/a/b.plenty:3:7: expected i64, got str", &HashMap::new());
+        let found = diagnostic(
+            "/a/b.plenty:3:7: expected i64, got str",
+            &HashMap::default(),
+        );
         assert_eq!((found.line, found.column), (3, 7));
         assert_eq!(found.message, "expected i64, got str");
         assert_eq!(found.file, Some(File::Path("/a/b.plenty".into())));
-        let found = diagnostic("reading x: missing", &HashMap::new());
+        let found = diagnostic("reading x: missing", &HashMap::default());
         assert_eq!((found.file, found.line), (None, 1));
     }
 

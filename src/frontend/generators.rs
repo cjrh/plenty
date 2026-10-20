@@ -47,7 +47,7 @@ impl Lower<'_> {
             }
         }
         free_names(element, &bound, &mut free);
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         for name in free {
             if !seen.insert(name.clone()) || !self.names.contains_key(&name) {
                 continue;
