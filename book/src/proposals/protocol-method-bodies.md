@@ -1,8 +1,16 @@
-# Implemented protocol methods: feasibility sketch
+# Protocol method bodies: defaults, final methods, and private hooks
 
-**Status: exploration, not an accepted language change.** Investigated against
-`d39e6ec` on 2026-10-20. The compiler still requires protocol methods to have
-`pass` bodies. Future prioritization belongs to [B29](../backlog.md).
+**Status: core design agreed; not implemented.** This is the implemented
+protocol methods proposal: “implemented” means a method with a body, not a
+feature that has shipped. The compiler still requires protocol methods to have
+`pass` bodies; [current protocols](../design/language/07-generics/protocols.md)
+remain authoritative. Future prioritization belongs to [B29](../backlog.md).
+
+Start with the [agreed rules](protocol-method-bodies/final-and-visibility.md)
+and [short programs](protocol-method-bodies/examples.md). The feasibility
+comparison below and [implementation evidence](protocol-method-bodies/evidence.md)
+record the investigation against `d39e6ec` on 2026-10-20. Alternatives such as
+automatic method injection were considered, not adopted.
 
 **Assessment:** shared bodies with explicitly selected protocol calls are a
 small-to-medium frontend feature. Convenient calls through a protocol bound

@@ -1,14 +1,17 @@
 # Finite error sets as anonymous sums
 
-Status: the initial general-sum implementation is described in the
+**Status: Partly implemented.** General anonymous sums have shipped, as described in the
 [anonymous-sum reference](../design/language/03-types/anonymous-sums.md).
 It adopts `case cause: Type:` at the case position, grouped types and inline
 normalization/injection/widening. Existing pattern guards remain unsupported.
-Formatting and removal of `Failure` remain separate migration work. The current
+[Human-readable reporting](completed/error-formatting.md) has also shipped.
+Removal of builtin `Failure` and its erasure rule remains migration work. The current
 [propagation reference](../design/language/08-errors/01-sums-and-propagation.md)
 remains authoritative. Scheduling belongs in B14/B71 in
 the [backlog](../backlog.md). Human-readable presentation is specified separately
-in [formatting and error reports](error-formatting.md).
+in [formatting and error reports](completed/error-formatting.md). The
+[composition overview](error-composition.md) separates this language feature
+from explicit mapping and typed stream APIs.
 
 ## Motivation and research
 

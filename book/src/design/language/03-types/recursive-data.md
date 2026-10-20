@@ -40,3 +40,8 @@ Automatic destruction of recursive owners uses bounded stack space and allocates
 nothing. Explicit recursion in user methods and destructor hooks still uses the
 native stack. `Box` construction, content conversion, projections, and borrowing
 are described under [facilities](../../facilities/index.md).
+
+The [recursive representation proposal](../../../proposals/recursive-data.md)
+records the storage and destruction rationale. The
+[owned-structure assessment](../../../proposals/arenas.md) compares linked
+lists, trees, and checked-index arenas using these facilities.

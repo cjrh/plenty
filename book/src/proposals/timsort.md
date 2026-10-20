@@ -4,8 +4,9 @@
 not an approved migration. [List sorting](../design/facilities/01-builtins/lists.md)
 and the [key-sorting tutorial](../tutorial/04-collections/key-sorting.md) define
 today's contracts. No implementation or performance improvement ships with this
-proposal. Scheduling belongs to [B37](../backlog.md); issue #331 records the
-existing sorting performance problem.
+proposal. Scheduling belongs to [B37](../backlog.md). Issue #331's sorting
+performance fix shipped allocation-free introsort with a heapsort fallback;
+it did not implement stability or Timsort.
 
 ## Why consider it
 

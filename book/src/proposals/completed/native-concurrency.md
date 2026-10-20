@@ -6,6 +6,10 @@
 > owns the source contract and
 > [concurrency architecture](../../design/toolchain/02-architecture/concurrency.md)
 > the runtime.
+> Later additions include [atomics and mutexes](../../design/facilities/03-concurrency/index.md)
+> and atomically counted [Shared owners](../../design/facilities/01-builtins/shared.md).
+> These do not implement the [linear execution obligations](../linear-integration.md)
+> proposed separately.
 >
 > **Shipped differently:** generator frames and executor or future handles
 > cannot enter workers. Native files and network handles now cross threads

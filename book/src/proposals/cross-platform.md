@@ -8,6 +8,11 @@
 > Future work remains **B18**, with packaging under **B17** and path semantics
 > coordinated with **B12** in the [backlog](../backlog.md).
 
+Related design records cover [FFI and dynamic libraries](ffi-and-dynamic-libraries.md),
+[generated export contracts](ffi-export-contracts.md), and the independent
+[GCC backend candidate](codegen-gcc.md). This assessment concerns complete
+native toolchains, not only instruction selection.
+
 Plenty can plausibly reach these platforms while keeping Cranelift, but this
 is a compiler/runtime/stdlib port, not just a release matrix expansion. Start
 with native builds: a compiler running on one OS/architecture generates programs
