@@ -2,7 +2,7 @@
 //! callable and loan checks as user code. Only total key comparison is intrinsic.
 use super::*;
 
-const KEY_SORT: &str = include_str!("sorting.plenty");
+const KEY_OF: &str = include_str!("sorting.plenty");
 
 impl Lower<'_> {
     fn sorting_helper(&mut self, name: &str, source: &str) -> Result<()> {
@@ -96,16 +96,36 @@ impl Lower<'_> {
                 .at
                 .error("sort_by_key callback must return an integer, float, str, or tuple of those")
         })?;
-        let compare_name = format!("__plenty_order_compare_{}", key.identity_name());
-        let compare_sig = Arc::new(crate::op::CallableSig {
-            inputs: vec![key.clone(), key.clone()],
-            output: Some(Ty::I64),
-        });
-        if !self.sigs.contains_key(&compare_name) {
-            let sig = Arc::new(compare_sig.function());
-            self.sigs.insert(compare_name.clone(), sig.clone());
+        self.sorting_helper("__plenty_key_of", KEY_OF)?;
+        let key_of = self.specialize(
+            "__plenty_key_of",
+            vec![(*element).clone(), key.clone(), callback],
+            at,
+        )?;
+        // The runtime sorts the rows and calls back into the generated
+        // adapter, so elements move without per-access calls or refcounting.
+        let sort_name = format!("{key_of}_sort");
+        if !self.sigs.contains_key(&sort_name) {
+            let callback = self.sigs[&key_of].inputs[0].1.clone();
+            let list = Ty::List(element.clone());
+            let sig = Arc::new(crate::op::FnSig {
+                inputs: vec![
+                    ("items".into(), Ty::Ref(Arc::new(list.clone()), true)),
+                    ("key".into(), callback.clone()),
+                    ("descending".into(), Ty::Bool),
+                ],
+                outputs: vec![],
+            });
+            let sort = crate::collection::KeySort {
+                adapter: format!("{key_of}_order"),
+                key_of,
+                list,
+                callback,
+                key,
+            };
+            self.sigs.insert(sort_name.clone(), sig.clone());
             self.generics.compiled.push(Op::DefineFn(
-                compare_name.clone(),
+                sort_name.clone(),
                 Box::new(CompiledFn {
                     location: None,
                     origins: Arc::default(),
@@ -116,31 +136,23 @@ impl Lower<'_> {
                     body: vec![
                         Op::LoadLocal(0),
                         Op::LoadLocal(1),
-                        Op::Collection(CollectionOp::OrderCompare(key.clone())),
+                        Op::LoadLocal(2),
+                        Op::Collection(CollectionOp::ListSortBy(Arc::new(sort))),
+                        Op::Drop,
                         Op::Return,
                     ]
                     .into(),
                 }),
             ));
         }
-        self.sorting_helper("__plenty_key_sort", KEY_SORT)?;
-        let symbol = self.specialize(
-            "__plenty_key_sort",
-            vec![(*element).clone(), key, callback],
-            at,
-        )?;
-        let compare = Expr {
-            at: at.clone(),
-            kind: Expression::Name(compare_name),
-        };
         let descending = Self::reverse_argument(&args[1..], at);
         let receiver = Expr {
             at: base.at.clone(),
             kind: Expression::Unary("&mut".into(), Box::new(base.clone())),
         };
         self.call_named(
-            &symbol,
-            &[receiver, args[0].clone(), compare, descending],
+            &sort_name,
+            &[receiver, args[0].clone(), descending],
             at,
             ops,
         )

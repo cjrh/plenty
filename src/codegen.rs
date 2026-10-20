@@ -83,6 +83,7 @@ mod numeric;
 mod output;
 mod references;
 mod sites;
+mod sorting;
 mod symbols;
 #[cfg(test)]
 mod tail_tests;
@@ -587,6 +588,8 @@ fn object_module(
         threads::declare_adapters(&ops, workers, &mut out.module, &mut runtime.thread_adapters)?;
     let executors =
         executors::declare_adapters(&ops, workers, &mut out.module, &mut runtime.thread_adapters)?;
+    let sorts =
+        sorting::declare_adapters(&ops, workers, &mut out.module, &mut runtime.sort_adapters)?;
     let runtime = runtime;
     // `bodies` is in declaration order, as `FuncId`s are. The map's own order
     // changes from run to run, which would make the object differ between
@@ -632,6 +635,7 @@ fn object_module(
                 .into_iter()
                 .map(|(job, id)| Job::Executor(job, id)),
         )
+        .chain(sorts.into_iter().map(|(sort, id)| Job::Sort(sort, id)))
         .chain(
             bodies
                 .into_iter()
@@ -650,6 +654,9 @@ fn object_module(
             }
             Job::Executor(job, id) => {
                 executors::build_adapter(&job, id, fns, str_data, eof_empty_str, runtime, worker)
+            }
+            Job::Sort(sort, id) => {
+                sorting::build_adapter(&sort, id, fns, str_data, eof_empty_str, runtime, worker)
             }
             Job::Function(name, body) => {
                 build_user_function(&name, &body, fns, str_data, eof_empty_str, runtime, worker)
@@ -675,6 +682,7 @@ fn object_module(
 enum Job {
     Thread(Arc<crate::threading::Task>, FuncId),
     Executor(Arc<crate::executor::Job>, FuncId),
+    Sort(Arc<crate::collection::KeySort>, FuncId),
     /// A user function, with its drop callback or, for a generator, its
     /// resume function.
     Function(String, Arc<[Op]>),
@@ -784,6 +792,12 @@ struct Runtime {
     list_len: FuncId,
     list_scalar_get: FuncId,
     list_scalar_set: FuncId,
+    /// `plenty_list_sort_by(list, comparator, environment, descending)`.
+    list_sort_by: FuncId,
+    /// `plenty_order_compare(a_low, a_high, b_low, b_high, descriptor) -> i64`.
+    order_compare: FuncId,
+    /// Generated key-sort comparators, by adapter name.
+    sort_adapters: HashMap<String, FuncId>,
     channel: FuncId,
     control: FuncId,
     executor: FuncId,
@@ -1001,6 +1015,26 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             ]);
             module.declare_function("plenty_list_scalar_set", Linkage::Import, &sig)?
         },
+        list_sort_by: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([
+                AbiParam::new(PTR_TY),
+                AbiParam::new(PTR_TY),
+                AbiParam::new(PTR_TY),
+                AbiParam::new(types::I64),
+            ]);
+            module.declare_function("plenty_list_sort_by", Linkage::Import, &sig)?
+        },
+        order_compare: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([AbiParam::new(types::I64); 4]);
+            sig.params.push(AbiParam::new(PTR_TY));
+            sig.returns.push(AbiParam::new(types::I64));
+            module.declare_function("plenty_order_compare", Linkage::Import, &sig)?
+        },
+        sort_adapters: Default::default(),
         print_i8: one_arg(module, "plenty_print_i8", types::I8)?,
         print_i16: one_arg(module, "plenty_print_i16", types::I16)?,
         print_i32: one_arg(module, "plenty_print_i32", types::I32)?,
@@ -2266,8 +2300,13 @@ impl Lowerer<'_, '_> {
                     Some(&ty),
                 )
             };
-            let order = self.collection_call(operation.opcode(), &[a, b], descriptor)?;
-            let order = self.bcx.ins().ireduce(types::I64, order);
+            let order = match descriptor {
+                Some(ty) => self.order_compare(a, b, ty),
+                None => {
+                    let order = self.collection_call(operation.opcode(), &[a, b], None)?;
+                    self.bcx.ins().ireduce(types::I64, order)
+                }
+            };
             let value = self.bcx.ins().icmp_imm(signed, order, 0);
             self.release(a, &ty);
             self.release(b, &ty);

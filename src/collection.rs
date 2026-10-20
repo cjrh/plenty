@@ -2,6 +2,22 @@
 use crate::op::Ty;
 use std::sync::Arc;
 
+/// A key sort the runtime drives. It calls `adapter`, a generated native
+/// comparator, with the callback reference and two borrowed rows; the adapter
+/// calls `key_of` once per row and compares the keys in the total sort order.
+/// Rows move inside the runtime, so no element is retained, released, or
+/// copied, and the sort allocates nothing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeySort {
+    pub adapter: String,
+    /// `key_of(callback: &F, item: &T) -> K`, specialized for this sort.
+    pub key_of: String,
+    pub list: Ty,
+    /// `&F`, the callback reference the adapter receives as its environment.
+    pub callback: Ty,
+    pub key: Ty,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
     Filesystem(crate::filesystem::FsOp),
@@ -100,7 +116,9 @@ pub enum CollectionOp {
     ListSwap(Ty),     // exclusive list, two indices -> retained internal alias
     ListSort(Ty),     // exclusive list, descending bool -> retained internal alias
     OrderCompare(Ty), // two ordered keys -> i64
-    Clear(Ty),        // exclusive list/dict/set -> retained internal alias
+    /// Exclusive list reference, key callback reference, descending bool -> ().
+    ListSortBy(Arc<KeySort>),
+    Clear(Ty), // exclusive list/dict/set -> retained internal alias
     Len(Ty),
     /// Non-owning list observations; the frontend keeps the receiver's loan live.
     ListLenRef(Ty),
@@ -497,6 +515,14 @@ impl CollectionOp {
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
                 t.element().unwrap(),
             ),
+            ListSortBy(sort) => (
+                vec![
+                    Ty::Ref(Arc::new(sort.list.clone()), true),
+                    sort.callback.clone(),
+                    Ty::Bool,
+                ],
+                Ty::Unit,
+            ),
             ListScalarSetRef(t) => (
                 vec![
                     Ty::Ref(Arc::new(t.clone()), true),
@@ -650,11 +676,16 @@ impl CollectionOp {
             Self::ListReverse(_) => 57,
             Self::ListSwap(_) => 126,
             Self::ListSort(_) => 127,
-            Self::OrderCompare(_) => 141,
             Self::Clear(_) => 58,
             Self::Len(_) => 5,
-            Self::ListLenRef(_) | Self::ListScalarGetRef(_) | Self::ListScalarSetRef(_) => {
-                unreachable!("borrowed list observations use narrow runtime helpers")
+            Self::ListLenRef(_)
+            | Self::ListScalarGetRef(_)
+            | Self::ListScalarSetRef(_)
+            | Self::ListSortBy(_)
+            | Self::OrderCompare(_) => {
+                unreachable!(
+                    "borrowed list access, key sorts, and ordering use narrow runtime helpers"
+                )
             }
             Self::IterGet(_) => 6,
             Self::HashIterFirst(_) => 123,

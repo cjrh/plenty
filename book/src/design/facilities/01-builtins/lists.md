@@ -64,17 +64,21 @@ result is fully determined. `items.sort(True)` orders descending; an omitted or
 Wide inline rows use three-way introsort with insertion sort for small partitions
 and a heapsort fallback; two-word rows use Rust's unstable slice sort. Row swaps
 repair inline addresses immediately, without retaining or dropping elements.
-The wide-row algorithm uses O(log n) stack space and no heap workspace.
+The wide-row algorithm uses O(log n) stack space and no heap workspace. A tuple
+of numbers and strings has its field offsets resolved once per sort.
 
 `items.sort_by_key(key) -> ()` accepts any element type. The named function or
 reusable shared-call closure takes `&T` for the element type `T` and returns an
 integer, float, string, or tuple of those. `items.sort_by_key(key, True)` orders
 descending. The list is exclusively borrowed for the operation; callbacks
 cannot also borrow it through a capture. Keys use the same total order as
-`sort`, including signed zero and NaN placement. This is an unstable heapsort:
-equal-key elements may change relative order. It allocates no buffer and
-recomputes keys during O(n log n) comparisons, so the callback must give
-consistent keys and remains responsible for its own explicit allocations.
+`sort`, including signed zero and NaN placement. The runtime sorts the rows
+with the wide-row introsort above, for every element width, and calls a
+generated comparator that computes both keys. The sort is unstable: equal-key
+elements may change relative order. It allocates no buffer and recomputes keys
+during O(n log n) comparisons, so the callback should give consistent keys and
+remains responsible for its own explicit allocations. An inconsistent key
+yields an unspecified order but keeps every element.
 One-shot and mutable-call closures, fallible keys, reference-valued keys, and
 anonymous expressions passed directly as keys are unsupported; bind a closure
 first. Elements are moved by row exchange, with no copying or early destruction.

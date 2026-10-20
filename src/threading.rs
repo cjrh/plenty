@@ -408,6 +408,10 @@ fn inspect(
             error = Some("indirect callable effects are not certified for worker threads")
         }
         Op::Collection(op) => {
+            // The runtime calls this key through the sort's adapter.
+            if let crate::collection::CollectionOp::ListSortBy(sort) = op {
+                calls.push(sort.key_of.clone());
+            }
             if let Some(reason) = op.effect().worker_denial() {
                 error = Some(reason);
             }
