@@ -29,6 +29,9 @@ Result[str, str].Err("name is empty")
 propagation cleans up local values and temporaries, just as `return` does.
 
 `str.repr` formats a result wrapper so either outcome can be printed.
+This example displays both results for inspection; it does not propagate the
+validation error out of `main`. In an application where validation must succeed,
+use `?` on `checked_name` and include `str` in the enclosing function's error type.
 Ordinary `print` requires a handled result:
 `print(checked_name("Plenty")?)?` prints only the successful name.
 An expression statement cannot silently discard a result:

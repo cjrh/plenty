@@ -3,38 +3,14 @@
 Keep a concrete error type when the caller needs the cause. For example,
 `IoError` preserves an input/output cause, while `str` can carry a message.
 
-Prefer concrete errors or [error sums](anonymous-sums.md). Builtin `Failure`
-is a last resort, for when no precise error can be written.
-`Result[T, Failure]` discards the cause: each `?` may accept a different error
-type, drop it, and return `Failure.Unspecified`. This example shows what
-erasure loses; it is not the pattern for combining errors.
+Pass an error back unchanged when the caller can use it directly. When several
+operations have different errors, the [next lesson](anonymous-sums.md) shows
+how to keep them together without losing their details.
 
-```plenty
-def validate(name: str) -> Result[(), str]:
-    if len(name) == 0:
-        return Err("name is empty")
-    Ok(())
-
-def announce(name: str) -> Result[(), Failure]:
-    validate(name)?
-    print(name)?
-    Ok(())
-
-def main() -> Result[(), IoError]:
-    match announce(""):
-        case Ok(_):
-            print("announced")?
-        case Err(error):
-            print(error)?
-    Ok(())
-```
-
-```output
-Failure.Unspecified
-```
-
-Use `match` to inspect or report errors when you need their details. To change
-just the error type, `std.error.map_error` forwards success for you:
+Sometimes an API needs to add meaning to a lower-level cause. Here,
+`ConfigError.InvalidCount` identifies what was being parsed and retains the
+original `ParseError`. `std.error.map_error` changes just the error type,
+forwarding success unchanged:
 
 ```plenty
 from std.error import map_error
@@ -46,8 +22,7 @@ def count_error(cause: ParseError) -> ConfigError:
     ConfigError.InvalidCount(cause)
 
 def read_count(text: &str) -> Result[i64, ConfigError]:
-    count = map_error(i64.parse(text), count_error)?
-    Ok(count)
+    map_error(i64.parse(text), count_error)
 
 def main() -> Result[(), IoError]:
     match read_count("many"):
@@ -64,19 +39,23 @@ True
 
 `count_error` receives the original error once, only when parsing fails. On
 success, the parsed count passes through unchanged. The conversion policy is
-explicit; `?` still expects `ConfigError` here. The helper adds no allocation.
-The result and callback expressions are both evaluated before the helper runs;
-an unused callback and any values it owns are dropped on success.
+explicit, and the helper adds no allocation. `read_count` returns that result
+directly because it has no more work to do. Use `?` when further work depends on
+the successful value. See the [mapping reference](../../design/stdlib/error.md#explicit-error-mapping)
+for callback evaluation and ownership details.
 
-`Failure` erasure, like `map_error`, applies only where you ask for it: at
-`?`. Returning a `Result[T, IoError]` directly from a function declared
-`Result[T, Failure]` is a type error. Construct a deliberate failure with
-`Err(Failure.Unspecified)`.
+The example's `main` deliberately handles a failed parse so you can see that the
+cause survived. In an application that cannot continue, propagate the error
+instead. Returning an error from `main` reports it on standard error and exits
+with status one; printing an error and returning `Ok(())` reports success to the
+program's caller. The [command-line application](../08-resources/18-command-line-application.md)
+puts this policy into practice.
 
-If `main` returns an error, the program reports it on standard error and exits
-with status one. A `Failure` report can only say that the original details
-were discarded. `Failure` does not catch runtime traps or turn
-`Option.Nothing` into an error.
+Avoid replacing useful causes with builtin `Failure`: propagation into
+`Result[T, Failure]` discards the original error and keeps only
+`Failure.Unspecified`. It is a last resort, not a way to combine errors.
+See the reference for its exact
+[erasure rules](../../design/language/08-errors/01-sums-and-propagation.md).
 
 `.unwrap()` explicitly extracts a successful payload or terminates on
 `Err` or `Nothing`, without normal scope cleanup:
