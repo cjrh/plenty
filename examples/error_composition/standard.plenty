@@ -28,7 +28,7 @@ pub class Store:
         self.count += stop - start
         Ok(stop - start)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | FramingError[TransportError] | IoError]:
     mut scratch = std.bytes.with_capacity(4)?
     scratch.resize(4, 0u8)?
     mut body = fixed_body(Wire(False), 4)?

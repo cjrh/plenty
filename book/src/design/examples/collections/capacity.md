@@ -46,7 +46,7 @@ def add_answers(values: &mut list[i64]) -> Result[(), AllocError]:
     values.append(42)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut values: list[i64] = []?
     match add_answers(&mut values):
         case Ok(done):
@@ -68,7 +68,7 @@ the requested size cannot be represented; a negative reservation is also a
 capacity error. You can handle a failure without terminating the program:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut values = [1, 2]?
     match values.reserve(-1):
         case Ok(done):

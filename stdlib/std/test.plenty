@@ -1,7 +1,7 @@
 # Assertions and fixtures for the tests that `plenty test` runs. A failed
 # assertion writes its explanation to standard error at once and returns
-# Err(TestError.Assertion), so the explanation survives `?` erasing the error
-# into Failure. See book/src/design/stdlib/test.md.
+# Err(TestError.Assertion), so the explanation survives propagation or handling
+# by the caller. See book/src/design/stdlib/test.md.
 import std.bytes
 import std.env
 import std.fs

@@ -3,7 +3,7 @@
 Set relationships borrow both sets and allocate nothing:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     needed = {"read"}?
     available = {"read", "write"}?
     print(needed.issubset(available))?

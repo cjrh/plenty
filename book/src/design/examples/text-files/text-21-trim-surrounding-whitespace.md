@@ -4,7 +4,7 @@
 from both ends, the left end, or the right end. Each returns `Result[str, AllocError]`:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     text = "  é🙂  "
     print(str.repr(text.strip())?)?
     print(str.repr(text.lstrip())?)?

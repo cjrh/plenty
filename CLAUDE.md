@@ -117,7 +117,7 @@ Executable statements belong in `main`; a bare top-level snippet is not a progra
 For probes involving printing or allocation, use a fallible entry point:
 
 ```text
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     xs = [1, 2, 3]?
     print(xs)?
     Ok(())

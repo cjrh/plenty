@@ -19,7 +19,7 @@ def step(total: i64) -> i64:
     scratch = Resource("scratch")
     finish(total + 1)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(step(41))?
     Ok(())
 ```

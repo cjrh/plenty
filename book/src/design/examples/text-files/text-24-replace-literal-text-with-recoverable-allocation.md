@@ -8,7 +8,7 @@ def rename(text: &str) -> Result[str, AllocError]:
     updated = text.replace("Plenty", "plenty")?
     Ok(updated)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     original = "Plenty is Plenty"
     print(rename(&original)?)?
     print(original)?

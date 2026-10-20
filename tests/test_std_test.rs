@@ -157,11 +157,11 @@ fn failures_name_the_user_code_that_asserted() {
     let output = run_program(
         r#"import std.test
 
-def same_length(left: &str, right: &str) -> Result[(), Failure]:
+def same_length(left: &str, right: &str) -> Result[(), std.test.TestError]:
     std.test.equal(&len(left), &len(right))?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.test.TestError]:
     same_length("ab", "ab")?
     same_length("ab", "abc")?
     Ok(())
@@ -214,12 +214,12 @@ import std.path
 import std.test
 from std.test import Scratch
 
-def make() -> Result[str, Failure]:
+def make() -> Result[str, IoError | std.test.TestError]:
     scratch = std.test.scratch()?
     write_text(scratch.file("dropped.txt")?, "x")?
     Ok(scratch.path().to_text()?)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | std.test.TestError]:
     mut scratch = std.test.scratch()?
     std.test.check(scratch.path().is_absolute(), "absolute")?
     write_text(scratch.file("notes.txt")?, "hello")?
@@ -360,11 +360,11 @@ fn suite(root: &Path, files: &[(&str, &str)]) {
 const ARITHMETIC: &str = r#"import std.test
 from calc import add
 
-def test_adds() -> Result[(), Failure]:
+def test_adds() -> Result[(), std.test.TestError]:
     std.test.equal(&add(2, 2), &4)?
     Ok(())
 
-def test_wrong() -> Result[(), Failure]:
+def test_wrong() -> Result[(), IoError | std.test.TestError]:
     print("about to compare")?
     std.test.equal(&add(2, 2), &5)?
     Ok(())
@@ -378,7 +378,7 @@ def test_unit() -> ():
 def test_typed() -> Result[(), std.test.TestError]:
     std.test.check(helper() == 1, "helper")
 
-def test_trap() -> Result[(), Failure]:
+def test_trap() -> Result[(), AllocError | IoError]:
     values = [1]?
     print(values[helper() + 4])?
     Ok(())
@@ -473,19 +473,19 @@ fn seeds_and_fixtures_repeat_under_the_runner() {
             "tests/random.plenty",
             r#"import std.test
 
-def test_draw() -> Result[(), Failure]:
+def test_draw() -> Result[(), IoError | std.test.TestError]:
     mut rng = std.test.rng()?
     print(std.test.seed()?, rng.next_u64())?
     std.test.fail("show output")?
     Ok(())
 
-def test_scratch_left_by_failure() -> Result[(), Failure]:
+def test_scratch_left_by_failure() -> Result[(), IoError | std.test.TestError]:
     scratch = std.test.scratch()?
     write_text(scratch.file("data")?, "x")?
     std.test.fail("after writing")?
     Ok(())
 
-def test_scratch_left_by_trap() -> Result[(), Failure]:
+def test_scratch_left_by_trap() -> Result[(), AllocError | IoError | std.test.TestError]:
     scratch = std.test.scratch()?
     write_text(scratch.file("data")?, "x")?
     values = [1]?
@@ -707,7 +707,7 @@ from std.time import Clock, Instant, nanoseconds, seconds
 def waited[C: Clock](clock: &C, start: &Instant) -> u64:
     clock.now().saturating_duration_since(start).as_seconds()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | RangeError | std.test.TestError | std.bytes.BytesError | StreamError | std.io.Partial]:
     mut clock = std.test.fake_clock(10u64)
     start = clock.now()
     std.test.equal(&waited(&clock, &start), &0u64)?
@@ -758,7 +758,7 @@ def main() -> Result[(), Failure]:
 
 const FAULTS: &str = r#"import std.test
 
-def test_allocations() -> Result[(), Failure]:
+def test_allocations() -> Result[(), std.test.TestError]:
     std.test.fail_allocations_after(0u32)?
     failed = [1, 2, 3]
     std.test.restore_allocations()?
@@ -771,7 +771,7 @@ def test_allocations() -> Result[(), Failure]:
     std.test.is_ok(&restored)?
     Ok(())
 
-def test_files() -> Result[(), Failure]:
+def test_files() -> Result[(), IoError | std.test.TestError]:
     scratch = std.test.scratch()?
     name = scratch.file("a.txt")?
     write_text(&name, "kept")?
@@ -786,7 +786,7 @@ def test_files() -> Result[(), Failure]:
     std.test.equal(&read_text(&name)?, &"kept")?
     Ok(())
 
-def test_later_files() -> Result[(), Failure]:
+def test_later_files() -> Result[(), IoError | std.test.TestError]:
     scratch = std.test.scratch()?
     name = scratch.file("b.txt")?
     # The open succeeds and creates the file; the write fails.

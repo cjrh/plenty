@@ -10,7 +10,7 @@ def extended(source: &list[i64]) -> Result[list[i64], AllocError]:
     result.append(30)?
     Ok(result)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     original = [10, 20]?
     print(extended(&original)?)?
     print(original)?

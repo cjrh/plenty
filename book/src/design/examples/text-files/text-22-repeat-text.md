@@ -4,7 +4,7 @@
 Zero and negative counts produce an empty string:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(str.repr("é🙂".repeat(3))?)?
     print(str.repr("x".repeat(0))?)?
     print(str.repr("x".repeat(-2))?)?

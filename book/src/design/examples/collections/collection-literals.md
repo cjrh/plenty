@@ -6,7 +6,7 @@ Collection literals directly return `Result[collection, AllocError]`:
 def build() -> Result[list[list[i64]], AllocError]:
     [[1, 2]?, [3]?]
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print({"answer": 42}?)?
     print(build()?)?
     Ok(())

@@ -6,7 +6,7 @@
 def merged(a: &set[i64], b: &set[i64]) -> Result[set[i64], AllocError]:
     a.union(b)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     a = {1, 2}?
     b = {2, 3}?
     match merged(&a, &b):
@@ -30,7 +30,7 @@ An allocation failure preserves the inputs. Set iteration order is unspecified.
 Find common members with `intersection`:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     match {1, 2}?.intersection({2, 3}?):
         case Ok(common):
             print(len(common))?
@@ -48,7 +48,7 @@ True
 Use `difference` to remove another set's members from a new result:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     wanted = {1, 2, 3}?
     completed = {2, 3, 4}?
     match wanted.difference(completed):
@@ -70,7 +70,7 @@ True
 `symmetric_difference` keeps members found in exactly one of the two inputs:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     match {1, 2}?.symmetric_difference({2, 3}?):
         case Ok(changed):
             print(len(changed))?

@@ -8,7 +8,7 @@ new keys appear in source insertion order:
 def merge(destination: &mut dict[str, i64], source: dict[str, i64]) -> Result[(), AllocError]:
     destination.update(source)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut scores = {"Ada": 10, "Bea": 20}?
     changes = {"Bea": 25, "Cam": 30, "Ada": 15}?
     merge(&mut scores, changes)?

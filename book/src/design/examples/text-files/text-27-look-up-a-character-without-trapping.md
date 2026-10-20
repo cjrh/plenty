@@ -4,7 +4,7 @@ Use `text.get(index)` when the index might be out of range. It returns
 `Option[str]`: `Some(character)` when the index exists, `Nothing` otherwise.
 
 ```plenty
-def show_character(text: &str, index: i64) -> Result[(), Failure]:
+def show_character(text: &str, index: i64) -> Result[(), IoError]:
     match text.get(index):
         case Some(value):
             print(value)?
@@ -12,7 +12,7 @@ def show_character(text: &str, index: i64) -> Result[(), Failure]:
             print("missing")?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     text = "café🙂"
     show_character(&text, -1)?
     show_character(&text, 3)?

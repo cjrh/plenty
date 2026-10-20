@@ -7,7 +7,7 @@ independent string inside a `Result`, leaving the original usable:
 def title(name: &str) -> Result[str, AllocError]:
     name.removeprefix("draft-")?.removesuffix(".txt")
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     name = "draft-notes.txt"
     print(title(&name)?)?
     print("abab".removeprefix("ab")?)?

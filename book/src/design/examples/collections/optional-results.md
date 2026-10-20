@@ -11,7 +11,7 @@ def first_positive(values: list[i64]) -> Option[i64]:
             return Some(value)
     Nothing
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     for values in [[-1, 0]?, [-1, 42]?]?:
         match first_positive(values):
             case Some(value):
@@ -35,7 +35,7 @@ def divide(left: i64, right: i64) -> Result[i64, str]:
         return Err("division by zero")
     Ok(left // right)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     for result in [divide(8, 2), divide(8, 0)]?:
         match result:
             case Ok(value):
@@ -62,7 +62,7 @@ def validate(name: str) -> Result[(), str]:
         return Err("name is empty")
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     for result in [validate("Plenty"), validate("")]?:
         match result:
             case Ok(_):

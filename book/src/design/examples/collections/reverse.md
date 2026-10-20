@@ -7,7 +7,7 @@
 def flip(items: &mut list[i64]) -> ():
     items.reverse()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut items = [10, 20, 30]?
     flip(&mut items)
     print(items)?

@@ -71,7 +71,7 @@ def polled(listener: &TcpListener, count: i64) -> Result[i64, NetError]:
                     return Err(error)
     Ok(served)
 
-def drive(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> Result[i64, Failure]:
+def drive(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> Result[i64, AllocError | std.bytes.BytesError]:
     address = listener.local_address().unwrap()
     mut streams = list[TcpStream].with_capacity(count)?
     for _ in range(count):
@@ -86,7 +86,7 @@ def drive(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> Res
         stream.read_before(&mut buffer, 0, 1, &deadline, cancel).unwrap()
     Ok(i64(monotonic_now().saturating_duration_since(&start).as_nanoseconds()) // rounds)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | std.bytes.BytesError | IoError | ThreadError]:
     cancel = CancellationToken()?
     print("connections", "selector ns", "polling ns")?
     for count in [1, 16, 128, 1024]?:

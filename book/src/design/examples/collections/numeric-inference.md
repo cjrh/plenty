@@ -7,7 +7,7 @@ function return type can also guide a directly written range comprehension.
 def squares() -> Result[list[u8], AllocError]:
     [n * n for n in range(8) if n % 2 == 0]
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(squares()?)?
     print([n * n for n in range[u8](8) if n % 2 == 0]?)?
     small: list[u16] = [n + 1 for n in range(3)]?

@@ -4,7 +4,7 @@ Lists, dictionaries, and sets have `clear() -> ()`. The method requires mutable
 access, drops the contents, and retains capacity for later insertions:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut items = [10, 20]?
     items.clear()
     print(items)?

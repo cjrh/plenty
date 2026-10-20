@@ -33,7 +33,7 @@ def classify(error: ParseError) -> Domain:
     Domain.Parse(error)
 def parsed(text: &str) -> Result[i64, Domain]:
     Ok(map_error(i64.parse(text), classify)? + 1)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | Domain]:
     print(parsed("41")?)?
     match parsed("bad"):
         case Ok(_):
@@ -87,7 +87,7 @@ fn accepts_mutable_reusable_callbacks_and_does_not_flatten_results() {
     assert_output(
         r#"
 from std.error import map_error
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ParseError]:
     count = 10
     mapper = def [mut count](error: ParseError) -> Result[i64, ParseError]:
         count += 1
@@ -116,12 +116,14 @@ class Resource:
 def result() -> Result[Resource, i64]:
     print("result").unwrap()
     Ok(Resource(42))
-def mapper(fail: bool) -> Result[OnceClosure[[i64], i64], Failure]:
+enum MapperError:
+    Unavailable
+def mapper(fail: bool) -> Result[OnceClosure[[i64], i64], MapperError]:
     print("mapper").unwrap()
     if fail:
-        return Err(Failure.Unspecified)
+        return Err(MapperError.Unavailable)
     Ok(def once (value: i64) -> i64: value)
-def attempt() -> Result[(), Failure]:
+def attempt() -> Result[(), MapperError]:
     drop(map_error(result(), mapper(True)?))
     Ok(())
 def main() -> ():
@@ -156,7 +158,7 @@ def classify(error: ParseError) -> IoError:
     IoError.InvalidInput
 def enriched(error: ParseError) -> Result[str, AllocError]:
     "context for ".concat("parse error")
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     success: Result[list[i64], ParseError] = Ok([3, 4]?)
     print("__test_fail_allocations_after_0__")?
     print("__test_begin_no_allocations__")?
@@ -191,7 +193,7 @@ def classify(cause: ParseError) -> IoError:
     IoError.InvalidInput
 def worker() -> Result[i64, IoError]:
     map_error(i64.parse("42"), def once (cause: ParseError) -> IoError: classify(cause))
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError | ThreadError]:
     with spawn(worker)? as task:
         print(task.join()?)?
     Ok(())

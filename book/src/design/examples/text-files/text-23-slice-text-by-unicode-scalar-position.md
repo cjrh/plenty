@@ -5,7 +5,7 @@ same required `i64` bounds and clamping rules as lists. Positions count Unicode
 scalar values, just like `len` and indexing:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     text = "Aé🙂Z"
     print(str.repr(text.slice(1, -1))?)?
     print(str.repr(text.slice(-100, 100))?)?
