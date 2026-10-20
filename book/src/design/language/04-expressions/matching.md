@@ -1,7 +1,8 @@
 # Pattern matching
 
 `match` evaluates its scrutinee once and selects a `case`. The scrutinee is an
-enum, an integer, a `str`, or a `bool`, or a reference to one:
+enum, an [anonymous sum](../03-types/anonymous-sums.md), an integer, a `str`,
+or a `bool`, or a reference to one:
 
 ```python
 enum Reading:
@@ -23,6 +24,7 @@ A case holds one pattern. A pattern is one of:
 | `_` | any value, binding nothing |
 | `name` | any payload, bound to an immutable local |
 | `_ as name` | the whole matched value, bound to an immutable local |
+| `name: MemberType` | a whole member of an anonymous sum; see [member patterns](../03-types/anonymous-sums.md) |
 | `Enum.Variant` or `Enum.Variant(p, ...)` | that variant, with one pattern per payload position |
 | `Some(p)`, `Nothing`, `Ok(p)`, `Err(p)` | that standard variant |
 | `1`, `-1`, `0u8` | an integer equal to the literal |
@@ -37,8 +39,8 @@ matched value supplies them: `case Choice.Value(v)` matches a `Choice[i64]` and
 a `Choice[str]` alike, and `case Choice[i64].Value(v)` is an error.
 
 A bare name binds only at a payload position; the case's own pattern is a
-variant, a literal, `_`, alternatives of those, or `_ as name`. A bare name as
-the case's own pattern is an error, and a payload name equal to a variant of
+variant, a literal, `_`, alternatives of those, `_ as name`, or a typed member
+pattern. A bare name as the case's own pattern is an error, and a payload name equal to a variant of
 that payload's enum is rejected, so a forgotten qualifier cannot silently bind
 everything. A variant pattern at a `Box[T]` payload matches the box's contents.
 Patterns nest to at most 64 levels.
@@ -83,8 +85,10 @@ def describe(reading: Option[i64]) -> str:
 ```
 
 `case _ as name:` matches every value the earlier cases leave and binds the
-whole matched value, for any scrutinee type. It is accepted only as a case's
-entire pattern: not as a `|` alternative, and not at a payload position, where
+whole matched value, for any supported scrutinee type. It does not make floats,
+collections, or other unsupported scrutinees matchable.
+It is accepted only as a case's entire pattern: not as a `|` alternative,
+and not at a payload position, where
 the name alone binds. Because it matches everything, a case after it is
 unreachable, and it is itself unreachable when earlier cases are exhaustive.
 `name` cannot be a variant of the matched enum, `_`, or `mut`.
@@ -109,8 +113,9 @@ wrong enum identities are errors. A pattern expands to at most 256 combinations
 of its alternatives.
 
 Literals never cover an integer or `str` position: such a position also needs
-`_` or a name, and a match on an integer or `str` ends with `case _:`. `True`
-and `False` together cover a `bool`, so a `_` after both is unreachable. A
+`_` or a payload name, and a match on an integer or `str` ends with `case _:`
+or `case _ as name:`. `True` and `False` together cover a `bool`, so a `_` after
+both is unreachable. A
 repeated literal is an unreachable case.
 
 Literal cases are tested in source order, one comparison each; a `str` case

@@ -87,8 +87,10 @@ storage class must match the read, or the error is
 `Integer`, `Real`, `Text`, `Blob`, or `Null`. A column's declared type does
 not decide its storage class; SQLite's type affinity does, so an `INTEGER`
 column given the text `'7'` stores the integer 7, but a `TEXT` column given
-the integer 7 stores the text `'7'`. Use `STRICT` tables to reject such
-values on insert. Text that is not valid UTF-8 is `InvalidUtf8`.
+the integer 7 stores the text `'7'`. `STRICT` tables still allow lossless
+conversion, including `'7'` into an `INTEGER` column; they reject values that
+cannot be losslessly converted to the declared type. Text that is not valid
+UTF-8 is `InvalidUtf8`.
 
 Every text and blob read is copied out, so values stay valid after the next
 `step`, `reset`, or the statement's drop. There are no borrowed row views.

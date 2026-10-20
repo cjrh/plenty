@@ -2,10 +2,10 @@
 
 `list[T]`, `dict[K, V]`, and `set[T]` have concrete element types, including
 nested collections. Dictionary keys and set members are integers, `bool`, `str`,
-or tuples recursively containing those types. Hashing uses tuple contents,
-including string bytes, independently of where a tuple is stored. Floats,
-owned collection/class components, and user-defined hash/equality are unsupported. Unit elements are
-rejected.
+`bytes`, or tuples recursively containing those types. Hashing uses tuple
+contents, including string and byte-literal contents, independently of where a
+tuple is stored. Floats, owned collection/class components, and user-defined
+hash/equality are unsupported. Unit elements are rejected.
 
 Dictionary and set bucket selection uses SipHash-2-4 over the complete key,
 including framed tuple fields and string lengths. One secret 128-bit key is

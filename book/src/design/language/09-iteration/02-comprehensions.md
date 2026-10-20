@@ -40,7 +40,8 @@ range, or generator and return Result with `AllocError`. Failure destroys
 partial output, the current element, and remaining source. Generator effects
 before failure persist. Sets require hashable elements and keep the first
 occurrence of each value. Borrowed sources and strings are unsupported by
-these constructors.
+these `.from(...)` methods. The call-style constructors additionally accept
+strings and `bytes`; see [collection conversion](../../facilities/01-builtins/construction-copy.md#conversion).
 
 A directly written range in a comprehension can receive numeric element
 context from the output annotation through direct arithmetic, for example

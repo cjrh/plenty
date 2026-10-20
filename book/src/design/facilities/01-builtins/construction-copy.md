@@ -52,12 +52,16 @@ remains fallible even when no growth is needed.
 
 `list[T].from(source)` and `set[T].from(source)` consume an owned collection,
 range, or generator and return `Result[collection, AllocError]`. `list(source)`
-and `set(source)` provide inferred conversion; `dict(d)` transfers a dictionary.
+and `set(source)` infer the element type; `list[T](source)` and `set[T](source)`
+specify it explicitly. These call-style constructors also accept `str` and
+`bytes`: `list("aé")?` produces `["a", "é"]`, and `list(b"AB")?` produces
+`[65u8, 66u8]`. The `.from(...)` methods do not accept those two source types.
+`dict(d)` transfers a dictionary.
 Set conversion retains the first occurrence of each permitted member.
 
 Failure destroys partial output, the current element, and the remaining source;
-generator effects already performed are not rolled back. Borrowed sources,
-string iteration, and pair-iterable dictionary construction are unsupported.
+generator effects already performed are not rolled back. Borrowed sources
+and pair-iterable dictionary construction are unsupported.
 
 ## Explicit copying
 

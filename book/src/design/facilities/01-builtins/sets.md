@@ -1,7 +1,8 @@
 # Sets
 
 Sets use the [common collection rules](collections.md); members are integers,
-booleans, or strings. Iteration order is unspecified. `add` and `reserve` follow
+booleans, strings, `bytes`, or tuples recursively containing those types.
+Iteration order is unspecified. `add` and `reserve` follow
 the [recoverable growth contract](construction-copy.md).
 
 ## Removal and update

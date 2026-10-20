@@ -58,7 +58,7 @@ differs.
   protocol's requirement. An uninstantiated generic body resolves its
   module-level names and locals only.
 - Builtin functions, methods of built-in types such as `list` and `str`, and
-  `Ok`, `Err`, `Some`, and `None` have no declaration to show.
+  `Ok`, `Err`, `Some`, and `Nothing` have no declaration to show.
 - Variant names in `case` patterns are not resolved.
 - Locals offered by completion are those bound in the enclosing function
   above the cursor, by line.

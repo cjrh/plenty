@@ -1,8 +1,8 @@
 # Reverse traversal and boolean reductions
 
 `reversed(iterable)` is a source for loops and comprehensions over a list,
-string, or range. It evaluates the source once and visits its elements from
-last to first, without changing the source order or allocating a reversed
+string, `bytes`, `std.bytes.Bytes`, or range. It evaluates the source once and
+visits its elements from last to first, without changing the source order or allocating a reversed
 copy. Text is traversed by Unicode scalar value, with linear total byte
 traversal; combining marks remain separate scalars. Ranges retain their
 element type and original step, including descending and unsigned ranges.
@@ -16,8 +16,9 @@ alive until the loop scope exits. `continue` advances backward once, and
 item. Flat tuple unpacking and comprehensions work as in forward iteration.
 
 Use `reversed` as an input to [enumerate or zip](04-adapters.md), including
-borrowed inputs. Its own input must be a concrete list, string, or range;
-it cannot reverse `enumerate`, `zip`, a generator, or a hash collection.
+borrowed inputs. Its own input must be a concrete list, string, byte literal,
+byte buffer, or range; it cannot reverse `enumerate`, `zip`, a generator,
+or a hash collection.
 It does not create a stored iterator or dispatch to a user iterator protocol.
 
 `any(iterable)` and `all(iterable)` return `bool`. They accept owned or
@@ -35,8 +36,10 @@ answer is determined; remaining frame state is then dropped. A consumed list
 or generator is unavailable afterward. Borrow the list to preserve it.
 These reductions allocate no result container or iterator object. An input
 expression can still allocate, and an eager list comprehension builds its
-whole list before reduction. Generator expressions remain unsupported; use
-a named generator for incremental predicate evaluation.
+whole list before reduction. Use a
+[generator expression](03-generators.md#generator-expressions), such as
+`any(n == 2 for n in range(10))`, or a named generator for incremental
+predicate evaluation without building that list.
 
 Functions and callable bindings named `reversed`, `any`, or `all` retain
 their normal call behavior. Imported generic functions and generator bodies

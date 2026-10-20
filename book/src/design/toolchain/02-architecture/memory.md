@@ -33,5 +33,8 @@ it directly. Public allocator selection and scoped allocator lifetimes are unsup
 
 Checked buffer growth and partial-construction cleanup implement the
 [recoverable allocation contract](../../language/08-errors/02-allocation-and-traps.md).
-The `runtime-checks` feature counts allocation attempts, including allocations
-freed inside the observed region, for native integration tests.
+The compiler's `runtime-checks` feature enables the embedded runtime's
+`allocation-checks` instrumentation for native integration tests. Allocation-free
+regions count successful allocations, including those freed inside the region;
+failed attempts do not count. Failure injection is separate. See
+[runtime validation](runtime.md#validation).

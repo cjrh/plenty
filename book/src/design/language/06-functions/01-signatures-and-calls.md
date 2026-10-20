@@ -1,7 +1,7 @@
 # Signatures, methods, and calls
 
-Named functions are declared at module scope or as class methods. Every
-parameter and result has an explicit type, except the class receiver shorthand
+Named functions are declared at module scope or as class or enum methods. Every
+parameter and result has an explicit type, except the receiver shorthand
 `self`. All signatures are available before bodies are checked, permitting
 forward calls and mutual recursion. Nested named functions, overloads, and
 redefinitions are unsupported.
@@ -33,7 +33,8 @@ Owned arguments copy or move; reference arguments follow
 [borrowing](../05-ownership/02-borrowing.md). A later argument's `?` cleans up
 already evaluated arguments without entering the callee.
 
-Named functions, class methods and constructors accept `name=value` arguments.
+Named functions, class and enum methods, and class constructors accept
+`name=value` arguments.
 Positional arguments must come first; named arguments can follow in any order.
 Unknown names, duplicate bindings (including a positional argument plus its
 name), and missing required arguments are errors. Names bind statically; no
@@ -71,9 +72,11 @@ Anonymous functions and C import/export declarations do not accept parameter
 defaults. No splat unpacking or variadic parameters are
 supported. Field defaults are separate from parameter defaults.
 
-A method's first parameter is `self`. Bare `self` means `&Class` in ordinary
-methods and `&mut Class` in `__init__` and `__del__`. Mutating ordinary methods
-declare `self: &mut Class`; their receiver must be a mutable owner or exclusive
+A method's first parameter is `self`. Bare `self` borrows the enclosing class
+or enum immutably in ordinary methods. Class lifecycle methods `__init__` and
+`__del__` instead borrow `&mut Class`; enums have no lifecycle methods.
+Mutating ordinary methods declare `self: &mut Class` (or the enum type);
+their receiver must be a mutable owner or exclusive
 reference. Methods resolve statically and borrow their receiver. Temporary
 owned receivers are supported when no reference escapes. Attempting mutation
 through an ordinary method's bare `self` reports the explicit
