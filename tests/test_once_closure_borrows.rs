@@ -4,7 +4,7 @@ use support::{check_source, run};
 #[test]
 fn consuming_captures_can_mix_owned_and_local_borrowed_values() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut total = 1
     offset = 3
     values = [5, 8]?

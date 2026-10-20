@@ -27,7 +27,7 @@ fn long_elif_chain_selects_each_arm(#[case] arms: usize) {
     let last = arms - 1;
     let source = format!(
         "{}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(pick(0))?
     print(pick(7))?
     print(pick({last}))?
@@ -55,7 +55,7 @@ fn long_elif_chain_without_else_assigns_returns_and_falls_through() {
     source.push_str(
         "    r + 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(pick(3000))?
     print(pick(3001))?
     print(pick(3002))?
@@ -115,7 +115,7 @@ def loops(stop: i64) -> i64:
         total = total + i
     total
 
-def keep(name: str, kind: i64) -> Result[i64, Failure]:
+def keep(name: str, kind: i64) -> Result[i64, IoError]:
     if kind == 0:
         drop(name)
         return Ok(0)
@@ -125,7 +125,7 @@ def keep(name: str, kind: i64) -> Result[i64, Failure]:
         return Ok(2)
     Ok(len(&name))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(Pair(3, 1))?
     print(Pair(3, 5))?
     # A call in an arm is still a tail call: this depth would overflow otherwise.
@@ -180,7 +180,7 @@ fn elif_arms_keep_their_diagnostics(#[case] declaration: &str, #[case] expected:
     );
 }
 
-const MAIN: &str = "\ndef main() -> Result[(), Failure]:\n    print(pick(7))?\n    Ok(())\n";
+const MAIN: &str = "\ndef main() -> Result[(), IoError]:\n    print(pick(7))?\n    Ok(())\n";
 
 /// `depth` suites inside one another around `r = 1`. `open` writes the lines
 /// that begin a suite `step` indents deeper.
@@ -225,7 +225,7 @@ fn value(ty: &str, expression: &str) -> String {
 /// `pick` returns the value of a fallible `body`, which ends in `Ok(...)`.
 fn fallible(body: &str) -> String {
     format!(
-        "def same(x: i64) -> Result[i64, Failure]:\n    Ok(x)\n\ndef inner(x: i64) -> Result[i64, Failure]:\n{body}\ndef pick(x: i64) -> i64:\n    match inner(x):\n        case Ok(v):\n            v\n        case Err(_):\n            -1\n{MAIN}"
+        "def same(x: i64) -> Result[i64, AllocError]:\n    Ok(x)\n\ndef inner(x: i64) -> Result[i64, AllocError]:\n{body}\ndef pick(x: i64) -> i64:\n    match inner(x):\n        case Ok(v):\n            v\n        case Err(_):\n            -1\n{MAIN}"
     )
 }
 
@@ -379,7 +379,7 @@ fn nesting_is_accepted_to_the_limit_and_rejected_beyond_it(
 fn type_arguments_are_not_expression_nesting() {
     let argument = format!("{}i64{}", "Option[".repeat(63), "]".repeat(63));
     let (succeeded, stdout, stderr) = compile_and_run(&format!(
-        "def ident[T](x: T) -> T:\n    x\n\ndef main() -> Result[(), Failure]:\n    v = ident[{argument}](Nothing)\n    print(7)?\n    Ok(())\n"
+        "def ident[T](x: T) -> T:\n    x\n\ndef main() -> Result[(), IoError]:\n    v = ident[{argument}](Nothing)\n    print(7)?\n    Ok(())\n"
     ));
     assert!(succeeded, "{stderr}");
     assert_eq!(stdout, "7\n");

@@ -332,6 +332,7 @@ fn collection_literal_under_question_reports_its_alloc_error(
     assert!(!error.contains("use `?` to propagate"), "{error}");
 }
 
+// B71: the second case deliberately propagates AllocError into builtin `Failure`.
 #[test]
 fn collection_literal_under_question_still_propagates_alloc_error_and_failure() {
     for body in [

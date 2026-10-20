@@ -11,7 +11,7 @@ def wrap(values: list[i64]) -> Result[OnceClosure[[], list[i64]], AllocError]:
     Ok(make(values))
 def call[T](callback: OnceClosure[[], T]) -> T:
     callback()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     first: OnceClosure[[], u8] = make(12u8)
     print(call(first))?
     wrapped = wrap([3, 4]?)?
@@ -47,7 +47,7 @@ fn one_shot_and_reusable_annotations_do_not_unify() {
 #[test]
 fn one_shot_calls_transfer_captures_to_the_body() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     values = [2, 3]?
     take = def once [values]() -> list[i64]:
         values
@@ -90,7 +90,7 @@ class Resource:
     id: i64
     def __del__(self) -> ():
         print(self.id).unwrap()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     first = Resource(1)
     second = Resource(2)
     take = def once [first, second]() -> Resource:

@@ -12,7 +12,7 @@ def apply(operation: Callable[[i64], i64], value: i64) -> i64:
     operation(value)
 def choose(first: bool) -> Callable[[i64], i64]:
     double if first else increment
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut operation: Callable[[i64], i64] = double
     saved = operation
     operation = increment
@@ -61,7 +61,7 @@ def choose() -> Callable[[i64], i64]:
     double
 class Handler:
     operation: Callable[[i64], i64]
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(choose()(3))?
     print((double)(4))?
     handlers = [double]?
@@ -96,7 +96,7 @@ def total(values: &list[i64]) -> i64:
     sum
 def consume(values: list[i64]) -> i64:
     len(values)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mutate: Callable[[&mut i64], ()] = increment
     mut value = 3
     mutate(&mut value)
@@ -129,7 +129,7 @@ def identity(value: &mut i64) -> &mut i64:
     value
 def factory() -> Callable[[&mut i64], &mut i64]:
     identity
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut value = 4
     alias = factory()(&mut value)
     *alias = 12
@@ -187,7 +187,7 @@ def display(value: i64) -> ():
     print(value).unwrap()
 def invoke[T](operation: Callable[[T], ()], value: T) -> ():
     operation(value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     saved = keep(increment)
     print(apply(saved, 41u8))?
     invoke(display, 7)
@@ -212,7 +212,7 @@ def first[A, B](value: A, ignored: B) -> A:
     value
 def make[T]() -> Callable[[T], T]:
     identity[T]
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     saved = identity[u8]
     print(saved(42))?
     print((first[i32, bool])(7, True))?
@@ -253,7 +253,7 @@ def select() -> Callable[[u8], u8]:
     identity
 def apply(operation: Callable[[u8], u8]) -> u8:
     operation(42)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     keep: Callable[[u8], u8] = identity
     print(keep(7))?
     print(apply(identity))?

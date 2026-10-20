@@ -24,7 +24,7 @@ def before_entry() -> Result[(), AllocError]:
 def after_entry() -> Result[(), AllocError]:
     make()?(Resource(3), 0)?
     Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(str.repr(before_entry()).unwrap())?
     print(str.repr(after_entry()).unwrap())?
     Ok(())
@@ -96,7 +96,7 @@ class Resource:
     id: i64
     def __del__(self) -> ():
         print(self.id).unwrap()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     for n in range(3):
         resource = Resource(n)
         callback = def once [resource]() -> Resource:

@@ -35,7 +35,7 @@ fn power_operator_names_the_pow_method() {
 fn multiplying_by_a_dereference_is_still_valid() {
     assert_eq!(
         output(
-            "def main() -> Result[(), Failure]:\n    n = 3\n    r = &n\n    print(n ** r)?\n    print(n * *r)?\n    Ok(())\n"
+            "def main() -> Result[(), IoError]:\n    n = 3\n    r = &n\n    print(n ** r)?\n    print(n * *r)?\n    Ok(())\n"
         ),
         "9\n9\n"
     );
@@ -54,7 +54,7 @@ fn multiplying_by_a_dereference_is_still_valid() {
 fn several_names_bind_from_an_unparenthesized_tuple() {
     assert_eq!(
         output(
-            "def main() -> Result[(), Failure]:\n    n = 3\n    lo, hi = 0, n\n    print((lo, hi))?\n    Ok(())\n"
+            "def main() -> Result[(), IoError]:\n    n = 3\n    lo, hi = 0, n\n    print((lo, hi))?\n    Ok(())\n"
         ),
         "(0, 3)\n"
     );
@@ -133,7 +133,7 @@ fn operands_that_agree_still_report_the_annotation_mismatch() {
     );
     assert_eq!(
         output(
-            "def main() -> Result[(), Failure]:\n    n = 3\n    print(f64(n) * 1.5)?\n    Ok(())\n"
+            "def main() -> Result[(), AllocError | IoError]:\n    n = 3\n    print(f64(n) * 1.5)?\n    Ok(())\n"
         ),
         "4.5\n"
     );
@@ -152,7 +152,7 @@ fn list_repetition_names_the_comprehension() {
         ("xs = ys * 3", 10),
     ] {
         let source =
-            format!("def main() -> Result[(), Failure]:\n    n = 3\n    ys = [1, 2]?\n    {body}\n    Ok(())\n");
+            format!("def main() -> Result[(), AllocError | IoError]:\n    n = 3\n    ys = [1, 2]?\n    {body}\n    Ok(())\n");
         assert_eq!(
             diagnostic(&source),
             format!("4:{column}: {REPETITION}"),
@@ -161,7 +161,7 @@ fn list_repetition_names_the_comprehension() {
     }
     assert_eq!(
         output(
-            "def main() -> Result[(), Failure]:\n    n = 3\n    print([0.0 for _ in range(n)]?)?\n    Ok(())\n"
+            "def main() -> Result[(), AllocError | IoError]:\n    n = 3\n    print([0.0 for _ in range(n)]?)?\n    Ok(())\n"
         ),
         "[0.0, 0.0, 0.0]\n"
     );
@@ -171,7 +171,7 @@ fn list_repetition_names_the_comprehension() {
 fn multiplying_two_lists_keeps_the_operator_diagnostic() {
     assert_eq!(
         diagnostic(
-            "def main() -> Result[(), Failure]:\n    xs = [1]?\n    ys = [2]?\n    zs = xs * ys\n    Ok(())\n"
+            "def main() -> Result[(), AllocError | IoError]:\n    xs = [1]?\n    ys = [2]?\n    zs = xs * ys\n    Ok(())\n"
         ),
         "4:10: operator `*` does not accept list[i64]"
     );
@@ -193,7 +193,7 @@ fn str_cast_names_str_from() {
         "2:9: only numeric types support cast syntax"
     );
     assert_eq!(
-        output("def main() -> Result[(), Failure]:\n    print(str.from(42)?)?\n    Ok(())\n"),
+        output("def main() -> Result[(), AllocError | IoError]:\n    print(str.from(42)?)?\n    Ok(())\n"),
         "42\n"
     );
 }
@@ -208,12 +208,13 @@ fn empty_display_names_the_annotation_and_the_typed_constructor() {
         ("seen = []", list),
         ("seen = []?", list),
     ] {
-        let source = format!("def main() -> Result[(), Failure]:\n    {body}\n    Ok(())\n");
+        let source =
+            format!("def main() -> Result[(), AllocError | IoError]:\n    {body}\n    Ok(())\n");
         assert_eq!(diagnostic(&source), format!("2:12: {expected}"), "{body}");
     }
     assert_eq!(
         output(
-            "def main() -> Result[(), Failure]:\n    seen: dict[str, i64] = {}?\n    items: list[i64] = []?\n    print((len(seen), len(items), len(dict[str, i64]()?), len(list[i64]()?)))?\n    Ok(())\n"
+            "def main() -> Result[(), AllocError | IoError]:\n    seen: dict[str, i64] = {}?\n    items: list[i64] = []?\n    print((len(seen), len(items), len(dict[str, i64]()?), len(list[i64]()?)))?\n    Ok(())\n"
         ),
         "(0, 0, 0, 0)\n"
     );
@@ -237,7 +238,7 @@ fn float_patterns_name_the_conditional_chain() {
 fn matching_an_unsupported_type_names_the_conditional_chain() {
     for value in ["2.5", "[1, 2]?", "{1: 2}?"] {
         let source = format!(
-            "def main() -> Result[(), Failure]:\n    s = {value}\n    match s:\n        case _:\n            pass\n    Ok(())\n"
+            "def main() -> Result[(), AllocError | IoError]:\n    s = {value}\n    match s:\n        case _:\n            pass\n    Ok(())\n"
         );
         assert_eq!(
             diagnostic(&source),
@@ -251,19 +252,19 @@ fn matching_an_unsupported_type_names_the_conditional_chain() {
 fn mut_payload_binding_names_the_working_spellings() {
     assert_eq!(
         diagnostic(
-            "def main() -> Result[(), Failure]:\n    found = Some([1, 2]?)\n    match found:\n        case Some(mut items):\n            items.append(3)?\n        case Nothing:\n            pass\n    Ok(())\n"
+            "def main() -> Result[(), AllocError | IoError]:\n    found = Some([1, 2]?)\n    match found:\n        case Some(mut items):\n            items.append(3)?\n        case Nothing:\n            pass\n    Ok(())\n"
         ),
         "4:19: payload bindings cannot be declared `mut`; bind the payload and move it into a mutable local in the arm, as in `mut local = payload`, or match `&mut value` to change it in place"
     );
     assert_eq!(
         output(
-            "def main() -> Result[(), Failure]:\n    found = Some([1, 2]?)\n    match found:\n        case Some(items):\n            mut local = items\n            local.append(3)?\n            print(local)?\n        case Nothing:\n            pass\n    Ok(())\n"
+            "def main() -> Result[(), AllocError | IoError]:\n    found = Some([1, 2]?)\n    match found:\n        case Some(items):\n            mut local = items\n            local.append(3)?\n            print(local)?\n        case Nothing:\n            pass\n    Ok(())\n"
         ),
         "[1, 2, 3]\n"
     );
     assert_eq!(
         output(
-            "def main() -> Result[(), Failure]:\n    mut found = Some([1, 2]?)\n    match &mut found:\n        case Some(items):\n            items.append(3)?\n        case Nothing:\n            pass\n    print(found)?\n    Ok(())\n"
+            "def main() -> Result[(), AllocError | IoError]:\n    mut found = Some([1, 2]?)\n    match &mut found:\n        case Some(items):\n            items.append(3)?\n        case Nothing:\n            pass\n    print(found)?\n    Ok(())\n"
         ),
         "Option[list[i64]].Some([1, 2, 3])\n"
     );
@@ -315,7 +316,7 @@ fn a_binding_that_left_scope_explains_block_scope() {
     }
     assert_eq!(
         output(
-            "def main() -> Result[(), Failure]:\n    c = True\n    mut y = 0\n    if c:\n        y = 1\n    else:\n        y = 2\n    print(y)?\n    Ok(())\n"
+            "def main() -> Result[(), IoError]:\n    c = True\n    mut y = 0\n    if c:\n        y = 1\n    else:\n        y = 2\n    print(y)?\n    Ok(())\n"
         ),
         "1\n"
     );
@@ -353,7 +354,7 @@ fn a_docstring_only_str_function_explains_the_docstring_rule() {
     );
     assert_eq!(
         output(
-            "def f() -> str:\n    return \"hi\"\ndef main() -> Result[(), Failure]:\n    print(f())?\n    Ok(())\n"
+            "def f() -> str:\n    return \"hi\"\ndef main() -> Result[(), IoError]:\n    print(f())?\n    Ok(())\n"
         ),
         "hi\n"
     );
@@ -406,7 +407,7 @@ fn other_argument_errors_are_unchanged() {
     // A comparison beginning with a name is an ordinary argument.
     assert_eq!(
         output(
-            "def flag(on: bool) -> bool:\n    on\ndef main() -> Result[(), Failure]:\n    a = 1\n    print(flag(a == 1))?\n    Ok(())\n"
+            "def flag(on: bool) -> bool:\n    on\ndef main() -> Result[(), AllocError | IoError]:\n    a = 1\n    print(flag(a == 1))?\n    Ok(())\n"
         ),
         "True\n"
     );
@@ -416,7 +417,7 @@ fn other_argument_errors_are_unchanged() {
 fn membership_accepts_a_borrowed_string() {
     assert_eq!(
         output(
-            "def in_set(regs: &set[str], x: &str) -> bool:\n    x in regs\ndef in_list(regs: &list[str], x: &str) -> bool:\n    x in regs\ndef in_dict(regs: &dict[str, i64], x: &str) -> bool:\n    x not in regs\ndef main() -> Result[(), Failure]:\n    names = {\"a\", \"b\"}?\n    listed = [\"a\"]?\n    table = {\"a\": 1}?\n    print((in_set(&names, \"a\"), in_list(&listed, \"b\"), in_dict(&table, \"a\")))?\n    Ok(())\n"
+            "def in_set(regs: &set[str], x: &str) -> bool:\n    x in regs\ndef in_list(regs: &list[str], x: &str) -> bool:\n    x in regs\ndef in_dict(regs: &dict[str, i64], x: &str) -> bool:\n    x not in regs\ndef main() -> Result[(), AllocError | IoError]:\n    names = {\"a\", \"b\"}?\n    listed = [\"a\"]?\n    table = {\"a\": 1}?\n    print((in_set(&names, \"a\"), in_list(&listed, \"b\"), in_dict(&table, \"a\")))?\n    Ok(())\n"
         ),
         "(True, False, False)\n"
     );

@@ -39,7 +39,7 @@ pub def calculate(out: &mut i64) -> f64:
         &source,
         r#"
 import native
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut out = 4
     print(native.calculate(&mut out))?
     print(out)?

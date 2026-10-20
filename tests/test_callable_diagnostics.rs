@@ -172,7 +172,7 @@ fn unresolved_closure_returns_name_closure_identity_not_generators() {
         ("Closure[[i64], i64]", "closure"),
     ] {
         let source = format!(
-            "def mapper() -> Result[{annotation}, Failure]:\n    Err(Failure.Unspecified)\ndef main() -> ():\n    drop(mapper())\n"
+            "def mapper() -> Result[{annotation}, str]:\n    Err(\"no\")\ndef main() -> ():\n    drop(mapper())\n"
         );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(
@@ -183,7 +183,7 @@ fn unresolved_closure_returns_name_closure_identity_not_generators() {
         assert!(!error.contains("generator"), "{error}");
     }
     let generator = check_source(
-        "def numbers() -> Result[Generator[i64], Failure]:\n    Err(Failure.Unspecified)\ndef main() -> ():\n    drop(numbers())\n",
+        "def numbers() -> Result[Generator[i64], str]:\n    Err(\"no\")\ndef main() -> ():\n    drop(numbers())\n",
     )
     .unwrap_err()
     .to_string();

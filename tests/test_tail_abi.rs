@@ -76,7 +76,7 @@ def indirect(n: i64) -> Option[range[i64]]:
         return Some(range(20, 23))
     call = indirect
     call(n - 1)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(direct(300000))?
     print(indirect(300000))?
     Ok(())
@@ -100,7 +100,7 @@ def short(n: i64, a: i64, b: i64) -> Result[Parcel, i64]:
     long(n - 1, b, a, 1, 2, 3, 4, 5, 6, 7, 8)
 def long(n: i64, b: i64, a: i64, x: i64, y: i64, z: i64, p: i64, q: i64, r: i64, s: i64, t: i64) -> Result[Parcel, i64]:
     short(n, a, b)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     value = short(300000, 4, 9).unwrap()
     print(value.prefix)?
     print(value.values)?
@@ -127,7 +127,7 @@ def factory() -> Generator[i64]:
     values()
 def outer_factory() -> Generator[i64]:
     factory()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut generator = outer_factory()
     print(next(generator))?
     drop(generator)
@@ -178,7 +178,7 @@ def recurse(n: i64) -> Option[range[i64]]:
     if n == 0:
         return Some(range(4, 7))
     recurse(n - 1)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print("__test_begin_no_allocations__")?
     print("__test_fail_allocations_after_0__")?
     result = recurse(300000)

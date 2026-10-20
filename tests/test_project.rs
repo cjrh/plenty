@@ -103,7 +103,7 @@ fn run_forwards_arguments_and_exit_status() {
         "",
         &[(
             "src/main.plenty",
-            "def main() -> Result[i32, Failure]:\n    print(args()?)?\n    Ok(5)\n",
+            "def main() -> Result[i32, AllocError | IoError]:\n    print(args()?)?\n    Ok(5)\n",
         )],
     );
     let output = plenty(&dir.path().join("args"), &["run", "--", "a", "--release"]);
@@ -154,7 +154,7 @@ fn path_dependencies_resolve_by_alias_with_one_package_per_name() {
         &[
             (
                 "src/main.plenty",
-                "import left\nimport right\nfrom helper import scale\n\nclass Point:\n    z: i64\n\ndef main() -> Result[(), Failure]:\n    print(left.via(1) + right.twice(1) + left.Point(1).y + Point(2).z + scale(1))?\n    Ok(())\n",
+                "import left\nimport right\nfrom helper import scale\n\nclass Point:\n    z: i64\n\ndef main() -> Result[(), IoError]:\n    print(left.via(1) + right.twice(1) + left.Point(1).y + Point(2).z + scale(1))?\n    Ok(())\n",
             ),
             // The root package's own `helper` is distinct from base's.
             ("src/helper.plenty", "pub def scale(x: i64) -> i64:\n    x + 100\n"),
@@ -309,7 +309,7 @@ fn profiles_tests_and_clean() {
             ("src/lib.plenty", "pub def add(a: i64, b: i64) -> i64:\n    a + b\n"),
             (
                 "src/main.plenty",
-                "from calc import add\n\ndef main() -> Result[(), Failure]:\n    print(add(2, 3))?\n    Ok(())\n",
+                "from calc import add\n\ndef main() -> Result[(), IoError]:\n    print(add(2, 3))?\n    Ok(())\n",
             ),
             ("src/calc.plenty", "pub def add(a: i64, b: i64) -> i64:\n    a + b\n"),
             (
@@ -353,7 +353,7 @@ fn manifest_targets_and_errors() {
     for name in ["one", "two"] {
         write(
             &app.join(format!("src/{name}.plenty")),
-            &format!("def main() -> Result[(), Failure]:\n    print(\"{name}\")?\n    Ok(())\n"),
+            &format!("def main() -> Result[(), IoError]:\n    print(\"{name}\")?\n    Ok(())\n"),
         );
     }
     fails(&app, &["run"], "choose one with --bin NAME: one, two");
@@ -377,7 +377,7 @@ fn manifest_targets_and_errors() {
 #[test]
 fn plentyc_is_the_single_file_compiler_and_names_that_match_commands_need_a_path() {
     let dir = tempfile::tempdir().unwrap();
-    let source = "def main() -> Result[(), Failure]:\n    print(\"file\")?\n    Ok(())\n";
+    let source = "def main() -> Result[(), IoError]:\n    print(\"file\")?\n    Ok(())\n";
     write(&dir.path().join("run"), source);
     let output = Command::new(env!("CARGO_BIN_EXE_plentyc"))
         .args(["--release", "run"])
@@ -457,7 +457,7 @@ fn twice_application(root: &Path, dependency: &str) -> std::path::PathBuf {
         dependency,
         &[(
             "src/main.plenty",
-            "import util\n\ndef main() -> Result[(), Failure]:\n    print(util.twice(21))?\n    Ok(())\n",
+            "import util\n\ndef main() -> Result[(), IoError]:\n    print(util.twice(21))?\n    Ok(())\n",
         )],
     );
     root.join("app")
@@ -682,7 +682,7 @@ fn git_subdirectories_share_one_commit_per_package() {
         &dependencies("v1", ", version = \"1.2.0\""),
         &[(
             "src/main.plenty",
-            "import geo\nimport shapes\n\ndef main() -> Result[(), Failure]:\n    print(shapes.area(2) + geo.scale(1))?\n    Ok(())\n",
+            "import geo\nimport shapes\n\ndef main() -> Result[(), IoError]:\n    print(shapes.area(2) + geo.scale(1))?\n    Ok(())\n",
         )],
     );
     let app = dir.path().join("app");
@@ -878,7 +878,7 @@ fn builds_reuse_up_to_date_outputs() {
     let app = twice_application(dir.path(), "util = { path = \"../util\" }\n");
     write(
         &app.join("tests/math.plenty"),
-        "import std.test\nimport util\n\ndef test_twice() -> Result[(), Failure]:\n    std.test.equal(&util.twice(2), &5)?\n    Ok(())\n",
+        "import std.test\nimport util\n\ndef test_twice() -> Result[(), std.test.TestError]:\n    std.test.equal(&util.twice(2), &5)?\n    Ok(())\n",
     );
     assert!(status_lines(&app, &["build"]).contains("Compiling app v0.1.0 (debug)"));
     let stderr = status_lines(&app, &["build"]);
@@ -937,7 +937,7 @@ fn workspaces_share_a_lockfile_and_target_directory() {
             ("src/lib.plenty", "pub def twice(x: i64) -> i64:\n    x * 2\n"),
             (
                 "tests/unit.plenty",
-                "import std.test\nimport util\n\ndef test_twice() -> Result[(), Failure]:\n    std.test.equal(&util.twice(1), &2)?\n    Ok(())\n",
+                "import std.test\nimport util\n\ndef test_twice() -> Result[(), std.test.TestError]:\n    std.test.equal(&util.twice(1), &2)?\n    Ok(())\n",
             ),
         ],
     );

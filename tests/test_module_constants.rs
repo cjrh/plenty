@@ -7,7 +7,7 @@ fn constants_import_as_values_and_locals_can_shadow_them() {
     std::fs::write(dir.path().join("numbers.plenty"),
         "pub const count: i32 = 3\npub const angle: f32 = f32.PI\nconst hidden: u64 = u64.MAX\npub def largest() -> u64:\n    hidden\n").unwrap();
     let main = dir.path().join("main.plenty");
-    std::fs::write(&main, "import numbers as n\nfrom numbers import count as three\nfrom std.math import pi as circle\nconst small: i8 = -128i8\nconst negative_inf: f64 = -f64.INF\ndef main() -> Result[(), Failure]:\n    print(n.count + three)?\n    print(n.angle == f32.PI)?\n    print(n.largest() == u64.MAX)?\n    print(circle == f64.PI)?\n    print(small)?\n    print(negative_inf)?\n    three = 10\n    print(three)?\n    Ok(())\n").unwrap();
+    std::fs::write(&main, "import numbers as n\nfrom numbers import count as three\nfrom std.math import pi as circle\nconst small: i8 = -128i8\nconst negative_inf: f64 = -f64.INF\ndef main() -> Result[(), IoError]:\n    print(n.count + three)?\n    print(n.angle == f32.PI)?\n    print(n.largest() == u64.MAX)?\n    print(circle == f64.PI)?\n    print(small)?\n    print(negative_inf)?\n    three = 10\n    print(three)?\n    Ok(())\n").unwrap();
     let executable = dir.path().join("program");
     plenty::compile_file_to_executable(&main, &executable, None).unwrap();
     let output = Command::new(executable).output().unwrap();

@@ -22,7 +22,7 @@ def read[T, R: Readable[T]](source: &R) -> T:
     source.read()
 def put[T, W: Writable[T]](target: &mut W, value: T) -> ():
     target.write(value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     source = Cell(7u8)
     mut target = Cell(1u8)
     source.send(&mut target)
@@ -58,7 +58,7 @@ class Holder:
         &self.cell
 def read[T, R: Readable[T], S: Source[R]](holder: &S) -> T:
     holder.source().read()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     holder = Holder(Cell(7u8))
     print(read(&holder))?
     Ok(())

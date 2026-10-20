@@ -6,7 +6,7 @@ fn borrowed_environments_pass_safely_through_nested_consumers() {
     let output = run(r#"
 def twice(f: &mut Closure[[], i64]) -> i64:
     f() + f()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut value = 3
     mut inner = def [&mut value]() -> i64:
         value = value + 1
@@ -30,7 +30,7 @@ fn environment_borrows_keep_transitive_capture_loans_live() {
     let error = check_source("def consume[T](f: Closure[[], i64], marker: T) -> i64:\n    f()\ndef main() -> ():\n    n = 0\n    f = def [&n]() -> i64:\n        n\n    consume(f, 1)\n    pass\n").unwrap_err().to_string();
     assert!(error.contains("by reference"), "{error}");
     for action in ["print(value)?", "value = 9"] {
-        let source = format!("def apply(f: &mut Closure[[], i64]) -> i64:\n    f()\ndef main() -> Result[(), Failure]:\n    mut value = 0\n    mut inner = def [&mut value]() -> i64:\n        value = value + 1\n        value\n    mut outer = def [&mut inner]() -> i64:\n        inner()\n    {action}\n    print(apply(&mut outer))?\n    Ok(())\n");
+        let source = format!("def apply(f: &mut Closure[[], i64]) -> i64:\n    f()\ndef main() -> Result[(), IoError]:\n    mut value = 0\n    mut inner = def [&mut value]() -> i64:\n        value = value + 1\n        value\n    mut outer = def [&mut inner]() -> i64:\n        inner()\n    {action}\n    print(apply(&mut outer))?\n    Ok(())\n");
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
     }
@@ -47,7 +47,7 @@ def counter(start: i64) -> Closure[[], i64]:
         start
 def apply(f: &mut Closure[[], i64]) -> i64:
     f()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut a = counter(10)
     mut b: Closure[[], i64] = counter(30)
     print(apply(&mut a))?

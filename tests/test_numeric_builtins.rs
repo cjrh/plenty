@@ -16,7 +16,8 @@ const INTEGERS: [(&str, i128, i128); 8] = [
 
 /// Print each expression on its own line and compare the lines.
 fn assert_lines(declarations: &str, setup: &str, cases: &[(&str, &str)]) {
-    let mut source = format!("{declarations}def main() -> Result[(), Failure]:\n{setup}");
+    let mut source =
+        format!("{declarations}def main() -> Result[(), AllocError | IoError]:\n{setup}");
     let mut expected = String::new();
     for (expression, value) in cases {
         source.push_str(&format!("    print({expression})?\n"));
@@ -45,7 +46,7 @@ fn rejection(body: &str) -> String {
 /// What a program that must trap writes to standard error.
 fn trap(body: &str) -> String {
     let output = support::run(&format!(
-        "def main() -> Result[(), Failure]:\n{body}    Ok(())\n"
+        "def main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n"
     ));
     assert_eq!(output.status.code(), Some(1), "{body}");
     assert!(output.stdout.is_empty(), "{body}");

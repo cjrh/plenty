@@ -12,7 +12,8 @@ use rstest::rstest;
 #[case("while False:\n        print(\"lost\")")]
 #[case("with open(\"unused.txt\")? as file:\n        print(\"lost\")")]
 fn rejects_discarded_results(#[case] statement: &str) {
-    let source = format!("def main() -> Result[(), Failure]:\n    {statement}\n    Ok(())\n");
+    let source =
+        format!("def main() -> Result[(), AllocError | IoError]:\n    {statement}\n    Ok(())\n");
     let error = plenty::check_source(&source).unwrap_err().to_string();
     assert!(
         error.contains("cannot implicitly discard a Result"),
@@ -38,26 +39,31 @@ fn aliases_and_generator_final_statements_are_checked() {
 }
 
 #[rstest]
-#[case("Result[(), Failure]", "Result[i64, str]", "value", true)]
+#[case("Result[(), str | IoError]", "Result[i64, str]", "value", true)]
 #[case("Result[(), str]", "Result[i64, str]", "value", true)]
 #[case("Result[(), IoError]", "Result[i64, str]", "value", false)]
 #[case("()", "Result[i64, str]", "value", false)]
-#[case("Result[(), Failure]", "Result[Result[i64, str], str]", "value", false)]
+#[case(
+    "Result[(), str | IoError]",
+    "Result[Result[i64, str], str]",
+    "value",
+    false
+)]
 #[case("Option[i64]", "Result[i64, str]", "value", false)]
 #[case(
-    "Result[(), Failure]",
+    "Result[(), str | IoError]",
     "Result[(), str]",
     "print(value).unwrap()",
     false
 )]
 #[case(
-    "Result[(), Failure]",
+    "Result[(), str | IoError]",
     "Result[Result[i64, str], str]",
     "print(value).unwrap()",
     false
 )]
 #[case(
-    "Result[(), Failure]",
+    "Result[(), str | IoError]",
     "Result[i64, str]",
     "print(value).unwrap()",
     true
@@ -70,13 +76,23 @@ fn aliases_and_generator_final_statements_are_checked() {
 )]
 #[case("()", "Result[i64, str]", "print(value).unwrap()", false)]
 #[case(
-    "Result[(), Failure]",
+    "Result[(), str | IoError]",
     "&Result[i64, str]",
     "print(value).unwrap()",
     false
 )]
-#[case("Result[(), Failure]", "Result[i64, str]", "takes_int(value)", true)]
-#[case("Result[(), Failure]", "Result[str, str]", "takes_int(value)", false)]
+#[case(
+    "Result[(), str | IoError]",
+    "Result[i64, str]",
+    "takes_int(value)",
+    true
+)]
+#[case(
+    "Result[(), str | IoError]",
+    "Result[str, str]",
+    "takes_int(value)",
+    false
+)]
 #[case("Result[(), IoError]", "Result[i64, str]", "takes_int(value)", false)]
 fn propagation_advice_requires_compatible_success_and_error_types(
     #[case] returns: &str,
@@ -94,7 +110,7 @@ fn propagation_advice_requires_compatible_success_and_error_types(
 #[test]
 fn missing_inner_and_outer_propagation_have_distinct_diagnostics() {
     let inner = plenty::check_source(
-        "def main() -> Result[(), Failure]:\n    print(\"hello\" + \"world\")?\n    Ok(())\n",
+        "def main() -> Result[(), AllocError | IoError]:\n    print(\"hello\" + \"world\")?\n    Ok(())\n",
     )
     .unwrap_err()
     .to_string();
@@ -106,7 +122,7 @@ fn missing_inner_and_outer_propagation_have_distinct_diagnostics() {
     assert!(inner.contains("str.repr"), "{inner}");
     assert!(inner.starts_with("2:11:"), "{inner}");
     let outer = plenty::check_source(
-        "def main() -> Result[(), Failure]:\n    print((\"hello\" + \"world\")?)\n    Ok(())\n",
+        "def main() -> Result[(), AllocError | IoError]:\n    print((\"hello\" + \"world\")?)\n    Ok(())\n",
     )
     .unwrap_err()
     .to_string();
@@ -154,7 +170,7 @@ def matched(value: Outcome) -> Outcome:
             Err("unused")
 def consume(value: Outcome) -> ():
     drop(value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | str | IoError]:
     drop(final(Ok(1)))
     consume(returned(Ok(2)))
     print(branched(Ok(3))?)?
@@ -189,6 +205,7 @@ class Guard:
         print(self.label).unwrap()
 def fail(label: str) -> Result[(), Guard]:
     Err(Guard(label))
+# B71: propagating into Failure erases the owned error; the drop count is the point.
 def propagate() -> Result[(), Failure]:
     fail("propagated")?
     Ok(())

@@ -130,7 +130,7 @@ fn compared_strings_reach_an_error() {
         r#"import fuzz_input
 import std.bytes
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | std.bytes.BytesError]:
     mut data = std.bytes.empty()?
     mut i = 0u64
     while i < fuzz_input.size():
@@ -139,7 +139,7 @@ def main() -> Result[(), Failure]:
     match data.to_text():
         case Ok(text):
             if text == "Plenty fuzzing finds strings":
-                return Err(Failure.Unspecified)
+                return Err(AllocError.OutOfMemory)
         case Err(error):
             pass
     Ok(())
@@ -274,7 +274,7 @@ fn counters_and_pc_tables_reach_the_driver() {
         dir.path(),
         r#"import fuzz_input
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     if fuzz_input.size() == 3u64:
         print("three bytes")?
     print(fuzz_input.byte(0u64))?

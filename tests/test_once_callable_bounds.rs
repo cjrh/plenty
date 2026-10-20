@@ -9,7 +9,7 @@ def invoke[T, U, F: OnceCallable[[T], U]](f: F, value: T) -> U:
     callback(value)
 def double(value: i64) -> i64:
     value * 2
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(invoke(double, 5))?
     offset = 3
     add = def [offset](value: i64) -> i64:

@@ -44,7 +44,7 @@ import std.bytes
 from std.bytes import Bytes, BytesError
 def clear(buffer: &mut Bytes) -> Result[(), BytesError]:
     buffer.fill(0, buffer.len(), 0u8)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | BytesError | IoError]:
     mut buffer = std.bytes.from_list([1u8, 2u8]?)?
     clear(&mut buffer)?
     print(buffer.to_list()?)?

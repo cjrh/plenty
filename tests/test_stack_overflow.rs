@@ -38,18 +38,20 @@ fn wide_depth() -> String {
 }
 
 fn on_main(depth: i64) -> String {
-    format!("def main() -> Result[(), Failure]:\n    print(depth({depth}))?\n    Ok(())\n")
+    format!(
+        "def main() -> Result[(), AllocError | IoError]:\n    print(depth({depth}))?\n    Ok(())\n"
+    )
 }
 
 fn on_scoped_worker(depth: i64) -> String {
     format!(
-        "def main() -> Result[(), Failure]:\n    with spawn(depth, {depth})? as worker:\n        print(worker.join())?\n    Ok(())\n"
+        "def main() -> Result[(), AllocError | ThreadError | IoError]:\n    with spawn(depth, {depth})? as worker:\n        print(worker.join())?\n    Ok(())\n"
     )
 }
 
 fn on_pool_worker(depth: i64) -> String {
     format!(
-        "def main() -> Result[(), Failure]:\n    with ThreadPoolExecutor(2, 4)? as pool:\n        print(pool.submit(depth, {depth})?.result()?)?\n    Ok(())\n"
+        "def main() -> Result[(), PoolError | SubmitError[OnceClosure[[], i64]] | FutureError | IoError]:\n    with ThreadPoolExecutor(2, 4)? as pool:\n        print(pool.submit(depth, {depth})?.result()?)?\n    Ok(())\n"
     )
 }
 
@@ -96,7 +98,7 @@ def length(node: &Node) -> i64:
         case Nothing:
             1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut head = Node(1, Nothing)
     for value in range(2, 1000001):
         head = Node(value, Some(Box(head)?))
@@ -165,7 +167,7 @@ fn other_segmentation_faults_keep_the_default_action(#[case] fault: &str) {
     std::fs::write(
         &path,
         format!(
-            "import native\ndef main() -> Result[(), Failure]:\n    print(\"ready\")?\n    {fault}\n    Ok(())\n"
+            "import native\ndef main() -> Result[(), IoError]:\n    print(\"ready\")?\n    {fault}\n    Ok(())\n"
         ),
     )
     .unwrap();

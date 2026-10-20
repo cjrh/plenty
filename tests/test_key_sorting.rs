@@ -225,9 +225,10 @@ fn inconsistent_key_keeps_every_row() {
         support::run_file_stdout(
             r#"
 from std.time import monotonic_now, instant_at
+from std.fmt import FormatError
 def jitter(row: &(i64, str)) -> u64:
     monotonic_now().saturating_duration_since(&instant_at(0)).as_nanoseconds() % 5u64
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FormatError | IoError]:
     mut rows: list[(i64, str)] = []?
     for i in range(500):
         rows.append((i, f"r{i}"?))?

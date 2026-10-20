@@ -15,7 +15,7 @@ def maybe(base: i64) -> Result[Option[Closure[[], i64]], AllocError]:
     if base < 0:
         return Ok(Nothing)
     Ok(Some(make(base)))
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut f = maybe(3)?.unwrap()
     print(f())?
     print(f())?
@@ -45,7 +45,7 @@ class Resource:
     id: i64
     def __del__(self) -> ():
         print(self.id).unwrap()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     a = Resource(1)
     b = Resource(2)
     inner = def [a, b]() -> i64:

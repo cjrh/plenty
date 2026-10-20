@@ -10,7 +10,7 @@ def apply[F: Callable[[i64], i64]](f: &F, value: i64) -> i64:
     f(value)
 def concrete(f: &Callable[[i64], i64], value: i64) -> i64:
     f(value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(apply(&double, 4))?
     print(concrete(&(double), 5))?
     Ok(())
@@ -45,7 +45,7 @@ def choose(flag: bool) -> i64:
     again = &double
     copied = double
     saved(4) + again(5) + copied(6)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(choose(False))?
     print(choose(True))?
     mut callback = double
@@ -70,7 +70,7 @@ def double(value: i64) -> i64:
     value * 2
 def apply[T, U, F: Callable[[T], U]](f: &F, value: T) -> U:
     f(value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     byte = &identity[u8]
     wide = &identity[i64]
     print(apply(&identity[u8], 7u8))?
@@ -110,7 +110,7 @@ import callbacks
 from callbacks import double as twice
 def apply[T, F: Callable[[T], T]](f: &F, value: T) -> T:
     f(value)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     saved = &callbacks.double
     print(apply(&callbacks.double, 4))?
     print(apply(&twice, 5))?
@@ -152,7 +152,7 @@ def values() -> Generator[i64]:
     yield apply(&double, 3)
     yield apply(&double, 4)
     yield apply(&double, 5)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(list(values())?)?
     Ok(())
 "#);

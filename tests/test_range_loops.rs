@@ -65,7 +65,7 @@ def main() -> ():
 fn counted_loops_keep_range_semantics() {
     expect(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut a: list[i64] = []?
     for i in range(5):
         a.append(i)?
@@ -118,7 +118,7 @@ def main() -> Result[(), Failure]:
 fn counted_loops_reach_the_ends_of_every_integer_type() {
     expect(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut c: list[i64] = []?
     for v in range(250u8, 255u8):
         c.append(i64(v))?
@@ -169,7 +169,7 @@ def run(m: &mut Meter) -> Result[i64, Problem]:
     for _ in range(5):
         m.charge()?
     Ok(m.work)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut m = Meter(0)
     match run(&mut m):
         case Ok(n):

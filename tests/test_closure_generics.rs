@@ -11,7 +11,7 @@ def read[T](f: &Closure[[], T]) -> T:
 def make[T: IntType](offset: T) -> Closure[[T], T]:
     def [offset](value: T) -> T:
         offset + value
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     add = make(2u8)
     print(apply(&add, 3u8))?
     base = 7u16
@@ -34,7 +34,7 @@ fn owned_environments_can_be_concrete_generic_values() {
     let output = run(r#"
 def identity[T](value: T) -> T:
     value
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     value = 6
     original = def [value]() -> i64:
         value

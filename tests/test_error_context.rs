@@ -75,7 +75,7 @@ fn typed_context_formatting_nests_without_duplicating_the_cause() {
     run_both(
         &format!(
             r#"{FORMATTABLE_CAUSE}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FormatError | IoError]:
     inner = Context("read", Subject.At(from_text("settings.txt")?), Cause.Rejected)
     outer = Context("start", Subject.Absent, inner)
     print(to_string(&outer, 100, 3)?)?
@@ -97,7 +97,7 @@ fn typed_context_formatting_preserves_partial_output_and_depth() {
     run_both(
         &format!(
             r#"{FORMATTABLE_CAUSE}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FormatError | IoError]:
     error = Context("open", Subject.Absent, Cause.Rejected)
     mut shallow = string_formatter(100, 1)?
     print(str.repr(render(&error, &mut shallow))?)?
@@ -129,7 +129,7 @@ pub class Owned:
         Err(FormatError.InvalidSpec)
     def __del__(self) -> ():
         print("drop", self.text).unwrap()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FormatError | IoError]:
     error = Context("load", Subject.Absent, Owned("payload"))
     mut output = string_formatter(100, 2)?
     print(str.repr(render(&error, &mut output))?)?
@@ -150,7 +150,7 @@ fn typed_context_without_a_path_formats_without_allocating() {
     run_both(
         &format!(
             r#"{FORMATTABLE_CAUSE}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FormatError | IoError]:
     error = Context("read", Subject.Absent, Cause.Rejected)
     mut output = stderr_formatter(100, 2)?
     print("__test_fail_allocations_after_0__")?
@@ -174,7 +174,7 @@ fn typed_context_path_display_failure_preserves_its_cause() {
     run_both(
         &format!(
             r#"{FORMATTABLE_CAUSE}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | FormatError | IoError]:
     path = from_text("a/long/enough/path/to/require/an/allocation")?
     error = Context("read", Subject.At(path), Cause.Rejected)
     mut output = stderr_formatter(100, 2)?
@@ -205,7 +205,7 @@ def flush() -> Result[(), Context[IoError]]:
 def fail() -> Result[(), IoError]:
     Err(IoError.Closed)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | Context[IoError] | IoError]:
     path = from_text("output.txt")?
     flush()?
     path_context(flush_stdout(), "flush path", &path)?
@@ -233,7 +233,7 @@ fn a_context_keeps_its_operation_path_and_typed_cause() {
     run_both(
         &format!(
             r#"{LOAD}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     path = from_text("missing/settings")?
     match load(&path):
         case Ok(_):
@@ -281,7 +281,7 @@ def settings(path: &Path) -> Result[i64, AppError]:
         case Err(error):
             Err(AppError.Settings(error))
 
-def show(error: &AppError) -> Result[(), Failure]:
+def show(error: &AppError) -> Result[(), AllocError | IoError]:
     match error:
         case AppError.Settings(outer):
             print(native_code(outer.cause.cause))?
@@ -290,7 +290,7 @@ def show(error: &AppError) -> Result[(), Failure]:
             print(inner.describe()?)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     path = from_text("missing/settings")?
     match settings(&path):
         case Ok(_):
@@ -320,7 +320,7 @@ fn paths_are_displayed_escaped_and_owned_causes_are_only_observed() {
 enum Rejected:
     Line(str)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     path = from_bytes([109u8, 255u8, 10u8, 34u8, 92u8, 32u8, 122u8]?)
     match load(&path):
         case Ok(_):
@@ -426,6 +426,7 @@ def main() -> Result[(), Context[IoError]]:
     run_both(
         &format!(
             r#"{LOAD}
+# B71: deliberately erases to Failure.
 def erased() -> Result[i64, Context[Failure]]:
     failed: Result[i64, Failure] = Err(Failure.Unspecified)
     context(failed, "erased")
@@ -492,7 +493,7 @@ fn a_failed_path_copy_keeps_the_cause_and_success_allocates_nothing() {
     run_both(
         &format!(
             r#"{LOAD}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     path = from_text("a/long/enough/path/to/need/heap/storage")?
     print("__test_fail_allocations_after_0__")?
     failed = path_context(i64.parse("many"), "parse count", &path)

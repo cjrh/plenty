@@ -31,7 +31,7 @@ fn generic_protocol_visibility_uses_definition_scope_and_reports_the_call() {
                     "api.read"
                 };
                 let main = format!(
-                    "import api\nimport bridge\n{class_visibility}class Cell:\n    value: i64\n    {method_visibility}def read(self) -> i64:\n        self.value\ndef main() -> Result[(), Failure]:\n    cell = Cell(7)\n    print({call}(&cell))?\n    Ok(())\n"
+                    "import api\nimport bridge\n{class_visibility}class Cell:\n    value: i64\n    {method_visibility}def read(self) -> i64:\n        self.value\ndef main() -> Result[(), IoError]:\n    cell = Cell(7)\n    print({call}(&cell))?\n    Ok(())\n"
                 );
                 let files = [
                     ("api.plenty", api),
@@ -90,7 +90,7 @@ fn unconstrained_generic_bodies_keep_private_access_lexical() {
         ("pub ", "source.value", "`Cell.value` is private"),
     ] {
         let api = format!("pub def read[T](source: &T) -> i64:\n    {operation}\n");
-        let main = format!("import api\n{visibility}class Cell:\n    value: i64\n    pub def read(self) -> i64:\n        self.value\n    def hidden(self) -> i64:\n        self.value\ndef main() -> Result[(), Failure]:\n    cell = Cell(7)\n    print(api.read(&cell))?\n    Ok(())\n");
+        let main = format!("import api\n{visibility}class Cell:\n    value: i64\n    pub def read(self) -> i64:\n        self.value\n    def hidden(self) -> i64:\n        self.value\ndef main() -> Result[(), IoError]:\n    cell = Cell(7)\n    print(api.read(&cell))?\n    Ok(())\n");
         let dir = workspace(&[("api.plenty", &api), ("main.plenty", &main)]);
         let error = plenty::check_file(&dir.path().join("main.plenty"), None)
             .unwrap_err()
@@ -101,7 +101,7 @@ fn unconstrained_generic_bodies_keep_private_access_lexical() {
             "{error}"
         );
     }
-    run(&[("main.plenty", "protocol Readable:\n    def read(self) -> i64:\n        pass\nclass Cell:\n    value: i64\n    def read(self) -> i64:\n        self.value\ndef read[T: Readable](source: &T) -> i64:\n    source.read()\ndef main() -> Result[(), Failure]:\n    cell = Cell(7)\n    print(read(&cell))?\n    Ok(())\n")], "main.plenty", "7\n");
+    run(&[("main.plenty", "protocol Readable:\n    def read(self) -> i64:\n        pass\nclass Cell:\n    value: i64\n    def read(self) -> i64:\n        self.value\ndef read[T: Readable](source: &T) -> i64:\n    source.read()\ndef main() -> Result[(), IoError]:\n    cell = Cell(7)\n    print(read(&cell))?\n    Ok(())\n")], "main.plenty", "7\n");
 }
 
 #[test]
@@ -115,7 +115,7 @@ type Optional = Option[Real]
 type Text = Option[Result[str, Error]]
 enum Error:
     Domain
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | Error | IoError]:
     problem = Real.Err(Error.Domain)
     print(problem == Real.Err(Error.Domain))?
     print(Optional.Some(problem))?
@@ -137,7 +137,7 @@ def main() -> Result[(), Failure]:
 fn parameterized_protocols_are_explicit_imported_contracts() {
     run(&[
         ("api.plenty", "pub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def read[T, R: Readable[T]](source: &R) -> T:\n    source.read()\n"),
-        ("main.plenty", "import api\npub class Cell:\n    value: u8\n    pub def read(self) -> u8:\n        self.value\ndef main() -> Result[(), Failure]:\n    cell = Cell(7)\n    print(api.read(&cell))?\n    Ok(())\n"),
+        ("main.plenty", "import api\npub class Cell:\n    value: u8\n    pub def read(self) -> u8:\n        self.value\ndef main() -> Result[(), IoError]:\n    cell = Cell(7)\n    print(api.read(&cell))?\n    Ok(())\n"),
     ], "main.plenty", "7\n");
     for api in [
         "class Hidden:\n    value: i64\npub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def use[R: Readable[Hidden]](source: &R) -> ():\n    pass\n",
@@ -153,7 +153,7 @@ fn parameterized_protocols_are_explicit_imported_contracts() {
 fn channel_message_types_preserve_module_visibility_and_generic_inference() {
     run(&[
         ("messages.plenty", "pub def deliver[T](sender: &Sender[T], value: T) -> Result[(), SendError[T]]:\n    sender.send(value)\n"),
-        ("main.plenty", "import messages\ndef main() -> Result[(), Failure]:\n    sender, receiver = channel[u8](1)?\n    messages.deliver(&sender, 7u8)?\n    print(receiver.recv()?)?\n    Ok(())\n"),
+        ("main.plenty", "import messages\ndef main() -> Result[(), ChannelError | SendError[u8] | RecvError | IoError]:\n    sender, receiver = channel[u8](1)?\n    messages.deliver(&sender, 7u8)?\n    print(receiver.recv()?)?\n    Ok(())\n"),
     ], "main.plenty", "7\n");
     let dir = workspace(&[
         ("api.plenty", "class Hidden:\n    value: i64\npub def receive(receiver: &Receiver[Hidden]) -> ():\n    pass\n"),
@@ -169,7 +169,7 @@ fn channel_message_types_preserve_module_visibility_and_generic_inference() {
 fn generic_data_imports_keep_methods_and_constructors_visible() {
     run(&[
         ("data.plenty", "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\npub enum Choice[T]:\n    Value(T)\npub def read[T](cell: &Cell[T]) -> T:\n    cell.get()\n"),
-        ("main.plenty", "import data\nfrom data import Cell as Crate\ndef main() -> Result[(), Failure]:\n    box = Crate(7u8)\n    print(data.read(&box))?\n    item = data.Choice[u8].Value(9)\n    match item:\n        case data.Choice.Value(value):\n            print(value)?\n    Ok(())\n"),
+        ("main.plenty", "import data\nfrom data import Cell as Crate\ndef main() -> Result[(), IoError]:\n    box = Crate(7u8)\n    print(data.read(&box))?\n    item = data.Choice[u8].Value(9)\n    match item:\n        case data.Choice.Value(value):\n            print(value)?\n    Ok(())\n"),
     ], "main.plenty", "7\n9\n");
 }
 
@@ -177,7 +177,7 @@ fn generic_data_imports_keep_methods_and_constructors_visible() {
 fn callable_data_constraints_preserve_imports_and_public_type_visibility() {
     run(&[
         ("handlers.plenty", "pub class Handler[T, F: Callable[[T], T]]:\n    pub callback: F\n    pub def call(self, value: T) -> T:\n        self.callback(value)\n"),
-        ("main.plenty", "from handlers import Handler\ndef main() -> Result[(), Failure]:\n    offset = 5u8\n    callback = def [offset](n: u8) -> u8:\n        n + offset\n    handler = Handler(callback)\n    print(handler.call(3))?\n    Ok(())\n"),
+        ("main.plenty", "from handlers import Handler\ndef main() -> Result[(), IoError]:\n    offset = 5u8\n    callback = def [offset](n: u8) -> u8:\n        n + offset\n    handler = Handler(callback)\n    print(handler.call(3))?\n    Ok(())\n"),
     ], "main.plenty", "8\n");
     for declaration in [
         "pub class Handler[F: Callable[[Hidden], i64]]:\n    value: i64\n",
@@ -213,7 +213,7 @@ def total(tree: Expr[i64]) -> i64:
             value
         case Expr.Branch(left, right):
             total(*left) + total(*right)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     tree = Expr[i64].Branch(Box(Expr[i64].Leaf(3))?, Box(Expr[i64].Leaf(7))?)
     print(total(tree))?
     Ok(())
@@ -228,8 +228,8 @@ def main() -> Result[(), Failure]:
 #[test]
 fn recursive_declarations_preserve_field_and_public_signature_privacy() {
     let api = "pub class Node:\n    pub value: i64\n    next: Option[Box[Node]]\npub def make() -> Result[Node, AllocError]:\n    Ok(Node(7, Nothing))\n";
-    run(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> Result[(), Failure]:\n    node = api.make()?\n    print(node.value)?\n    Ok(())\n")], "main.plenty", "7\n");
-    let dir = workspace(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> Result[(), Failure]:\n    node = api.make()?\n    drop(node.next)\n    Ok(())\n")]);
+    run(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> Result[(), AllocError | IoError]:\n    node = api.make()?\n    print(node.value)?\n    Ok(())\n")], "main.plenty", "7\n");
+    let dir = workspace(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> Result[(), AllocError | IoError]:\n    node = api.make()?\n    drop(node.next)\n    Ok(())\n")]);
     let error = plenty::check_file(&dir.path().join("main.plenty"), None)
         .unwrap_err()
         .to_string();
@@ -296,7 +296,7 @@ fn public_protocol_signatures_cannot_expose_private_requirements() {
 fn function_values_keep_import_visibility_and_definition_scope() {
     run(&[
         ("api.plenty", "def hidden(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def make() -> Callable[[i64], i64]:\n    def(x: i64) -> i64:\n        hidden(x)\n"),
-        ("main.plenty", "import api\nfrom api import identity as keep\ndef main() -> Result[(), Failure]:\n    f = keep[u8]\n    print(f(7))?\n    print(api.make()(8))?\n    Ok(())\n"),
+        ("main.plenty", "import api\nfrom api import identity as keep\ndef main() -> Result[(), IoError]:\n    f = keep[u8]\n    print(f(7))?\n    print(api.make()(8))?\n    Ok(())\n"),
     ], "main.plenty", "7\n9\n");
     for api in [
         "class Hidden:\n    value: i64\npub def leak(callback: Callable[[Hidden], i64]) -> ():\n    pass\n",
@@ -837,11 +837,11 @@ fn imported_generic_body_errors_are_reported_in_the_importing_file() {
         ),
         (
             "class.plenty",
-            "import cells\n\ndef main() -> Result[(), Failure]:\n    cell = cells.wrap([1, 2]?)\n    Ok(())\n",
+            "import cells\n\ndef main() -> Result[(), AllocError | IoError]:\n    cell = cells.wrap([1, 2]?)\n    Ok(())\n",
         ),
         (
             "function.plenty",
-            "import cells\n\ndef main() -> Result[(), Failure]:\n    pair = cells.twice([1, 2]?)\n    Ok(())\n",
+            "import cells\n\ndef main() -> Result[(), AllocError | IoError]:\n    pair = cells.twice([1, 2]?)\n    Ok(())\n",
         ),
     ]);
     let path = |name: &str| dir.path().join(name).canonicalize().unwrap();

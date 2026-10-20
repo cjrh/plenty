@@ -12,7 +12,7 @@ def make(start: i64) -> Closure[[i64], i64]:
 def argument() -> i64:
     print(2).unwrap()
     3
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(make(1)(argument()))?
     print(1 + make(10)(4))?
     wrapped = Some(make(20))
@@ -47,7 +47,7 @@ def fail() -> Result[i64, AllocError]:
 def work() -> Result[(), AllocError]:
     make()?(Resource(2), fail()?)
     Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(str.repr(work()).unwrap())?
     Ok(())
 "#);

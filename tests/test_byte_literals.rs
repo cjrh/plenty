@@ -111,7 +111,7 @@ def zeros(value: bytes) -> i64:
             count += 1
     count
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ThreadError | IoError]:
     gif = Format("gif", b"GIF8")
     print(gif.magic)?
     print(pick(True))?

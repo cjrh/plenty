@@ -164,15 +164,15 @@ fn failed_argument_propagation_cleans_up_without_entering_the_callee(
     trace(
         &format!(
             r#"
-def fail(stop: bool) -> Result[i64, Failure]:
+def fail(stop: bool) -> Result[i64, AllocError]:
     print("fail").unwrap()
     if stop:
-        return Err(Failure.Unspecified)
+        return Err(AllocError.OutOfMemory)
     Ok(2)
-def sum(g: Guard, a: i64, b: i64) -> Result[i64, Failure]:
+def sum(g: Guard, a: i64, b: i64) -> Result[i64, AllocError]:
     print("sum").unwrap()
     Ok(a + b)
-def caller(stop: bool) -> Result[i64, Failure]:
+def caller(stop: bool) -> Result[i64, AllocError]:
     local = Guard("local")
     sum(make("moved"), note("left", 1), fail(stop)?)
 match caller({stop}):
@@ -253,7 +253,7 @@ class Scope:
         print(self.name).unwrap()
 def increment(value: &mut i64) -> ():
     *value = *value + 1
-def checked(a: i64, b: i64) -> Result[i64, Failure]:
+def checked(a: i64, b: i64) -> Result[i64, AllocError]:
     print("checked").unwrap()
     Ok(a + b)
 def returns_inside() -> i64:
@@ -265,12 +265,12 @@ def ends_with_borrowed_manager() -> ():
     mut scope = Scope("exit borrowed")
     with &mut scope:
         print("body").unwrap()
-def returns_inside_worker_scope() -> Result[i64, Failure]:
+def returns_inside_worker_scope() -> Result[i64, AllocError | ThreadError]:
     local = Guard("local")
     mut count = 4
     with spawn(increment, &mut count)?:
         return checked(3, 4)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ThreadError | IoError]:
     print(returns_inside())?
     ends_with_borrowed_manager()
     print(returns_inside_worker_scope()?)?
@@ -300,7 +300,7 @@ def indirect(n: i64, total: i64) -> i64:
         return total
     step = indirect
     step(n - 1, total + 1)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(direct(1000000, 0))?
     print(indirect(1000000, 0))?
     Ok(())

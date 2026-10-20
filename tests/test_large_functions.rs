@@ -20,7 +20,7 @@ fn conditional_assignments_keep_their_values() {
     source.push_str(
         "    y
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(big(0))?
     print(big(-2000000))?
     print(big(5000))?
@@ -58,7 +58,7 @@ fn list_initializer_keeps_every_element() {
     xs = [{}]?
     Ok(xs)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     xs = big()?
     mut total = 0
     for x in xs:
@@ -90,7 +90,7 @@ fn match_table_selects_each_arm() {
     }
     source.push_str(&format!(
         "
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(big(Kind.K0))?
     print(big(Kind.K{}))?
     print(big(Kind.K{}))?

@@ -4,7 +4,7 @@ use support::{check_source, run};
 #[test]
 fn exclusive_captures_update_the_original_owner() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut count = 0
     mut values = [10]?
     mut change = def [&mut count, &mut values](step: i64) -> Result[(), AllocError]:
@@ -28,7 +28,7 @@ def main() -> Result[(), Failure]:
 #[test]
 fn exclusive_captures_exclude_competing_access_and_arguments() {
     for access in ["print(count)?", "count = 9", "other = &count"] {
-        let source = format!("def main() -> Result[(), Failure]:\n    mut count = 0\n    mut change = def [&mut count]() -> ():\n        count = count + 1\n    {access}\n    change()\n    Ok(())\n");
+        let source = format!("def main() -> Result[(), IoError]:\n    mut count = 0\n    mut change = def [&mut count]() -> ():\n        count = count + 1\n    {access}\n    change()\n    Ok(())\n");
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
     }
@@ -41,7 +41,7 @@ fn exclusive_captures_exclude_competing_access_and_arguments() {
 #[test]
 fn shared_captures_borrow_owners_until_the_last_closure_use() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut values = [4]?
     read = def [&values]() -> i64:
         values[0]
@@ -63,18 +63,18 @@ def main() -> Result[(), Failure]:
 #[test]
 fn shared_capture_loans_survive_moves_and_control_flow() {
     for action in ["values.append(2)?", "drop(values)"] {
-        let source = format!("def main() -> Result[(), Failure]:\n    mut values = [1]?\n    read = def [&values]() -> i64:\n        len(values)\n    moved = read\n    {action}\n    print(moved())?\n    Ok(())\n");
+        let source = format!("def main() -> Result[(), AllocError | IoError]:\n    mut values = [1]?\n    read = def [&values]() -> i64:\n        len(values)\n    moved = read\n    {action}\n    print(moved())?\n    Ok(())\n");
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
     }
-    let error = check_source("def main() -> Result[(), Failure]:\n    values = [1]?\n    read = def [&values]() -> i64:\n        len(values)\n    wrapped = Some(read)\n    Ok(())\n").unwrap_err().to_string();
+    let error = check_source("def main() -> Result[(), AllocError | IoError]:\n    values = [1]?\n    read = def [&values]() -> i64:\n        len(values)\n    wrapped = Some(read)\n    Ok(())\n").unwrap_err().to_string();
     assert!(error.contains("references cannot be stored"), "{error}");
 }
 
 #[test]
 fn mutable_owned_captures_retain_state_between_calls() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     count = 0
     values = [10]?
     mut next = def [mut count, mut values](step: i64) -> Result[i64, AllocError]:
@@ -122,7 +122,7 @@ fn closure_mutation_requires_explicit_permission() {
 #[test]
 fn owned_captures_move_into_reusable_inline_environments() {
     let output = run(r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     offset = 4
     values = [10, 20]?
     adjust = def [offset, values](index: i64) -> i64:
@@ -149,7 +149,7 @@ fn owned_captures_enforce_moves_and_explicit_lists() {
         ("value = 1\n    f = def [value](value: i64) -> i64:\n        value", "parameter cannot shadow"),
         ("values = [1]?\n    f = def [values]() -> list[i64]:\n        values", "cannot move out of a closure capture"),
     ] {
-        let source = format!("def main() -> Result[(), Failure]:\n    {body}\n    Ok(())\n");
+        let source = format!("def main() -> Result[(), AllocError | IoError]:\n    {body}\n    Ok(())\n");
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "expected {expected}: {error}");
     }
@@ -164,7 +164,7 @@ fn owned_captures_enforce_moves_and_explicit_lists() {
 fn capture_name_errors_report_the_name(#[case] header: &str, #[case] expected: &str) {
     // Issue #200: these errors pointed at `def`.
     let source = format!(
-        "def main() -> Result[(), Failure]:\n    value = 1\n    {header}\n        value\n    Ok(())\n"
+        "def main() -> Result[(), IoError]:\n    value = 1\n    {header}\n        value\n    Ok(())\n"
     );
     let error = check_source(&source).unwrap_err().to_string();
     assert!(error.ends_with(expected), "{error}");
