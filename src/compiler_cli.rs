@@ -219,6 +219,13 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     {
         return Err("linker options require compilation or execution".into());
     }
+    // Every mode checks at most one program and then exits, so the program
+    // need not be freed (issue #321). Running FILE is the exception: the
+    // compiler waits while the program runs, and should not hold the
+    // compile's memory meanwhile.
+    if !matches!(args.as_slice(), [source] if !source.starts_with('-')) {
+        plenty::skip_teardown();
+    }
     if let Some(graph) = graph {
         return with_graph(program, &graph, &args, &options);
     }

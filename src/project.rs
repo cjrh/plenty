@@ -1110,7 +1110,9 @@ fn open(directory: &Path, options: &BuildOptions) -> Result<Project> {
 pub fn check_entry(entry: &Path, graph: &SourceGraph, require_main: bool) -> Result<()> {
     let mut heap = crate::value::Heap::default();
     let program = crate::frontend::compile_graph(entry, graph, require_main, &mut heap)?;
-    crate::op::check(&program.ops)
+    let checked = crate::op::check(&program.ops);
+    crate::teardown((program, heap));
+    checked
 }
 
 fn status(verb: &str, message: impl std::fmt::Display) {

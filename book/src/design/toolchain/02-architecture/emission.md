@@ -52,6 +52,28 @@ about 86,000 voluntary context switches with glibc and 480 with mimalloc. The
 compiler library does not choose an allocator, so tests and other programs
 that call it in-process keep their own.
 
+A command-line check (`--check`, `--check-module`, and `--package-graph
+--check`) leaks the checked program instead of freeing it, since the process
+exits next (issue #321). On the 1,000-unit benchmark this saves 2.0% of
+instructions and about 4% of cycles; peak memory is unchanged. Only the
+single-file compiler interface enables it, through `plenty::skip_teardown`,
+and not when it runs the program it compiled: `plenty lsp`, project commands,
+tests and library callers free every program. Other allocation strategies
+were measured on 2026-10-20 and not adopted:
+
+- Leaking the operation tables and object at the end of emission saved 0.02%
+  of `--emit-object` instructions: workers already free each function's
+  operations once its code is built.
+- A never-freeing bump allocator, the upper bound for arenas, saved 10.5% of
+  checking instructions and 2.7% of emission instructions, but took 30–45%
+  more task time from page faults, and raised peak memory from 88 MB to
+  354 MB for checking and from 97 MB to 1.9 GB for emission.
+- The allocator itself takes 8% of checking cycles and 6% of emission cycles.
+  The largest sources in checking are lexer tokens and type clones in the
+  frontend, tracked by issue #302; most emission allocation is inside
+  Cranelift, whose per-function register allocator context Plenty cannot
+  reuse without patching it (issue #153).
+
 A body can need symbols that are declared on first use: type descriptors, its
 trap-site table, foreign imports. Their order decides the object's bytes, so a
 worker building IR does not declare them. It names each in a placeholder

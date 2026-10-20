@@ -22,6 +22,28 @@ macro_rules! profile_block {
 }
 pub(crate) use profile_block;
 
+/// Whether this process leaks a compile's final data rather than freeing it;
+/// see [`skip_teardown`].
+static SKIP_TEARDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Leak, rather than free, the checked program (its operations and string
+/// pool) at the end of each later check. Freeing it only returns memory to a
+/// process that is about to exit: a command-line check that exits next calls
+/// this, saving about 2% of checking instructions (issue #321). Never call it
+/// in a process that keeps compiling, such as the language server,
+/// `plenty build` and `plenty test`, or a library caller: each check would
+/// keep its memory until the process exits.
+pub fn skip_teardown() {
+    SKIP_TEARDOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Drop `value`, or leak it after [`skip_teardown`].
+pub(crate) fn teardown<T>(value: T) {
+    if SKIP_TEARDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+        std::mem::forget(value);
+    }
+}
+
 mod atomic;
 mod boxed;
 mod bytes;
@@ -129,5 +151,7 @@ fn check_file_mode(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut heap = value::Heap::default();
     let program = frontend::compile_file(path, root, require_main, &mut heap)?;
-    op::check(&program.ops)
+    let checked = op::check(&program.ops);
+    teardown((program, heap));
+    checked
 }
