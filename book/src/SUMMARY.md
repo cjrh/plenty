@@ -482,6 +482,8 @@
     - [Library-owned operations and backend hooks](proposals/library-owned-operations.md)
         - [Transport wrapper and capability examples](proposals/library-owned-operations/examples.md)
         - [C++ and Rust precedents](proposals/library-owned-operations/precedents.md)
+    - [Implemented protocol methods: feasibility sketch](proposals/protocol-method-bodies.md)
+        - [Implementation map and probes](proposals/protocol-method-bodies/evidence.md)
     - [GCC backend (`plenty_codegen_gcc`)](proposals/codegen-gcc.md)
     - [User-defined ordering](proposals/user-type-ordering.md)
     - [Timsort for stable, adaptive sorting](proposals/timsort.md)
