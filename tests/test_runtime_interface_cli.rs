@@ -100,6 +100,12 @@ fn generation_rejects_unusable_names_without_replacing_previous_output() {
             .to_string();
         assert!(error.contains("runtime interface API"), "{error}");
         assert_eq!(std::fs::read_to_string(&output).unwrap(), "previous");
+        std::fs::write(&producer, format!("enum {name}:\n    Failed\nexport def run() -> Result[(), {name}] = \"calc_run\":\n    Err({name}.Failed)\n")).unwrap();
+        let error = plenty::emit_runtime_interface(&producer, &output, None, "calc")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("error enum"), "{error}");
+        assert_eq!(std::fs::read_to_string(&output).unwrap(), "previous");
     }
     std::fs::write(
         &producer,

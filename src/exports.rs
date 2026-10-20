@@ -13,10 +13,7 @@ pub(crate) struct Export {
     pub documentation: String,
 }
 
-pub(crate) fn check_signature(
-    inputs: &[(String, Ty)],
-    output: &Option<Ty>,
-) -> Result<(), &'static str> {
+pub(crate) fn check_signature(inputs: &[(String, Ty)], output: &Option<Ty>) -> Result<(), String> {
     fn generic_class(ty: &Ty) -> bool {
         match ty {
             Ty::Class(class) => class.name.contains('['),
@@ -31,8 +28,14 @@ pub(crate) fn check_signature(
             .is_some_and(|(ok, _)| generic_class(ok))
     {
         return Err(
-            "generic class instances cannot be C export handles yet; use a nongeneric facade class",
+            "generic class instances cannot be C export handles yet; use a nongeneric facade class"
+                .into(),
         );
+    }
+    if let Some((ok, Ty::Enum(error))) = output.as_ref().and_then(result_payloads) {
+        if *ok == Ty::Unit || ok.is_numeric() {
+            unsupported_error(error)?;
+        }
     }
     if inputs
         .iter()
@@ -46,23 +49,80 @@ pub(crate) fn check_signature(
                 })
         })
     {
-        return Err("C exports support numeric scalar or owned class parameters and their borrows; returns must be numeric scalar, (), Result[scalar or (), scalar/AllocError/ParseError/RangeError/Failure], or Result[Class, AllocError]");
+        return Err("C exports support numeric scalar or owned class parameters and their borrows; returns must be numeric scalar, (), Result[scalar or (), E], or Result[Class, AllocError], where E is numeric, AllocError, ParseError, RangeError, Failure, or a payload-free enum".into());
     }
     Ok(())
 }
 
-pub(crate) fn error_variants(ty: &Ty) -> Option<&[crate::sum::Variant]> {
+const BUILTIN_ERRORS: [&str; 4] = ["AllocError", "ParseError", "RangeError", "Failure"];
+
+/// Explains why an enum error cannot cross C as a `uint32_t` code.
+fn unsupported_error(error: &crate::nominal::Nominal<crate::sum::EnumType>) -> Result<(), String> {
+    if BUILTIN_ERRORS.contains(&&*error.name) || error.propagatable() || error.tuple() {
+        return Ok(());
+    }
+    if error.anonymous() {
+        return Err(format!("C exports cannot return the error sum `{}` yet (backlog B27); return one payload-free error enum", Ty::Enum(error.clone())));
+    }
+    if error.name.contains('[') {
+        return Err(format!(
+            "C export error enum `{}` is generic; use a nongeneric payload-free enum",
+            Ty::Enum(error.clone())
+        ));
+    }
+    let name = short_name(error);
+    // An unfinalized definition is not coded; the general diagnostic covers it.
+    let Some(definition) = error.try_get() else {
+        return Ok(());
+    };
+    let variants = &definition.variants;
+    if let Some(variant) = variants.iter().find(|v| !v.fields.is_empty()) {
+        return Err(format!("C export error enum `{name}` has payload variant `{name}.{}`; only payload-free enums cross C, as uint32_t variant codes", variant.name));
+    }
+    if crate::frontend::builtin(name) {
+        return Err(format!(
+            "builtin error `{name}` has no C error code; use AllocError, ParseError, RangeError, Failure, or a payload-free enum"
+        ));
+    }
+    if name.starts_with("plenty_") {
+        return Err(format!(
+            "C export error enum `{name}` conflicts with the reserved C metadata namespace"
+        ));
+    }
+    Ok(())
+}
+
+fn short_name(error: &crate::nominal::Nominal<crate::sum::EnumType>) -> &str {
+    error.name.rsplit('.').next().unwrap()
+}
+
+/// A payload-free enum crosses C as a `uint32_t` code: its variant's
+/// declaration index. Returns the variant names in code order.
+pub(crate) fn error_variants(ty: &Ty) -> Option<Vec<String>> {
     match ty {
-        Ty::Enum(t)
-            if matches!(
-                &*t.name,
-                "AllocError" | "ParseError" | "RangeError" | "Failure"
-            ) =>
-        {
-            Some(&t.local().variants)
+        Ty::Enum(t) if BUILTIN_ERRORS.contains(&&*t.name) || declared_error(ty).is_some() => {
+            Some(t.get().variants.iter().map(|v| v.name.clone()).collect())
         }
         _ => None,
     }
+}
+
+/// A coded user enum, which generated interfaces re-declare so they stay
+/// self-contained; returns its interface name.
+pub(crate) fn declared_error(ty: &Ty) -> Option<&str> {
+    let Ty::Enum(t) = ty else { return None };
+    (!BUILTIN_ERRORS.contains(&&*t.name)
+        && !t.propagatable()
+        && !t.tuple()
+        && !t.anonymous()
+        && unsupported_error(t).is_ok()
+        && t.try_get().is_some_and(|t| !t.variants.is_empty()))
+    .then(|| short_name(t))
+}
+
+/// The error's spelling in generated interface source.
+pub(crate) fn error_source(ty: &Ty) -> String {
+    declared_error(ty).map_or_else(|| ty.to_string(), Into::into)
 }
 
 pub(crate) fn result_payloads(ty: &Ty) -> Option<(&Ty, &Ty)> {
@@ -123,6 +183,95 @@ pub(crate) fn check_library_name(name: &str) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+/// Declares each coded error's C constants once, and returns the source
+/// declarations of the user enums among them.
+fn error_codes(
+    library: &str,
+    exports: &[Export],
+    handles: &[Handle],
+    discovery: &str,
+    header: &mut String,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let mut seen: Vec<&Ty> = Vec::new();
+    let mut constants = crate::hash::HashSet::default();
+    let mut source = String::new();
+    for export in exports {
+        let Some((_, error)) = export.signature.outputs.first().and_then(result_payloads) else {
+            continue;
+        };
+        let Some(variants) = error_variants(error) else {
+            continue;
+        };
+        let interface_name = error_source(error);
+        if let Some(previous) = seen
+            .iter()
+            .find(|previous| error_source(previous) == interface_name)
+        {
+            if *previous != error {
+                return Err(format!(
+                    "exported error enums have conflicting interface name `{interface_name}`"
+                )
+                .into());
+            }
+            continue;
+        }
+        if handles.iter().any(|h| h.name == interface_name)
+            || exports.iter().any(|e| e.name == interface_name)
+        {
+            return Err(format!(
+                "exported error enum `{interface_name}` conflicts with a generated interface name"
+            )
+            .into());
+        }
+        seen.push(error);
+        header.push_str(&format!(
+            "\n/* {interface_name} codes, written to *out_error when a call returns 1. */\n"
+        ));
+        for (code, variant) in variants.iter().enumerate() {
+            let constant = format!("{library}_{interface_name}_{variant}");
+            if !constants.insert(constant.clone())
+                || exports.iter().any(|e| e.symbol == constant)
+                || handles
+                    .iter()
+                    .any(|h| h.c_name == constant || h.destroy == constant)
+                || constant == discovery
+                || constant.starts_with(&format!("{library}_plenty_"))
+            {
+                return Err(format!(
+                    "generated C error constant `{constant}` collides with another C identifier"
+                )
+                .into());
+            }
+            header.push_str(&format!("#define {constant} UINT32_C({code})\n"));
+        }
+        if declared_error(error).is_some() {
+            source.push_str(&format!("pub enum {interface_name}:\n"));
+            for variant in &variants {
+                source.push_str(&format!("    {variant}\n"));
+            }
+            source.push('\n');
+        }
+    }
+    Ok(source)
+}
+
+/// Rebuilds an `Err` from the C error output, inside a returning branch.
+pub(crate) fn rebuild_error(error: &Ty, indent: &str) -> String {
+    let Some(variants) = error_variants(error) else {
+        return format!("{indent}Err(out_error)\n");
+    };
+    let name = error_source(error);
+    let (last, rest) = variants.split_last().unwrap();
+    let mut body = String::new();
+    for (code, variant) in rest.iter().enumerate() {
+        body.push_str(&format!(
+            "{indent}if out_error == {code}:\n{indent}    return Err({name}.{variant})\n"
+        ));
+    }
+    body.push_str(&format!("{indent}Err({name}.{last})\n"));
+    body
+}
+
 pub(crate) struct Interface {
     pub name: String,
     pub discovery: String,
@@ -130,6 +279,8 @@ pub(crate) struct Interface {
     pub header: String,
     pub handles: Vec<Handle>,
     pub contract_guard: String,
+    /// Source declarations of the user error enums the exports return.
+    pub errors: String,
 }
 
 impl Interface {
@@ -182,6 +333,8 @@ impl Interface {
         for handle in &handles {
             handle.declarations(&mut source, &mut header);
         }
+        let errors = error_codes(name, exports, &handles, &discovery, &mut header)?;
+        source.push_str(&errors);
         for export in exports {
             let result = export.signature.outputs.first().and_then(result_payloads);
             header.push_str("\n/* Plenty declaration: ");
@@ -258,13 +411,11 @@ impl Interface {
                     parameters.push(format!("{} *out_ok", c_type(ok, name)));
                 }
                 parameters.push(format!("{} *out_error", c_type(error, name)));
-                if let Some(variants) = error_variants(error) {
-                    for (code, variant) in variants.iter().enumerate() {
-                        header.push_str(&format!(
-                            "/* out_error {code}: {error}.{} */\n",
-                            variant.name
-                        ));
-                    }
+                if error_variants(error).is_some() {
+                    header.push_str(&format!(
+                        "/* On Err, *out_error is one of the {name}_{}_* codes. */\n",
+                        error_source(error)
+                    ));
                 }
             }
             header.push_str(&format!(
@@ -317,6 +468,9 @@ impl Interface {
                         body.push_str(&format!("    mut out_ok: {ok} = 0\n"));
                     }
                 }
+                if owner.is_none() {
+                    output = format!("Result[{ok}, {}]", error_source(error));
+                }
                 let error_storage = if error_variants(error).is_some() {
                     "u32".into()
                 } else {
@@ -335,15 +489,7 @@ impl Interface {
                     ));
                 }
                 body.push_str("    else:\n");
-                if let Some(variants) = error_variants(error) {
-                    if variants.len() == 1 {
-                        body.push_str(&format!("        Err({error}.{})\n", variants[0].name));
-                    } else {
-                        body.push_str(&format!("        if out_error == 0:\n            Err({error}.{})\n        else:\n            Err({error}.{})\n", variants[0].name, variants[1].name));
-                    }
-                } else {
-                    body.push_str("        Err(out_error)\n");
-                }
+                body.push_str(&rebuild_error(error, "        "));
                 source.push_str(&format!(
                     "extern def {raw}({}) -> u32 = \"{}\"\npub def {}({}) -> {output}:\n{body}\n",
                     raw_parameters.join(", "),
@@ -369,6 +515,7 @@ impl Interface {
             header,
             handles,
             contract_guard,
+            errors,
         })
     }
 }

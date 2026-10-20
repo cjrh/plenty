@@ -258,9 +258,23 @@ export def numeric(fail: i32) -> Result[(), u64] = "calc_numeric":
         Ok(())
 export def allocation() -> Result[i32, AllocError] = "calc_allocation":
     Err(AllocError.CapacityOverflow)
-# B71: the C export boundary accepts only Failure (not an error sum) as a Result error.
+# Deliberately tests Failure itself: it remains a coded export error, a last
+# resort when no precise error exists.
 export def failure() -> Result[(), Failure] = "calc_failure":
     Err(Failure.Unspecified)
+enum Stage:
+    Parse
+    Check
+    Link
+export def stage(code: i32) -> Result[i32, Stage] = "calc_stage":
+    if code == 0:
+        Err(Stage.Parse)
+    elif code == 1:
+        Err(Stage.Check)
+    elif code == 2:
+        Err(Stage.Link)
+    else:
+        Ok(code)
 export def read(a: &f64, b: &f64) -> f64 = "calc_read":
     *a + *b
 "#,
@@ -295,6 +309,13 @@ def main() -> Result[(), AllocError | IoError | LoadError]:
     print(str.repr(library.numeric(1)).unwrap())?
     print(str.repr(library.allocation()).unwrap())?
     print(str.repr(library.failure()).unwrap())?
+    for code in [0i32, 1, 2, 3]?:
+        print(str.repr(library.stage(code)).unwrap())?
+    match library.stage(1):
+        case Err(plugin.Stage.Check):
+            print("check")?
+        case _:
+            pass
     number: f64 = 2.5
     print(library.read(&number, &number))?
     Ok(())
@@ -303,7 +324,7 @@ def main() -> Result[(), AllocError | IoError | LoadError]:
         ),
     );
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, ParseError].Ok(1.25)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\n12\nResult[(), u64].Ok(())\nResult[(), u64].Err(18446744073709551615)\nResult[i32, AllocError].Err(AllocError.CapacityOverflow)\nResult[(), Failure].Err(Failure.Unspecified)\n5.0\n");
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, ParseError].Ok(1.25)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\n12\nResult[(), u64].Ok(())\nResult[(), u64].Err(18446744073709551615)\nResult[i32, AllocError].Err(AllocError.CapacityOverflow)\nResult[(), Failure].Err(Failure.Unspecified)\nResult[i32, plugin.Stage].Err(plugin.Stage.Parse)\nResult[i32, plugin.Stage].Err(plugin.Stage.Check)\nResult[i32, plugin.Stage].Err(plugin.Stage.Link)\nResult[i32, plugin.Stage].Ok(3)\ncheck\n5.0\n");
 }
 
 const OWNERS: &str = r#"
