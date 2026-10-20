@@ -11,6 +11,10 @@ matching object, especially with private hooks, is a substantially larger
 language-design change. None inherently requires dynamic dispatch, an object
 wrapper, a new runtime representation, or a different borrow checker.
 
+Those estimates concern sharing and lookup alone. The subsequently agreed
+definition-time contract checking adds substantial frontend work; the complete
+design with that checking and private-hook grants is not a small syntactic change.
+
 This investigates sharing implementations. The earlier
 [library-owned operations assessment](library-owned-operations.md) addresses
 preventing callers from bypassing an algorithm; it remains relevant, because
@@ -24,6 +28,11 @@ and private hooks use member-specific grants while preserving module privacy.
 The final-name check is a modest addition once provided-method selection exists;
 hidden external hooks require additional access-control machinery. Some
 specification work remains, and no compiler implementation is approved here.
+
+Protocol bodies must also be checked against their declared contract at the
+definition, rather than accepted because a concrete class has extra members.
+This agreed requirement increases the scope beyond a generic-function lowering:
+the existing per-instance checker is not sufficient for a complete implementation.
 
 ## One example, three distinct choices
 
@@ -121,12 +130,12 @@ an error over silently choosing the default. Also specify calls between defaults
 does `save_twice` invoke an override of `save`, or its original protocol body?
 Do not let these answers depend accidentally on specialization order.
 
-**Checking bodies is a separate choice.** Existing generic bodies are checked
-per concrete instance and may use methods not listed in their bound. Reusing
-that machinery preserves today's behavior, but does not prove a protocol body
-works for every conforming type. Abstract checking against just the contract
-would be a broader B29 change. A syntactic scan for `self.foo` is insufficient:
-aliases, helpers, and closures can carry the receiver.
+**Bodies must be checked against the contract.** Existing generic bodies are
+checked per concrete instance and may use methods not listed in their bound.
+That behavior is not acceptable for provided protocol bodies in the agreed
+design. Abstract checking is required, including through aliases, helpers and
+closures; a syntactic scan for `self.foo` is insufficient. This is additional
+frontend work beyond the demonstrated generic-function lowering.
 
 **Inference needs real evidence.** Required concrete signatures can determine
 protocol parameters. A supplied body cannot become circular evidence for its
@@ -170,8 +179,8 @@ visibility equality, and cross-module private hooks require
 
 The earlier qualified-call alternative that always invokes the original body
 is not selected. The [design page](protocol-method-bodies/final-and-visibility.md)
-separates agreed rules from the remaining specification work, particularly
-checking bodies against their declared contract.
+separates agreed rules from the remaining specification work. Definition-time
+checking against the declared protocol contract is mandatory.
 
 The [implementation map and probes](protocol-method-bodies/evidence.md) show
 what already works and where the remaining compiler work lies. No new feature

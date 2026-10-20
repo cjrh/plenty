@@ -152,6 +152,31 @@ in the usual library/backend/application arrangement.
 No access scheme prevents an implementation from exposing a separate operation
 or performing its own I/O; the guarantee concerns the declared interface.
 
+## Check provided bodies against the contract
+
+**Agreed requirement:** check protocol bodies against their declared contract,
+without depending on extra members of any particular implementing class.
+Every method or operation used on the implementing type must be justified by
+that contract and the ordinary operations available for that type parameter.
+A call to an undeclared `self.bonus()` is a definition-time error even if every
+currently used class happens to have a compatible `bonus`.
+
+This applies to default and final bodies alike, including aliases, nested
+closures, and calls through helpers. Helpers must have sufficient declared
+constraints for the call to be checked; unconstrained per-instance checking
+must not become an escape from the protocol contract. Member access grants
+authorize access to declared hooks; they do not add undeclared members.
+
+Report contract violations at the protocol definition. Concrete specialization
+can still perform lowering and concrete checks, but cannot make an invalid
+protocol body valid by discovering additional methods or fields on the object.
+This requires abstract contract checking beyond today's per-instance generic
+body checking. A syntactic scan for `self.method` is insufficient.
+
+Whether to extend the same discipline to all ordinary generic functions is
+outside this decision. The implementation must nevertheless enforce it across
+helper calls originating in a protocol body.
+
 ## Remaining specification work
 
 The core behavior above is settled. This is not yet a complete implementation
@@ -162,12 +187,10 @@ callable from bounded generic functions. Reinterpreting every bare `def` as a
 hidden hook requires a deliberate stdlib, example, and tutorial migration.
 Adding a final member can also invalidate existing structural matches.
 
-**Body checking:** retain per-instance generic checking initially, or require
-provided bodies to work using only the protocol contract? The latter is broader
-work. This is the main remaining user-facing design choice. For example, should
-a provided body calling an undeclared `self.extra()` fail at its definition, or
-only when instantiated for an object lacking `extra`? Preserve definition-site
-access either way, and never let per-instance checking bypass visibility.
+**Abstract checking machinery:** specify how required, default and final methods,
+method-local bounds, helper contracts, and definition-site access are represented
+during checking before a concrete implementing type is known. Contract checking
+is required, not an optional later enhancement.
 
 **Inference and overlap:** identify the protocol from the bound, not from
 the concrete receiver alone. Two bounds on different parameters can refer to

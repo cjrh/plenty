@@ -80,6 +80,12 @@ handwritten lowering tests the algorithms and borrowing but cannot validate
 automatic selection, alias provenance, or rejection of final-method conflicts.
 Those remain compiler work. The cross-module private-hook sketch is not executed.
 
+The accepted behavior now requires definition-time contract checking. The probe
+that accepts an undeclared `extra` demonstrates a limitation of reusing today's
+generic checker, not behavior permitted in a future protocol body. The successful
+lowerings establish executable algorithms and ownership behavior, but do not
+validate this additional checker requirement.
+
 ## Remaining validation if implemented
 
 An implementation would need focused tests for qualified and bound-based
