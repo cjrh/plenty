@@ -14,7 +14,8 @@ import std.http.client
 import std.http.server
 import std.net
 import std.time
-from std.concurrent import ThreadPoolExecutor, Future, SubmitError
+from std.concurrent import ThreadPoolExecutor, Future, SubmitError, PoolError, FutureError
+from std.fmt import FormatError
 from std.http.client import Client, ClientError, Plain, TcpConnector
 from std.http.server import Exchange
 from std.net import TcpListener, TcpStream
@@ -50,7 +51,10 @@ def fetch_all(client: Shared[Client[Plain, TcpConnector]], url: str, count: i64)
             ok += 1
     Ok(ok)
 
-def main() -> Result[(), Failure]:
+type PoolJobError = PoolError | FutureError | str
+type ClientRunError = AllocError | IoError | ThreadError | RangeError | FormatError | ClientError | std.net.NetError | PoolJobError
+
+def main() -> Result[(), ClientRunError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?

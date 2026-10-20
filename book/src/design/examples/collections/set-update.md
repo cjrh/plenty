@@ -4,7 +4,7 @@ Sets also support `update(source) -> Result[(), AllocError]`. Members already
 present are kept, and missing members transfer from the source:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut names = {"Ada", "Bea"}?
     more = {"Bea", "Cam"}?
     names.update(more)?

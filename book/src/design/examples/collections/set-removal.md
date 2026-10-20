@@ -4,7 +4,7 @@ Use `values.discard(value)` to remove a member from a mutable set. It returns
 `True` if the member was present and removed, or `False` if it was absent:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut names = {"Ada", "Bea"}?
     name = "Ada"
     print(names.discard(name))?

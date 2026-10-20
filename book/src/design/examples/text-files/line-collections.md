@@ -10,7 +10,7 @@ def demo() -> Result[list[str], IoError]:
     write_text("collection.txt", "first\r\n\nlast")?
     with open("collection.txt")? as file:
         return file.readlines()
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(demo()?)?
     Ok(())
 ```
@@ -23,7 +23,7 @@ newlines: include them in the strings when wanted. The operation returns
 `Result[(), IoError]`; an error may leave a partially written file.
 
 ```plenty
-def demo() -> Result[(), Failure]:
+def demo() -> Result[(), AllocError | IoError]:
     lines = ["one\n", "two\n"]?
     with open("written.txt", "w")? as file:
         file.writelines(lines)?
@@ -31,7 +31,7 @@ def demo() -> Result[(), Failure]:
     with open("written.txt")? as file:
         print(file.readlines()?)?
     Ok(())
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     demo()?
     Ok(())
 ```

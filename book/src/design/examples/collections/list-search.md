@@ -4,7 +4,7 @@ For lists of integers, floats, booleans, or strings, these queries borrow their
 inputs and allocate nothing:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     names = ["Ada", "Lin", "Ada"]?
     print(names.count("Ada"))?
     print(names.find("Ada"))?

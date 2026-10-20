@@ -47,7 +47,7 @@ an ordinary library call; it does not change the propagation rule.
 def checked_first(values: &list[i64]) -> Option[i64]:
     Some(values.get(0)? + 1)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     values = [3]?
     print(checked_first(&values))?
     Ok(())
@@ -61,7 +61,9 @@ ordinary cleanup order. Later operands and statements do not run. Error
 payload ownership transfers to the caller. Generator bodies reject `?` because
 their declared return family is `Generator[T]`; explicitly match instead.
 
-`Failure` is a copyable allocation-free builtin enum containing only
+Prefer a concrete error or a declared sum when combining fallible operations,
+so callers can inspect or report the cause. The legacy `Failure` is a copyable
+allocation-free builtin enum containing only
 `Failure.Unspecified`. In a function returning `Result[T, Failure]`, `?`
 accepts any Result error type. Failure consumes and drops the original error
 payload, then returns `Err(Failure.Unspecified)` after normal cleanup. Success

@@ -6,7 +6,7 @@ the end. Each scalar fits inline in the string value, so indexing does not
 allocate. General text can share immutable storage.
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     text = "é\0😀"
     print(len(text))?
     print(text[-1])?

@@ -249,7 +249,7 @@ The compiler expects a complete program with a `main` entry point. Put probe
 statements inside it; for allocation or printing, propagate failures:
 
 ```text
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     xs = [1, 2, 3]?
     print(xs)?
     Ok(())

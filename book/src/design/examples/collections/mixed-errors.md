@@ -1,58 +1,50 @@
-# Discard error details deliberately
+# Preserve different error causes
 
-When callers only need success or failure, declare `Result[T, Failure]`.
-Each `?` can then propagate a different error type:
+Declare a sum of the errors an operation can return. Each `?` injects its
+original error into that sum, preserving the variant and its payload:
 
 ```plenty
-def work(text: str) -> Result[list[u8], Failure]:
+type BuildError = ParseError | AllocError | IoError
+
+def work(text: str) -> Result[list[u8], BuildError]:
     n = u8.parse(text)?               # ParseError
     values = [n, n + 1u8]?           # AllocError
     print("built values")?          # IoError
     Ok(values)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(str.repr(work("41"))?)?
-    print(str.repr(work("invalid"))?)?
+    match work("invalid"):
+        case Ok(values):
+            print(values)?
+        case Err(error):
+            match error:
+                case cause: ParseError:
+                    print(cause == ParseError.Invalid)?
+                case cause: AllocError:
+                    print(cause)?
+                case cause: IoError:
+                    print(cause)?
     Ok(())
-```
 
+```
 ```output
 built values
-Result[list[u8], Failure].Ok([41, 42])
-Result[list[u8], Failure].Err(Failure.Unspecified)
+Result[list[u8], AllocError | IoError | ParseError].Ok([41, 42])
+True
 ```
 
-`Failure.Unspecified` is the type's only value. On an error path, `?` drops the
-original error and propagates this marker, with normal scope cleanup. The
-conversion and marker do not allocate; custom cleanup can still perform its
-own operations. This works in helpers as well as `main`. A `main` that returns
-`Err` exits with status one after reporting the error on standard error. For
-`Failure` that report can only say that the details were discarded:
+The alias names the combination; it does not wrap the errors or allocate.
+Matching a member gives the original concrete value. `?` also widens an error
+sum into a larger declared sum without dropping its cause. Normal scope cleanup
+runs on the error path.
 
-```text
-error: main returned Failure.Unspecified: Failure keeps no details of the original error
-```
+A `main` returning `Err` reports the error on standard error and exits with
+status one. Use `?` for propagation and `match` for recovery. `.unwrap()` is an
+explicit choice to terminate immediately on `Err` or `Nothing`, without normal
+scope cleanup. Neither sums nor `?` catch runtime traps or turn `Option.Nothing`
+into an error.
 
-This choice discards details, so use a concrete error type when a caller needs
-to inspect or report the cause. It only changes `?`: returning an existing
-`Result[T, IoError]` directly from a `Result[T, Failure]` function is still a type
-error. To report failure yourself, use `Err(Failure.Unspecified)`. End successful
-paths explicitly with `Ok(value)` or `Ok(())`.
-
-`Failure` does not catch runtime traps and does not turn `Option.Nothing` into an
-error. `.unwrap()` is a separate, explicit choice to terminate immediately on
-`Err` or `Nothing`, without normal scope cleanup. For example:
-
-```plenty
-def main() -> Result[(), IoError]:
-    found = Some(42)
-    print(found.unwrap())?
-    Ok(())
-```
-
-```output
-42
-```
-
-Use `?` for propagation, `match` for recovery, and `.unwrap()` only when
-termination is the intended policy.
+The legacy `Failure` type discards the original cause; it is unnecessary for
+combining these errors. Its remaining behavior is described in the
+[error tutorial](../../../tutorial/03-absence/error-details.md).

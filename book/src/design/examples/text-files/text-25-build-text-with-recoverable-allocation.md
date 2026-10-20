@@ -8,7 +8,7 @@ def greeting(names: &list[str]) -> Result[str, AllocError]:
     joined = ", ".join(names)?
     "Hello, ".concat(joined)?.concat("!")
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     names = ["Ada", "Bea"]?
     print(greeting(&names)?)?
     print(names)?

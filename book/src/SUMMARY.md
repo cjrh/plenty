@@ -414,7 +414,7 @@
             - [Extend a list by transferring another list](design/examples/collections/extend.md)
             - [Search and count list elements](design/examples/collections/list-search.md)
             - [Take a list slice](design/examples/collections/list-slices.md)
-            - [Discard error details deliberately](design/examples/collections/mixed-errors.md)
+            - [Preserve different error causes](design/examples/collections/mixed-errors.md)
             - [Choosing numeric types in expressions](design/examples/collections/numeric-inference.md)
             - [Find and validate collection values](design/examples/collections/optional-results.md)
             - [Program entrypoints and native compilation](design/examples/collections/program-compilation.md)

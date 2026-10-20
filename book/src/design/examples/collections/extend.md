@@ -10,7 +10,7 @@ def combined() -> Result[list[i64], AllocError]:
     items.extend(more)?
     Ok(items)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(combined()?)?
     Ok(())
 ```

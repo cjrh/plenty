@@ -4,7 +4,7 @@
 other set, returns unit, and reuses existing storage without allocating:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut selected = {1, 2, 3}?
     allowed = {2, 3, 4}?
     selected.intersection_update(allowed)
@@ -28,7 +28,7 @@ mutated. Use `intersection` when you want an independent result instead.
 Use `difference_update` to remove the other set's members in place:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut pending = {1, 2, 3}?
     done = {2, 3, 4}?
     pending.difference_update(done)

@@ -17,7 +17,7 @@ def merge(spans: &mut list[(i64, i64)]) -> Result[list[(i64, i64)], AllocError]:
             merged.append((start, stop))?
     Ok(merged)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut spans = [(8, 10), (1, 3), (15, 18), (2, 6)]?
     print(merge(&mut spans)?)?
     print(spans)?
@@ -41,7 +41,7 @@ def pivot(rows: &mut list[list[i64]]) -> ():
             best = i
     rows.swap(0, best)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut rows = [[1, 2]?, [7, 8]?, [4, 5]?]?
     pivot(&mut rows)
     print(rows)?

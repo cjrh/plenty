@@ -1,8 +1,8 @@
-from std.cli import Spec, Kind, Value, parse, help, describe_for, exit_status
+from std.cli import CliError, Spec, Kind, Value, parse, help, describe_for, exit_status
 from std.error import Context, Subject, path_context
 
 # Compile, then run: ./countbytes --total first.bin second.bin
-def run() -> Result[i32, Failure]:
+def run() -> Result[i32, AllocError | IoError | CliError]:
     schema = [
         Spec("--total", Kind.Flag, False, False, False, "also print the total"),
         Spec("FILE", Kind.Path, True, True, True, "files to count")

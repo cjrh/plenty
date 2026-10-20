@@ -1219,6 +1219,7 @@ fn a_relocated_compiler_builds_an_offline_json_service() {
     std::fs::write(
         &source,
         r##"import std.bytes
+import std.http
 import std.http.body
 import std.http.client
 import std.http.server
@@ -1235,7 +1236,7 @@ pub enum Route:
 
 # Echoes a JSON object back with a count of its members.
 pub class Service:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError | std.http.body.BodyError]:
         limits = std.json.limits()
         value = std.http.body.read_json(exchange, &limits)?
         mut size = 0
@@ -1251,7 +1252,7 @@ pub class Service:
         std.http.body.send_json(exchange, 200, &Json.Object(members), &limits)?
         Ok(())
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
     mut client = std.http.client.client(std.http.client.config()?)?
@@ -1263,7 +1264,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | ThreadError | std.http.server.ServerError | std.net.NetError]:
     mut table = std.http.server.router[Route]()?
     table.add("POST", "/items", Route.Items)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -1388,6 +1389,7 @@ pub def summarize(path: &str, column: i64) -> Result[Json, SummaryError]:
 
 /// A CLI/data tool: `tally --column N FILE` prints a JSON summary of a CSV file.
 const TALLY: &str = r##"
+import std.cli
 import std.json
 import std.path
 import stock
@@ -1395,7 +1397,7 @@ from std.cli import Spec, Kind, Value, parse, help, describe_for, exit_status
 from std.error import Context, Subject
 
 # tally --column N FILE: prints a JSON summary of one integer CSV column.
-def run() -> Result[i32, Failure]:
+def run() -> Result[i32, AllocError | IoError | std.cli.CliError | std.json.JsonError]:
     schema = [
         Spec("--column", Kind.Integer, False, True, False, "column to total"),
         Spec("FILE", Kind.Text, True, True, False, "CSV file with a header")
@@ -1441,6 +1443,7 @@ def main() -> i32:
 /// A JSON service answering `GET /summary` for the CSV file it is given, with
 /// a client in the same process that fetches it once and stops the server.
 const SERVICE: &str = r##"
+import std.bytes
 import std.http.body
 import std.http.client
 import std.http.server
@@ -1459,12 +1462,12 @@ pub enum Route:
 pub class Service:
     pub path: str
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), stock.SummaryError | std.http.body.BodyError]:
         summary = stock.summarize(&self.path, 1)?
         std.http.body.send_json(exchange, 200, &summary, &std.json.limits())?
         Ok(())
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
     mut client = std.http.client.client(std.http.client.config()?)?
@@ -1474,7 +1477,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError]:
     arguments = args()?
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/summary", Route.Summary)?

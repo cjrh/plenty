@@ -29,7 +29,7 @@ pub class Bench:
     pub small: Bytes
     pub large: Bytes
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), std.bytes.BytesError | std.http.HttpError]:
         match route:
             case Route.Small:
                 exchange.send(200, "text/plain", &self.small)?
@@ -44,25 +44,24 @@ pub class Bench:
                 self.stop.cancel()
         Ok(())
 
-def setting(name: &str, fallback: i64) -> Result[i64, Failure]:
+def setting(name: &str, fallback: i64) -> Result[i64, IoError | ParseError]:
     match std.env.get(name)?:
         case Some(text):
-            match i64.parse(&text):
-                case Ok(value):
-                    Ok(value)
-                case Err(_):
-                    Err(Failure.Unspecified)
+            Ok(i64.parse(&text)?)
         case Nothing:
             Ok(fallback)
 
-def required(name: &str) -> Result[str, Failure]:
+enum ConfigError:
+    Missing(str)
+
+def required(name: str) -> Result[str, IoError | ConfigError]:
     match std.env.get(name)?:
         case Some(text):
             Ok(text)
         case Nothing:
-            Err(Failure.Unspecified)
+            Err(ConfigError.Missing(name))
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError | ParseError | ConfigError | std.bytes.BytesError | std.http.server.ServerError | std.net.NetError | std.tls.TlsError]:
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/", Route.Small)?
     table.add("GET", "/16k", Route.Large)?

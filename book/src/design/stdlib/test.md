@@ -11,8 +11,8 @@ program may import it; it depends on the runner only for reading
 An assertion that holds returns `Ok(())` without allocating. One that fails
 flushes standard output, writes the position of the call, `assertion failed: `,
 and an explanation to standard error, and returns `Err(TestError.Assertion)`.
-The explanation is written at once because `?` usually erases the error into
-`Failure`.
+The explanation is written at once, so it survives propagation or handling by
+the caller. Tests can return `TestError` or a sum containing it.
 
 ```text
 parse.plenty:12:5: assertion failed: left == right
@@ -116,7 +116,7 @@ from std.time import Clock, Instant
 def overdue[C: Clock](clock: &C, since: &Instant) -> bool:
     clock.now().saturating_duration_since(since).as_seconds() > 30
 
-def test_overdue() -> Result[(), Failure]:
+def test_overdue() -> Result[(), std.test.TestError | RangeError]:
     mut clock = std.test.fake_clock(0u64)
     since = clock.now()
     std.test.check(not overdue(&clock, &since), "fresh")?
@@ -151,7 +151,7 @@ budget in place; restore it before an assertion that must allocate to show its
 values.
 
 ```text
-def test_save_reports_a_full_disk() -> Result[(), Failure]:
+def test_save_reports_a_full_disk() -> Result[(), std.test.TestError]:
     scratch = std.test.scratch()?
     name = scratch.file("state.txt")?
     std.test.fail_files_after(0u32, 28i32)?

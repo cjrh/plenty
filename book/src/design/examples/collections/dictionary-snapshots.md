@@ -8,7 +8,7 @@ def names(scores: &dict[str, i64]) -> Result[list[str], AllocError]:
     result = scores.keys()?
     Ok(result)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut scores = {"Ada": 10, "Bea": 20}?
     saved = scores.values()?
     scores["Ada"] = 30
@@ -38,7 +38,7 @@ original:
 def rows(data: &dict[str, list[i64]]) -> Result[list[list[i64]], AllocError]:
     copy(data)?.values()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     data = {"first": [1, 2]?, "second": [3]?}?
     print(rows(&data)?)?
     print(data)?

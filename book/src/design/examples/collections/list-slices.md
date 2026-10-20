@@ -8,7 +8,7 @@ outside the list clamp to its ends:
 def middle(items: &list[i64]) -> Result[list[i64], AllocError]:
     items.slice(1, -1)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     items = [10, 20, 30, 40]?
     print(middle(&items)?)?
     print(items.slice(-100, 100)?)?

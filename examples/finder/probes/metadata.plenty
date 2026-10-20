@@ -2,7 +2,7 @@
 import std.fs as fs
 import std.path as path
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     root = path.from_text(".")?
     info = fs.metadata(&root)?
     print(info.is_dir())?
