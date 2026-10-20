@@ -29,5 +29,10 @@ a spec use the same spellings as `print`.
 
 Automatic formatting rejects stored recursive types even when an individual value
 is shallow. Print selected scalar fields or write an explicit traversal.
+A top-level closure, generator or scoped task, and sums that hold one (for example
+`SpawnError[OnceClosure[[], i64]]`), cannot be formatted by `str.repr`. The
+diagnostic names the unformattable kind and, when it is nested, the containing
+type: match the value and format its parts, or call a closure and format its
+result. `print` renders a closure as an opaque marker.
 Numeric spelling follows [scalar formatting](numbers.md); stream behavior follows
 [standard output](../02-io/streams-args.md).
