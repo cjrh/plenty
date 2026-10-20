@@ -14,7 +14,8 @@ join. The ordinary worker eligibility, foreign-effect, and channel hang checks
 apply to every imported spelling.
 
 Named/borrowed starts report `ThreadError.System(code)`. An owned start reports
-`SpawnError[F].Unavailable(job)`, retaining the job for recovery; see
+`SpawnError[F].Unavailable(job)`, retaining the job for recovery;
+`spawn(job).drop_job()` drops it and reports the job-free `SpawnError[()]`. See
 [owned jobs](../facilities/03-concurrency/jobs.md). Job handoff and bookkeeping
 allocate no Plenty heap storage; native thread creation uses OS resources.
 There is no hidden clone. Start/join bookkeeping has fixed overhead apart from

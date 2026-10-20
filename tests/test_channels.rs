@@ -302,6 +302,32 @@ print("__test_restore_thread_starts__").unwrap()
     );
 }
 
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn drop_job_releases_a_failed_producers_sender_before_the_join() {
+    // The failed producer's captured sender is dropped at `drop_job()`, so
+    // the earlier consumer's receive ends with `Disconnected` and its join
+    // completes before `?` returns the job-free error.
+    runs(
+        r#"
+def start(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), RecvError | SpawnError[()]]:
+    consumer = def once [receiver]() -> Result[i64, RecvError]:
+        receiver.recv()
+    producer = def once [sender]() -> ():
+        sender.send(42).unwrap()
+        pass
+    with spawn(consumer).drop_job()? as task, spawn(producer).drop_job()?:
+        print(str.repr(task.join()).unwrap()).unwrap()
+    Ok(())
+sender, receiver = channel[i64](1).unwrap()
+print("__test_one_thread_start__").unwrap()
+print(str.repr(start(sender, receiver)).unwrap()).unwrap()
+print("__test_restore_thread_starts__").unwrap()
+"#,
+        "__test_one_thread_start__\nResult[(), RecvError | SpawnError[()]].Err(SpawnError[()].Unavailable(()))\n__test_restore_thread_starts__\n",
+    );
+}
+
 /// A consumer that waits for one message.
 const CONSUMER: &str = "def start[F: OnceCallable[[], ()]](producer: F, receiver: Receiver[i64]) -> Result[(), RecvError | SpawnError[OnceClosure[[], Result[i64, RecvError]]] | SpawnError[F]]:
     consumer = def once [receiver]() -> Result[i64, RecvError]:
@@ -335,8 +361,9 @@ def main() -> ():
          error that `?` propagates still holds `Sender[i64]`: an empty queue could block the \
          worker's receive, and this join, forever\n  \
          4:36: note: the error that `?` propagates here holds `Sender[i64]` until this function \
-         returns; propagate `Failure`, which drops the job first, or pass the endpoint to \
-         `spawn` as a named argument, which a failed start drops\n  \
+         returns; call `drop_job()` on the start, which drops the job before `?` returns, or \
+         pass the endpoint to `spawn` as a named argument, which a failed start drops; \
+         `Failure` also drops the job, as a last resort\n  \
          4:36: note: `?` leaves the block here"
     );
     // A nested block's failed start also joins the enclosing task first.
@@ -385,7 +412,22 @@ fn failed_job_start_cannot_keep_its_receiver_alive_through_an_earlier_join() {
 
 #[test]
 fn erased_or_endpoint_free_start_errors_do_not_block_earlier_joins() {
-    // `Failure` drops the job before the join.
+    // `drop_job()` drops the job at the start, before the join.
+    support::check_source(&format!(
+        "{}    with spawn(consumer)? as task, spawn(producer).drop_job()?:
+        task.join()?
+    Ok(())
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    producer = def once [sender]() -> ():
+        sender.send(42).unwrap()
+        pass
+    drop(start(producer, receiver))
+",
+        CONSUMER.replace("SpawnError[F]", "SpawnError[()]")
+    ))
+    .unwrap();
+    // Tests `Failure` erasure itself: it also drops the job before the join.
     support::check_source(&format!(
         "{}    with spawn(consumer)? as task, spawn(producer)?:
         task.join()?

@@ -67,8 +67,8 @@ impl Lower<'_> {
         if generators::yields(body) {
             return Err(manager.at.error("yield inside with is not supported yet"));
         }
-        if let Some((call, propagate)) = threads::spawn_expression(manager) {
-            return self.with_thread(call, propagate, name, body, ops);
+        if let Some((call, propagate, drop_job)) = threads::spawn_expression(manager) {
+            return self.with_thread(call, propagate, drop_job, name, body, ops);
         }
         let saved = self.names.clone();
         let start = self.locals.len();

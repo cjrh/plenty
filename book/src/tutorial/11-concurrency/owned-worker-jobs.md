@@ -21,7 +21,26 @@ retains the complete job. `F` is the closure's own type. The signature writes
 propagates, so `main` returns the unstarted job unchanged.
 
 A signature names one closure there: a second `spawn` of a different closure
-literal is rejected. Make each job with one factory function, or use a generic
+literal is rejected. When you do not need the job back, call `drop_job()` on
+each start. It drops a failed start's job right away, and the error becomes
+`SpawnError[()]`, which names no job, so one member covers every start:
+
+```plenty
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    values = [3, 4]?
+    with spawn(def once [values]() -> list[i64]: values).drop_job()? as first:
+        print(first.join())?
+    with spawn(def once () -> str: "done").drop_job()? as second:
+        print(second.join())?
+    Ok(())
+```
+
+```output
+[3, 4]
+done
+```
+
+To keep the job, make each one with one factory function, or use a generic
 helper, which names the job as `F`. Recover the job to retry or run it
 locally, as this helper does:
 

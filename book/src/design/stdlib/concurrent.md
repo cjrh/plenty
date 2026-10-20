@@ -20,7 +20,8 @@ Construction makes one allocation and starts the requested OS workers. Each
 accepted job needs one fallible cell; a full queue bounds outstanding queued
 jobs and can block `submit`. `submit_nowait` reports `SubmitError.Full(job)`;
 other variants are `Shutdown(job)`, `OutOfMemory(job)`, and `CapacityOverflow(job)`.
-Recovery retains ownership without a hidden clone. Waiting, result transfer,
+Recovery retains ownership without a hidden clone. `submit(...).drop_job()`
+drops a rejected job at the call and reports the job-free `SubmitError[()]`. Waiting, result transfer,
 status and cancellation allocate nothing. Queue bookkeeping is constant apart
 from job/result transfer and cleanup; waiting and shutdown have no bounded
 latency. Map allocates outputs and uses a bounded work window; reduction costs

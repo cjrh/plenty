@@ -366,8 +366,7 @@ fn worker_calls_report_the_worker_source_without_inheriting_the_parent() {
 
 #[test]
 fn directly_scheduled_std_jobs_do_not_inherit_an_earlier_jobs_tail_caller() {
-    // B71: two submitted jobs have distinct closure types and one declared SubmitError names one producer, so main keeps `Failure`.
-    let error = trap(&[("main.plenty", "from std.math import abs\nfrom std.concurrent import ThreadPoolExecutor\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), Failure]:\n    with ThreadPoolExecutor(1, 1)? as pool:\n        first = pool.submit(positive, 1)?\n        print(first.result()?)?\n        second = pool.submit(abs, -9223372036854775808)?\n        print(second.result()?)?\n    Ok(())\n")]);
+    let error = trap(&[("main.plenty", "from std.math import abs\nfrom std.concurrent import ThreadPoolExecutor, FutureError, PoolError, SubmitError\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[()]]:\n    with ThreadPoolExecutor(1, 1)? as pool:\n        first = pool.submit(positive, 1).drop_job()?\n        print(first.result()?)?\n        second = pool.submit(abs, -9223372036854775808).drop_job()?\n        print(second.result()?)?\n    Ok(())\n")]);
     assert!(error.contains("integer overflow"), "{error}");
     assert!(!error.contains("note:"), "{error}");
 }

@@ -4802,10 +4802,16 @@ pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
     crate::op::check(&program.ops)
 }
 
-/// Explains why a second job closure cannot share an inferred error member.
+/// Explains why a second job closure cannot share an inferred error member,
+/// or that the declared error names the job-free form of the source.
 fn producer_conflict_hint(target: &Ty, source: &Ty) -> String {
+    if let Some(free) = crate::sum::job_free(source)
+        .filter(|free| free != source && crate::sum::members(target).contains(free))
+    {
+        return format!("; call `drop_job()` before `?` to propagate the declared job-free {free}");
+    }
     crate::sum::producer_conflict(target, source)
-        .map(|member| format!("; {member} already names another closure, and one declared closure type names one producer: propagate one job, start jobs through a generic helper, or recover the job locally"))
+        .map(|member| format!("; {member} already names another closure, and one declared closure type names one producer: call `drop_job()` on each start or submission and declare the job-free `SpawnError[()]` or `SubmitError[()]`, start jobs through a generic helper, or recover the job locally"))
         .unwrap_or_default()
 }
 

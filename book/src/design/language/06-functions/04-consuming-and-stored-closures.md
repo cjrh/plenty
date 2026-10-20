@@ -27,7 +27,8 @@ error, including inside a retained-job error such as `SpawnError` or
 `SubmitError` and as an [anonymous sum](../03-types/anonymous-sums.md) member.
 The first closure returned or propagated fixes that position's producer;
 another producer is rejected. Several closures from one factory function share
-its producer. A member pattern with the same signature, such as
+its producer. To propagate distinct jobs, [`drop_job()`](../../facilities/03-concurrency/jobs.md#job-free-errors)
+converts each error to the job-free `SpawnError[()]` or `SubmitError[()]`. A member pattern with the same signature, such as
 `case failed: SpawnError[OnceClosure[[], i64]]:`, names the resolved member.
 Only declared return types infer this way: a closure signature in a parameter's
 or local binding's sum is rejected.

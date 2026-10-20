@@ -469,21 +469,20 @@ fn a_temporary_future_wait_is_checked_after_try() {
 
 #[test]
 fn future_waits_keep_distinct_jobs_and_message_types_separate() {
-    // B71: keeps `Failure`. The three submissions bind different functions
-    // returning `()`, and one declared `SubmitError[OnceClosure[[], ()]]`
-    // member names only one producer, so no precise error type can be written.
+    // The three submissions bind different functions returning `()`; one
+    // job-free `SubmitError[()]` member covers all of them.
     accepted(
         "def noop() -> ():
     pass
 def words(sender: Sender[str]) -> ():
     drop(sender)
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ChannelError | FutureError | PoolError | SubmitError[()]]:
     with ThreadPoolExecutor(3, 3)? as pool:
         sender, receiver = channel[i64](1)?
         texts, lines = channel[str](1)?
-        blocked = pool.submit(produce, sender)?
-        other = pool.submit(words, texts)?
-        plain = pool.submit(noop)?
+        blocked = pool.submit(produce, sender).drop_job()?
+        other = pool.submit(words, texts).drop_job()?
+        plain = pool.submit(noop).drop_job()?
         plain.result()?
         drop(lines)
         other.result()?
