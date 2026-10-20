@@ -484,6 +484,8 @@
         - [C++ and Rust precedents](proposals/library-owned-operations/precedents.md)
     - [Implemented protocol methods: feasibility sketch](proposals/protocol-method-bodies.md)
         - [Implementation map and probes](proposals/protocol-method-bodies/evidence.md)
+        - [Final methods and hidden hooks](proposals/protocol-method-bodies/final-and-visibility.md)
+        - [Short programs with final protocol methods](proposals/protocol-method-bodies/examples.md)
     - [GCC backend (`plenty_codegen_gcc`)](proposals/codegen-gcc.md)
     - [User-defined ordering](proposals/user-type-ordering.md)
     - [Timsort for stable, adaptive sorting](proposals/timsort.md)

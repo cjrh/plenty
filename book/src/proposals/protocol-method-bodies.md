@@ -16,6 +16,13 @@ This investigates sharing implementations. The earlier
 preventing callers from bypassing an algorithm; it remains relevant, because
 ordinary overridable defaults do not provide that guarantee.
 
+The follow-up [final-method and visibility candidate](protocol-method-bodies/final-and-visibility.md)
+lets each declaration choose whether its body is replaceable. It explores
+rejecting a same-named inherent method at the structural boundary, with
+[three short programs](protocol-method-bodies/examples.md). That final check
+is a modest addition once provided-method selection exists; hidden external
+hooks remain a separate access-control change.
+
 ## One example, three distinct choices
 
 Hypothetical syntax, not executable Plenty:
@@ -58,7 +65,8 @@ All new spellings below are illustrative.
 | Default selected through a bound | `storage.save(document)` inside `S: DocumentStorage` code | Medium. Needs protocol-aware method resolution, missing-default handling, override rules, and receiver provenance through specialization. |
 | Explicit adoption on a type | An illustrative `use DocumentStorage` declaration in `FileStorage` | Medium-to-large. A local place to opt into methods and diagnose conflicts, but introduces a new relationship beyond structural matching. |
 | Automatic structural extension | `files.save(document)` wherever a matching protocol is visible | Large relative to the above. Needs candidate discovery, overlap rules, inference limits, and a decision about whether imports change available methods. |
-| Private hooks / fixed public algorithm | Access controlled separately from structural matching | Separate substantial feature. Needs explicit authority, cross-module rules, and guarantees that survive every call path. |
+| Final provided method | Reject a matching object with a same-named inherent method | Modest addition to provided-method selection: check the final-name restriction at conformance and consistently select the protocol body. |
+| Private hooks across modules | Access controlled separately from structural matching | Separate substantial feature. Needs explicit authority, cross-module rules, and guarantees that survive every call path. |
 
 These are engineering judgments from source inspection and experiments, not
 calendar estimates or measurements of a completed implementation. A narrow
@@ -151,12 +159,13 @@ cost, not a lookup model Plenty can copy unchanged.
 
 ## Suggested direction
 
-For Plenty's explicit structural model, first evaluate **protocol-owned
-operations with explicit selection**. They share algorithms with little new
-machinery, without committing to globally injected methods or new access rights.
-If the added qualification is too cumbersome, evaluate bound-based method
-syntax as a separate ergonomic extension. Do not promise that a default method
-alone solves the private-hook scenario.
+The initial assessment favored **protocol-owned operations with explicit
+selection** as the smallest extension. The follow-up candidate explores a more
+expressive alternative: ordinary bodies are overridable defaults, `final`
+bodies are fixed, and either can be selected through a bound or qualification.
+It retains explicit structural matching without globally injecting methods.
+The short programs make this candidate worth evaluating before settling on
+qualified-only calls. Neither approach alone solves the private-hook scenario.
 
 The [implementation map and probes](protocol-method-bodies/evidence.md) show
 what already works and where the remaining compiler work lies. No new feature

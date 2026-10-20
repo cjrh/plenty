@@ -3,7 +3,7 @@
 This supports the [feasibility sketch](../protocol-method-bodies.md). Source
 locations and results describe base `d39e6ec`, not a compiler with defaults.
 The experiments use **handwritten generic-function lowerings**; they do not
-implement new syntax, method selection, or private access grants.
+implement new syntax, method selection, final-name checks, or private access grants.
 
 ## Existing compiler machinery
 
@@ -65,12 +65,20 @@ harness, not a new language conformance suite.
 | Shared generic function forwards a hook's returned reference | Runs; output `8`. |
 | Mutation while that returned reference remains live | Rejected by borrowing checks. |
 | Generic body calls a concrete method absent from its declared protocol | Runs; output `99`, confirming per-instance checking rather than abstract contract checking. |
+| Final storage candidate lowered to a generic function | Runs; output `empty rejected`, `saved`, `1`; validation prevents the first write. |
+| Final eligibility body with default and overridden score, lowered to two selected bodies | Runs; output `False`, `True`. Selection is handwritten, not inferred by a new compiler rule. |
+| Two protocol operations on the same concrete sensor, including a receiver alias | Runs; output `20`, `68`; the lowering explicitly preserves the two selections. |
 
-All **10 probes passed** with the compiler built from the exploration worktree.
-Five executed native programs and five checked expected compile failures.
+All **13 probes passed** with the compiler built from the exploration worktree.
+Eight executed native programs and five checked expected compile failures.
 No compiler/runtime code was changed. These probes establish reuse of existing
 generics and ownership behavior; they do not establish that adding fallback
 lookup is a small patch.
+
+The last three correspond to the [candidate programs](examples.md). Their
+handwritten lowering tests the algorithms and borrowing but cannot validate
+automatic selection, alias provenance, or rejection of final-method conflicts.
+Those remain compiler work. The cross-module private-hook sketch is not executed.
 
 ## Remaining validation if implemented
 

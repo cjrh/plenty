@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Run the current-language evidence for the protocol-body feasibility sketch.
 
-These are handwritten lowerings, not an implementation of protocol defaults.
+These are handwritten lowerings, not an implementation of protocol defaults
+or final-member conformance checks.
 Pass a compiler built from this checkout. No third-party Python packages needed.
 """
 
@@ -223,6 +224,106 @@ def main() -> Result[(), IoError]:
                 Ok(())
         """},
         "99\n",
+        None,
+    )
+    yield (
+        "final-storage-candidate-handwritten-lowering",
+        {"main.plenty": """
+            enum SaveError:
+                Empty
+            protocol DocumentStorage:
+                def write(self: &mut DocumentStorage, document: &str) -> Result[(), SaveError]:
+                    pass
+            class Memory:
+                writes: i64
+                def write(self: &mut Memory, document: &str) -> Result[(), SaveError]:
+                    self.writes += 1
+                    Ok(())
+            def storage_save[S: DocumentStorage](storage: &mut S, document: &str) -> Result[(), SaveError]:
+                if document.byte_len() == 0:
+                    return Err(SaveError.Empty)
+                storage.write(document)?
+                Ok(())
+            def persist[S: DocumentStorage](storage: &mut S, document: &str) -> Result[(), SaveError]:
+                storage_save(storage, document)
+            def main() -> Result[(), IoError]:
+                mut memory = Memory(0)
+                match persist(&mut memory, ""):
+                    case Ok(_):
+                        print("unexpected")?
+                    case Err(_):
+                        print("empty rejected")?
+                match persist(&mut memory, "hello"):
+                    case Ok(_):
+                        print("saved")?
+                    case Err(_):
+                        print("unexpected")?
+                print(memory.writes)?
+                Ok(())
+        """},
+        "empty rejected\nsaved\n1\n",
+        None,
+    )
+    yield (
+        "final-body-calls-selected-score-override-lowering",
+        {"main.plenty": """
+            protocol Scored:
+                def base_score(self) -> i64:
+                    pass
+            class Basic:
+                points: i64
+                def base_score(self) -> i64:
+                    self.points
+            class Bonus:
+                points: i64
+                def base_score(self) -> i64:
+                    self.points
+                def score(self) -> i64:
+                    self.points + 5
+            def default_score[S: Scored](item: &S) -> i64:
+                item.base_score()
+            def eligible_basic(item: &Basic) -> bool:
+                default_score(item) >= 10
+            def eligible_bonus(item: &Bonus) -> bool:
+                item.score() >= 10
+            def main() -> Result[(), IoError]:
+                basic = Basic(7)
+                bonus = Bonus(7)
+                print(eligible_basic(&basic))?
+                print(eligible_bonus(&bonus))?
+                Ok(())
+        """},
+        "False\nTrue\n",
+        None,
+    )
+    yield (
+        "two-protocols-same-concrete-receiver-lowering",
+        {"main.plenty": """
+            protocol Celsius:
+                def celsius(self) -> i64:
+                    pass
+            protocol Fahrenheit:
+                def celsius(self) -> i64:
+                    pass
+            class Sensor:
+                reading: i64
+                def celsius(self) -> i64:
+                    self.reading
+            def celsius_display[T: Celsius](sensor: &T) -> i64:
+                sensor.celsius()
+            def fahrenheit_display[T: Fahrenheit](sensor: &T) -> i64:
+                sensor.celsius() * 9 // 5 + 32
+            def show[T: Celsius, U: Fahrenheit](left: &T, right: &U) -> Result[(), IoError]:
+                alias = left
+                print(celsius_display(alias))?
+                print(fahrenheit_display(right))?
+                Ok(())
+            def main() -> Result[(), IoError]:
+                sensor = Sensor(20)
+                show(&sensor, &sensor)?
+                Ok(())
+        """},
+        "20\n68\n",
         None,
     )
 
