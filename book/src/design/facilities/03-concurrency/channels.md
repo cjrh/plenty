@@ -150,7 +150,7 @@ gone. The final expression of a `match` case used as a value is a holder through
 that case's cleanup, so a case whose value is an endpoint cannot end a pool or
 task block that the endpoint blocks. The check covers bindings, assignments,
 unpacking, discarded expressions, `yield`, `if`, `elif`, and `while` conditions,
-`for` iterables, `match` subjects, and `with` managers other than a lock. It has
+`for` iterables, `match` subjects, and `with` managers. It has
 the limits of the returned-value check: it follows the bindings the expression
 moves, counts one moved into a call that consumes it, and does not see a wait
 inside a called function.

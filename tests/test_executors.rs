@@ -1089,6 +1089,71 @@ fn a_wait_inside_a_statement_rejects_endpoints_its_value_already_holds() {
     }
 }
 
+/// `main` for issue #350 probes: `index` evaluates a lock's computed index.
+fn lock_index_main(index: &str) -> String {
+    format!(
+        "from std.sync import Mutex
+def keep(receiver: Receiver[i64], done: bool) -> i64:
+    drop(receiver)
+    0
+def slot(done: bool) -> i64:
+    0
+def main() -> Result[(), AllocError | ChannelError | IoError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    cells = [Mutex[i64](0)]?
+    flags = [Mutex[bool](False)]?
+    shared = [Shared(Mutex[i64](0))?]?
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+{index}            *cell = 1
+            print(*cell)?
+    print(\"done\")?
+    Ok(())
+"
+    )
+}
+
+#[test]
+fn a_wait_inside_a_lock_place_rejects_endpoints_its_index_already_holds() {
+    // Issue #350: the computed index holds the receiver from its move through
+    // the nested wait, as any other `with` manager does.
+    for (statement, at) in [
+        (
+            "        with cells[keep(receiver, future.result().is_ok())].lock() as cell:\n",
+            "21:14",
+        ),
+        (
+            "        with flags[0].lock() as flag, cells[keep(receiver, future.result().is_ok())].lock() as cell:\n",
+            "21:39",
+        ),
+        (
+            "        with shared[keep(receiver, future.result().is_ok())].lock() as cell:\n",
+            "21:14",
+        ),
+    ] {
+        let error = blocked_shutdown(&lock_index_main(statement));
+        assert!(
+            error.contains(
+                "this result() waits for a job that holds `Sender[i64]` while the expression \
+                 being evaluated still holds `Receiver[i64]`"
+            ) && error.contains(&format!(
+                "{at}: note: the expression here holds `Receiver[i64]`, moved from \
+                 `receiver`, until the statement completes"
+            )),
+            "{statement}\n{error}"
+        );
+    }
+    runs(
+        &format!(
+            "{PRODUCE}{}",
+            lock_index_main(
+                "        drop(receiver)\n        with cells[slot(future.result().is_ok())].lock() as cell:\n"
+            )
+        ),
+        "1\ndone\n",
+    );
+}
+
 #[test]
 fn a_match_case_value_holds_its_endpoints_through_the_cases_shutdown() {
     // Issue #347: the case's pool shuts down after its final expression has
