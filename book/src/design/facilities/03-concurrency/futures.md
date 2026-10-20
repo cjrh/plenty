@@ -45,8 +45,8 @@ only disconnects it at pool shutdown; that is too late for a result wait inside
 the block.
 
 The diagnostic points to the wait, receiver holders, and submission. Tracking
-follows local future moves, `?`, `unwrap()`, and extraction from submission
-results. Separate futures with the same result type keep their own job origins.
+follows local future moves, `?`, `unwrap()`, `drop_job()`, and extraction from
+submission results. Separate futures with the same result type keep their own job origins.
 Receivers dropped on every continuing path are accepted. `done()`, `cancel()`,
 and `wait_timeout()` are unaffected, and result retrieval still consumes the
 future and preserves both cancellation and application errors.

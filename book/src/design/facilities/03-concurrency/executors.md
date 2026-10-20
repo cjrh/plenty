@@ -73,7 +73,8 @@ so a receiver bound after the pool is dropped before the pool shuts down.
 Jobs are not matched to pools and are never assumed to have finished. A job
 submitted with `submit` or `submit_nowait` counts at every later shutdown in the
 function, and at every shutdown in a loop that contains the submission. A
-`submit(...)?` that fails has submitted nothing on the path that leaves.
+`submit(...)?` or `submit(...).drop_job()?` that fails has submitted nothing on
+the path that leaves.
 `map`, `map_result`, and `reduce_tree` finish their jobs before returning and do
 not count. What a job and a binding *can hold* is defined as for tasks.
 
