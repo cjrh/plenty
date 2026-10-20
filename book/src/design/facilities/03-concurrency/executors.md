@@ -90,9 +90,13 @@ A guard nested inside the pool's block, a channel created inside it, and a
 `drop(receiver)` on every path to the shutdown also satisfy the rule. A
 [returned value](channels.md#joins-and-live-endpoints) that holds a moved
 receiver, such as `return Ok(receiver)`, outlives the shutdown and is rejected.
-The diagnostic reports the shutdown or the pool's binding, each binding or
-returned value that holds a matching receiver, where the job is submitted, and the early exit that reaches
-the shutdown.
+So is [an unfinished expression](channels.md#joins-and-live-endpoints) that
+already holds one: `pair = (receiver, future.result()?)` waits while the tuple
+holds the receiver, and a `match` case whose value is `receiver` holds it
+through the shutdown of the case's own pool.
+The diagnostic reports the shutdown or the pool's binding, each binding,
+returned value, or unfinished expression that holds a matching receiver, where
+the job is submitted, and the early exit that reaches the shutdown.
 
 The rule has the task rule's
 [false positives and gaps](channels.md#what-the-rule-does-not-decide). It also

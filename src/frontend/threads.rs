@@ -49,6 +49,7 @@ impl Lower<'_> {
         };
         let saved = self.names.clone();
         let start = self.locals.len();
+        let manager_start = ops.len();
         let (worker_name, closure, inputs, output, loans) = match &ungroup(worker).kind {
             Expression::Name(function) if !self.names.contains_key(function) => {
                 let begin = ops.len();
@@ -187,6 +188,7 @@ impl Lower<'_> {
             ops.push(Op::Enum(crate::sum::EnumOp::Unwrap(source)));
         }
         ops.push(Op::Drop);
+        self.building(&call.at, manager_start, ops, false);
         let mut exit = vec![Op::Thread(ThreadOp::Finish(task.clone(), slot))];
         exit.extend(loans.into_iter().map(Op::UseLoan));
         self.contexts.push(contexts::Context {

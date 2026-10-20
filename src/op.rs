@@ -687,6 +687,21 @@ impl IntegerOp {
     }
 }
 
+/// Endpoint-holding slots that a statement's expression moves into a value
+/// it is still building. Waits inside the expression, such as a nested
+/// `result()`, and the pool shutdowns and joins a `match` case's cleanup runs
+/// before its value is stored, happen while that value holds them.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Building {
+    /// The start of the expression, its position, and the slots it moves.
+    Open(crate::ownership::Site, Arc<[u8]>),
+    /// The slots that the final expression of a `match` case used as a
+    /// value moves; that value stays in flight until the statement's `Close`.
+    Hold(crate::ownership::Site, Arc<[u8]>),
+    /// The end of the statement, after the value is stored or dropped.
+    Close,
+}
+
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
@@ -729,6 +744,8 @@ pub enum Op {
     /// position. That value leaves the frame only after the exit's joins and
     /// pool shutdowns; ownership checks only.
     Returning(crate::ownership::Site, Arc<[u8]>),
+    /// A statement-level value under construction; ownership checks only.
+    Building(Building),
     Yield(Ty),
     Next(u8),
     MoveLocal(u8),
@@ -1830,6 +1847,7 @@ fn step(
         | Op::Site(_)
         | Op::CallerSite(_)
         | Op::Returning(..)
+        | Op::Building(_)
         | Op::ForwardsReferences => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;

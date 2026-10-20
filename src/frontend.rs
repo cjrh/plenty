@@ -10,9 +10,11 @@ use std::error::Error;
 use std::sync::Arc;
 
 use crate::collection::CollectionOp;
+use crate::executor::ExecutorOp;
 use crate::op::{
-    mark_tail_calls, CompiledFn, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty,
+    mark_tail_calls, Building, CompiledFn, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty,
 };
+use crate::threading::ThreadOp;
 use crate::value::{Heap, Value};
 mod atomic;
 mod byte_buffers;
@@ -4125,6 +4127,12 @@ impl Lower<'_> {
     /// moved into a call that consumes it is still counted: the checker does
     /// not track which operand values reach the result.
     fn returning(&self, at: &Token, value: &[Op]) -> Option<Op> {
+        let slots = self.endpoint_moves(value);
+        (!slots.is_empty()).then(|| Op::Returning(site(at, false), slots.into()))
+    }
+    /// The endpoint-holding slots that `value` moves, outside `?` failure
+    /// paths, in the order of their first move.
+    fn endpoint_moves(&self, value: &[Op]) -> Vec<u8> {
         fn moves(ops: &[Op], out: &mut Vec<u8>) {
             for op in ops {
                 match op {
@@ -4152,20 +4160,87 @@ impl Lower<'_> {
         }
         let mut slots = Vec::new();
         moves(value, &mut slots);
-        let inputs = &self.sigs.get(&self.function_name)?.inputs;
         slots.retain(|&slot| {
-            let slot = slot as usize;
-            let (ty, borrowed) = match slot.checked_sub(self.parameters) {
-                Some(local) => (self.locals.get(local), false),
-                None => (inputs.get(slot).map(|(_, ty)| ty), true),
-            };
-            ty.is_some_and(|ty| {
+            self.slot_type(slot).is_some_and(|(ty, parameter)| {
                 [true, false].into_iter().any(|sender| {
-                    !crate::threading::endpoints([ty.clone()], sender, borrowed).is_empty()
+                    !crate::threading::endpoints([ty.clone()], sender, parameter).is_empty()
                 })
             })
         });
-        (!slots.is_empty()).then(|| Op::Returning(site(at, false), slots.into()))
+        slots
+    }
+    /// The type of `slot`, and whether it is a parameter.
+    fn slot_type(&self, slot: u8) -> Option<(&Ty, bool)> {
+        let slot = slot as usize;
+        match slot.checked_sub(self.parameters) {
+            Some(local) => self.locals.get(local).map(|ty| (ty, false)),
+            None => {
+                let inputs = &self.sigs.get(&self.function_name)?.inputs;
+                inputs.get(slot).map(|(_, ty)| (ty, true))
+            }
+        }
+    }
+    /// Bracket `ops[start..]`, the operations of one statement's expression
+    /// and the store or drop of its value, as a value under construction
+    /// (issue #347). An endpoint that the expression moves before a nested
+    /// `result()`, `join()`, or pool shutdown is held by the unfinished value
+    /// through that wait. `block` marks the right side of a binding that is a
+    /// `match` block: each case's final expression holds its own moves, and
+    /// the case's statements are statements of their own.
+    pub(super) fn building(&self, at: &Token, start: usize, ops: &mut Vec<Op>, block: bool) {
+        let (slots, open) = if block {
+            (Vec::new(), holds(&ops[start..]))
+        } else {
+            let slots = self.endpoint_moves(&ops[start..]);
+            let open = !slots.is_empty() && self.waits(&ops[start..]);
+            (slots, open)
+        };
+        if open {
+            ops.insert(
+                start,
+                Op::Building(Building::Open(site(at, false), slots.into())),
+            );
+            ops.push(Op::Building(Building::Close));
+        }
+    }
+    /// The final expression of a `match` case used as a value, `ops[start..]`,
+    /// holds the endpoints it moves until the binding statement ends: through
+    /// the case's cleanup and the store.
+    fn holding(&self, at: &Token, start: usize, ops: &mut Vec<Op>) {
+        let slots = self.endpoint_moves(&ops[start..]);
+        if !slots.is_empty() {
+            ops.insert(
+                start,
+                Op::Building(Building::Hold(site(at, false), slots.into())),
+            );
+        }
+    }
+    /// `ops` can wait for another thread: a result, join, or pool shutdown.
+    /// A `?` failure path drops the unfinished value first.
+    fn waits(&self, ops: &[Op]) -> bool {
+        let executor = |slot: &u8| {
+            self.slot_type(*slot)
+                .is_some_and(|(ty, _)| crate::threading::owns_executor(ty))
+        };
+        ops.iter().any(|op| match op {
+            Op::Executor(ExecutorOp::Result(_) | ExecutorOp::Shutdown)
+            | Op::Thread(ThreadOp::Join(_) | ThreadOp::Finish(..)) => true,
+            Op::MoveLocal(slot) | Op::StoreLocal(slot) | Op::DropLocal(slot) => executor(slot),
+            Op::Match(arms) => arms.iter().any(|arm| self.waits(&arm.body)),
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                self.waits(then)
+                    || elifs
+                        .iter()
+                        .any(|arm| self.waits(&arm.condition) || self.waits(&arm.body))
+                    || self.waits(otherwise)
+            }
+            Op::Loop { condition, body } => self.waits(condition) || self.waits(body),
+            _ => false,
+        })
     }
     fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: &Tail) -> Result<BlockResult> {
         let start = self.locals.len();
@@ -4206,6 +4281,8 @@ impl Lower<'_> {
         let mut result = None;
         for (i, stmt) in body.iter().enumerate() {
             let temporary_start = self.expression_temps.len();
+            // A discarded expression statement's value is built until its drop.
+            let mut discarded = None;
             let tail = if i + 1 == body.len() {
                 tail
             } else {
@@ -4234,6 +4311,7 @@ impl Lower<'_> {
                         stmt.at
                             .error("yield requires a function returning Generator[T]")
                     })?;
+                    let value_start = ops.len();
                     let expected = if self.function_name.starts_with("__plenty_genexpr_")
                         && expected == Ty::Unit
                     {
@@ -4248,6 +4326,7 @@ impl Lower<'_> {
                         self.same(actual, Some(expected.clone()), &e.at)?;
                         expected
                     };
+                    self.building(&e.at, value_start, ops, false);
                     self.finish_temporaries(temporary_start, ops);
                     ops.push(Op::Yield(expected));
                     None
@@ -4294,6 +4373,10 @@ impl Lower<'_> {
                         if let Some(marker) = self.returning(&e.at, &ops[value_start..]) {
                             ops.insert(value_start, marker);
                         }
+                    } else if matches!(tail, Tail::Value(_)) {
+                        self.holding(&e.at, value_start, ops);
+                    } else {
+                        discarded = Some((&e.at, value_start));
                     }
                     ty
                 }
@@ -4338,6 +4421,7 @@ impl Lower<'_> {
                     let mut test = Vec::new();
                     let ty = self.expr(condition, &mut test)?;
                     self.same(ty, Some(Ty::Bool), &condition.at)?;
+                    self.building(&condition.at, 0, &mut test, false);
                     self.finish_temporaries(temporary_start, &mut test);
                     let saved = self.names.clone();
                     self.loop_steps.push(Vec::new());
@@ -4363,6 +4447,7 @@ impl Lower<'_> {
                     None
                 }
                 Statement::SetIndex { target, value } => {
+                    let start = ops.len();
                     if let Expression::Tuple(targets) = &target.kind {
                         self.assign_targets(targets, value, ops)?;
                     } else if matches!(&target.kind, Expression::Unary(op, _) if op == "*") {
@@ -4372,10 +4457,13 @@ impl Lower<'_> {
                     } else {
                         self.set_index(target, value, ops)?;
                     }
+                    self.building(&value.at, start, ops, block_value(value));
                     None
                 }
                 Statement::Augment { target, op, value } => {
+                    let start = ops.len();
                     self.augment(target, op, value, ops)?;
+                    self.building(&value.at, start, ops, false);
                     None
                 }
                 Statement::Unpack {
@@ -4383,7 +4471,9 @@ impl Lower<'_> {
                     mutable,
                     value,
                 } => {
+                    let start = ops.len();
                     self.unpack_tuple(names, *mutable, value, ops)?;
+                    self.building(&value.at, start, ops, block_value(value));
                     None
                 }
                 Statement::Assign {
@@ -4406,7 +4496,9 @@ impl Lower<'_> {
                                 }),
                             ),
                         };
+                        let start = ops.len();
                         self.write_reference(&target, value, ops)?;
+                        self.building(&value.at, start, ops, block_value(value));
                         self.finish_temporaries(temporary_start, ops);
                         continue;
                     }
@@ -4419,6 +4511,7 @@ impl Lower<'_> {
                     } else {
                         self.names.get(name).map(|l| l.ty.clone())
                     };
+                    let value_start = ops.len();
                     let (ty, origin) = self.binding_value(value, context, ops)?;
                     if let Some(expected) = annotation {
                         let expected = expected.resolve(self.aliases)?.ok_or_else(|| {
@@ -4464,6 +4557,7 @@ impl Lower<'_> {
                     };
                     self.mark(&stmt.at, ops);
                     ops.push(Op::StoreLocal(slot));
+                    self.building(&value.at, value_start, ops, block_value(value));
                     None
                 }
                 Statement::If {
@@ -4472,8 +4566,10 @@ impl Lower<'_> {
                     elifs,
                     no,
                 } => {
+                    let condition_start = ops.len();
                     let cond = self.expr(condition, ops)?;
                     self.same(cond, Some(Ty::Bool), &condition.at)?;
+                    self.building(&condition.at, condition_start, ops, false);
                     self.finish_temporaries(temporary_start, ops);
                     let saved = self.names.clone();
                     let mut then = Vec::new();
@@ -4486,8 +4582,10 @@ impl Lower<'_> {
                         let (mut test, mut arm) = (Vec::new(), Vec::new());
                         let temporary_start = self.expression_temps.len();
                         self.mark(&elif.at, &mut test);
+                        let condition_start = test.len();
                         let cond = self.expr(&elif.condition, &mut test)?;
                         self.same(cond, Some(Ty::Bool), &elif.condition.at)?;
+                        self.building(&elif.condition.at, condition_start, &mut test, false);
                         self.finish_temporaries(temporary_start, &mut test);
                         results.push(self.returning_block(&elif.body, &elif.at, &mut arm, tail)?);
                         arms.push(ElifArm {
@@ -4553,6 +4651,9 @@ impl Lower<'_> {
                     ops.push(Op::Drop);
                 }
                 result = None;
+            }
+            if let Some((at, start)) = discarded {
+                self.building(at, start, ops, false);
             }
             if last && matches!(stmt.kind, Statement::Expr(_)) {
                 self.finish_tail_temporaries(temporary_start, ops);
@@ -4640,6 +4741,30 @@ fn type_name(ty: Type) -> String {
         Some(Ty::Str) => "str".into(),
         Some(t) => t.to_string(),
     }
+}
+/// `e` is a `match` block whose selected case's final expression is its value.
+fn block_value(e: &Expr) -> bool {
+    matches!(ungroup(e).kind, Expression::Match(..))
+}
+/// `ops` contains a `match` case value's `Building::Hold`.
+fn holds(ops: &[Op]) -> bool {
+    ops.iter().any(|op| match op {
+        Op::Building(Building::Hold(..)) => true,
+        Op::Match(arms) => arms.iter().any(|arm| holds(&arm.body)),
+        Op::If {
+            then,
+            elifs,
+            otherwise,
+        } => {
+            holds(then)
+                || elifs
+                    .iter()
+                    .any(|arm| holds(&arm.condition) || holds(&arm.body))
+                || holds(otherwise)
+        }
+        Op::Loop { condition, body } => holds(condition) || holds(body),
+        _ => false,
+    })
 }
 fn branch(yes: Vec<Op>, no: Vec<Op>) -> Op {
     Op::Match(
