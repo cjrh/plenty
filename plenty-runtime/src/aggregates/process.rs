@@ -258,17 +258,37 @@ mod native {
     }
 
     unsafe fn variables(ty: &'static Type) -> Result<u128, Error> {
+        unsafe extern "C" {
+            static mut environ: *const *const std::ffi::c_char;
+        }
         // SAFETY: metadata describes list[list[u8]]; the guards release a
-        // partially built list.
+        // partially built list. Plenty never mutates the environment, and
+        // native embedders must not mutate it concurrently with runtime reads.
+        // Thus environ and its NUL-terminated entries stay live throughout
+        // this traversal. Copy directly into fallible storage: vars_os() first
+        // builds a host snapshot whose allocations abort on exhaustion.
         unsafe {
             let owner = OwnedValue {
                 value: super::super::try_collection_new(ty, 0)? as u128,
                 ty,
             };
-            for (name, value) in std::env::vars_os() {
+            let mut entry = environ;
+            while !entry.is_null() && !(*entry).is_null() {
+                let bytes = CStr::from_ptr(*entry).to_bytes();
+                entry = entry.add(1);
+                // Match the previous Unix vars_os parsing: ignore malformed
+                // entries and look beyond the first byte for the separator.
+                let Some(at) = bytes
+                    .get(1..)
+                    .and_then(|rest| rest.iter().position(|byte| *byte == b'='))
+                    .map(|at| at + 1)
+                else {
+                    continue;
+                };
+                let (name, value) = (&bytes[..at], &bytes[at + 1..]);
                 for part in [name, value] {
                     let child = OwnedValue {
-                        value: byte_list(part.as_bytes(), ty.key())?,
+                        value: byte_list(part, ty.key())?,
                         ty: ty.key(),
                     };
                     (*(owner.value as *mut Collection)).try_store(child.value, 0)?;

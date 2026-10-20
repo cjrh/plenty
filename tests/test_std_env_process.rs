@@ -176,6 +176,110 @@ print(seen)?
     );
 }
 
+/// Isolate the snapshot from the test runner's environment so allocation
+/// budgets and native ordering have deterministic, bounded coverage.
+fn snapshot_program(program: &str, entries: &[(&[u8], &[u8])]) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("snapshot.plenty");
+    let executable = dir.path().join("snapshot");
+    std::fs::write(&source, program).unwrap();
+    plenty::compile_file_to_executable(&source, &executable, None).unwrap();
+    let mut command = Command::new(executable);
+    command.env_clear();
+    for (name, value) in entries {
+        command.env(OsStr::from_bytes(name), OsStr::from_bytes(value));
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "snapshot exited {}\nstdout: {}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn env_snapshot_preserves_empty_values_native_bytes_and_order() {
+    let body = r#"
+snapshot = std.env.vars()?
+print(len(snapshot))?
+for variable in &snapshot:
+    print(&variable.name, &variable.value)?
+"#;
+    assert_eq!(snapshot_program(&program(body), &[]), "0");
+    // Command stores environment entries in key order; include a non-UTF-8
+    // name as well as a value, and an '=' belonging to the value.
+    assert_eq!(
+        snapshot_program(
+            &program(body),
+            &[(b"Z", b"x=y"), (b"A", b""), (b"\xff", b"\xfe")]
+        ),
+        "3\n[65] []\n[90] [120, 61, 121]\n[255] [254]"
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn env_snapshot_allocation_failures_are_fallible_and_release_partial_results() {
+    let mut body = String::new();
+    let mut probes = String::new();
+    for budget in 0..64 {
+        body.push_str(&format!("probe_{budget}()?\n"));
+        // Separate functions keep the sweep below the per-function local-slot
+        // limit and drop each snapshot before starting the next attempt.
+        probes.push_str(&format!(
+            r#"
+def probe_{budget}() -> Result[(), AllocError | IoError]:
+    print("__test_fail_allocations_after_{budget}__").unwrap()
+    result = std.env.vars()
+    print("__test_restore_allocations__").unwrap()
+    match result:
+        case Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory))):
+            print("oom")?
+        case Err(other):
+            print(other)?
+        case Ok(snapshot):
+            print(len(snapshot))?
+            for variable in &snapshot:
+                print(&variable.name, &variable.value)?
+    Ok(())
+"#
+        ));
+    }
+    let source = format!("{}\n{probes}", program(&body));
+    let output = snapshot_program(&source, &[(b"A", b""), (b"Z", b"x=y"), (b"\xff", b"\xfe")]);
+    let mut lines = output.lines();
+    let mut failures = 0;
+    let mut successes = 0;
+    for budget in 0..64 {
+        match lines.next() {
+            Some("oom") => {
+                assert_eq!(successes, 0, "allocation failure after success at {budget}");
+                failures += 1;
+            }
+            Some("3") => {
+                assert_eq!(lines.next(), Some("[65] []"));
+                assert_eq!(lines.next(), Some("[90] [120, 61, 121]"));
+                assert_eq!(lines.next(), Some("[255] [254]"));
+                successes += 1;
+            }
+            other => panic!("unexpected result at allocation budget {budget}: {other:?}"),
+        }
+    }
+    assert!(failures > 1, "must exercise partially built snapshots");
+    assert!(successes > 0, "sweep must cover every allocation");
+    assert_eq!(lines.next(), None);
+    // runtime-checks verifies at process exit that every failed attempt and
+    // every successful snapshot released all its allocations.
+}
+
 #[test]
 fn current_dir_reads_and_changes_the_working_directory() {
     native(

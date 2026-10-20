@@ -32,17 +32,14 @@ every operation reports `IoError.Unsupported`.
 - Each result is a new allocation; failure is
   `IoError.Data(DataError.Allocation(...))`.
 
-`vars()` still builds an intermediate host snapshot with infallible allocations;
-exhaustion at that step can abort the process (issue #354). Single-variable
-lookup does not have that intermediate snapshot.
-
 There is no operation that sets or removes a variable of the running program.
 The environment is process-wide state that other threads and native code read
 without synchronization. Give a child its variables through
 [`Command.env`](process.md#building-a-command) instead.
 Native code embedding Plenty must likewise avoid concurrent mutation of the
-process environment while runtime calls read it. Single-variable lookup copies
-directly into fallible Plenty storage, without an intermediate host string.
+process environment while runtime calls read it. Both single-variable lookup
+and snapshots copy directly into fallible Plenty storage, without intermediate
+host strings or snapshots.
 
 Command-line arguments are the prelude's
 [`args` and `args_bytes`](../facilities/02-io/streams-args.md), and typed
