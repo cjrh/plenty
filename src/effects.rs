@@ -193,6 +193,7 @@ impl CollectionOp {
             | ListLenRef(_)
             | ListScalarGetRef(_)
             | ListScalarSetRef(_)
+            | ListSortBy(_)
             | IterGet(_)
             | HashIterFirst(_)
             | HashIterNext(_)

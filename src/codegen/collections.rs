@@ -229,6 +229,42 @@ impl Lowerer<'_, '_> {
             self.stack.push((unit, Ty::Unit));
             return Ok(());
         }
+        if let CollectionOp::ListSortBy(sort) = operation {
+            let (descending, _) = self.pop_typed(Ty::Bool)?;
+            let (callback, _) = self.pop_typed(sort.callback.clone())?;
+            let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(sort.list.clone()), true))?;
+            let packed = self.read_reference(receiver);
+            let owner = self.raw_word(packed);
+            let environment = self.bcx.ins().ireduce(PTR_TY, callback);
+            let adapter = self.runtime.sort_adapters[&sort.adapter];
+            let adapter = self.module.declare_func_in_func(adapter, self.bcx.func);
+            let adapter = self.bcx.ins().func_addr(PTR_TY, adapter);
+            let descending = self.bcx.ins().uextend(types::I64, descending);
+            let function = self
+                .module
+                .declare_func_in_func(self.runtime.list_sort_by, self.bcx.func);
+            self.bcx
+                .ins()
+                .call(function, &[owner, adapter, environment, descending]);
+            let unit = self.bcx.ins().iconst(types::I64, 0);
+            let unit = self.unpack(unit, &Ty::Unit);
+            self.stack.push((unit, Ty::Unit));
+            return Ok(());
+        }
+        if let CollectionOp::OrderCompare(ty) = operation {
+            let (b, _) = self.pop_typed(ty.clone())?;
+            let (a, _) = self.pop_typed(ty.clone())?;
+            let order = if ty.is_int() || ty.is_float() {
+                self.scalar_order(a, b, ty)
+            } else {
+                let order = self.order_compare(a, b, ty);
+                self.release(a, ty);
+                self.release(b, ty);
+                order
+            };
+            self.stack.push((order, Ty::I64));
+            return Ok(());
+        }
         let fast = match operation {
             CollectionOp::ListLenRef(_) => Some((self.runtime.list_len, true)),
             CollectionOp::ListScalarGetRef(_) => Some((self.runtime.list_scalar_get, true)),
@@ -399,6 +435,93 @@ impl Lowerer<'_, '_> {
         }
         self.stack.push((result, output));
         Ok(())
+    }
+
+    /// The runtime's total order of two borrowed values as an `i64` of -1, 0,
+    /// or 1. Operands travel in registers, not through the dispatcher's
+    /// argument block.
+    pub(super) fn order_compare(
+        &mut self,
+        a: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+        ty: &Ty,
+    ) -> cranelift_codegen::ir::Value {
+        let a = self.pack(a, ty);
+        let b = self.pack(b, ty);
+        let (a_low, a_high) = self.bcx.ins().isplit(a);
+        let (b_low, b_high) = self.bcx.ins().isplit(b);
+        let id = self.module.metadata(ty);
+        let gv = self.module.declare_data_in_func(id, self.bcx.func);
+        let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
+        let function = self
+            .module
+            .declare_func_in_func(self.runtime.order_compare, self.bcx.func);
+        let call = self
+            .bcx
+            .ins()
+            .call(function, &[a_low, a_high, b_low, b_high, descriptor]);
+        self.bcx.inst_results(call)[0]
+    }
+
+    /// The runtime `compare` order of two scalars as -1, 0, or 1: integers by
+    /// their signedness, floats by `total_cmp` except that every NaN equals
+    /// every other NaN and follows all numbers.
+    fn scalar_order(
+        &mut self,
+        a: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+        ty: &Ty,
+    ) -> cranelift_codegen::ir::Value {
+        let (lt, gt, nan) = if ty.is_int() {
+            let (lt, gt) = if is_signed(ty.clone()) {
+                (IntCC::SignedLessThan, IntCC::SignedGreaterThan)
+            } else {
+                (IntCC::UnsignedLessThan, IntCC::UnsignedGreaterThan)
+            };
+            (
+                self.bcx.ins().icmp(lt, a, b),
+                self.bcx.ins().icmp(gt, a, b),
+                None,
+            )
+        } else {
+            // Widening keeps every f32 order, sign, and NaN.
+            let (a, b) = if *ty == Ty::F32 {
+                (
+                    self.bcx.ins().fpromote(types::F64, a),
+                    self.bcx.ins().fpromote(types::F64, b),
+                )
+            } else {
+                (a, b)
+            };
+            let a_nan = self.bcx.ins().fcmp(FloatCC::Unordered, a, a);
+            let b_nan = self.bcx.ins().fcmp(FloatCC::Unordered, b, b);
+            // `total_cmp`: flip the magnitude bits of negative values so
+            // signed integer order matches.
+            let mut total = |value| {
+                let ins = self.bcx.ins();
+                let bits = ins.bitcast(types::I64, cranelift_codegen::ir::MemFlags::new(), value);
+                let sign = self.bcx.ins().sshr_imm(bits, 63);
+                let mask = self.bcx.ins().ushr_imm(sign, 1);
+                self.bcx.ins().bxor(bits, mask)
+            };
+            let (a, b) = (total(a), total(b));
+            (
+                self.bcx.ins().icmp(IntCC::SignedLessThan, a, b),
+                self.bcx.ins().icmp(IntCC::SignedGreaterThan, a, b),
+                Some((a_nan, b_nan)),
+            )
+        };
+        let lt = self.bcx.ins().uextend(types::I64, lt);
+        let gt = self.bcx.ins().uextend(types::I64, gt);
+        let order = self.bcx.ins().isub(gt, lt);
+        let Some((a_nan, b_nan)) = nan else {
+            return order;
+        };
+        let any = self.bcx.ins().bor(a_nan, b_nan);
+        let a_nan = self.bcx.ins().uextend(types::I64, a_nan);
+        let b_nan = self.bcx.ins().uextend(types::I64, b_nan);
+        let nan_order = self.bcx.ins().isub(a_nan, b_nan);
+        self.bcx.ins().select(any, nan_order, order)
     }
 
     pub(super) fn lower_loop(&mut self, condition: &[Op], body: &[Op]) -> Result<()> {

@@ -831,6 +831,56 @@ unsafe fn compare(a: u128, b: u128, ty: &Type) -> Ordering {
         }
     }
 }
+/// A tuple of scalars and strings, with each field's word offset resolved once
+/// per sort rather than walking the descriptor on every comparison.
+struct FlatTuple {
+    fields: [(usize, &'static Type); FlatTuple::MAX],
+    len: usize,
+}
+impl FlatTuple {
+    const MAX: usize = 8;
+
+    fn new(ty: &Type) -> Option<Self> {
+        if ty.kind != b'B' || ty.variants.len() != 1 {
+            return None;
+        }
+        let variant = ty.variants[0].fields;
+        if !(2..=Self::MAX).contains(&variant.len()) {
+            return None;
+        }
+        let mut fields = [(0, variant[0]); Self::MAX];
+        let mut offset = 0;
+        for (field, slot) in variant.iter().zip(&mut fields) {
+            if !matches!(field.kind, b'1'..=b'8' | b'f' | b'd' | b's') {
+                return None;
+            }
+            *slot = (offset, *field);
+            offset += field.slot_words();
+        }
+        Some(Self {
+            fields,
+            len: variant.len(),
+        })
+    }
+
+    /// The same order as `compare`.
+    unsafe fn compare(&self, a: u128, b: u128, ty: &Type) -> Ordering {
+        let (left, right) = (a as u64 as *const u128, b as u64 as *const u128);
+        unsafe {
+            if left.is_null() || right.is_null() {
+                return compare(a, b, ty);
+            }
+            for &(offset, field) in &self.fields[..self.len] {
+                let order = compare(left.add(offset).read(), right.add(offset).read(), field);
+                if order.is_ne() {
+                    return order;
+                }
+            }
+        }
+        Ordering::Equal
+    }
+}
+
 /// Copy `value` into an independent owner. A value with inline storage first
 /// moves its bytes to `storage`, which reserves `ty.payload_bytes()`.
 unsafe fn try_copy(value: u128, ty: &Type, storage: *mut u128) -> Result<u128, AllocError> {
@@ -1313,6 +1363,53 @@ pub(crate) unsafe extern "C" fn plenty_list_len(owner: *const u8) -> u64 {
     unsafe { (*(owner.cast::<Collection>())).entries.len() as u64 }
 }
 
+/// Narrow ABI: the total sort order of two values of `descriptor`'s type as
+/// -1, 0, or 1. Operands arrive as 64-bit halves; neither changes ownership.
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_order_compare(
+    a_low: u64,
+    a_high: u64,
+    b_low: u64,
+    b_high: u64,
+    descriptor: *const Type,
+) -> i64 {
+    let a = u128::from(a_high) << 64 | u128::from(a_low);
+    let b = u128::from(b_high) << 64 | u128::from(b_low);
+    // SAFETY: the compiler passes two live values of the orderable descriptor.
+    unsafe { compare(a, b, &*descriptor) as i64 }
+}
+
+/// A comparator generated for one key sort: callback reference and two row
+/// value slots, returning -1, 0, or 1.
+type KeyOrder = unsafe extern "C" fn(*const u128, *const u128, *const u128) -> i64;
+
+/// Narrow ABI: sort a live, exclusively borrowed list by a generated key
+/// comparator. Rows move inside the runtime; the comparator only observes
+/// them, so no element is retained, released, or copied, and nothing is
+/// allocated. The comparator calls user code, which cannot reach the list
+/// while the caller holds its exclusive loan.
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_list_sort_by(
+    owner: *mut u8,
+    compare: KeyOrder,
+    environment: *const u128,
+    descending: i64,
+) {
+    // SAFETY: the compiler passes a live dense list it exclusively borrows, its
+    // matching adapter, and the adapter's callback reference.
+    unsafe {
+        let entries = &mut (*owner.cast::<Collection>()).entries;
+        entries.sort_unstable_rows_by(|a, b| {
+            let order = compare(environment, &a, &b).cmp(&0);
+            if descending != 0 {
+                order.reverse()
+            } else {
+                order
+            }
+        });
+    }
+}
+
 /// Returns the low 64 payload bits of an integer, float, or boolean list row.
 /// No pointer into the buffer escapes, including across later growing mutations.
 #[no_mangle]
@@ -1546,10 +1643,7 @@ pub(crate) unsafe fn collection_at(
                 }
             };
         }
-        if !descriptor.is_null()
-            && (*descriptor).kind == b's'
-            && !matches!(op, 110 | 111 | 122 | 141)
-        {
+        if !descriptor.is_null() && (*descriptor).kind == b's' && !matches!(op, 110 | 111 | 122) {
             let text = a as *const Text;
             return match op {
                 5 => strings::scalar_len(text) as u128,
@@ -1897,22 +1991,19 @@ pub(crate) unsafe fn collection_at(
             127 => {
                 let c = &mut *(a as *mut Collection);
                 let element = (*c.ty).key();
-                c.entries.sort_unstable_by(|x, y| {
-                    let order = compare(x, y, element);
-                    if b != 0 {
-                        order.reverse()
-                    } else {
-                        order
-                    }
-                });
+                let descending = b != 0;
+                let direct = |order: Ordering| if descending { order.reverse() } else { order };
+                match FlatTuple::new(element) {
+                    Some(tuple) => c
+                        .entries
+                        .sort_unstable_by(|x, y| direct(tuple.compare(x, y, element))),
+                    None => c
+                        .entries
+                        .sort_unstable_by(|x, y| direct(compare(x, y, element))),
+                }
                 plenty_retain(a as *mut Header);
                 a
             }
-            141 => match compare(a, b, &*descriptor) {
-                Ordering::Less => (-1i64) as u128,
-                Ordering::Equal => 0,
-                Ordering::Greater => 1,
-            },
             57 => {
                 (*(a as *mut Collection)).entries.reverse();
                 plenty_retain(a as *mut Header);

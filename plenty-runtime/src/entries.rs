@@ -73,6 +73,10 @@ impl Entries {
             value: self.data[index * self.stride + self.key.slot_words()],
         }
     }
+    /// A dense row's key word, without the value lookup `get` performs.
+    fn key_at(&self, index: usize) -> u128 {
+        self.data[index * self.stride]
+    }
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = Entry> + ExactSizeIterator + Clone + '_ {
         self.indices().map(|i| self.get(i))
     }
@@ -273,6 +277,9 @@ impl Entries {
     pub fn swap(&mut self, i: usize, j: usize) {
         assert!(self.order.is_none(), "only dense lists swap");
         assert!(i < self.len() && j < self.len());
+        self.exchange(i, j, Relocation::of(self.key));
+    }
+    fn exchange(&mut self, i: usize, j: usize, relocation: Relocation) {
         if i == j {
             return;
         }
@@ -282,11 +289,16 @@ impl Entries {
         }
         // Each row is read again before the next exchange, so its inline
         // address must be valid immediately rather than after a final pass.
-        if self.key.payload_bytes() != 0 {
-            let base = self.data.as_mut_ptr();
+        let base = self.data.as_mut_ptr();
+        for row in [i, j] {
+            // SAFETY: both rows are in bounds and hold live values of `key`.
             unsafe {
-                ranges::relocate(base.add(i * self.stride), self.key);
-                ranges::relocate(base.add(j * self.stride), self.key);
+                let slot = base.add(row * self.stride);
+                match relocation {
+                    Relocation::None => {}
+                    Relocation::Flat => ranges::relocate_flat(slot),
+                    Relocation::General => ranges::relocate(slot, self.key),
+                }
             }
         }
     }
@@ -301,11 +313,20 @@ impl Entries {
             rows.sort_unstable_by(|a, b| compare(a[0], b[0]));
             return;
         }
+        self.sort_unstable_rows_by(compare);
+    }
+    /// Sort dense rows of any layout with this module's introsort. Unlike Rust's
+    /// slice sort, it never panics on an inconsistent `compare`, which makes it
+    /// suitable for user-defined keys; every row remains exactly once.
+    pub fn sort_unstable_rows_by(&mut self, mut compare: impl FnMut(u128, u128) -> Ordering) {
+        assert!(self.order.is_none(), "only dense lists sort");
+        let len = self.len();
         // Partitioning an already ordered run needlessly destroys its locality.
         // Stop this probe at the first change of direction on mixed input.
+        let relocation = Relocation::of(self.key);
         let mut direction = Ordering::Equal;
         let monotonic = (1..len).all(|i| {
-            let next = compare(self.get(i - 1).key, self.get(i).key);
+            let next = compare(self.key_at(i - 1), self.key_at(i));
             if direction == Ordering::Equal {
                 direction = next;
             }
@@ -317,13 +338,15 @@ impl Entries {
             }
             return;
         }
-        self.sort_rows(0, len, 2 * len.checked_ilog2().unwrap_or(0), &mut compare);
+        let depth = 2 * len.checked_ilog2().unwrap_or(0);
+        self.sort_rows(0, len, depth, relocation, &mut compare);
     }
 
     fn heap_sort_rows(
         &mut self,
         start: usize,
         len: usize,
+        relocation: Relocation,
         compare: &mut impl FnMut(u128, u128) -> Ordering,
     ) {
         let mut sift = |entries: &mut Self, mut root: usize, end: usize| loop {
@@ -333,29 +356,24 @@ impl Entries {
             }
             if child + 1 < end
                 && compare(
-                    entries.get(start + child).key,
-                    entries.get(start + child + 1).key,
+                    entries.key_at(start + child),
+                    entries.key_at(start + child + 1),
                 )
                 .is_lt()
             {
                 child += 1;
             }
-            if compare(
-                entries.get(start + root).key,
-                entries.get(start + child).key,
-            )
-            .is_ge()
-            {
+            if compare(entries.key_at(start + root), entries.key_at(start + child)).is_ge() {
                 break;
             }
-            entries.swap(start + root, start + child);
+            entries.exchange(start + root, start + child, relocation);
             root = child;
         };
         for root in (0..len / 2).rev() {
             sift(self, root, len);
         }
         for end in (1..len).rev() {
-            self.swap(start, start + end);
+            self.exchange(start, start + end, relocation);
             sift(self, 0, end);
         }
     }
@@ -415,3 +433,24 @@ impl<I: DoubleEndedIterator<Item = usize>> DoubleEndedIterator for EntryIndices<
     }
 }
 impl<I: Iterator<Item = usize>> ExactSizeIterator for EntryIndices<I> {}
+
+/// How a moved row repairs the inline address in its value word, decided once
+/// per sort instead of walking the descriptor on every exchange.
+#[derive(Clone, Copy)]
+enum Relocation {
+    None,
+    /// A record whose fields have no inline storage of their own.
+    Flat,
+    General,
+}
+impl Relocation {
+    fn of(ty: &Type) -> Self {
+        if ty.payload_bytes() == 0 {
+            Self::None
+        } else if ranges::flat_record(ty) {
+            Self::Flat
+        } else {
+            Self::General
+        }
+    }
+}

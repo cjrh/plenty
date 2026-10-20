@@ -225,6 +225,16 @@ comparison function is 400 bytes, a specialized Plenty heapsort 2.8 KB, and a
 The comparison call is not the bottleneck; how the sort reaches the elements
 is.
 
+Issue #331 later moved `sort_by_key` into the runtime: it sorts rows with the
+wide-row introsort and calls a generated native comparator, with no
+per-access runtime call or reference count change. Natural tuple sorts resolve
+field offsets once per sort, and moved flat records repair their address
+without a descriptor walk. On a contended host (median of three paired runs,
+1,000,000 elements, sort time only) `list[(i64, i64)].sort()` went from about
+725 ms to 265 ms and `list[Point].sort_by_key` with an `i64` key from about
+3,090 ms to 330 ms, against 74 ms for `list[i64].sort()`. Option 1 below can
+therefore reuse that row path.
+
 ### Dispatch
 
 The hook is resolved statically: `a < b` lowers to a direct call of the
@@ -239,8 +249,8 @@ on the returned tag, versus a direct `__lt__`: no measurable difference, and
 lexicographic composition saves a second call per tied component.
 
 Compared with built-ins: integer `<` is one instruction; `str` and tuple `<`
-already call the runtime (`TextCompare`, `OrderCompare` through
-`plenty_collection`) and pay its dispatch. A user `__cmp__` over integer
+already call the runtime (`TextCompare` through `plenty_collection`, and
+`OrderCompare` through the narrow `plenty_order_compare`). A user `__cmp__` over integer
 fields is a direct call with field loads, and is expected to be no slower than
 tuple `<`; measure it (below).
 
@@ -258,8 +268,8 @@ Two lowerings are possible for `list.sort()` on user elements:
    indirect call per comparison. It grows every descriptor from 64 to 72
    bytes of static data, unless the slot replaces padding in a reorganized
    layout.
-2. **Generated sort**, specialized per element type like `sort_by_key` in
-   `src/frontend/sorting.plenty`. It calls the hook directly, but the probe
+2. **Generated sort**, specialized per element type as `sort_by_key` was
+   before issue #331. It calls the hook directly, but the probe
    shows such a sort is 1.7 times slower than the runtime tuple sort because
    each step reaches elements through runtime calls, and it adds about 3 KB
    per element type.

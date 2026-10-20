@@ -1,22 +1,2 @@
-def key_sort[T, K, F: Callable[[&T], K]](items: &mut list[T], key: &F, compare: Callable[[K, K], i64], descending: bool) -> ():
-    mut start = len(items) // 2
-    mut end = len(items)
-    while end > 1:
-        mut root = 0
-        if start > 0:
-            start -= 1
-            root = start
-        else:
-            end -= 1
-            items.swap(0, end)
-        while root < end // 2:
-            mut child = root * 2 + 1
-            if child + 1 < end:
-                order = compare(key(&items[child]), key(&items[child + 1]))
-                if (not descending and order < 0) or (descending and order > 0):
-                    child += 1
-            order = compare(key(&items[root]), key(&items[child]))
-            if (not descending and order >= 0) or (descending and order <= 0):
-                break
-            items.swap(root, child)
-            root = child
+def key_of[T, K, F: Callable[[&T], K]](key: &F, item: &T) -> K:
+    key(item)

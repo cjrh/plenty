@@ -1763,6 +1763,23 @@ fn step(
                 {
                     return Err("scalar list access requires a scalar list reference".into());
                 }
+                crate::collection::CollectionOp::ListSortBy(sort) => {
+                    let Ty::List(element) = &sort.list else {
+                        return Err("key sorting requires a list".into());
+                    };
+                    let item = Ty::Ref(element.clone(), false);
+                    let valid = sigs.get(sort.key_of.as_str()).is_some_and(|key_of| {
+                        key_of
+                            .inputs
+                            .iter()
+                            .map(|(_, t)| t)
+                            .eq([&sort.callback, &item])
+                            && key_of.outputs == [sort.key.clone()]
+                    });
+                    if !valid || !sort.key.is_orderable() {
+                        return Err("key sort helper signature mismatch".into());
+                    }
+                }
                 _ => {}
             }
             let (inputs, output) = operation.signature();

@@ -116,3 +116,39 @@ print(a, b).unwrap()
         ]
     );
 }
+
+#[test]
+fn flat_and_nested_tuple_sorts_match_tuple_operators() {
+    native(
+        r#"
+def ordered(rows: &list[(u8, str, f64, i32)], descending: bool) -> bool:
+    for i in range(1, len(rows)):
+        if (not descending and rows[i - 1] > rows[i]) or (descending and rows[i - 1] < rows[i]):
+            return False
+    True
+mut rows: list[(u8, str, f64, i32)] = [].unwrap()
+mut nested: list[(i64, (str, i64))] = [].unwrap()
+mut s = 11
+for i in range(2000):
+    s = (s * 1103515245 + 12345) % 2147483648
+    mut score = f64(s % 13) - 6.0
+    if s % 31 == 0:
+        score = 0.0 / 0.0
+    if s % 37 == 0:
+        score = -0.0
+    rows.append((u8(s % 3 + 250), f"k{s % 5}".unwrap(), score, i32(s % 9) - 4)).unwrap()
+    nested.append((s % 4, (f"n{s % 6}".unwrap(), i))).unwrap()
+rows.sort()
+print(ordered(&rows, False)).unwrap()
+rows.sort(True)
+print(ordered(&rows, True)).unwrap()
+nested.sort()
+mut fine = True
+for i in range(1, len(nested)):
+    if nested[i - 1] > nested[i]:
+        fine = False
+print(fine).unwrap()
+"#,
+        "True\nTrue\nTrue\n",
+    );
+}

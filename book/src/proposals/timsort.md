@@ -18,14 +18,16 @@ also suits logs, grouped records, and incrementally updated data.
 Today `sort()` is infallible and allocation-free. The runtime uses Rust's
 unstable slice sort for two-word rows and three-way introsort (with a heapsort
 fallback) for wider inline rows
-(`plenty-runtime/src/entries.rs`). `sort_by_key` is a specialized Plenty heapsort
-(`src/frontend/sorting.plenty`); it recomputes keys and swaps rows. `sorted`
+(`plenty-runtime/src/entries.rs`). `sort_by_key` uses the same introsort for every
+row width, calling a generated comparator (`src/codegen/sorting.rs`) that
+recomputes both keys per comparison. `sorted`
 explicitly copies, then invokes the same natural-order sort. Keys cannot return
 references or `Result`, and user-defined natural order is still a
 [separate proposal](user-type-ordering.md).
 
-Issue #331 identifies runtime element access, row movement, and descriptor
-comparison costs. Changing algorithms alone does not remove those costs. Timsort
+Issue #331 identified runtime element access, row movement, and descriptor
+comparison costs; the runtime-driven key sort and per-sort tuple and relocation
+plans removed most of them. Changing algorithms alone does not remove such costs. Timsort
 is a candidate for stable sorting and locality improvements, not evidence that
 it will beat the current scalar path or fix that issue by itself.
 

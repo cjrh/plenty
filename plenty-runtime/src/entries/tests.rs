@@ -121,7 +121,7 @@ fn wide_sort_preserves_rows_and_inline_addresses() {
                             .cmp(&number(Entry { key: b, value: 0 }, ty))
                     };
                     if fallback {
-                        entries.sort_rows(0, count, 0, &mut compare);
+                        entries.sort_rows(0, count, 0, Relocation::of(entries.key), &mut compare);
                     } else {
                         entries.sort_unstable_by(compare);
                     }
@@ -224,7 +224,7 @@ fn benchmark_wide_sort() {
                 };
                 let time = std::time::Instant::now();
                 if algorithm == 0 {
-                    entries.heap_sort_rows(0, 100_000, &mut compare);
+                    entries.heap_sort_rows(0, 100_000, Relocation::of(entries.key), &mut compare);
                 } else {
                     entries.sort_unstable_by(&mut compare);
                 }

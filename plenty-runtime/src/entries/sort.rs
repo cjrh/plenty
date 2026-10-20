@@ -12,7 +12,7 @@ impl Entries {
     ) -> usize {
         let mut indices = [a, b, c];
         for (a, b) in [(0, 1), (1, 2), (0, 1)] {
-            if compare(self.get(indices[a]).key, self.get(indices[b]).key).is_gt() {
+            if compare(self.key_at(indices[a]), self.key_at(indices[b])).is_gt() {
                 indices.swap(a, b);
             }
         }
@@ -24,11 +24,12 @@ impl Entries {
         mut start: usize,
         mut end: usize,
         mut depth: u32,
+        relocation: Relocation,
         compare: &mut impl FnMut(u128, u128) -> Ordering,
     ) {
         while end - start > 16 {
             if depth == 0 {
-                self.heap_sort_rows(start, end - start, compare);
+                self.heap_sort_rows(start, end - start, relocation, compare);
                 return;
             }
             depth -= 1;
@@ -46,40 +47,40 @@ impl Entries {
             } else {
                 self.median_row(start, middle, pivot, compare)
             };
-            self.swap(selected, pivot);
+            self.exchange(selected, pivot, relocation);
             let (mut less, mut scan, mut greater) = (start, start, pivot);
             // The pivot stays in its row while partitioning. Never cache its
             // address across a swap: an inline value's address follows its row.
             while scan < greater {
-                match compare(self.get(scan).key, self.get(pivot).key) {
+                match compare(self.key_at(scan), self.key_at(pivot)) {
                     Ordering::Less => {
-                        self.swap(scan, less);
+                        self.exchange(scan, less, relocation);
                         less += 1;
                         scan += 1;
                     }
                     Ordering::Equal => scan += 1,
                     Ordering::Greater => {
                         greater -= 1;
-                        self.swap(scan, greater);
+                        self.exchange(scan, greater, relocation);
                     }
                 }
             }
-            self.swap(greater, pivot);
+            self.exchange(greater, pivot, relocation);
             // Recurse only into the smaller partition. Stack use is logarithmic
             // even with an inconsistent comparator; the depth budget also bounds
             // total comparison work by falling back to heapsort.
             if less - start < end - greater - 1 {
-                self.sort_rows(start, less, depth, compare);
+                self.sort_rows(start, less, depth, relocation, compare);
                 start = greater + 1;
             } else {
-                self.sort_rows(greater + 1, end, depth, compare);
+                self.sort_rows(greater + 1, end, depth, relocation, compare);
                 end = less;
             }
         }
         for i in start + usize::from(start < end)..end {
             let mut j = i;
-            while j > start && compare(self.get(j).key, self.get(j - 1).key).is_lt() {
-                self.swap(j, j - 1);
+            while j > start && compare(self.key_at(j), self.key_at(j - 1)).is_lt() {
+                self.exchange(j, j - 1, relocation);
                 j -= 1;
             }
         }

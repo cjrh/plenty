@@ -149,3 +149,96 @@ fn invalid_key_sorting(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }
+
+#[test]
+fn runtime_key_sort_orders_every_scalar_key_and_many_owned_rows() {
+    native(
+        r#"
+class Item:
+    name: str
+    score: f64
+    rank: i64
+def by_score(item: &Item) -> f64:
+    item.score
+def by_pair(item: &Item) -> (i64, str):
+    (item.rank % 7, item.name)
+mut items: list[Item] = [].unwrap()
+mut s = 7
+mut total = 0
+for i in range(3000):
+    s = (s * 1103515245 + 12345) % 2147483648
+    mut score = f64(s % 1000) / 7.0
+    if s % 97 == 0:
+        score = 0.0 / 0.0
+    items.append(Item(f"n{s % 300}".unwrap(), score, i)).unwrap()
+    total += i
+items.sort_by_key(by_score, True)
+mut ok = True
+for i in range(1, len(items)):
+    a = items[i - 1].score
+    b = items[i].score
+    if (a == a and b != b) or (a == a and b == b and a < b):
+        ok = False
+items.sort_by_key(by_pair)
+for i in range(1, len(items)):
+    if by_pair(&items[i - 1]) > by_pair(&items[i]):
+        ok = False
+mut sum = 0
+for item in &items:
+    sum += item.rank
+print(ok, sum == total).unwrap()
+def negated(x: &i64) -> i64:
+    0 - *x
+mut ints: list[i64] = [].unwrap()
+for i in range(2000):
+    s = (s * 1103515245 + 12345) % 2147483648
+    ints.append(s % 100 - 50).unwrap()
+ints.sort_by_key(negated)
+ok = True
+for i in range(1, len(ints)):
+    if ints[i - 1] < ints[i]:
+        ok = False
+print(ok).unwrap()
+def wide(x: &u64) -> u64:
+    *x
+mut bigs = [18446744073709551615u64, 0u64, 9223372036854775808u64, 1u64].unwrap()
+bigs.sort_by_key(wide)
+print(bigs).unwrap()
+def narrow(x: &i8) -> i8:
+    *x
+mut bytes = [i8(-128), i8(127), i8(0), i8(-1)].unwrap()
+bytes.sort_by_key(narrow, True)
+print(bytes).unwrap()
+def single(x: &f32) -> f32:
+    *x
+mut floats = [f32(1.5), f32(0.0) / f32(0.0), f32(-0.0), f32(0.0), f32(-2.0)].unwrap()
+floats.sort_by_key(single)
+print(floats).unwrap()
+"#,
+        "True True\nTrue\n[0, 1, 9223372036854775808, 18446744073709551615]\n[127, 0, -1, -128]\n[-2.0, -0.0, 0.0, 1.5, NaN]",
+    );
+}
+
+#[test]
+fn inconsistent_key_keeps_every_row() {
+    assert_eq!(
+        support::run_file_stdout(
+            r#"
+from std.time import monotonic_now, instant_at
+def jitter(row: &(i64, str)) -> u64:
+    monotonic_now().saturating_duration_since(&instant_at(0)).as_nanoseconds() % 5u64
+def main() -> Result[(), Failure]:
+    mut rows: list[(i64, str)] = []?
+    for i in range(500):
+        rows.append((i, f"r{i}"?))?
+    rows.sort_by_key(jitter)
+    mut total = 0
+    for row in &rows:
+        total += row[0]
+    print(len(rows), total)?
+    Ok(())
+"#
+        ),
+        "500 124750"
+    );
+}
