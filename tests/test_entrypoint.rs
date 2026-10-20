@@ -228,7 +228,7 @@ fn successful_result_mains_keep_their_output_and_status() {
     );
 }
 
-// B71: deliberately exercises builtin `Failure`; delete with its removal.
+// Tests `Failure` itself: the entry report for an erased error.
 #[test]
 fn failure_is_reported_without_details_it_does_not_keep() {
     for body in [

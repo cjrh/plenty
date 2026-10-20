@@ -33,5 +33,5 @@ def main() -> Result[(), AllocError | IoError | FutureError | PoolError]:
 42
 ```
 
-Erasing a submission error into legacy `Failure` with `?` instead drops the
-unstarted job.
+Erasing a submission error into `Failure` with `?` instead drops the unstarted
+job. `Failure` is a last resort, for when no precise error can be written.

@@ -4,7 +4,7 @@ Status: partly implemented. Library mapping and additive typed stream/body APIs
 are implemented. The `?` error contract is unchanged. Remaining work
 belongs in [B71](../backlog.md).
 The companion [error sets](error-sets.md) page records the agreed general-sum
-direction and removal of builtin Failure; [formatting](error-formatting.md)
+direction, with builtin Failure kept as a last resort; [formatting](error-formatting.md)
 records the agreed enum-capable presentation direction. Neither has shipped.
 [Typestate](typestate-and-owned-transitions.md) addresses lifecycle invariants.
 
@@ -116,8 +116,8 @@ allows ordinary typed data in `Err`. Reporting and recoverability are separate.
 The agreed [formatting protocol](error-formatting.md) provides presentation
 without an existential error container. Extend protocol support to enums and
 define formatting dispatch for anonymous sums whose members all qualify.
-Remove builtin Failure through the coordinated sum migration; an erased error
-container and heterogeneous cause-chain interface remain deferred.
+Builtin Failure stays as a last resort, for when no precise error can be
+written (issue #342); an erased error container and heterogeneous cause-chain interface remain deferred.
 
 ## Removing the stream error side channel
 

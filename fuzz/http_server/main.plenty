@@ -11,7 +11,8 @@
 import fuzz_input
 import std.bytes
 import std.http.server
-from std.bytes import ByteSource, Bytes
+from std.bytes import ByteSource, Bytes, BytesError
+from std.http import HttpError
 from std.http.server import Exchange, Router, ServerError
 from std.net import NetError, Shutdown
 from std.sync import CancellationToken
@@ -58,8 +59,15 @@ pub enum Route:
     Hello
     Fail
 
+# `Deliberate` is the `/fail` route's handler error; `UndocumentedStatus` and
+# `NotADigit` are findings `check` reports by trapping.
+pub enum HarnessError:
+    Deliberate
+    UndocumentedStatus
+    NotADigit
+
 pub class App:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), AllocError | BytesError | HttpError | HarnessError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home")?
@@ -70,7 +78,7 @@ pub class App:
             case Route.Hello:
                 exchange.send_text(200, "hello")?
             case Route.Fail:
-                return Err(Failure.Unspecified)
+                return Err(HarnessError.Deliberate)
         Ok(())
 
 def routes() -> Result[Router[Route], ServerError]:
@@ -87,16 +95,16 @@ def documented(status: i64) -> bool:
             return True
     False
 
-def digit(output: &Bytes, at: i64) -> Result[i64, Failure]:
+def digit(output: &Bytes, at: i64) -> Result[i64, BytesError | HarnessError]:
     value = i64.wrapping_from(output.get(at)?) - 48
     if value < 0 or value > 9:
-        return Err(Failure.Unspecified)
+        return Err(HarnessError.NotADigit)
     Ok(value)
 
 # Checks the status of every response head in `output` from `at`, and
 # returns where the next check starts: at a head whose status has not all
 # been written yet, or near the end.
-def check(output: &Bytes, at: i64) -> Result[i64, Failure]:
+def check(output: &Bytes, at: i64) -> Result[i64, BytesError | HarnessError]:
     marker = std.bytes.from_text("HTTP/1.")?
     mut next = at
     while True:
@@ -107,7 +115,7 @@ def check(output: &Bytes, at: i64) -> Result[i64, Failure]:
                     return Ok(found)
                 status = digit(output, found + 9)? * 100 + digit(output, found + 10)? * 10 + digit(output, found + 11)?
                 if not documented(status):
-                    return Err(Failure.Unspecified)
+                    return Err(HarnessError.UndocumentedStatus)
                 next = found + 12
             case Nothing:
                 # A marker may have begun in the last few bytes.
@@ -116,7 +124,7 @@ def check(output: &Bytes, at: i64) -> Result[i64, Failure]:
                 return Ok(next)
     Ok(next)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | BytesError | ServerError]:
     size = i64.wrapping_from(fuzz_input.size())
     if size == 0:
         return Ok(())

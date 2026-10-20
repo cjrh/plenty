@@ -147,10 +147,10 @@ impl Lower<'_> {
             let target = self.infer_propagated_producers(target, &source);
             if !target.accepts_result_error(&source) {
                 let error = &source.get().variants[1].fields[0];
-                let hint =
-                    super::producer_conflict_hint(&target.get().variants[1].fields[0], error);
+                let declared = &target.get().variants[1].fields[0];
+                let hint = super::producer_conflict_hint(declared, error);
                 return Err(call.at.error(format!(
-                    "spawn propagation requires a Result whose error accepts {error}, or Failure{hint}"
+                    "spawn propagation requires a Result whose error accepts {error}; add it to the declared error, such as Result[_, {declared} | {error}]{hint}"
                 )));
             }
             let mut cleanup = Vec::new();

@@ -426,7 +426,7 @@ def main() -> Result[(), Context[IoError]]:
     run_both(
         &format!(
             r#"{LOAD}
-# B71: deliberately erases to Failure.
+# Tests `Failure` itself: context over an erased error.
 def erased() -> Result[i64, Context[Failure]]:
     failed: Result[i64, Failure] = Err(Failure.Unspecified)
     context(failed, "erased")

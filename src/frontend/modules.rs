@@ -552,16 +552,17 @@ impl Module {
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn single(source: &str) -> Result<Resolved> {
     let (module, at) = parse(source, None, String::new())?;
+    // Only the standard library is reachable without a source root.
     if let Some(import) = module
         .imports
         .iter()
-        .find(|import| import.binding != fstrings::FMT_BINDING)
+        .find(|import| import.module.split('.').next() != Some("std"))
     {
-        return Err(import
-            .at
-            .error("imports require a file-based compilation API and a source root"));
+        return Err(import.at.error(format!(
+            "cannot import `{}` without a source root; source-only compilation can import only `std` modules, so compile a file to import project modules",
+            import.module
+        )));
     }
-    // Only the standard library is reachable without a source root.
     let mut loader = Loader {
         packages: vec![],
         active: vec![],
@@ -573,9 +574,19 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
     };
     let mut entry = vec![];
     for import in &module.imports {
-        let (index, _) = loader
-            .file(ModuleSource::Standard("std.fmt"), 0, import.module.clone())
-            .map_err(|e| import.at.error(e))?;
+        let (dependency, _) = loader.import_path(import, 0)?;
+        let index = match loader.loaded.get(&dependency) {
+            Some(&index) => index,
+            None => {
+                let ModuleSource::Standard(name) = dependency else {
+                    unreachable!("non-std imports were rejected above")
+                };
+                loader
+                    .file(dependency, 0, name.into())
+                    .map_err(|e| import.at.error(e))?
+                    .0
+            }
+        };
         entry.push(index);
     }
     let standard_sources = loader

@@ -3,11 +3,11 @@
 Keep a concrete error type when the caller needs the cause. For example,
 `IoError` preserves an input/output cause, while `str` can carry a message.
 
-Prefer concrete errors or [error sums](anonymous-sums.md) in application code.
-The legacy `Result[T, Failure]` deliberately discards the cause: each `?` may accept a
-different error type, drop it, and return `Failure.Unspecified`.
-This example demonstrates the information that erasure loses; it is not the
-default pattern for combining errors.
+Prefer concrete errors or [error sums](anonymous-sums.md). Builtin `Failure`
+is a last resort, for when no precise error can be written.
+`Result[T, Failure]` discards the cause: each `?` may accept a different error
+type, drop it, and return `Failure.Unspecified`. This example shows what
+erasure loses; it is not the pattern for combining errors.
 
 ```plenty
 def validate(name: str) -> Result[(), str]:
@@ -68,9 +68,10 @@ explicit; `?` still expects `ConfigError` here. The helper adds no allocation.
 The result and callback expressions are both evaluated before the helper runs;
 an unused callback and any values it owns are dropped on success.
 
-This conversion applies to `?`. Returning a `Result[T, IoError]` directly
-from a function declared `Result[T, Failure]` is still a type error.
-Construct a deliberate failure with `Err(Failure.Unspecified)`.
+`Failure` erasure, like `map_error`, applies only where you ask for it: at
+`?`. Returning a `Result[T, IoError]` directly from a function declared
+`Result[T, Failure]` is a type error. Construct a deliberate failure with
+`Err(Failure.Unspecified)`.
 
 If `main` returns an error, the program reports it on standard error and exits
 with status one. A `Failure` report can only say that the original details

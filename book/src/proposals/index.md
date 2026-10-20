@@ -53,7 +53,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Plenty's next language phase](next-language-phase.md) | Nine of eleven recommendations, at least in part | B13, B23, and others |
 | [Standard library scope](standard-library-scope.md) | [Embedded library](../design/stdlib/index.md), including data formats, TLS, HTTP, SQLite, signals and testing | Remaining B38–B70 scope |
 | [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | Named calls and fresh defaults under the narrower design above | B36: splats and signature markers remain separate candidates |
-| [Explicit error composition](error-composition.md) | [Result mapping](../design/stdlib/error.md); isolated typed-stream experiment | B71: sums, formatting, Failure removal, and independent production stream composition |
+| [Explicit error composition](error-composition.md) | [Result mapping](../design/stdlib/error.md); isolated typed-stream experiment | B71: sums, formatting, and independent production stream composition |
 | [Bundled HTTP acceptance](standard-http.md) | [Client](../design/stdlib/http-client.md), [server](../design/stdlib/http-server.md), TLS and deployment helpers | B66 qualification |
 
 ## Not implemented
