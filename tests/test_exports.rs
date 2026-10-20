@@ -410,7 +410,8 @@ export def parse() -> Result[i64, ParseError] = "calc_parse":
     Err(ParseError.OutOfRange)
 export def narrow(value: i64) -> Result[u8, RangeError] = "calc_narrow":
     u8.try_from(value)
-# B71: Failure is a supported export error until it is removed.
+# Deliberately tests Failure itself: it remains a coded export error, a last
+# resort when no precise error exists.
 export def failed() -> Result[(), Failure] = "calc_failed":
     Err(Failure.Unspecified)
 "#;
@@ -476,6 +477,125 @@ int main(void) {
         plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
         let output = success(Command::new(executable).output().unwrap());
         assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, i16].Ok(1.25)\nResult[f32, i16].Err(-123)\nResult[(), u64].Err(18000000000)\n41\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Err(AllocError.OutOfMemory)\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\nResult[i64, ParseError].Err(ParseError.OutOfRange)\nResult[(), Failure].Err(Failure.Unspecified)\n");
+    }
+}
+
+#[test]
+fn payload_free_user_enums_cross_c_as_named_codes() {
+    let temp = tempfile::tempdir().unwrap();
+    let errors = temp.path().join("errors");
+    std::fs::create_dir(&errors).unwrap();
+    // An enum from an imported module keeps its short name in the interface.
+    std::fs::write(
+        errors.join("codes.plenty"),
+        "pub enum Shape:\n    Odd\n    Huge\n",
+    )
+    .unwrap();
+    let source = r#"
+import errors.codes
+enum CalcError:
+    Empty
+    Negative
+    TooLarge
+    Odd
+    Zero
+export def check(value: i64) -> Result[f64, CalcError] = "calc_check":
+    if value < 0:
+        Err(CalcError.Negative)
+    elif value > 100:
+        Err(CalcError.TooLarge)
+    elif value == 0:
+        Err(CalcError.Zero)
+    else:
+        Ok(2.5)
+export def first() -> Result[(), CalcError] = "calc_first":
+    Err(CalcError.Empty)
+export def shape(value: i32) -> Result[i32, errors.codes.Shape] = "calc_shape":
+    if value > 9:
+        Err(errors.codes.Shape.Huge)
+    elif value % 2 == 1:
+        Err(errors.codes.Shape.Odd)
+    else:
+        Ok(value)
+export def allocation() -> Result[(), AllocError] = "calc_allocation":
+    Err(AllocError.CapacityOverflow)
+"#;
+    for kind in [LibraryKind::Static, LibraryKind::Shared] {
+        let root = temp.path();
+        let (library, artifacts) = build(root, source, kind);
+        let header = std::fs::read_to_string(&artifacts.header).unwrap();
+        for constant in [
+            "#define calc_CalcError_Empty UINT32_C(0)\n#define calc_CalcError_Negative UINT32_C(1)\n#define calc_CalcError_TooLarge UINT32_C(2)\n#define calc_CalcError_Odd UINT32_C(3)\n#define calc_CalcError_Zero UINT32_C(4)\n",
+            "#define calc_Shape_Odd UINT32_C(0)\n#define calc_Shape_Huge UINT32_C(1)\n",
+            "#define calc_AllocError_OutOfMemory UINT32_C(0)\n#define calc_AllocError_CapacityOverflow UINT32_C(1)\n",
+            "/* On Err, *out_error is one of the calc_CalcError_* codes. */\nuint32_t calc_check(int64_t p0, double *out_ok, uint32_t *out_error);",
+        ] {
+            assert!(header.contains(constant), "{constant}\n{header}");
+        }
+        // Each enum's constants are declared once, however many exports use it.
+        assert_eq!(header.matches("#define calc_CalcError_Empty ").count(), 1);
+        let interface = std::fs::read_to_string(&artifacts.interface).unwrap();
+        assert!(
+            interface.contains(
+                "pub enum CalcError:\n    Empty\n    Negative\n    TooLarge\n    Odd\n    Zero\n"
+            ),
+            "{interface}"
+        );
+        assert!(
+            interface.contains("pub enum Shape:\n    Odd\n    Huge\n"),
+            "{interface}"
+        );
+        assert!(!interface.contains("import"), "{interface}");
+        let c = root.join("codes.c");
+        std::fs::write(
+            &c,
+            r#"
+#include "calc.h"
+#include <assert.h>
+int main(void) {
+    double value = 0.0;
+    uint32_t code = 99;
+    assert(calc_check(5, &value, &code) == 0 && value == 2.5 && code == 99);
+    assert(calc_check(-1, &value, &code) == 1 && code == calc_CalcError_Negative);
+    assert(calc_check(200, &value, &code) == 1 && code == calc_CalcError_TooLarge);
+    assert(calc_check(0, &value, &code) == 1 && code == calc_CalcError_Zero && value == 2.5);
+    assert(calc_first(&code) == 1 && code == calc_CalcError_Empty);
+    int32_t even = 7;
+    assert(calc_shape(3, &even, &code) == 1 && code == calc_Shape_Odd && even == 7);
+    assert(calc_shape(12, &even, &code) == 1 && code == calc_Shape_Huge);
+    assert(calc_shape(4, &even, &code) == 0 && even == 4);
+    assert(calc_allocation(&code) == 1 && code == calc_AllocError_CapacityOverflow);
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+        let executable = root.join("caller");
+        let args = std::fs::read_to_string(&artifacts.link_args).unwrap();
+        for compiler in ["cc", "c++"] {
+            success(
+                Command::new(compiler)
+                    .args(["-Wall", "-Wextra", "-Werror"])
+                    .arg(&c)
+                    .arg(&library)
+                    .args(args.lines())
+                    .arg("-o")
+                    .arg(&executable)
+                    .output()
+                    .unwrap(),
+            );
+            success(Command::new(&executable).output().unwrap());
+        }
+        let app = root.join("main.plenty");
+        std::fs::write(&app, "import calc\ndef name(error: calc.CalcError) -> str:\n    match error:\n        case calc.CalcError.Empty:\n            \"empty\"\n        case calc.CalcError.Negative:\n            \"negative\"\n        case calc.CalcError.TooLarge:\n            \"too large\"\n        case calc.CalcError.Odd:\n            \"odd\"\n        case calc.CalcError.Zero:\n            \"zero\"\ndef main() -> Result[(), AllocError | IoError | calc.CalcError]:\n    print(calc.check(5)?)?\n    values = [-1, 200, 0]?\n    for value in &values:\n        match calc.check(*value):\n            case Err(error):\n                print(name(error))?\n            case Ok(_):\n                pass\n    print(str.repr(calc.first()).unwrap())?\n    print(str.repr(calc.shape(3)).unwrap())?\n    print(str.repr(calc.shape(12)).unwrap())?\n    print(str.repr(calc.shape(4)).unwrap())?\n    Ok(())\n").unwrap();
+        let options = plenty::CompileOptions {
+            link_args: vec![library.into_os_string()],
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
+        let output = success(Command::new(&executable).output().unwrap());
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "2.5\nnegative\ntoo large\nzero\nResult[(), calc.CalcError].Err(calc.CalcError.Empty)\nResult[i32, calc.Shape].Err(calc.Shape.Odd)\nResult[i32, calc.Shape].Err(calc.Shape.Huge)\nResult[i32, calc.Shape].Ok(4)\n");
+        std::fs::remove_file(&app).unwrap();
     }
 }
 
@@ -796,6 +916,13 @@ fn generated_library_names_reject_collisions_before_publication() {
         )
         .unwrap();
     }
+    for name in ["left", "right"] {
+        std::fs::write(
+            temp.path().join(format!("{name}.plenty")),
+            "pub enum Code:\n    Failed\n",
+        )
+        .unwrap();
+    }
     for (text, expected) in [
         ("class Foo:\n    value: i64\nclass Foo_destroy:\n    value: i64\nexport def a(x: &Foo) -> i64 = \"calc_a\":\n    x.value\nexport def b(x: &Foo_destroy) -> i64 = \"calc_b\":\n    x.value\n", "identifier collision"),
         ("import foreign\nclass Foo:\n    value: i64\nexport def create() -> Result[Foo, AllocError] = \"calc_create\":\n    Ok(Foo(1))\n", "imported C symbol"),
@@ -806,6 +933,9 @@ fn generated_library_names_reject_collisions_before_publication() {
         ("export def make() -> Result[i64, AllocError] = \"calc_make\":\n    Ok(1)\nexport def _plenty_c_make() -> () = \"calc_raw\":\n    pass\n", "reserved for generated adapters"),
         ("class plenty_metadata:\n    value: i64\nexport def read(x: &plenty_metadata) -> i64 = \"calc_read\":\n    x.value\n", "reserved C metadata"),
         ("export def guard() -> () = \"calc_plenty_contract_other\":\n    pass\n", "reserved"),
+        ("import left\nimport right\nexport def a() -> Result[(), left.Code] = \"calc_a\":\n    Err(left.Code.Failed)\nexport def b() -> Result[(), right.Code] = \"calc_b\":\n    Err(right.Code.Failed)\n", "conflicting interface name `Code`"),
+        ("enum Code:\n    x\nexport def a() -> Result[(), Code] = \"calc_a\":\n    Err(Code.x)\nexport def b() -> () = \"calc_Code_x\":\n    pass\n", "C error constant `calc_Code_x` collides"),
+        ("import left\nexport def Code() -> Result[(), left.Code] = \"calc_code\":\n    Err(left.Code.Failed)\n", "conflicts with a generated interface name"),
     ] {
         std::fs::write(&source, text).unwrap();
         let error = plenty::compile_file_to_library(&source, &output, None, &LibraryOptions::new("calc", LibraryKind::Static)).unwrap_err().to_string();
@@ -824,6 +954,10 @@ fn export_diagnostics_reject_unsupported_and_ambiguous_interfaces() {
         ("export def bad(x: str) -> str = \"calc_bad\":\n    x\n", "numeric scalar"),
         ("export def bad() -> bool = \"calc_bad\":\n    True\n", "numeric scalar"),
         ("export def a() -> () = \"calc_same\":\n    pass\nexport def b() -> () = \"calc_same\":\n    pass\n", "duplicate or imported"),
+        ("enum Bad:\n    Empty\n    Code(i32)\nexport def bad() -> Result[(), Bad] = \"calc_bad\":\n    Err(Bad.Code(1))\n", "error enum `Bad` has payload variant `Bad.Code`; only payload-free enums cross C"),
+        ("export def bad() -> Result[(), AllocError | ParseError] = \"calc_bad\":\n    Err(ParseError.Invalid)\n", "cannot return the error sum `AllocError | ParseError` yet (backlog B27)"),
+        ("enum Bad[T]:\n    Empty\nexport def bad() -> Result[(), Bad[i32]] = \"calc_bad\":\n    Err(Bad[i32].Empty)\n", "is generic"),
+        ("export def bad() -> Result[(), LoadError] = \"calc_bad\":\n    Err(LoadError.OpenFailed)\n", "builtin error `LoadError` has no C error code"),
     ] {
         std::fs::write(&path, source).unwrap();
         let error = plenty::check_module_file(&path, None).unwrap_err().to_string();

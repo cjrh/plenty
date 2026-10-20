@@ -67,6 +67,17 @@ pub(super) fn generate(interface: &Interface, exports: &[Export]) -> Result<Stri
             "exported class `Library` or `load` conflicts with the runtime interface API".into(),
         );
     }
+    if exports
+        .iter()
+        .filter_map(|e| e.signature.outputs.first().and_then(super::result_payloads))
+        .filter_map(|(_, error)| super::declared_error(error))
+        .any(|name| matches!(name, "Library" | "load"))
+    {
+        return Err(
+            "exported error enum `Library` or `load` conflicts with the runtime interface API"
+                .into(),
+        );
+    }
     let methods: Vec<_> = exports
         .iter()
         .enumerate()
@@ -80,6 +91,7 @@ pub(super) fn generate(interface: &Interface, exports: &[Export]) -> Result<Stri
         let pointer = &handle.pointer;
         source.push_str(&format!("\nopaque {pointer}\nextern def _destroy_{name}(address: _FunctionAddress, value: {pointer}) -> () = address\npub class {name}:\n    _origin: _FunctionAddress\n    _destroy: _FunctionAddress\n    _handle: {pointer}\n    def __del__(self: &mut {name}) -> ():\n        _destroy_{name}(self._destroy, self._handle)\n\n"));
     }
+    source.push_str(&interface.errors);
     for method in &methods {
         source.push_str(&method.declaration);
     }

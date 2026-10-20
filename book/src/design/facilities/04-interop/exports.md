@@ -12,10 +12,13 @@ export def add(a: i32, b: i32) -> i32 = "calc_add":
 
 Parameters can be numeric scalars, owned exported classes, or shared/exclusive
 references to either. Returns can be numeric, unit, or `Result[T, E]`, where T is
-numeric/unit and E is numeric, `AllocError`, `ParseError`, `RangeError`, or `Failure`.
+numeric/unit and E is numeric, `AllocError`, `ParseError`, `RangeError`, `Failure`,
+or a nongeneric user enum whose variants have no payloads.
 `Result[Class, AllocError]` factories use [owned handles](owned-exports.md).
 Bool, other managed objects, raw pointers, returned references, generic exports,
 and other aggregate results are unsupported; bodies can use ordinary features.
+Enums with payload variants and error sums such as `AllocError | ParseError`
+are rejected; sums are planned with the broader C representations (B27).
 
 C symbols begin with the library name plus `_`. `NAME_plenty_` and `_plenty_`
 source names are reserved for generated metadata and compatibility adapters.
@@ -44,7 +47,8 @@ contents need not be initialized. Only the selected output is written.
 Err does not undo input mutations. Adaptation and Result reconstruction allocate
 nothing and do not expose private sum layouts.
 
-Builtin errors use `uint32_t *out_error`:
+Enum errors use `uint32_t *out_error`. A variant's code is its declaration
+index. The builtin errors have these codes:
 
 | Error | Codes |
 | --- | --- |
@@ -52,6 +56,35 @@ Builtin errors use `uint32_t *out_error`:
 | ParseError | Invalid = 0; OutOfRange = 1 |
 | RangeError | OutOfRange = 0 |
 | Failure | Unspecified = 0 |
+
+Prefer a precise enum; `Failure` is a last resort when no precise error exists.
+For a user enum, the generated interface re-declares the enum, so it stays
+self-contained, and its wrappers return that interface type:
+
+```text
+enum CalcError:
+    Empty
+    Negative
+export def check(value: i64) -> Result[f64, CalcError] = "calc_check":
+    ...
+```
+
+The header names each code once per enum as `LIBRARY_ENUM_VARIANT`, before the
+functions that use it:
+
+```c
+/* CalcError codes, written to *out_error when a call returns 1. */
+#define calc_CalcError_Empty UINT32_C(0)
+#define calc_CalcError_Negative UINT32_C(1)
+
+/* On Err, *out_error is one of the calc_CalcError_* codes. */
+uint32_t calc_check(int64_t p0, double *out_ok, uint32_t *out_error);
+```
+
+Interfaces use the enum's unqualified name, so two exported enums with the same
+name, an enum named like an export or exported class, or a constant that
+collides with another generated C identifier fails the build. Runtime loaders
+also reserve `Library` and `load`.
 
 Status and error code are distinct: code zero still means failure when status is
 one. Generated headers list these codes and caller requirements. Author docstrings

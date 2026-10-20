@@ -1,5 +1,7 @@
 //! C output parameters become ordinary typed method results.
-use crate::exports::{error_variants, handles, result_payloads, Export, Interface};
+use crate::exports::{
+    error_source, error_variants, handles, rebuild_error, result_payloads, Export, Interface,
+};
 use crate::op::Ty;
 
 pub(super) struct Method {
@@ -72,6 +74,9 @@ pub(super) fn generate(export: &Export, index: usize, interface: &Interface) -> 
                 body.push_str(&format!("        mut out_ok: {ok} = 0\n"));
             }
         }
+        if owner.is_none() {
+            output = format!("Result[{ok}, {}]", error_source(error));
+        }
         let error_storage = if error_variants(error).is_some() {
             "u32".into()
         } else {
@@ -90,20 +95,7 @@ pub(super) fn generate(export: &Export, index: usize, interface: &Interface) -> 
             ));
         }
         body.push_str("        else:\n");
-        if let Some(variants) = error_variants(error) {
-            for (code, variant) in variants.iter().enumerate().take(variants.len() - 1) {
-                body.push_str(&format!(
-                    "            if out_error == {code}:\n                return Err({error}.{})\n",
-                    variant.name
-                ));
-            }
-            body.push_str(&format!(
-                "            Err({error}.{})\n",
-                variants.last().unwrap().name
-            ));
-        } else {
-            body.push_str("            Err(out_error)\n");
-        }
+        body.push_str(&rebuild_error(error, "            "));
     } else {
         body.push_str(&transfers);
         body.push_str(&format!(
