@@ -119,7 +119,11 @@ impl Lower<'_> {
         }
         let saved = self.names.clone();
         let start = self.locals.len();
+        let place_start = ops.len();
         let (reference, mutex_loan) = self.borrow(base, false, ops)?;
+        // A computed index evaluates like any manager expression: an endpoint
+        // it moves before a nested wait is held through that wait (issue #350).
+        self.building(&manager.at, place_start, ops, false);
         let guard = self.slot(reference, &manager.at)?;
         ops.push(Op::StoreLocal(guard));
         ops.extend(state_word(&class, guard));

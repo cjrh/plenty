@@ -1241,3 +1241,32 @@ fn a_join_inside_a_statement_rejects_endpoints_its_value_already_holds() {
         "Result[i64, RecvError].Ok(4)\n",
     );
 }
+
+#[test]
+fn a_join_inside_a_lock_place_rejects_endpoints_its_index_already_holds() {
+    // Issue #350: the lock's computed index holds the sender through the join.
+    let error = support::check_source(
+        "from std.sync import Mutex
+def keep(sender: Sender[i64], done: bool) -> i64:
+    drop(sender)
+    0
+def main() -> ():
+    cells = [Mutex[i64](0)].unwrap()
+    sender, receiver = channel[i64](1).unwrap()
+    consumer = def once [receiver]() -> Result[i64, RecvError]:
+        receiver.recv()
+    with spawn(consumer).unwrap() as task:
+        with cells[keep(sender, task.join().is_ok())].lock() as cell:
+            *cell = 1
+",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.starts_with(
+            "11:33: this join waits for a task whose worker holds `Receiver[i64]` while the \
+             expression being evaluated still holds `Sender[i64]`"
+        ) && error.contains("11:14: note: the expression here holds `Sender[i64]`"),
+        "{error}"
+    );
+}
