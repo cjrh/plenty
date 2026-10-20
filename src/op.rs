@@ -702,6 +702,18 @@ pub enum Building {
     Close,
 }
 
+/// The two ends of the arguments of a call whose result can hold a future.
+/// Both carry an identity that is unique within the function.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Forward {
+    /// Before the first argument. Present only when an argument can hold a
+    /// future.
+    Arguments(u32),
+    /// After the last argument, before the call. `results` are the result
+    /// types `T` of the `Future[T]` values the call's result can hold.
+    Call(u32, Arc<[Ty]>),
+}
+
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
@@ -750,6 +762,10 @@ pub enum Op {
     /// move or borrow. The callee may wait for such a future's result or shut
     /// such a pool down (issue #349); ownership checks only.
     Passes(Arc<[u8]>),
+    /// Brackets the arguments of a call whose result can hold a future, so
+    /// that future keeps the jobs of the futures it can be handed (issue
+    /// #352); ownership checks only.
+    Forwards(Forward),
     Yield(Ty),
     Next(u8),
     MoveLocal(u8),
@@ -1854,6 +1870,7 @@ fn step(
         | Op::Returning(..)
         | Op::Building(_)
         | Op::Passes(_)
+        | Op::Forwards(_)
         | Op::ForwardsReferences => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;

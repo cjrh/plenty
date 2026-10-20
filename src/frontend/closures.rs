@@ -177,7 +177,7 @@ impl Lower<'_> {
         let start = ops.len();
         let loans = self.call_arguments(args, &inputs, ops)?;
         self.mark_call(at, ops);
-        self.passes(start, &inputs, ops);
+        self.passes(start, &inputs, closure.signature.output.as_ref(), ops);
         ops.push(Op::ClosureCall(closure.clone()));
         Self::end_reads(loans, ops);
         if let Some(loans) = self.closure_loans.get(&closure.name) {
@@ -198,7 +198,7 @@ impl Lower<'_> {
         let start = ops.len();
         let loans = self.call_arguments(args, &inputs, ops)?;
         self.mark_call(at, ops);
-        self.passes(start, &inputs, ops);
+        self.passes(start, &inputs, closure.signature.output.as_ref(), ops);
         ops.push(Op::ClosureCall(closure.clone()));
         Self::end_reads(loans, ops);
         ops.push(Op::UseLoan(loan));

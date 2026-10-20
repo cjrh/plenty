@@ -12,7 +12,8 @@ use std::sync::Arc;
 use crate::collection::CollectionOp;
 use crate::executor::ExecutorOp;
 use crate::op::{
-    mark_tail_calls, Building, CompiledFn, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty,
+    mark_tail_calls, Building, CompiledFn, ElifArm, FnSig, Forward, IntegerOp, MatchArm, Op,
+    Pattern, Ty,
 };
 use crate::threading::ThreadOp;
 use crate::value::{Heap, Value};
@@ -2677,6 +2678,8 @@ struct Lower<'a> {
     slot_names: Vec<Option<Arc<str>>>,
     /// Position of the last source marker, restored after scope cleanup.
     site: std::cell::Cell<Option<crate::ownership::Site>>,
+    /// The next identity for `Forward` markers.
+    forwarded: std::cell::Cell<u32>,
 }
 
 fn site(at: &Token, scope_end: bool) -> crate::ownership::Site {
@@ -3975,7 +3978,7 @@ impl Lower<'_> {
             self.call_arguments(args, &sig.inputs, ops)?
         };
         self.record_direct_call(name, at, &argument_loans, ops);
-        self.passes(start, &sig.inputs, ops);
+        self.passes(start, &sig.inputs, sig.outputs.first(), ops);
         self.push_call(Op::Call(name.to_owned()), &sig.inputs, &argument_loans, ops);
         self.call_reference_result(name, &sig, &argument_loans, ops);
         Self::end_reads(argument_loans, ops);
@@ -4042,7 +4045,14 @@ impl Lower<'_> {
     /// future or pool inside an aggregate is not named. The
     /// checker applies the waits and shutdowns the callee can reach to them.
     /// Goes before the call and its lifetime fact.
-    pub(super) fn passes(&self, start: usize, inputs: &[(String, Ty)], ops: &mut Vec<Op>) {
+    pub(super) fn passes(
+        &self,
+        start: usize,
+        inputs: &[(String, Ty)],
+        output: Option<&Ty>,
+        ops: &mut Vec<Op>,
+    ) {
+        self.forwards(start, inputs, output, ops);
         // Only a direct future or pool: inspecting aggregates at every call
         // made checking a long function quadratic in its type sizes.
         fn handed(ty: &Ty) -> bool {
@@ -4086,6 +4096,36 @@ impl Lower<'_> {
         if !handed_slots.is_empty() {
             ops.push(Op::Passes(handed_slots.into()));
         }
+    }
+    /// Bracket the arguments, `ops[start..]`, of a call whose `output` can
+    /// hold a future, so the checker gives that future the jobs of the
+    /// futures the arguments carry and of the jobs the callee submits (issue
+    /// #352). Matching is by result type, like the checks themselves.
+    fn forwards(
+        &self,
+        start: usize,
+        inputs: &[(String, Ty)],
+        output: Option<&Ty>,
+        ops: &mut Vec<Op>,
+    ) {
+        let Some(output) = output else {
+            return;
+        };
+        let results = crate::ownership::future_results(output);
+        if results.is_empty() {
+            return;
+        }
+        let id = self.forwarded.get();
+        self.forwarded.set(id + 1);
+        let handed = inputs.iter().any(|(_, ty)| {
+            crate::ownership::future_results(ty)
+                .iter()
+                .any(|result| results.contains(result))
+        });
+        if handed {
+            ops.insert(start, Op::Forwards(Forward::Arguments(id)));
+        }
+        ops.push(Op::Forwards(Forward::Call(id, results.into())));
     }
     /// Emits a call, preceded by its lifetime fact when every reference it
     /// passes was borrowed through a reference parameter of this function.
@@ -4862,6 +4902,12 @@ fn take_call(ops: &mut Vec<Op>, begin: usize) -> Option<(usize, String)> {
         index -= 1;
         ops.remove(index);
     }
+    // The opening `Forward::Arguments`, if any, stays: without its call it
+    // brackets nothing.
+    if index > begin && matches!(ops[index - 1], Op::Forwards(Forward::Call(..))) {
+        index -= 1;
+        ops.remove(index);
+    }
     Some((index, name))
 }
 
@@ -5297,6 +5343,7 @@ fn lower_body(
                 },
                 slot_names: Vec::new(),
                 site: Default::default(),
+                forwarded: Default::default(),
             };
             for ((_, ty), (_, written)) in sig.inputs.iter().zip(&f.inputs) {
                 ide::local_type(&written.at, ty);

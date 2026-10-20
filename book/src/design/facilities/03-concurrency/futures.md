@@ -45,8 +45,8 @@ only disconnects it at pool shutdown; that is too late for a result wait inside
 the block.
 
 The diagnostic points to the wait, receiver holders, and submission. Tracking
-follows local future moves, `?`, `unwrap()`, `drop_job()`, and extraction from
-submission results. Separate futures with the same result type keep their own job origins.
+follows local future moves, `?`, `unwrap()`, `drop_job()`, extraction from
+submission results, and calls that return a future. Separate futures with the same result type keep their own job origins.
 Receivers dropped on every continuing path are accepted. `done()`, `cancel()`,
 and `wait_timeout()` are unaffected, and result retrieval still consumes the
 future and preserves both cancellation and application errors.
@@ -81,7 +81,42 @@ def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], 
 
 Matching by type means a callee that waits for a different `Future[T]` also
 counts. A call through a `Callable`, closure, or boxed callable value, or to a
-function that makes one, is assumed to wait. Provenance is not tracked through a
-future returned from a call, collections, class fields, or multi-field aggregate
-storage; indirect submissions and blocking mapping callbacks retain the
+function that makes one, is assumed to wait.
+
+A future returned from a call keeps its jobs. When the call's result can hold a
+`Future[T]`, directly or in a `Result`, `Option`, or other aggregate, it is
+assumed to hold every future of the same `T` that its arguments carry, and
+every job with a `T` result that the callee, or a function it reaches,
+submits. Both waits below are rejected like waits for a local submission:
+
+```text
+def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
+    match result:
+        case Ok(future):
+            Ok(future)
+        case Err(_):
+            Err("submission failed")
+
+def start(pool: &ThreadPoolExecutor, sender: Sender[i64]) -> Result[Future[()], str]:
+    submitted(pool.submit(produce, sender))
+
+def main() -> Result[(), ChannelError | PoolError | str]:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        sender, receiver = channel[i64](1)?
+        future = submitted(pool.submit(produce, sender))?
+        ok = future.result().is_ok()   # rejected: `receiver` is still live
+        other_sender, other = channel[i64](1)?
+        later = start(&pool, other_sender)?
+        done = later.result().is_ok()  # rejected: `other` is still live
+        drop(receiver)
+        drop(other)
+    Ok(())
+```
+
+The result is assumed to hold those futures even when the callee drops or waits
+for one of them. A call through a value keeps only its arguments' jobs: jobs
+submitted by a callable, closure, or boxed callable value, or by a function
+compiled elsewhere, are not seen. Provenance is not tracked through
+collections, class fields, or multi-field aggregate storage; indirect
+submissions and blocking mapping callbacks retain the
 [executor limits](executors.md#shutdown-and-live-receivers).

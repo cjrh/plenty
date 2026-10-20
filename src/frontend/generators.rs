@@ -326,7 +326,7 @@ impl Lower<'_> {
             loans[0] = self.activate_receiver(loan, ops);
         }
         self.record_direct_call(&symbol, at, &loans, ops);
-        self.passes(start, &sig.inputs, ops);
+        self.passes(start, &sig.inputs, sig.outputs.first(), ops);
         self.push_call(Op::Call(symbol.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&symbol, &sig, &loans, ops);
         Self::end_reads(loans, ops);

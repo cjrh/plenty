@@ -60,10 +60,10 @@ patterns that would wait forever:
   through `Shared` handles. `future.result()` on its future, and a shutdown of
   any pool after it was submitted (`shutdown()`, `drop`, reassignment, or the
   end of the pool's scope), is an error while the function holds a lock on a
-  `Mutex[T]` of a recorded `T`. As with the
-  [channel rule](futures.md#result-waits-and-live-receivers), a future is
-  traced only through local bindings: one passed through a function call, such
-  as a `submitted(...)` helper, is not checked at `result()`.
+  `Mutex[T]` of a recorded `T`. A future
+  is traced like the
+  [channel rule](futures.md#result-waits-and-live-receivers) traces it, through
+  local bindings and calls that return it, such as a `submitted(...)` helper.
 - **Yielding under a lock.** `yield` inside a lock block is an error: a
   suspended generator would keep the lock indefinitely.
 
