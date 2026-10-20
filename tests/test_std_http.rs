@@ -9,7 +9,7 @@ const HEADER: &str = "import std.bytes\nimport std.encoding\nimport std.io\nimpo
 /// end, or `err <error>` and stop. Each body is read through a 7-byte buffer
 /// so that lines and chunks straddle refills.
 const HELPERS: &str = r#"
-def shown(result: Result[(), HttpError]) -> Result[(), Failure]:
+def shown(result: Result[(), HttpError]) -> Result[(), AllocError | IoError]:
     match result:
         case Ok(_):
             pass
@@ -109,13 +109,13 @@ def drain_from(start: BufReader[Cursor]) -> Result[i64, HttpError]:
                 conn = std.http.finish(&mut body)?
     Ok(count)
 
-def requests(text: &str) -> Result[(), Failure]:
+def requests(text: &str) -> Result[(), std.bytes.BytesError | AllocError | IoError]:
     shown(requests_from(std.bytes.from_text(text)?, &std.http.limits()))
 
-def responses(text: &str, method: &str) -> Result[(), Failure]:
+def responses(text: &str, method: &str) -> Result[(), std.bytes.BytesError | AllocError | IoError]:
     shown(responses_from(std.bytes.from_text(text)?, method, &std.http.limits()))
 
-def written(result: Result[(), HttpError], sink: &Cursor) -> Result[(), Failure]:
+def written(result: Result[(), HttpError], sink: &Cursor) -> Result[(), std.bytes.BytesError | AllocError | IoError]:
     match result:
         case Ok(_):
             print(str.repr(sink.data.to_text()?)?)?
@@ -141,7 +141,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}{HELPERS}\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}{HELPERS}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.io.StreamError | AllocError | IoError]:\n{body}    Ok(())\n")
 }
 
 fn output(source: &str) -> String {
@@ -842,7 +842,7 @@ def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToke
     conn.inner.shutdown(Shutdown.Write).unwrap()
     Ok(served)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | std.io.StreamError | ThreadError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000u32))?
     listener = listen(&loopback_v4(0u16), 4).unwrap()
@@ -903,7 +903,7 @@ pub class Bounded:
                 self.failure = Some(error)
                 Err(StreamError.Io(IoError.Other))
 
-def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[str, Failure]:
+def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[str, std.bytes.BytesError | RangeError | std.io.StreamError | AllocError]:
     stream = listener.accept(deadline, &CancellationToken()?).unwrap()
     limits = std.http.limits()
     within = deadline_after(&monotonic_now(), &milliseconds(5000u32))?
@@ -919,7 +919,7 @@ def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToke
     mut kept = std.http.release(&mut body).unwrap()
     Ok(outcome.concat(" ")?.concat(&str.repr(&kept.inner.failure)?)?.concat(" ")?.concat(&str.from(out.len())?)?)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | std.io.StreamError | ThreadError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000u32))?
     listener = listen(&loopback_v4(0u16), 4).unwrap()

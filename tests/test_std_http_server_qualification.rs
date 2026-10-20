@@ -51,7 +51,7 @@ pub class App:
     pub stop: CancellationToken
     pub piece: Bytes
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.bytes.BytesError | std.http.HttpError | AllocError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home")?
@@ -80,7 +80,7 @@ pub class App:
                 exchange.write(&text, 2, 6)?
         Ok(())
 
-pub def app(stop: &CancellationToken) -> Result[App, Failure]:
+pub def app(stop: &CancellationToken) -> Result[App, std.bytes.BytesError]:
     mut piece = std.bytes.with_capacity(65536)?
     piece.resize(65536, 120u8)?
     Ok(App(stop.share(), piece))
@@ -135,14 +135,14 @@ pub def millis_since(start: &std.time.Instant) -> u64:
     std.time.monotonic_now().saturating_duration_since(start).as_nanoseconds() // 1000000u64
 
 # Open descriptors, counted through /proc. Measure with no other thread running.
-pub def descriptors() -> Result[i64, Failure]:
+pub def descriptors() -> Result[i64, IoError]:
     mut count = 0
     for entry in std.fs.entries(std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?):
         entry?
         count += 1
     Ok(count)
 
-pub def counts(report: &Report) -> Result[str, Failure]:
+pub def counts(report: &Report) -> Result[str, AllocError]:
     mut text = "connections=".concat(str.from(report.connections)?)?
     text = text.concat(" requests=")?.concat(str.from(report.requests)?)?
     text = text.concat(" handler_errors=")?.concat(str.from(report.handler_errors)?)?
@@ -239,7 +239,7 @@ fn replay(inputs: &[&[u8]], step: usize) -> Vec<(String, String)> {
         blob.push_str("ff");
     }
     let source =
-        format!("{SCRIPTED}\ndef main() -> Result[(), Failure]:\n    replay(\"{blob}\", {step})?\n    Ok(())\n");
+        format!("{SCRIPTED}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.http.server.ServerError | AllocError | IoError]:\n    replay(\"{blob}\", {step})?\n    Ok(())\n");
     let text = output(&source);
     let cases: Vec<(String, String)> = text
         .split("--\n")
@@ -405,7 +405,7 @@ impl Served {
 
 /// Serves until a request to `/stop`, printing the port first and the counts last.
 const SERVE_UNTIL_STOPPED: &str = r##"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     site = app(&stop)?
@@ -523,7 +523,7 @@ from std.http.tls import TlsTransport
 pub class Secure:
     pub stop: CancellationToken
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), std.bytes.BytesError | std.http.HttpError]:
         match route:
             case Route.Echo:
                 mut body = std.bytes.empty()?
@@ -536,7 +536,7 @@ pub class Secure:
                 exchange.send_text(200, "secure")?
         Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | std.tls.TlsError | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?
@@ -614,7 +614,7 @@ import std.io
 
 const request_budget_seconds: u32 = 20u32
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | std.http.client.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(request_budget_seconds))?
     base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
@@ -650,7 +650,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     site = app(&stop)?
@@ -692,7 +692,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(total >= 1000u64, total < 2000u64).unwrap()
     stop.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     site = app(&stop)?
@@ -732,7 +732,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(until(&mut partial, "").unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     site = app(&stop)?
@@ -850,11 +850,11 @@ import std.tls
 from std.http.tls import TlsTransport
 
 pub class Secure:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), std.http.HttpError]:
         exchange.send_text(200, "secure")?
         Ok(())
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | std.tls.TlsError | AllocError | IoError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
     config = std.tls.client_config(&std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem")?)?)?
@@ -884,7 +884,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | std.tls.TlsError | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?
@@ -958,7 +958,7 @@ def faults(port: u16, stop: CancellationToken) -> ():
     std.time.sleep(&std.time.milliseconds(400u32))
     stop.cancel()
 
-def load_round() -> Result[(), Failure]:
+def load_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     mut config = std.http.server.config()
     config.drain_timeout = std.time.milliseconds(2000u32)
@@ -989,7 +989,7 @@ def load_round() -> Result[(), Failure]:
     print(summary)?
     Ok(())
 
-def fault_round() -> Result[(), Failure]:
+def fault_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     table = routes()?
     mut config = std.http.server.config()
     config.idle_connections = 2
@@ -1011,7 +1011,7 @@ def fault_round() -> Result[(), Failure]:
 
 # Each round's values are dropped when it returns, so the heap checkpoint
 # after it sees only what the round leaked.
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     before = descriptors()?
     load_round()?
     print(descriptors()? - before)?
@@ -1066,11 +1066,14 @@ pub enum Trial:
     # Reads `values[index]`.
     Trap(i64)
 
+pub enum Deliberate:
+    Fail
+
 pub class Fragile:
-    pub def handle(self, route: &Trial, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Trial, exchange: &mut Exchange[TcpStream]) -> Result[(), Deliberate | std.http.HttpError | AllocError]:
         match route:
             case Trial.Fail:
-                return Err(Failure.Unspecified)
+                return Err(Deliberate.Fail)
             case Trial.Trap(index):
                 values = [1, 2, 3]?
                 exchange.send_text(200, &str.from(values[*index])?)?
@@ -1081,7 +1084,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     drop(fetch(port, "GET /trap HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))
     print("unreachable").unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError]:
     mut table = std.http.server.router[Trial]()?
     table.add("GET", "/", Trial.Fail)?
     table.add("GET", "/trap", Trial.Trap(6))?
@@ -1118,7 +1121,7 @@ fn allocation_failure_on_the_accepting_thread_is_survived() {
 pub class Once:
     pub stop: CancellationToken
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError]:
         exchange.send_text(200, "home")?
         self.stop.cancel()
         Ok(())
@@ -1141,7 +1144,7 @@ def tag(result: &Result[Report, ServerError]) -> str:
         case Err(_):
             "other"
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/", Route.Home)?
     mut config = std.http.server.config()

@@ -46,15 +46,15 @@ from std.net import Datagram, IpAddress, NetError, Shutdown, SocketAddress, TcpL
 from std.sync import CancellationToken
 from std.time import Deadline, Instant, deadline_after, milliseconds, monotonic_now, sleep
 
-def within(ms: u32) -> Result[Deadline, Failure]:
+def within(ms: u32) -> Result[Deadline, RangeError]:
     Ok(deadline_after(&monotonic_now(), &milliseconds(ms))?)
 
-def zeroed(size: i64) -> Result[Bytes, Failure]:
+def zeroed(size: i64) -> Result[Bytes, std.bytes.BytesError]:
     mut out = std.bytes.with_capacity(size)?
     out.resize(size, 0u8)?
     Ok(out)
 
-def outcome[T](result: Result[T, NetError]) -> Result[str, Failure]:
+def outcome[T](result: Result[T, NetError]) -> Result[str, AllocError]:
     match result:
         case Ok(_):
             Ok("ok")
@@ -86,7 +86,7 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
 fn addresses_parse_and_format() {
     runs(
         r#"
-def show(text: &str) -> Result[(), Failure]:
+def show(text: &str) -> Result[(), NetError | AllocError | IoError]:
     match parse_ip(text):
         case Ok(ip):
             print(format_ip(ip)?)?
@@ -94,7 +94,7 @@ def show(text: &str) -> Result[(), Failure]:
             print(text, str.repr(error)?)?
     Ok(())
 
-def show_address(text: &str) -> Result[(), Failure]:
+def show_address(text: &str) -> Result[(), NetError | AllocError | IoError]:
     match parse_address(text):
         case Ok(address):
             print(address.format()?, address.port, address.scope)?
@@ -102,7 +102,7 @@ def show_address(text: &str) -> Result[(), Failure]:
             print(text, str.repr(error)?)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), NetError | AllocError | IoError]:
     for text in ["10.0.0.255", "::", "::1", "1::", "2001:DB8:0:0:8:800:200C:417A", "2001:db8:0:0:1:0:0:1", "2001:db8:0:1:1:1:1:1", "0:0:1:0:0:0:0:0", "::ffff:192.0.2.1", "64:ff9b::192.0.2.33", "1.2.3", "1.2.3.256", "01.2.3.4", "1:::2", "1::2::3", ":1::", "1:2:3:4:5:6:7:8:9", "12345::", "fe80::1%2", ""]?:
         show(text)?
     for text in ["127.0.0.1:80", "[::1]:65535", "[fe80::1%7]:8080", "1.2.3.4:65536", "1.2.3.4", "[::1]80", "[::1]:"]?:
@@ -140,7 +140,7 @@ const v4_size: i64 = 7
 const v6_size: i64 = 23
 
 {decoder}
-def show(data: &list[u8]) -> Result[(), Failure]:
+def show(data: &list[u8]) -> Result[(), NetError | AllocError | IoError]:
     match decoded(data, 0):
         case Ok(pair):
             (address, next) = pair
@@ -149,7 +149,7 @@ def show(data: &list[u8]) -> Result[(), Failure]:
             print(str.repr(error)?)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), NetError | AllocError | IoError]:
     show(&[4u8]?)?
     show(&[6u8, 0u8]?)?
     show(&[4u8, 0u8, 80u8, 127u8, 0u8, 0u8]?)?
@@ -167,7 +167,7 @@ std.net.NetError.InvalidAddress\nstd.net.NetError.InvalidAddress\n127.0.0.1:80 7
 fn tcp_echo_reports_short_reads_and_end_of_input() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | ThreadError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 4).unwrap()
@@ -204,7 +204,7 @@ def sink(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
         total += count
     Ok(total)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(10000u32)?
     listener = listen(&loopback_v4(0u16), 1).unwrap()
@@ -230,7 +230,7 @@ def main() -> Result[(), Failure]:
 fn connection_failures_are_named() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(2000u32)?
     mut listener = listen(&loopback_v4(0u16), 1).unwrap()
@@ -264,7 +264,7 @@ def cancel_later(token: CancellationToken) -> ():
     sleep(&milliseconds(30u32))
     token.cancel()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
     cancel = CancellationToken()?
     listener = listen(&loopback_v4(0u16), 1).unwrap()
     expired = within(0u32)?
@@ -294,7 +294,7 @@ std.net.NetError.TimedOut\n8\n",
 fn datagrams_report_their_source_and_truncation() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(2000u32)?
     mut sender = bind_udp(&loopback_v4(0u16)).unwrap()
@@ -326,7 +326,7 @@ std.net.NetError.Stream(std.io.StreamError.Io(IoError.System(90)))\n",
 fn address_selectors_outside_local_and_peer_are_invalid() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     socket = __net_open([4u8, 0u8, 0u8, 127u8, 0u8, 0u8, 1u8]?, 2u8, 0).unwrap()
     for which in [0u8, 2u8, 255u8]?:
         match __net_address(&socket, which):
@@ -345,7 +345,7 @@ def main() -> Result[(), Failure]:
 fn byte_literals_are_sent_in_place() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 4).unwrap()
@@ -378,7 +378,7 @@ fn ipv6_loopback_carries_streams_and_datagrams() {
     // A host without IPv6 reports that instead of failing the test.
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), NetError | RangeError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(2000u32)?
     match listen(&loopback_v6(0u16), 1):
@@ -403,7 +403,7 @@ def main() -> Result[(), Failure]:
 fn names_resolve_through_the_system_resolver() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), NetError | RangeError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     literal = resolve("10.1.2.3", 53u16, &deadline, &cancel).unwrap()
@@ -430,7 +430,7 @@ std.net.NetError.Cancelled\n",
 fn a_program_may_end_right_after_a_lookup() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), RangeError | AllocError | IoError]:
     cancel = CancellationToken()?
     for _ in range(8):
         print(len(resolve("localhost", 80u16, &within(5000u32)?, &cancel).unwrap()) > 0)?
@@ -447,28 +447,27 @@ fn sockets_close_with_their_owner() {
 import std.fs
 import std.path
 
-def count() -> Result[i64, Failure]:
+def count() -> Result[i64, IoError]:
     mut entries = std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?
     mut total = 0
     while entries.next()?.is_some():
         total += 1
     Ok(total)
 
-def round(deadline: &Deadline, cancel: &CancellationToken) -> Result[(), Failure]:
+def round(deadline: &Deadline, cancel: &CancellationToken) -> ():
     listener = listen(&loopback_v4(0u16), 1).unwrap()
     stream = connect(&listener.local_address().unwrap(), deadline, cancel).unwrap()
     accepted = listener.accept(deadline, cancel).unwrap()
     socket = bind_udp(&any_v4(0u16)).unwrap()
-    Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), RangeError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     # The first wait gives the token its wake descriptor, which it keeps.
-    round(&deadline, &cancel)?
+    round(&deadline, &cancel)
     before = count()?
     for _ in range(50):
-        round(&deadline, &cancel)?
+        round(&deadline, &cancel)
     print(count()? - before)?
     Ok(())
 "#,
@@ -489,7 +488,7 @@ def client(port: u16) -> Result[i64, NetError]:
     stream.write_all_before(&message, 0, message.len(), &deadline, &cancel)?
     Ok(message.len())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 1).unwrap()
@@ -508,13 +507,13 @@ def main() -> Result[(), Failure]:
 fn several_workers_accept_from_one_listener() {
     runs(
         r#"
-def ping(stream: &mut TcpStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), Failure]:
+def ping(stream: &mut TcpStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), std.bytes.BytesError]:
     message = std.bytes.from_text("ping")?
     stream.write_all_before(&message, 0, 4, deadline, cancel).unwrap()
     stream.shutdown(Shutdown.Write).unwrap()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 8).unwrap()
@@ -538,7 +537,7 @@ def main() -> Result[(), Failure]:
 fn a_selector_reports_which_sockets_are_ready() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoError]:
     cancel = CancellationToken()?
     long = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 4).unwrap()
@@ -601,7 +600,7 @@ def selecting(cancel: CancellationToken) -> Result[Instant, WaitError]:
         case _:
             Err(WaitError.TimedOut)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError | AllocError | IoError]:
     listener = listen(&loopback_v4(0u16), 1).unwrap()
     mut worst = 0u64
     for _ in range(20):
@@ -634,7 +633,7 @@ def main() -> Result[(), Failure]:
 fn accept_reports_the_handle_limit_and_keeps_the_connection() {
     runs_with(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), RangeError | AllocError | IoError]:
     cancel = CancellationToken()?
     long = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 64).unwrap()
@@ -665,7 +664,7 @@ def main() -> Result[(), Failure]:
 fn the_accept_queue_holds_about_backlog_connections() {
     runs(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), RangeError | AllocError | IoError]:
     cancel = CancellationToken()?
     listener = listen(&loopback_v4(0u16), 2).unwrap()
     address = listener.local_address().unwrap()

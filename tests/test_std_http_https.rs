@@ -61,33 +61,33 @@ from std.sync import CancellationToken
 from std.time import Deadline
 from std.tls import ClientConfig, ServerConfig
 
-def fixture(name: &str) -> Result[str, Failure]:
+def fixture(name: &str) -> Result[str, AllocError | IoError]:
     Ok(read_text(&("FIXTURES/" + name)?)?)
 
-def trusting(name: &str) -> Result[ClientConfig, Failure]:
+def trusting(name: &str) -> Result[ClientConfig, AllocError | IoError]:
     Ok(std.tls.client_config(&std.tls.roots_from_pem(&fixture(name)?).unwrap()).unwrap())
 
-def serving(chain: &str) -> Result[ServerConfig, Failure]:
+def serving(chain: &str) -> Result[ServerConfig, AllocError | IoError]:
     Ok(std.tls.server_config(&fixture(chain)?, &fixture("leaf.key")?).unwrap())
 
-def later() -> Result[Deadline, Failure]:
+def later() -> Result[Deadline, RangeError]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
 
-def url(host: &str, port: u16, path: &str) -> Result[str, Failure]:
+def url(host: &str, port: u16, path: &str) -> Result[str, AllocError]:
     Ok("https://".concat(host)?.concat(":")?.concat(&str.from(i64(port))?)?.concat(path)?)
 
 pub enum Route:
     Echo
 
 pub class Echo:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), std.bytes.BytesError | std.http.HttpError | AllocError]:
         mut body = std.bytes.empty()?
         exchange.read_all(&mut body)?
         text = exchange.request.method.concat(" ")?.concat(&exchange.path)?.concat(" ")?.concat(&body.to_text()?)?
         exchange.send_text(200, &text)?
         Ok(())
 
-def show(result: Result[hc.Fetched, ClientError]) -> Result[(), Failure]:
+def show(result: Result[hc.Fetched, ClientError]) -> Result[(), std.bytes.BytesError | AllocError | IoError]:
     match result:
         case Ok(fetched):
             print(str.from(fetched.status)?.concat(" ")?.concat(&fetched.body.to_text()?)?)?
@@ -95,13 +95,13 @@ def show(result: Result[hc.Fetched, ClientError]) -> Result[(), Failure]:
             print(error)?
     Ok(())
 
-def stats[T, C](client: &hc.Client[T, C]) -> Result[(), Failure]:
+def stats[T, C](client: &hc.Client[T, C]) -> Result[(), AllocError | IoError]:
     s = client.stats()
     print("opened=".concat(&str.from(s.opened)?)?.concat(" reused=")?.concat(&str.from(s.reused)?)?)?
     Ok(())
 
 # Reads one message head, a byte at a time so nothing after it is consumed.
-def head[R: Reader](stream: &mut R) -> Result[str, Failure]:
+def head[R: Reader](stream: &mut R) -> Result[str, std.bytes.BytesError | std.io.StreamError | AllocError]:
     mut out = std.bytes.empty()?
     mut one = std.bytes.with_capacity(1)?
     one.resize(1, 0u8)?
@@ -111,7 +111,7 @@ def head[R: Reader](stream: &mut R) -> Result[str, Failure]:
         out.extend(&one)?
     Ok(out.to_text()?.replace("\r\n", "|")?)
 
-def visits(port: u16) -> Result[(), Failure]:
+def visits(port: u16) -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     mut client = std.http.https.client(hc.config()?, trusting("ca.pem")?)?
     show(client.get(&url("localhost", port, "/")?, &later()?, &never))?
@@ -132,12 +132,12 @@ def visits(port: u16) -> Result[(), Failure]:
     show(strangers.get(&url("localhost", port, "/")?, &later()?, &never))?
     Ok(())
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
     outcome = visits(port)
     stop.cancel()
     outcome
 
-def impostor(listener: TcpListener, tls: ServerConfig) -> Result[str, Failure]:
+def impostor(listener: TcpListener, tls: ServerConfig) -> Result[str, std.net.NetError | RangeError | AllocError]:
     never = CancellationToken()?
     tcp = listener.accept(&later()?, &never)?
     match std.tls.accept(tcp, &tls, &later()?, &never):
@@ -146,7 +146,7 @@ def impostor(listener: TcpListener, tls: ServerConfig) -> Result[str, Failure]:
         case Err(_):
             Ok("impostor refused")
 
-def proxy(listener: TcpListener, tls: ServerConfig) -> Result[str, Failure]:
+def proxy(listener: TcpListener, tls: ServerConfig) -> Result[str, std.bytes.BytesError | std.net.NetError | RangeError | std.io.StreamError | AllocError]:
     never = CancellationToken()?
     mut tcp = listener.accept(&later()?, &never)?
     mut log = head(&mut tcp)?.concat("\n")?
@@ -164,7 +164,7 @@ def proxy(listener: TcpListener, tls: ServerConfig) -> Result[str, Failure]:
     refused.write_all_before(&denied, 0, denied.len(), &later()?, &never)?
     Ok(log)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | std.http.server.ServerError | std.io.StreamError | ThreadError | AllocError | IoError]:
     never = CancellationToken()?
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/", Route.Echo)?
@@ -244,11 +244,11 @@ from std.net import TcpListener
 from std.sync import CancellationToken
 from std.time import Deadline
 
-def later() -> Result[Deadline, Failure]:
+def later() -> Result[Deadline, RangeError]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
 
 # Answers each CONNECT with a 2xx reply whose Via line is 40 bytes long.
-def proxy(listener: TcpListener) -> Result[(), Failure]:
+def proxy(listener: TcpListener) -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | AllocError]:
     never = CancellationToken()?
     reply = std.bytes.from_text("HTTP/1.1 200 Connection Established\r\nVia: 1.1 a-proxy-with-a-long-name-here\r\n\r\n")?
     for index in range(2):
@@ -256,7 +256,7 @@ def proxy(listener: TcpListener) -> Result[(), Failure]:
         tcp.write_all_before(&reply, 0, reply.len(), &later()?, &never)?
     Ok(())
 
-def fetch(port: u16, max_line: i64) -> Result[(), Failure]:
+def fetch(port: u16, max_line: i64) -> Result[(), hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     mut settings = hc.config()?
     settings.limits.max_line = max_line
@@ -270,7 +270,7 @@ def fetch(port: u16, max_line: i64) -> Result[(), Failure]:
             print(error)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | ThreadError | AllocError | IoError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     with spawn(proxy, listener)? as task:
@@ -313,7 +313,7 @@ import std.time
 {imports}
 from std.sync import CancellationToken
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), hc.ClientError | RangeError | AllocError | IoError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(1u32))?
     mut client = {make}?
@@ -348,28 +348,32 @@ import std.http.tls
 import std.net
 import std.time
 import std.tls
+from std.http import HttpError
 from std.http.server import Exchange
 from std.http.tls import TlsTransport
 from std.sync import CancellationToken
 from std.time import Deadline
 
-def fixture(name: &str) -> Result[str, Failure]:
+def fixture(name: &str) -> Result[str, AllocError | IoError]:
     Ok(read_text(&("FIXTURES/" + name)?)?)
 
-def later() -> Result[Deadline, Failure]:
+def later() -> Result[Deadline, RangeError]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
 
 pub enum Route:
     Hello
 
 pub class Hello:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), HttpError]:
         exchange.send_text(200, "hello")?
         Ok(())
 
+enum Unexpected:
+    EmptyResponse
+
 # Microseconds from writing a request on a new connection, after its
 # handshake, to the first bytes of the response.
-def first_response(port: u16) -> Result[u64, Failure]:
+def first_response(port: u16) -> Result[u64, std.bytes.BytesError | std.net.NetError | RangeError | Unexpected | AllocError | IoError]:
     never = CancellationToken()?
     tls = std.tls.client_config(&std.tls.roots_from_pem(&fixture("ca.pem")?).unwrap()).unwrap()
     tcp = std.net.connect(&std.net.loopback_v4(port), &later()?, &never)?
@@ -383,10 +387,10 @@ def first_response(port: u16) -> Result[u64, Failure]:
     elapsed = std.time.monotonic_now().saturating_duration_since(&start).as_microseconds()
     drop(stream.close_before(&later()?, &never))
     if count == 0:
-        return Err(Failure.Unspecified)
+        return Err(Unexpected.EmptyResponse)
     Ok(elapsed)
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | Unexpected | AllocError | IoError]:
     for index in range(9):
         match first_response(port):
             case Ok(elapsed):
@@ -397,7 +401,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | std.http.server.ServerError | ThreadError | Unexpected | AllocError | IoError]:
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/", Route.Hello)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?

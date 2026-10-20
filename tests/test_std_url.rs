@@ -19,7 +19,7 @@ def opt(value: &Option[str]) -> Result[str, AllocError]:
         case Nothing:
             Ok("-")
 
-def show(text: &str, limit: i64) -> Result[(), Failure]:
+def show(text: &str, limit: i64) -> Result[(), std.url.UrlError | AllocError | IoError]:
     match std.url.parse(text, limit):
         case Ok(url):
             mut port = -1
@@ -54,7 +54,7 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}{HELPERS}\ndef main() -> Result[(), Failure]:\n{body}    Ok(())\n")
+    format!("{HEADER}{HELPERS}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.url.UrlError | AllocError | IoError]:\n{body}    Ok(())\n")
 }
 
 fn output(source: &str) -> String {
@@ -792,9 +792,9 @@ fn format_rejects_components_that_would_change_meaning() {
         expected.push('\n');
     }
     let source = format!(
-        "{HEADER}{HELPERS}{}\ndef main() -> Result[(), Failure]:\n{}    Ok(())\n",
+        "{HEADER}{HELPERS}{}\ndef main() -> Result[(), std.url.UrlError | AllocError | IoError]:\n{}    Ok(())\n",
         r#"
-def attempt(scheme: &str, userinfo: Option[str], host: Option[str], port: Option[i64], path: &str, query: Option[str], fragment: Option[str]) -> Result[(), Failure]:
+def attempt(scheme: &str, userinfo: Option[str], host: Option[str], port: Option[i64], path: &str, query: Option[str], fragment: Option[str]) -> Result[(), std.url.UrlError | AllocError | IoError]:
     url = Url("".concat(scheme)?, userinfo, host, port, "".concat(path)?, query, fragment)
     match url.format():
         case Ok(text):
@@ -1053,7 +1053,7 @@ fn a_url_borrow_blocks_mutating_its_owner() {
         r#"
 import std.url
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.url.UrlError | IoError]:
     mut url = std.url.parse("s://h/p", 64)?
     path = &url.path
     url.path = "/other"
@@ -1073,7 +1073,7 @@ def work(text: str) -> ():
     url = std.url.parse(&text, 256).unwrap()
     print(url.format().unwrap() == text, std.url.encode("a b", Component.Segment).unwrap()).unwrap()
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), ThreadError]:
     with spawn(work, "https://example.com/a?b=c")?:
         pass
     Ok(())
