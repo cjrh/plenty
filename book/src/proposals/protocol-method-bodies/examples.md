@@ -1,7 +1,7 @@
 # Short programs with final protocol methods
 
-**Hypothetical Plenty.** These complete sketches explore the
-[candidate rules](final-and-visibility.md); the current compiler does not accept
+**Hypothetical Plenty.** These complete sketches illustrate the
+[agreed core rules](final-and-visibility.md); the current compiler does not accept
 them. The research harness runs handwritten current-language equivalents of
 their algorithms, not the new dispatch or conformance rules.
 
@@ -174,7 +174,7 @@ pub protocol DocumentStorage:
 from library import DocumentStorage
 
 pub class FileStorage:
-    allow DocumentStorage.write  # Hypothetical, explicit access grant.
+    allow DocumentStorage.write  # Agreed access-grant syntax; not implemented.
 
     def write(self: &mut FileStorage, document: &str) -> Result[(), IoError]:
         # Perform the actual file operation.
@@ -189,8 +189,6 @@ def persist[S: DocumentStorage](storage: &mut S, document: &str) -> Result[(), I
 Here the class author explicitly permits the real library's protocol to call
 `write`; the application cannot create an equivalent protocol to acquire that
 permission. No separate implementation block is required. Ordinary module
-privacy would still let code inside `backend.plenty` call its own hook; strict
-protocol-body-only access would require a stronger rule.
-
-The `allow` spelling is only a discussion aid. Whether the extra class-side
-declaration is worthwhile compared with a wrapper/capability is still open.
+privacy still lets code inside `backend.plenty` call its own hook. All methods
+defined in `DocumentStorage` may use the grant, but standalone helpers in
+`library.plenty` do not inherit it. Class-only privacy was not selected.

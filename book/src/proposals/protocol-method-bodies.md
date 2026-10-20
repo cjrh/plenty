@@ -16,12 +16,14 @@ This investigates sharing implementations. The earlier
 preventing callers from bypassing an algorithm; it remains relevant, because
 ordinary overridable defaults do not provide that guarantee.
 
-The follow-up [final-method and visibility candidate](protocol-method-bodies/final-and-visibility.md)
-lets each declaration choose whether its body is replaceable. It explores
-rejecting a same-named inherent method at the structural boundary, with
-[three short programs](protocol-method-bodies/examples.md). That final check
-is a modest addition once provided-method selection exists; hidden external
-hooks remain a separate access-control change.
+The follow-up [final-method and visibility design](protocol-method-bodies/final-and-visibility.md)
+records the agreed core semantics: defaults honor overrides consistently,
+final methods reject same-named inherent methods at the structural boundary,
+and private hooks use member-specific grants while preserving module privacy.
+[Three short programs](protocol-method-bodies/examples.md) illustrate the rules.
+The final-name check is a modest addition once provided-method selection exists;
+hidden external hooks require additional access-control machinery. Some
+specification work remains, and no compiler implementation is approved here.
 
 ## One example, three distinct choices
 
@@ -159,13 +161,17 @@ cost, not a lookup model Plenty can copy unchanged.
 
 ## Suggested direction
 
-The initial assessment favored **protocol-owned operations with explicit
-selection** as the smallest extension. The follow-up candidate explores a more
-expressive alternative: ordinary bodies are overridable defaults, `final`
-bodies are fixed, and either can be selected through a bound or qualification.
-It retains explicit structural matching without globally injecting methods.
-The short programs make this candidate worth evaluating before settling on
-qualified-only calls. Neither approach alone solves the private-hook scenario.
+The selected direction uses overridable defaults and `final` bodies, selected
+through a bound or protocol qualification. Both forms honor overrides for
+non-final methods, including calls inside other protocol methods. Objects do
+not acquire inherent methods automatically. Matching requires signature and
+visibility equality, and cross-module private hooks require
+`allow Protocol.method`; module privacy otherwise stays unchanged.
+
+The earlier qualified-call alternative that always invokes the original body
+is not selected. The [design page](protocol-method-bodies/final-and-visibility.md)
+separates agreed rules from the remaining specification work, particularly
+checking bodies against their declared contract.
 
 The [implementation map and probes](protocol-method-bodies/evidence.md) show
 what already works and where the remaining compiler work lies. No new feature
