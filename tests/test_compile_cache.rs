@@ -707,15 +707,29 @@ fn a_different_compiler_rebuilds_the_program() {
     let copy = dir.path().join("plenty-copy");
     std::fs::copy(env!("CARGO_BIN_EXE_plenty"), &copy).unwrap();
     let emit_with = |compiler: &Path| {
-        let output = Command::new(compiler)
-            .args(["--cache-stats", "--emit-object"])
-            .arg(root.join("main.plenty"))
-            .arg("-o")
-            .arg(root.join("main.o"))
-            .env_remove("PLENTY_CACHE")
-            .env("PLENTY_CACHE_DIR", &cache)
-            .output()
-            .unwrap();
+        // A child forked by a concurrent test can briefly inherit the copy's
+        // write descriptor, and Linux refuses to execute a file open for
+        // writing (ETXTBSY), so retry until that child has exec'd.
+        let mut attempts = 0;
+        let output = loop {
+            match Command::new(compiler)
+                .args(["--cache-stats", "--emit-object"])
+                .arg(root.join("main.plenty"))
+                .arg("-o")
+                .arg(root.join("main.o"))
+                .env_remove("PLENTY_CACHE")
+                .env("PLENTY_CACHE_DIR", &cache)
+                .output()
+            {
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::ExecutableFileBusy && attempts < 100 =>
+                {
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                output => break output.unwrap(),
+            }
+        };
         assert!(output.status.success());
         Run {
             output,
@@ -728,9 +742,8 @@ fn a_different_compiler_rebuilds_the_program() {
     assert_eq!(program(&emit_with(&copy)), Some(true));
     // A rebuilt compiler has a new modification time.
     let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
-    std::fs::File::options()
-        .write(true)
-        .open(&copy)
+    // Read-only, so this opens no second write descriptor to the executable.
+    std::fs::File::open(&copy)
         .unwrap()
         .set_modified(later)
         .unwrap();
