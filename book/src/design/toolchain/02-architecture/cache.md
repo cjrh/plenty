@@ -228,6 +228,30 @@ work is: give lowering a per-module view built from imported interfaces, make
 instance and string tables per module and merge them afterwards, serialize
 operations and types, and keep program-order diagnostics.
 
+No smaller artifact pays for itself (issue #317). Loading a stored tree
+allocates every node, as building it does, so a copy of a phase's result
+bounds what loading it costs:
+
+| Phase output (release compiler, system allocator) | Building it | Copying it |
+|---|---|---|
+| Syntax trees of the 1,000-unit program | 63 ms to parse | 40 ms |
+| Operations of the 1,000-unit program (7,001 functions) | 109 ms to lower | 15 ms |
+| Operations of a program importing `std.http.server` (605 functions) | 19 ms to lower | 0.5 ms |
+
+Stored syntax trees would save at most a third of parsing, about 5% of a
+warm build after an edit. Name resolution rewrites those trees in place and
+costs less than a copy of them (20 ms for the 1,000 units split into ten
+modules). Only lowered operations are much cheaper to load than to build, so
+a module artifact must hold them, and that needs the lowering work above. A
+program that is one module, such as `compile_bench`'s, would need the same
+artifacts per function.
+
+For `std`, lowering only the functions a program reaches would cut work in
+every build, cold or warm: in a program that imports `std.http.server` and
+prints, the calls in its operations reach 64 of the 222 `std` functions
+(drop hooks and thread, executor and sort adapters, not counted, reach more),
+and in `examples/http_server_bench.plenty` 155 of 230.
+
 **Remote and shared cache.** The same keys over HTTP to a content-addressed
 store would serve CI and teams. It must be optional and opt-in, readable by
 default and written only by trusted builders such as CI, perhaps through the
@@ -259,3 +283,15 @@ cache warm in both cases, paired runs on a loaded host):
 What remains on a hit is mostly linking. A build after an edit misses; it
 also hashes the sources and writes the entry, about 1% more instructions for
 the 1,000-unit program.
+
+A build that misses its program entry, as after an edit, runs the whole
+frontend even with every function cached (`--emit-object`, profile build,
+eight cores):
+
+| Program | Build | Parsing | Name resolution | Lowering | Object emission |
+|---|---|---|---|---|---|
+| 1,000 units in ten modules | 267 ms | 41 ms | 20 ms | 103 ms | 90 ms |
+| `import std.http.server` and `print` | 51 ms | 9 ms | 3 ms | 17 ms | 19 ms |
+
+With `plenty --compile`, these builds take 3.16 G and 0.62 G instructions,
+and 3.08 G for the 1,000 units as one module.
