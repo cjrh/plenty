@@ -270,6 +270,31 @@ impl Ty {
         }
         false
     }
+    /// The first value kind that keeps `str.repr` from formatting this type,
+    /// looking through enums, tuples, options and results.
+    pub fn format_blocker(&self) -> Option<FormatBlocker> {
+        let mut work = vec![self];
+        let mut seen = crate::hash::HashSet::default();
+        while let Some(ty) = work.pop() {
+            match ty {
+                Self::Generator(_) => return Some(FormatBlocker::Generator),
+                Self::Closure(_) => return Some(FormatBlocker::Closure),
+                Self::Task(_) => return Some(FormatBlocker::Task),
+                Self::Ref(..) => return Some(FormatBlocker::Reference),
+                Self::Enum(t) if t.get().restricted_storage && seen.insert(&*t.name) => {
+                    work.extend(
+                        t.local()
+                            .variants
+                            .iter()
+                            .rev()
+                            .flat_map(|v| v.fields.iter().rev()),
+                    );
+                }
+                _ => {}
+            }
+        }
+        None
+    }
     pub fn contains_reference(&self) -> bool {
         // Composite references are rejected at their construction boundary.
         matches!(self, Self::Ref(..)) || matches!(self, Self::Closure(t) if t.borrowed)
@@ -420,6 +445,58 @@ impl Ty {
                 name
             }
             _ => self.to_string(),
+        }
+    }
+}
+
+/// A value kind that cannot be formatted, for diagnostics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FormatBlocker {
+    Generator,
+    Closure,
+    Task,
+    Reference,
+}
+
+impl FormatBlocker {
+    pub fn plural(self) -> &'static str {
+        match self {
+            Self::Generator => "generators",
+            Self::Closure => "closures",
+            Self::Task => "scoped tasks",
+            Self::Reference => "references",
+        }
+    }
+    pub fn singular(self) -> &'static str {
+        match self {
+            Self::Generator => "a generator",
+            Self::Closure => "a closure",
+            Self::Task => "a scoped task",
+            Self::Reference => "a reference",
+        }
+    }
+    /// The diagnostic for formatting a value of type `ty` whose first
+    /// unformattable part is this kind.
+    pub fn message(self, ty: &Ty) -> String {
+        let direct = matches!(
+            (self, ty),
+            (Self::Generator, Ty::Generator(_))
+                | (Self::Closure, Ty::Closure(_))
+                | (Self::Task, Ty::Task(_))
+                | (Self::Reference, Ty::Ref(..))
+        );
+        if direct {
+            let advice = match self {
+                Self::Closure => "; call the closure and format its result",
+                _ => "",
+            };
+            format!("{} cannot be formatted{advice}", self.plural())
+        } else {
+            format!(
+                "`{ty}` holds {}, and {} cannot be formatted; match the value and format its parts instead",
+                self.singular(),
+                self.plural()
+            )
         }
     }
 }

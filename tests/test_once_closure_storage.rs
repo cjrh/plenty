@@ -99,3 +99,37 @@ def main() -> ():
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n4\n");
 }
+
+fn format_error(body: &str) -> String {
+    let source = format!("def main() -> ():\n    n = 1\n{body}");
+    check_source(&source).unwrap_err().to_string()
+}
+
+#[test]
+fn formatting_a_closure_names_the_closure() {
+    let error =
+        format_error("    f = def [n]() -> i64:\n        n\n    print(str.repr(f)).unwrap()\n");
+    assert!(
+        error.contains("closures cannot be formatted; call the closure and format its result"),
+        "{error}"
+    );
+    assert!(!error.contains("generators"), "{error}");
+}
+
+#[test]
+fn formatting_a_spawn_error_of_a_closure_names_the_error() {
+    let source = "def attempt() -> Result[(), SpawnError[OnceClosure[[], i64]]]:\n    n = 1\n    job = def once [n]() -> i64:\n        n\n    with spawn(job)? as task:\n        task.join()\n    Ok(())\ndef main() -> ():\n    print(str.repr(attempt()).unwrap()).unwrap()\n";
+    let error = check_source(source).unwrap_err().to_string();
+    assert!(error.contains("SpawnError[OnceClosure[[], i64]"), "{error}");
+    assert!(
+        error.contains("holds a closure, and closures cannot be formatted"),
+        "{error}"
+    );
+}
+
+#[test]
+fn formatting_a_generator_still_names_the_generator() {
+    let source = "def count(n: i64) -> Generator[i64]:\n    yield n\ndef main() -> ():\n    print(str.repr(count(1))).unwrap()\n";
+    let error = check_source(source).unwrap_err().to_string();
+    assert!(error.contains("generators cannot be formatted"), "{error}");
+}
