@@ -9,6 +9,10 @@
 
 ## Motivation and precedent
 
+The separate [language editions proposal](language-editions.md) considers an
+optional package edition that could also appear in this header. Neither
+proposal depends on implementing the other.
+
 A small utility should be one file that can be copied, inspected, marked
 executable, and run. Requiring a directory, manifest and wrapper just to use a
 dependency discourages that workflow. The same file should remain ordinary

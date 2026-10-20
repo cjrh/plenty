@@ -43,6 +43,7 @@ coverage. This is a status review, not a fresh execution of every feature test.
 | Topic | Start here | Related decisions |
 | --- | --- | --- |
 | Executable scripts and embedded metadata | [Single-file scripts](single-file-scripts.md) | [Modules and entry points](entrypoints-modules-and-tutorials.md), [current packages](../design/toolchain/01-building/packages.md) |
+| Mixed-edition packages and language evolution | [Package language editions](language-editions.md) | [Current packages](../design/toolchain/01-building/packages.md), [script metadata](single-file-scripts.md) |
 | Protocol bodies, defaults, `final`, and private hooks | [Protocol method bodies](protocol-method-bodies.md) | [Agreed rules](protocol-method-bodies/final-and-visibility.md), [short programs](protocol-method-bodies/examples.md), [existing wrappers and capabilities](library-owned-operations.md) |
 | Error composition | [Composition overview](error-composition.md) | [Anonymous sums and the `Failure` policy](error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](error-composition/streams-and-evidence.md) |
 | Ownership and state | [Typestate](typestate-and-owned-transitions.md) | [Linear obligations](linear-obligations.md), [resolution scopes](linear-scope-resolution.md), [integration boundaries](linear-integration.md) |
@@ -83,6 +84,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | Proposal | Backlog |
 | --- | --- |
 | [Single-file scripts with embedded manifests](single-file-scripts.md) — `plenty script`, isolated resolution and cached builds | B17 |
+| [Package language editions](language-editions.md) — exploratory compatibility mechanism; no editions implemented | B17 |
 | [Linear obligations](linear-obligations.md), including [aggregate and error rules](linear-obligations/values-and-errors.md) — opt-in non-abandonment | B72 (issue #149) |
 | [Synchronous resolution scopes](linear-scope-resolution.md) — consuming scope policy; depends on linear obligations | B72 (issue #149) |
 | [Linearity, typestate, and execution responsibility](linear-integration.md) — shared boundaries and deferred worker/async contracts | B72 (issue #149) |
