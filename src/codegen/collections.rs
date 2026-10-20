@@ -369,6 +369,8 @@ impl Lowerer<'_, '_> {
                 (!ty.prints_generator_frame() && !ty.recursive_data()).then_some(ty)
             }
             CollectionOp::Next(_) => Some(&output),
+            // The runtime chooses the traversal from the iterable's kind.
+            CollectionOp::TextTryJoin(ty) => Some(ty),
             CollectionOp::Range(_) => Some(&output),
             CollectionOp::Len(t)
             | CollectionOp::Get(t)

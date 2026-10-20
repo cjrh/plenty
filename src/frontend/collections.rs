@@ -1242,6 +1242,65 @@ impl Lower<'_> {
         Ok(plan)
     }
 
+    /// `separator.join(iterable)` accepts every iterable whose `for` element is
+    /// `str`. Collections and strings are observed and measured before the one
+    /// output allocation; a generator is one-shot, so it is consumed like a
+    /// loop source and its pieces are buffered (`text-building.md`).
+    fn join_text(&mut self, argument: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
+        let owned = match &ungroup(argument).kind {
+            Expression::Name(name) => self.names.get(name).map(|local| &local.ty),
+            _ => None,
+        };
+        let owned = matches!(owned, Some(Ty::Generator(_)));
+        let place = self.place_type(argument).filter(|_| !owned);
+        let (ty, loans) = if owned {
+            let ty = self.value(argument, ops)?;
+            let slot = self.slot(ty.clone(), &argument.at)?;
+            ops.extend([Op::StoreLocal(slot), Op::LoadLocal(slot)]);
+            self.expression_temps.push(slot);
+            (ty, vec![])
+        } else {
+            // An empty display such as `[]?` or `[].unwrap()` has no element
+            // to infer from; `join` supplies `str`.
+            let literal = match &ungroup(argument).kind {
+                Expression::Try(inner) => &ungroup(inner).kind,
+                Expression::Method(inner, method, unwrap_args, _)
+                    if method == "unwrap" && unwrap_args.is_empty() =>
+                {
+                    &ungroup(inner).kind
+                }
+                kind => kind,
+            };
+            let hint = match literal {
+                Expression::Collection { kind, .. } if kind == "list" => {
+                    Some(Ty::List(Arc::new(Ty::Str)))
+                }
+                Expression::Collection { kind, .. } if kind == "set" => {
+                    Some(Ty::Set(Arc::new(Ty::Str)))
+                }
+                _ => None,
+            };
+            self.observe_expected(argument, hint, ops)?
+        };
+        if ty.element() != Some(Ty::Str) {
+            return Err(argument.at.error(format!(
+                "join requires an iterable of str (a list, set, dictionary keys, str, or generator), got {ty}"
+            )));
+        }
+        // Advancing through a reference would leave the caller's generator
+        // exhausted; `for` and `join` consume generators alike.
+        if matches!(ty, Ty::Generator(_)) && (place.is_some() || !loans.is_empty()) {
+            return Err(argument
+                .at
+                .error("join consumes a generator; pass it by value, not by reference"));
+        }
+        let operation = CollectionOp::TextTryJoin(ty);
+        let (_, result) = operation.signature();
+        ops.push(Op::Collection(operation));
+        Self::end_reads(loans, ops);
+        Ok(result)
+    }
+
     fn iteration_adapter(
         &mut self,
         names: &[String],
@@ -2619,6 +2678,11 @@ impl Lower<'_> {
                     format!("{name} requires one argument")
                 }));
             }
+            if name == "join" {
+                let result = self.join_text(&args[0], ops)?;
+                Self::end_reads(loans, ops);
+                return Ok(Some(result));
+            }
             let (expected, operation) = match name {
                 "concat" => (Ty::Str, CollectionOp::TextTryConcat),
                 "split" => (Ty::Str, CollectionOp::TextTrySplit),
@@ -2632,7 +2696,7 @@ impl Lower<'_> {
                 "repeat" => (Ty::I64, CollectionOp::TextTryRepeat),
                 "removeprefix" => (Ty::Str, CollectionOp::TextTryRemovePrefix),
                 "removesuffix" => (Ty::Str, CollectionOp::TextTryRemoveSuffix),
-                _ => (Ty::List(Arc::new(Ty::Str)), CollectionOp::TextTryJoin),
+                _ => unreachable!("join is lowered above"),
             };
             let mut argument_loans = vec![];
             for argument in args {
