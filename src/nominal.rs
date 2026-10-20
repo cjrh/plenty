@@ -212,6 +212,49 @@ impl Definition for EnumType {
 }
 
 impl Ty {
+    fn clone_child(child: &Arc<Self>) -> Arc<Self> {
+        child
+            .promoted()
+            .map(Arc::new)
+            .unwrap_or_else(|| child.clone())
+    }
+
+    /// Rebuild paths to stored edges, retaining callable signature copying.
+    /// Visit structural children once without following nominal table links:
+    /// rescanning before cloning would be quadratic for deeply nested types.
+    fn promoted(&self) -> Option<Self> {
+        match self {
+            Self::Class(t) if matches!(t.link, Link::Weak(..) | Link::Stored(..)) => {
+                Some(Self::Class(t.clone()))
+            }
+            Self::Enum(t) if matches!(t.link, Link::Weak(..) | Link::Stored(..)) => {
+                Some(Self::Enum(t.clone()))
+            }
+            Self::List(t) => t.promoted().map(|t| Self::List(Arc::new(t))),
+            Self::Set(t) => t.promoted().map(|t| Self::Set(Arc::new(t))),
+            Self::Box(t) => t.promoted().map(|t| Self::Box(Arc::new(t))),
+            Self::Shared(t) => t.promoted().map(|t| Self::Shared(Arc::new(t))),
+            Self::Future(t) => t.promoted().map(|t| Self::Future(Arc::new(t))),
+            Self::Channel(t, sender) => t.promoted().map(|t| Self::Channel(Arc::new(t), *sender)),
+            Self::Ref(t, mutable) => t.promoted().map(|t| Self::Ref(Arc::new(t), *mutable)),
+            Self::Dict(k, v) => {
+                let key = k.promoted();
+                let value = v.promoted();
+                if key.is_none() && value.is_none() {
+                    None
+                } else {
+                    Some(Self::Dict(
+                        key.map(Arc::new).unwrap_or_else(|| k.clone()),
+                        value.map(Arc::new).unwrap_or_else(|| v.clone()),
+                    ))
+                }
+            }
+            // Callable signatures keep their existing promotion/copying path.
+            Self::Callable(t) => Some(Self::Callable(Arc::new((**t).clone()))),
+            _ => None,
+        }
+    }
+
     fn weaken(&self) -> Self {
         match self {
             Self::Class(t) => Self::Class(t.weaken()),
@@ -241,17 +284,17 @@ impl Clone for Ty {
     fn clone(&self) -> Self {
         match self {
             Self::Task(t) => Self::Task(t.clone()),
-            Self::Channel(t, sender) => Self::Channel(Arc::new((**t).clone()), *sender),
-            Self::Future(t) => Self::Future(Arc::new((**t).clone())),
+            Self::Channel(t, sender) => Self::Channel(Self::clone_child(t), *sender),
+            Self::Future(t) => Self::Future(Self::clone_child(t)),
             Self::Atomic(t) => Self::Atomic(t.clone()),
             Self::Class(t) => Self::Class(t.clone()),
             Self::Enum(t) => Self::Enum(t.clone()),
-            Self::List(t) => Self::List(Arc::new((**t).clone())),
-            Self::Set(t) => Self::Set(Arc::new((**t).clone())),
-            Self::Dict(k, v) => Self::Dict(Arc::new((**k).clone()), Arc::new((**v).clone())),
-            Self::Box(t) => Self::Box(Arc::new((**t).clone())),
-            Self::Shared(t) => Self::Shared(Arc::new((**t).clone())),
-            Self::Ref(t, m) => Self::Ref(Arc::new((**t).clone()), *m),
+            Self::List(t) => Self::List(Self::clone_child(t)),
+            Self::Set(t) => Self::Set(Self::clone_child(t)),
+            Self::Dict(k, v) => Self::Dict(Self::clone_child(k), Self::clone_child(v)),
+            Self::Box(t) => Self::Box(Self::clone_child(t)),
+            Self::Shared(t) => Self::Shared(Self::clone_child(t)),
+            Self::Ref(t, m) => Self::Ref(Self::clone_child(t), *m),
             Self::Callable(t) => Self::Callable(Arc::new((**t).clone())),
             Self::BoxedCallable(t) => Self::BoxedCallable(t.clone()),
             Self::Closure(t) => Self::Closure(t.clone()),
@@ -282,6 +325,9 @@ impl Clone for Ty {
         }
     }
 }
+
+#[cfg(test)]
+mod clone_tests;
 
 #[cfg(test)]
 mod tests {
