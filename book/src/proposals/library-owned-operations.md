@@ -9,6 +9,10 @@ remain [protocols](../design/language/07-generics/protocols.md),
 [classes](../design/language/03-types/classes.md). Any future access extension
 belongs to [B29](../backlog.md).
 
+The later [protocol method-body sketch](protocol-method-bodies.md) explores
+sharing implementations separately from private access and fixed algorithms.
+It does not change this assessment's existing-language guarantees.
+
 ## Introduction
 
 A library sometimes needs to let other packages customize one step of an
