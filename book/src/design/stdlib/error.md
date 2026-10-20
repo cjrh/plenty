@@ -39,7 +39,7 @@ in a `Context` nor unwraps one, and the
 applies to `Context[E]` as to any error type. A `Context` moves, because it can
 own a path. Its fields are public: read `error.cause` or match it to recover the
 typed cause, at any nesting depth. `?` in a function returning
-`Result[T, Failure]` erases a `Context` like any other error.
+legacy `Result[T, Failure]` erases a `Context` like any other error; list `Context[E]` in the sum to keep it.
 
 ## Explicit error mapping
 
@@ -65,7 +65,7 @@ and no cause-preservation policy is invented. Use [`context`](#allocation-failur
 or `path_context` when their explicit context-allocation policy fits.
 
 This is a library function, not a Result method; `.map_err(...)` is not
-implemented. `?` still requires identical error types (except deliberate
+implemented. `?` still requires identical error types (except legacy
 `Failure` erasure). The conversion is visible at the `map_error` call.
 See [the lesson](../../tutorial/03-absence/error-details.md).
 

@@ -36,8 +36,7 @@ them a shutdown protocol. Fatal traps terminate the process without unwinding.
 A failed start reports `ThreadError`; an owned closure job reports
 `SpawnError[F]`, which returns the job. Like any `?`, the start error widens
 into the enclosing Result's error sum, so `main` above lists `ThreadError`
-beside the worker's `AllocError` and the printing `IoError`. A return type with
-`Failure` also accepts it. A sum without the start error is rejected.
+beside the worker's `AllocError` and the printing `IoError`. A sum without the start error is rejected.
 
 Later lessons use module-level [error aliases](../03-absence/anonymous-sums.md)
 to keep longer signatures readable. Each alias names that example's propagated

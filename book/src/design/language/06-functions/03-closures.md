@@ -23,7 +23,7 @@ def counter(start: i64) -> Closure[[], i64]:
         start = start + 1
         start
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut count = counter(2)
     print(count())?
     print(count())?

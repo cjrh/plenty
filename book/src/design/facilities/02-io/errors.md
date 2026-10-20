@@ -17,7 +17,7 @@
 
 Constructing, matching, and propagating these errors adds no allocation.
 The [ordinary error rules](../../language/08-errors/index.md) determine whether
-details are retained or erased into `Failure`.
+details are retained or erased by legacy `Failure`.
 
 File operations report `Closed` before mode errors. Reads and writes validate
 capabilities even for zero-length work. Negative read limits mean unbounded
