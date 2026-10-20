@@ -1373,3 +1373,122 @@ fn calls_after_the_receiver_drops_or_that_do_not_wait_run() {
         runs(&source, "done\n");
     }
 }
+
+/// Helpers that return a future they are handed, or one they submit
+/// themselves (issue #352).
+const RETURNING: &str =
+    "def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
+    match result:
+        case Ok(future):
+            Ok(future)
+        case Err(_):
+            Err(\"submission failed\")
+
+def same(future: Future[()]) -> Future[()]:
+    future
+
+def wrapped(future: Future[()]) -> Option[Future[()]]:
+    Some(future)
+
+def again[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
+    submitted(result)
+
+def start(pool: &ThreadPoolExecutor, sender: Sender[i64]) -> Result[Future[()], str]:
+    submitted(pool.submit(produce, sender))
+
+def finished(future: Future[()]) -> bool:
+    future.result().is_ok()
+
+def keep(receiver: Receiver[i64], done: bool) -> bool:
+    drop(receiver)
+    done
+
+";
+
+/// `main` for issue #352 probes: `sender` goes to the job, `receiver` stays,
+/// and `other` stays live without a matching sender in any job.
+fn returning_main(body: &str) -> String {
+    format!(
+        "from std.concurrent import Future
+{PRODUCE}{RETURNING}def main() -> Result[(), AllocError | IoError | ChannelError | PoolError | str]:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        sender, receiver = channel[i64](1)?
+        unrelated, other = channel[str](1)?
+{body}        drop(unrelated)
+        drop(other)
+    print(\"done\")?
+    Ok(())
+"
+    )
+}
+
+#[test]
+fn a_future_returned_by_a_helper_keeps_its_job() {
+    let waits = "this result() waits for a job that holds `Sender[i64]` \
+                 while `receiver` still holds `Receiver[i64]`";
+    for (statement, expected) in [
+        ("future = submitted(pool.submit(produce, sender))?", waits),
+        (
+            "submission = pool.submit(produce, sender)\n        future = submitted(submission)?",
+            waits,
+        ),
+        (
+            "future = same(pool.submit(produce, sender).unwrap())",
+            waits,
+        ),
+        (
+            "future = wrapped(pool.submit(produce, sender).unwrap()).unwrap()",
+            waits,
+        ),
+        ("future = again(pool.submit(produce, sender))?", waits),
+        (
+            "future = same(same(pool.submit(produce, sender).unwrap()))",
+            waits,
+        ),
+        // The callee submits the job itself.
+        ("future = start(&pool, sender)?", waits),
+    ] {
+        let source = returning_main(&format!(
+            "        {statement}\n        ok = future.result().is_ok()\n        drop(receiver)\n"
+        ));
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{statement}\n{error}");
+        assert!(
+            error.contains("the job is submitted here"),
+            "{statement}\n{error}"
+        );
+    }
+}
+
+#[test]
+fn a_returned_future_is_checked_where_a_call_or_statement_waits_for_it() {
+    for (statement, expected) in [
+        // A call handed the returned future (issue #349).
+        (
+            "future = submitted(pool.submit(produce, sender))?\n        ok = finished(future)",
+            "this call to `finished` can wait for the result of a job that holds `Sender[i64]` \
+             while `receiver` still holds `Receiver[i64]`",
+        ),
+        // The statement holds `receiver` across the wait (issue #347).
+        (
+            "ok = keep(receiver, submitted(pool.submit(produce, sender))?.result().is_ok())",
+            "this result() waits for a job that holds `Sender[i64]` \
+             while the expression being evaluated still holds `Receiver[i64]`",
+        ),
+    ] {
+        let source = returning_main(&format!("        {statement}\n"));
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{statement}\n{error}");
+    }
+}
+
+#[test]
+fn futures_returned_by_helpers_run_once_the_receiver_drops() {
+    for statement in [
+        "drop(receiver)\n        future = submitted(pool.submit(produce, sender))?\n        ok = future.result().is_ok()",
+        "future = start(&pool, sender)?\n        drop(receiver)\n        ok = same(future).result().is_ok()",
+        "future = again(pool.submit(produce, sender))?\n        drop(receiver)\n        ok = finished(future)",
+    ] {
+        runs(&returning_main(&format!("        {statement}\n")), "done\n");
+    }
+}

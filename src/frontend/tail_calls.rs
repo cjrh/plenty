@@ -168,6 +168,7 @@ fn expression_endings(
                 | Op::Returning(..)
                 | Op::Building(_)
                 | Op::Passes(_)
+                | Op::Forwards(_)
         )
     });
     match last {

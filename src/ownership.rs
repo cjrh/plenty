@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 mod calls;
 mod futures;
-pub use calls::Program;
+pub use calls::{future_results, Program};
 
 /// Source position of the operations that follow an `Op::Site` marker in the
 /// same sequence. Nested blocks inherit it until they place their own marker.
@@ -541,7 +541,7 @@ pub fn check(
         statements: RefCell::default(),
         futures: crate::profile_block!(
             "ownership::prepare_futures",
-            futures::Futures::new(ops, locals.len())
+            futures::Futures::new(ops, locals.len(), program)
         ),
     };
     let mut state = crate::profile_block!(

@@ -184,7 +184,7 @@ impl Lower<'_> {
         let start = ops.len();
         let loans = self.call_arguments(args, &function.inputs, ops)?;
         self.mark_call(at, ops);
-        self.passes(start, &function.inputs, ops);
+        self.passes(start, &function.inputs, function.outputs.first(), ops);
         ops.push(Op::BoxedCallableCall(signature.clone()));
         Self::end_reads(loans, ops);
         ops.push(Op::UseLoan(loan));
@@ -377,7 +377,7 @@ impl Lower<'_> {
         let start = ops.len();
         let loans = self.call_arguments(args, &function.inputs, ops)?;
         self.mark_call(&callee.at, ops);
-        self.passes(start, &function.inputs, ops);
+        self.passes(start, &function.inputs, function.outputs.first(), ops);
         self.push_call(Op::CallIndirect(sig.clone()), &function.inputs, &loans, ops);
         // A structural callable has no function-specific field projection summary.
         // Retain the full origin loan even when today's value happens to be named.
