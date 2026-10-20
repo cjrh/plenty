@@ -98,8 +98,24 @@ the sender's inner guard before `task.join()`. Other shared sender handles still
 count; a drop on only one branch does not release a handle on other paths. A
 failed later task start also joins earlier tasks before any later guard exists.
 
-The diagnostic reports the join or the `with` statement, each binding that holds
-a matching endpoint, the early exit that reaches the join, and, for an explicit
+The error that `?` propagates is a holder too: the function keeps it until it
+returns, after the exit's joins and pool shutdowns. A failed consuming start's
+`SpawnError[F]` retains the unstarted job and every endpoint it captured, so a
+consumer started earlier in the same statement, or in an enclosing task block,
+is rejected when the job captures the consumer's sender:
+
+```text
+with spawn(consumer)? as task, spawn(producer)?:  # producer captures the sender
+    task.join()?
+```
+
+Erasing the error into `Failure` drops the job before the joins. To keep a
+precise error, pass the endpoint to `spawn` as a named argument,
+`spawn(produce, sender)?`: a failed named start reports `ThreadError` and drops
+its arguments first.
+
+The diagnostic reports the join or the `with` statement, each binding or
+propagated error that holds a matching endpoint, the early exit that reaches the join, and, for an explicit
 join, where the task starts.
 
 Pool shutdown checks sending jobs against surviving receivers.

@@ -609,6 +609,38 @@ fn receiver_outside_the_pool_block_cannot_reach_the_shutdown() {
 }
 
 #[test]
+fn failed_job_start_cannot_keep_its_receiver_alive_through_the_shutdown() {
+    // Issue #344: the `SpawnError` keeps the consumer and its receiver until
+    // the function returns, after the pool drains the producer.
+    let error = blocked_shutdown(
+        "def main() -> Result[(), ChannelError | PoolError | SpawnError[OnceClosure[[], Result[i64, RecvError]]] | SubmitError[OnceClosure[[], ()]]]:
+    sender, receiver = channel[i64](1)?
+    consumer = def once [receiver]() -> Result[i64, RecvError]:
+        receiver.recv()
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+        with spawn(consumer)?:
+            pass
+    Ok(())
+",
+    );
+    assert!(
+        error.contains(
+            "while the error that `?` propagates still holds `Receiver[i64]`: a full queue could \
+             block the job's send, and the shutdown, forever"
+        ),
+        "{error}"
+    );
+    assert!(
+        error.contains(
+            "14:14: note: the error that `?` propagates here holds `Receiver[i64]` until this \
+             function returns"
+        ),
+        "{error}"
+    );
+}
+
+#[test]
 fn receiver_guard_order_decides_whether_it_outlives_the_shutdown() {
     runs(
         &format!(

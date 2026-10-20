@@ -272,26 +272,151 @@ queue(job)
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_producer_start_drops_its_endpoint_and_successful_peers_finish() {
-    // B71: keeps `Failure` deliberately. Erasure drops the unstarted producer
-    // and its `Sender` before the consumer is joined. Propagating
-    // `SpawnError[F]` retains that sender in the error while the `with` block
-    // joins the consumer, whose `recv` then waits forever; the join check
-    // does not see endpoints held by a propagating error (issue #344).
-    runs(r#"
-def start[F: OnceCallable[[], ()]](producer: F, receiver: Receiver[i64]) -> Result[(), Failure]:
+    // A named-argument start reports `ThreadError` and drops its moved
+    // arguments before the earlier consumer is joined.
+    runs(
+        r#"
+def produce(sender: Sender[i64]) -> ():
+    sender.send(42).unwrap()
+    pass
+def start(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), RecvError | SpawnError[OnceClosure[[], Result[i64, RecvError]]] | ThreadError]:
     consumer = def once [receiver]() -> Result[i64, RecvError]:
         receiver.recv()
-    with spawn(consumer)? as task, spawn(producer)?:
+    with spawn(consumer)? as task, spawn(produce, sender)?:
         task.join()?
     Ok(())
 sender, receiver = channel[i64](1).unwrap()
-producer = def once [sender]() -> ():
-    sender.send(42).unwrap()
-    pass
 print("__test_one_thread_start__").unwrap()
-print(str.repr(start(producer, receiver)).unwrap()).unwrap()
+match start(sender, receiver):
+    case Err(error):
+        match error:
+            case failed: ThreadError:
+                print(str.repr(failed).unwrap()).unwrap()
+            case _:
+                print("other error").unwrap()
+    case Ok(_):
+        print("started").unwrap()
 print("__test_restore_thread_starts__").unwrap()
-"#, "__test_one_thread_start__\nResult[(), Failure].Err(Failure.Unspecified)\n__test_restore_thread_starts__\n");
+"#,
+        "__test_one_thread_start__\nThreadError.System(11)\n__test_restore_thread_starts__\n",
+    );
+}
+
+/// A consumer that waits for one message.
+const CONSUMER: &str = "def start[F: OnceCallable[[], ()]](producer: F, receiver: Receiver[i64]) -> Result[(), RecvError | SpawnError[OnceClosure[[], Result[i64, RecvError]]] | SpawnError[F]]:
+    consumer = def once [receiver]() -> Result[i64, RecvError]:
+        receiver.recv()
+";
+
+#[test]
+fn failed_job_start_cannot_keep_its_sender_alive_through_an_earlier_join() {
+    // Issue #344: `SpawnError[F]` keeps the unstarted job and its sender
+    // until the function returns, after the consumer's join, so the
+    // consumer's receive would never end.
+    let error = support::check_source(&format!(
+        "{CONSUMER}    with spawn(consumer)? as task, spawn(producer)?:
+        task.join()?
+    Ok(())
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    producer = def once [sender]() -> ():
+        sender.send(42).unwrap()
+        pass
+    drop(start(producer, receiver))
+"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert_eq!(
+        error,
+        "12:10: cannot instantiate `start[OnceClosure[[], ()] defined at 9:16]`: its definition \
+         is rejected\n  \
+         4:10: note: in instantiation `start[OnceClosure[[], ()] defined at 9:16]`: leaving this `with` block joins a task whose worker holds `Receiver[i64]` while the \
+         error that `?` propagates still holds `Sender[i64]`: an empty queue could block the \
+         worker's receive, and this join, forever\n  \
+         4:36: note: the error that `?` propagates here holds `Sender[i64]` until this function \
+         returns; propagate `Failure`, which drops the job first, or pass the endpoint to \
+         `spawn` as a named argument, which a failed start drops\n  \
+         4:36: note: `?` leaves the block here"
+    );
+    // A nested block's failed start also joins the enclosing task first.
+    let error = support::check_source(&format!(
+        "{CONSUMER}    with spawn(consumer)? as task:
+        with spawn(producer)?:
+            pass
+        task.join()?
+    Ok(())
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    producer = def once [sender]() -> ():
+        sender.send(42).unwrap()
+        pass
+    drop(start(producer, receiver))
+"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("the error that `?` propagates still holds `Sender[i64]`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn failed_job_start_cannot_keep_its_receiver_alive_through_an_earlier_join() {
+    let error = blocked_join(
+        "def main() -> Result[(), ChannelError | SpawnError[OnceClosure[[], Result[i64, RecvError]]] | ThreadError]:
+    sender, receiver = channel[i64](1)?
+    consumer = def once [receiver]() -> Result[i64, RecvError]:
+        receiver.recv()
+    with spawn(produce, sender)?, spawn(consumer)?:
+        pass
+    Ok(())
+",
+    );
+    assert!(
+        error.starts_with(
+            "12:10: leaving this `with` block joins a task whose worker holds `Sender[i64]` \
+             while the error that `?` propagates still holds `Receiver[i64]`"
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn erased_or_endpoint_free_start_errors_do_not_block_earlier_joins() {
+    // `Failure` drops the job before the join.
+    support::check_source(&format!(
+        "{}    with spawn(consumer)? as task, spawn(producer)?:
+        task.join()?
+    Ok(())
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    producer = def once [sender]() -> ():
+        sender.send(42).unwrap()
+        pass
+    drop(start(producer, receiver))
+",
+        CONSUMER.replace(
+            "RecvError | SpawnError[OnceClosure[[], Result[i64, RecvError]]] | SpawnError[F]",
+            "Failure"
+        )
+    ))
+    .unwrap();
+    // A job without a sender cannot keep the consumer waiting.
+    support::check_source(&format!(
+        "{CONSUMER}    with spawn(consumer)? as task, spawn(producer)?:
+        task.join()?
+    Ok(())
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    producer = def once () -> ():
+        pass
+    drop(sender)
+    drop(start(producer, receiver))
+"
+    ))
+    .unwrap();
 }
 
 #[cfg(feature = "runtime-checks")]

@@ -15,7 +15,9 @@ The error does not retain the native code. Returning, matching,
 dropping, and retrying the error and job allocate nothing. Capture expressions
 have already run, but the worker has not. `?` widens the error into an enclosing
 sum containing `SpawnError[F]`, which keeps the job; erasing it into `Failure`
-deliberately drops the recovered job. A generic signature names the job as
+deliberately drops the recovered job. A kept job's endpoints stay alive through
+the joins that the `?` exit performs, so the
+[live-endpoint join rule](channels.md#joins-and-live-endpoints) counts them. A generic signature names the job as
 `F`. A nongeneric one writes its signature, such as
 `SpawnError[OnceClosure[[], list[i64]]]`, alone or in a sum; `?` resolves that
 member to the job it propagates, as for a

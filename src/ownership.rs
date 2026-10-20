@@ -202,6 +202,9 @@ pub struct Error {
     pub kind: Kind,
     /// Binding or field path, absent for a compiler temporary.
     pub place: Option<String>,
+    /// The surviving endpoint belongs to the error that `?` propagates, not
+    /// to a binding. `place` is then absent.
+    pub propagated: bool,
     /// Absent only for operations that carry no source marker.
     pub primary: Option<Site>,
     pub notes: Vec<(Site, String)>,
@@ -217,6 +220,15 @@ impl Error {
             .map(|s| format!("{s}:"))
             .unwrap_or_default();
         format!("{source}{}:{}: ", site.line, site.column)
+    }
+
+    /// What keeps the endpoint that a blocked wait reports alive.
+    fn holder(&self) -> String {
+        match &self.place {
+            Some(place) => format!("`{place}`"),
+            None if self.propagated => "the error that `?` propagates".into(),
+            None => "an unnamed value".into(),
+        }
     }
 }
 
@@ -281,10 +293,7 @@ impl fmt::Display for Error {
                     "this join waits for"
                 },
                 if *worker_sends { "Sender" } else { "Receiver" },
-                match &self.place {
-                    Some(place) => format!("`{place}`"),
-                    None => "an unnamed value".into(),
-                },
+                self.holder(),
                 if *worker_sends { "Receiver" } else { "Sender" },
                 if *worker_sends {
                     "a full queue"
@@ -339,10 +348,7 @@ impl fmt::Display for Error {
                 } else {
                     "this shuts down a pool"
                 },
-                match &self.place {
-                    Some(place) => format!("`{place}`"),
-                    None => "an unnamed value".into(),
-                }
+                self.holder()
             ),
         };
         match &self.required {
@@ -459,6 +465,11 @@ struct Checker<'a> {
     /// is never assumed to have finished.
     submitted: RefCell<Vec<(Hazard, Option<Site>)>>,
     futures: futures::Futures,
+    /// The error that a failing `?` holds, and the `?` site, while its
+    /// cleanup joins tasks and shuts pools down. The error leaves the frame
+    /// only after that cleanup, so its endpoints are as live as a binding's.
+    /// An error erased into `Failure` is dropped before the cleanup.
+    propagating: RefCell<Option<(Ty, Option<Site>)>>,
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -469,6 +480,7 @@ pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) ->
         parameters,
         origins,
         submitted: RefCell::default(),
+        propagating: RefCell::default(),
         futures: crate::profile_block!(
             "ownership::prepare_futures",
             futures::Futures::new(ops, locals.len())
@@ -732,6 +744,7 @@ impl Checker<'_> {
         Box::new(Error {
             kind,
             place,
+            propagated: false,
             primary,
             notes: Vec::new(),
             source: self.origins.source.clone(),
@@ -885,6 +898,39 @@ impl Checker<'_> {
             };
             if let Some(at) = at.or(site) {
                 error.notes.push((at, format!("{holds}; {advice}")));
+            }
+        }
+        if let Some((residual, at)) = &*self.propagating.borrow() {
+            if let Some(message) = endpoints([residual.clone()], !worker_sends, false)
+                .into_iter()
+                .find(|message| messages.contains(message))
+            {
+                let first = error.is_none();
+                let error = error.get_or_insert_with(|| {
+                    let mut error = self.error(kind(message.to_string()), None, site);
+                    error.propagated = true;
+                    error
+                });
+                let endpoint = if worker_sends { "Receiver" } else { "Sender" };
+                // A failed job start keeps the job for retry; named
+                // arguments of a failed start drop instead.
+                let advice = if matches!(residual, Ty::Enum(t) if t.name.starts_with("SpawnError["))
+                {
+                    "propagate `Failure`, which drops the job first, or pass the endpoint to \
+                     `spawn` as a named argument, which a failed start drops"
+                } else {
+                    "propagate `Failure`, which drops the error first"
+                };
+                if let Some(at) = at.or(site) {
+                    error.notes.push((
+                        at,
+                        format!(
+                            "the error that `?` propagates here {}holds `{endpoint}[{message}]` \
+                             until this function returns; {advice}",
+                            if first { "" } else { "also " }
+                        ),
+                    ));
+                }
             }
         }
         error
@@ -1161,11 +1207,20 @@ impl Checker<'_> {
                 Op::Executor(ExecutorOp::Result(_)) => {
                     self.future_result(&ops[..index], state, site)?;
                 }
-                Op::Try { cleanup, .. } => {
+                Op::Try {
+                    source,
+                    target,
+                    cleanup,
+                } => {
                     let mut failed = state.clone();
-                    self.sequence(cleanup, &mut failed, &mut Vec::new(), site)
-                        .and_then(|_| self.release(&mut failed, site))
-                        .map_err(|error| leaving(error, site, Some("`?`")))?;
+                    let residual = (source.is_result() && !target.discards_error())
+                        .then(|| (source.get().variants[1].fields[0].clone(), site));
+                    let outer = self.propagating.replace(residual);
+                    let checked = self
+                        .sequence(cleanup, &mut failed, &mut Vec::new(), site)
+                        .and_then(|_| self.release(&mut failed, site));
+                    self.propagating.replace(outer);
+                    checked.map_err(|error| leaving(error, site, Some("`?`")))?;
                     self.submit(accepted.drain(..));
                 }
                 Op::MoveLocal(i) | Op::Next(i) => {
