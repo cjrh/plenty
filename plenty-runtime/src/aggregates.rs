@@ -1643,7 +1643,10 @@ pub(crate) unsafe fn collection_at(
                 }
             };
         }
-        if !descriptor.is_null() && (*descriptor).kind == b's' && !matches!(op, 110 | 111 | 122) {
+        if !descriptor.is_null()
+            && (*descriptor).kind == b's'
+            && !matches!(op, 35 | 110 | 111 | 122)
+        {
             let text = a as *const Text;
             return match op {
                 5 => strings::scalar_len(text) as u128,
@@ -2139,11 +2142,19 @@ pub(crate) unsafe fn collection_at(
                 let result = if op == 34 {
                     strings::try_concat(a as *const Text, b as *const Text)
                 } else {
-                    let source = &*(b as *const Collection);
-                    strings::try_join(
-                        Some(a as *const Text),
-                        source.entries.iter().map(|entry| entry.key as *const Text),
-                    )
+                    // The compiler supplies the iterable's metadata.
+                    let separator = a as *const Text;
+                    match (*descriptor).kind {
+                        b's' => strings::try_join_scalars(separator, b as *const Text),
+                        b'G' => strings::try_join_generator(separator, b as *mut Generator),
+                        _ => {
+                            let source = &*(b as *const Collection);
+                            strings::try_join(
+                                Some(separator),
+                                source.entries.iter().map(|entry| entry.key as *const Text),
+                            )
+                        }
+                    }
                 };
                 match result {
                     Ok(text) => wrap(text as u128, 0),

@@ -143,7 +143,9 @@ pub enum CollectionOp {
     TextPrevByte,
     TextIndex,
     TextTryConcat,
-    TextTryJoin,
+    /// Separator and any iterable whose elements are `str`: a list, set,
+    /// dictionary (keys), string (scalars), or owned generator.
+    TextTryJoin(Ty),
     TextTrySplit,
     TextTrySplitLines,
     TextGet,
@@ -412,8 +414,8 @@ impl CollectionOp {
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
-            TextTryJoin => (
-                vec![Ty::Str, Ty::List(std::sync::Arc::new(Ty::Str))],
+            TextTryJoin(t) => (
+                vec![Ty::Str, t.clone()],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
             TextTrySplit => (
@@ -708,7 +710,7 @@ impl CollectionOp {
             Self::TextIsAscii => 76,
             Self::TextIsSpace => 77,
             Self::TextTryConcat => 34,
-            Self::TextTryJoin => 35,
+            Self::TextTryJoin(_) => 35,
             Self::TextTrySplit => 36,
             Self::TextTrySplitWhitespace => 129,
             Self::TextOrd => 130,

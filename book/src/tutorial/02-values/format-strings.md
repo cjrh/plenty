@@ -110,3 +110,8 @@ format spec `.2f` does not apply to i64: integers take no precision; convert wit
 
 The [reference](../../design/language/04-expressions/format-strings.md) lists
 every option and conversion.
+
+An f-string suits a fixed number of pieces of any type. Its error type is
+always `std.fmt.FormatError`. A function that reports only `AllocError` can
+combine two strings with `a.concat(b)?` and any number of strings from a list,
+set, or generator with [`separator.join(pieces)?`](../../design/facilities/01-builtins/text-building.md#joining).

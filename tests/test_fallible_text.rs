@@ -288,6 +288,98 @@ print(parts).unwrap()
     }
 }
 
+#[test]
+fn join_accepts_every_iterable_of_str() {
+    native(
+        r#"
+def words(n: i64) -> Generator[str]:
+    for i in range(n):
+        yield "even" if i % 2 == 0 else "odd"
+def show() -> Result[(), AllocError]:
+    names = {"Ada"}.unwrap()
+    scores = {"Ada": 1, "Bea": 2}.unwrap()
+    print(", ".join(&names)?).unwrap()
+    print(", ".join(scores)?).unwrap()
+    print("-".join("hé🙂")?).unwrap()
+    print(str.repr("-".join("")?).unwrap()).unwrap()
+    print("-".join("z")?).unwrap()
+    print("/".join(words(3))?).unwrap()
+    print(str.repr("/".join(words(0))?).unwrap()).unwrap()
+    later = words(2)
+    print("+".join(later)?).unwrap()
+    print("".join(w for w in ["a", "", "b"].unwrap() if w != "")?).unwrap()
+    print(len(names)).unwrap()
+    print(scores).unwrap()
+    Ok(())
+print(str.repr(show()).unwrap()).unwrap()
+"#,
+        "Ada\nAda, Bea\nh-é-🙂\n\"\"\nz\neven/odd/even\n\"\"\neven+odd\nab\n1\n{\"Ada\": 1, \"Bea\": 2}\nResult[(), AllocError].Ok(())",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[rstest]
+#[case("separator.join(&names)", "left|right")]
+#[case("separator.join(\"left!\")", "l|e|f|t|!")]
+fn measured_iterables_need_one_output_allocation(#[case] expression: &str, #[case] expected: &str) {
+    for budget in 0..=1 {
+        native(
+            &format!(
+                r#"
+separator = "|"
+names = {{("le" + "ft").unwrap(): 1, ("ri" + "ght").unwrap(): 2}}.unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = {expression}
+print("__test_restore_allocations__").unwrap()
+print(str.repr(result).unwrap()).unwrap()
+print(names).unwrap()
+"#
+            ),
+            &format!(
+                "Result[str, AllocError].{}\n{{\"left\": 1, \"right\": 2}}",
+                if budget == 0 {
+                    "Err(AllocError.OutOfMemory)".into()
+                } else {
+                    format!("Ok(\"{expected}\")")
+                }
+            ),
+        );
+    }
+}
+
+/// Four 10-byte pieces and three 2-byte separators make 46 bytes. The scratch
+/// buffer grows to 10, 20, 40, then 80 bytes; the result is the fifth
+/// allocation. After each earlier failure, the generator and pieces are dropped
+/// (the allocation-checks runtime checks the balance at exit).
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn generator_join_grows_scratch_geometrically_and_recovers_at_every_allocation() {
+    let piece = "alpha-beta";
+    let joined = [piece; 4].join(", ");
+    for budget in 0..=5 {
+        let expected = if budget < 5 {
+            "Err(AllocError.OutOfMemory)".to_owned()
+        } else {
+            format!("Ok(\"{joined}\")")
+        };
+        native(
+            &format!(
+                r#"
+def pieces() -> Generator[str]:
+    for i in range(4):
+        yield "{piece}"
+generator = pieces()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = ", ".join(generator)
+print("__test_restore_allocations__").unwrap()
+print(str.repr(result).unwrap()).unwrap()
+"#
+            ),
+            &format!("Result[str, AllocError].{expected}"),
+        );
+    }
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_join_releases_temporary_inputs_and_propagates_without_allocating() {
@@ -324,10 +416,37 @@ print("__test_end_no_allocations__").unwrap()
     "join requires one argument"
 )]
 #[case("print(\"a\".concat(1)).unwrap()", "expected str")]
-#[case("print(\"a\".join([1, 2].unwrap())).unwrap()", "expected list[str]")]
 #[case(
-    "print(\"a\".join({\"x\"}.unwrap())).unwrap()",
-    "collection type does not match its annotation"
+    "print(\"a\".join([1, 2].unwrap())).unwrap()",
+    "expected list[str], got list[i64]"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nprint(\"a\".join(&xs)).unwrap()",
+    "join requires an iterable of str (a list, set, dictionary keys, str, or generator), got list[i64]"
+)]
+#[case(
+    "print(\"a\".join(range(3))).unwrap()",
+    "join requires an iterable of str (a list, set, dictionary keys, str, or generator), got range"
+)]
+#[case(
+    "d = {1: \"x\"}.unwrap()\nprint(\"a\".join(&d)).unwrap()",
+    "join requires an iterable of str (a list, set, dictionary keys, str, or generator), got dict[i64, str]"
+)]
+#[case(
+    "def words() -> Generator[str]:\n    yield \"x\"\ng = words()\nprint(\"a\".join(&g)).unwrap()",
+    "join consumes a generator; pass it by value, not by reference"
+)]
+#[case(
+    "def words() -> Generator[str]:\n    yield \"x\"\nmut g = words()\nprint(\"a\".join(&mut g)).unwrap()",
+    "join consumes a generator; pass it by value, not by reference"
+)]
+#[case(
+    "def words() -> Generator[str]:\n    yield \"x\"\ndef show(g: &mut Generator[str]) -> Result[str, AllocError]:\n    \"a\".join(g)\nmut g = words()\nprint(show(&mut g).unwrap()).unwrap()",
+    "join consumes a generator; pass it by value, not by reference"
+)]
+#[case(
+    "def words() -> Generator[str]:\n    yield \"x\"\ng = words()\nfirst = \"a\".join(g)\nsecond = \"a\".join(g)",
+    "use of moved binding `g`"
 )]
 #[case("print((1).concat(\"a\")).unwrap()", "expected str")]
 #[case(

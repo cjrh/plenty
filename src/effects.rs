@@ -211,7 +211,7 @@ impl CollectionOp {
             | TextPrevByte
             | TextIndex
             | TextTryConcat
-            | TextTryJoin
+            | TextTryJoin(_)
             | TextTrySplit
             | TextTrySplitLines
             | TextGet

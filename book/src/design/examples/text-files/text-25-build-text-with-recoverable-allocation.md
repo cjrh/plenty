@@ -1,7 +1,7 @@
 # Build text with recoverable allocation
 
-Use `text.concat(other)` to combine two strings. To combine a list of strings,
-use `separator.join(parts)`. Both return `Result[str, AllocError]`:
+Use `text.concat(other)` to combine two strings. To combine a list or another
+iterable of strings, use `separator.join(parts)`. Both return `Result[str, AllocError]`:
 
 ```plenty
 def greeting(names: &list[str]) -> Result[str, AllocError]:
@@ -27,6 +27,7 @@ it does not build a succession of intermediate strings. An empty list gives an
 empty string, and a one-element list adds no separator. Empty pieces still count:
 joining `["a", "", "b"]` with `"-"` gives `"a--b"`.
 
-UTF-8 characters and embedded `\0` are preserved. These methods require strings
-and a `list[str]`; joining a generator or another kind of iterable is not
-supported yet.
+UTF-8 characters and embedded `\0` are preserved. `join` also accepts a set,
+a dictionary (its keys), a string (its scalars), or a generator of strings;
+see [building text](../../facilities/01-builtins/text-building.md#joining) for
+each form's allocations.

@@ -293,6 +293,75 @@ pub(crate) unsafe fn try_join(
     }
 }
 
+/// Insert the separator between consecutive Unicode scalars, as iterating the
+/// text yields them. The size is known before the one output allocation.
+pub(crate) unsafe fn try_join_scalars(
+    separator: *const Text,
+    text: *const Text,
+) -> Result<*mut Text, AllocError> {
+    unsafe {
+        let gaps = scalar_len(text).saturating_sub(1);
+        let repeated = |length: u64| length.checked_mul(gaps).ok_or(AllocError::CapacityOverflow);
+        let total = add_length(byte_len(text), repeated(byte_len(separator))?)?;
+        let scalars = add_length(scalar_len(text), repeated(scalar_len(separator))?)?;
+        let (source, between) = (utf8(&text), bytes(&separator));
+        try_build(total, scalars, |out| {
+            let mut offset = 0;
+            for (index, character) in source.char_indices() {
+                if index != 0 {
+                    out[offset..offset + between.len()].copy_from_slice(between);
+                    offset += between.len();
+                }
+                let length = character.len_utf8();
+                out[offset..offset + length]
+                    .copy_from_slice(&source.as_bytes()[index..index + length]);
+                offset += length;
+            }
+            debug_assert_eq!(offset, total as usize);
+        })
+    }
+}
+
+/// A generator cannot be measured without consuming it. Its pieces are
+/// appended to a scratch buffer whose capacity at least doubles when it is
+/// full, then copied into one exact-size text; the buffer is freed. Each owned
+/// piece is released once copied. Failure stops the generator where it is, and
+/// its owner drops the remaining frame.
+pub(crate) unsafe fn try_join_generator(
+    separator: *const Text,
+    generator: *mut crate::generators::Generator,
+) -> Result<*mut Text, AllocError> {
+    unsafe {
+        let mut buffer = Vec::<u8>::new();
+        let (mut total, mut scalars) = (0, 0);
+        let mut append = |text: *const Text| -> Result<(), AllocError> {
+            total = add_length(total, byte_len(text))?;
+            scalars = add_length(scalars, scalar_len(text))?;
+            let data = bytes(&text);
+            memory::try_reserve_amortized(&mut buffer, data.len())?;
+            buffer.extend_from_slice(data);
+            Ok(())
+        };
+        let mut first = true;
+        loop {
+            let mut item = 0;
+            if crate::generators::plenty_generator_resume(generator, &mut item) == 0 {
+                break;
+            }
+            let piece = item as *const Text;
+            let appended = if first {
+                append(piece)
+            } else {
+                append(separator).and_then(|()| append(piece))
+            };
+            memory::plenty_release(piece as *mut Header);
+            appended?;
+            first = false;
+        }
+        try_build(total, scalars, |out| out.copy_from_slice(&buffer))
+    }
+}
+
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_str_eq(a: *const Text, b: *const Text) -> i8 {
     unsafe { (a == b || bytes(&a) == bytes(&b)) as i8 }
