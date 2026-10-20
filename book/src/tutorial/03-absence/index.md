@@ -9,4 +9,5 @@ those possibilities part of its type, and let the caller choose what to do.
 4. [Give constructors enough type information](constructor-types.md)
 5. [Propagate with `?`](propagation.md)
 6. [Choose which error details to keep](error-details.md)
-7. [Build text with recoverable allocation](allocating-text.md)
+7. [Keep several error types](anonymous-sums.md)
+8. [Build text with recoverable allocation](allocating-text.md)

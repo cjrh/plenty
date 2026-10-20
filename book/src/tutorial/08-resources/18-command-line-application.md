@@ -72,7 +72,15 @@ choose a path whose contents may be replaced.
 
 `AppError` preserves usage, parsing, formatting, I/O, and allocation errors. Returning the
 error from `main` reports its cause on standard error and exits unsuccessfully.
+`run` prints `"saved report"` only after writing succeeds. It propagates failures
+to `main` so a failed operation cannot accidentally become a successful exit.
 Values and their total must fit `i64`; arithmetic overflow is a runtime trap.
+
+Checking the argument count directly keeps this two-path interface simple.
+For named options and typed argument values, use the
+[typed command-line parser](typed-arguments.md). The explicit `readline` loop
+is necessary because files do not yet support direct `for line in file`
+iteration.
 
 See the
 [text I/O reference](../../design/facilities/02-io/index.md)
