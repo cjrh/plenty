@@ -471,7 +471,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingEr
 fn typed_stream_path_runs_without_allocating() {
     execute(
         r#"
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[Transport] | CopyFailure[FramingError[Transport], Storage]]:
     mut buffer = scratch()?
     mut body = fixed_body[Transport, Source](Source(0, 0), 2)?
     mut sink = Sink(0, 0, 0)

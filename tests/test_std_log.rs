@@ -299,7 +299,7 @@ import std.io
 import std.bytes
 from std.log import Level, Clock, Event
 from std.time import Timestamp
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.log.LogError]:
     first = std.log.event(Level.Info, "ready", [std.log.integer("port", 80), std.log.text("host", "example"), std.log.floating("load", 0.5)]?)
     second = std.log.event(Level.Debug, "filtered", []?)
     third = std.log.event(Level.Warn, "kept", []?)

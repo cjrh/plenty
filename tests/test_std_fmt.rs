@@ -197,7 +197,7 @@ pub enum Number:
             case Number.Value(value):
                 out.text("value=")?
                 out.integer(*value, 0)
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.fmt.FormatError]:
     mut scratch = std.bytes.with_capacity(32)?
     scratch.resize(32, 0u8)?
     data = std.bytes.with_capacity(256)?

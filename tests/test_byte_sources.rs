@@ -404,7 +404,7 @@ def tally[S: ByteSource](source: &S) -> i64:
         total += i64(*byte)
     total + source.len()
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.Partial]:
     mut head = std.bytes.from_bytes(b"GET / HTTP/1.1\r\n\r\n")?
     mut out = std.bytes.with_capacity(64)?
     crlf = std.bytes.from_text("\r\n")?

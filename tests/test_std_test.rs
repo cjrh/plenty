@@ -319,7 +319,7 @@ print("__test_end_no_allocations__")?
     assert!(output.status.success(), "{}", stderr(&output));
 
     let output = run_program(
-        "import std.test\n\ndef main() -> Result[(), AllocError | IoError]:\n    values = [1, 2, 3]?\n    other = [9]?\n    print(\"__test_fail_allocations_after_0__\")?\n    std.test.equal(&values, &other)?\n    Ok(())\n",
+        "import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n    values = [1, 2, 3]?\n    other = [9]?\n    print(\"__test_fail_allocations_after_0__\")?\n    std.test.equal(&values, &other)?\n    Ok(())\n",
     );
     assert_eq!(output.status.code(), Some(1));
     assert!(
