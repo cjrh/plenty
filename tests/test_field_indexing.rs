@@ -72,7 +72,7 @@ def augment(o: &mut Outer, i: i64) -> ():
 def nested(grid: &mut list[list[u8]], i: i64, j: i64) -> ():
     grid[i][j] = grid[i][j] + 1u8
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut o = Outer(Inner([1, 2, 3]?, [False, False, False]?), [1.0f32, 2.0f32]?)
     write(&mut o, 1, 7)
     augment(&mut o, 1)
@@ -150,7 +150,7 @@ fn scalar_writes_keep_every_element_type_bits() {
             format!("{ty}(0)")
         };
         let source = format!(
-            "class Cell:\n    xs: list[{ty}]\ndef put(c: &mut Cell, v: {ty}) -> ():\n    c.xs[1] = v\ndef main() -> Result[(), Failure]:\n    mut c = Cell(list[{ty}].new()?)\n    c.xs.append({zero})?\n    c.xs.append({zero})?\n    put(&mut c, {value})\n    mut xs = list[{ty}].new()?\n    xs.append(c.xs[0])?\n    xs[0] = {value}\n    print(xs[0], c.xs[1], xs[0] == c.xs[1])?\n    Ok(())\n"
+            "class Cell:\n    xs: list[{ty}]\ndef put(c: &mut Cell, v: {ty}) -> ():\n    c.xs[1] = v\ndef main() -> Result[(), AllocError | IoError]:\n    mut c = Cell(list[{ty}].new()?)\n    c.xs.append({zero})?\n    c.xs.append({zero})?\n    put(&mut c, {value})\n    mut xs = list[{ty}].new()?\n    xs.append(c.xs[0])?\n    xs[0] = {value}\n    print(xs[0], c.xs[1], xs[0] == c.xs[1])?\n    Ok(())\n"
         );
         let shown = if ty == "bool" {
             "True".to_owned()
@@ -175,7 +175,7 @@ def value() -> i64:
     print("value").unwrap()
     9
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut h = Holder([1, 2]?)
     h.xs[index(-1)] = value()
     h.xs[index(0)] += value()

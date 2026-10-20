@@ -13,7 +13,7 @@ def numbers(stop: i64) -> Generator[i64]:
         yield value
         value = value + 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     for value in numbers(3):
         print(value)?
     Ok(())

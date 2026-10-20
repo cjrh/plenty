@@ -9,7 +9,7 @@ their values. Iteration uses the same consuming or borrowed contracts as
 [loops](01-iterables.md).
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     values = [n * n for n in range(5) if n > 1]?
     print(values)?
     Ok(())

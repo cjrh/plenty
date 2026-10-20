@@ -63,7 +63,7 @@ class Total:
 def feed[K: Sink, S: Sized](sink: &mut K, item: &S) -> i64:
     sink.put(item)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     mut total = Total(0)
     feed(&mut total, &Crate(3))
     print(feed(&mut total, &Crate(4)))?

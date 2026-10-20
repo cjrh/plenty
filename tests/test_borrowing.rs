@@ -343,7 +343,8 @@ const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
     "7:21: `nums` is moved in a loop, so the next iteration would use a moved value; reinitialize it before continuing"
 )]
 fn located_diagnostics(#[case] items: &str, #[case] body: &str, #[case] expected: &str) {
-    let source = format!("{items}def main() -> Result[(), Failure]:\n{body}    Ok(())\n");
+    let source =
+        format!("{items}def main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n");
     let error = support::check_source(&source).unwrap_err().to_string();
     assert_eq!(error, expected, "{source}");
 }
@@ -391,7 +392,8 @@ fn yield_diagnostic_names_the_borrow_and_its_later_use() {
     "    mut nums = [1, 2]?\n    if len(nums) > 1:\n        print(total(nums))?\n        nums = [3]?\n    print(len(nums))?\n"
 )]
 fn diagnostics_metadata_does_not_extend_borrows(#[case] items: &str, #[case] body: &str) {
-    let source = format!("{items}def main() -> Result[(), Failure]:\n{body}    Ok(())\n");
+    let source =
+        format!("{items}def main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n");
     if let Err(error) = support::check_source(&source) {
         panic!("{source}\n{error}");
     }
@@ -403,7 +405,7 @@ fn checked_file_diagnostics_name_the_source_file() {
     let path = temp.path().join("moved.plenty");
     std::fs::write(
         &path,
-        "def total(v: list[i64]) -> i64:\n    len(v)\n\ndef main() -> Result[(), Failure]:\n    nums = [1, 2]?\n    print(total(nums))?\n    print(len(nums))?\n    Ok(())\n",
+        "def total(v: list[i64]) -> i64:\n    len(v)\n\ndef main() -> Result[(), AllocError | IoError]:\n    nums = [1, 2]?\n    print(total(nums))?\n    print(len(nums))?\n    Ok(())\n",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_plenty"))

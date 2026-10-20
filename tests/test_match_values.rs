@@ -49,7 +49,7 @@ fn issue_118_reproduction_binds_the_selected_case() {
 def f() -> i64:
     7
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     x = match f():
         case 7:
             1
@@ -80,7 +80,7 @@ def size(shape: Shape) -> i64:
             sum
     total + 1
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(size(Shape.Dot))?
     print(size(Shape.Circle(4)))?
     print(size(Shape.Named("abc", [1, 2]?)))?
@@ -109,7 +109,7 @@ def main() -> Result[(), Failure]:
 fn annotation_supplies_the_type_each_case_needs() {
     run(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     for n in [1, 2]?:
         found: Option[u8] = match n:
             case 1:
@@ -140,7 +140,7 @@ def name(n: i64) -> str:
         case _:
             "many"
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(name(-1))?
     print(name(-5))?
     print(name(0))?
@@ -174,7 +174,7 @@ def report(n: i64) -> ():
         case _:
             unused = n
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(count(5000000, 0))?
     report(0)
     report(1)
@@ -263,7 +263,7 @@ def inner(value: &Either) -> &i64:
         case Either.Second(pair):
             side(pair, False)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     pair = Pair(1, 2)
     print(*side(&pair, True))?
     print(*side(&pair, False))?
@@ -350,7 +350,7 @@ def bump(target: &mut i64, by: bool) -> ():
         case False:
             *target
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut items = [1, 2]?
     items[0] = match items[1]:
         case 2:
@@ -400,7 +400,7 @@ def doubled(shape: Shape, text: str) -> Result[i64, str]:
             parse(text)?
     Ok(base * 2)
 
-def show(result: Result[i64, str]) -> Result[(), Failure]:
+def show(result: Result[i64, str]) -> Result[(), IoError]:
     match result:
         case Ok(value):
             print(value)?
@@ -408,7 +408,7 @@ def show(result: Result[i64, str]) -> Result[(), Failure]:
             print(message)?
     Ok(())
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     show(doubled(Shape.Dot, "one"))?
     show(doubled(Shape.Circle(3), "one"))?
     show(doubled(Shape.Named("n", []?), "two"))?
@@ -448,7 +448,7 @@ def label(shape: Shape) -> str:
                     "circle"
     text
 
-def numbers(shape: Shape) -> Result[list[i64], Failure]:
+def numbers(shape: Shape) -> Result[list[i64], AllocError]:
     values: list[i64] = match shape:
         case Shape.Named(_, values):
             values
@@ -458,7 +458,7 @@ def numbers(shape: Shape) -> Result[list[i64], Failure]:
             []?
     Ok(values)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(label(Shape.Named("abcdefghij", [1]?)))?
     print(label(Shape.Dot))?
     print(label(Shape.Circle(1)))?
@@ -477,7 +477,7 @@ fn consumed_scrutinee_cannot_be_used_afterwards() {
     reject(
         &format!(
             r#"{SHAPE}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     shape = Shape.Named("n", [1]?)
     text = match shape:
         case Shape.Named(name, _):
@@ -500,7 +500,7 @@ fn borrowed_match_leaves_the_scrutinee_usable() {
     run(
         &format!(
             r#"{SHAPE}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     shape = Shape.Circle(6)
     radius = match &shape:
         case Shape.Circle(radius):
@@ -638,7 +638,7 @@ def grade(score: i64, bonus: bool) -> str:
             inner
     text
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(grade(95, True))?
     print(grade(60, True))?
     print(grade(10, True))?
@@ -672,7 +672,7 @@ def steps(limit: i64) -> Generator[i64]:
                 n
         yield scaled
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(choose(True, 1, 2))?
     print(choose(False, "a", "b"))?
     mut total = 0
@@ -697,7 +697,7 @@ def main() -> Result[(), Failure]:
 fn cases_must_agree_on_the_value_type() {
     reject(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     n = 1
     x = match n:
         case 1:
@@ -710,7 +710,7 @@ def main() -> Result[(), Failure]:
     );
     reject(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     n = 1
     x: str = match n:
         case 1:
@@ -738,7 +738,7 @@ def f(n: i64) -> str:
 fn match_value_keeps_exhaustiveness_and_result_rules() {
     reject(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     flag = True
     x = match flag:
         case True:
@@ -752,7 +752,7 @@ def main() -> Result[(), Failure]:
 def fallible() -> Result[i64, str]:
     Ok(1)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     flag = True
     x = match flag:
         case True:
@@ -782,7 +782,7 @@ def f(flag: bool) -> i64:
     );
     reject(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     flag = True
     x = match flag:
         case True:
@@ -800,7 +800,7 @@ fn match_value_cannot_produce_a_reference() {
     reject(
         &format!(
             r#"{SHAPE}
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     shape = Shape.Circle(6)
     radius = match &shape:
         case Shape.Circle(radius):
@@ -820,7 +820,7 @@ fn match_block_is_rejected_inside_an_expression() {
     const POSITION: &str = "a `match` block is a value only as the whole right side";
     reject(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     n = 1
     print(match n:
         case _:
@@ -832,7 +832,7 @@ def main() -> Result[(), Failure]:
     );
     reject(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     mut n = 1
     n += match n:
         case _:
@@ -843,7 +843,7 @@ def main() -> Result[(), Failure]:
     );
     reject(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     n = 1
     a, b = match n:
         case _:
@@ -854,7 +854,7 @@ def main() -> Result[(), Failure]:
     );
     reject(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError]:
     n = 1
     x = 1 + match n:
         case _:

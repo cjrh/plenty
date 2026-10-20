@@ -33,7 +33,7 @@ fn file_output(source: &str) -> String {
 fn escapes_quotes_and_empty_literals() {
     let printed = output(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(b"\x00\xff\x7F\n\r\t\0")?
     print(b'single "double"')?
     print(b"it's \"quoted\" \\ done")?
@@ -64,7 +64,7 @@ def magic() -> bytes:
 def first(value: &bytes) -> u8:
     value[0]
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     signature = magic()
     copied = signature
     print(len(signature))?
@@ -140,7 +140,7 @@ def main() -> Result[(), Failure]:
 fn b_and_bytes_remain_ordinary_names() {
     let printed = output(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     b = 2
     bytes = b + 1
     B = bytes * 2
@@ -154,7 +154,7 @@ def main() -> Result[(), Failure]:
     // A local named `bytes` is a value, never the type, before a method.
     let printed = output(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut bytes = [1u8]?
     bytes.append(2u8)?
     print(bytes)?
@@ -168,7 +168,7 @@ def main() -> Result[(), Failure]:
 fn index_out_of_range_traps_at_the_index() {
     let output = support::run(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     value = b"abc"
     print(value[3])?
     Ok(())
@@ -188,7 +188,7 @@ fn owned_buffers_are_explicit_copies() {
         r#"
 import std.bytes
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), std.bytes.BytesError | IoError]:
     mut request = std.bytes.from_bytes(b"GET / HTTP/1.1\r\n\r\n")?
     end = std.bytes.from_bytes(b"\r\n\r\n")?
     print(request.find_bytes(&end, 0, request.len())?)?
@@ -298,7 +298,7 @@ def total(value: bytes) -> i64:
         sum += i64(byte)
     sum
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print("__test_begin_no_allocations__")?
     value = b"\x01\x02\x03"
     other = value

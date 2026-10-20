@@ -24,7 +24,7 @@ def total(head: &Node) -> i64:
                 break
     sum
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     chain = Node(1, Some(Box(Node(2, Nothing))?))
     print(total(&chain))?
     Ok(())

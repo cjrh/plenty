@@ -67,7 +67,7 @@ constructor field.
 `target, target = value, value` assigns to two or more targets at once:
 
 ```plenty
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut items = [10, 20, 30]?
     items[0], items[2] = items[2], items[0]
     print(items)?

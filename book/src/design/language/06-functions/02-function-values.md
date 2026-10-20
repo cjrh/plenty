@@ -34,7 +34,7 @@ block; inside `()`, `[]`, or `{}` it is one expression, whose value is returned.
 def apply(f: Callable[[i64], i64], value: i64) -> i64:
     f(value)
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     twice = def(value: i64) -> i64:
         value * 2
     print(twice(3))?

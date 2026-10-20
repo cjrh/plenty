@@ -12,7 +12,7 @@ def clamp_low(value: i64, minimum: i64) -> i64:
         return minimum
     value
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     print(clamp_low(2, 5))?
     Ok(())
 ```

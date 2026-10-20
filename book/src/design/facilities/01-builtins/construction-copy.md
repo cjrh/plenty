@@ -21,7 +21,8 @@ The owner is allocated first, then entries evaluate left to right. A failed
 insertion stops evaluation and destroys the initialized prefix; unevaluated
 entries have no effects. Nested fallible expressions require their own `?`.
 A display's error is always `AllocError`, so `?` on it needs a function
-returning `Result[_, AllocError]` or `Result[_, Failure]`; otherwise match the
+returning `Result[_, AllocError]` or an error sum containing `AllocError`, such
+as `Result[_, AllocError | IoError]` when it also prints. Otherwise match the
 result and convert the error explicitly.
 Propagation leaves the enclosing function, not merely the display. Comprehension
 evaluation follows the [iteration rules](../../language/09-iteration/index.md).

@@ -15,7 +15,7 @@ class Pair:
 def first(pair: &Pair) -> &i64:
     &pair.first
 
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     pair = Pair(3, 4)
     value = first(&pair)
     print(*value)?

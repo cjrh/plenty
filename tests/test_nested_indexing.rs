@@ -18,7 +18,7 @@ fn stdout(source: &str) -> String {
 fn an_indexed_name_indexes_a_local() {
     let output = stdout(
         r#"
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut a = [2, 0, 1]?
     b = [1, 2, 0]?
     c = [0, 2, 1]?
@@ -45,7 +45,7 @@ fn dotted_local_bases_index_through_fields() {
 class Table:
     items: list[i64]
     order: list[i64]
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut table = Table([10, 20, 30]?, [2, 0, 1]?)
     picks = [1, 2, 0]?
     k = 0
@@ -68,7 +68,7 @@ def identity[T](value: T) -> T:
     value
 def pick(identity: &list[i64], order: &list[i64], k: i64) -> i64:
     identity[order[k]]
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     values = [4, 5, 6]?
     order = [2, 0, 1]?
     print(pick(&values, &order, 0))?
@@ -89,7 +89,7 @@ def double(x: i64) -> i64:
     x * 2
 def triple(x: i64) -> i64:
     x * 3
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     handlers = [double, triple]?
     holder = Holder([double, triple]?)
     indices = [1, 0]?
@@ -113,7 +113,7 @@ class Counter:
     def next(self: &mut Counter) -> i64:
         self.value = self.value + 1
         self.value - 1
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     mut a = [0, 0, 0]?
     b = [2, 1, 0]?
     mut counter = Counter(0)
@@ -143,7 +143,7 @@ def identity[T](value: T) -> T:
     value
 def first[T](values: &list[list[T]]) -> T:
     values[0][0]
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     keep = identity[u8]
     print(keep(7))?
     print(identity[Count](8))?
@@ -166,7 +166,7 @@ fn a_type_argument_named_like_a_local_stays_a_type_argument() {
 type count = u8
 def identity[T](value: T) -> T:
     value
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     count = 300
     print(identity[count](7))?
     print(count)?
@@ -187,7 +187,7 @@ fn imported_generics_keep_type_arguments() {
     let main = dir.path().join("main.plenty");
     std::fs::write(
         &main,
-        "import maths\nfrom maths import identity as keep\ntype Count = u8\ndef main() -> Result[(), Failure]:\n    order = [1, 0]?\n    k = 0\n    print(keep[Count](7))?\n    print(maths.identity[list[i64]]([1, 2]?))?\n    print(maths.identity[i64](order[order[k]]))?\n    Ok(())\n",
+        "import maths\nfrom maths import identity as keep\ntype Count = u8\ndef main() -> Result[(), AllocError | IoError]:\n    order = [1, 0]?\n    k = 0\n    print(keep[Count](7))?\n    print(maths.identity[list[i64]]([1, 2]?))?\n    print(maths.identity[i64](order[order[k]]))?\n    Ok(())\n",
     )
     .unwrap();
     let executable = dir.path().join("program");
@@ -199,14 +199,14 @@ fn imported_generics_keep_type_arguments() {
 
 #[test]
 fn two_indices_are_reported_at_the_second() {
-    let source = "def main() -> Result[(), Failure]:\n    b = [1, 0]?\n    k = 1\n    print(b[k, k])?\n    Ok(())\n";
+    let source = "def main() -> Result[(), AllocError | IoError]:\n    b = [1, 0]?\n    k = 1\n    print(b[k, k])?\n    Ok(())\n";
     let message = error(source);
     assert!(message.contains("4:16"), "{message}");
     assert!(
         message.contains("indexing takes one expression"),
         "{message}"
     );
-    let nested = "def main() -> Result[(), Failure]:\n    b = [1, 0]?\n    k = 1\n    print(b[b[k, k]])?\n    Ok(())\n";
+    let nested = "def main() -> Result[(), AllocError | IoError]:\n    b = [1, 0]?\n    k = 1\n    print(b[b[k, k]])?\n    Ok(())\n";
     let message = error(nested);
     assert!(message.contains("4:18"), "{message}");
     assert!(
@@ -224,7 +224,7 @@ fn type_syntax_cannot_index_a_local() {
         ("b[list[i64]](1)", 13),
     ] {
         let source = format!(
-            "def main() -> Result[(), Failure]:\n    b = [1, 0]?\n    print({index})?\n    Ok(())\n"
+            "def main() -> Result[(), AllocError | IoError]:\n    b = [1, 0]?\n    print({index})?\n    Ok(())\n"
         );
         let message = error(&source);
         assert!(message.contains(&format!("3:{column}:")), "{message}");

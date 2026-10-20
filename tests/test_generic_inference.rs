@@ -18,7 +18,7 @@ def replace[T](target: &mut T, value: T) -> ():
     *target = value
 def view[T](source: &T) -> &T:
     source
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     message = Message("hello")
     print(read_message(&message))?
     borrowed = &message
@@ -57,7 +57,7 @@ def count[T: IntType](values: range[T]) -> T:
     for n in values:
         total = total + n
     total
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     n: Count = 42
     print(identity(identity(n)))?
     values = identity([1, 2]?)
@@ -90,7 +90,7 @@ def collect[T](source: Generator[T]) -> Result[list[T], AllocError]:
     [item for item in source]
 def identity[T](x: T) -> T:
     x
-def main() -> Result[(), Failure]:
+def main() -> Result[(), AllocError | IoError]:
     print(down(10000i32))?
     print(collect(once(8u8))?)?
     values = [Some(2u8), Nothing]?
@@ -115,12 +115,12 @@ class Guard:
     name: str
     def __del__(self) -> ():
         print(self.name).unwrap()
-def make(name: str) -> Result[Guard, Failure]:
+def make(name: str) -> Result[Guard, IoError]:
     print(name)?
     Ok(Guard(name))
 def keep[T](a: T, b: T) -> T:
     a
-def main() -> Result[(), Failure]:
+def main() -> Result[(), IoError]:
     guard = keep(make("left")?, make("right")?)
     print("returned")?
     Ok(())
