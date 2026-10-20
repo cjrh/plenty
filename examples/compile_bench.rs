@@ -9,11 +9,18 @@
 use std::error::Error;
 use std::time::{Duration, Instant};
 
+// mimalloc rather than the system allocator: see the dependency in
+// Cargo.toml (issue #315).
+#[cfg(not(feature = "profile-alloc"))]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 // With `profile-alloc`, every allocation is counted against the measured
 // function that makes it (issue #150).
 #[cfg(feature = "profile-alloc")]
 #[global_allocator]
-static ALLOCATOR: hotpath::CountingAllocator = hotpath::CountingAllocator::new();
+static ALLOCATOR: hotpath::CountingAllocator<mimalloc::MiMalloc> =
+    hotpath::CountingAllocator::with(mimalloc::MiMalloc);
 
 const USAGE: &str = "Usage: compile_bench [UNITS] [REPETITIONS] [--aot]\n\
     [--workload check|scale|aot|check-and-scale|all] [--no-warmup]\n\n\
