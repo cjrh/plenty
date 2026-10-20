@@ -59,103 +59,103 @@ has consumed on every path is not joined again at exit. A join is likewise
 rejected while the joining function holds a lock on a `Mutex[T]` that the
 worker can reach; see [mutexes](mutex.md#waits-the-compiler-rejects).
 
+### Recommended patterns
+
+These patterns satisfy the rule on every path, and keep satisfying it when the
+block gains early exits. They are the canonical form; the tutorial teaches them
+in [avoid waits that hang](../../../tutorial/11-concurrency/wait-habits.md).
+
+1. **Move each endpoint into the worker that uses it**, as a named argument:
+   `spawn(produce, sender)?`. A failed named start reports `ThreadError` and
+   drops its arguments.
+2. **Guard each endpoint the function keeps as the last manager** of the task's
+   `with`. Contexts exit in reverse order, so every exit drops it before the
+   join:
+
+   ```text
+   with spawn(produce, sender)?, receiver as inbox:
+       ...
+   with spawn(consume, receiver)?, sender as outbox:
+       ...
+   ```
+
+3. **To join explicitly, end the endpoint's guard first.** Open the guard before
+   any statement that can leave the block:
+
+   ```text
+   with spawn(produce, sender)? as task:
+       with receiver as inbox:
+           ...
+       result = task.join()
+   ```
+
+   `drop(receiver)` before the join also satisfies the rule, but only on paths
+   that reach it: an earlier `?` still leaves with the receiver alive. Moving
+   the receiver into another worker or function likewise ends the binding.
+4. **For several producers, give the receiver to a consuming worker** started
+   first, and start the producers inside a sender guard:
+
+   ```text
+   with spawn(consume, receiver)? as consumer:
+       with sender as outbox, spawn(produce, outbox.share())?, spawn(produce, outbox.share())?:
+           pass
+       total = consumer.join()
+   ```
+
+   One receiver guard after several `?` starts is rejected: a failed later
+   start joins the earlier tasks before the guard exists. Alternatively, start
+   the later producers in a function that takes the receiver by value.
+5. **Call [`drop_job()`](jobs.md#job-free-errors) on a closure start** the
+   function will not retry: `spawn(job).drop_job()?`.
+6. **Wait in a statement of its own**, `result = task.join()`, and move an
+   endpoint into a value or return it only after the block.
+7. **Start tasks and pools outside lock blocks**; see
+   [mutexes](mutex.md#waits-the-compiler-rejects).
+
+Pools follow the same patterns, with `pool.submit(...)` in place of the start;
+see [shutdown](executors.md#shutdown-and-live-receivers) and
+[result waits](futures.md#result-waits-and-live-receivers).
+
+### What can hold an endpoint
+
 A worker *can hold* a sender that is an argument or capture, a field or element
 of one, behind a reference, or a message of a channel it holds. A binding
 *can hold* a receiver the same way, except that a local reference is ignored
 because its owner is checked instead. A `&Receiver[T]` parameter, or a parameter
 that refers to a value holding one, always counts: its owner outlives the call.
 The same holder rules apply to receiving workers and surviving senders, including
-borrowed sender parameters, aggregates, and concrete callable captures.
+borrowed sender parameters, aggregates, and concrete callable captures. Other
+shared handles count separately, and a drop on only one branch does not release
+a handle on the other paths.
 
-Place the receiver guard directly after the task manager. Contexts exit in
-reverse order, so every exit drops the receiver before joining the producer:
+Besides live bindings, these values hold the endpoints moved into them:
 
-```text
-with spawn(producer)?, receiver as inbox:
-    ...
-```
+| Holder | Held through | Rejected example | Fix |
+| --- | --- | --- | --- |
+| The error that `?` propagates | The function's return, after the exit's joins and pool shutdowns | `with spawn(consumer)? as task, spawn(producer)?:` where the `producer` closure captures the sender | `spawn(producer).drop_job()?`, or a named start `spawn(produce, sender)?` |
+| The value a `return` or final expression hands back | The joins and pool shutdowns of every block it leaves | `return Err(sender)` inside the consumer's block | Drop the endpoint in the block, or return it after the block |
+| A statement's expression and the value it builds | Until the statement stores, drops, or tests the value | `pair = (sender, task.join())` inside the consumer's block | Join in an earlier statement |
+| The final expression of a `match` case used as a value | That case's cleanup | A case whose value is an endpoint, ending a block that the endpoint blocks | Produce the endpoint after the block |
 
-To claim the producer's result, end the guard before joining:
+A failed closure start's `SpawnError[F]` retains the unstarted job and every
+endpoint it captured, so the first row also applies to an enclosing task block.
+Erasing the error into `Failure` drops the job too, as a last resort.
 
-```text
-with spawn(producer)? as task:
-    with receiver as inbox:
-        ...
-    result = task.join()
-```
-
-`drop(receiver)` before the join also satisfies the rule, but only on paths that
-reach it: an earlier `?` in the block still leaves with the receiver alive.
-Moving the receiver into another worker or function likewise ends the binding.
-Several producers that start with `?` cannot share one guard in the same
-statement, because a failed later start joins the earlier ones before the guard
-exists. Give the receiver to a consuming worker, or start the later producers in
-a function that takes the receiver by value.
-
-For a receiving worker, drop or guard every matching sender before joining.
-Write `with spawn(consumer)?, sender as outbox:` for an automatic join, or end
-the sender's inner guard before `task.join()`. Other shared sender handles still
-count; a drop on only one branch does not release a handle on other paths. A
-failed later task start also joins earlier tasks before any later guard exists.
-
-The error that `?` propagates is a holder too: the function keeps it until it
-returns, after the exit's joins and pool shutdowns. A failed consuming start's
-`SpawnError[F]` retains the unstarted job and every endpoint it captured, so a
-consumer started earlier in the same statement, or in an enclosing task block,
-is rejected when the job captures the consumer's sender:
-
-```text
-with spawn(consumer)? as task, spawn(producer)?:  # producer captures the sender
-    task.join()?
-```
-
-Call [`drop_job()`](jobs.md#job-free-errors) on the start,
-`spawn(producer).drop_job()?`, to drop the job, and its endpoints, before the
-joins; the error becomes `SpawnError[()]`. Alternatively pass the endpoint to
-`spawn` as a named argument, `spawn(produce, sender)?`: a failed named start
-reports `ThreadError` and drops its arguments first. Erasing the error into
-`Failure` also drops the job, as a last resort.
-
-The value a `return`, or the function's final expression, hands back is also a
-holder: the function keeps it through the joins and pool shutdowns of every
-block it leaves. The check follows the bindings that the returned expression
-moves, not its type, so `return Ok(())` of `Result[(), Sender[i64]]` is accepted
-while `return Err(sender)` inside the consumer's block is rejected:
-
-```text
-with spawn(consumer)?:   # consumer captures the receiver
-    return Err(sender)   # rejected: the join waits while the value holds `sender`
-```
-
-A tuple, class, enum payload, `Some`, or call argument that receives a moved
-endpoint counts the same way. Drop the endpoint before the block ends, or
-return it after the block. The check is conservative: an endpoint moved into a
-call inside the returned expression counts even if the call consumes it, so
+The returned-value and expression checks follow the bindings that the
+expression moves, not its type, so `return Ok(())` of `Result[(), Sender[i64]]`
+is accepted. A tuple, class, enum payload, `Some`, or call argument that
+receives a moved endpoint counts. The check is conservative: an endpoint moved
+into a call inside the expression counts even if the call consumes it, so
 `return Ok(consume(sender))` is rejected; call `consume(sender)` first. A wait
-inside the returned expression, such as `future.result()?`, is likewise
-rejected while an earlier operand holds a matching endpoint.
+nested in an expression, such as `task.join()` or `future.result()?`, is
+rejected while an operand evaluated before it holds a matching endpoint.
 
-A statement's expression is a holder while it is evaluated, and so is the
-value it builds until the statement stores, drops, or tests it. A wait nested in
-the expression, such as `task.join()` or `future.result()?`, is rejected while an
-operand evaluated before it holds a matching endpoint:
-
-```text
-with spawn(consumer)? as task:   # consumer captures the receiver
-    pair = (sender, task.join())  # rejected: the tuple holds `sender` during the join
-```
-
-Join in an earlier statement, `result = task.join()`, after the endpoint is
-gone. The final expression of a `match` case used as a value is a holder through
-that case's cleanup, so a case whose value is an endpoint cannot end a pool or
-task block that the endpoint blocks. The check covers bindings, assignments,
-unpacking, discarded expressions, `yield`, `if`, `elif`, and `while` conditions,
-`for` iterables, `match` subjects, and `with` managers. It has
-the limits of the returned-value check: it follows the bindings the expression
-moves and counts one moved into a call that consumes it. A wait inside a called
-function is seen only for a [future](futures.md#result-waits-and-live-receivers)
-or [pool](executors.md#shutdown-and-live-receivers) passed to the call; a
-scoped task cannot be passed to a function.
+The expression check covers bindings, assignments, unpacking, discarded
+expressions, `yield`, `if`, `elif`, and `while` conditions, `for` iterables,
+`match` subjects, and `with` managers. A wait inside a called function is seen
+only for a [future](futures.md#result-waits-and-live-receivers) or
+[pool](executors.md#shutdown-and-live-receivers) passed to the call; a scoped
+task cannot be passed to a function.
 
 The diagnostic reports the join or the `with` statement, each binding,
 propagated error, returned value, or unfinished expression that holds a matching

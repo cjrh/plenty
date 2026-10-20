@@ -35,13 +35,6 @@ def serve(listener: TcpListener, stop: CancellationToken) -> Result[(), AllocErr
     drop(std.http.server.serve(listener, &routes, &Site(), &std.http.server.config(), &stop)?)
     Ok(())
 
-def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
-    match result:
-        case Ok(future):
-            Ok(future)
-        case Err(_):
-            Err("submission failed")
-
 def fetch_all(client: Shared[Client[Plain, TcpConnector]], url: str, count: i64) -> Result[i64, AllocError | ClientError | RangeError]:
     never = CancellationToken()?
     mut ok = 0
@@ -51,7 +44,7 @@ def fetch_all(client: Shared[Client[Plain, TcpConnector]], url: str, count: i64)
             ok += 1
     Ok(ok)
 
-type PoolJobError = PoolError | FutureError | str
+type PoolJobError = PoolError | FutureError | SubmitError[()]
 type ClientRunError = AllocError | IoError | ThreadError | RangeError | FormatError | ClientError | std.net.NetError | PoolJobError
 
 def main() -> Result[(), ClientRunError]:
@@ -63,9 +56,9 @@ def main() -> Result[(), ClientRunError]:
         client = Shared(std.http.client.client(std.http.client.config()?)?)?
         mut answered = 0
         with ThreadPoolExecutor(3, 8)? as pool:
-            a = submitted(pool.submit(fetch_all, client.share(), url, 10))?
-            b = submitted(pool.submit(fetch_all, client.share(), url, 10))?
-            c = submitted(pool.submit(fetch_all, client.share(), url, 10))?
+            a = pool.submit(fetch_all, client.share(), url, 10).drop_job()?
+            b = pool.submit(fetch_all, client.share(), url, 10).drop_job()?
+            c = pool.submit(fetch_all, client.share(), url, 10).drop_job()?
             answered = a.result()?? + b.result()?? + c.result()??
         stats = client.stats()
         print(answered, stats.opened + stats.reused, stats.opened <= 3)?

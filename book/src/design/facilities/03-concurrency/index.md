@@ -31,7 +31,9 @@ cannot enter worker code, including through containers or messages: worker-side
 submission and future waiting are unsupported.
 
 - [Scoped threads](threads.md) and [consuming jobs](jobs.md).
-- [Bounded channels](channels.md).
+- [Bounded channels](channels.md), including the
+  [recommended patterns](channels.md#recommended-patterns) that keep joins,
+  result waits, and pool shutdowns from waiting on a live endpoint.
 - [Executors and shutdown](executors.md), [futures](futures.md), and
   [ordered mapping](parallel-map.md) / [fixed-tree reduction](parallel-reduce.md).
 - [Mutexes](mutex.md).

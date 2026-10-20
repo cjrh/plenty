@@ -33,5 +33,7 @@ def main() -> Result[(), AllocError | IoError | FutureError | PoolError]:
 42
 ```
 
-Erasing a submission error into `Failure` with `?` instead drops the unstarted
-job. `Failure` is a last resort, for when no precise error can be written.
+When you do not need the job back, call `drop_job()` on the submission, as in
+the [executor lesson](executors-and-futures.md): the error keeps its variant
+and names no job. Erasing it into `Failure` also drops the job but loses the
+error type; that is a last resort.

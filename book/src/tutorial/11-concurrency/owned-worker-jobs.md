@@ -40,6 +40,10 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 done
 ```
 
+Dropping the job also drops the channel endpoints it captured, so they cannot
+keep a later join waiting; [avoid waits that hang](wait-habits.md) shows why
+that matters.
+
 To keep the job, make each one with one factory function, or use a generic
 helper, which names the job as `F`. Recover the job to retry or run it
 locally, as this helper does:

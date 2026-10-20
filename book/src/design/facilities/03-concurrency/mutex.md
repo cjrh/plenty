@@ -63,7 +63,7 @@ patterns that would wait forever:
   `Mutex[T]` of a recorded `T`. A future
   is traced like the
   [channel rule](futures.md#result-waits-and-live-receivers) traces it, through
-  local bindings and calls that return it, such as a `submitted(...)` helper.
+  local bindings and calls that return it.
 - **Yielding under a lock.** `yield` inside a lock block is an error: a
   suspended generator would keep the lock indefinitely.
 
