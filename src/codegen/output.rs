@@ -5,7 +5,7 @@
 //! the order the functions were queued, declaring the symbols their bodies
 //! requested as it goes ([`symbols`]), so the object is the same for every
 //! worker count.
-use std::collections::HashMap;
+use crate::hash::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 
@@ -242,7 +242,7 @@ impl Output {
         results: &mpsc::Receiver<Batch>,
         runtime: &Runtime,
     ) -> Result<()> {
-        let mut early = HashMap::new();
+        let mut early = HashMap::default();
         for index in 0..total {
             let finished = loop {
                 if let Some(finished) = early.remove(&index) {

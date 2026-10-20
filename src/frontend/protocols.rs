@@ -24,7 +24,7 @@ impl Parser {
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented protocol declaration")?;
         let mut methods = Vec::new();
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         while self.peek().kind != Kind::Dedent && self.peek().kind != Kind::Eof {
             if !self.peek().is("def") {
                 return Err(self

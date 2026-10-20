@@ -4,7 +4,7 @@
 //! book/src/design/facilities/01-builtins/shared.md.
 use super::*;
 use crate::boxed::BoxOp;
-use std::collections::HashSet;
+use crate::hash::HashSet;
 
 pub(super) const EQUALITY: &str =
     "values containing Shared owners do not support equality; compare values read through the handles";
@@ -33,7 +33,7 @@ fn rejection(content: &Ty) -> Option<String> {
     let shown = |ty: &Ty| ty.to_string().replace("std.sync.Mutex[", "Mutex[");
     // A type is visited at most twice: before and after a mutable edge.
     let mut pending = vec![(content.clone(), None::<String>)];
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     while let Some((ty, through)) = pending.pop() {
         if !seen.insert((ty.clone(), through.is_some())) {
             continue;

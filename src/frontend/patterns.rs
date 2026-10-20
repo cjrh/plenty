@@ -631,7 +631,7 @@ impl<'a> Compiler<'a> {
         // Rows grouped by the variant they name, variants in the order the
         // cases first name them. Grouping in one pass keeps a match with one
         // case per variant linear in the number of variants (issue #71).
-        let mut index: HashMap<usize, usize> = HashMap::new();
+        let mut index: HashMap<usize, usize> = HashMap::default();
         let mut groups: Vec<(usize, Vec<usize>)> = Vec::new();
         let mut rest = Vec::new();
         for (position, row) in rows.iter().enumerate() {
@@ -751,7 +751,7 @@ impl<'a> Compiler<'a> {
         let mut outer = occurrences.to_vec();
         outer.remove(column);
 
-        let mut index: HashMap<&'a Constant, usize> = HashMap::new();
+        let mut index: HashMap<&'a Constant, usize> = HashMap::default();
         let mut groups: Vec<(&'a Constant, Vec<Row<'a>>)> = Vec::new();
         let mut rest: Vec<Row<'a>> = Vec::new();
         for row in rows {
@@ -1212,7 +1212,7 @@ impl Lower<'_> {
             let case_start = self.locals.len();
             let mut body = Vec::new();
             let bound = &checked[arm].1;
-            let mut slots = HashMap::new();
+            let mut slots = HashMap::default();
             for (name, ty) in bound {
                 let ty = match subject.borrowed {
                     Some((_, mutable)) => Ty::Ref(Arc::new(ty.clone()), mutable),

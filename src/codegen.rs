@@ -46,7 +46,7 @@
 //! builds write it beside the Cranelift object and invoke `cc` only to link.
 //! Runtime compilation happens when building Plenty, never for individual programs.
 
-use std::collections::HashMap;
+use crate::hash::HashMap;
 use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
@@ -608,7 +608,7 @@ fn object_module(
     // Every symbol a body refers to by name is declared before any body is
     // built, so forward references and mutual recursion resolve, and the
     // threads building bodies only read the declarations.
-    let mut user_fns: HashMap<String, UserFn> = HashMap::new();
+    let mut user_fns: HashMap<String, UserFn> = HashMap::default();
     let mut bodies = Vec::new();
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
     runtime.drop_hooks = user_fns
@@ -982,7 +982,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         },
         generator_finish: one_arg(module, "plenty_generator_finish", PTR_TY)?,
         type_data: Default::default(),
-        drop_hooks: HashMap::new(),
+        drop_hooks: HashMap::default(),
         retain: one_arg(module, "plenty_retain", PTR_TY)?,
         release: one_arg(module, "plenty_release", PTR_TY)?,
         collection: {
@@ -1144,10 +1144,10 @@ fn declare_str_data(
     module: &mut ObjectModule,
 ) -> Result<HashMap<StrId, DataId>> {
     let mut ids: Vec<StrId> = Vec::new();
-    let mut seen: HashMap<StrId, ()> = HashMap::new();
+    let mut seen: HashMap<StrId, ()> = HashMap::default();
     collect_str_ids(ops, &mut ids, &mut seen);
 
-    let mut out: HashMap<StrId, DataId> = HashMap::new();
+    let mut out: HashMap<StrId, DataId> = HashMap::default();
     for (i, id) in ids.into_iter().enumerate() {
         // The name only has to be unique within the module; the linker
         // never sees it externally (Linkage::Local). A stable index

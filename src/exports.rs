@@ -138,7 +138,7 @@ impl Interface {
     }
     pub fn validate_imports(
         &self,
-        imports: &std::collections::HashSet<String>,
+        imports: &crate::hash::HashSet<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let metadata = format!("{}_plenty_contract", self.name);
         for symbol in [&self.discovery, &self.contract_guard, &metadata]

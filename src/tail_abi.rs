@@ -1,8 +1,8 @@
 //! Checked native tail transfers. Lifetime checking precedes this pass: the ABI
 //! describes representations, not whether a reference outlives the current frame.
+use crate::hash::HashMap;
 use crate::op::{CompiledFn, ElifArm, FnSig, MatchArm, Op, Ty};
 use cranelift_codegen::ir::{types, Type};
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -128,7 +128,8 @@ pub(crate) type Signatures<'a> = dyn Fn(&str) -> Option<Arc<FnSig>> + 'a;
 /// fallback cost time per function (issue #57).
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn prepare(ops: &mut [Op], workers: usize) {
-    let mut table: HashMap<&str, &Arc<FnSig>> = HashMap::with_capacity(ops.len());
+    let mut table: HashMap<&str, &Arc<FnSig>> =
+        HashMap::with_capacity_and_hasher(ops.len(), Default::default());
     collect(ops, &mut table);
     let signatures = |name: &str| table.get(name).map(|sig| Arc::clone(sig));
     // Signatures borrow from `ops`, so the rewrites are applied afterwards.

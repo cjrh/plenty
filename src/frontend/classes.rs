@@ -63,8 +63,8 @@ impl Parser {
         self.kind(Kind::Indent, "an indented class declaration")?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
-        let mut names = HashSet::new();
-        let mut public_members = HashSet::new();
+        let mut names = HashSet::default();
+        let mut public_members = HashSet::default();
         while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
             let public = self.eat("pub");
             let member = if self.peek().is("def") {
@@ -619,7 +619,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
     }
     let definition = ty.get();
     let check = Check { ty: &definition };
-    if let Some(set) = check.block(&f.body, HashSet::new())? {
+    if let Some(set) = check.block(&f.body, HashSet::default())? {
         check.complete(&set, &f.at)?;
     }
     Ok(())

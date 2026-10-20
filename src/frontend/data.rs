@@ -339,12 +339,12 @@ impl TypeAliases {
         enums: &[enums::EnumDecl],
         classes: &[classes::ClassDecl],
     ) -> Result<Self> {
-        let mut enum_declarations = HashMap::new();
+        let mut enum_declarations = HashMap::default();
         for e in enums {
             validate_parameters(&e.name, &e.type_params, &e.at)?;
             enum_declarations.insert(e.name.clone(), e.template());
         }
-        let mut class_declarations = HashMap::new();
+        let mut class_declarations = HashMap::default();
         for c in classes {
             validate_parameters(&c.name, &c.type_params, &c.at)?;
             class_declarations.insert(c.name.clone(), c.template());
@@ -356,7 +356,7 @@ impl TypeAliases {
         };
         data.deferred.set(true);
         Ok(Self {
-            named: HashMap::new(),
+            named: HashMap::default(),
             data: Rc::new(data),
         })
     }

@@ -1,7 +1,7 @@
 //! Typed operations and independent checking before native code generation.
 //! Also contains the historical stack-syntax lowering used by backend tests.
 
-use std::collections::HashMap;
+use crate::hash::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
@@ -227,7 +227,7 @@ impl Ty {
     }
     fn find_generator_frame(&self, inspect_captures: bool) -> bool {
         let mut work = vec![self];
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = crate::hash::HashSet::default();
         while let Some(ty) = work.pop() {
             match ty {
                 Self::Generator(_) => return true,
@@ -1484,7 +1484,7 @@ const FUNCTIONS_PER_WORKER: usize = 16;
 /// signature table. The error reported is the first in program order.
 fn check_with(ops: &[Op], workers: usize) -> Result<()> {
     // Nearly every top-level operation defines a function.
-    let mut sigs = HashMap::with_capacity(ops.len());
+    let mut sigs = HashMap::with_capacity_and_hasher(ops.len(), Default::default());
     collect_sigs(ops, &mut sigs);
     let functions: Vec<_> = ops
         .iter()

@@ -61,7 +61,7 @@ impl Lower<'_> {
         // A receiver and its method can share the starting token. Keep only
         // the root call, and exclude propagation, conversions and builtin work
         // after that call, before scope cleanup has changed the operation tail.
-        let mut endings = HashSet::new();
+        let mut endings = HashSet::default();
         expression_endings(ops, None, &mut endings);
         let candidates = self.tail_candidates.split_off(start);
         self.tail_candidates
@@ -201,7 +201,8 @@ pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
     }
     // Every definition by name. Generators are not part of the call graph,
     // but their signatures are visible to the normalization below.
-    let mut definitions: HashMap<&str, usize> = HashMap::with_capacity(ops.len());
+    let mut definitions: HashMap<&str, usize> =
+        HashMap::with_capacity_and_hasher(ops.len(), Default::default());
     for (index, op) in ops.iter().enumerate() {
         if let Op::DefineFn(name, _) = op {
             definitions.insert(name, index);
@@ -230,7 +231,7 @@ pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
     // function in every program that imports a module with a tail call
     // (issue #57).
     let mut nodes: Vec<usize> = Vec::new();
-    let mut local: HashMap<usize, usize> = HashMap::new();
+    let mut local: HashMap<usize, usize> = HashMap::default();
     for &caller in &callers {
         if let std::collections::hash_map::Entry::Vacant(entry) = local.entry(caller) {
             entry.insert(nodes.len());
@@ -268,7 +269,7 @@ pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
         let candidates = &generics.tail_candidates[name];
         let caller_index = local[&caller];
         let prepared = crate::tail_abi::prepare_function(function, &signatures);
-        let mut native = HashSet::new();
+        let mut native = HashSet::default();
         tail_sites(
             prepared.as_deref().unwrap_or(&function.body),
             None,

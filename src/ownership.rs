@@ -1,10 +1,11 @@
 //! Definite ownership and last-use loans over an explicit access control-flow graph.
 use crate::executor::ExecutorOp;
+use crate::hash::HashMap;
 use crate::mutex::MutexOp;
 use crate::op::{Op, Ty};
 use crate::threading::{endpoints, owns_executor, Task, ThreadOp};
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
@@ -1356,8 +1357,8 @@ impl Checker<'_> {
             }
             // Ascending, as liveness visits successors before their predecessors.
             let reachable: Vec<usize> = (0..nodes.len()).filter(|&n| seen[n]).collect();
-            let mut loans = HashMap::new();
-            let mut created = HashMap::new();
+            let mut loans = HashMap::default();
+            let mut created = HashMap::default();
             for node in &nodes {
                 if let Some(Op::Loan(l)) = node.op {
                     loans.insert(l.id, l);

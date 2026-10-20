@@ -13,7 +13,7 @@ type Slot<T> = Arc<OnceLock<Arc<T>>>;
 pub struct Types {
     classes: Mutex<Vec<Slot<ClassType>>>,
     enums: Mutex<Vec<Slot<EnumType>>>,
-    facts: Mutex<std::collections::HashMap<Arc<str>, crate::type_facts::Facts>>,
+    facts: Mutex<crate::hash::HashMap<Arc<str>, crate::type_facts::Facts>>,
 }
 
 enum Link<T> {
@@ -219,7 +219,13 @@ impl Ty {
             .unwrap_or_else(|| child.clone())
     }
 
-    /// Rebuild paths to stored edges, retaining callable signature copying.
+    fn clone_sig(sig: &Arc<crate::op::CallableSig>) -> Arc<crate::op::CallableSig> {
+        Self::promoted_sig(sig)
+            .map(Arc::new)
+            .unwrap_or_else(|| sig.clone())
+    }
+
+    /// Rebuild paths to stored edges, sharing every other child.
     /// Visit structural children once without following nominal table links:
     /// rescanning before cloning would be quadratic for deeply nested types.
     fn promoted(&self) -> Option<Self> {
@@ -249,10 +255,41 @@ impl Ty {
                     ))
                 }
             }
-            // Callable signatures keep their existing promotion/copying path.
-            Self::Callable(t) => Some(Self::Callable(Arc::new((**t).clone()))),
+            Self::Callable(t) => Self::promoted_sig(t).map(|t| Self::Callable(Arc::new(t))),
+            Self::BoxedCallable(t) => {
+                Self::promoted_sig(t).map(|t| Self::BoxedCallable(Arc::new(t)))
+            }
             _ => None,
         }
+    }
+
+    /// Rebuild a signature only when an input or the output promotes.
+    fn promoted_sig(sig: &crate::op::CallableSig) -> Option<crate::op::CallableSig> {
+        let first = sig
+            .inputs
+            .iter()
+            .enumerate()
+            .find_map(|(i, t)| t.promoted().map(|t| (i, t)));
+        let output = sig.output.as_ref().and_then(Self::promoted);
+        if first.is_none() && output.is_none() {
+            return None;
+        }
+        let inputs = match first {
+            // Inputs before the first promoted one share their children, so
+            // their clones are cheap; later inputs promote through `clone`.
+            Some((i, promoted)) => {
+                let mut inputs = Vec::with_capacity(sig.inputs.len());
+                inputs.extend(sig.inputs[..i].iter().cloned());
+                inputs.push(promoted);
+                inputs.extend(sig.inputs[i + 1..].iter().cloned());
+                inputs
+            }
+            None => sig.inputs.clone(),
+        };
+        Some(crate::op::CallableSig {
+            inputs,
+            output: output.or_else(|| sig.output.clone()),
+        })
     }
 
     fn weaken(&self) -> Self {
@@ -295,8 +332,8 @@ impl Clone for Ty {
             Self::Box(t) => Self::Box(Self::clone_child(t)),
             Self::Shared(t) => Self::Shared(Self::clone_child(t)),
             Self::Ref(t, m) => Self::Ref(Self::clone_child(t), *m),
-            Self::Callable(t) => Self::Callable(Arc::new((**t).clone())),
-            Self::BoxedCallable(t) => Self::BoxedCallable(t.clone()),
+            Self::Callable(t) => Self::Callable(Self::clone_sig(t)),
+            Self::BoxedCallable(t) => Self::BoxedCallable(Self::clone_sig(t)),
             Self::Closure(t) => Self::Closure(t.clone()),
             Self::Generator(t) => Self::Generator(t.clone()),
             Self::Range(t) => Self::Range(t.clone()),

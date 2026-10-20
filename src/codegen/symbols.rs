@@ -35,7 +35,7 @@ pub(super) struct Declared {
 impl Declared {
     pub(super) fn snapshot(module: &ObjectModule, isa: OwnedTargetIsa) -> Self {
         let declarations = module.declarations();
-        let mut names = HashMap::new();
+        let mut names = HashMap::default();
         let functions = declarations
             .get_functions()
             .map(|(id, declaration)| {
@@ -89,7 +89,7 @@ impl Symbols {
         Self {
             declared,
             requests: Vec::new(),
-            numbers: HashMap::new(),
+            numbers: HashMap::default(),
             site_table: None,
             sites: sites::Sites::default(),
         }

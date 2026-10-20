@@ -11,8 +11,8 @@
 //! Standard modules are part of the compiler: the cache key covers the
 //! compiler's identity and [`standard_digest`].
 use super::{prepare_packages, Import, Kind, Loader, ModuleSource, Token, STANDARD_MODULES};
+use crate::hash::HashMap;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// A digest of every standard module's name and text.
@@ -88,7 +88,7 @@ impl Inputs {
         let loader = Loader {
             packages,
             active: vec![],
-            loaded: HashMap::new(),
+            loaded: HashMap::default(),
             modules: vec![],
             dependencies: vec![],
             appendix: None,
