@@ -1454,30 +1454,39 @@ def main() -> i32:
 "##;
 
 /// A JSON service answering `GET /summary` for the CSV file it is given, with
-/// a client in the same process that fetches it once and stops the server.
+/// a client that alternates real data failures with successful requests, then
+/// stops the server. Descriptors are counted after all server/client owners drop.
 const SERVICE: &str = r##"
 import std.bytes
+import std.fs
 import std.http.body
 import std.http.client
 import std.http.server
 import std.json
 import std.net
+import std.path
 import std.time
 import stock
+from std.error import Context, Subject
 from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
 
 pub enum Route:
-    Summary
+    Summary(str)
 
 # Answers GET /summary with the JSON summary of a CSV file.
 pub class Service:
-    pub path: str
-
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), stock.SummaryError | std.http.body.BodyError]:
-        summary = stock.summarize(&self.path, 1)?
-        std.http.body.send_json(exchange, 200, &summary, &std.json.limits())?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Context[stock.SummaryError] | std.http.body.BodyError | IoError]:
+        match route:
+            case Route.Summary(path):
+                match stock.summarize(path, 1):
+                    case Ok(summary):
+                        std.http.body.send_json(exchange, 200, &summary, &std.json.limits())?
+                    case Err(cause):
+                        context = Context("summarize", Subject.At(std.path.from_text(path)?), cause)
+                        context.report()
+                        return Err(context)
         Ok(())
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
@@ -1485,21 +1494,42 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError
         never = CancellationToken()?
         deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
         mut client = std.http.client.client(std.http.client.config()?)?
-        get = std.http.client.request("GET", &"http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/summary")?)?
-        answer = client.fetch(get, &deadline, &never)?
-        print(answer.status, answer.body.to_text()?)?
+        base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
+        # Reuse one client across closed error connections and healthy responses.
+        for round in range(3):
+            for route in ["/invalid", "/malformed", "/missing", "/summary"]?:
+                get = std.http.client.request("GET", &base.concat(route)?)?
+                answer = client.fetch(get, &deadline, &never)?
+                print(answer.status, answer.body.to_text()?)?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
+def run() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
     arguments = args()?
     mut table = std.http.server.router[Route]()?
-    table.add("GET", "/summary", Route.Summary)?
+    table.add("GET", "/summary", Route.Summary(arguments[1]))?
+    table.add("GET", "/invalid", Route.Summary(arguments[2]))?
+    table.add("GET", "/malformed", Route.Summary(arguments[3]))?
+    table.add("GET", "/missing", Route.Summary(arguments[4]))?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
     with spawn(visit, port, stop.share())? as task:
-        drop(std.http.server.serve(listener, &table, &Service("".concat(&arguments[1])?), &std.http.server.config(), &stop)?)
+        report = std.http.server.serve(listener, &table, &Service(), &std.http.server.config(), &stop)?
         task.join()?
+        print("requests", report.requests, "handler errors", report.handler_errors, "protocol errors", report.protocol_errors)?
+    Ok(())
+
+def descriptors() -> Result[i64, IoError]:
+    mut count = 0
+    for entry in std.fs.entries(std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?):
+        entry?
+        count += 1
+    Ok(count)
+
+def main() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
+    before = descriptors()?
+    run()?
+    print("descriptor delta", descriptors()? - before)?
     Ok(())
 "##;
 
@@ -1572,6 +1602,8 @@ fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
     std::fs::write(&data, "item,count\r\npen,3\r\nbook,12\r\ncard,2\r\n").unwrap();
     let bad = dir.path().join("bad.csv");
     std::fs::write(&bad, "item,count\npen,3\nbook,many\n").unwrap();
+    let malformed = dir.path().join("malformed.csv");
+    std::fs::write(&malformed, "item,count\npen,3,extra\n").unwrap();
 
     let plenty = |path: &std::ffi::OsStr, args: &[&str]| {
         let output = Command::new(&compiler)
@@ -1654,24 +1686,52 @@ fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
             bad.display().to_string()
         )
     );
+    assert!(invalid.stdout.is_empty(), "{invalid:?}");
+    let malformed_output = tally(&["--column".as_ref(), "1".as_ref(), malformed.as_os_str()]);
+    assert_eq!(
+        malformed_output.status.code(),
+        Some(1),
+        "{malformed_output:?}"
+    );
+    assert!(malformed_output.stdout.is_empty(), "{malformed_output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&malformed_output.stderr),
+        format!(
+            "error: summarize {:?}: stock::lib.SummaryError.Csv(std.csv.CsvError.Width(2, 2, 3))\n",
+            malformed.display().to_string()
+        )
+    );
     let missing = dir.path().join("missing.csv");
     let absent = tally(&["--column".as_ref(), "1".as_ref(), missing.as_os_str()]);
     assert_eq!(absent.status.code(), Some(1), "{absent:?}");
-    assert!(
-        String::from_utf8_lossy(&absent.stderr).contains("SummaryError.Open("),
-        "{absent:?}"
+    assert!(absent.stdout.is_empty(), "{absent:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&absent.stderr),
+        format!(
+            "error: summarize {:?}: stock::lib.SummaryError.Open(std.io.StreamError.Io(IoError.System(2)))\n",
+            missing.display().to_string()
+        )
     );
 
     let served = Command::new(built.join("service"))
         .arg(&data)
+        .arg(&bad)
+        .arg(&malformed)
+        .arg(&missing)
         .env_clear()
         .output()
         .unwrap();
     assert!(served.status.success(), "{served:?}");
+    let responses = format!(
+        "500 Internal Server Error\n\n500 Internal Server Error\n\n500 Internal Server Error\n\n200 {summary}\n"
+    )
+    .repeat(3);
     assert_eq!(
         String::from_utf8_lossy(&served.stdout),
-        format!("200 {summary}\n")
+        format!("{responses}requests 12 handler errors 9 protocol errors 0\ndescriptor delta 0\n")
     );
+    let expected_reports = [invalid.stderr, malformed_output.stderr, absent.stderr].concat();
+    assert_eq!(served.stderr, expected_reports.repeat(3), "{served:?}");
     for name in ["tally", "service"] {
         let backends = backends(&built.join(name));
         assert!(backends.is_empty(), "{name}: {backends:?}");

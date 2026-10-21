@@ -53,9 +53,11 @@ not mean all candidates or every concurrency diagnostic are implemented.
    performance comparisons finish, so their workload stays comparable. Use
    non-error sums and the mutual-TLS lesson as acceptance cases. This is the
    agreed next language batch; B71 records its boundaries.
-2. **Validate composition in existing applications.** Reuse the installed
-   CLI/data and JSON-service workflows already qualified under B66 to check
-   precise errors, context, reporting and cleanup through real library calls.
+2. **Complete typed HTTP composition.** The installed CLI/data and JSON-service
+   workflows now [validate error composition](design/stdlib/http-qualification.md#application-error-composition)
+   through real CSV/HTTP calls: precise data/open causes, operation/path reports,
+   exit statuses, repeated handler failures followed by success, and descriptor
+   cleanup. These extend the existing B66 acceptance checks.
    The additive B71 [typed-stream API](design/stdlib/io-typed.md), legacy stream
    bridges, and [fixed/close-delimited HTTP bodies](design/stdlib/http-typed.md)
    preserve operation, cause and partial-progress information. Chunked framing,
