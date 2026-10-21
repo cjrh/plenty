@@ -163,7 +163,7 @@ def skip_header(lines: &mut Iter[str]) -> Result[(), CsvError]:
 def main() -> Result[(), CsvError | AllocError | IoError]:
     mut rows = iter(read_lines(path)?).filter(def(l: &str) -> bool: l != "")
     skip_header(&mut rows)?
-    records = rows.map(parse_row).try_collect()?
+    records: list[Record] = rows.map(parse_row).try_collect()?
     ...
 ```
 
@@ -177,7 +177,8 @@ model.
 - `next(p) -> Option[T]` takes one item;
 - `for x in p:` consumes items until the loop ends; after `break`, the rest
   stays in the pipeline;
-- a terminal (`p.count()`, `p.collect()`) consumes everything that remains;
+- a terminal (`p.count()`, or `p.collect()` with an expected type) consumes
+  everything that remains;
 - an adapter (`p.take(3)`, `p.filter(...)`) makes a *sub-pipeline* that
   borrows `p` and must be consumed inside the callee. Its own closures may
   borrow the callee's locals, because it ends in the callee.
@@ -301,12 +302,12 @@ rule is: *a callback over a pair item takes two parameters.* No exception for
 owned pairs, and no new syntax or types:
 
 ```text
-top = scores.items()
+top: list[str] = scores.items()
     .filter(def(name: &str, score: &i64) -> bool: *score >= 90)
     .map(def(name: &str, score: &i64) -> str: copy(name))
     .collect()?
 
-flagged = enumerate(&rows)
+flagged: list[i64] = enumerate(&rows)
     .filter(def(i: i64, row: &Row) -> bool: row.bad)
     .map(def(i: i64, row: &Row) -> i64: i)
     .collect()?
@@ -316,8 +317,8 @@ Only the top level is spread. In `zip(enumerate(a), b)` over owned `a`, the
 inner `(i64, T)` is an owned tuple passed as one argument. An inner pair that
 holds references cannot be formed and is rejected until B11; loops cannot
 unpack nested pairs today either. A `map` that returns an owned tuple
-produces a pair item, so the next callback takes two parameters. `collect_dict`
-consumes owned pairs directly. If B11 later adds tuples of references, option 1
+produces a pair item, so the next callback takes two parameters. `collect()`
+into a `dict[K, V]` target consumes owned pairs directly. If B11 later adds tuples of references, option 1
 stays valid and nothing has to change.
 
 ### Closure parameter types
@@ -348,45 +349,104 @@ writes the types.
 | `.find(keep)` | `Option[Item]` | First match; drops the rest |
 | `.for_each(f)` | `()` | `f: (Item) -> ()`; prefer a `for` loop when the body has statements |
 | `.last()` | `Option[Item]` | |
-| `.collect()` | `Result[list[T], AllocError]` | Always a list |
-| `.collect_set()` | `Result[set[T], AllocError]` | Hashable items |
-| `.collect_dict()` | `Result[dict[K, V], AllocError]` | Owned pair items; later duplicate keys overwrite, as dict displays do |
+| `.collect()` | `Result[C, AllocError]` | `C` is the expected `list[T]`, `set[T]` or `dict[K, V]`; see below |
 | `.try_fold(initial, f)` | `Result[A, E]` | Stops at the first `Err` |
 | `.try_for_each(f)` | `Result[(), E]` | Same |
-| `.try_collect()` | `Result[list[T], AllocError \| E]` | Over `Result[T, E]` items; first `Err` wins |
+| `.try_collect()` | `Result[C, AllocError \| E]` | Over `Result[T, E]` items; same targets; first `Err` wins |
 
-The collecting terminals are the only ones that allocate. The `try_` prefix
-means "items are `Result`, stop at the first `Err`" and applies uniformly:
-`try_collect_set()` and `try_collect_dict()` follow the same naming when a use
-case adds them.
+`collect` and `try_collect` are the only terminals that allocate. The `try_`
+prefix means "items are `Result`, stop at the first `Err`" and applies
+uniformly.
 
 ### Choosing the collection
 
-**Hard rule: the method name chooses the collection, and nothing else does.**
-`collect()` always builds a `list`; `collect_set()` a `set`; `collect_dict()` a
-`dict`. The element type is the item type. An annotation or expected type is
-checked against the result, never used to choose it:
+There is one collecting terminal. Its target comes from the expected type, as
+empty displays already do.
+
+**Hard rule: `collect()` and `try_collect()` build the collection named by
+their expected type. Without an expected collection type, they are a compile
+error.** There is no default.
 
 ```text
-names = iter(&people).map(def(p: &Person) -> str: copy(&p.name)).collect()?       # list[str]
-tags = iter(&posts).flat_map(post_tags).collect_set()?                            # set[str]
-bad: set[str] = iter(&people).map(...).collect()?    # error: collect() builds list[str]; use collect_set()
+names: list[str] = iter(&people).map(def(p: &Person) -> str: copy(&p.name)).collect()?
+tags: set[str] = iter(&posts).flat_map(post_tags).collect()?
+index(iter(&people).map(def(p: &Person) -> (str, i64): (copy(&p.name), p.id)).collect()?)  # def index(by_name: dict[str, i64])
+n = iter(&xs).collect()?.len()
+# error: collect() needs an expected collection type; annotate the binding,
+#        as in `name: list[i64] = ...collect()?`
 ```
 
-Alternatives considered:
+**Expected-type sites.** The same sites that type an empty display today
+(verified with the current compiler):
 
-- *Inference from the annotation or expected type* (Rust's `collect` without
-  turbofish) makes the meaning of `collect()` depend on context the reader may
-  not see, such as a parameter type in another module, and needs a fallback when
-  there is no context: an exception to the rule.
-- *Default to list, infer otherwise* combines two rules and the same reader
-  cost.
-- *A type argument*, `collect[set[str]]()`, is the turbofish the user wants to
-  avoid.
+- an annotated binding, `x: set[u64] = ....collect()?`;
+- assignment to a binding or field whose type is known, `xs = ....collect()?`;
+- a non-generic parameter, `take(....collect()?)`;
+- a function's declared return type, through its `Result`;
+- a class field in a constructor call, `Bag(items=....collect()?)`.
 
-Separate terminals keep the target visible at the call, need no inference, and
-cost one method name per collection kind. `list[T].from(pipeline)` is not
-accepted; its diagnostic points to `collect()`, so there is one spelling.
+The expected type passes through `?` and through the `Result` of the return
+type, exactly as `name: list[i64] = []?` does now. Sites that give no
+expected type: an unannotated binding, a generic parameter position (as
+[type argument inference](../design/language/07-generics/inference.md) already
+states), a method receiver (`....collect()?.len()`), and later uses of a
+binding. The checker does not look ahead.
+
+**Precedent.** The checker already types expressions from an expected type:
+
+- `xs: list[u8] = [1, 2]?` types the literals as `u8`; parameters do the same
+  for numeric literals.
+- Empty displays take their element types from the expected `Result` type, and
+  `s = []?` with no expected type is an error: "empty collection needs a type;
+  annotate the binding, as in `name: list[i64] = []?`, or use a typed
+  constructor".
+- `Atomic(value)` takes `T` from the expected type, and expected types allow
+  anonymous-sum injection and widening.
+
+`collect()` extends this by letting the expected type choose the collection
+*kind*, not only its element type. Displays never needed that, because their
+syntax picks the kind. The checker change is to treat `collect`/`try_collect`
+as a contextually typed terminal in the same expected-type pass.
+
+**Target rules.**
+
+- `list[T]`, `set[T]` and `dict[K, V]` are accepted. Any other expected type,
+  is an error naming the accepted kinds; aliases resolve first.
+- The element type must equal the item type exactly. Items are already typed
+  by the chain (callback types are explicit), so nothing flows backwards into
+  the pipeline and there is no conversion: `x: list[u8]` over `i64` items is a
+  mismatch, not a cast.
+- `set[T]` needs hashable items and keeps the first occurrence, as
+  `set[T].from` does. `dict[K, V]` needs owned `(K, V)` pair items, and a later
+  duplicate key overwrites, as dict displays do.
+- The `Result` wraps the target: `Result[C, AllocError]`, and for
+  `try_collect` over `Result[T, E]` items, `Result[C, AllocError | E]`. The
+  expected type may be the bare `C` (with `?`) or the whole `Result`.
+
+**Why an error, not a list default.** Numeric literals default to `i64`, but
+the closer precedent is the empty display, which errors without context. A
+default would make `xs = ...collect()?` silently a list and change meaning
+when someone later adds an annotation elsewhere, and readers would need to
+know the default to read unannotated code. The error costs one annotation,
+which also documents the collection kind at the call site, where readers need
+it. It is the rule with no exception: every `collect()` has a visible or
+declared target type.
+
+**Alternatives considered.**
+
+- *Passing the container type*, `.collect(set)`, as excitertools does. Python
+  has no static types, so the container must be a runtime argument there. In
+  Plenty the element type is already known and the target is almost always
+  declared nearby; a type-valued argument would be a new kind of argument
+  (types are not values) and would duplicate the annotation. It also would
+  not remove the need to check it against an expected type.
+- *Separate terminals* (`collect_set()`, `collect_dict()`). Explicit at the
+  call, but three names for one operation, and an annotation would still be
+  checked against them.
+- *A type argument*, `collect[set[str]]()`. Turbofish; rejected.
+
+`list[T].from(pipeline)` is not accepted; its diagnostic points to
+`collect()`, so there is one spelling.
 
 There is no `.sum()`, `.min()` or `.max()` method. Numeric helpers belong in
 `std.math`; extend `std.math.sum_iter`/`prod_iter`/`min_all`/`max_all` to
@@ -402,7 +462,7 @@ returns from the callback, as it does today, so a fallible step produces
 `?`:
 
 ```text
-parsed = iter(&lines).map(def(l: &str) -> Result[i64, ParseError]: parse_int(l)).try_collect()?
+parsed: list[i64] = iter(&lines).map(def(l: &str) -> Result[i64, ParseError]: parse_int(l)).try_collect()?
 ```
 
 The `try_` terminals widen with `AllocError` exactly as anonymous sums widen
@@ -515,7 +575,7 @@ Acceptance for the implementation, not optional extras:
 - `for x in pipeline:` is the main consumer. `for x in iter(values):` is valid
   but redundant; prefer `for x in values:`. A lint can suggest the shorter form.
 - A list comprehension `[f(x) for x in s if p(x)]` lowers to the same plan as
-  `iter(s).filter(p).map(f).collect()`. Comprehensions stay: they are the
+  `iter(s).filter(p).map(f).collect()` into a `list` target. Comprehensions stay: they are the
   Python-shaped way to build a collection, and the tutorial teaches them first.
   The two forms must produce the same operations; that is a test, not a goal.
 - A generator expression is a pipeline converted to a frame. Its outer source
@@ -535,7 +595,7 @@ requires.
 
 ```text
 with ThreadPoolExecutor(8, 64)? as pool:
-    lengths = iter(paths).par(&pool).map(file_size).collect()?
+    lengths: list[i64] = iter(paths).par(&pool).map(file_size).collect()?
     longest = iter(range(1, n)).par(&pool).map(score).reduce(best)?
 ```
 
@@ -551,7 +611,7 @@ Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
   checks. `mut`, `&mut` and one-shot captures are rejected; shared borrows wait
   for scoped jobs. Generator sources are rejected, as frames are not
   worker-eligible.
-- **Terminals.** `collect`, `try_collect` (lowest-index error wins, as
+- **Terminals.** `collect` and `try_collect` into a `list` target (lowest-index error wins, as
   `map_result`), `count`, `any`/`all`, and `reduce`. A parallel `reduce` uses
   the fixed adjacent-pair tree of `reduce_tree`, which reassociates; it is
   deterministic for a given input but differs from the serial left fold for
@@ -659,7 +719,7 @@ scope, with lending for helpers, ships the useful part now.
    `map`/`filter`/`enumerate`/`zip`/`take`/`skip`/`take_while`, two-parameter
    pair callbacks, and terminals
    `fold`/`reduce`/`count`/`any`/`all`/`find`/`for_each`/`collect`/
-   `collect_set`/`collect_dict`/`try_fold`/`try_for_each`/`try_collect`, fused
+   `try_fold`/`try_for_each`/`try_collect` (target from the expected type), fused
    at the consumer,
    with the verification suite above. Fix issue #371 first so generator
    expressions and stored ranges do not mislead the benchmarks.
