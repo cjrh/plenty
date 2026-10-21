@@ -14,7 +14,7 @@
 //! The analysis matches operations structurally and gives up on anything it
 //! does not recognize. It applies only to counters held in CLIF variables, so
 //! no reference can write them behind the operations' back.
-use cranelift_codegen::ir::{DataFlowGraph, InstructionData, Opcode, Value, ValueDef};
+use cranelift_codegen::ir::{DataFlowGraph, Value};
 
 use crate::hash::HashSet;
 use crate::op::{Op, Ty};
@@ -253,19 +253,8 @@ fn step(ops: &[Op], store: usize, local: u8) -> Option<(usize, i128)> {
     Some((arith, delta))
 }
 
-/// Whether `value` is an integer constant that is nonnegative at its width.
+/// Whether `value` is computed from constants and nonnegative at its width.
 pub(super) fn nonnegative_constant(dfg: &DataFlowGraph, value: Value) -> bool {
-    let value = dfg.resolve_aliases(value);
-    let ValueDef::Result(inst, _) = dfg.value_def(value) else {
-        return false;
-    };
-    let InstructionData::UnaryImm {
-        opcode: Opcode::Iconst,
-        imm,
-    } = dfg.insts[inst]
-    else {
-        return false;
-    };
-    let shift = 64 - dfg.value_type(value).bits();
-    (imm.bits() << shift) >> shift >= 0
+    let sign = dfg.value_type(value).bits() - 1;
+    super::known::known_int(dfg, value).is_some_and(|bits| bits >> sign & 1 == 0)
 }
