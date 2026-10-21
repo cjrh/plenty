@@ -2337,9 +2337,28 @@ impl Lowerer<'_, '_> {
         let (a, b, ty) = self.pop_pair()?;
         if ty.is_float() {
             let result = match kind {
-                ArithKind::Add => self.bcx.ins().fadd(a, b),
                 ArithKind::Sub => self.bcx.ins().fsub(a, b),
-                ArithKind::Mul => self.bcx.ins().fmul(a, b),
+                ArithKind::Add | ArithKind::Mul => {
+                    // Cranelift rematerializes a float constant in each block
+                    // that uses it and, on x86-64, builds a left operand in a
+                    // register with `movabs` + `movq` but reads a right one from
+                    // the constant pool. Moving a non-NaN constant right is
+                    // exact: only the choice between two NaN operands depends
+                    // on order. `2.0 * x` becomes `x + x`, which rounds,
+                    // overflows, and propagates signed zero, infinities and NaN
+                    // identically (issue #370).
+                    let dfg = &self.bcx.func.dfg;
+                    let constant_left = known::known_float(dfg, a).is_some_and(|c| !c.is_nan())
+                        && known::known_float(dfg, b).is_none();
+                    let (x, y) = if constant_left { (b, a) } else { (a, b) };
+                    match kind {
+                        ArithKind::Mul if known::known_float(dfg, y) == Some(2.0) => {
+                            self.bcx.ins().fadd(x, x)
+                        }
+                        ArithKind::Mul => self.bcx.ins().fmul(x, y),
+                        _ => self.bcx.ins().fadd(x, y),
+                    }
+                }
             };
             self.stack.push((result, ty));
             return Ok(());

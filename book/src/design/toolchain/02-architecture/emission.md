@@ -141,6 +141,28 @@ other function uses it. The choice depends on the function alone, so it is the
 same for every core count. `tests/test_large_functions.rs` runs functions over
 the limit.
 
+## Constants in loops
+
+In release builds Cranelift rematerializes an integer or float constant in each
+block that uses it rather than keeping it in a register across a loop: this
+saves a register for the loop's lifetime at the cost of one instruction per use.
+On x86-64 a constant that is the right operand of a float operation is read from
+the constant pool. A left float operand, or a 64-bit integer constant in a
+`wrapping_add`, is built with `movabs` (plus `movq` for a float) each time it is
+used (issue #370).
+
+Lowering therefore moves a non-NaN constant to the right of float `+` and `*`,
+which gives the same bits: only the choice between two NaN operands depends on
+order. `2.0 * x` and `x * 2.0` become `x + x`, which rounds, overflows, and
+propagates signed zero, infinities and NaN identically. No other float
+operation is rewritten; there is no reassociation, fusion, or fast-math mode.
+
+Integer constants are left as Cranelift places them. In the
+`examples/cpu_codegen_audit` `mix` kernel the per-iteration `movabs` is off the
+loop's dependency chain: passing the constant as an argument instead removes
+the instruction but not a cycle (7.05 billion cycles either way for 10⁹
+iterations). Removing the rematerialization would need a Cranelift change.
+
 ## Measuring compilation
 
 `examples/compile_bench.rs` generates units containing a protocol, class, enum,
