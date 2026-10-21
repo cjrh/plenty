@@ -329,6 +329,8 @@ mod test_set_operations;
 mod test_set_removal;
 #[path = "test_shared.rs"]
 mod test_shared;
+#[path = "test_short_circuit_branches.rs"]
+mod test_short_circuit_branches;
 #[path = "test_slicing.rs"]
 mod test_slicing;
 #[path = "test_small_conveniences.rs"]
