@@ -391,14 +391,9 @@ def first_response(port: u16) -> Result[u64, std.bytes.BytesError | std.net.NetE
     Ok(elapsed)
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | Unexpected | AllocError | IoError]:
-    for index in range(9):
-        match first_response(port):
-            case Ok(elapsed):
-                print(elapsed)?
-            case Err(error):
-                stop.cancel()
-                return Err(error)
-    stop.cancel()
+    with stop.cancel_on_exit():
+        for index in range(9):
+            print(first_response(port)?)?
     Ok(())
 
 def main() -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | std.http.server.ServerError | ThreadError | Unexpected | AllocError | IoError]:

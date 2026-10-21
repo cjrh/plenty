@@ -24,7 +24,10 @@ stored, captured, or passed to a function. `spawn` must be the direct manager
 expression, using `?` or `.unwrap()`. Comma-separated managers form nested scopes.
 Each successful task joins on normal completion, `return`, `?`, `break`, and
 `continue`. Failure to start a later task first joins earlier tasks. Detachment
-and forced cancellation are unsupported.
+and forced cancellation are unsupported. A join that could wait for a task
+holding a token before the function's later cancel is rejected; put
+`stop.cancel_on_exit()` after the task to cancel it on every exit. See
+[cancel on every exit](cancellation.md#cancel-on-every-exit).
 
 A join, explicit or automatic, is rejected while the function keeps a channel
 endpoint that the worker could be waiting on. See

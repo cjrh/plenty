@@ -15,7 +15,7 @@ type CancellableWorkError = SendError[i64] | FutureError | RecvError | SubmitErr
 def main() -> Result[(), AllocError | IoError | CancellableWorkError]:
     stop = CancellationToken()?
     ready, started = channel[i64](1)?
-    with ThreadPoolExecutor(1, 1)? as pool:
+    with ThreadPoolExecutor(1, 1)? as pool, stop.cancel_on_exit():
         future = pool.submit(work, stop.share(), ready).drop_job()?
         with started as inbox:
             inbox.recv()?
@@ -30,9 +30,16 @@ def main() -> Result[(), AllocError | IoError | CancellableWorkError]:
 True
 ```
 
-The worker reports that it started, then waits for the request. The receiver's
-own guard ends before `future.result()` waits, and it also covers the `?` on
-`recv()`, as in [jobs that send](future-cancellation-and-waits.md#jobs-that-send).
+The worker reports that it started, then waits for the request.
+`stop.cancel_on_exit()` cancels `stop` however the block ends, including
+through a `?`, so the pool's shutdown never waits for a job that is still
+waiting for the request; [cancel on every exit](#cancel-on-every-exit) shows
+the mistake it prevents. The explicit `stop.cancel()` comes before
+`future.result()`, which waits inside the block.
+
+The receiver's own guard ends before `future.result()` waits, and it also
+covers the `?` on `recv()`, as in
+[jobs that send](future-cancellation-and-waits.md#jobs-that-send).
 Without the guard, an exit from the pool's block would reach shutdown with
 `started` alive, and Plenty rejects that:
 
@@ -55,6 +62,115 @@ leaving its scope shuts down this pool after a job that holds `Sender[i64]` was 
 As with [task joins](channels-and-shutdown.md), the compiler compares message
 types rather than counting messages, so it asks for the guard even though this
 job's one send always fits the queue.
+
+## Cancel on every exit
+
+A worker that waits for a token keeps a join or pool shutdown waiting until
+someone cancels it. When the cancel comes after a `?`, `return`, or `break`,
+that exit skips it, and Plenty rejects the program:
+
+```plenty-error
+def serve(stop: CancellationToken) -> ():
+    stop.wait()
+
+def prepare() -> Result[(), str]:
+    Ok(())
+
+def main() -> Result[(), AllocError | ThreadError | IoError | str]:
+    stop = CancellationToken()?
+    with spawn(serve, stop.share())?:
+        prepare()?
+        print("ready")?
+        stop.cancel()
+    Ok(())
+```
+
+```error
+leaving this `with` block joins a task that holds `stop` before this function cancels it
+`?` leaves the block here
+```
+
+Add `stop.cancel_on_exit()` as the last manager, after the task. On every exit
+it cancels `stop` before the task is joined, so the explicit `cancel()` is no
+longer needed:
+
+```plenty
+def serve(stop: CancellationToken) -> ():
+    stop.wait()
+
+def prepare() -> Result[(), str]:
+    Ok(())
+
+def main() -> Result[(), AllocError | ThreadError | IoError | str]:
+    stop = CancellationToken()?
+    with spawn(serve, stop.share())?, stop.cancel_on_exit():
+        prepare()?
+        print("ready")?
+    Ok(())
+```
+
+```output
+ready
+```
+
+The guard holds a share of the token and allocates nothing.
+
+The same mistake can happen the other way round. Here the parent waits for
+the worker to cancel `stop` when it finishes, but a `?` in the worker skips
+the cancel:
+
+```plenty-error
+def prepare() -> Result[(), str]:
+    Ok(())
+
+def client(stop: CancellationToken) -> Result[(), str]:
+    prepare()?
+    stop.cancel()
+    Ok(())
+
+def main() -> Result[(), AllocError | ThreadError | IoError | str]:
+    stop = CancellationToken()?
+    with spawn(client, stop.share())? as task:
+        stop.wait()
+        task.join()?
+    Ok(())
+```
+
+```error
+`?` leaves this function without cancelling `stop`, which its normal end cancels
+```
+
+Put the worker's body in `with stop.cancel_on_exit():`, so the parent's
+`stop.wait()` returns however the worker ends. `task.join()?` after the wait
+then reports the worker's error, if it had one:
+
+```plenty
+def prepare() -> Result[(), str]:
+    Ok(())
+
+def client(stop: CancellationToken) -> Result[(), str]:
+    with stop.cancel_on_exit():
+        prepare()?
+    Ok(())
+
+def main() -> Result[(), AllocError | ThreadError | IoError | str]:
+    stop = CancellationToken()?
+    with spawn(client, stop.share())? as task:
+        stop.wait()
+        task.join()?
+        print("client finished")?
+    Ok(())
+```
+
+```output
+client finished
+```
+
+The
+[cancellation reference](../../design/facilities/03-concurrency/cancellation.md#cancel-on-every-exit)
+describes the check and its limits.
+
+## Checking for cancellation
 
 Check `stop.is_cancelled()` between work units and return an appropriate result.
 Cancellation does not interrupt instructions or skip cleanup.

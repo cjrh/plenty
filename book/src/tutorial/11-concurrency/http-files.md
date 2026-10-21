@@ -81,28 +81,28 @@ def get(path: &str, extra: &str) -> Result[str, FormatError]:
     Ok(f"GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{extra}\r\n"?)
 
 def client(port: u16, stop: CancellationToken) -> Result[(), FetchError | FormatError]:
-    page = fetch(port, &get("/files/index.html", "")?)?
-    print(page.split("\r\n")?[0])?
-    print(field(&page, "Content-Type")?)?
-    print(page.split("\r\n\r\n")?[1].strip()?)?
-    tag = field(&page, "ETag")?
-    again = fetch(port, &get("/files/index.html", &f"If-None-Match: {tag}\r\n"?)?)?
-    print(again.split("\r\n")?[0])?
-    for path in ["/files/../secret.txt", "/files/%2e%2e/secret.txt", "/files/.env"]?:
-        print(fetch(port, &get(&path, "")?)?.split("\r\n")?[0])?
+    with stop.cancel_on_exit():
+        page = fetch(port, &get("/files/index.html", "")?)?
+        print(page.split("\r\n")?[0])?
+        print(field(&page, "Content-Type")?)?
+        print(page.split("\r\n\r\n")?[1].strip()?)?
+        tag = field(&page, "ETag")?
+        again = fetch(port, &get("/files/index.html", &f"If-None-Match: {tag}\r\n"?)?)?
+        print(again.split("\r\n")?[0])?
+        for path in ["/files/../secret.txt", "/files/%2e%2e/secret.txt", "/files/.env"]?:
+            print(fetch(port, &get(&path, "")?)?.split("\r\n")?[0])?
 
-    login = fetch(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?
-    cookie = field(&login, "Set-Cookie")?.split(";")?[0]
-    print(cookie.startswith("user=Ada."))?
-    print(fetch(port, &get("/me", &f"Cookie: {cookie}\r\n"?)?)?.split("\r\n\r\n")?[1])?
-    forged = cookie.replace("Ada", "Eve")?
-    print(fetch(port, &get("/me", &f"Cookie: {forged}\r\n"?)?)?.split("\r\n\r\n")?[1])?
-    stop.cancel()
+        login = fetch(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?
+        cookie = field(&login, "Set-Cookie")?.split(";")?[0]
+        print(cookie.startswith("user=Ada."))?
+        print(fetch(port, &get("/me", &f"Cookie: {cookie}\r\n"?)?)?.split("\r\n\r\n")?[1])?
+        forged = cookie.replace("Ada", "Eve")?
+        print(fetch(port, &get("/me", &f"Cookie: {forged}\r\n"?)?)?.split("\r\n\r\n")?[1])?
     Ok(())
 
 type FileSiteError = std.fs.FsError | std.io.StreamError | std.http.server.ServerError | std.secrets.SecretsError | std.net.NetError
 
-def main() -> Result[(), ThreadError | IoError | AllocError | FileSiteError]:
+def main() -> Result[(), ThreadError | IoError | AllocError | FileSiteError | FetchError | FormatError]:
     parent = std.fs.root(&std.path.from_text(".")?)?
     mut directory = std.fs.temporary_dir(&parent, &std.path.from_text("plenty-site-")?, 8)?
     for name in ["index.html", ".env"]?:
@@ -121,6 +121,7 @@ def main() -> Result[(), ThreadError | IoError | AllocError | FileSiteError]:
     stop = CancellationToken()?
     with spawn(client, port, stop.share())? as task:
         std.http.server.serve(listener, &routes, &site, &std.http.server.config(), &stop)?
+        task.join()?
     for name in ["index.html", ".env"]?:
         directory.root().remove_file(&std.path.from_text(name)?)?
     directory.cleanup()?

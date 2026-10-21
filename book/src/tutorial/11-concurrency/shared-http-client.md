@@ -51,7 +51,7 @@ def main() -> Result[(), ClientRunError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server:
+    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
         url = f"http://127.0.0.1:{port}/"?
         client = Shared(std.http.client.client(std.http.client.config()?)?)?
         mut answered = 0
@@ -63,13 +63,15 @@ def main() -> Result[(), ClientRunError]:
         stats = client.stats()
         print(answered, stats.opened + stats.reused, stats.opened <= 3)?
         print(stats.opened == u64(client.idle()) + stats.discarded)?
-        stop.cancel()
     Ok(())
 ```
 ```output
 30 30 True
 True
 ```
+
+`stop.cancel_on_exit()` stops the server however the block ends, so a failed
+request cannot leave the block's join waiting for it.
 
 `Shared(client(config)?)?` moves the client into one shared allocation;
 `client.share()` gives each job its own owner, and `client.get` reaches the

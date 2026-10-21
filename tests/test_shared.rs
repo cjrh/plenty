@@ -287,7 +287,7 @@ def main() -> Result[(), AllocError | FutureError | IoError | PoolError | str]:
     drops = Shared[Atomic[u64]](Atomic(0))?
     stop = CancellationToken()?
     state = Shared(Noisy("pooled", drops.share()))?
-    with ThreadPoolExecutor(2, 2)? as pool:
+    with ThreadPoolExecutor(2, 2)? as pool, stop.cancel_on_exit():
         first = submitted(pool.submit(hold, state.share(), stop.share()))?
         second = submitted(pool.submit(hold, state.share(), stop.share()))?
         drop(state)

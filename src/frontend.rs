@@ -4097,6 +4097,51 @@ impl Lower<'_> {
             ops.push(Op::Passes(handed_slots.into()));
         }
     }
+    /// Name the token slots that the arguments of a `spawn` or `submit`,
+    /// `ops[start..]`, share, borrow, or move, for the skipped-cancel check
+    /// (issue #355). Goes directly before the start or submission. A token
+    /// reached through another value's field or a callable's captures is not
+    /// named; neither is one in a failing `?`'s cleanup.
+    pub(super) fn holds_tokens(&self, start: usize, ops: &mut Vec<Op>) {
+        fn token(ty: &Ty) -> bool {
+            match ty {
+                Ty::CancellationToken => true,
+                Ty::Ref(inner, _) => token(inner),
+                _ => false,
+            }
+        }
+        fn slots(ops: &[Op], out: &mut Vec<u8>) {
+            for op in ops {
+                match op {
+                    Op::MoveLocal(slot) | Op::LoadLocal(slot) | Op::BorrowLocal(slot, _)
+                        if !out.contains(slot) =>
+                    {
+                        out.push(*slot)
+                    }
+                    Op::Match(arms) => arms.iter().for_each(|arm| slots(&arm.body, out)),
+                    Op::If {
+                        then,
+                        elifs,
+                        otherwise,
+                    } => {
+                        slots(then, out);
+                        for arm in elifs.iter() {
+                            slots(&arm.condition, out);
+                            slots(&arm.body, out);
+                        }
+                        slots(otherwise, out);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut held = Vec::new();
+        slots(&ops[start..], &mut held);
+        held.retain(|&slot| self.slot_type(slot).is_some_and(|(ty, _)| token(ty)));
+        if !held.is_empty() {
+            ops.push(Op::Tokens(crate::op::TokenMark::Holds(held.into())));
+        }
+    }
     /// Bracket the arguments, `ops[start..]`, of a call whose `output` can
     /// hold a future, so the checker gives that future the jobs of the
     /// futures the arguments carry and of the jobs the callee submits (issue

@@ -40,7 +40,7 @@ def main() -> Result[(), ThreadError | IoError | AllocError | ServerShutdownErro
     routes.add("GET", "/", Route.Home)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     stop = CancellationToken()?
-    with spawn(std.signal.cancel_on, signals, stop.share())? as watcher, spawn(supervisor)? as stopper:
+    with spawn(std.signal.cancel_on, signals, stop.share())? as watcher, stop.cancel_on_exit(), spawn(supervisor)? as stopper:
         served = std.http.server.serve(listener, &routes, &Hello(), &std.http.server.config(), &stop)
         stop.cancel()
         stopper.join()?
@@ -68,9 +68,12 @@ once.
 which begins the server's [shutdown](../../design/stdlib/http-server.md#shutdown):
 `serve` stops accepting, finishes the requests it has within the drain
 timeout, and returns its `Report`. If `serve` returns for another reason,
-`stop.cancel()` ends the watcher instead, and it returns `Nothing`. Cancel
-`stop` before any `?` in the block: the block joins the watcher as it exits,
-and the watcher waits until a signal arrives or `stop` is cancelled.
+`stop.cancel()` ends the watcher instead, and it returns `Nothing`.
+
+The watcher waits until a signal arrives or `stop` is cancelled, and the block
+joins it as it exits. `stop.cancel_on_exit()` directly after the watcher
+cancels `stop` before that join on every exit, including a failed
+`spawn(supervisor)?`; see [cancel on every exit](cooperative-cancellation.md#cancel-on-every-exit).
 
 After the first signal both signals have their default action again, so a
 second Ctrl-C or `SIGTERM` ends a slow drain at once. Closing or dropping

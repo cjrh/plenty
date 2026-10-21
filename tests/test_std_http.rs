@@ -924,7 +924,7 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | std.io.StreamError 
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000u32))?
     listener = listen(&loopback_v4(0u16), 4).unwrap()
     address = listener.local_address().unwrap()
-    with spawn(serve, &listener, &deadline, &cancel)? as task:
+    with spawn(serve, &listener, &deadline, &cancel)? as task, cancel.cancel_on_exit():
         stream = connect(&address, &deadline, &cancel).unwrap()
         mut conn = std.io.buffered_reader(stream, 64)?
         start = std.bytes.from_text("PUT /slow HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc")?

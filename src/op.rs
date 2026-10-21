@@ -702,6 +702,17 @@ pub enum Building {
     Close,
 }
 
+/// Cancellation-token facts for the skipped-cancel check (issue #355).
+#[derive(Clone, Debug, PartialEq)]
+pub enum TokenMark {
+    /// Token slots, or references to them, that the arguments of the
+    /// `spawn` or `submit` that follows share, borrow, or move.
+    Holds(Arc<[u8]>),
+    /// The slot just stored holds the share of a `cancel_on_exit()` guard,
+    /// whose `with` exit cancels it.
+    Guard(u8),
+}
+
 /// The two ends of the arguments of a call whose result can hold a future.
 /// Both carry an identity that is unique within the function.
 #[derive(Clone, Debug, PartialEq)]
@@ -766,6 +777,8 @@ pub enum Op {
     /// that future keeps the jobs of the futures it can be handed (issue
     /// #352); ownership checks only.
     Forwards(Forward),
+    /// Cancellation-token provenance; ownership checks only.
+    Tokens(TokenMark),
     Yield(Ty),
     Next(u8),
     MoveLocal(u8),
@@ -1871,6 +1884,7 @@ fn step(
         | Op::Building(_)
         | Op::Passes(_)
         | Op::Forwards(_)
+        | Op::Tokens(_)
         | Op::ForwardsReferences => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;

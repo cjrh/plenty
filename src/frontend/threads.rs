@@ -152,6 +152,7 @@ impl Lower<'_> {
         let slot = self.slot(Ty::Task(task.clone()), &call.at)?;
         // The start, and a failed start's exit, belong to the call, not its last argument.
         self.mark(&call.at, ops);
+        self.holds_tokens(manager_start, ops);
         ops.push(Op::Thread(ThreadOp::Start(task.clone(), slot)));
         let mut source = task.start_result();
         if let Some(args) = drop_job {

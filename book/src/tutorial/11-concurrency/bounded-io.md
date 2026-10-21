@@ -37,10 +37,11 @@ def main() -> Result[(), ThreadError | IoError | AllocError | PipeWaitError]:
     mut child = command.spawn()?
     pipe: Result[File, str] = child.take_stdout().ok_or("missing piped stdout")
     mut quiet = std.io.from_file(pipe?)
-    stop = CancellationToken()?
+    never = CancellationToken()?
     soon = deadline_after(&monotonic_now(), &milliseconds(20))?
-    with spawn(first_bytes, &mut quiet, &soon, &stop)? as task:
+    with spawn(first_bytes, &mut quiet, &soon, &never)? as task:
         print(task.join()?)?
+    stop = CancellationToken()?
     later = deadline_after(&monotonic_now(), &milliseconds(60000))?
     observer = stop.share()
     with spawn(first_bytes, &mut quiet, &later, &observer)? as task:

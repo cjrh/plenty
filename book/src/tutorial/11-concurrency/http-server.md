@@ -64,16 +64,16 @@ def get(port: u16, path: &str) -> Result[str, FetchError]:
     Ok(f"{status} | {body}"?)
 
 def client(port: u16, stop: CancellationToken) -> Result[(), FetchError]:
-    print(get(port, "/")?)?
-    print(get(port, "/index.html")?)?
-    print(get(port, "/hello/Ada%20L")?)?
-    print(get(port, "/missing")?)?
-    stop.cancel()
+    with stop.cancel_on_exit():
+        print(get(port, "/")?)?
+        print(get(port, "/index.html")?)?
+        print(get(port, "/hello/Ada%20L")?)?
+        print(get(port, "/missing")?)?
     Ok(())
 
 type ServerSetupError = std.http.server.ServerError | std.net.NetError
 
-def main() -> Result[(), ThreadError | IoError | AllocError | ServerSetupError]:
+def main() -> Result[(), ThreadError | IoError | AllocError | ServerSetupError | FetchError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/index.html", Route.Home)?
@@ -83,6 +83,7 @@ def main() -> Result[(), ThreadError | IoError | AllocError | ServerSetupError]:
     stop = CancellationToken()?
     with spawn(client, port, stop.share())? as task:
         report = std.http.server.serve(listener, &routes, &App(), &std.http.server.config(), &stop)?
+        task.join()?
         print(report.requests)?
     Ok(())
 ```
@@ -93,6 +94,12 @@ HTTP/1.1 200 OK | hello, Ada L
 HTTP/1.1 404 Not Found | Not Found
 4
 ```
+
+The client cancels `stop` when it is done, which stops the server. Its body
+is in `with stop.cancel_on_exit():`, so a failed request stops the server too,
+and `task.join()?` after `serve` reports that failure; see
+[cancel on every exit](cooperative-cancellation.md#cancel-on-every-exit). The
+later HTTP lessons use the same shape.
 
 `FetchError` names the client's errors, shared by `get` and `client`.
 `ServerSetupError` names this example's server and listener errors. `serve`

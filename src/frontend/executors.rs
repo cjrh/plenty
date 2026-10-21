@@ -96,6 +96,7 @@ impl Lower<'_> {
             return Ok(Some(output));
         }
         let (_, loans) = self.observe(base, ops)?;
+        let arguments = ops.len();
         let op = if matches!(name, "submit" | "submit_nowait") {
             let Some((worker, args)) = args.split_first() else {
                 return Err(base.at.error(
@@ -146,6 +147,7 @@ impl Lower<'_> {
                 shared: None,
                 input,
             });
+            self.holds_tokens(arguments, ops);
             ExecutorOp::Submit(job, name == "submit_nowait")
         } else if matches!(name, "map" | "map_result" | "reduce_tree") {
             self.executor_parallel(args, &base.at, name, ops)?

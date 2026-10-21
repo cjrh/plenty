@@ -63,6 +63,31 @@ flows. Assuming that a boolean `finished` flag makes a linear field disappear
 would undermine the core rule. Similarly, borrowed `with &mut existing` cannot
 consume the caller's owner; adapting it requires a separate state contract.
 
+### Worked example: `cancel_on_exit()`
+
+`token.cancel_on_exit()`, implemented for issue #355, is an instance of the
+narrow unit-exit form specialized to one resolver. Its manager owns a share of
+a `CancellationToken`; its exit operation is `cancel()`, which is synchronous,
+infallible, returns unit and allocates nothing. Every ordinary exit, including
+`?`, `return`, `break`, `continue` and a failed later manager in the same
+header, runs it exactly once, in reverse manager order:
+
+```text
+with spawn(serve, listener, stop.share())?, stop.cancel_on_exit():
+    prepare()?
+# every exit cancels stop, then joins the task
+```
+
+The compiler check that pairs with it is the
+[cancellation rule](../design/facilities/03-concurrency/cancellation.md#cancel-on-every-exit):
+when a function later cancels a token, a join or pool shutdown that waits for
+work holding it must come after a cancel on every path. The guard satisfies
+that rule by construction. It does not need linearity: the obligation is local
+to one function and its exits, and `cancel()` cannot fail, so there is no
+unresolved owner to return. It shows the shape a library resolver could take
+once consuming exits exist, and why the infallible case is the first one to
+make automatic.
+
 ## Failure determines the available surface
 
 The narrow automatic-exit form requires a synchronous resolver that returns

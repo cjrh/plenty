@@ -11,6 +11,8 @@ pub(super) enum Kind {
     /// The exit unlocks the mutex at this written place, which guards a
     /// value of this type and may be aliasable (see `Lower::aliasable`).
     Lock(String, Ty, bool),
+    /// The exit cancels the token share the slot holds.
+    Cancel,
 }
 
 pub(super) struct Context {
@@ -69,6 +71,11 @@ impl Lower<'_> {
         }
         if let Some((call, propagate, drop_job)) = threads::spawn_expression(manager) {
             return self.with_thread(call, propagate, drop_job, name, body, ops);
+        }
+        if let Expression::Method(base, method, args, _) = &ungroup(manager).kind {
+            if method == "cancel_on_exit" && self.token_place(base) {
+                return self.with_cancel(manager, base, args, name, body, ops);
+            }
         }
         let saved = self.names.clone();
         let start = self.locals.len();
@@ -223,6 +230,64 @@ impl Lower<'_> {
         } else if entry.is_some() {
             ops.push(Op::Drop);
         }
+        let result = self.block_inner(body, ops, &Tail::Discard)?;
+        if matches!(result, BlockResult::Continues(_)) {
+            self.cleanup(start, ops);
+        }
+        self.contexts.pop();
+        self.names = saved;
+        Ok(result)
+    }
+
+    /// A token, or a reference to one, at a written place.
+    pub(super) fn token_place(&self, base: &Expr) -> bool {
+        let mut ty = self
+            .place_type(base)
+            .or_else(|| self.expression_type_hint(base));
+        while let Some(Ty::Ref(inner, _)) = ty {
+            ty = Some((*inner).clone());
+        }
+        ty == Some(Ty::CancellationToken)
+    }
+
+    /// `with token.cancel_on_exit():` holds a share of the token and cancels
+    /// it on every exit from the block. A share copies the handle, so the
+    /// guard allocates nothing (issue #355).
+    fn with_cancel(
+        &mut self,
+        manager: &Expr,
+        base: &Expr,
+        args: &[Expr],
+        name: Option<&str>,
+        body: &[Stmt],
+        ops: &mut Vec<Op>,
+    ) -> Result<BlockResult> {
+        if !args.is_empty() {
+            return Err(manager.at.error("cancel_on_exit takes no arguments"));
+        }
+        if name.is_some() {
+            return Err(manager
+                .at
+                .error("cancel_on_exit() has no value to bind; remove `as`"));
+        }
+        let saved = self.names.clone();
+        let start = self.locals.len();
+        self.control_method(base, "share", &[], ops)?;
+        let slot = self.slot(Ty::CancellationToken, &manager.at)?;
+        ops.push(Op::StoreLocal(slot));
+        ops.push(Op::Tokens(crate::op::TokenMark::Guard(slot)));
+        self.contexts.push(Context {
+            slot,
+            exit: vec![
+                Op::Access(slot, false, None),
+                Op::LoadLocal(slot),
+                Op::Control(crate::control::ControlOp::Cancel),
+                Op::Drop,
+            ],
+            loan: None,
+            kind: Kind::Cancel,
+            at: site(&manager.at, true),
+        });
         let result = self.block_inner(body, ops, &Tail::Discard)?;
         if matches!(result, BlockResult::Continues(_)) {
             self.cleanup(start, ops);

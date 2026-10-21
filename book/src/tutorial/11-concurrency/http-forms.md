@@ -91,16 +91,16 @@ def fetch(port: u16, request: &str) -> Result[str, AllocError | IoError | std.by
     Ok(" | ".join(&parts)?)
 
 def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.net.NetError]:
-    form = "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 28\r\nConnection: close\r\n\r\nname=Ada&city=S%C3%A3o+Paulo"
-    print(fetch(port, form)?)?
-    print(fetch(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: 3\r\nConnection: close\r\n\r\nAda")?)?
-    print(fetch(port, "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: theme=dark; user=Ada\r\nX-Forwarded-For: 198.51.100.4, 203.0.113.7\r\nConnection: close\r\n\r\n")?)?
-    stop.cancel()
+    with stop.cancel_on_exit():
+        form = "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 28\r\nConnection: close\r\n\r\nname=Ada&city=S%C3%A3o+Paulo"
+        print(fetch(port, form)?)?
+        print(fetch(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: 3\r\nConnection: close\r\n\r\nAda")?)?
+        print(fetch(port, "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: theme=dark; user=Ada\r\nX-Forwarded-For: 198.51.100.4, 203.0.113.7\r\nConnection: close\r\n\r\n")?)?
     Ok(())
 
 type ProxySetupError = std.http.server.ServerError | std.http.proxy.ProxyError | std.net.NetError
 
-def main() -> Result[(), ThreadError | AllocError | ProxySetupError]:
+def main() -> Result[(), ThreadError | AllocError | ProxySetupError | AllocError | IoError | RangeError | std.bytes.BytesError | std.net.NetError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("POST", "/login", Route.Login)?
     routes.add("GET", "/me", Route.Me)?
@@ -112,6 +112,7 @@ def main() -> Result[(), ThreadError | AllocError | ProxySetupError]:
     stop = CancellationToken()?
     with spawn(client, port, stop.share())? as task:
         std.http.server.serve(listener, &routes, &site, &std.http.server.config(), &stop)?
+        task.join()?
     Ok(())
 ```
 ```output

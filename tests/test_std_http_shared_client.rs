@@ -86,7 +86,7 @@ def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | s
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server:
+    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
         client = Shared(hc.client(hc.config()?)?)?
         mut sum = 0
@@ -105,7 +105,6 @@ def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | s
         s = client.stats()
         print("second batch:", sum, s.opened <= 3, s.opened + s.reused == 120)?
         print("exact:", s.opened == u64(client.idle()) + s.discarded, s.retried, s.redirected)?
-        stop.cancel()
     Ok(())
 "##,
         r##"first batch: 12000 True True
@@ -153,12 +152,11 @@ def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | s
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server:
+    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
         bounded(&url, 16, 2)?
         bounded(&url, 1, 4)?
         bounded(&url, 0, 4)?
-        stop.cancel()
     Ok(())
 "##,
         r##"20000 idle<=limit: True exact: True True
@@ -183,7 +181,7 @@ def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolE
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server:
+    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
         mut config = hc.config()?
         config.idle_timeout = std.time.milliseconds(50u32)
@@ -195,7 +193,6 @@ def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolE
         with ThreadPoolExecutor(1, 1)? as pool:
             print(submitted(pool.submit(fetches, client.share(), url, 1))?.result()??)?
         print(line(&*client)?)?
-        stop.cancel()
     Ok(())
 "##,
         r##"200
@@ -259,13 +256,9 @@ def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetErro
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server:
+    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
-        # The server stops however `run` ends, so a failure is reported
-        # rather than left waiting on the server.
-        ran = run(&url)
-        stop.cancel()
-        ran?
+        run(&url)?
     Ok(())
 "##,
         r##"opened=3 reused=0 retried=0 redirected=0 discarded=0 idle=3
@@ -342,13 +335,9 @@ def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolE
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server:
+    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
-        # The server stops however `run` ends, so a failure is reported
-        # rather than left waiting on the server.
-        ran = run(&url)
-        stop.cancel()
-        ran?
+        run(&url)?
     Ok(())
 "##,
         r##"4000 cancelled
@@ -428,13 +417,9 @@ def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolE
     quiet_url = "http://127.0.0.1:".concat(&str.from(i64(quiet.local_address()?.port))?)?.concat("/")?
     stop = CancellationToken()?
     received = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server, spawn(silent, quiet, received.share(), stop.share())? as sink:
+    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit(), spawn(silent, quiet, received.share(), stop.share())? as sink, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
-        # The servers stop however `run` ends, so a failure is reported
-        # rather than left waiting on them.
-        ran = run(&url, &quiet_url, &received)
-        stop.cancel()
-        ran?
+        run(&url, &quiet_url, &received)?
     Ok(())
 "##,
         r##"4000 cancelled

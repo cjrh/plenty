@@ -52,32 +52,32 @@ pub class Site:
 type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | std.tls.TlsError | RangeError
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
-    never = CancellationToken()?
-    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
-    base = f"https://localhost:{port}"?
-    roots = std.tls.roots_from_pem(&ca_pem())?
-    tls = std.tls.client_config(&roots)?
-    client = std.http.https.client(std.http.client.config()?, tls)?
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
+        base = f"https://localhost:{port}"?
+        roots = std.tls.roots_from_pem(&ca_pem())?
+        tls = std.tls.client_config(&roots)?
+        client = std.http.https.client(std.http.client.config()?, tls)?
 
-    home = client.get(&f"{base}/"?, &deadline, &never)?
-    print(home.status, home.body.to_text()?)?
+        home = client.get(&f"{base}/"?, &deadline, &never)?
+        print(home.status, home.body.to_text()?)?
 
-    mut source = std.io.cursor(std.bytes.from_text("a body read in pieces")?)
-    request = std.http.client.request("PUT", &f"{base}/upload"?)?
-    mut response = client.send_from(request, &mut source, &std.http.client.chunked(), &deadline, &never)?
-    mut answer = std.bytes.empty()?
-    response.read_all(&mut answer)?
-    print(response.status, answer.to_text()?)?
-    client.finish(response)
+        mut source = std.io.cursor(std.bytes.from_text("a body read in pieces")?)
+        request = std.http.client.request("PUT", &f"{base}/upload"?)?
+        mut response = client.send_from(request, &mut source, &std.http.client.chunked(), &deadline, &never)?
+        mut answer = std.bytes.empty()?
+        response.read_all(&mut answer)?
+        print(response.status, answer.to_text()?)?
+        client.finish(response)
 
-    stats = client.stats()
-    print(stats.opened, stats.reused)?
-    stop.cancel()
+        stats = client.stats()
+        print(stats.opened, stats.reused)?
     Ok(())
 
 type HttpsSetupError = std.http.server.ServerError | std.net.NetError | std.tls.TlsError
 
-def main() -> Result[(), ThreadError | AllocError | HttpsSetupError]:
+def main() -> Result[(), ThreadError | AllocError | HttpsSetupError | VisitError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Count)?
     routes.add("PUT", "/upload", Route.Count)?
@@ -87,6 +87,7 @@ def main() -> Result[(), ThreadError | AllocError | HttpsSetupError]:
     server = std.tls.server_config(&leaf_pem(), &leaf_key())?
     with spawn(visit, port, stop.share())? as task:
         drop(std.http.tls.serve(listener, server, &routes, &Site(), &std.http.server.config(), &stop)?)
+        task.join()?
     Ok(())
 ```
 ```output

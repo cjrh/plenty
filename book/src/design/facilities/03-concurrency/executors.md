@@ -48,7 +48,11 @@ Status, cancellation, result transfer, waiting, and shutdown allocate nothing.
 lends `&ThreadPoolExecutor`. Every normal exit drains accepted work and joins
 workers; ordinary drop does the same. Explicit shutdown is idempotent and always
 waits. Detachment and `wait=False` are unsupported; running jobs are not forcibly
-killed. [Tokens](cancellation.md) permit cooperative stopping.
+killed. [Tokens](cancellation.md) permit cooperative stopping; a shutdown that
+could wait for a job holding a token before the function's later cancel is
+rejected, and `with ThreadPoolExecutor(...)? as pool, stop.cancel_on_exit():`
+cancels it on every exit. See
+[cancel on every exit](cancellation.md#cancel-on-every-exit).
 
 Workers must finish their communication before the scope can close. See
 [futures](futures.md) for result ownership and
