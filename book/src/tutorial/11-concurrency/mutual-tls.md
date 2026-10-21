@@ -78,7 +78,7 @@ def ask(listener: &TcpListener, server: &ServerConfig, client: &ClientConfig, de
         worker.join()?
         match outcome:
             case Ok(count):
-                print(reply.slice(0, count)?.to_text()?)?
+                print(reply.to_text_range(0, count)?)?
             case Err(error):
                 print(error)?
     Ok(())

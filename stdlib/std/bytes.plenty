@@ -169,11 +169,13 @@ pub class Bytes:
         allocated(__bytes_to_list(self._owner))
 
     pub def to_text(self) -> Result[str, BytesError]:
-        match allocated(__bytes_to_text(self._owner))?:
-            case Some(text):
-                Ok(text)
-            case Nothing:
-                Err(BytesError.InvalidUtf8)
+        text_in(&self._owner, 0, __bytes_len(self._owner))
+
+    # `self[start:stop]` as text: validated and copied once, with no
+    # intermediate `Bytes`.
+    pub def to_text_range(self, start: i64, stop: i64) -> Result[str, BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        text_in(&self._owner, start, stop)
 
     # Direct transport. Each call makes at most one native read or write and
     # returns the bytes moved, so a short count is success. std.io adds the
@@ -313,6 +315,14 @@ def checked(start: i64, stop: i64, count: i64) -> Result[(), BytesError]:
     if start < 0 or start > stop or stop > count:
         return Err(BytesError.OutOfRange)
     Ok(())
+
+# The native call repeats the range check; callers have already made it.
+def text_in(owner: &ByteStorage, start: i64, stop: i64) -> Result[str, BytesError]:
+    match allocated(__bytes_to_text(owner, start, stop))?:
+        case Some(text):
+            Ok(text)
+        case Nothing:
+            Err(BytesError.InvalidUtf8)
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
     match result:

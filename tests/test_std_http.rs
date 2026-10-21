@@ -323,6 +323,7 @@ fn malformed_request_heads_are_rejected() {
             (b"GET / HTTP/1.1\r\nHost: a\x00b\r\n\r\n", "InvalidHeader"),
             (b"GET / HTTP/1.1\r\nHost: a\rb\r\n\r\n", "InvalidHeader"),
             (b"GET / HTTP/1.1\r\nHost: \xc3\x28\r\n\r\n", "InvalidHeader"),
+            (b"GET / HTTP/1.1\r\nHost: x\xc3\r\n\r\n", "InvalidHeader"),
             (b"GET  / HTTP/1.1\r\n\r\n", "InvalidRequestLine"),
             (b"GET / HTTP/1.1 \r\n\r\n", "InvalidRequestLine"),
             (b"GET /\r\n\r\n", "InvalidRequestLine"),
@@ -493,6 +494,8 @@ fn malformed_responses_are_rejected() {
             (b"HTTP/1.1 200x\r\n\r\n", "InvalidStatusLine"),
             (b"HTTP/1.1  200 OK\r\n\r\n", "InvalidStatusLine"),
             (b"HTTP/1.1 200 O\x01K\r\n\r\n", "InvalidStatusLine"),
+            (b"HTTP/1.1 200 O\xc3\x28K\r\n\r\n", "InvalidStatusLine"),
+            (b"HTTP/1.1 200 OK\xe2\x82\r\n\r\n", "InvalidStatusLine"),
             (b"HTTP/2 200 OK\r\n\r\n", "InvalidStatusLine"),
             (b"HTTP/3.0 200 OK\r\n\r\n", "UnsupportedVersion"),
             (b"\r\nHTTP/1.1 200 OK\r\n\r\n", "InvalidStatusLine"),
@@ -1193,4 +1196,52 @@ print(mixed)?
 "#,
         "True True True\nFalse False False False\nFalse False False False\nFalse True\n0",
     );
+}
+
+/// Issue #375: head fields keep multi-byte UTF-8 that ends exactly at the
+/// field boundary, and `text_of` converts each field from the line without
+/// an intermediate `Bytes`.
+#[test]
+fn head_fields_keep_utf8_and_convert_in_place() {
+    native(
+        r#"
+mut conn = std.io.buffered_reader(std.io.cursor(std.bytes.from_text("GET /x HTTP/1.1\r\nHost: x\r\nX-Name: naïve é\r\n\r\n")?), 7)?
+head = std.http.read_request(&mut conn, &std.http.limits()).unwrap().unwrap()
+print(head.target, head.headers[1].name, str.repr(&head.headers[1].value)?)?
+responses("HTTP/1.1 200 très bien\r\nContent-Length: 0\r\n\r\n", "GET")?
+"#,
+        r#"
+/x X-Name "naïve é"
+resp 1 200 "très bien" Length(0) True ""
+eof
+"#,
+    );
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("main.plenty"),
+        program("std.http.limits()\n"),
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .current_dir(dir.path())
+        .env("PLENTY_CACHE", "off")
+        .args([
+            "--release",
+            "--dump",
+            "clif",
+            "--dump-std",
+            "--dump-filter",
+            "std.http.text_of",
+            "main.plenty",
+            "-o",
+            "-",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let clif = String::from_utf8(output.stdout).unwrap();
+    assert!(clif.contains("Bytes.to_text_range"), "{clif}");
+    for absent in ["Bytes.slice", "Bytes.to_text\n"] {
+        assert!(!clif.contains(absent), "{absent}: {clif}");
+    }
 }
