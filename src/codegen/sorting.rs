@@ -83,6 +83,7 @@ pub(super) fn build_adapter(
         return_storage: None,
         return_types: &[],
         collection_scratch: None,
+        counters: Default::default(),
         position: Default::default(),
     };
     // References are slot addresses: the runtime passes each row's value word

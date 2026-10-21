@@ -79,6 +79,7 @@ mod executors;
 mod exports;
 mod foreign;
 mod generators;
+mod induction;
 mod inline;
 mod known;
 mod metadata;
@@ -1662,6 +1663,7 @@ fn build_user_function(
             return_storage,
             return_types: &decl.sig.outputs,
             collection_scratch: None,
+            counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
         };
         // Argument addresses belong to the caller. Snapshot inline values into
@@ -1765,6 +1767,7 @@ fn build_main(
             return_storage: None,
             return_types: &[],
             collection_scratch: None,
+            counters: Default::default(),
             position: Default::default(),
         };
         for op in ops {
@@ -1885,6 +1888,8 @@ struct Lowerer<'a, 'b> {
     return_types: &'a [Ty],
     /// Reused across non-overlapping runtime calls; callbacks have their own frame.
     collection_scratch: Option<cranelift_codegen::ir::StackSlot>,
+    /// Loop counter range facts; see [`induction`].
+    counters: induction::Facts,
     position: sites::Position,
 }
 
@@ -2358,6 +2363,33 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// Lower a loop counter step that [`induction`] proved cannot overflow.
+    fn lower_proven_step(&mut self, op: &Op) -> Result<()> {
+        let (a, b, ty) = self.pop_int_pair()?;
+        let result = match op {
+            Op::Add => self.bcx.ins().iadd(a, b),
+            Op::Sub => self.bcx.ins().isub(a, b),
+            _ => return Err("AOT: proven loop step is not an add or subtract".into()),
+        };
+        self.stack.push((result, ty));
+        Ok(())
+    }
+
+    /// Whether floor division or modulo of `a` by `b` may skip its sign
+    /// handling: a nonnegative dividend and a divisor that is nonnegative and,
+    /// once the zero check passes, positive.
+    fn nonnegative_operands(
+        &self,
+        a: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+    ) -> bool {
+        let known = |v| {
+            self.counters.nonnegative.contains(&v)
+                || induction::nonnegative_constant(&self.bcx.func.dfg, v)
+        };
+        known(a) && known(b)
+    }
+
     fn lower_integer(&mut self, kind: IntegerOp) -> Result<()> {
         if kind == IntegerOp::Not {
             let (value, ty) = self.stack.pop().ok_or("empty bitwise complement")?;
@@ -2409,7 +2441,8 @@ impl Lowerer<'_, '_> {
         let b_is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
         self.trap_if(b_is_zero, TrapKind::DivZero)?;
 
-        if is_signed(ty.clone()) {
+        let signed = is_signed(ty.clone()) && !self.nonnegative_operands(a, b);
+        if signed {
             // Only one signed-division overflow case exists: INT_MIN / -1.
             // (Result `-INT_MIN` is not representable at the same width.)
             let int_min = match ty {
@@ -2427,12 +2460,12 @@ impl Lowerer<'_, '_> {
             self.trap_if(overflow, TrapKind::Overflow)?;
         }
 
-        let mut v = if is_signed(ty.clone()) {
+        let mut v = if signed {
             self.bcx.ins().sdiv(a, b)
         } else {
             self.bcx.ins().udiv(a, b)
         };
-        if floor && is_signed(ty.clone()) {
+        if floor && signed {
             let remainder = self.bcx.ins().srem(a, b);
             let nonzero = self.bcx.ins().icmp_imm(IntCC::NotEqual, remainder, 0);
             let signs = self.bcx.ins().bxor(a, b);
@@ -2451,7 +2484,7 @@ impl Lowerer<'_, '_> {
         let zero = self.bcx.ins().iconst(clif_type(ty.clone()), 0);
         let is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
         self.trap_if(is_zero, TrapKind::DivZero)?;
-        let result = if is_signed(ty.clone()) {
+        let result = if is_signed(ty.clone()) && !self.nonnegative_operands(a, b) {
             // INT_MIN % -1 is zero, so avoid a hardware division overflow.
             let minus_one = self.bcx.ins().icmp_imm(IntCC::Equal, b, -1);
             let one = self.bcx.ins().iconst(clif_type(ty.clone()), 1);
@@ -2859,6 +2892,9 @@ impl Lowerer<'_, '_> {
         } else {
             v
         };
+        if self.counters.nonnegative_locals.contains(&i) {
+            self.counters.nonnegative.insert(v);
+        }
         self.retain(v, &ty);
         self.stack.push((v, ty));
         Ok(())
