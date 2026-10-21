@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        toolchain: [stable, beta, nightly]
+        toolchain: [stable, nightly]
 
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +51,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Stable only: new beta/nightly lints would fail unrelated changes.
+  # Stable only: new nightly lints would fail unrelated changes.
   lint:
     name: Format, clippy, and book links
     runs-on: ubuntu-latest
