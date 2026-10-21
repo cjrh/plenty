@@ -409,48 +409,107 @@ fn cli_emits_objects_with_imports_without_any_toolchain_on_path() {
 
 #[test]
 fn artifacts_are_reproducible_across_processes_and_paths() {
+    use std::time::{Duration, SystemTime};
+    // The compiler runs one worker per CPU the process may use
+    // (src/parallel.rs), so one build pinned to a single CPU varies the count.
+    // Unit tests in src/codegen/output.rs compare object bytes for fixed
+    // counts; this covers the affinity-derived count in every artifact.
+    let taskset = Command::new("taskset")
+        .args(["-c", "0", "true"])
+        .status()
+        .is_ok_and(|status| status.success());
+    if !taskset {
+        eprintln!("taskset is unavailable; the code-generation worker count is not varied");
+    }
+    // Functions are checked and compiled in parallel, so a chain of them
+    // gives every worker some.
+    let mut helper = String::from("pub def shift(x: i64) -> i64:\n    step_0(x)\n");
+    for step in 0..63 {
+        helper.push_str(&format!(
+            "def step_{step}(x: i64) -> i64:\n    step_{}(x + {step})\n",
+            step + 1
+        ));
+    }
+    helper.push_str("def step_63(x: i64) -> i64:\n    x * 9\n");
     let temp = tempfile::tempdir().unwrap();
     let mut snapshots = Vec::new();
     for index in 0..3 {
         let dir = temp.path().join(format!("build-{index}"));
-        std::fs::create_dir(&dir).unwrap();
+        let out = dir.join(format!("out-{index}"));
+        let user = ["alice", "bob", "carol"][index];
+        let home = dir.join(user);
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::create_dir(&home).unwrap();
         // The file name is part of the source tree: trap reports print it.
         let source = dir.join("source.plenty");
         std::fs::write(
             &source,
             "import helper\nexport def answer(x: i64) -> i64 = \"fixture_answer\":\n    helper.shift(x)\ndef main() -> i32:\n    i32(answer(4))\n",
         ).unwrap();
-        std::fs::write(
-            dir.join("helper.plenty"),
-            "pub def shift(x: i64) -> i64:\n    x * 9\n",
-        )
-        .unwrap();
-        let mut artifacts = Vec::new();
-        for (mode, name) in [
-            ("--emit-object", "app.o"),
-            ("--compile", "app"),
-            ("--static-library", "fixture.a"),
-            ("--shared-library", "fixture.so"),
-        ] {
-            let mut command = Command::new(env!("CARGO_BIN_EXE_plenty"));
+        std::fs::write(dir.join("helper.plenty"), &helper).unwrap();
+        let modified = match index {
+            0 => SystemTime::UNIX_EPOCH + Duration::from_secs(315_532_800), // 1980
+            1 => SystemTime::now(),
+            _ => SystemTime::UNIX_EPOCH + Duration::from_secs(4_102_444_800), // 2100
+        };
+        for file in [source.clone(), dir.join("helper.plenty")] {
+            std::fs::File::options()
+                .write(true)
+                .open(file)
+                .unwrap()
+                .set_modified(modified)
+                .unwrap();
+        }
+        let plenty = || {
+            let mut command = if index == 0 && taskset {
+                let mut command = Command::new("taskset");
+                command.args(["-c", "0", env!("CARGO_BIN_EXE_plenty")]);
+                command
+            } else {
+                Command::new(env!("CARGO_BIN_EXE_plenty"))
+            };
+            // Each build runs fresh code generation; test_compile_cache
+            // compares cached builds with uncached ones.
             command
                 .current_dir(&dir)
+                .env("PLENTY_CACHE", "off")
+                .env("USER", user)
+                .env("LOGNAME", user)
+                .env("HOME", &home);
+            match index {
+                0 => command.env_remove("SOURCE_DATE_EPOCH"),
+                1 => command.env("SOURCE_DATE_EPOCH", "0"),
+                _ => command.env("SOURCE_DATE_EPOCH", "1700000000"),
+            };
+            command
+        };
+        let mut artifacts = Vec::new();
+        for (mode, name) in [
+            ("--emit-object", format!("app-{index}.o")),
+            ("--compile", format!("app-{index}")),
+            ("--static-library", format!("fixture-{index}.a")),
+            ("--shared-library", format!("fixture-{index}.so")),
+        ] {
+            let mut command = plenty();
+            command
                 .arg(mode)
                 .arg(&source)
                 .arg("-o")
-                .arg(dir.join(name));
+                .arg(out.join(&name));
+            // The library name is an input: it names the exports and the
+            // header, interface, and link-argument files written beside OUT.
             if mode.ends_with("library") {
                 command.args(["--library-name", "fixture"]);
             }
             success(command.output().unwrap());
-            artifacts.push(std::fs::read(dir.join(name)).unwrap());
+            artifacts.push(std::fs::read(out.join(name)).unwrap());
         }
         for name in ["fixture.h", "fixture.plentyi", "fixture.link-args.txt"] {
-            artifacts.push(std::fs::read(dir.join(name)).unwrap());
+            artifacts.push(std::fs::read(out.join(name)).unwrap());
         }
-        let runtime = dir.join("runtime");
+        let runtime = out.join(format!("runtime-{index}"));
         success(
-            Command::new(env!("CARGO_BIN_EXE_plenty"))
+            plenty()
                 .arg("--emit-runtime")
                 .arg(&runtime)
                 .output()
@@ -463,7 +522,7 @@ fn artifacts_are_reproducible_across_processes_and_paths() {
     }
     for snapshot in &snapshots[1..] {
         for (index, (first, next)) in snapshots[0].iter().zip(snapshot).enumerate() {
-            assert_eq!(first, next, "artifact {index} differs");
+            assert!(first == next, "artifact {index} differs");
         }
     }
 }
