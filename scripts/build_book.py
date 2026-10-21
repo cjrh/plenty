@@ -24,7 +24,7 @@ def development_metadata(repo):
                 channel="development", dirty=dirty)
 
 
-def decorate(output, metadata):
+def decorate(output, metadata, redirects=()):
     """Static label remains visible without JavaScript, including on print/404."""
     banner = ('<aside class="docs-version" aria-label="Documentation version">'
               f'{html.escape(metadata["label"])}'
@@ -35,6 +35,8 @@ def decorate(output, metadata):
     for page in output.rglob("*.html"):
         if page == output / "toc.html":
             continue  # mdBook's sidebar fragment, not a standalone page.
+        if page.relative_to(output).as_posix() in redirects:
+            continue  # Configured redirects have no content to label.
         content = page.read_text(encoding="utf-8")
         if "<main>" not in content or "</head>" not in content:
             raise ValueError(f"Unsupported mdBook page layout: {page}")
@@ -54,7 +56,9 @@ def build_book(source, output, prefix, metadata):
     # mdBook0.5.4 logs missing {{#include}} files as ERROR but exits successfully.
     if "ERROR" in result.stderr:
         raise ValueError("mdBook logged an error; refusing incomplete documentation")
-    decorate(output, metadata)
+    config = tomllib.loads((source / "book/book.toml").read_text())
+    redirects = config.get("output", {}).get("html", {}).get("redirect", {})
+    decorate(output, metadata, redirects)
 
 
 def main():
