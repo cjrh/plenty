@@ -37,6 +37,8 @@ mod test_binary_io;
 mod test_bitwise;
 #[path = "test_book_highlighting.rs"]
 mod test_book_highlighting;
+#[path = "test_boolean_lowering.rs"]
+mod test_boolean_lowering;
 #[path = "test_borrowed_iteration.rs"]
 mod test_borrowed_iteration;
 #[path = "test_borrowed_match.rs"]
