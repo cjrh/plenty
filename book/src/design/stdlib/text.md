@@ -1,7 +1,8 @@
 # `std.text`
 
-Bounded reusable text construction, joining, and scalar wrapping. Import
-`std.text`; every allocating operation returns `Result[..., TextError]`.
+Bounded reusable text construction, joining, scalar wrapping, and byte-set
+scans. Import `std.text`; every allocating operation returns
+`Result[..., TextError]`.
 
 | Operation | Behavior |
 |---|---|
@@ -12,6 +13,8 @@ Bounded reusable text construction, joining, and scalar wrapping. Import
 | `Builder.to_text()` | Independent UTF-8 string snapshot; builder remains reusable |
 | `join(pieces: &list[str], separator: &str, max_bytes: i64)` | Separator between pieces, including empty pieces; empty list yields empty text |
 | `wrap(text: &str, width: i64, max_bytes: i64)` | Hard wrap at `width` Unicode scalars, inserting LF; width must be positive |
+| `find_in[S: ByteSource](text: &str, set: &S)` | `Option[i64]`: scalar position of the first ASCII scalar whose byte is in `set` |
+| `find_not_in[S: ByteSource](text: &str, set: &S)` | `Option[i64]`: scalar position of the first scalar that is not such a member: the end of a run |
 
 `TextError` has `InvalidLimit`, `LimitExceeded`, `Allocation(AllocError)`, and
 `Bytes(BytesError)` variants. Byte-buffer failures preserve their typed cause;
@@ -26,6 +29,33 @@ It never inserts an extra LF before an existing LF. It does not collapse spaces,
 find word boundaries, calculate terminal display width, or keep grapheme clusters
 together: a combining mark can begin a new line. Width and string positions are
 scalar counts; the output limit and `byte_len` are byte counts.
+
+`find_in` and `find_not_in` are the `str` forms of the
+[`Bytes` scans](bytes.md#scanning): `set` is a `Bytes` buffer or a `bytes`
+literal, borrowed, and the whole text is scanned in one native call that
+allocates nothing. Only ASCII scalars can be members; set bytes from `0x80`
+match nothing, so a non-ASCII scalar never matches `find_in` and always stops
+`find_not_in`. Results are scalar positions, as for `str.find`, and there are no
+bounds arguments. Empty text gives `Nothing`; an empty set makes `find_in`
+`Nothing` and `find_not_in` `Some(0)` for nonempty text. Use them to validate a
+character class without a per-scalar loop:
+
+```plenty
+import std.text
+
+def token(text: &str) -> bool:
+    text.byte_len() > 0 and std.text.find_not_in(text, b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz").is_none()
+
+def main() -> Result[(), AllocError | IoError]:
+    print(token("GET"), token("G T"), token("GÉT"), std.text.find_in("a=b", b"="))?
+    Ok(())
+```
+```output
+True False False Option[i64].Some(1)
+```
+
+`find_in` costs O(text bytes), plus counting the scalars before a match;
+`find_not_in` costs O(bytes up to the first non-member).
 
 The builder owns a compact `Bytes` buffer. Methods borrow it; `append` and
 `clear` require exclusive access, and ordinary loan checking rejects mutation

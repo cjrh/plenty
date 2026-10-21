@@ -168,6 +168,27 @@ call in the caller reports the same position and call chain as before. They
 become part of the caller's IR, so the [compiled-function cache](cache.md)
 key changes when a constant's value or a predicate's body does.
 
+## Last-use moves
+
+After substitution, `src/codegen/last_use.rs` turns the last read of a local
+into a move (issue #388). A read of a local counts a new owner, and the
+local's own owner is released later, when it is reassigned or the function
+returns. When no later operation can read the local, the read takes its value
+and leaves an empty slot, whose release makes no call. A `match` on an owned
+parameter and a payload binding read once are the common cases.
+
+A backward liveness pass over each function finds these reads. Loops are
+solved to a fixed point; `break`, `continue`, early returns and the error path
+of `?` are followed. Only managed copyable types qualify: they have no
+destructor, so ending the last owner earlier changes no output. Locals that
+are ever borrowed and generator bodies are skipped. A one-word read that feeds
+a collection query keeps the borrowed read from issue #379, which costs less
+than a move.
+
+When a `match` reads the tag of a local it has just copied, the copy's counting
+is removed, so testing an owned scrutinee costs no runtime call. The pass runs
+after the ownership checker, so diagnostics are unchanged.
+
 ## Constants in loops
 
 In release builds Cranelift rematerializes an integer or float constant in each

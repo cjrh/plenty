@@ -221,6 +221,8 @@ mod test_iteration_conveniences;
 mod test_key_sorting;
 #[path = "test_large_functions.rs"]
 mod test_large_functions;
+#[path = "test_last_use_moves.rs"]
+mod test_last_use_moves;
 #[path = "test_library_metadata.rs"]
 mod test_library_metadata;
 #[path = "test_library_publication.rs"]
@@ -418,6 +420,8 @@ mod test_std_sync_mutex;
 mod test_std_tempfile;
 #[path = "test_std_test.rs"]
 mod test_std_test;
+#[path = "test_std_text_set_scans.rs"]
+mod test_std_text_set_scans;
 #[path = "test_std_text_unicode.rs"]
 mod test_std_text_unicode;
 #[path = "test_std_tls.rs"]

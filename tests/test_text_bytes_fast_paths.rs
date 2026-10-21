@@ -356,37 +356,46 @@ class Doc:
     title: str
 
 def starts(t: str) -> bool:
-    t.startswith("ab")
+    t.startswith("ab") and len(t) > 0
 
 def ends(t: &str, suffix: str) -> bool:
     t.endswith(suffix)
 
 def finds(t: str) -> Option[i64]:
-    t.find("é")
+    found = t.find("é")
+    if len(t) == 0:
+        return Nothing
+    found
 
 def rfinds(t: &str, needle: &str) -> Option[i64]:
     t.rfind(needle)
 
 def counts(t: str) -> i64:
-    t.count("a")
+    t.count("a") + len(t) * 0
 
 def has(t: str) -> bool:
-    "lo" in t
+    "lo" in t and len(t) > 0
 
 def itself(t: str) -> Option[i64]:
-    t.find(t)
+    found = t.find(t)
+    if len(t) == 0:
+        return Some(0)
+    found
 
 def choose(t: str, c: bool) -> bool:
-    t.startswith("x" if c else "a")
+    t.startswith("x" if c else "a") and len(t) > 0
 
 def titled(d: &Doc) -> bool:
     d.title.startswith("The")
 
 def replaced(t: str) -> Result[str, AllocError]:
-    t.replace("a", "b")
+    out = t.replace("a", "b")
+    if len(t) == 0:
+        return Ok("")
+    out
 
 def compared(a: str, b: str) -> bool:
-    a < b
+    a < b and len(a) + len(b) > 0
 
 def main() -> Result[(), AllocError | IoError]:
     heap = ("abcé, long enough for the heap, " + "lo")?
@@ -421,26 +430,36 @@ fn text_searches_return_the_dispatcher_results() {
 
 #[test]
 fn held_text_operands_skip_the_dispatcher_and_retain() {
-    // Sorted. The releases are owned parameters' drops.
-    for (function, expected) in [
-        ("starts", &["plenty_release", "plenty_text_starts_with"][..]),
-        ("ends", &["plenty_release", "plenty_text_ends_with"][..]),
-        ("finds", &["plenty_release", "plenty_text_find"][..]),
-        ("rfinds", &["plenty_text_rfind"][..]),
-        ("counts", &["plenty_release", "plenty_text_count"][..]),
-        ("itself", &["plenty_release", "plenty_text_find"][..]),
-        ("titled", &["plenty_text_starts_with"][..]),
+    // An owned parameter's search is not its last use here, so the load is
+    // a counted copy rather than a move (issue #388).
+    for (function, helper) in [
+        ("starts", "plenty_text_starts_with"),
+        ("ends", "plenty_text_ends_with"),
+        ("finds", "plenty_text_find"),
+        ("rfinds", "plenty_text_rfind"),
+        ("counts", "plenty_text_count"),
+        ("itself", "plenty_text_find"),
+        ("titled", "plenty_text_starts_with"),
         // Generic dispatcher operations, `in`, and comparisons of held texts.
-        ("has", &["plenty_collection", "plenty_release"][..]),
-        ("replaced", &["plenty_collection", "plenty_release"][..]),
-        (
-            "compared",
-            &["plenty_collection", "plenty_release", "plenty_release"][..],
-        ),
+        ("has", "plenty_collection"),
+        ("replaced", "plenty_collection"),
+        ("compared", "plenty_collection"),
     ] {
-        let mut calls = runtime_calls(SEARCHES, function);
-        calls.sort();
-        assert_eq!(calls, expected, "{function}");
+        let calls = runtime_calls(SEARCHES, function);
+        assert!(
+            calls.iter().any(|name| name == helper),
+            "{function}: {calls:?}"
+        );
+        assert!(
+            !calls.iter().any(|name| name == "plenty_retain"),
+            "{function}: {calls:?}"
+        );
+        if !helper.ends_with("collection") {
+            assert!(
+                !calls.iter().any(|name| name == "plenty_collection"),
+                "{function}: {calls:?}"
+            );
+        }
     }
     // A conditional operand is a different block's value, so the receiver
     // keeps its retain and release.

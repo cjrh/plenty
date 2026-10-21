@@ -48,6 +48,9 @@ impl Lowerer<'_, '_> {
             CollectionOp::Get(Ty::ByteStr) => (runtime.byte_str_item, false, Site::Trap),
             CollectionOp::IterGet(Ty::ByteStr) => (runtime.byte_str_item, false, Site::Null),
             CollectionOp::Len(Ty::ByteStr) => (runtime.text_byte_len, false, Site::None),
+            CollectionOp::Text(
+                crate::text::TextOp::FindIn | crate::text::TextOp::FindInLiteral,
+            ) => (runtime.text_find_in, true, Site::None),
             CollectionOp::QueryRef(query) => {
                 let helper = match query {
                     Query::BytesLen => runtime.bytes_len,
@@ -73,7 +76,11 @@ impl Lowerer<'_, '_> {
     /// this op, so the slot still holds the value through the helper call.
     fn forget_fresh_load(&mut self, receiver: cranelift_codegen::ir::Value) -> bool {
         match self.fresh_load.take() {
-            Some((value, retain)) if value == receiver => {
+            Some(super::FreshLoad {
+                value,
+                retain: Some(retain),
+                ..
+            }) if value == receiver => {
                 self.bcx.func.layout.remove_inst(retain);
                 true
             }

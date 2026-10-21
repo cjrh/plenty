@@ -1811,6 +1811,8 @@ def fake_stream(input: Bytes) -> Result[FakeStream, BytesError]
 Bounded reusable builders, joining, and scalar wrapping. Errors: `TextError`. [Reference](text.md).
 
 ```text
+def find_in[S: ByteSource](text: &str, set: &S) -> Option[i64]
+def find_not_in[S: ByteSource](text: &str, set: &S) -> Option[i64]
 enum TextError
     InvalidLimit | LimitExceeded | Allocation(AllocError) | Bytes(BytesError)
 class Builder

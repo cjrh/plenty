@@ -1,5 +1,22 @@
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import ByteSource, Bytes, BytesError
+
+def located(index: i64) -> Option[i64]:
+    if index < 0:
+        return Nothing
+    Some(index)
+
+# Byte-set scans over text, the `str` forms of `Bytes.find_in` and
+# `find_not_in`: one native call over the whole text, no allocation. A scalar
+# is a member when it is ASCII and its byte is in `set`; set bytes from 0x80
+# match nothing. Results are scalar positions, as for `str.find`.
+pub def find_in[S: ByteSource](text: &str, set: &S) -> Option[i64]:
+    located(__text_find_in(text, set, 1u8))
+
+# The first scalar that is not a member: the end of a run. Text made only of
+# members gives `Nothing`.
+pub def find_not_in[S: ByteSource](text: &str, set: &S) -> Option[i64]:
+    located(__text_find_in(text, set, 0u8))
 
 pub enum TextError:
     InvalidLimit

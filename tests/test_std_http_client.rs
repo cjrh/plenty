@@ -941,6 +941,47 @@ std.http.client.ClientError.UnsupportedScheme"##,
     );
 }
 
+/// Issue #383: the method check is a set scan; it accepts exactly the RFC
+/// 9110 token characters and no non-ASCII scalar.
+#[test]
+fn methods_must_be_tokens() {
+    let expected: String = (0..128u8)
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b) {
+                '+'
+            } else {
+                '-'
+            }
+        })
+        .chain("-----".chars())
+        .collect();
+    // Each accepted method goes on to connect.
+    let connects = "[connect http://h:80]\n".repeat(expected.matches('+').count());
+    runs(
+        SCRIPTED,
+        r##"
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
+    never = CancellationToken()?
+    codes = [233u32, 8364u32, 128512u32, 128u32, 255u32]?
+    mut marks = ""
+    for index in range(133):
+        mut code = u32(index)
+        if index >= 128:
+            code = codes[index - 128]
+        method = "G".concat(&chr(code).unwrap())?.concat("T")?
+        mut client = scripted([]?, hc.config()?)?
+        match client.fetch(hc.request(&method, "http://h/")?, &later()?, &never):
+            case Err(ClientError.InvalidRequest):
+                marks = marks.concat("-")?
+            case _:
+                marks = marks.concat("+")?
+    print(marks)?
+    Ok(())
+"##,
+        &format!("{connects}{expected}"),
+    );
+}
+
 /// Against `std.http.server` on loopback: reuse, a redirect and a POST body;
 /// then a server that never answers is left by the head timeout, the caller's
 /// deadline and cancellation.
