@@ -2040,30 +2040,21 @@ pub(crate) unsafe fn collection_at(
                 Ok(text) => wrap(text as u128, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
             },
-            52 => strings::utf8(&(a as *const Text))
-                .matches(strings::utf8(&(b as *const Text)))
-                .count() as u128,
+            52 => strings::plenty_text_count(a as *const Text, b as *const Text) as u128,
             50 | 51 => {
-                let a_text = a as *const Text;
-                let source = strings::utf8(&a_text);
-                let b_text = b as *const Text;
-                let needle = strings::utf8(&b_text);
+                let (a, b) = (a as *const Text, b as *const Text);
                 let found = if op == 50 {
-                    source.find(needle)
+                    strings::plenty_text_find(a, b)
                 } else {
-                    source.rfind(needle)
+                    strings::plenty_text_rfind(a, b)
                 };
                 match found {
-                    Some(index) => wrap(source[..index].chars().count() as u128, 1),
-                    None => wrap(0, 0),
+                    u64::MAX => wrap(0, 0),
+                    index => wrap(index as u128, 1),
                 }
             }
-            48 => {
-                strings::utf8(&(a as *const Text)).starts_with(strings::utf8(&(b as *const Text)))
-                    as u128
-            }
-            49 => strings::utf8(&(a as *const Text)).ends_with(strings::utf8(&(b as *const Text)))
-                as u128,
+            48 => strings::plenty_text_starts_with(a as *const Text, b as *const Text) as u128,
+            49 => strings::plenty_text_ends_with(a as *const Text, b as *const Text) as u128,
             47 => {
                 match strings::try_replace(a as *const Text, b as *const Text, value as *const Text)
                 {

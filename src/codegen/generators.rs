@@ -144,6 +144,7 @@ pub(super) fn build_generator(
             return_types: &[],
             collection_scratch: None,
             fresh_load: None,
+            slot_copies: Vec::new(),
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             generator: Some(GeneratorContext {
