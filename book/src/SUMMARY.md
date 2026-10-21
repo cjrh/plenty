@@ -2,13 +2,6 @@
 
 [Introduction](introduction.md)
 
-# Development
-
-- [Development workflow](development/workflow.md)
-    - [Documentation versions](development/documentation-versions.md)
-- [Profiling the compiler](development/profiling.md)
-- [Releasing Plenty](development/releasing.md)
-
 # Learn Plenty
 
 - [Learning Plenty](tutorial/index.md)
@@ -513,3 +506,10 @@
         - [Bounded channel implementation](proposals/completed/bounded-channels.md)
         - [Named arguments and fresh defaults](proposals/completed/named-arguments-and-fresh-defaults.md)
         - [Human-readable formatting and error reports](proposals/completed/error-formatting.md)
+
+# Development
+
+- [Development workflow](development/workflow.md)
+    - [Documentation versions](development/documentation-versions.md)
+- [Profiling the compiler](development/profiling.md)
+- [Releasing Plenty](development/releasing.md)
