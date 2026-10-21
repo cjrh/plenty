@@ -131,11 +131,43 @@ def digit(value: i64) -> bool:
 def letter(value: i64) -> bool:
     (value >= 65 and value <= 90) or (value >= 97 and value <= 122)
 
-# RFC 9110 tchar.
-def token_byte(value: i64) -> bool:
-    if digit(value) or letter(value):
-        return True
-    value == 33 or (value >= 35 and value <= 39) or value == 42 or value == 43 or value == 45 or value == 46 or value == 94 or value == 95 or value == 96 or value == 124 or value == 126
+# The end of the run of RFC 9110 tchar in `start..stop`: one bulk scan over
+# the set `std.http` reads field names with (issue #376). Callers pass
+# ranges within `data`; should one not be, `start` is returned so the token
+# is empty and rejected.
+def token_end(data: &Bytes, start: i64, stop: i64) -> i64:
+    found = data.find_not_in(b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", start, stop)
+    match found:
+        case Ok(Some(index)):
+            index
+        case Ok(Nothing):
+            stop
+        case Err(_):
+            start
+
+# The first byte in `start..stop` that a quoted string holds only escaped or
+# never: `"`, `\`, or a control other than tab (RFC 9110 qdtext and
+# quoted-pair); `stop` if there is none.
+def quoted_end(data: &Bytes, start: i64, stop: i64) -> i64:
+    found = data.find_in(b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f\"\\", start, stop)
+    match found:
+        case Ok(Some(index)):
+            index
+        case _:
+            stop
+
+# Whether `start..stop` holds a control other than tab, which no field value
+# may contain.
+def has_control(data: &Bytes, start: i64, stop: i64) -> bool:
+    found = data.find_in(b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f", start, stop)
+    match found:
+        case Ok(Nothing):
+            False
+        case _:
+            True
+
+def control(value: i64) -> bool:
+    (value < 32 and value != 9) or value == 127
 
 def hex_value(value: i64) -> i64:
     if digit(value):
@@ -176,16 +208,12 @@ class Parameters:
 def parameters(value: &str) -> Result[Parameters, BodyError]:
     data = lifted(std.bytes.from_text(value))?
     count = data.len()
-    mut at = 0
-    while at < count and token_byte(code(&data, at)):
-        at += 1
+    mut at = token_end(&data, 0, count)
     if at == 0:
         return Err(BodyError.Malformed)
     if at < count and code(&data, at) == 47:
-        at += 1
-        subtype = at
-        while at < count and token_byte(code(&data, at)):
-            at += 1
+        subtype = at + 1
+        at = token_end(&data, subtype, count)
         if at == subtype:
             return Err(BodyError.Malformed)
     essence = lowered(&data, 0, at)?
@@ -200,41 +228,44 @@ def parameters(value: &str) -> Result[Parameters, BodyError]:
         if at == count or code(&data, at) == 59:
             continue
         start = at
-        while at < count and token_byte(code(&data, at)):
-            at += 1
+        at = token_end(&data, start, count)
         if at == start or at == count or code(&data, at) != 61:
             return Err(BodyError.Malformed)
         name = lowered(&data, start, at)?
         at += 1
-        mut out = lifted(std.bytes.empty())?
+        mut text = ""
         if at < count and code(&data, at) == 34:
             at += 1
+            mut out = lifted(std.bytes.empty())?
             mut closed = False
             while at < count:
-                mut value_byte = code(&data, at)
+                run = quoted_end(&data, at, count)
+                lifted(out.extend_range(&data, at, run))?
+                at = run
+                if at == count:
+                    break
+                value_byte = code(&data, at)
                 if value_byte == 34:
                     closed = True
                     at += 1
                     break
-                if value_byte == 92:
-                    at += 1
-                    if at == count:
-                        return Err(BodyError.Malformed)
-                    value_byte = code(&data, at)
-                if (value_byte < 32 and value_byte != 9) or value_byte == 127:
+                if value_byte != 92:
+                    return Err(BodyError.Malformed)
+                at += 1
+                if at == count or control(code(&data, at)):
                     return Err(BodyError.Malformed)
                 lifted(out.push(data[at]))?
                 at += 1
             if not closed:
                 return Err(BodyError.Malformed)
+            text = lifted(out.to_text())?
         else:
             first = at
-            while at < count and token_byte(code(&data, at)):
-                at += 1
+            at = token_end(&data, first, count)
             if at == first:
                 return Err(BodyError.Malformed)
-            lifted(out.extend_range(&data, first, at))?
-        allocated(pairs.append(Pair(name, lifted(out.to_text())?)))?
+            text = text_of(&data, first, at)?
+        allocated(pairs.append(Pair(name, text)))?
     Ok(Parameters(essence, pairs))
 
 def parameter(params: &Parameters, name: &str) -> Option[i64]:
@@ -522,18 +553,15 @@ def part_head(data: &Bytes, start: i64, stop: i64) -> Result[PartHead, BodyError
                 return Err(BodyError.Malformed)
         if colon == at:
             return Err(BodyError.Malformed)
-        for index in range(at, colon):
-            if not token_byte(code(data, index)):
-                return Err(BodyError.Malformed)
+        if token_end(data, at, colon) != colon:
+            return Err(BodyError.Malformed)
         name = lowered(data, at, colon)?
         value_start = skip_blanks(data, colon + 1)
         mut value_stop = end
         while value_stop > value_start and (code(data, value_stop - 1) == 32 or code(data, value_stop - 1) == 9):
             value_stop -= 1
-        for index in range(value_start, value_stop):
-            value_byte = code(data, index)
-            if (value_byte < 32 and value_byte != 9) or value_byte == 127:
-                return Err(BodyError.Malformed)
+        if has_control(data, value_start, value_stop):
+            return Err(BodyError.Malformed)
         value = text_of(data, value_start, value_stop)?
         if name == "content-disposition":
             if disposition.is_some():

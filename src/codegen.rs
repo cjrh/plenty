@@ -90,6 +90,7 @@ mod references;
 mod relax;
 pub(crate) use relax::relax_local_addresses;
 mod sites;
+mod small_calls;
 mod sorting;
 mod symbols;
 #[cfg(test)]
@@ -650,6 +651,7 @@ fn object_module(
     workers: usize,
     build: Build,
 ) -> Result<Output> {
+    small_calls::substitute(&mut ops, build.optimize, workers);
     crate::tail_abi::prepare(&mut ops, workers);
     let opt_level = if build.optimize { "speed" } else { "none" };
     let targets = output::Targets {
@@ -899,6 +901,9 @@ struct Runtime {
     /// `plenty_list_row_bytes(list) -> row size`, for borrowed iteration.
     list_rows: FuncId,
     list_row_bytes: FuncId,
+    /// `plenty_list_row(list, index, site) -> row address`, for explicit
+    /// element references (`&xs[i]`, `&mut xs[i]`).
+    list_row: FuncId,
     list_scalar_get: FuncId,
     list_scalar_set: FuncId,
     /// `plenty_list_sort_by(list, comparator, environment, descending)`.
@@ -1151,6 +1156,18 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             ]);
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_list_scalar_get", Linkage::Import, &sig)?
+        },
+        list_row: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            // List, index, trap site.
+            sig.params.extend([
+                AbiParam::new(PTR_TY),
+                AbiParam::new(types::I64),
+                AbiParam::new(PTR_TY),
+            ]);
+            sig.returns.push(AbiParam::new(PTR_TY));
+            module.declare_function("plenty_list_row", Linkage::Import, &sig)?
         },
         list_scalar_set: {
             let mut sig = module.make_signature();

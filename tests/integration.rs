@@ -57,6 +57,8 @@ mod test_byte_literals;
 mod test_byte_sources;
 #[path = "test_call_borrowing.rs"]
 mod test_call_borrowing;
+#[path = "test_call_substitution.rs"]
+mod test_call_substitution;
 #[path = "test_callable_bounds.rs"]
 mod test_callable_bounds;
 #[path = "test_callable_diagnostics.rs"]
@@ -217,6 +219,8 @@ mod test_large_functions;
 mod test_library_metadata;
 #[path = "test_library_publication.rs"]
 mod test_library_publication;
+#[path = "test_list_element_refs.rs"]
+mod test_list_element_refs;
 #[path = "test_list_fast_paths.rs"]
 mod test_list_fast_paths;
 #[path = "test_list_lookup.rs"]
