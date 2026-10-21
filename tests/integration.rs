@@ -175,6 +175,8 @@ mod test_file_streams;
 mod test_filesystem;
 #[path = "test_float_constants.rs"]
 mod test_float_constants;
+#[path = "test_float_left_constants.rs"]
+mod test_float_left_constants;
 #[path = "test_fs_helpers.rs"]
 mod test_fs_helpers;
 #[path = "test_fstrings.rs"]

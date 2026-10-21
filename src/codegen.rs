@@ -2356,7 +2356,10 @@ impl Lowerer<'_, '_> {
         let (a, b, ty) = self.pop_pair()?;
         if ty.is_float() {
             let result = match kind {
-                ArithKind::Sub => self.bcx.ins().fsub(a, b),
+                ArithKind::Sub => {
+                    let a = self.float_left_operand(a, b);
+                    self.bcx.ins().fsub(a, b)
+                }
                 ArithKind::Add | ArithKind::Mul => {
                     // Cranelift rematerializes a float constant in each block
                     // that uses it and, on x86-64, builds a left operand in a
@@ -2464,6 +2467,7 @@ impl Lowerer<'_, '_> {
     fn lower_div(&mut self, floor: bool) -> Result<()> {
         let (a, b, ty) = self.pop_pair()?;
         if ty.is_float() {
+            let a = self.float_left_operand(a, b);
             let value = self.bcx.ins().fdiv(a, b);
             self.stack.push((value, ty));
             return Ok(());
