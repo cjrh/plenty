@@ -625,6 +625,20 @@ impl Lowerer<'_, '_> {
 
     pub(super) fn lower_loop(&mut self, condition: &[Op], body: &[Op]) -> Result<()> {
         let initial = self.stack.clone();
+        let types: Vec<Ty> = self.locals.iter().map(|(_, ty)| ty.clone()).collect();
+        let counter = super::induction::analyze(condition, body, &types)
+            .filter(|counter| self.local_address(counter.local).is_none());
+        let proven_step = counter.as_ref().and_then(|counter| counter.proven_step);
+        let nonnegative = counter.filter(|counter| {
+            counter.only_grows && super::is_signed(types[counter.local as usize].clone()) && {
+                let entry = self.read_local(counter.local);
+                self.counters.nonnegative.contains(&entry)
+                    || super::induction::nonnegative_constant(&self.bcx.func.dfg, entry)
+            }
+        });
+        if let Some(counter) = &nonnegative {
+            self.counters.nonnegative_locals.push(counter.local);
+        }
         let header = self.bcx.create_block();
         let iteration = self.bcx.create_block();
         let exit = self.bcx.create_block();
@@ -638,13 +652,20 @@ impl Lowerer<'_, '_> {
         self.bcx.switch_to_block(iteration);
         self.bcx.seal_block(iteration);
         self.loop_targets.push((header, exit));
-        for op in body {
+        for (index, op) in body.iter().enumerate() {
             if self.terminated {
                 break;
             }
-            self.lower(op)?;
+            if Some(index) == proven_step {
+                self.lower_proven_step(op)?;
+            } else {
+                self.lower(op)?;
+            }
         }
         self.loop_targets.pop();
+        if nonnegative.is_some() {
+            self.counters.nonnegative_locals.pop();
+        }
         if !self.terminated {
             self.bcx.ins().jump(header, &[]);
         }

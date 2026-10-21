@@ -163,6 +163,32 @@ loop's dependency chain: passing the constant as an argument instead removes
 the instruction but not a cycle (7.05 billion cycles either way for 10⁹
 iterations). Removing the rematerialization would need a Cranelift change.
 
+## Loop counter checks
+
+Integer arithmetic keeps its overflow and division checks, and Cranelift does
+not remove them, since it does not track value ranges. The lowerer drops two
+kinds that a `while` loop's own condition makes impossible (issue #369,
+`src/codegen/induction.rs`). Both apply to a counter kept in a CLIF variable
+whose condition compares it with another local or a literal, as in
+`while i < n` or `while i >= 0`:
+
+- **Step overflow.** The first write to the counter in the body, if it is a
+  top-level `i = i + k` or `i = i - k` with a literal `k`, runs at most once
+  per pass, with the condition still true. `i < n` puts `i` at least one below
+  the type's maximum, so `i + 1` cannot overflow; a literal bound also admits
+  larger steps that stay in range, and `i > n` admits `i - 1`. Such a step is
+  a plain add. Later writes, steps inside nested loops, and steps such as
+  `i <= n` with a variable `n` keep their check.
+- **Signed division.** A signed counter that enters the loop holding a
+  nonnegative literal, and whose every write in the loop adds a nonnegative
+  literal, is never negative, since each add is checked or proven. `//` and
+  `%` of such a counter by a nonnegative literal or counter use unsigned
+  division, with no floor correction or `MIN // -1` check. The zero-divisor
+  check stays.
+
+Counters in memory, borrowed locals and generator frames, are not analyzed.
+`for` loops over ranges already step with wrapping arithmetic.
+
 ## Measuring compilation
 
 `examples/compile_bench.rs` generates units containing a protocol, class, enum,
