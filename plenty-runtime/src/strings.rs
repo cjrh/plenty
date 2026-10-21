@@ -420,6 +420,53 @@ pub(crate) unsafe extern "C" fn plenty_text_ord(text: *const Text) -> u64 {
         _ => u64::MAX,
     }
 }
+// Text searches over two borrowed texts (issue #387). The dispatcher's
+// opcodes 48 to 52 call these too.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_starts_with(
+    text: *const Text,
+    prefix: *const Text,
+) -> u64 {
+    // SAFETY: as for `plenty_text_len`, for both texts.
+    unsafe { bytes(&text).starts_with(bytes(&prefix)) as u64 }
+}
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_ends_with(
+    text: *const Text,
+    suffix: *const Text,
+) -> u64 {
+    // SAFETY: as for `plenty_text_len`, for both texts.
+    unsafe { bytes(&text).ends_with(bytes(&suffix)) as u64 }
+}
+/// The scalar index of the first match of `needle`, or `u64::MAX`, which the
+/// compiled caller turns into `None`.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_find(text: *const Text, needle: *const Text) -> u64 {
+    // SAFETY: as for `plenty_text_len`, for both texts.
+    let (source, needle) = unsafe { (utf8(&text), utf8(&needle)) };
+    source
+        .find(needle)
+        .map_or(u64::MAX, |index| scalar_count(source, index))
+}
+/// As for `plenty_text_find`, the last match.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_rfind(text: *const Text, needle: *const Text) -> u64 {
+    // SAFETY: as for `plenty_text_len`, for both texts.
+    let (source, needle) = unsafe { (utf8(&text), utf8(&needle)) };
+    source
+        .rfind(needle)
+        .map_or(u64::MAX, |index| scalar_count(source, index))
+}
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_count(text: *const Text, needle: *const Text) -> u64 {
+    // SAFETY: as for `plenty_text_len`, for both texts.
+    let (source, needle) = unsafe { (utf8(&text), utf8(&needle)) };
+    source.matches(needle).count() as u64
+}
+/// The number of scalars before byte `index`, a boundary of `source`.
+fn scalar_count(source: &str, index: usize) -> u64 {
+    source[..index].chars().count() as u64
+}
 /// A `bytes` literal's byte at `i`, with the list index rules. The literal
 /// is immortal data in the text layout.
 #[unsafe(no_mangle)]

@@ -78,6 +78,7 @@ pub(super) fn build_adapter(
             return_types: &[],
             collection_scratch: None,
             fresh_load: None,
+            slot_copies: Vec::new(),
             counters: Default::default(),
             position: Default::default(),
         };

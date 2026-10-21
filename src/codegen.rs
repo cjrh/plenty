@@ -922,6 +922,11 @@ struct Runtime {
     text_is_ascii: FuncId,
     text_at: FuncId,
     text_ord: FuncId,
+    text_starts_with: FuncId,
+    text_ends_with: FuncId,
+    text_find: FuncId,
+    text_rfind: FuncId,
+    text_count: FuncId,
     byte_str_item: FuncId,
     text_at_byte: FuncId,
     text_next_byte: FuncId,
@@ -1229,6 +1234,36 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             Some(PTR_TY),
         )?,
         text_ord: helper(module, "plenty_text_ord", &[PTR_TY], Some(types::I64))?,
+        text_starts_with: helper(
+            module,
+            "plenty_text_starts_with",
+            &[PTR_TY, PTR_TY],
+            Some(types::I64),
+        )?,
+        text_ends_with: helper(
+            module,
+            "plenty_text_ends_with",
+            &[PTR_TY, PTR_TY],
+            Some(types::I64),
+        )?,
+        text_find: helper(
+            module,
+            "plenty_text_find",
+            &[PTR_TY, PTR_TY],
+            Some(types::I64),
+        )?,
+        text_rfind: helper(
+            module,
+            "plenty_text_rfind",
+            &[PTR_TY, PTR_TY],
+            Some(types::I64),
+        )?,
+        text_count: helper(
+            module,
+            "plenty_text_count",
+            &[PTR_TY, PTR_TY],
+            Some(types::I64),
+        )?,
         byte_str_item: helper(
             module,
             "plenty_byte_str_item",
@@ -1706,6 +1741,7 @@ fn build_user_function(
             return_types: &decl.sig.outputs,
             collection_scratch: None,
             fresh_load: None,
+            slot_copies: Vec::new(),
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
         };
@@ -1811,6 +1847,7 @@ fn build_main(
             return_types: &[],
             collection_scratch: None,
             fresh_load: None,
+            slot_copies: Vec::new(),
             counters: Default::default(),
             position: Default::default(),
         };
@@ -1900,6 +1937,26 @@ enum TrapKind {
     },
 }
 
+/// Whether `op` neither runs code nor writes a slot or referent, so the copies
+/// in [`Lowerer::slot_copies`] stay held by their sources across it.
+fn keeps_slot_copies(op: &Op) -> bool {
+    matches!(
+        op,
+        Op::LoadLocal(_)
+            | Op::ReadRef(_)
+            | Op::BorrowLocal(..)
+            | Op::Reborrow(_)
+            | Op::PushStr(_)
+            | Op::PushInt(_)
+            | Op::PushBool(_)
+            | Op::Site(_)
+            | Op::CallerSite(_)
+            | Op::Access(..)
+            | Op::Loan(_)
+            | Op::UseLoan(_)
+    )
+}
+
 /// A counted copy of a local slot that the op just pushed. The op lowered next
 /// can read it in place and drop the counting: nothing has run since the
 /// load, so the slot keeps the value alive.
@@ -1950,6 +2007,16 @@ struct Lowerer<'a, 'b> {
     position: sites::Position,
     /// The copy the op just lowered with a `LoadLocal`, if it was counted.
     fresh_load: Option<FreshLoad>,
+    /// Counted one-word copies pushed since the last op that could run code
+    /// or write a slot, with the `plenty_retain` call that counted each, and
+    /// string literals, which are immortal and need none. Their sources hold
+    /// them until such an op runs. An op that only reads a text operand
+    /// during its call, and releases it right after, reads such a copy in
+    /// place: it removes the retain and skips the release (issue #387).
+    slot_copies: Vec<(
+        cranelift_codegen::ir::Value,
+        Option<cranelift_codegen::ir::Inst>,
+    )>,
 }
 
 impl Lowerer<'_, '_> {
@@ -2071,6 +2138,23 @@ impl Lowerer<'_, '_> {
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
         let fresh_load = self.fresh_load.take();
+        // A copy is read in place only by an op in the same block as its
+        // retain, never by one inside a nested body.
+        if !keeps_slot_copies(op)
+            && !matches!(
+                op,
+                Op::Collection(_)
+                    | Op::Contains
+                    | Op::Eq
+                    | Op::Ne
+                    | Op::Lt
+                    | Op::Gt
+                    | Op::Le
+                    | Op::Ge
+            )
+        {
+            self.slot_copies.clear();
+        }
         match op {
             Op::Thread(operation) => self.lower_thread(operation)?,
             Op::Channel(operation) => self.lower_channel(operation)?,
@@ -2126,7 +2210,9 @@ impl Lowerer<'_, '_> {
                 } else {
                     value
                 };
-                self.retain(value, ty);
+                if let Some(retain) = self.retain(value, ty) {
+                    self.slot_copies.push((value, Some(retain)));
+                }
                 self.stack.push((value, ty.clone()));
             }
             Op::Reborrow(ty) => {
@@ -2284,7 +2370,17 @@ impl Lowerer<'_, '_> {
             Op::RangeParts(element) => self.lower_range_parts(element)?,
             Op::Display => self.lower_display()?,
             Op::Clear => self.release_stack(),
-            Op::LoadLocal(i) => self.lower_load_local(*i)?,
+            Op::LoadLocal(i) => {
+                self.lower_load_local(*i)?;
+                if let Some(FreshLoad {
+                    value,
+                    retain: Some(retain),
+                    ..
+                }) = self.fresh_load
+                {
+                    self.slot_copies.push((value, Some(retain)));
+                }
+            }
             Op::StoreLocal(i) => {
                 let ty = self.locals[*i as usize].1.clone();
                 let (value, _) = self.pop_typed(ty.clone())?;
@@ -2357,6 +2453,12 @@ impl Lowerer<'_, '_> {
         if !matches!(op, Op::LoadLocal(_)) {
             self.fresh_load = None;
         }
+        if let Op::PushStr(_) = op {
+            let (literal, _) = *self.stack.last().ok_or("empty stack after a literal")?;
+            self.slot_copies.push((literal, None));
+        } else if !keeps_slot_copies(op) {
+            self.slot_copies.clear();
+        }
         Ok(())
     }
 
@@ -2405,10 +2507,16 @@ impl Lowerer<'_, '_> {
         let contains = self
             .module
             .declare_func_in_func(self.runtime.contains, self.bcx.func);
+        let needle_held = self.forget_slot_copy(needle.0);
+        let hay_held = self.forget_slot_copy(hay.0);
         let inst = self.bcx.ins().call(contains, &[hay.0, needle.0]);
         let v = self.bcx.inst_results(inst)[0];
-        self.release(hay.0, &hay.1);
-        self.release(needle.0, &needle.1);
+        if !hay_held {
+            self.release(hay.0, &hay.1);
+        }
+        if !needle_held {
+            self.release(needle.0, &needle.1);
+        }
         self.stack.push((v, Ty::Bool));
         Ok(())
     }
@@ -2705,8 +2813,11 @@ impl Lowerer<'_, '_> {
                 }
             };
             let value = self.bcx.ins().icmp_imm(signed, order, 0);
-            self.release(a, &ty);
-            self.release(b, &ty);
+            for operand in [a, b] {
+                if !(ty == Ty::Str && self.forget_slot_copy(operand)) {
+                    self.release(operand, &ty);
+                }
+            }
             self.stack.push((value, Ty::Bool));
             return Ok(());
         }
@@ -2959,8 +3070,11 @@ impl Lowerer<'_, '_> {
                 .declare_func_in_func(self.runtime.str_eq, self.bcx.func);
             let inst = self.bcx.ins().call(str_eq, &[a, b]);
             let eq = self.bcx.inst_results(inst)[0];
-            self.release(a, &Ty::Str);
-            self.release(b, &Ty::Str);
+            for operand in [a, b] {
+                if !self.forget_slot_copy(operand) {
+                    self.release(operand, &Ty::Str);
+                }
+            }
             let v = if negate_string_result {
                 let one = self.bcx.ins().iconst(types::I8, 1);
                 self.bcx.ins().bxor(eq, one)

@@ -2,6 +2,8 @@
 //! borrowed place in place, with the dispatcher's results, bounds, and trap
 //! sites (issue #364). `ord`, `bytes` literal reads, and queries of owned
 //! locals and temporaries do too, without retaining the receiver (issue #379).
+//! Text searches call narrow helpers, and text operations read operands still
+//! held by a local, reference, or literal in place (issue #387).
 mod support;
 use rstest::rstest;
 use std::process::Command;
@@ -271,12 +273,12 @@ fn ord_literals_and_owned_receivers_skip_the_dispatcher_and_retain() {
         assert_eq!(calls, expected, "{function}");
     }
     // A local, an iteration scalar, and a full-expression temporary are read
-    // in their slots: the only retain left is of the borrowed argument, which
-    // `+`, `upper`, and the loop's hidden copy consume.
-    for (function, helper) in [
-        ("local_code", "plenty_text_ord"),
-        ("scalars", "plenty_text_ord"),
-        ("temporary", "plenty_text_byte_len"),
+    // in their slots. `+` and `upper` read the borrowed argument in place
+    // too (issue #387); the only retain left is of the loop's hidden copy.
+    for (function, helper, retained) in [
+        ("local_code", "plenty_text_ord", 0),
+        ("scalars", "plenty_text_ord", 1),
+        ("temporary", "plenty_text_byte_len", 0),
     ] {
         let calls = runtime_calls(OWNED, function);
         assert!(
@@ -284,7 +286,7 @@ fn ord_literals_and_owned_receivers_skip_the_dispatcher_and_retain() {
             "{function}: {calls:?}"
         );
         let retains = calls.iter().filter(|name| *name == "plenty_retain").count();
-        assert_eq!(retains, 1, "{function}: {calls:?}");
+        assert_eq!(retains, retained, "{function}: {calls:?}");
         if function == "scalars" {
             assert!(
                 !calls.iter().any(|name| name == "plenty_collection"),
@@ -347,4 +349,123 @@ fn trap(body: &str) -> String {
 )]
 fn bounds_traps_keep_their_sites(#[case] body: &str, #[case] expected: &str) {
     assert_eq!(trap(body), format!("error: main.plenty:{expected}\n"));
+}
+
+const SEARCHES: &str = r#"
+class Doc:
+    title: str
+
+def starts(t: str) -> bool:
+    t.startswith("ab") and len(t) > 0
+
+def ends(t: &str, suffix: str) -> bool:
+    t.endswith(suffix)
+
+def finds(t: str) -> Option[i64]:
+    found = t.find("é")
+    if len(t) == 0:
+        return Nothing
+    found
+
+def rfinds(t: &str, needle: &str) -> Option[i64]:
+    t.rfind(needle)
+
+def counts(t: str) -> i64:
+    t.count("a") + len(t) * 0
+
+def has(t: str) -> bool:
+    "lo" in t and len(t) > 0
+
+def itself(t: str) -> Option[i64]:
+    found = t.find(t)
+    if len(t) == 0:
+        return Some(0)
+    found
+
+def choose(t: str, c: bool) -> bool:
+    t.startswith("x" if c else "a") and len(t) > 0
+
+def titled(d: &Doc) -> bool:
+    d.title.startswith("The")
+
+def replaced(t: str) -> Result[str, AllocError]:
+    out = t.replace("a", "b")
+    if len(t) == 0:
+        return Ok("")
+    out
+
+def compared(a: str, b: str) -> bool:
+    a < b and len(a) + len(b) > 0
+
+def main() -> Result[(), AllocError | IoError]:
+    heap = ("abcé, long enough for the heap, " + "lo")?
+    print(starts(heap), starts("xab"), ends(&heap, "lo"), ends(&heap, ("l" + "")?))?
+    print(finds(heap), finds("abc"), rfinds(&heap, "o"), rfinds(&heap, ""), rfinds(&heap, "zz"))?
+    print(counts(heap), counts(""), has(heap), has("abc"), itself(heap), itself(""))?
+    print(choose(heap, True), choose(heap, False), titled(&Doc(("The " + "end")?)))?
+    print(replaced(heap)?, compared(heap, "b"), compared("b", heap))?
+    mut total = 0
+    for word in ["alpha", "beta", "gamma", "alphabet"]?:
+        if word.startswith("al") and word.find("ph") == Some(2):
+            total += word.count("a") + len(word)
+    print(total, heap.removeprefix("abc")?, heap.upper()?.endswith("LO"), heap)?
+    Ok(())
+"#;
+
+#[test]
+fn text_searches_return_the_dispatcher_results() {
+    // The expected output is the dispatcher's, from the compiler before #387.
+    // Under `runtime-checks`, exit also reports a leaked or doubly released
+    // operand.
+    expect(
+        SEARCHES,
+        "True False True False\n\
+         Option[i64].Some(3) Option[i64].Nothing Option[i64].Some(33) Option[i64].Some(34) Option[i64].Nothing\n\
+         2 0 True False Option[i64].Some(0) Option[i64].Some(0)\n\
+         False True True\n\
+         bbcé, long enough for the hebp, lo True False\n\
+         17 é, long enough for the heap, lo True abcé, long enough for the heap, lo\n",
+    );
+}
+
+#[test]
+fn held_text_operands_skip_the_dispatcher_and_retain() {
+    // An owned parameter's search is not its last use here, so the load is
+    // a counted copy rather than a move (issue #388).
+    for (function, helper) in [
+        ("starts", "plenty_text_starts_with"),
+        ("ends", "plenty_text_ends_with"),
+        ("finds", "plenty_text_find"),
+        ("rfinds", "plenty_text_rfind"),
+        ("counts", "plenty_text_count"),
+        ("itself", "plenty_text_find"),
+        ("titled", "plenty_text_starts_with"),
+        // Generic dispatcher operations, `in`, and comparisons of held texts.
+        ("has", "plenty_collection"),
+        ("replaced", "plenty_collection"),
+        ("compared", "plenty_collection"),
+    ] {
+        let calls = runtime_calls(SEARCHES, function);
+        assert!(
+            calls.iter().any(|name| name == helper),
+            "{function}: {calls:?}"
+        );
+        assert!(
+            !calls.iter().any(|name| name == "plenty_retain"),
+            "{function}: {calls:?}"
+        );
+        if !helper.ends_with("collection") {
+            assert!(
+                !calls.iter().any(|name| name == "plenty_collection"),
+                "{function}: {calls:?}"
+            );
+        }
+    }
+    // A conditional operand is a different block's value, so the receiver
+    // keeps its retain and release.
+    let calls = runtime_calls(SEARCHES, "choose");
+    assert!(
+        calls.iter().any(|name| name == "plenty_retain"),
+        "choose: {calls:?}"
+    );
 }

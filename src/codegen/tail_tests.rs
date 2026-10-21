@@ -69,6 +69,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         return_types: &sig.outputs,
         collection_scratch: None,
         fresh_load: None,
+        slot_copies: Vec::new(),
         counters: Default::default(),
         position: Default::default(),
     };
