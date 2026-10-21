@@ -73,7 +73,11 @@ is a local symbol with no relocations, so each Plenty library in a program keeps
 its own.
 
 Inline checks (integer overflow, division by zero, shift counts, `unwrap`) compute the pointer
-in their cold trap block, so the passing path gains nothing. Collection helpers
+in their cold trap block, so the passing path gains nothing. A check whose
+condition the compiler computes from constants and finds false, such as the
+divisor's zero test in `x // 10` or the count test in `x >> 13`, emits no branch
+or trap call, in debug and release builds. A check that may fire, or always
+fires, keeps both. Collection helpers
 that check an index, key, range parameter, or separator take it as an argument:
 one address computation per call. The collection dispatcher writes its result at
 a fixed offset in the argument block, which frees its fourth argument for the

@@ -68,6 +68,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         return_storage: Some(incoming[1]),
         return_types: &sig.outputs,
         collection_scratch: None,
+        counters: Default::default(),
         position: Default::default(),
     };
     lower.lower_tail_call("callee").unwrap();

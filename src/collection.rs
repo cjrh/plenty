@@ -18,6 +18,70 @@ pub struct KeySort {
     pub key: Ty,
 }
 
+/// A read-only scalar query that a narrow runtime helper answers without
+/// changing ownership (issue #364).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Query {
+    BytesLen,
+    TextLen,
+    TextByteLen,
+    TextIsAscii,
+    /// `text[i]`, which also takes the index and traps when it is out of range.
+    TextAt,
+    /// `TextOp::AsciiEqualFolded` over two borrowed texts.
+    TextAsciiEqualFolded,
+    /// Iteration cursors: the scalar at, or the cursor after or before, a
+    /// valid UTF-8 boundary.
+    TextAtByte,
+    TextNextByte,
+    TextPrevByte,
+}
+
+impl Query {
+    /// The query an owned-operand operation asks, if it has a borrowed form.
+    pub fn of(operation: &CollectionOp) -> Option<Self> {
+        Some(match operation {
+            CollectionOp::Bytes(crate::bytes::BytesOp::Len) => Self::BytesLen,
+            CollectionOp::Len(Ty::Str) => Self::TextLen,
+            CollectionOp::TextByteLen => Self::TextByteLen,
+            CollectionOp::TextIsAscii => Self::TextIsAscii,
+            _ => return None,
+        })
+    }
+
+    /// The type of the first operand, which the query reads through a
+    /// shared reference.
+    pub fn operand(self) -> Ty {
+        match self {
+            Self::BytesLen => Ty::ByteStorage,
+            _ => Ty::Str,
+        }
+    }
+
+    pub fn inputs(self) -> Vec<Ty> {
+        let operand = Ty::Ref(Arc::new(self.operand()), false);
+        match self {
+            Self::TextAt | Self::TextAtByte | Self::TextNextByte | Self::TextPrevByte => {
+                vec![operand, Ty::I64]
+            }
+            Self::TextAsciiEqualFolded => vec![operand.clone(), operand],
+            _ => vec![operand],
+        }
+    }
+
+    pub fn output(self) -> Ty {
+        match self {
+            Self::TextIsAscii | Self::TextAsciiEqualFolded => Ty::Bool,
+            Self::TextAt | Self::TextAtByte => Ty::Str,
+            Self::BytesLen
+            | Self::TextLen
+            | Self::TextByteLen
+            | Self::TextNextByte
+            | Self::TextPrevByte => Ty::I64,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
     Filesystem(crate::filesystem::FsOp),
@@ -126,6 +190,9 @@ pub enum CollectionOp {
     ListScalarGetRef(Ty),
     /// Exclusive scalar row write: list reference, index, value -> ().
     ListScalarSetRef(Ty),
+    /// A [`Query`] of the value behind a shared reference, which the
+    /// frontend keeps alive under its loan; nothing is retained or released.
+    QueryRef(Query),
     /// Borrowed iteration's row cursor: the first row's address and the row
     /// size in bytes, valid while the frontend keeps the list's loan live and
     /// nothing mutates it.
@@ -147,9 +214,6 @@ pub enum CollectionOp {
     TryValues(Ty),
     ListTrySlice(Ty),
     TextByteLen,
-    TextAtByte,
-    TextNextByte,
-    TextPrevByte,
     TextIndex,
     TextTryConcat,
     /// Separator and any iterable whose elements are `str`: a list, set,
@@ -418,8 +482,7 @@ impl CollectionOp {
                 vec![Ty::Str],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
-            TextAtByte | TextIndex => (vec![Ty::Str, Ty::I64], Ty::Str),
-            TextNextByte | TextPrevByte => (vec![Ty::Str, Ty::I64], Ty::I64),
+            TextIndex => (vec![Ty::Str, Ty::I64], Ty::Str),
             TextTryConcat | TextTryRemovePrefix | TextTryRemoveSuffix => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
@@ -529,6 +592,7 @@ impl CollectionOp {
                 vec![Ty::I64, Ty::I64, Ty::I64],
                 Ty::Ref(Arc::new(t.element().unwrap()), *mutable),
             ),
+            QueryRef(query) => (query.inputs(), query.output()),
             ListScalarGetRef(t) => (
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
                 t.element().unwrap(),
@@ -599,6 +663,7 @@ impl CollectionOp {
                 | Self::Range(_)
                 | Self::TextIndex
                 | Self::TextTrySplit
+                | Self::QueryRef(Query::TextAt)
         ) || matches!(self, Self::Bytes(op) if op.traps())
     }
 
@@ -704,9 +769,10 @@ impl CollectionOp {
             | Self::ListRowBytesRef(_)
             | Self::ListRowRef(..)
             | Self::ListSortBy(_)
-            | Self::OrderCompare(_) => {
+            | Self::OrderCompare(_)
+            | Self::QueryRef(_) => {
                 unreachable!(
-                    "borrowed list access, key sorts, and ordering use narrow runtime helpers"
+                    "borrowed list access, queries, key sorts, and ordering use narrow runtime helpers"
                 )
             }
             Self::IterGet(_) => 6,
@@ -721,9 +787,6 @@ impl CollectionOp {
             Self::TryValues(_) => 44,
             Self::ListTrySlice(_) => 45,
             Self::TextByteLen => 12,
-            Self::TextAtByte => 115,
-            Self::TextNextByte => 116,
-            Self::TextPrevByte => 165,
             Self::TextIndex => 114,
             Self::TextTryRemovePrefix => 71,
             Self::TextTryRemoveSuffix => 72,

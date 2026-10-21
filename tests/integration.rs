@@ -105,6 +105,8 @@ mod test_compiler_parallelism;
 mod test_concurrency_control;
 #[path = "test_concurrency_modules.rs"]
 mod test_concurrency_modules;
+#[path = "test_constant_guards.rs"]
+mod test_constant_guards;
 #[path = "test_consuming_threads.rs"]
 mod test_consuming_threads;
 #[path = "test_container_conveniences.rs"]
@@ -221,6 +223,8 @@ mod test_list_ordering;
 mod test_list_queries;
 #[path = "test_list_removal.rs"]
 mod test_list_removal;
+#[path = "test_loop_counter_ranges.rs"]
+mod test_loop_counter_ranges;
 #[path = "test_loops.rs"]
 mod test_loops;
 #[path = "test_lsp.rs"]
@@ -418,6 +422,8 @@ mod test_symbol_references;
 mod test_tail_abi;
 #[path = "test_tail_call_cleanup.rs"]
 mod test_tail_call_cleanup;
+#[path = "test_text_bytes_fast_paths.rs"]
+mod test_text_bytes_fast_paths;
 #[path = "test_text_characters.rs"]
 mod test_text_characters;
 #[path = "test_text_queries.rs"]

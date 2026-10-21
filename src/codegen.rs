@@ -79,7 +79,9 @@ mod executors;
 mod exports;
 mod foreign;
 mod generators;
+mod induction;
 mod inline;
+mod known;
 mod metadata;
 mod mutex;
 mod numeric;
@@ -902,6 +904,19 @@ struct Runtime {
     list_sort_by: FuncId,
     /// `plenty_order_compare(a_low, a_high, b_low, b_high, descriptor) -> i64`.
     order_compare: FuncId,
+    /// Narrow byte and text queries on a borrowed owner (issue #364); see
+    /// `CollectionCodegen::narrow_query`.
+    bytes_len: FuncId,
+    bytes_item: FuncId,
+    bytes_set_item: FuncId,
+    text_len: FuncId,
+    text_byte_len: FuncId,
+    text_is_ascii: FuncId,
+    text_at: FuncId,
+    text_at_byte: FuncId,
+    text_next_byte: FuncId,
+    text_prev_byte: FuncId,
+    text_ascii_equal_folded: FuncId,
     /// Generated key-sort comparators, by adapter name.
     sort_adapters: HashMap<String, FuncId>,
     channel: FuncId,
@@ -993,6 +1008,19 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
     fn nullary(module: &mut ObjectModule, name: &str) -> Result<FuncId> {
         let mut sig = module.make_signature();
         sig.call_conv = CallConv::SystemV;
+        Ok(module.declare_function(name, Linkage::Import, &sig)?)
+    }
+    fn helper(
+        module: &mut ObjectModule,
+        name: &str,
+        params: &[types::Type],
+        ret: Option<types::Type>,
+    ) -> Result<FuncId> {
+        let mut sig = module.make_signature();
+        sig.call_conv = CallConv::SystemV;
+        sig.params
+            .extend(params.iter().map(|ty| AbiParam::new(*ty)));
+        sig.returns.extend(ret.map(AbiParam::new));
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
@@ -1154,6 +1182,53 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_order_compare", Linkage::Import, &sig)?
         },
+        // Owner or text word, then index and trap site where the query has them.
+        bytes_len: helper(module, "plenty_bytes_len", &[PTR_TY], Some(types::I64))?,
+        bytes_item: helper(
+            module,
+            "plenty_bytes_item",
+            &[PTR_TY, types::I64, PTR_TY],
+            Some(types::I64),
+        )?,
+        bytes_set_item: helper(
+            module,
+            "plenty_bytes_set_item",
+            &[PTR_TY, types::I64, types::I64, PTR_TY],
+            None,
+        )?,
+        text_len: helper(module, "plenty_text_len", &[PTR_TY], Some(types::I64))?,
+        text_byte_len: helper(module, "plenty_text_byte_len", &[PTR_TY], Some(types::I64))?,
+        text_is_ascii: helper(module, "plenty_text_is_ascii", &[PTR_TY], Some(types::I64))?,
+        text_at: helper(
+            module,
+            "plenty_text_at",
+            &[PTR_TY, types::I64, PTR_TY],
+            Some(PTR_TY),
+        )?,
+        text_at_byte: helper(
+            module,
+            "plenty_text_at_byte",
+            &[PTR_TY, types::I64],
+            Some(PTR_TY),
+        )?,
+        text_prev_byte: helper(
+            module,
+            "plenty_text_prev_byte",
+            &[PTR_TY, types::I64],
+            Some(types::I64),
+        )?,
+        text_ascii_equal_folded: helper(
+            module,
+            "plenty_text_ascii_equal_folded",
+            &[PTR_TY, PTR_TY],
+            Some(types::I64),
+        )?,
+        text_next_byte: helper(
+            module,
+            "plenty_text_next_byte",
+            &[PTR_TY, types::I64],
+            Some(types::I64),
+        )?,
         sort_adapters: Default::default(),
         print_i8: one_arg(module, "plenty_print_i8", types::I8)?,
         print_i16: one_arg(module, "plenty_print_i16", types::I16)?,
@@ -1594,6 +1669,7 @@ fn build_user_function(
             return_storage,
             return_types: &decl.sig.outputs,
             collection_scratch: None,
+            counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
         };
         // Argument addresses belong to the caller. Snapshot inline values into
@@ -1697,6 +1773,7 @@ fn build_main(
             return_storage: None,
             return_types: &[],
             collection_scratch: None,
+            counters: Default::default(),
             position: Default::default(),
         };
         for op in ops {
@@ -1817,6 +1894,8 @@ struct Lowerer<'a, 'b> {
     return_types: &'a [Ty],
     /// Reused across non-overlapping runtime calls; callbacks have their own frame.
     collection_scratch: Option<cranelift_codegen::ir::StackSlot>,
+    /// Loop counter range facts; see [`induction`].
+    counters: induction::Facts,
     position: sites::Position,
 }
 
@@ -2297,6 +2376,33 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// Lower a loop counter step that [`induction`] proved cannot overflow.
+    fn lower_proven_step(&mut self, op: &Op) -> Result<()> {
+        let (a, b, ty) = self.pop_int_pair()?;
+        let result = match op {
+            Op::Add => self.bcx.ins().iadd(a, b),
+            Op::Sub => self.bcx.ins().isub(a, b),
+            _ => return Err("AOT: proven loop step is not an add or subtract".into()),
+        };
+        self.stack.push((result, ty));
+        Ok(())
+    }
+
+    /// Whether floor division or modulo of `a` by `b` may skip its sign
+    /// handling: a nonnegative dividend and a divisor that is nonnegative and,
+    /// once the zero check passes, positive.
+    fn nonnegative_operands(
+        &self,
+        a: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+    ) -> bool {
+        let known = |v| {
+            self.counters.nonnegative.contains(&v)
+                || induction::nonnegative_constant(&self.bcx.func.dfg, v)
+        };
+        known(a) && known(b)
+    }
+
     fn lower_integer(&mut self, kind: IntegerOp) -> Result<()> {
         if kind == IntegerOp::Not {
             let (value, ty) = self.stack.pop().ok_or("empty bitwise complement")?;
@@ -2348,7 +2454,8 @@ impl Lowerer<'_, '_> {
         let b_is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
         self.trap_if(b_is_zero, TrapKind::DivZero)?;
 
-        if is_signed(ty.clone()) {
+        let signed = is_signed(ty.clone()) && !self.nonnegative_operands(a, b);
+        if signed {
             // Only one signed-division overflow case exists: INT_MIN / -1.
             // (Result `-INT_MIN` is not representable at the same width.)
             let int_min = match ty {
@@ -2366,12 +2473,12 @@ impl Lowerer<'_, '_> {
             self.trap_if(overflow, TrapKind::Overflow)?;
         }
 
-        let mut v = if is_signed(ty.clone()) {
+        let mut v = if signed {
             self.bcx.ins().sdiv(a, b)
         } else {
             self.bcx.ins().udiv(a, b)
         };
-        if floor && is_signed(ty.clone()) {
+        if floor && signed {
             let remainder = self.bcx.ins().srem(a, b);
             let nonzero = self.bcx.ins().icmp_imm(IntCC::NotEqual, remainder, 0);
             let signs = self.bcx.ins().bxor(a, b);
@@ -2390,7 +2497,7 @@ impl Lowerer<'_, '_> {
         let zero = self.bcx.ins().iconst(clif_type(ty.clone()), 0);
         let is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
         self.trap_if(is_zero, TrapKind::DivZero)?;
-        let result = if is_signed(ty.clone()) {
+        let result = if is_signed(ty.clone()) && !self.nonnegative_operands(a, b) {
             // INT_MIN % -1 is zero, so avoid a hardware division overflow.
             let minus_one = self.bcx.ins().icmp_imm(IntCC::Equal, b, -1);
             let one = self.bcx.ins().iconst(clif_type(ty.clone()), 1);
@@ -2424,7 +2531,13 @@ impl Lowerer<'_, '_> {
     ///
     /// The trap block computes the site's address itself, so the passing
     /// path gains nothing, and is cold, so it is laid out after the body.
+    ///
+    /// A guard whose condition is computed from constants and is known to be
+    /// false emits nothing, not even a trap-site record; see `known.rs`.
     fn trap_if(&mut self, flag: cranelift_codegen::ir::Value, kind: TrapKind) -> Result<()> {
+        if known::known_int(&self.bcx.func.dfg, flag) == Some(0) {
+            return Ok(());
+        }
         let trap_block = self.bcx.create_block();
         let after = self.bcx.create_block();
         self.bcx.ins().brif(flag, trap_block, &[], after, &[]);
@@ -2792,6 +2905,9 @@ impl Lowerer<'_, '_> {
         } else {
             v
         };
+        if self.counters.nonnegative_locals.contains(&i) {
+            self.counters.nonnegative.insert(v);
+        }
         self.retain(v, &ty);
         self.stack.push((v, ty));
         Ok(())
