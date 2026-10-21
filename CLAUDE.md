@@ -68,6 +68,7 @@ issue ownership, discussion, and PR review state live in the database.
 | `book/src/design/toolchain/02-architecture/support.md` | What works today |
 | `book/src/design/stdlib/` | Standard library reference: one page per `std` module |
 | `book/src/tutorial/` | Learn Plenty: runnable lessons, checked by tests |
+| `book/src/design/examples/cheatsheet.md` | Syntax cheat sheet: read before writing Plenty |
 | `book/src/backlog.md` | The only list of future work and priorities |
 | `book/src/proposals/` | Design rationale and alternatives (may contain old syntax) |
 | `src/` | Compiler: frontend (parse, check) and Cranelift codegen |
@@ -113,7 +114,9 @@ the original process exit status; a successful `grep` does not prove tests passe
 
 ### Quick reproductions
 
-Executable statements belong in `main`; a bare top-level snippet is not a program.
+Before writing Plenty, read the executable
+[syntax cheat sheet](book/src/design/examples/cheatsheet.md); it lists the
+Python habits the compiler rejects. Executable statements belong in `main`; a bare top-level snippet is not a program.
 For probes involving printing or allocation, use a fallible entry point:
 
 ```text
