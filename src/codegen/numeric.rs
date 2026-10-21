@@ -3,9 +3,9 @@
 //! See `book/src/design/facilities/01-builtins/numbers.md`.
 use super::*;
 use crate::numeric::{FloatOp, NumericOp};
-use cranelift_codegen::ir::ConstantData;
 use cranelift_codegen::ir::Value as NativeValue;
 use cranelift_codegen::ir::immediates::{Ieee32, Ieee64};
+use cranelift_codegen::ir::{ConstantData, MemFlags};
 
 impl Lowerer<'_, '_> {
     pub(super) fn lower_numeric(&mut self, operation: &NumericOp) -> Result<()> {
@@ -26,6 +26,9 @@ impl Lowerer<'_, '_> {
                 let result = match kind {
                     FloatOp::Abs => self.float_abs(x),
                     FloatOp::Copysign => self.float_copysign(x, y),
+                    FloatOp::Floor | FloatOp::Ceil | FloatOp::Trunc | FloatOp::Round => {
+                        self.float_round(*kind, x)
+                    }
                     _ => self.float_math(*kind, x, y, &ty)?,
                 };
                 self.stack.push((result, ty));
@@ -152,6 +155,120 @@ impl Lowerer<'_, '_> {
                 self.bcx.ins().bor(magnitude_of_x, sign_of_y)
             }
         }
+    }
+
+    /// `floor`, `ceil`, `trunc` and `round` (ties to even) with SSE2
+    /// arithmetic, bit for bit as Rust's `floor`, `ceil`, `trunc` and
+    /// `round_ties_even` (issue #386). Generated code targets the SSE2
+    /// baseline, where Cranelift's rounding instructions are libcalls, not
+    /// SSE4.1 `roundsd`.
+    ///
+    /// For a magnitude `a` below 2^52 (2^23 for `f32`), `(a + 2^52) - 2^52`
+    /// is `a` rounded to a whole number, ties to even: the sum lies in
+    /// `[2^52, 2^53)`, whose spacing is 1. A result one past `x` in the
+    /// wrong direction steps back by one. The sign of `x` is ORed into the
+    /// result, which gives `-0.0` where the result is zero and `x` negative,
+    /// as the IEEE functions do; a nonzero result already has the sign of
+    /// `x`. A larger magnitude or an infinity is already whole, so `x` is
+    /// returned. A NaN goes through the arithmetic, which quiets it and
+    /// keeps its sign and payload, as the library functions do.
+    fn float_round(&mut self, kind: FloatOp, x: NativeValue) -> NativeValue {
+        let f32 = self.bcx.func.dfg.value_type(x) == types::F32;
+        if let Some(bits) = known::known_float_bits(&self.bcx.func.dfg, x) {
+            let bits = if f32 {
+                let x = f32::from_bits(bits as u32);
+                let whole = match kind {
+                    FloatOp::Floor => x.floor(),
+                    FloatOp::Ceil => x.ceil(),
+                    FloatOp::Trunc => x.trunc(),
+                    _ => x.round_ties_even(),
+                };
+                u64::from(whole.to_bits())
+            } else {
+                let x = f64::from_bits(bits);
+                let whole = match kind {
+                    FloatOp::Floor => x.floor(),
+                    FloatOp::Ceil => x.ceil(),
+                    FloatOp::Trunc => x.trunc(),
+                    _ => x.round_ties_even(),
+                };
+                whole.to_bits()
+            };
+            return self.float_bits(x, bits);
+        }
+        let (sign_mask, magnitude_mask) = self.float_masks(x);
+        let (big, one) = if f32 {
+            (u64::from(8_388_608f32.to_bits()), u64::from(1f32.to_bits()))
+        } else {
+            (4_503_599_627_370_496f64.to_bits(), 1f64.to_bits())
+        };
+        let mask = self.float_bits(x, magnitude_mask);
+        let a = self.bcx.ins().band(x, mask);
+        let mask = self.float_bits(x, sign_mask);
+        let sign = self.bcx.ins().band(x, mask);
+        let shift = self.float_bits(x, big);
+        let shifted = self.bcx.ins().fadd(a, shift);
+        let nearest = self.bcx.ins().fsub(shifted, shift);
+        let whole = match kind {
+            FloatOp::Round => nearest,
+            // Rounding the magnitude to nearest overshoots by one at most.
+            FloatOp::Trunc => self.float_step(nearest, a, FloatCC::GreaterThan, one),
+            _ => {
+                let signed = self.bcx.ins().bor(nearest, sign);
+                if kind == FloatOp::Floor {
+                    self.float_step(signed, x, FloatCC::GreaterThan, one)
+                } else {
+                    self.float_step(signed, x, FloatCC::LessThan, one)
+                }
+            }
+        };
+        let result = self.bcx.ins().bor(whole, sign);
+        // `a >= 2^52` keeps the constant a right operand, which x86-64 reads
+        // from the constant pool; `a < 2^52` swaps it into a register.
+        let large = self.bcx.ins().fcmp(FloatCC::GreaterThanOrEqual, a, shift);
+        self.bcx.ins().select(large, x, result)
+    }
+
+    /// `value` moved one toward `target` when `value cc target` holds:
+    /// down for `GreaterThan`, up for `LessThan`. The compare runs on
+    /// vectors so that its result is a lane mask (`cmppd`) selecting the
+    /// constant 1, without a branch. A scalar `select` lowers to a
+    /// conditional jump, which mispredicts on every other value of
+    /// irregular input. Only lane 0 is used.
+    fn float_step(
+        &mut self,
+        value: NativeValue,
+        target: NativeValue,
+        cc: FloatCC,
+        one: u64,
+    ) -> NativeValue {
+        let (vector, width) = if self.bcx.func.dfg.value_type(value) == types::F32 {
+            (types::F32X4, 4)
+        } else {
+            (types::F64X2, 8)
+        };
+        let mut bytes = [0u8; 16];
+        for lane in bytes.chunks_mut(width) {
+            lane.copy_from_slice(&one.to_le_bytes()[..width]);
+        }
+        let constant = self
+            .bcx
+            .func
+            .dfg
+            .constants
+            .insert(ConstantData::from(&bytes[..]));
+        let ones = self.bcx.ins().vconst(vector, constant);
+        let value_lanes = self.bcx.ins().scalar_to_vector(vector, value);
+        let target_lanes = self.bcx.ins().scalar_to_vector(vector, target);
+        let past = self.bcx.ins().fcmp(cc, value_lanes, target_lanes);
+        let past = self.bcx.ins().bitcast(vector, MemFlags::new(), past);
+        let step = self.bcx.ins().band(past, ones);
+        let moved = if cc == FloatCC::GreaterThan {
+            self.bcx.ins().fsub(value_lanes, step)
+        } else {
+            self.bcx.ins().fadd(value_lanes, step)
+        };
+        self.bcx.ins().extractlane(moved, 0)
     }
 
     /// `plenty_f64_math(kind, x, y) -> f64`, or the `f32` twin. Unary

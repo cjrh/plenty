@@ -179,6 +179,8 @@ mod test_filesystem;
 mod test_float_constants;
 #[path = "test_float_left_constants.rs"]
 mod test_float_left_constants;
+#[path = "test_float_rounding.rs"]
+mod test_float_rounding;
 #[path = "test_fs_helpers.rs"]
 mod test_fs_helpers;
 #[path = "test_fstrings.rs"]
