@@ -178,8 +178,8 @@ def main() -> ():
 }
 
 /// A short run of the std.http.server target in fuzz/http_server, seeded
-/// from the qualification corpus, finds nothing. A finding left by an earlier
-/// run is not reported again (issue #296).
+/// from the qualification corpus, completes and finds nothing. A finding left
+/// by an earlier run is not reported again (issue #296).
 #[test]
 fn http_server_target_survives_a_short_run() {
     if libfuzzer().is_none() {
@@ -201,7 +201,16 @@ fn http_server_target_survives_a_short_run() {
     let log = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "{stdout}\n{log}");
-    assert!(log.contains("Done 20000 runs"), "{log}");
+    // At least, not exactly: every `-reload` interval libFuzzer reruns output
+    // corpus files missing from its in-memory corpus, such as a reduced input
+    // that a later reduction replaced, without checking `-runs` (issue #392).
+    let runs: u32 = log
+        .split("\nDone ")
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|count| count.parse().ok())
+        .unwrap_or_else(|| panic!("no run count\n{log}"));
+    assert!(runs >= 20000, "{log}");
     assert!(!stdout.contains("finding:"), "{stdout}");
     assert!(stdout.contains("1 earlier findings"), "{stdout}");
 }
