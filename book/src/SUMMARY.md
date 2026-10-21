@@ -476,6 +476,7 @@
     - [C interop and dynamic libraries](proposals/ffi-and-dynamic-libraries.md)
     - [Generated library contracts and C headers](proposals/ffi-export-contracts.md)
     - [Fallible memory, parallel execution, and SIMD](proposals/memory-parallelism-and-simd.md)
+    - [Fluent iterator pipelines](proposals/fluent-iterators.md)
     - [Plenty's next language phase](proposals/next-language-phase.md)
     - [Keyword arguments, defaults, and static unpacking](proposals/keyword-arguments-and-unpacking.md)
     - [Explicit error composition](proposals/error-composition.md)
