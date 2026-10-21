@@ -32,6 +32,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
             sig: sig.clone(),
             locals: Arc::from([]),
             source: None,
+            preserves_caller: false,
         },
     );
     let empty = module
