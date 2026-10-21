@@ -82,6 +82,7 @@ mod generators;
 mod induction;
 mod inline;
 mod known;
+mod last_use;
 mod metadata;
 mod mutex;
 mod numeric;
@@ -653,6 +654,7 @@ fn object_module(
 ) -> Result<Output> {
     small_calls::substitute(&mut ops, build.optimize, workers);
     crate::tail_abi::prepare(&mut ops, workers);
+    last_use::prepare(&mut ops, workers);
     let opt_level = if build.optimize { "speed" } else { "none" };
     let targets = output::Targets {
         ordinary: optimized_isa("backtracking", opt_level, build.check_cache_hits)?,
@@ -1898,6 +1900,19 @@ enum TrapKind {
     },
 }
 
+/// A counted copy of a local slot that the op just pushed. The op lowered next
+/// can read it in place and drop the counting: nothing has run since the
+/// load, so the slot keeps the value alive.
+struct FreshLoad {
+    value: cranelift_codegen::ir::Value,
+    /// The `plenty_retain` call of a one-word copy. A narrow query consuming
+    /// the copy removes it and skips its release (issue #379).
+    retain: Option<cranelift_codegen::ir::Inst>,
+    /// For an enum, every instruction that counted the copy, which a tag
+    /// read removes (issue #388).
+    counting: Vec<cranelift_codegen::ir::Inst>,
+}
+
 struct Lowerer<'a, 'b> {
     bcx: &'a mut FunctionBuilder<'b>,
     module: &'a mut symbols::Symbols,
@@ -1933,11 +1948,8 @@ struct Lowerer<'a, 'b> {
     /// Loop counter range facts; see [`induction`].
     counters: induction::Facts,
     position: sites::Position,
-    /// The copy the op just lowered, a `LoadLocal` of a counted one-word
-    /// value, pushed, and the `plenty_retain` call that counted it. A narrow
-    /// query lowered next that consumes the copy removes the call and skips
-    /// its release: the slot keeps the value alive (issue #379).
-    fresh_load: Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Inst)>,
+    /// The copy the op just lowered with a `LoadLocal`, if it was counted.
+    fresh_load: Option<FreshLoad>,
 }
 
 impl Lowerer<'_, '_> {
@@ -2151,7 +2163,12 @@ impl Lowerer<'_, '_> {
             }
             Op::BoxedCallableCall(sig) => self.lower_boxed_callable_call(sig)?,
             Op::Class(operation) => self.lower_class(operation)?,
-            Op::Enum(operation) => self.lower_enum(operation)?,
+            Op::Enum(operation) => {
+                self.fresh_load = fresh_load;
+                let lowered = self.lower_enum(operation);
+                self.fresh_load = None;
+                lowered?
+            }
             Op::Split(t, tag) => self.lower_split(t, *tag)?,
             Op::Box(operation) => self.lower_box(operation)?,
             Op::Yield(ty) => self.lower_yield(ty)?,
@@ -3007,7 +3024,26 @@ impl Lowerer<'_, '_> {
         if self.counters.nonnegative_locals.contains(&i) {
             self.counters.nonnegative.insert(v);
         }
-        self.fresh_load = self.retain(v, &ty).map(|call| (v, call));
+        let block = self.bcx.current_block().ok_or("load outside a block")?;
+        let before = self.bcx.func.layout.last_inst(block);
+        let retain = self.retain(v, &ty);
+        let counting = if matches!(ty, Ty::Enum(_)) && ty.managed() {
+            let layout = &self.bcx.func.layout;
+            let mut next = before.map_or(layout.first_inst(block), |inst| layout.next_inst(inst));
+            std::iter::from_fn(|| {
+                let inst = next?;
+                next = layout.next_inst(inst);
+                Some(inst)
+            })
+            .collect()
+        } else {
+            Vec::new()
+        };
+        self.fresh_load = (retain.is_some() || !counting.is_empty()).then_some(FreshLoad {
+            value: v,
+            retain,
+            counting,
+        });
         self.stack.push((v, ty));
         Ok(())
     }

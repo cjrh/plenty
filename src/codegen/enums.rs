@@ -175,6 +175,26 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// Whether `value` is the copy the previous op loaded from a local slot;
+    /// if so, the instructions that counted it are removed, and the caller
+    /// reads it in place and does not release it. A `match` reads its owned
+    /// scrutinee's tag this way before an arm moves the value (issue #388).
+    fn forget_counted_copy(&mut self, value: cranelift_codegen::ir::Value) -> bool {
+        match self.fresh_load.take() {
+            Some(super::FreshLoad {
+                value: fresh,
+                counting,
+                ..
+            }) if fresh == value && !counting.is_empty() => {
+                for inst in counting {
+                    self.bcx.func.layout.remove_inst(inst);
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn lower_enum(&mut self, op: &EnumOp) -> Result<()> {
         let (inputs, output) = op.signature().ok_or("invalid enum operation")?;
         if let EnumOp::Widen(source, target) = op {
@@ -279,7 +299,9 @@ impl Lowerer<'_, '_> {
                 let tags = self.high_word(value);
                 let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
                 let tag = self.bcx.ins().band_imm(tags, mask as i64);
-                self.release(value, &inputs[0]);
+                if !self.forget_counted_copy(value) {
+                    self.release(value, &inputs[0]);
+                }
                 tag
             }
             EnumOp::Field(_, tag, field) | EnumOp::Take(_, tag, field) => {
