@@ -46,7 +46,7 @@ per-PR copies. Workspace artifacts and incremental state are not retained.
 The line-table-only workspace profiles and disabled dependency debug information
 above also keep compilation outputs small.
 
-Stable checks default-feature linking once. Stable, beta and nightly all compile
+Stable checks default-feature linking once. Stable and nightly both compile
 and run the full all-feature test suite; clippy and Docker proxy checks keep
 their existing coverage. Test compilation is a separate step from execution,
 and the `cargo-timings-*` artifacts retain Cargo's HTML compilation reports for
