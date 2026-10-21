@@ -615,42 +615,42 @@ import std.io
 const request_budget_seconds: u32 = 20u32
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | std.http.client.ClientError | RangeError | AllocError | IoError]:
-    never = CancellationToken()?
-    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(request_budget_seconds))?
-    base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
-    mut client_config = std.http.client.config()?
-    client_config.idle_timeout = std.time.seconds(request_budget_seconds)
-    mut client = std.http.client.client(client_config)?
-    for index in range(3):
-        home = client.get(&base.concat("/")?, &deadline, &never)?
-        print(home.status, home.body.to_text()?)?
-    mut payload = std.bytes.with_capacity(300000)?
-    payload.resize(300000, 0u8)?
-    for index in range(300000):
-        payload[index] = u8(index % 251)
-    expected = payload.copy()?
-    mut source = std.io.cursor(payload)
-    post = std.http.client.request("POST", &base.concat("/echo")?)?
-    mut response = client.send_from(post, &mut source, &std.http.client.chunked(), &deadline, &never)?
-    mut echoed = std.bytes.empty()?
-    response.read_all(&mut echoed)?
-    client.finish(response)
-    print(echoed == expected)?
-    big = client.get(&base.concat("/big")?, &deadline, &never)?
-    print(big.body.len())?
-    mut config = std.http.client.config()?
-    config.limits.max_body = 67108864
-    mut large = std.http.client.client(config)?
-    huge = large.get(&base.concat("/huge")?, &deadline, &never)?
-    print(huge.body.len())?
-    head = client.fetch(std.http.client.request("HEAD", &base.concat("/")?)?, &deadline, &never)?
-    print(head.status, head.body.len())?
-    stats = client.stats()
-    print(stats.opened, stats.reused)?
-    stop.cancel()
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(request_budget_seconds))?
+        base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
+        mut client_config = std.http.client.config()?
+        client_config.idle_timeout = std.time.seconds(request_budget_seconds)
+        mut client = std.http.client.client(client_config)?
+        for index in range(3):
+            home = client.get(&base.concat("/")?, &deadline, &never)?
+            print(home.status, home.body.to_text()?)?
+        mut payload = std.bytes.with_capacity(300000)?
+        payload.resize(300000, 0u8)?
+        for index in range(300000):
+            payload[index] = u8(index % 251)
+        expected = payload.copy()?
+        mut source = std.io.cursor(payload)
+        post = std.http.client.request("POST", &base.concat("/echo")?)?
+        mut response = client.send_from(post, &mut source, &std.http.client.chunked(), &deadline, &never)?
+        mut echoed = std.bytes.empty()?
+        response.read_all(&mut echoed)?
+        client.finish(response)
+        print(echoed == expected)?
+        big = client.get(&base.concat("/big")?, &deadline, &never)?
+        print(big.body.len())?
+        mut config = std.http.client.config()?
+        config.limits.max_body = 67108864
+        mut large = std.http.client.client(config)?
+        huge = large.get(&base.concat("/huge")?, &deadline, &never)?
+        print(huge.body.len())?
+        head = client.fetch(std.http.client.request("HEAD", &base.concat("/")?)?, &deadline, &never)?
+        print(head.status, head.body.len())?
+        stats = client.stats()
+        print(stats.opened, stats.reused)?
     Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError | std.http.client.ClientError | RangeError]:
     table = routes()?
     stop = CancellationToken()?
     site = app(&stop)?
@@ -660,6 +660,7 @@ def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.serv
     config.idle_timeout = std.time.seconds(request_budget_seconds)
     with spawn(visit, port, stop.share())? as task:
         report = std.http.server.serve(listener, &table, &site, &config, &stop)?
+        task.join()?
         print(counts(&report)?)?
     Ok(())
 "##;
@@ -855,36 +856,36 @@ pub class Secure:
         Ok(())
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | std.tls.TlsError | AllocError | IoError]:
-    never = CancellationToken()?
-    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
-    config = std.tls.client_config(&std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem")?)?)?
-    for index in range(3):
-        tcp = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
-        mut tls = std.tls.connect(tcp, &config, "localhost", &deadline, &never)?
-        mut request = std.bytes.from_text("GET / HTTP/1.1\r\nHost: localhost\r\nX-Long: ")?
-        request.resize(request.len() + 20000, 97u8)?
-        request.extend(&std.bytes.from_text("\r\n\r\n")?)?
-        # A failed write still reads, so `stop` is always cancelled.
-        drop(tls.write_all_before(&request, 0, request.len(), &deadline, &never))
-        mut answer = std.bytes.empty()?
-        mut ending = "close_notify"
-        while True:
-            at = answer.len()
-            answer.resize(at + 512, 0u8)?
-            match tls.read_before(&mut answer, at, at + 512, &deadline, &never):
-                case Ok(count):
-                    answer.truncate(at + count)?
-                    if count == 0:
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
+        config = std.tls.client_config(&std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem")?)?)?
+        for index in range(3):
+            tcp = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
+            mut tls = std.tls.connect(tcp, &config, "localhost", &deadline, &never)?
+            mut request = std.bytes.from_text("GET / HTTP/1.1\r\nHost: localhost\r\nX-Long: ")?
+            request.resize(request.len() + 20000, 97u8)?
+            request.extend(&std.bytes.from_text("\r\n\r\n")?)?
+            # A failed write still reads the server's answer.
+            drop(tls.write_all_before(&request, 0, request.len(), &deadline, &never))
+            mut answer = std.bytes.empty()?
+            mut ending = "close_notify"
+            while True:
+                at = answer.len()
+                answer.resize(at + 512, 0u8)?
+                match tls.read_before(&mut answer, at, at + 512, &deadline, &never):
+                    case Ok(count):
+                        answer.truncate(at + count)?
+                        if count == 0:
+                            break
+                    case Err(_):
+                        answer.truncate(at)?
+                        ending = "failed"
                         break
-                case Err(_):
-                    answer.truncate(at)?
-                    ending = "failed"
-                    break
-        print(answer.to_text()?.startswith("HTTP/1.1 431 "), ending)?
-    stop.cancel()
+            print(answer.to_text()?.startswith("HTTP/1.1 431 "), ending)?
     Ok(())
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | std.tls.TlsError | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | std.tls.TlsError | AllocError | IoError | std.bytes.BytesError | RangeError]:
     table = routes()?
     stop = CancellationToken()?
     tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?
@@ -892,6 +893,7 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | Thread
     port = listener.local_address()?.port
     with spawn(visit, port, stop.share())? as task:
         report = std.http.tls.serve(listener, tls, &table, &Secure(), &std.http.server.config(), &stop)?
+        task.join()?
         print(counts(&report)?)?
     Ok(())
 "##
@@ -1160,11 +1162,10 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | Thread
         mut client = connect_to(port, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")?
         marker = "__test_fail_allocations_after_".concat(str.from(attempt)?)?.concat("__")?
         mut outcome: Result[Report, ServerError] = Err(ServerError.InvalidConfig)
-        with spawn(watchdog, done.share(), stop.share())? as task:
+        with spawn(watchdog, done.share(), stop.share())? as task, done.cancel_on_exit():
             print(marker)?
             outcome = std.http.server.serve(listener, &table, &app, &config, &stop)
             print("__test_restore_allocations__")?
-            done.cancel()
         # A connection lost to the failure may end with a reset.
         answer = match until(&mut client, ""):
             case Ok(text):
@@ -1256,18 +1257,18 @@ pub class Service:
         Ok(())
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
-    never = CancellationToken()?
-    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
-    mut client = std.http.client.client(std.http.client.config()?)?
-    mut post = std.http.client.request("POST", &"http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/items")?)?
-    post.add("Content-Type", "application/json")?
-    post.body = std.bytes.from_text("{\"name\":\"plenty\",\"tags\":[1,2]}")?
-    answer = client.fetch(post, &deadline, &never)?
-    print(answer.status, answer.body.to_text()?)?
-    stop.cancel()
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
+        mut client = std.http.client.client(std.http.client.config()?)?
+        mut post = std.http.client.request("POST", &"http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/items")?)?
+        post.add("Content-Type", "application/json")?
+        post.body = std.bytes.from_text("{\"name\":\"plenty\",\"tags\":[1,2]}")?
+        answer = client.fetch(post, &deadline, &never)?
+        print(answer.status, answer.body.to_text()?)?
     Ok(())
 
-def main() -> Result[(), AllocError | ThreadError | std.http.server.ServerError | std.net.NetError]:
+def main() -> Result[(), AllocError | ThreadError | std.http.server.ServerError | std.net.NetError | IoError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
     mut table = std.http.server.router[Route]()?
     table.add("POST", "/items", Route.Items)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -1275,6 +1276,7 @@ def main() -> Result[(), AllocError | ThreadError | std.http.server.ServerError 
     stop = CancellationToken()?
     with spawn(visit, port, stop.share())? as task:
         drop(std.http.server.serve(listener, &table, &Service(), &std.http.server.config(), &stop)?)
+        task.join()?
     Ok(())
 "##,
     )
@@ -1471,16 +1473,16 @@ pub class Service:
         Ok(())
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
-    never = CancellationToken()?
-    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
-    mut client = std.http.client.client(std.http.client.config()?)?
-    get = std.http.client.request("GET", &"http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/summary")?)?
-    answer = client.fetch(get, &deadline, &never)?
-    print(answer.status, answer.body.to_text()?)?
-    stop.cancel()
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
+        mut client = std.http.client.client(std.http.client.config()?)?
+        get = std.http.client.request("GET", &"http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/summary")?)?
+        answer = client.fetch(get, &deadline, &never)?
+        print(answer.status, answer.body.to_text()?)?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError]:
+def main() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
     arguments = args()?
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/summary", Route.Summary)?
@@ -1489,6 +1491,7 @@ def main() -> Result[(), AllocError | IoError | ThreadError | std.http.server.Se
     stop = CancellationToken()?
     with spawn(visit, port, stop.share())? as task:
         drop(std.http.server.serve(listener, &table, &Service("".concat(&arguments[1])?), &std.http.server.config(), &stop)?)
+        task.join()?
     Ok(())
 "##;
 

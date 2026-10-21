@@ -39,6 +39,11 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(ty));
         }
+        if name == "cancel_on_exit" {
+            return Err(base.at.error(
+                "cancel_on_exit() is a `with` guard: write `with token.cancel_on_exit():`",
+            ));
+        }
         let op = match (name, args) {
             ("cancel", []) => ControlOp::Cancel,
             ("is_cancelled", []) => ControlOp::IsCancelled,
@@ -48,7 +53,7 @@ impl Lower<'_> {
                 self.same(actual, Some(Ty::U64), &timeout.at)?;
                 ControlOp::WaitTimeout
             }
-            _ => return Err(base.at.error("CancellationToken supports share(), cancel(), is_cancelled(), wait(), and wait_timeout(timeout_ms)")),
+            _ => return Err(base.at.error("CancellationToken supports share(), cancel(), cancel_on_exit(), is_cancelled(), wait(), and wait_timeout(timeout_ms)")),
         };
         let output = op.signature().1;
         ops.push(Op::Control(op));

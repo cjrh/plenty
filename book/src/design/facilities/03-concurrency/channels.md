@@ -111,6 +111,15 @@ in [avoid waits that hang](../../../tutorial/11-concurrency/wait-habits.md).
    endpoint into a value or return it only after the block.
 7. **Start tasks and pools outside lock blocks**; see
    [mutexes](mutex.md#waits-the-compiler-rejects).
+8. **Cancel a token that a worker waits for on every exit.** Like an endpoint
+   guard, `stop.cancel_on_exit()` goes directly after the task or pool:
+
+   ```text
+   with spawn(serve, stop.share())?, stop.cancel_on_exit():
+       ...
+   ```
+
+   See [cancel on every exit](cancellation.md#cancel-on-every-exit).
 
 Pools follow the same patterns, with `pool.submit(...)` in place of the start;
 see [shutdown](executors.md#shutdown-and-live-receivers) and

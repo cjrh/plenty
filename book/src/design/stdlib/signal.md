@@ -67,15 +67,17 @@ whose shutdown and drain begin when `stop` is cancelled:
 ```text
 signals = std.signal.listen()?
 stop = CancellationToken()?
-with spawn(std.signal.cancel_on, signals, stop.share())? as watcher:
+with spawn(std.signal.cancel_on, signals, stop.share())? as watcher, stop.cancel_on_exit():
     served = std.http.server.serve(listener, &routes, &handler, &config, &stop)
     stop.cancel()
     watcher.join()?
     report = served?
 ```
 
-Cancel `stop` before any `?` in the block: leaving the block joins the
-watcher, which waits until a signal arrives or `stop` is cancelled. The
+Leaving the block joins the watcher, which waits until a signal arrives or
+`stop` is cancelled. `stop.cancel_on_exit()` cancels `stop` on every exit, and
+the explicit `stop.cancel()` comes before the in-block join; see
+[cancel on every exit](../facilities/03-concurrency/cancellation.md#cancel-on-every-exit). The
 [tutorial lesson](../../tutorial/11-concurrency/stop-on-signal.md) runs a
 complete program.
 

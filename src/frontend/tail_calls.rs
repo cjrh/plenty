@@ -169,6 +169,7 @@ fn expression_endings(
                 | Op::Building(_)
                 | Op::Passes(_)
                 | Op::Forwards(_)
+                | Op::Tokens(_)
         )
     });
     match last {

@@ -43,29 +43,29 @@ pub class Site:
 type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | RangeError
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
-    never = CancellationToken()?
-    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
-    base = f"http://127.0.0.1:{port}"?
-    client = std.http.client.client(std.http.client.config()?)?
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
+        base = f"http://127.0.0.1:{port}"?
+        client = std.http.client.client(std.http.client.config()?)?
 
-    home = client.get(&f"{base}/"?, &deadline, &never)?
-    print(home.status, home.body.to_text()?.strip()?)?
+        home = client.get(&f"{base}/"?, &deadline, &never)?
+        print(home.status, home.body.to_text()?.strip()?)?
 
-    moved = client.get(&f"{base}/old"?, &deadline, &never)?
-    print(moved.status, moved.redirects, moved.url.endswith("/"))?
+        moved = client.get(&f"{base}/old"?, &deadline, &never)?
+        print(moved.status, moved.redirects, moved.url.endswith("/"))?
 
-    mut post = std.http.client.request("POST", &f"{base}/echo"?)?
-    post.add("Content-Type", "text/plain")?
-    post.body = std.bytes.from_text("ping")?
-    echoed = client.fetch(post, &deadline, &never)?
-    print(echoed.body.to_text()?)?
+        mut post = std.http.client.request("POST", &f"{base}/echo"?)?
+        post.add("Content-Type", "text/plain")?
+        post.body = std.bytes.from_text("ping")?
+        echoed = client.fetch(post, &deadline, &never)?
+        print(echoed.body.to_text()?)?
 
-    stats = client.stats()
-    print(stats.opened, stats.reused)?
-    stop.cancel()
+        stats = client.stats()
+        print(stats.opened, stats.reused)?
     Ok(())
 
-def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | AllocError]:
+def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | AllocError | VisitError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/old", Route.Old)?
@@ -75,6 +75,7 @@ def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.Net
     stop = CancellationToken()?
     with spawn(visit, port, stop.share())? as task:
         drop(std.http.server.serve(listener, &routes, &Site(), &std.http.server.config(), &stop)?)
+        task.join()?
     Ok(())
 ```
 ```output

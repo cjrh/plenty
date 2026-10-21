@@ -17,6 +17,7 @@ shared state in one fallible allocation.
 | `is_cancelled()` | `bool` | Observe the request |
 | `wait()` | `()` | Wait until cancellation is requested |
 | `wait_timeout(timeout_ms: u64)` | `bool` | Observe cancellation within the budget |
+| `cancel_on_exit()` | `with` guard | Cancel on every exit from the `with` block; see [cancel on every exit](../facilities/03-concurrency/cancellation.md#cancel-on-every-exit) |
 
 Methods borrow the handle, allocate nothing, and copy no captured data. Share
 and observation have constant bookkeeping; cancellation also wakes waiters.

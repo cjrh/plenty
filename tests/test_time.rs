@@ -292,7 +292,7 @@ def main() -> Result[(), AllocError | IoError | ChannelError | SendTimeoutError[
     drop(sender)
     drop(receiver)
     hour = deadline_after(&monotonic_now(), &seconds(3600))?
-    with ThreadPoolExecutor(1, 1)? as pool:
+    with ThreadPoolExecutor(1, 1)? as pool, stop.cancel_on_exit():
         ready, started = channel[i64](1)?
         future = pool.submit(wait, stop.share(), hour, ready)?
         started.recv()?

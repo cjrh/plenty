@@ -64,16 +64,16 @@ def get(port: u16, path: &str) -> Result[str, FetchError]:
     Ok(f"{status} | {body}"?)
 
 def client(port: u16, stop: CancellationToken) -> Result[(), FetchError]:
-    print(get(port, "/")?)?
-    print(get(port, "/index.html")?)?
-    print(get(port, "/hello/Ada%20L")?)?
-    print(get(port, "/missing")?)?
-    stop.cancel()
+    with stop.cancel_on_exit():
+        print(get(port, "/")?)?
+        print(get(port, "/index.html")?)?
+        print(get(port, "/hello/Ada%20L")?)?
+        print(get(port, "/missing")?)?
     Ok(())
 
 type ServerSetupError = std.http.server.ServerError | std.net.NetError
 
-def main() -> Result[(), ThreadError | IoError | AllocError | ServerSetupError]:
+def main() -> Result[(), ThreadError | IoError | AllocError | ServerSetupError | FetchError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/index.html", Route.Home)?
@@ -83,6 +83,7 @@ def main() -> Result[(), ThreadError | IoError | AllocError | ServerSetupError]:
     stop = CancellationToken()?
     with spawn(client, port, stop.share())? as task:
         report = std.http.server.serve(listener, &routes, &App(), &std.http.server.config(), &stop)?
+        task.join()?
         print(report.requests)?
     Ok(())
 ```

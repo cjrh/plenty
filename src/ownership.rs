@@ -10,6 +10,7 @@ use std::fmt;
 use std::sync::Arc;
 
 mod calls;
+mod cancel;
 mod futures;
 pub use calls::{future_results, Program};
 
@@ -136,6 +137,11 @@ pub enum Kind {
         /// `shutdown()`, `drop()`, or a reassignment.
         automatic: bool,
     },
+    /// A join, result wait, pool shutdown, or exit that skips a later
+    /// cancel of a token the waited-for work holds (issue #355).
+    Uncancelled {
+        message: String,
+    },
 }
 
 /// What a `Kind::BlockedLock` waits for.
@@ -152,6 +158,9 @@ pub enum Wait {
 enum Hazard {
     Sends(Ty),
     Locks(Ty),
+    /// The job holds the token in this slot, or a reference to it, from an
+    /// `Op::Tokens` marker (issue #355).
+    Cancels(u8),
 }
 
 impl Hazard {
@@ -193,6 +202,7 @@ fn split(hazards: &[(Hazard, Option<Site>)]) -> (Vec<Ty>, Vec<Ty>) {
         match hazard {
             Hazard::Sends(t) => sends.push(t.clone()),
             Hazard::Locks(t) => locks.push(t.clone()),
+            Hazard::Cancels(_) => {}
         }
     }
     (sends, locks)
@@ -388,6 +398,7 @@ impl fmt::Display for Error {
                 shuts_down(*automatic),
                 self.holder()
             ),
+            Kind::Uncancelled { message } => message.clone(),
         };
         match &self.required {
             Some(required) => f.write_str(&required.report(&location, &message))?,
@@ -561,6 +572,7 @@ pub fn check(
             checker.release(&mut state, None)?;
         }
     });
+    crate::profile_block!("ownership::check_cancels", cancel::check(&checker))?;
     checker.loans(ops)
 }
 

@@ -982,20 +982,20 @@ def later() -> Result[std.time.Deadline, RangeError]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
-    never = CancellationToken()?
-    mut client = hc.client(hc.config()?)?
-    base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
-    home = client.get(&base.concat("/")?, &later()?, &never)?
-    print(home.status, home.body.to_text()?.strip()?)?
-    moved = client.get(&base.concat("/old")?, &later()?, &never)?
-    print(moved.status, moved.redirects, moved.url == base.concat("/")?)?
-    mut post = hc.request("POST", &base.concat("/echo")?)?
-    post.body = std.bytes.from_text("payload")?
-    echoed = client.fetch(post, &later()?, &never)?
-    print(echoed.body.to_text()?)?
-    stats = client.stats()
-    print(stats.opened, stats.reused, stats.redirected)?
-    stop.cancel()
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        mut client = hc.client(hc.config()?)?
+        base = "http://127.0.0.1:".concat(&str.from(i64(port))?)?
+        home = client.get(&base.concat("/")?, &later()?, &never)?
+        print(home.status, home.body.to_text()?.strip()?)?
+        moved = client.get(&base.concat("/old")?, &later()?, &never)?
+        print(moved.status, moved.redirects, moved.url == base.concat("/")?)?
+        mut post = hc.request("POST", &base.concat("/echo")?)?
+        post.body = std.bytes.from_text("payload")?
+        echoed = client.fetch(post, &later()?, &never)?
+        print(echoed.body.to_text()?)?
+        stats = client.stats()
+        print(stats.opened, stats.reused, stats.redirected)?
     Ok(())
 
 # Accepts connections and never answers until `stop` is cancelled.
@@ -1013,7 +1013,7 @@ def canceller(token: CancellationToken) -> ():
     std.time.sleep(&std.time.milliseconds(100u32))
     token.cancel()
 
-def main() -> Result[(), hc.ClientError | std.net.NetError | RangeError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/old", Route.Old)?
@@ -1023,13 +1023,14 @@ def main() -> Result[(), hc.ClientError | std.net.NetError | RangeError | std.ht
     stop = CancellationToken()?
     with spawn(visit, port, stop.share())? as task:
         report = std.http.server.serve(listener, &routes, &Site(), &std.http.server.config(), &stop)?
+        task.join()?
         print(report.connections, report.requests)?
     # A server that never answers: the head timeout, the caller's deadline
     # and cancellation each end the wait.
     quiet = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     url = "http://127.0.0.1:".concat(&str.from(i64(quiet.local_address()?.port))?)?.concat("/")?
     halt = CancellationToken()?
-    with spawn(silent, quiet, halt.share())? as server:
+    with spawn(silent, quiet, halt.share())? as server, halt.cancel_on_exit():
         never = CancellationToken()?
         mut config = hc.config()?
         config.head_timeout = std.time.milliseconds(100u32)
@@ -1055,7 +1056,6 @@ def main() -> Result[(), hc.ClientError | std.net.NetError | RangeError | std.ht
                     print(error)?
         waited = std.time.monotonic_now().saturating_duration_since(&start).as_milliseconds()
         print(waited >= 300 and waited < 3000)?
-        halt.cancel()
     Ok(())
 "##,
         r##"200 home

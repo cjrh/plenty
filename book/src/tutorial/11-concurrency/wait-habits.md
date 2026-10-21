@@ -1,7 +1,8 @@
 # Avoid waits that hang
 
 A join waits for a worker. If the worker is blocked on a channel endpoint or a
-lock that the waiting function still holds, the join never returns. Plenty
+lock that the waiting function still holds, or waits for a cancel that the
+function has not made yet, the join never returns. Plenty
 rejects such waits at compile time. These habits keep your programs clear of
 the whole class:
 
@@ -15,9 +16,13 @@ the whole class:
    expression is still held while the wait runs.
 5. **Call `drop_job()` on a closure start you will not retry.**
 6. **Start workers outside a lock block,** and lock inside them.
+7. **Cancel a token on every exit** when a worker waits for it:
+   `with spawn(serve, stop.share())?, stop.cancel_on_exit():`.
 
 The [previous lesson](channels-and-shutdown.md) showed habits 1 to 3, and
-[the mutex lesson](shared-mutex.md) showed habit 6. Executor pools follow the
+[the mutex lesson](shared-mutex.md) showed habit 6.
+[Cooperative cancellation](cooperative-cancellation.md#cancel-on-every-exit)
+shows habit 7. Executor pools follow the
 same habits, as the [future wait lesson](future-cancellation-and-waits.md)
 shows. This lesson covers several producers and closure starts.
 

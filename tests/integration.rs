@@ -65,6 +65,8 @@ mod test_callable_tail_calls;
 mod test_callable_values;
 #[path = "test_callback_registry.rs"]
 mod test_callback_registry;
+#[path = "test_cancel_on_exit.rs"]
+mod test_cancel_on_exit;
 #[path = "test_channels.rs"]
 mod test_channels;
 #[path = "test_class_allocation.rs"]

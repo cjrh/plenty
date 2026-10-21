@@ -2,7 +2,7 @@
 use super::{graph, Hazard, Node, Op, Program, Site};
 use crate::executor::ExecutorOp;
 use crate::hash::HashSet;
-use crate::op::{Forward, Ty};
+use crate::op::{Forward, TokenMark, Ty};
 use crate::sum::EnumOp;
 
 type Jobs = Vec<(Hazard, Option<Site>)>;
@@ -124,7 +124,7 @@ impl Futures {
             Some(Op::Executor(ExecutorOp::Submit(job, _))) => {
                 Hazard::of(&job.input).next().is_some()
             }
-            Some(Op::Forwards(Forward::Call(..))) => true,
+            Some(Op::Forwards(Forward::Call(..)) | Op::Tokens(TokenMark::Holds(_))) => true,
             _ => false,
         }) {
             return Self { jobs };
@@ -183,6 +183,14 @@ impl Futures {
                     (Some(Op::Executor(ExecutorOp::Submit(job, _))), _) => {
                         for hazard in Hazard::of(&job.input) {
                             add((hazard, node.site));
+                        }
+                        // The frontend places the job's token marker directly before it.
+                        for &marker in &predecessors[index] {
+                            if let Some(Op::Tokens(TokenMark::Holds(slots))) = nodes[marker].op {
+                                for &slot in slots.iter() {
+                                    add((Hazard::Cancels(slot), node.site));
+                                }
+                            }
                         }
                         if call.is_none() {
                             continue;
