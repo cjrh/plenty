@@ -44,6 +44,24 @@ pub(super) fn known_int(dfg: &DataFlowGraph, value: Value) -> Option<u64> {
     evaluate(dfg, value, DEPTH)
 }
 
+/// The value of an `f32const` or `f64const`, widened to `f64` (exactly).
+pub(super) fn known_float(dfg: &DataFlowGraph, value: Value) -> Option<f64> {
+    let ValueDef::Result(inst, _) = dfg.value_def(dfg.resolve_aliases(value)) else {
+        return None;
+    };
+    match dfg.insts[inst] {
+        InstructionData::UnaryIeee64 {
+            opcode: Opcode::F64const,
+            imm,
+        } => Some(f64::from_bits(imm.bits())),
+        InstructionData::UnaryIeee32 {
+            opcode: Opcode::F32const,
+            imm,
+        } => Some(f64::from(f32::from_bits(imm.bits()))),
+        _ => None,
+    }
+}
+
 fn evaluate(dfg: &DataFlowGraph, value: Value, depth: u32) -> Option<u64> {
     let value = dfg.resolve_aliases(value);
     let bits = width(dfg, value)?;

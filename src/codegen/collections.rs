@@ -251,9 +251,10 @@ impl Lowerer<'_, '_> {
         // The runtime writes the result after the three inputs, which leaves
         // the fourth argument for the trap site.
         // Advancing a generator or dropping a value can enter std without a
-        // source-level call. Within std, runtime callbacks must not overwrite
-        // the surrounding caller, including callbacks that tail-call std.
-        let saved = if self.in_standard_library() || matches!(opcode, 24 | 27) {
+        // source-level call, so user code names itself as the caller. The
+        // runtime restores the context after every callback into compiled
+        // code, so std needs nothing here.
+        let saved = if !self.in_standard_library() && matches!(opcode, 24 | 27) {
             self.enter_call()?
         } else {
             None

@@ -88,6 +88,26 @@ extern "C" fn plenty_caller_leave(site: *const Site) {
     CALLER.with(|caller| caller.set(site));
 }
 
+/// Restores the caller context when dropped. The runtime holds one around
+/// each call into compiled code that it makes on the caller's thread: class
+/// destructors, generator resumption, and key-sort comparators. That code may
+/// tail-call std and so return with its own site in the context. With these
+/// scopes no runtime helper changes the context, so standard-library code
+/// calls helpers without saving and restoring it (issue #366).
+pub(crate) struct CallerScope(*const Site);
+
+impl CallerScope {
+    pub(crate) fn save() -> Self {
+        Self(CALLER.with(std::cell::Cell::get))
+    }
+}
+
+impl Drop for CallerScope {
+    fn drop(&mut self) {
+        CALLER.with(|caller| caller.set(self.0));
+    }
+}
+
 /// `file:line:column`, or `line:column` without a file.
 struct Position(*const Site);
 
