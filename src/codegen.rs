@@ -1400,51 +1400,45 @@ fn collect_user_fns(
 }
 
 /// Which locals need stack storage: those with inline storage and those whose
-/// address the body takes with `BorrowLocal`. Any `Op::Thread` keeps every
-/// local in memory. The rest stay in CLIF variables, so taking one local's
-/// address does not move unrelated locals into memory (issue #361).
+/// address the body takes with `BorrowLocal`. The rest stay in CLIF variables,
+/// so taking one local's address does not move unrelated locals into memory
+/// (issue #361). Thread operations add none: task storage is a separate stack
+/// slot, the task token local is only read and written, and a worker reaches
+/// parent locals only through borrowed arguments (issue #373).
 fn addressed_locals(ops: &[Op], locals: &[(Variable, Ty)]) -> Vec<bool> {
     let mut addressed: Vec<bool> = locals.iter().map(|(_, t)| t.has_inline_storage()).collect();
-    if mark_borrowed_locals(ops, &mut addressed) {
-        addressed.fill(true);
-    }
+    mark_borrowed_locals(ops, &mut addressed);
     addressed
 }
 
-/// Mark each local borrowed anywhere in `ops`, including nested bodies;
-/// return whether `ops` contains an `Op::Thread`.
-fn mark_borrowed_locals(ops: &[Op], addressed: &mut [bool]) -> bool {
-    let mut thread = false;
+/// Mark each local borrowed anywhere in `ops`, including nested bodies.
+fn mark_borrowed_locals(ops: &[Op], addressed: &mut [bool]) {
     for op in ops {
-        thread |= match op {
-            Op::BorrowLocal(i, _) => {
-                addressed[*i as usize] = true;
-                false
-            }
-            Op::Thread(_) => true,
-            Op::Match(arms) => arms.iter().fold(false, |found, arm| {
-                mark_borrowed_locals(&arm.body, addressed) | found
-            }),
+        match op {
+            Op::BorrowLocal(i, _) => addressed[*i as usize] = true,
+            Op::Match(arms) => arms
+                .iter()
+                .for_each(|arm| mark_borrowed_locals(&arm.body, addressed)),
             Op::Loop { condition, body } => {
-                mark_borrowed_locals(condition, addressed) | mark_borrowed_locals(body, addressed)
+                mark_borrowed_locals(condition, addressed);
+                mark_borrowed_locals(body, addressed);
             }
             Op::If {
                 then,
                 elifs,
                 otherwise,
-            } => elifs.iter().fold(
-                mark_borrowed_locals(then, addressed) | mark_borrowed_locals(otherwise, addressed),
-                |found, arm| {
-                    mark_borrowed_locals(&arm.condition, addressed)
-                        | mark_borrowed_locals(&arm.body, addressed)
-                        | found
-                },
-            ),
+            } => {
+                mark_borrowed_locals(then, addressed);
+                for arm in elifs.iter() {
+                    mark_borrowed_locals(&arm.condition, addressed);
+                    mark_borrowed_locals(&arm.body, addressed);
+                }
+                mark_borrowed_locals(otherwise, addressed);
+            }
             Op::Try { cleanup, .. } => mark_borrowed_locals(cleanup, addressed),
-            _ => false,
-        };
+            _ => {}
+        }
     }
-    thread
 }
 
 /// Stack storage for the locals [`addressed_locals`] selects.
