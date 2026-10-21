@@ -322,6 +322,13 @@ impl Ty {
                         })
                 });
             }
+            // The runtime's environment retain and release only visit the
+            // captures, so an environment whose captures need no cleanup needs
+            // none itself (issue #384). A closure without a concrete producer
+            // stays conservatively managed.
+            Self::Closure(t) if !t.name.is_empty() => {
+                return t.captures.iter().any(|(_, t)| t.managed());
+            }
             // An undefined forward reference is conservatively managed.
             Self::Class(t) => {
                 return t.try_get().is_none_or(|definition| {

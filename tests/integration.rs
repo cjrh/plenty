@@ -203,6 +203,8 @@ mod test_generics;
 mod test_heap_drop_order;
 #[path = "test_indirect_ffi.rs"]
 mod test_indirect_ffi;
+#[path = "test_inline_copies.rs"]
+mod test_inline_copies;
 #[path = "test_inline_generators.rs"]
 mod test_inline_generators;
 #[path = "test_inline_ranges.rs"]

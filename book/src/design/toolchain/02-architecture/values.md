@@ -14,6 +14,14 @@ failure cleanup walks the completed prefix backwards with a decreasing offset.
 This bounds offset work per pass; nested payload work and repeated visits while
 queued destruction resumes remain separate costs.
 
+Compiled code avoids the runtime walk when the type makes it unnecessary. A
+payload with no internal addresses, such as a range, a flat record, or a closure
+environment without inline captures, is copied as plain bytes; a sum whose
+payloads are all such is copied by testing its tag. An all-zero value is an empty
+ownership slot, such as a moved-from local, and its release makes no runtime
+call. These paths keep high-frequency helpers, such as error mappers called per
+byte, out of the runtime dispatcher.
+
 References use two native words: an address and packed inline-sum tag-offset
 information. They point into typed local, frame, field, or collection storage;
 source loans determine when those locations remain usable. Function values are
