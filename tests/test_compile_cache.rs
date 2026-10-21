@@ -144,6 +144,74 @@ fn an_edit_misses_only_what_changed() {
     assert_eq!(hits + misses, functions);
 }
 
+/// A read of a constant is a literal in its caller (issue #363), so changing
+/// the constant misses that caller, and the object is still the uncached one.
+#[test]
+fn changing_a_substituted_constant_misses_its_readers() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let source = |limit: &str| {
+        format!(
+            "const limit: i64 = {limit}\n\ndef over(n: i64) -> bool:\n    n > limit\n\ndef main() -> Result[(), IoError]:\n    print(over(5))?\n    Ok(())\n"
+        )
+    };
+    let first = emit(dir.path(), &source("3"), Some(&cache), &[]);
+    let (hits, misses) = first.counts();
+    let edited = source("7");
+    let off = emit(dir.path(), &edited, None, &[]);
+    let warm = emit(dir.path(), &edited, Some(&cache), &[]);
+    assert!(off.object == warm.object, "a warm cache changed the object");
+    assert_eq!(warm.counts().0 + warm.counts().1, hits + misses);
+    assert!(warm.counts().1 >= 1, "{}", warm.stderr());
+}
+
+/// A release build of `source` in `dir` with the cache in `cache`: its stdout
+/// and the cache counts.
+fn run_release(dir: &Path, source: &str, cache: &Path) -> (String, (u64, u64)) {
+    let program = dir.join("release.plenty");
+    let executable = dir.join("release");
+    std::fs::write(&program, source).unwrap();
+    let output = plenty()
+        .args([
+            "--cache-stats",
+            "--no-program-cache",
+            "--release",
+            "--compile",
+        ])
+        .arg(&program)
+        .arg("-o")
+        .arg(&executable)
+        .env("PLENTY_CACHE_DIR", cache)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let run = Run {
+        output,
+        object: Vec::new(),
+    };
+    let ran = Command::new(&executable).output().unwrap();
+    (String::from_utf8(ran.stdout).unwrap(), run.counts())
+}
+
+/// A release caller runs a leaf predicate's operations itself (issue #363):
+/// editing the predicate must recompile the caller, not reuse its old code.
+#[test]
+fn changing_a_substituted_predicate_misses_its_callers() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let source = |bound: &str| {
+        format!(
+            "def small(n: i64) -> bool:\n    n < {bound}\n\ndef label(n: i64) -> i64:\n    if small(n):\n        return 1\n    2\n\ndef main() -> Result[(), IoError]:\n    print(label(5))?\n    Ok(())\n"
+        )
+    };
+    let (first, _) = run_release(dir.path(), &source("9"), &cache);
+    assert_eq!(first, "1\n");
+    let (edited, (_, misses)) = run_release(dir.path(), &source("3"), &cache);
+    assert_eq!(edited, "2\n");
+    // `small` and `label`, which runs `small`'s comparison itself, changed.
+    assert!(misses >= 2, "{misses} misses");
+}
+
 /// Optimized code is keyed apart from unoptimized code.
 #[test]
 fn optimization_level_is_part_of_the_key() {

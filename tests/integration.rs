@@ -57,6 +57,8 @@ mod test_byte_literals;
 mod test_byte_sources;
 #[path = "test_call_borrowing.rs"]
 mod test_call_borrowing;
+#[path = "test_call_substitution.rs"]
+mod test_call_substitution;
 #[path = "test_callable_bounds.rs"]
 mod test_callable_bounds;
 #[path = "test_callable_diagnostics.rs"]
@@ -175,6 +177,8 @@ mod test_file_streams;
 mod test_filesystem;
 #[path = "test_float_constants.rs"]
 mod test_float_constants;
+#[path = "test_float_left_constants.rs"]
+mod test_float_left_constants;
 #[path = "test_fs_helpers.rs"]
 mod test_fs_helpers;
 #[path = "test_fstrings.rs"]

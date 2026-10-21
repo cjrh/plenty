@@ -141,6 +141,33 @@ other function uses it. The choice depends on the function alone, so it is the
 same for every core count. `tests/test_large_functions.rs` runs functions over
 the limit.
 
+## Call-site substitution
+
+Before any body is lowered, `src/codegen/small_calls.rs` replaces two kinds of
+call with the callee's operations (issue #363):
+
+- **Constants.** A read of a module `const` becomes a literal of the
+  constant's declared type, so width, sign and float bits are those of the
+  declaration. This happens in every build, and the constant has no function
+  in the object.
+- **Leaf predicates**, in release builds only. A function whose parameters
+  and result are numbers or `bool`, with no locals, and whose body is at most
+  12 operations drawn from parameter reads, literals, constants, comparisons,
+  `not`, `and`, `or`, and matches on `bool` or integer literals. Nothing in
+  such a body can trap, call, allocate, or touch memory. The caller stores
+  the arguments in new local slots and runs the body; calls to one predicate
+  in a body share its slots. The definition is still emitted, since a
+  function value may name it.
+
+Arithmetic, which can overflow, any call, and recursion keep the call.
+Generator bodies keep predicate calls, since their frame layout is fixed by
+then, as does `plenty_main`.
+
+The substituted operations report no source position, so a later trap or
+call in the caller reports the same position and call chain as before. They
+become part of the caller's IR, so the [compiled-function cache](cache.md)
+key changes when a constant's value or a predicate's body does.
+
 ## Constants in loops
 
 In release builds Cranelift rematerializes an integer or float constant in each
@@ -156,6 +183,26 @@ which gives the same bits: only the choice between two NaN operands depends on
 order. `2.0 * x` and `x * 2.0` become `x + x`, which rounds, overflows, and
 propagates signed zero, infinities and NaN identically. No other float
 operation is rewritten; there is no reassociation, fusion, or fast-math mode.
+
+A non-zero constant on the left of `-` or `/`, which cannot move, is emitted as
+lane 0 of a `vconst` vector constant (issue #380). Cranelift does not
+rematerialize a `vconst`, and x86-64 loads it from the constant pool with one
+`movupd`, so `1.5 - x` reads its constant without a general-purpose register.
+The operation and its operand bits are unchanged. Zero keeps its `f64const`,
+which lowers to a register-clearing `xorpd`, and a constant whose other operand
+is also constant is left for Cranelift to fold. In a throughput-bound loop with
+four `c - x` terms (`taskset`, `perf stat`, 10⁹ iterations, Ryzen 7 7840HS) the
+change lowers cycles from 8.8 to 5.4 billion, matching the same loop with the
+constants passed as arguments; in a loop bounded by a dependency chain the
+`movabs` was off the chain and the cycles do not change.
+
+`x.fabs()` and `x.copysign(y)` are bit masks rather than runtime calls: `band`
+with the magnitude mask, and `bor` of that with `band(y, sign mask)`. Every
+mask and constant is a right operand, which x86-64 reads from the constant
+pool; Cranelift's own `fabs` and `fcopysign` build their masks with `movabs`.
+Like Rust's `abs` and `copysign`, they keep a NaN payload. A constant receiver
+or sign argument is folded into the masks while lowering. Float negation `-x`
+still uses Cranelift's `fneg`, which builds its mask with `movabs` (issue #385).
 
 Integer constants are left as Cranelift places them. In the
 `examples/cpu_codegen_audit` `mix` kernel the per-iteration `movabs` is off the

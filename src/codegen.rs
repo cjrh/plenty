@@ -90,6 +90,7 @@ mod references;
 mod relax;
 pub(crate) use relax::relax_local_addresses;
 mod sites;
+mod small_calls;
 mod sorting;
 mod symbols;
 #[cfg(test)]
@@ -650,6 +651,7 @@ fn object_module(
     workers: usize,
     build: Build,
 ) -> Result<Output> {
+    small_calls::substitute(&mut ops, build.optimize, workers);
     crate::tail_abi::prepare(&mut ops, workers);
     let opt_level = if build.optimize { "speed" } else { "none" };
     let targets = output::Targets {
@@ -2405,7 +2407,10 @@ impl Lowerer<'_, '_> {
         let (a, b, ty) = self.pop_pair()?;
         if ty.is_float() {
             let result = match kind {
-                ArithKind::Sub => self.bcx.ins().fsub(a, b),
+                ArithKind::Sub => {
+                    let a = self.float_left_operand(a, b);
+                    self.bcx.ins().fsub(a, b)
+                }
                 ArithKind::Add | ArithKind::Mul => {
                     // Cranelift rematerializes a float constant in each block
                     // that uses it and, on x86-64, builds a left operand in a
@@ -2513,6 +2518,7 @@ impl Lowerer<'_, '_> {
     fn lower_div(&mut self, floor: bool) -> Result<()> {
         let (a, b, ty) = self.pop_pair()?;
         if ty.is_float() {
+            let a = self.float_left_operand(a, b);
             let value = self.bcx.ins().fdiv(a, b);
             self.stack.push((value, ty));
             return Ok(());

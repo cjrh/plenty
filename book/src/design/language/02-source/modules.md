@@ -55,6 +55,7 @@ callables or mutable places. Private constants follow the same visibility
 rules as private functions. A local binding may shadow an imported constant.
 Constant names share the declaration namespace with functions and types.
 
-Constants require no module initialization or allocation. The compiler lowers
-each read through a private scalar getter; no mutable global storage or user
-code runs at import time.
+Constants require no module initialization or allocation. Each read compiles
+to an immediate of the constant's declared type, in debug and release builds;
+there is no getter function, global storage, or code run at import time. See
+[call-site substitution](../../toolchain/02-architecture/emission.md#call-site-substitution).
