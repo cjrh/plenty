@@ -219,6 +219,8 @@ mod test_iteration_conveniences;
 mod test_key_sorting;
 #[path = "test_large_functions.rs"]
 mod test_large_functions;
+#[path = "test_last_use_moves.rs"]
+mod test_last_use_moves;
 #[path = "test_library_metadata.rs"]
 mod test_library_metadata;
 #[path = "test_library_publication.rs"]

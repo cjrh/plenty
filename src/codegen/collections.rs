@@ -73,7 +73,11 @@ impl Lowerer<'_, '_> {
     /// this op, so the slot still holds the value through the helper call.
     fn forget_fresh_load(&mut self, receiver: cranelift_codegen::ir::Value) -> bool {
         match self.fresh_load.take() {
-            Some((value, retain)) if value == receiver => {
+            Some(super::FreshLoad {
+                value,
+                retain: Some(retain),
+                ..
+            }) if value == receiver => {
                 self.bcx.func.layout.remove_inst(retain);
                 true
             }
