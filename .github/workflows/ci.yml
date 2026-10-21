@@ -1,4 +1,3 @@
-# Typical ci for a rust crate
 name: Cargo Build & Test
 
 on:
@@ -6,12 +5,19 @@ on:
         branches: [main]
     pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build_and_test:
-    name: Rust project - latest
+    name: Rust project - ${{ matrix.toolchain }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -19,11 +25,31 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - run: cargo build --locked --workspace --verbose
+      - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal && rustup default ${{ matrix.toolchain }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: ${{ matrix.toolchain }}
+          cache-bin: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Default-feature linking is covered once; every toolchain still runs
+      # the full feature-enabled suite below.
+      - name: Build default features (stable)
+        if: matrix.toolchain == 'stable'
+        run: cargo build --locked --workspace --timings
       # --all-features, not --features runtime-checks: the runtime crate's
       # allocation-checks unit tests are gated on a feature the root does not forward.
-      - run: cargo test --locked --workspace --all-features --verbose
+      - name: Compile tests
+        run: cargo test --locked --workspace --all-features --no-run --timings
+      - name: Run tests and doctests
+        run: cargo test --locked --workspace --all-features
+      - name: Upload compile timings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cargo-timings-${{ matrix.toolchain }}
+          path: target/cargo-timings/*.html
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Stable only: new beta/nightly lints would fail unrelated changes.
   lint:
@@ -31,7 +57,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update stable && rustup default stable && rustup component add rustfmt clippy
+      - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy && rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-bin: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: python3 -B scripts/check_links.py book/src
@@ -44,9 +74,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update stable && rustup default stable
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-bin: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: docker version && curl --version
       - run: docker pull nginx:1.30.6-alpine3.24 && docker pull caddy:2.11.7-alpine
+      - name: Compile proxy tests
+        run: cargo test --locked --test integration --no-run --timings
       - run: "cargo test --locked --test integration test_std_http_server_proxy::"
         env:
           PLENTY_DOCKER_TESTS: "1"
+      - name: Upload compile timings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cargo-timings-proxy
+          path: target/cargo-timings/*.html
+          if-no-files-found: ignore
+          retention-days: 7

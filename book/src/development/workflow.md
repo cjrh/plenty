@@ -36,6 +36,34 @@ Tests inherit the development settings, and benchmarks inherit the release
 settings. These profiles are configured in the workspace's `.cargo/config.toml`
 so they take precedence over user-wide Cargo profile settings.
 
+## CI build caches and timings
+
+The Cargo workflow caches third-party Rust dependencies separately for each
+job and toolchain. The key includes the compiler, lockfile, manifests, Cargo
+configuration and compiler environment. Only successful `main` runs save
+caches; PRs restore the base branch's caches without filling storage with
+per-PR copies. Workspace artifacts and incremental state are not retained.
+The line-table-only workspace profiles and disabled dependency debug information
+above also keep compilation outputs small.
+
+Stable checks default-feature linking once. Stable, beta and nightly all compile
+and run the full all-feature test suite; clippy and Docker proxy checks keep
+their existing coverage. Test compilation is a separate step from execution,
+and the `cargo-timings-*` artifacts retain Cargo's HTML compilation reports for
+seven days, including reports available after a failed run. Doctests still run
+in the test step, so that step can include their compilation time.
+
+Documentation caches only the pinned mdBook executable, keyed by its version,
+Rust version, runner OS, architecture and Ubuntu image. Every run checks its
+version before building. Cache hits skip both Rust setup and `cargo install`.
+Superseded PR runs are cancelled; main documentation deployments are not
+interrupted. Release packaging keeps its isolated, pinned build environment.
+
+The first run for a compiler or cache key remains cold. In particular, rolling
+nightly updates invalidate compiled dependencies frequently. Compare the restore,
+compile, test and cache-save step durations on hosted runs before attributing a
+speedup; cached dependencies do not eliminate compiling Plenty itself.
+
 ## Running tests
 
 `cargo test --locked --workspace --all-features` runs the full suite, as CI
