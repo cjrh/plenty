@@ -99,7 +99,9 @@ even numbers below 100,000,000:
 The generator expression is the slowest because its outer `range` is stored in
 the frame and then iterated through the runtime, like any stored range
 ([issue #371](#issues-found)). A stored range alone, `r = range(N)` then
-`for n in r`, takes 4.71 s. These numbers set the target: a pipeline should be
+`for n in r`, takes 4.71 s. Issue #371 has since been fixed: a stored range now
+runs as fast as a direct range, and the generator expression drops to about
+0.86 s, the cost of one frame resume per element. These numbers set the target: a pipeline should be
 indistinguishable from the first row.
 
 ## Design
@@ -721,8 +723,8 @@ scope, with lending for helpers, ships the useful part now.
    `fold`/`reduce`/`count`/`any`/`all`/`find`/`for_each`/`collect`/
    `try_fold`/`try_for_each`/`try_collect` (target from the expected type), fused
    at the consumer,
-   with the verification suite above. Fix issue #371 first so generator
-   expressions and stored ranges do not mislead the benchmarks.
+   with the verification suite above. Issue #371, fixed, removed the stored-range
+   slow path that would have misled the benchmarks.
 2. **Stage 2 — composition.** `chain`, `flat_map`, closure-literal splicing,
    comprehensions lowered through the pipeline plan, `std.math` pipeline
    helpers, tutorial rewrite and `std.iter` deprecation.
@@ -745,3 +747,4 @@ B22, B24, B49. Design: `proposals/fluent-iterators.md`."
 
 - Issue #371: generator expressions over `range(...)` and stored ranges
   iterate through the runtime, about 15x slower than a direct range loop.
+  Fixed by local PR #436: they now compile to counted loops.
