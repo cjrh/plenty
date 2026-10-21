@@ -6,9 +6,11 @@ The builtin accepts two positional call forms:
 - `open(path: str, mode: str) -> Result[File, IoError]`
 
 Both create an opaque, affine file owner. `open(path)` opens an existing file
-for reading, equivalent to `open(path, "r")`. This builtin's optional mode does
-not imply support for default parameters or keyword arguments; Plenty supports
-neither. Pass an explicit mode positionally. Literal modes are checked at
+for reading, equivalent to `open(path, "r")`. Like other builtins, `open`
+takes positional arguments only: `open(path, mode="w")` is rejected. Named
+functions and methods accept named arguments and defaults; see
+[signatures and calls](../../language/06-functions/01-signatures-and-calls.md).
+Pass an explicit mode positionally. Literal modes are checked at
 compile time; computed invalid modes return `IoError.InvalidMode`.
 
 | Mode | Capabilities | Opening behavior |

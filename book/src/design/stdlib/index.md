@@ -138,5 +138,6 @@ The filesystem walker adds `WalkError` to retain attempted paths and operations.
 `?` propagates an error to a caller returning the same error type or
 [`Failure`](../language/08-errors/01-sums-and-propagation.md).
 [`std.error`](error.md) states the conventions modules follow for typed causes,
-native codes, and allocation failure. Keyword and
-default arguments are unimplemented, so every argument is explicit.
+native codes, and allocation failure. Module functions accept
+[named arguments and defaults](../language/06-functions/01-signatures-and-calls.md);
+the [signature index](signatures.md) shows each default.
