@@ -24,7 +24,8 @@
 //!
 //! Phase c.3 adds `Op::Match`: each arm becomes its own Cranelift block,
 //! patterns lower to a linear chain of `brif` compares (wildcards become
-//! unconditional jumps and short-circuit the chain), and a single join
+//! unconditional jumps and short-circuit the chain; a `bool` scrutinee
+//! branches on itself and its second value is a jump), and a single join
 //! block reunites the non-terminating arms with block params carrying
 //! the agreed stack shape. Arms whose tail op is a `TailCall` skip the
 //! join jump — `return_call` is already the block terminator.
@@ -3047,6 +3048,8 @@ impl Lowerer<'_, '_> {
         // and renders any trailing arms unreachable (the checker would
         // already have noticed if a useful arm came after `_`).
         let mut chain_terminated = false;
+        // Indexed by `bool as usize`: the values earlier `Bool` arms tested.
+        let mut bool_covered = [false; 2];
         for (i, arm) in arms.iter().enumerate() {
             if chain_terminated {
                 break;
@@ -3057,10 +3060,26 @@ impl Lowerer<'_, '_> {
                     chain_terminated = true;
                 }
                 Pattern::Bool(b) => {
-                    let pat = self.bcx.ins().iconst(types::I8, i64::from(b as i8));
-                    let eq = self.bcx.ins().icmp(IntCC::Equal, scrut, pat);
+                    // A bool holds 0 or 1, so the scrutinee is its own
+                    // branch condition, and once one value has been tested
+                    // the other is the only case left: that arm takes the
+                    // fall-through edge unconditionally, with no
+                    // impossible-case trap after it (issue #362).
+                    if bool_covered[usize::from(b)] {
+                        continue;
+                    }
+                    bool_covered[usize::from(b)] = true;
+                    if bool_covered[usize::from(!b)] {
+                        self.bcx.ins().jump(arm_blocks[i], &[]);
+                        chain_terminated = true;
+                        continue;
+                    }
                     let next = self.bcx.create_block();
-                    self.bcx.ins().brif(eq, arm_blocks[i], &[], next, &[]);
+                    if b {
+                        self.bcx.ins().brif(scrut, arm_blocks[i], &[], next, &[]);
+                    } else {
+                        self.bcx.ins().brif(scrut, next, &[], arm_blocks[i], &[]);
+                    }
                     self.bcx.switch_to_block(next);
                     self.bcx.seal_block(next);
                 }
