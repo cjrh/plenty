@@ -8,10 +8,10 @@ hashing, database operations, transactions and ranking are driven by Plenty.
 Only model inference runs in Python, through `scripts/search_embed.py` and
 FastEmbed. Plenty owns the CLI, chunking and document lifecycle.
 
-This is a storage/interface experiment, not yet a repository-wide indexer. It
-does not yet scan the repository, extract docstrings, read the issue register,
-or discover deleted files. Remaining work belongs in
-[the backlog](../backlog.md). No generated database or model is committed.
+For the repository corpus, use the [setup and synchronization wrapper](semantic-search-corpus.md),
+which scans documentation, source docs and the local issue register and removes
+deleted documents. This page covers the underlying interface and individual
+document operations. No generated database or model is committed.
 
 ## Setup
 

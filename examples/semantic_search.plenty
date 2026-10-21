@@ -20,12 +20,40 @@ enum SearchError:
     InvalidDimensions
     ModelMismatch
     Inference(str)
+    Corpus(str)
+    Stale
 
 type SearchFailure = SearchError | DbError | JsonError | AllocError | IoError | ParseError | CryptoError | EncodingError | FormatError | BytesError | StreamError
 
 class Chunk:
     text: str
     vector: str
+
+class Document:
+    id: str
+    title: str
+    text: str
+
+def source_hash(title: &str, text: &str) -> Result[str, SearchFailure]:
+    mut input = json.encoder(&json.limits())?
+    input.start_array()?
+    input.text("source-v1")?
+    input.text(title)?
+    input.text(text)?
+    input.end_array()?
+    digest = crypto.sha256(&input.take()?)?
+    Ok(encoding.hex_text(&digest, 0, digest.len())?)
+
+def split_text(text: &str) -> Result[list[str], AllocError]:
+    mut texts: list[str] = []?
+    mut start = 0
+    while start < len(text):
+        stop = start + 400 if start + 400 < len(text) else len(text)
+        texts.append(text.slice(start, stop)?)?
+        if stop == len(text):
+            break
+        start = stop - 64
+    Ok(texts)
 
 def chunks_from_file(path: &str) -> Result[list[Chunk], SearchFailure]:
     value = json.parse_text(read_text(path)?, &json.limits())?
@@ -143,27 +171,13 @@ def infer(texts: &list[str], model: &str, kind: &str, python: &str, script: &str
     Ok(vectors)
 
 def index_text(db: &mut Connection, id: &str, title: &str, text: &str, model: &str, python: &str, script: &str, cache: &str) -> Result[bool, SearchFailure]:
-    mut input = json.encoder(&json.limits())?
-    input.start_array()?
-    input.text("source-v1")?
-    input.text(title)?
-    input.text(text)?
-    input.end_array()?
-    digest = crypto.sha256(&input.take()?)?
-    hash = encoding.hex_text(&digest, 0, digest.len())?
+    hash = source_hash(title, text)?
     mut old = db.prepare("SELECT hash FROM documents WHERE id=?")?
     old.bind_text(1, id)?
     if old.step()? and old.text(0)? == hash:
         return Ok(False)
     old.reset()
-    mut texts: list[str] = []?
-    mut start = 0
-    while start < len(text):
-        stop = start + 400 if start + 400 < len(text) else len(text)
-        texts.append(text.slice(start, stop)?)?
-        if stop == len(text):
-            break
-        start = stop - 64
+    texts = split_text(text)?
     vectors = infer(&texts, model, "document", python, script, cache)?
     mut chunks: list[Chunk] = []?
     for i, body in enumerate(&texts):
@@ -174,6 +188,317 @@ def remove_document(db: &mut Connection, id: &str) -> Result[(), DbError]:
     mut delete = db.prepare("DELETE FROM documents WHERE id=?")?
     delete.bind_text(1, id)?
     delete.run()
+
+def git_output(root: &str, arguments: &list[str]) -> Result[str, SearchFailure]:
+    mut command = process.command("git")?
+    command.arg("-C")?
+    command.arg(root)?
+    for argument in arguments:
+        command.arg(argument)?
+    command.stdin(Stdio.Null)
+    command.stdout(Stdio.Piped)
+    command.stderr(Stdio.Piped)
+    mut child = command.spawn()?
+    output = child.output(16777216)?
+    if not output.status.success():
+        return Err(SearchError.Corpus(output.stderr.to_text()?))
+    Ok(output.stdout.to_text()?)
+
+# Collect rustdoc prose, ignoring doc-looking text inside strings and comments.
+# File ownership is deliberate: editing/removing a source file invalidates its
+# complete extracted document, without unstable per-symbol database identities.
+def rust_docs(source: &str, filename: &str) -> Result[str, SearchFailure]:
+    mut parts: list[str] = []?
+    mut raw_end = ""
+    mut quoted = False
+    mut block = 0
+    mut pending = False
+    for number, line in enumerate(source.split("\n")?):
+        stripped = line.strip()?
+        if raw_end == "" and not quoted and block == 0:
+            if (stripped.startswith("///") and not stripped.startswith("////")) or stripped.startswith("//!"):
+                if not pending:
+                    parts.append(f"\n{filename}:{number + 1}"?)?
+                parts.append(stripped.slice(3, len(stripped))?.strip()?)?
+                pending = True
+                continue
+            if pending and stripped != "" and not stripped.startswith("#["):
+                parts.append(stripped)?
+                pending = False
+        mut i = 0
+        while i < len(line):
+            rest = line.slice(i, len(line))?
+            if raw_end != "":
+                match rest.find(raw_end):
+                    case Some(end):
+                        i += end + len(raw_end)
+                        raw_end = ""
+                    case Nothing:
+                        break
+            elif quoted:
+                if line[i] == "\\":
+                    i += 2
+                elif line[i] == "\"":
+                    quoted = False
+                    i += 1
+                else:
+                    i += 1
+            elif block > 0:
+                if rest.startswith("/*"):
+                    block += 1
+                    i += 2
+                elif rest.startswith("*/"):
+                    block -= 1
+                    i += 2
+                else:
+                    i += 1
+            elif rest.startswith("//"):
+                break
+            elif rest.startswith("/*"):
+                block += 1
+                i += 2
+            elif line[i] == "r":
+                mut end = i + 1
+                while end < len(line) and line[end] == "#":
+                    end += 1
+                if end < len(line) and line[end] == "\"":
+                    raw_end = ("\"" + line.slice(i + 1, end)?)?
+                    i = end + 1
+                else:
+                    i += 1
+            elif line[i] == "\"":
+                quoted = True
+                i += 1
+            elif line[i] == "'" and i + 2 < len(line) and line[i + 2] == "'":
+                i += 3
+            elif rest.startswith("'\\"):
+                # Escaped Rust character literals cannot span source lines.
+                match line.slice(i + 2, len(line))?.find("'"):
+                    case Some(end):
+                        i += end + 3
+                    case Nothing:
+                        i += 1
+            else:
+                i += 1
+    Ok("\n".join(&parts)?)
+
+# Python/Plenty module, function and class docstrings, plus Plenty's header
+# comments and comment blocks immediately preceding declarations. Other triple
+# strings (test fixtures, assigned templates) are skipped rather than indexed.
+def indented_docs(source: &str, filename: &str, plenty: bool) -> Result[str, SearchFailure]:
+    mut parts: list[str] = []?
+    mut comments: list[str] = []?
+    mut delimiter = ""
+    mut collecting = False
+    mut expecting = True
+    mut signature = "module"
+    mut declaration = False
+    for number, line in enumerate(source.split("\n")?):
+        stripped = line.strip()?
+        if delimiter != "":
+            match stripped.find(delimiter):
+                case Some(end):
+                    if collecting:
+                        parts.append(stripped.slice(0, end)?)?
+                    delimiter = ""
+                case Nothing:
+                    if collecting:
+                        parts.append(stripped)?
+            continue
+        if stripped.startswith("#"):
+            if plenty:
+                comments.append(stripped.slice(1, len(stripped))?.strip()?)?
+            continue
+        if stripped == "":
+            continue
+        is_declaration = stripped.startswith("def ") or stripped.startswith("async def ") or stripped.startswith("class ") or stripped.startswith("pub def ") or stripped.startswith("pub class ") or stripped.startswith("enum ") or stripped.startswith("pub enum ")
+        if len(comments) > 0:
+            if is_declaration or signature == "module":
+                parts.append(f"\n{filename}:{number + 1} {stripped}"?)?
+                parts.append("\n".join(&comments)?)?
+            comments = []?
+        if is_declaration:
+            signature = stripped
+            declaration = not stripped.endswith(":")
+            expecting = not declaration
+            continue
+        if declaration:
+            if stripped.endswith(":"):
+                declaration = False
+                expecting = True
+            continue
+        # Locate a triple literal even when it is assigned, so its body cannot
+        # masquerade as declarations/docstrings on subsequent lines.
+        mut opening = -1
+        mut quote = ""
+        match stripped.find("\"\"\""):
+            case Some(at):
+                opening = at
+                quote = "\"\"\""
+            case Nothing:
+                pass
+        match stripped.find("'''"):
+            case Some(at):
+                if opening < 0 or at < opening:
+                    opening = at
+                    quote = "'''"
+            case Nothing:
+                pass
+        if opening >= 0:
+            prefix = stripped.slice(0, opening)?
+            collecting = expecting and (prefix == "" or prefix == "r" or prefix == "u")
+            if collecting:
+                parts.append(f"\n{filename}:{number + 1} {signature}"?)?
+            body = stripped.slice(opening + 3, len(stripped))?
+            match body.find(quote):
+                case Some(end):
+                    if collecting:
+                        parts.append(body.slice(0, end)?)?
+                case Nothing:
+                    delimiter = quote
+                    if collecting:
+                        parts.append(body)?
+        expecting = False
+        signature = ""
+    Ok("\n".join(&parts)?)
+
+def corpus(root: &str, issues: &str) -> Result[list[Document], SearchFailure]:
+    # Never open a task worktree's stale issues.db. Git lists the primary first.
+    trees = git_output(root, &["worktree", "list", "--porcelain"]?)?
+    primary = trees.split("\n")?[0]
+    expected = (primary.slice(9, len(primary))? + "/issues.db")?
+    if issues != expected:
+        return Err(SearchError.Corpus(f"use the primary issues database: {expected}"?))
+    mut documents: list[Document] = []?
+    files = git_output(root, &["ls-files", "--cached", "-z"]?)?
+    deleted = git_output(root, &["ls-files", "--deleted", "-z"]?)?.split("\0")?
+    for filename in files.split("\0")?:
+        if filename == "" or "vendor/" in filename or filename == "BACKLOG.md" or filename in deleted:
+            continue
+        markdown = filename.endswith(".md")
+        rust = filename.endswith(".rs")
+        plenty = filename.endswith(".plenty")
+        python = filename.endswith(".py")
+        if not markdown and not rust and not plenty and not python:
+            continue
+        location = f"{root}/{filename}"?
+        source = read_text(location)?
+        text = source if markdown else rust_docs(source, filename)? if rust else indented_docs(source, filename, plenty)?
+        if markdown or text != "":
+            kind = "doc" if markdown else "source"
+            documents.append(Document(f"repo:{kind}:{filename}"?, filename, text))?
+    mut register = sqlite.connect(issues, Mode.ReadOnly, 16777216)?
+    register.set_busy_timeout(5000)?
+    mut snapshot = register.begin(Begin.Deferred)?
+    mut records = register.prepare("SELECT 'issue', number, title, details FROM issues UNION ALL SELECT 'pr', number, title, details FROM pull_requests ORDER BY 1, 2")?
+    while records.step()?:
+        kind = records.text(0)?
+        number = records.integer(1)?
+        title = records.text(2)?
+        details = records.text(3)?
+        documents.append(Document(f"repo:{kind}:{number}"?, f"{kind} #{number}: {title}"?, f"{title}\n\n{details}"?))?
+    records.reset()
+    snapshot.commit()?
+    Ok(documents)
+
+def index_batch(db: &mut Connection, documents: &list[Document], model: &str, python: &str, script: &str, cache: &str) -> Result[(), SearchFailure]:
+    mut texts: list[str] = []?
+    mut counts: list[i64] = []?
+    for document in documents:
+        pieces = split_text(document.text)?
+        counts.append(len(pieces))?
+        for piece in pieces:
+            texts.append(piece)?
+    mut vectors: list[str] = []?
+    mut start = 0
+    while start < len(texts):
+        stop = start + 128 if start + 128 < len(texts) else len(texts)
+        batch = texts.slice(start, stop)?
+        for vector in infer(&batch, model, "document", python, script, cache)?:
+            vectors.append(vector)?
+        start = stop
+    mut offset = 0
+    for i, document in enumerate(documents):
+        mut chunks: list[Chunk] = []?
+        for j in range(offset, offset + counts[i]):
+            chunks.append(Chunk(texts[j], vectors[j]))?
+        replace_document(db, document.id, document.title, &chunks, source_hash(document.title, document.text)?)?
+        offset += counts[i]
+    Ok(())
+
+def check_corpus(db: &mut Connection, root: &str, issues: &str) -> Result[bool, SearchFailure]:
+    documents = corpus(root, issues)?
+    mut snapshot = db.begin(Begin.Deferred)?
+    mut ids = set[str]()?
+    mut added = 0
+    mut changed = 0
+    mut deleted = 0
+    mut old = db.prepare("SELECT hash FROM documents WHERE id=?")?
+    for document in documents:
+        ids.add(document.id)?
+        old.bind_text(1, document.id)?
+        if not old.step()?:
+            print("added", document.id)?
+            added += 1
+        elif old.text(0)? != source_hash(document.title, document.text)?:
+            print("changed", document.id)?
+            changed += 1
+        old.reset()
+    mut stored = db.prepare("SELECT id FROM documents WHERE id LIKE 'repo:%' ORDER BY id")?
+    while stored.step()?:
+        id = stored.text(0)?
+        if id not in ids:
+            print("deleted", id)?
+            deleted += 1
+    print("freshness:", added, "added,", changed, "changed,", deleted, "deleted")?
+    stored.reset()
+    snapshot.commit()?
+    Ok(added == 0 and changed == 0 and deleted == 0)
+
+def sync_corpus(db: &mut Connection, root: &str, issues: &str, model: &str, python: &str, script: &str, cache: &str) -> Result[(), SearchFailure]:
+    revision = git_output(root, &["rev-parse", "HEAD"]?)?.strip()?
+    documents = corpus(root, issues)?
+    print("scanned", len(documents), "documents")?
+    db.execute("CREATE TEMP TABLE sync_seen(id TEXT PRIMARY KEY)")?
+    mut seen = db.prepare("INSERT INTO sync_seen VALUES(?)")?
+    mut old = db.prepare("SELECT hash FROM documents WHERE id=?")?
+    mut pending: list[Document] = []?
+    mut characters = 0
+    mut updated = 0
+    mut unchanged = 0
+    for document in documents:
+        seen.bind_text(1, document.id)?
+        seen.run()?
+        old.bind_text(1, document.id)?
+        same = old.step()? and old.text(0)? == source_hash(document.title, document.text)?
+        old.reset()
+        if same:
+            unchanged += 1
+            continue
+        characters += len(document.text)
+        pending.append(document)?
+        if characters >= 40000:
+            index_batch(db, &pending, model, python, script, cache)?
+            updated += len(pending)
+            print("indexed", updated, "documents")?
+            pending = []?
+            characters = 0
+    index_batch(db, &pending, model, python, script, cache)?
+    updated += len(pending)
+    # Prune only this managed corpus, and only after every scan/inference/write
+    # succeeded. A failed run can be resumed without losing untouched documents.
+    mut tx = db.begin(Begin.Immediate)?
+    db.execute("DELETE FROM documents WHERE id LIKE 'repo:%' AND NOT EXISTS(SELECT 1 FROM sync_seen WHERE sync_seen.id=documents.id)")?
+    deleted = db.changes()
+    db.execute("CREATE TABLE IF NOT EXISTS sync_info(id INTEGER PRIMARY KEY CHECK(id=1), root TEXT NOT NULL, revision TEXT NOT NULL, completed_at TEXT NOT NULL)")?
+    mut info = db.prepare("INSERT OR REPLACE INTO sync_info VALUES(1, ?, ?, datetime('now'))")?
+    info.bind_text(1, root)?
+    info.bind_text(2, revision)?
+    info.run()?
+    tx.commit()?
+    db.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('optimize'); VACUUM")?
+    print("sync complete:", updated, "updated,", unchanged, "unchanged,", deleted, "deleted")?
+    Ok(())
 
 def search(db: &mut Connection, vector: &str, words: &str) -> Result[(), SearchFailure]:
     mut terms: list[str] = []?
@@ -193,10 +518,10 @@ def search(db: &mut Connection, vector: &str, words: &str) -> Result[(), SearchF
 def main() -> Result[(), SearchFailure]:
     arguments = args()?
     if len(arguments) < 5:
-        print("usage: semantic_search EXTENSION DB MODEL init DIMENSIONS | index ID TITLE TEXT_FILE PYTHON SCRIPT CACHE | find QUERY PYTHON SCRIPT CACHE | put ID TITLE CHUNKS_JSON | query VECTOR_JSON WORDS | delete ID | show ID | status")?
+        print("usage: semantic_search EXTENSION DB MODEL init DIMENSIONS | check ROOT PRIMARY_ISSUES_DB | sync ROOT PRIMARY_ISSUES_DB PYTHON SCRIPT CACHE | index ID TITLE TEXT_FILE PYTHON SCRIPT CACHE | find QUERY PYTHON SCRIPT CACHE | put ID TITLE CHUNKS_JSON | query VECTOR_JSON WORDS | delete ID | show ID | status")?
         return Err(SearchError.Usage)
     command = arguments[4]
-    mode = Mode.Create if command == "init" else Mode.ReadWrite
+    mode = Mode.Create if command == "init" else Mode.ReadOnly if command == "check" else Mode.ReadWrite
     mut db = sqlite.connect(arguments[2], mode, 16777216)?
     db.load_extension(arguments[1], "sqlite3_vec_init")?
     db.set_busy_timeout(5000)?
@@ -210,6 +535,11 @@ def main() -> Result[(), SearchFailure]:
         chunks = chunks_from_file(arguments[7])?
         changed = replace_document(&mut db, arguments[5], arguments[6], &chunks)?
         print("updated" if changed else "unchanged")?
+    elif command == "check" and len(arguments) == 7:
+        if not check_corpus(&mut db, arguments[5], arguments[6])?:
+            return Err(SearchError.Stale)
+    elif command == "sync" and len(arguments) == 10:
+        sync_corpus(&mut db, arguments[5], arguments[6], arguments[3], arguments[7], arguments[8], arguments[9])?
     elif command == "index" and len(arguments) == 11:
         changed = index_text(&mut db, arguments[5], arguments[6], read_text(arguments[7])?, arguments[3], arguments[8], arguments[9], arguments[10])?
         print("updated" if changed else "unchanged")?

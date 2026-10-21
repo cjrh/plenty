@@ -16,6 +16,8 @@
 
 # Project conventions
 
+- When the local semantic index is available, use `bash scripts/search.sh find 'concept'` to discover related docs, source documentation, and local issue/PR descriptions. Read the original sources and use `rg` for exact/code searches. Use `bash scripts/search.sh check` for a deterministic, read-only hash comparison; `bash scripts/search.sh sync` refreshes stale entries. See `CLAUDE.md` and `book/src/development/semantic-search-corpus.md` for setup, coverage and shared-index usage.
+
 - Docs are an mdBook in `book/src/`. `SUMMARY.md` lists every page in reading order.
 - Before writing Plenty code, read the executable syntax cheat sheet, `book/src/design/examples/cheatsheet.md`. Keep it current when syntax changes.
 - Look up standard library APIs in the generated signature index, `book/src/design/stdlib/signatures.md`. After changing a public `std` declaration or the module table in `book/src/design/stdlib/index.md`, regenerate it with `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.
