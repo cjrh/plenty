@@ -179,6 +179,10 @@ mod test_filesystem;
 mod test_float_constants;
 #[path = "test_float_left_constants.rs"]
 mod test_float_left_constants;
+#[path = "test_float_negation.rs"]
+mod test_float_negation;
+#[path = "test_float_rounding.rs"]
+mod test_float_rounding;
 #[path = "test_fs_helpers.rs"]
 mod test_fs_helpers;
 #[path = "test_fstrings.rs"]
@@ -205,6 +209,8 @@ mod test_generics;
 mod test_heap_drop_order;
 #[path = "test_indirect_ffi.rs"]
 mod test_indirect_ffi;
+#[path = "test_inline_copies.rs"]
+mod test_inline_copies;
 #[path = "test_inline_generators.rs"]
 mod test_inline_generators;
 #[path = "test_inline_ranges.rs"]

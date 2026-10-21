@@ -27,8 +27,10 @@ impl Lowerer<'_, '_> {
         if ty.flat_record() {
             return self.copy_flat_record(value, ty, destination);
         }
-        if matches!(ty, Ty::Range(_)) {
-            return self.copy_range(value, destination);
+        if !ty.wide()
+            && let Some(bytes) = plain_bytes(ty)
+        {
+            return self.copy_words(value, destination, bytes);
         }
         // A null value word owns no inline payload, and the runtime returns
         // such a value unchanged. Testing it here keeps calls out of the
@@ -42,14 +44,63 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().brif(word, copy, &[], done, &[packed.into()]);
         self.bcx.switch_to_block(copy);
         self.bcx.seal_block(copy);
-        let copied = self
-            .collection_call(117, &[packed, destination], Some(ty))
-            .expect("inline payload metadata");
+        let copied = if let Ty::Enum(t) = ty
+            && let Some(variants) = plain_variants(t)
+        {
+            self.copy_plain_variant(packed, destination, t.tag_bits(), &variants)
+        } else {
+            self.collection_call(117, &[packed, destination], Some(ty))
+                .expect("inline payload metadata")
+        };
         self.bcx.ins().jump(done, &[copied.into()]);
         self.bcx.switch_to_block(done);
         self.bcx.seal_block(done);
         let result = self.bcx.block_params(done)[0];
         self.unpack(result, ty)
+    }
+
+    /// Copy the payload of a sum value whose payload word is not null, given
+    /// the bytes each variant with inline storage keeps (see
+    /// [`plain_variants`]). Other variants own nothing inline and keep their
+    /// value. The tags stay as they are, as in the runtime's `copy_payload`.
+    fn copy_plain_variant(
+        &mut self,
+        packed: NativeValue,
+        destination: NativeValue,
+        tag_bits: u32,
+        variants: &[(usize, u64)],
+    ) -> NativeValue {
+        let (word, tags) = self.bcx.ins().isplit(packed);
+        let tag = self.bcx.ins().band_imm(tags, (1i64 << tag_bits) - 1);
+        let done = self.bcx.create_block();
+        self.bcx.append_block_param(done, types::I128);
+        let config = self.module.target_config();
+        for &(variant, bytes) in variants {
+            let copy = self.bcx.create_block();
+            let next = self.bcx.create_block();
+            let matches = self.bcx.ins().icmp_imm(IntCC::Equal, tag, variant as i64);
+            self.bcx.ins().brif(matches, copy, &[], next, &[]);
+            self.bcx.switch_to_block(copy);
+            self.bcx.seal_block(copy);
+            self.bcx.emit_small_memory_copy(
+                config,
+                destination,
+                word,
+                bytes,
+                8,
+                8,
+                false,
+                MemFlags::trusted(),
+            );
+            let moved = self.bcx.ins().iconcat(destination, tags);
+            self.bcx.ins().jump(done, &[moved.into()]);
+            self.bcx.switch_to_block(next);
+            self.bcx.seal_block(next);
+        }
+        self.bcx.ins().jump(done, &[packed.into()]);
+        self.bcx.switch_to_block(done);
+        self.bcx.seal_block(done);
+        self.bcx.block_params(done)[0]
     }
 
     /// Copy a record whose fields keep no inline data of their own: its bytes
@@ -88,11 +139,16 @@ impl Lowerer<'_, '_> {
         self.bcx.block_params(done)[0]
     }
 
-    /// Copy a range's payload: plain words with no internal addresses, as the
-    /// runtime's `copy_payload` treats them. Copying a stored range for a loop
-    /// or an argument then needs no runtime call (issue #371). A null value
-    /// word owns nothing and is not copied.
-    fn copy_range(&mut self, value: NativeValue, destination: NativeValue) -> NativeValue {
+    /// Copy a payload of `bytes` plain bytes with no internal addresses to
+    /// relocate, such as a range's words: copying a stored range for a loop or
+    /// an argument then needs no runtime call (issue #371). A null value word
+    /// owns nothing and is not copied.
+    fn copy_words(
+        &mut self,
+        value: NativeValue,
+        destination: NativeValue,
+        bytes: u64,
+    ) -> NativeValue {
         let copy = self.bcx.create_block();
         let done = self.bcx.create_block();
         self.bcx.append_block_param(done, PTR_TY);
@@ -104,7 +160,7 @@ impl Lowerer<'_, '_> {
             config,
             destination,
             value,
-            32,
+            bytes,
             8,
             8,
             false,
@@ -166,4 +222,41 @@ impl Lowerer<'_, '_> {
         }
         returned
     }
+}
+
+/// The bytes of a payload that moves without relocation: no field keeps inline
+/// storage, so no internal address points into it. `None` when copying needs
+/// the runtime's descriptor walk.
+fn plain_bytes(ty: &Ty) -> Option<u64> {
+    match ty {
+        Ty::Range(_) => Some(32),
+        // An environment holds its descriptor and capture slots.
+        Ty::Closure(t) if t.captures.iter().all(|(_, t)| !t.has_inline_storage()) => {
+            Some(t.bytes() as u64)
+        }
+        Ty::Class(_) if ty.flat_record() => Some(ty.inline_bytes() as u64),
+        _ => None,
+    }
+}
+
+/// For a sum, each variant with inline storage and the bytes its payload keeps,
+/// when every such payload is plain: a single field with [`plain_bytes`], or
+/// several fields none of which keeps inline storage. A `Result[Bytes, E]`
+/// then copies without a runtime call (issue #384).
+fn plain_variants(ty: &crate::nominal::Nominal<crate::sum::EnumType>) -> Option<Vec<(usize, u64)>> {
+    let mut variants = Vec::new();
+    for (tag, variant) in ty.get().variants.iter().enumerate() {
+        match variant.fields.as_slice() {
+            [] => {}
+            [field] if !field.has_inline_storage() => {}
+            [field] => variants.push((tag, plain_bytes(field)?)),
+            fields => {
+                if fields.iter().any(Ty::has_inline_storage) {
+                    return None;
+                }
+                variants.push((tag, 16 * fields.len() as u64));
+            }
+        }
+    }
+    Some(variants)
 }

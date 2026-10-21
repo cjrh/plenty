@@ -201,14 +201,62 @@ with the magnitude mask, and `bor` of that with `band(y, sign mask)`. Every
 mask and constant is a right operand, which x86-64 reads from the constant
 pool; Cranelift's own `fabs` and `fcopysign` build their masks with `movabs`.
 Like Rust's `abs` and `copysign`, they keep a NaN payload. A constant receiver
-or sign argument is folded into the masks while lowering. Float negation `-x`
-still uses Cranelift's `fneg`, which builds its mask with `movabs` (issue #385).
+or sign argument is folded into the masks while lowering.
+
+Float negation `-x` is `bxor` with the sign mask rather than Cranelift's
+`fneg`, whose x86-64 lowering builds the mask with `movabs` + `movq` at each
+use (issue #385). Both flip only the sign bit, NaN payload included. Lowering
+folds a constant operand and `-(-x)`; Cranelift's other `fneg` rewrites, such
+as `(-x) * (-y)` to `x * y`, no longer apply. In a throughput-bound loop with
+four `s + -(x * a)` terms the change lowers cycles from 7.7 to 4.4 billion and
+instructions per iteration from 30 to 22.
 
 Integer constants are left as Cranelift places them. In the
 `examples/cpu_codegen_audit` `mix` kernel the per-iteration `movabs` is off the
 loop's dependency chain: passing the constant as an argument instead removes
 the instruction but not a cycle (7.05 billion cycles either way for 10⁹
 iterations). Removing the rematerialization would need a Cranelift change.
+
+## Float rounding
+
+`x.floor()`, `x.ceil()`, `x.trunc()` and `x.round()` are inline SSE2
+sequences, equal bit for bit to Rust's `floor`, `ceil`, `trunc` and
+`round_ties_even` (issue #386). Generated code targets the
+[SSE2 baseline](../01-building/linking.md#reproducible-artifacts), where
+Cranelift's `floor`, `ceil`, `trunc` and `nearest` are library calls rather
+than SSE4.1 `roundsd`.
+
+For a magnitude `a` below 2⁵² (2²³ for `f32`), `(a + 2⁵²) - 2⁵²` is `a`
+rounded to a whole number, ties to even, because numbers in `[2⁵², 2⁵³)` are
+spaced 1 apart. `round` uses that directly. `trunc` steps back one when the
+rounded magnitude exceeds `a`; `floor` and `ceil` apply the sign of `x` and step
+one down or up when the rounded value lies past `x`. The step is a vector
+compare (`cmppd`) whose lane mask selects the constant 1, so no branch depends
+on the fraction. ORing in the sign bit of `x` gives `-0.0` for a negative `x`
+whose result is zero. A larger magnitude or an infinity is already whole and is
+returned unchanged, behind the one branch; a NaN passes through the arithmetic,
+which quiets it and keeps its sign and payload. A constant receiver is folded
+while lowering.
+
+The calls went through `plenty_f64_math` to Rust's `libm`, which rounds with
+integer operations and data-dependent branches, and forced live float registers
+onto the stack. With `--release`, `taskset` on one core, `perf stat`, Ryzen 7
+7840HS, best of five:
+
+| Loop (2×10⁸ iterations) | call (G cycles) | inline (G cycles) |
+| --- | ---: | ---: |
+| Two `floor` terms, steady step | 4.0–4.9 | 1.8–2.0 |
+| One `floor` of a random value | 5.2 | 2.0 |
+| One `round` of a random value | 6.8 | 1.8 |
+| Dependency chain `y - y.floor()` | 7.3 | 5.0 |
+| Dependency chain `y - y.round()` | 10.4 | 3.4 |
+
+`ceil` and `trunc` match `floor`. A chain whose rounding the call's branches
+predict exactly, such as `floor` of values always in `[0, 1)`, can be faster as
+a call, because the prediction takes the call off the chain. Each use adds
+about fifteen Cranelift instructions to compile: a file of 2,000 one-line
+functions with four rounding calls each takes 55% (release) to 85% (debug)
+more compiler instructions.
 
 ## Loop counter checks
 

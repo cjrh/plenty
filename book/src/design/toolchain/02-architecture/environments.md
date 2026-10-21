@@ -32,7 +32,9 @@ frames or collection rows.
 
 Reusable invocation borrows an environment; consuming invocation transfers it.
 Borrowed capture loans remain source-level facts through environment moves and
-generic consumers. Captures are released in reverse capture order. Cached facts
+generic consumers. Captures are released in reverse capture order; an
+environment whose captures need no cleanup, such as a capture-less error mapper,
+is not retained or released at all. Cached facts
 and visited-type traversal avoid repeatedly expanding shared capture/type graphs.
 Nesting is limited to 64 levels and storage must fit the native stack-layout limit.
 The [callable contract](../../language/06-functions/index.md) defines permitted
