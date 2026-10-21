@@ -4,35 +4,22 @@ Use a cancellation token to ask a running worker to stop. Share the token
 explicitly; all handles observe the same request.
 
 ```plenty
-def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
-    match result:
-        case Ok(future):
-            Ok(future)
-        case Err(SubmitError.Full(_)):
-            Err("submission queue is full")
-        case Err(SubmitError.Shutdown(_)):
-            Err("executor has shut down")
-        case Err(SubmitError.OutOfMemory(_)):
-            Err("submission allocation failed")
-        case Err(SubmitError.CapacityOverflow(_)):
-            Err("submission capacity overflow")
-
 def work(stop: CancellationToken, ready: Sender[i64]) -> Result[i64, SendError[i64]]:
     ready.send(1)?
     stop.wait()
     # Release resources and return through ordinary control flow.
     Ok(42)
 
-type CancellableWorkError = SendError[i64] | FutureError | RecvError | str | ChannelError | PoolError
+type CancellableWorkError = SendError[i64] | FutureError | RecvError | SubmitError[()] | ChannelError | PoolError
 
 def main() -> Result[(), AllocError | IoError | CancellableWorkError]:
     stop = CancellationToken()?
+    ready, started = channel[i64](1)?
     with ThreadPoolExecutor(1, 1)? as pool:
-        ready, started = channel[i64](1)?
-        future = submitted(pool.submit(work, stop.share(), ready))?
-        started.recv()?
+        future = pool.submit(work, stop.share(), ready).drop_job()?
+        with started as inbox:
+            inbox.recv()?
         stop.cancel()
-        drop(started)
         print(future.result()??)?
     print(stop.is_cancelled())?
     Ok(())
@@ -43,34 +30,20 @@ def main() -> Result[(), AllocError | IoError | CancellableWorkError]:
 True
 ```
 
-The receiver drops before `future.result()` waits. The channel is created inside
-the pool's scope, so an earlier error also drops its receiver before shutdown.
-A receiver guard that only ends with the pool would still be alive at the wait.
-Shutdown also waits for submitted jobs, and a job waiting to send is released
-only when the last receiver drops. Plenty rejects a shutdown reached while a
-receiver for a submitted job's sender is still alive:
+The worker reports that it started, then waits for the request. The receiver's
+own guard ends before `future.result()` waits, and it also covers the `?` on
+`recv()`, as in [jobs that send](future-cancellation-and-waits.md#jobs-that-send).
+Without the guard, an exit from the pool's block would reach shutdown with
+`started` alive, and Plenty rejects that:
 
 ```plenty-error
-def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
-    match result:
-        case Ok(future):
-            Ok(future)
-        case Err(SubmitError.Full(_)):
-            Err("submission queue is full")
-        case Err(SubmitError.Shutdown(_)):
-            Err("executor has shut down")
-        case Err(SubmitError.OutOfMemory(_)):
-            Err("submission allocation failed")
-        case Err(SubmitError.CapacityOverflow(_)):
-            Err("submission capacity overflow")
-
 def report(ready: Sender[i64]) -> Result[(), SendError[i64]]:
     ready.send(1)
 
-def main() -> Result[(), ChannelError | PoolError | RecvError | str]:
+def main() -> Result[(), ChannelError | PoolError | RecvError | SubmitError[()]]:
     ready, started = channel[i64](1)?
     with ThreadPoolExecutor(1, 1)? as pool:
-        future = submitted(pool.submit(report, ready))?
+        pool.submit(report, ready).drop_job()?
         started.recv()?
     Ok(())
 ```
@@ -94,7 +67,3 @@ cancellation. Automatic joining still waits for that worker to return.
 
 In a receive loop, check `is_cancelled()` between bounded receives. Avoid a
 zero-timeout retry loop that consumes a CPU while idle.
-
-Submission errors retain an unstarted job. Here `submitted` deliberately
-releases that job and preserves the failure reason as a message. Match the
-original `SubmitError` instead when you want to recover or retry the job.

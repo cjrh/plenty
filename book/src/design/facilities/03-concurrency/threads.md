@@ -26,12 +26,10 @@ Each successful task joins on normal completion, `return`, `?`, `break`, and
 `continue`. Failure to start a later task first joins earlier tasks. Detachment
 and forced cancellation are unsupported.
 
-A join is rejected when the worker can hold `Sender[T]` and a live binding of
-the joining function can hold `Receiver[T]`: a full queue could block the
-worker's send and the join forever. Likewise, a worker holding `Receiver[T]`
-cannot be joined while the function retains `Sender[T]`: an empty queue could keep
-its receive waiting. This applies to `task.join()` and to every automatic join.
-See [joins and live endpoints](channels.md#joins-and-live-endpoints).
+A join, explicit or automatic, is rejected while the function keeps a channel
+endpoint that the worker could be waiting on. See
+[joins and live endpoints](channels.md#joins-and-live-endpoints) for the rule
+and its [recommended patterns](channels.md#recommended-patterns).
 
 Argument loans and borrowed capture dependencies last until the end of the
 `with` block, including after explicit join. Shared readers can coexist;

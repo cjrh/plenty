@@ -39,10 +39,21 @@ different failure layers.
 
 `result()` cannot wait for a locally submitted job holding `Sender[T]` while
 the calling function still holds `Receiver[T]`. A full queue could keep the job
-and the result wait blocked forever. Drop every matching receiver, or end its
-guard, before retrieving the result. Guarding a receiver alongside the pool
-only disconnects it at pool shutdown; that is too late for a result wait inside
-the block.
+and the result wait blocked forever. End the receiver's own guard before
+retrieving the result:
+
+```text
+with ThreadPoolExecutor(1, 1)? as pool:
+    future = pool.submit(produce, sender).drop_job()?
+    with receiver as inbox:
+        ...
+    result = future.result()
+```
+
+A guard alongside the pool, `with ThreadPoolExecutor(1, 1)? as pool, receiver
+as inbox:`, disconnects only at pool shutdown, which is too late for a result
+wait inside the block. A `drop(receiver)` on every path to the wait also
+satisfies the rule. See the [recommended patterns](channels.md#recommended-patterns).
 
 The diagnostic points to the wait, receiver holders, and submission. Tracking
 follows local future moves, `?`, `unwrap()`, `drop_job()`, extraction from

@@ -55,36 +55,16 @@ asks you to stop, wait on a
 [cancellation token](cooperative-cancellation.md) with the span as the budget:
 
 ```plenty
-def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
-    match result:
-        case Ok(future):
-            Ok(future)
-        case Err(SubmitError.Full(_)):
-            Err("submission queue is full")
-        case Err(SubmitError.Shutdown(_)):
-            Err("executor has shut down")
-        case Err(SubmitError.OutOfMemory(_)):
-            Err("submission allocation failed")
-        case Err(SubmitError.CapacityOverflow(_)):
-            Err("submission capacity overflow")
-
 from std.time import seconds
 
-def pause(stop: CancellationToken, ready: Sender[i64]) -> Result[bool, SendError[i64]]:
-    ready.send(1)?
-    Ok(stop.wait_timeout(seconds(3600).as_timeout_ms()))
+def pause(stop: &CancellationToken) -> bool:
+    stop.wait_timeout(seconds(3600).as_timeout_ms())
 
-type TimedWorkError = SendError[i64] | FutureError | RecvError | str | ChannelError | PoolError
-
-def main() -> Result[(), AllocError | IoError | TimedWorkError]:
+def main() -> Result[(), AllocError | IoError | ThreadError]:
     stop = CancellationToken()?
-    with ThreadPoolExecutor(1, 1)? as pool:
-        ready, started = channel[i64](1)?
-        future = submitted(pool.submit(pause, stop.share(), ready))?
-        started.recv()?
-        drop(started)
+    with spawn(pause, &stop)? as task:
         stop.cancel()
-        print(future.result()??)?
+        print(task.join())?
     Ok(())
 ```
 
@@ -92,13 +72,10 @@ def main() -> Result[(), AllocError | IoError | TimedWorkError]:
 True
 ```
 
-The worker asks for an hour and returns as soon as `cancel()` runs. The result
+The worker borrows the token and asks for an hour. It returns as soon as
+`cancel()` runs, even if the request comes before the wait starts. The result
 is true when cancellation ended the wait and false when the span elapsed.
 
 Deadlines use the monotonic clock, so changing the system time neither extends
 nor shortens them. They limit waiting, not execution: a wait can return late on
 a busy machine. See the [time reference](../../design/stdlib/time.md).
-
-Submission errors retain an unstarted job. Here `submitted` deliberately
-releases that job and preserves the failure reason as a message. Match the
-original `SubmitError` instead when you want to recover or retry the job.

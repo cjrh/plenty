@@ -17,7 +17,7 @@ def stopped(stop: Stop) -> bool:
     stop.wait()
     stop.is_cancelled()
 
-type Errors = AllocError | ChannelError | IoError | SendError[str] | RecvError | ThreadError | PoolError | FutureError | SubmitError[OnceClosure[[], bool]]
+type Errors = AllocError | ChannelError | IoError | SendError[str] | RecvError | ThreadError | PoolError | FutureError | SubmitError[()]
 
 def main() -> Result[(), Errors]:
     sender, receiver = bounded[str](1)?
@@ -27,7 +27,7 @@ def main() -> Result[(), Errors]:
         print(task.join()?)?
     stop = Stop()?
     with Pool(1, 1)? as pool:
-        future = pool.submit(stopped, stop.share())?
+        future = pool.submit(stopped, stop.share()).drop_job()?
         stop.cancel()
         print(future.result()?)?
     Ok(())
@@ -52,7 +52,8 @@ The module references list the complete surfaces:
 [`std.sync`](../../design/stdlib/sync.md). Imports ship inside the compiler and
 need no network or separately installed Plenty sources.
 
-`submit(stopped, stop.share())` binds the function and its argument into a
-one-shot job, so its error is `SubmitError[OnceClosure[[], bool]]`. A spawn of
-a named function with arguments reports `ThreadError` instead: its moved
-arguments are dropped, not returned.
+A failed submission returns its unstarted job inside `SubmitError`;
+`drop_job()` drops it and leaves `SubmitError[()]`, as the
+[executor lesson](executors-and-futures.md) explains. A spawn of a named
+function with arguments reports `ThreadError`: its moved arguments are dropped,
+not returned.

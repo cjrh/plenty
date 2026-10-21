@@ -186,6 +186,7 @@
         - [Move jobs to workers](tutorial/11-concurrency/owned-worker-jobs.md)
         - [Run stored jobs](tutorial/11-concurrency/stored-worker-jobs.md)
         - [Send values between threads](tutorial/11-concurrency/channels-and-shutdown.md)
+        - [Avoid waits that hang](tutorial/11-concurrency/wait-habits.md)
         - [Handle channel backpressure](tutorial/11-concurrency/channel-backpressure.md)
         - [Bound your waits](tutorial/11-concurrency/channel-timeouts.md)
         - [Share one deadline across waits](tutorial/11-concurrency/deadlines.md)

@@ -82,23 +82,34 @@ the path that leaves.
 `map`, `map_result`, and `reduce_tree` finish their jobs before returning and do
 not count. What a job and a binding *can hold* is defined as for tasks.
 
-Place the receiver guard directly after the pool manager. Contexts exit in
-reverse order, so every exit drops the receiver before the pool shuts down:
+The [recommended patterns](channels.md#recommended-patterns) for tasks apply.
+When the function does not wait for the job's result inside the block, guard
+the receiver as the last manager of the pool's `with`, so every exit drops it
+before the pool shuts down:
 
 ```text
 with ThreadPoolExecutor(2, 8)? as pool, receiver as inbox:
-    future = pool.submit(produce, sender)?
+    pool.submit(produce, sender).drop_job()?
     ...
 ```
 
-A guard nested inside the pool's block, a channel created inside it, and a
-`drop(receiver)` on every path to the shutdown also satisfy the rule. A
-[returned value](channels.md#joins-and-live-endpoints) that holds a moved
-receiver, such as `return Ok(receiver)`, outlives the shutdown and is rejected.
-So is [an unfinished expression](channels.md#joins-and-live-endpoints) that
-already holds one: `pair = (receiver, future.result()?)` waits while the tuple
-holds the receiver, and a `match` case whose value is `receiver` holds it
-through the shutdown of the case's own pool.
+That guard is still alive at a `future.result()` inside the block, which
+[its own check](futures.md#result-waits-and-live-receivers) rejects. To wait for
+the result, end the receiver's guard first:
+
+```text
+with ThreadPoolExecutor(2, 8)? as pool:
+    future = pool.submit(produce, sender).drop_job()?
+    with receiver as inbox:
+        ...
+    result = future.result()
+```
+
+A channel created inside the pool's block, and a `drop(receiver)` on every path
+to the shutdown, also satisfy the rule. The
+[holders](channels.md#what-can-hold-an-endpoint) of a task join apply too: a
+returned `Ok(receiver)`, an unfinished `pair = (receiver, future.result()?)`, or
+a `match` case whose value is `receiver` holds it through the shutdown.
 The diagnostic reports the shutdown or the pool's binding, each binding,
 returned value, or unfinished expression that holds a matching receiver, where
 the job is submitted, and the early exit that reaches the shutdown.

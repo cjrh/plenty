@@ -13,6 +13,7 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Move jobs to workers](owned-worker-jobs.md)
 - [Run stored jobs](stored-worker-jobs.md)
 - [Send values between threads](channels-and-shutdown.md)
+- [Avoid waits that hang](wait-habits.md)
 - [Handle channel backpressure](channel-backpressure.md)
 - [Bound your waits](channel-timeouts.md)
 - [Share one deadline across waits](deadlines.md)

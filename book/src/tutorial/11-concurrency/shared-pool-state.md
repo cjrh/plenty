@@ -12,13 +12,6 @@ class Stats:
     count: i64
     total: i64
 
-def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
-    match result:
-        case Ok(future):
-            Ok(future)
-        case Err(_):
-            Err("submission failed")
-
 def work(hits: Shared[Atomic[u64]], stats: Shared[Mutex[Stats]], value: i64) -> i64:
     for _ in range(1000):
         hits.fetch_add(1, Ordering.Relaxed)
@@ -27,14 +20,14 @@ def work(hits: Shared[Atomic[u64]], stats: Shared[Mutex[Stats]], value: i64) -> 
             data.total = data.total + value
     value
 
-type PoolJobError = FutureError | str | PoolError
+type PoolJobError = FutureError | SubmitError[()] | PoolError
 
 def main() -> Result[(), AllocError | IoError | PoolJobError]:
     hits = Shared[Atomic[u64]](Atomic(0))?
     stats = Shared[Mutex[Stats]](Mutex(Stats(0, 0)))?
     with ThreadPoolExecutor(2, 4)? as pool:
-        first = submitted(pool.submit(work, hits.share(), stats.share(), 3))?
-        second = submitted(pool.submit(work, hits.share(), stats.share(), 4))?
+        first = pool.submit(work, hits.share(), stats.share(), 3).drop_job()?
+        second = pool.submit(work, hits.share(), stats.share(), 4).drop_job()?
         print(first.result()? + second.result()?)?
     print(hits.load(Ordering.Acquire))?
     with stats.lock() as data:
@@ -79,7 +72,8 @@ released: link back to it with an index into a list that owns the values.
 
 The compiler's lock checks see through handles. Shutting a pool down while
 holding a lock on a mutex one of its jobs can reach is rejected, as is waiting
-for such a job's result when the future comes straight from `submit`. Nesting
+for such a job's result. Wait after the lock block ends, as `main` reads
+`stats` only after the pool's block. Nesting
 a lock through a handle inside a lock on another `Mutex[T]` of the same type is
 rejected too, because two handles can name one mutex. See [shared owners](../../design/facilities/01-builtins/shared.md)
 for the full rules.

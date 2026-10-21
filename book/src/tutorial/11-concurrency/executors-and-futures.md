@@ -4,28 +4,15 @@ A thread pool reuses workers for many jobs. Set its worker count and queue
 capacity at construction:
 
 ```plenty
-def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
-    match result:
-        case Ok(future):
-            Ok(future)
-        case Err(SubmitError.Full(_)):
-            Err("submission queue is full")
-        case Err(SubmitError.Shutdown(_)):
-            Err("executor has shut down")
-        case Err(SubmitError.OutOfMemory(_)):
-            Err("submission allocation failed")
-        case Err(SubmitError.CapacityOverflow(_)):
-            Err("submission capacity overflow")
-
 def square(value: i64) -> i64:
     value * value
 
-type PoolJobError = PoolMapError | FutureError | str | PoolError
+type PoolJobError = PoolMapError | FutureError | SubmitError[()] | PoolError
 
 def main() -> Result[(), IoError | PoolJobError]:
     with ThreadPoolExecutor(2, 4)? as pool:
-        first = submitted(pool.submit(square, 6))?
-        second = submitted(pool.submit(square, 9))?
+        first = pool.submit(square, 6).drop_job()?
+        second = pool.submit(square, 9).drop_job()?
         print(first.result()?)?
         print(second.result()?)?
         print(pool.map(square, range(6))?)?
@@ -39,6 +26,9 @@ def main() -> Result[(), IoError | PoolJobError]:
 ```
 
 `submit` returns an owned `Future[i64]`; `result()` waits and consumes it.
+A failed submission returns `SubmitError`, which owns the unstarted job.
+`drop_job()` drops that job, as for [thread starts](owned-worker-jobs.md), and
+leaves `SubmitError[()]`, which still says why submission failed.
 Submit jobs before waiting for their results to let them overlap. Leaving `with`
 waits for accepted jobs and joins every worker, including on early return or
 propagated error.
@@ -69,25 +59,12 @@ finish. Mutable, one-shot, or borrowed closures cannot be shared this way.
 You can submit a closure to move several values into a job explicitly:
 
 ```plenty
-def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[T], str]:
-    match result:
-        case Ok(future):
-            Ok(future)
-        case Err(SubmitError.Full(_)):
-            Err("submission queue is full")
-        case Err(SubmitError.Shutdown(_)):
-            Err("executor has shut down")
-        case Err(SubmitError.OutOfMemory(_)):
-            Err("submission allocation failed")
-        case Err(SubmitError.CapacityOverflow(_)):
-            Err("submission capacity overflow")
-
-type PoolJobError = FutureError | str | PoolError
+type PoolJobError = FutureError | SubmitError[()] | PoolError
 
 def main() -> Result[(), AllocError | IoError | PoolJobError]:
     with ThreadPoolExecutor(2, 2)? as pool:
         values = [3, 6, 9]?
-        future = submitted(pool.submit(def once [values]() -> list[i64]: values))?
+        future = pool.submit(def once [values]() -> list[i64]: values).drop_job()?
         print(future.result()?)?
     Ok(())
 ```
@@ -97,7 +74,8 @@ def main() -> Result[(), AllocError | IoError | PoolJobError]:
 ```
 
 Pool jobs own their inputs; use `spawn` when a worker needs to borrow local data.
-A worker may use channels, but cannot hold an executor or future.
+A worker may use channels, following the [same habits](wait-habits.md) as a
+task, but cannot hold an executor or future.
 Keep submission and future waits on the owning thread to avoid pool dependency
 deadlocks. Files, native effects and foreign calls follow the same rules as for scoped workers.
 
@@ -105,6 +83,5 @@ Dropping a future leaves its job running; an unclaimed result is cleaned up.
 A future may also outlive the pool's scope: shutdown finishes the job, and the
 handle retains the result until you retrieve or drop it.
 
-Submission errors retain an unstarted job. Here `submitted` deliberately
-releases that job and preserves the failure reason as a message. Match the
-original `SubmitError` instead when you want to recover or retry the job.
+Keep the job instead when you want to retry it or run it locally; a
+[later lesson](submission-backpressure.md) shows how.
