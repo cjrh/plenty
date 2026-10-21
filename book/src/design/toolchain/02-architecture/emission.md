@@ -81,6 +81,41 @@ namespace, and the main thread declares them in declaration order as it places
 the function, then points the function's relocations at them. If any function
 fails, emission reports the error of the first failing function in that order.
 
+## Symbol references
+
+Code is compiled position-independent (Cranelift's `is_pic`), so the object
+links into a PIE or a shared library. How code refers to a symbol depends on
+where the symbol is defined (issue #372):
+
+| Target | Reference | Relocation |
+|---|---|---|
+| Program function, runtime helper | `call rel32` | `R_X86_64_PLT32` |
+| Data the object defines locally (literals, trap-site tables, type metadata, coverage counters) | `lea sym(%rip)` | `R_X86_64_PC32` |
+| [Trusted C declaration](../../facilities/04-interop/trusted-declarations.md), `memmove`, `memset` | load from the GOT, indirect call | `R_X86_64_GOTPCREL` |
+| Address of a program function | load from the GOT | `R_X86_64_GOTPCREL` |
+
+Runtime helpers are marked colocated: the runtime archive is linked into
+every executable and shared library made from the object, and a shared
+library's version script makes the runtime's symbols local, so the linker
+resolves the call directly, without a PLT entry. A C library may be shared,
+so its functions stay behind the GOT.
+
+Under `is_pic`, Cranelift loads every symbol address from the GOT, even a
+colocated one, and the object's plain `R_X86_64_GOTPCREL` relocations are not
+relaxed by the linker. After compiling a function, the compiler therefore
+rewrites each GOT load of colocated data into a `lea` with a PC-relative
+relocation (`src/codegen/relax.rs`), the rewrite a linker applies to
+`R_X86_64_REX_GOTPCRELX`. Only data no other module can preempt is
+colocated. The rewrite depends only on the code and the function's IR, so it
+applies equally to [cached](cache.md) code, and the cache key, which covers
+the IR, still identifies the result. Function addresses, taken for function
+values, closures, generators, and runtime callbacks, are not rewritten.
+
+On `examples/http_server_bench.plenty` with the standard library (779
+functions, release), this removed 42,389 of 42,760 GOT loads and 35,220 of
+35,590 indirect calls, and reduced machine code from 1,888,952 to 1,730,245
+bytes (8.4%).
+
 The worker count is the number of processors the process may run on. Restricting
 its CPU affinity, for example with `taskset`, restricts the workers.
 

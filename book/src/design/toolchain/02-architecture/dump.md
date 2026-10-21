@@ -45,18 +45,17 @@ places functions in the object, which does not depend on the worker count:
      1:  mov     %rsp,%rbp
      4:  mov     %rdi,%rax
     # line 2
-     7:  imulq   0x38
-     e:  seto    %dil
-    12:  test    %dil,%dil
+     7:  imulq   0x30
+     e:  seto    %sil
+    12:  test    %sil,%sil
     15:  jne     0x0000000000000020
     1b:  mov     %rbp,%rsp
     1e:  pop     %rbp
     1f:  ret
-    20:  mov     0x27,%rdi  # .Ldata1 (trap sites: 1)
-    27:  mov     0x2E,%r8  # plenty_trap_overflow
-    2e:  call    *%r8
-    31:  ud2
-    33:  .byte   0x00,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+    20:  lea     0x27,%rdi  # .Ldata1 (trap sites: 1)
+    27:  call    0x000000000000002C  # plenty_trap_overflow
+    2c:  ud2
+    2e:  .byte   0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00
 ```
 
 The header names the function as source shows it (`Point.length`,
@@ -81,7 +80,7 @@ machine code first:
 
 ```text
 #  bytes    ops   clif    opt kind     lib  source                           symbol key
-      64      6      7      7 function user app.plenty:1                     __plenty_fn_twice twice
+      56      6      7      7 function user app.plenty:1                     __plenty_fn_twice twice
 ```
 
 `ops` counts operations, including nested ones, and `clif` and `opt` count

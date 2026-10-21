@@ -9,10 +9,10 @@ use crate::hash::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
-use cranelift_codegen::Context;
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::Function;
 use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
+use cranelift_codegen::{Context, FinalizedMachReloc};
 use cranelift_frontend::FunctionBuilderContext;
 use cranelift_module::{FuncId, Module, ModuleReloc, ModuleRelocTarget};
 use cranelift_object::{ObjectBuilder, ObjectModule};
@@ -151,7 +151,8 @@ impl Output {
 
     /// Compile `func` on this thread as the body of the declared function
     /// `id`. Its IR must name only symbols declared in the module.
-    pub(super) fn define(&mut self, id: FuncId, func: Function) -> Result<()> {
+    pub(super) fn define(&mut self, id: FuncId, mut func: Function) -> Result<()> {
+        symbols::colocate(&self.module, &mut func);
         let mut capture = self
             .dump
             .as_ref()
@@ -462,24 +463,26 @@ fn compile(
     );
     let code = compiled.map(|compiled| {
         crate::profile_block!("output::collect_code", {
-            let (alignment, bytes, relocs) = match compiled.as_deref() {
-                Some(code) => (
-                    code.alignment,
-                    code.bytes.as_slice(),
-                    code.relocs.as_slice(),
-                ),
+            let to_module = |relocs: &[FinalizedMachReloc]| {
+                relocs
+                    .iter()
+                    .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &context.func, id))
+                    .collect()
+            };
+            // Cached code was relaxed when the cache made it.
+            let (alignment, bytes, relocs) = match compiled {
+                Some(code) => {
+                    let relocs = to_module(&code.relocs);
+                    (code.alignment, CodeBytes::Cached(code), relocs)
+                }
                 None => {
                     let buffer = &context.compiled_code().unwrap().buffer;
-                    (buffer.alignment as u64, buffer.data(), buffer.relocs())
+                    let mut bytes = buffer.data().to_vec();
+                    let mut relocs = buffer.relocs().to_vec();
+                    super::relax_local_addresses(&context.func, &mut bytes, &mut relocs);
+                    let relocs = to_module(&relocs);
+                    (buffer.alignment as u64, CodeBytes::Owned(bytes), relocs)
                 }
-            };
-            let relocs = relocs
-                .iter()
-                .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &context.func, id))
-                .collect();
-            let bytes = match compiled {
-                Some(code) => CodeBytes::Cached(code),
-                None => CodeBytes::Owned(bytes.to_vec()),
             };
             Code {
                 alignment,

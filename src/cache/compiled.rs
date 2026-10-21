@@ -36,6 +36,13 @@ impl From<&CompiledCode> for MachineCode {
     }
 }
 
+impl MachineCode {
+    /// Apply [`crate::codegen::relax_local_addresses`], as uncached code gets.
+    fn relax(&mut self, func: &Function) {
+        crate::codegen::relax_local_addresses(func, &mut self.bytes, &mut self.relocs);
+    }
+}
+
 struct Entry {
     code: Arc<MachineCode>,
     compile_time: Duration,
@@ -90,8 +97,10 @@ impl Cache {
             let (compiled, hit) = context
                 .compile_with_cache(isa, &mut store, &mut ControlPlane::default())
                 .map_err(|error| format!("{:?}", error.inner))?;
-            let code = Arc::new(MachineCode::from(compiled));
+            let mut code = MachineCode::from(compiled);
+            code.relax(&context.func);
             store.finish(hit);
+            let code = Arc::new(code);
             return Ok(code);
         }
 
@@ -113,7 +122,9 @@ impl Cache {
                 && let Ok(compiled) = try_finish_recompile(&context.func, &blob)
             {
                 let compile_time = store.read.get().unwrap_or_default();
-                let code = Arc::new(MachineCode::from(&compiled));
+                let mut code = MachineCode::from(&compiled);
+                code.relax(&context.func);
+                let code = Arc::new(code);
                 store.finish(true);
                 return Ok(Entry { code, compile_time });
             }
@@ -126,7 +137,9 @@ impl Cache {
             }
             let compile_time = store.started.elapsed();
             let compiled = stencil.apply_params(&context.func.params);
-            let code = Arc::new(MachineCode::from(&compiled));
+            let mut code = MachineCode::from(&compiled);
+            code.relax(&context.func);
+            let code = Arc::new(code);
             store.finish(false);
             Ok(Entry { code, compile_time })
         });

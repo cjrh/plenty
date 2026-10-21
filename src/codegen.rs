@@ -85,6 +85,8 @@ mod mutex;
 mod numeric;
 mod output;
 mod references;
+mod relax;
+pub(crate) use relax::relax_local_addresses;
 mod sites;
 mod sorting;
 mod symbols;
@@ -819,7 +821,8 @@ fn optimized_isa(
     }
     // `is_pic` so the object can be linked into a position-independent
     // executable, which is what every modern Linux/macOS toolchain
-    // produces by default.
+    // produces by default. Runtime calls and local data still avoid the GOT
+    // (`symbols::runtime_colocated`, `relax`).
     flags.set("is_pic", "true")?;
     flags.set("enable_llvm_abi_extensions", "true")?;
     // Frame pointers must be preserved for `return_call` emission on

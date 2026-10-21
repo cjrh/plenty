@@ -675,7 +675,7 @@ impl Names<'_> {
                     Some(Request::Coverage(counters)) => {
                         format!("{resolved} (coverage counters: {counters})")
                     }
-                    Some(Request::Import(..)) | None => resolved,
+                    Some(Request::Import(..) | Request::Foreign(..)) | None => resolved,
                 }
             }
         }
