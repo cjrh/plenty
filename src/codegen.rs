@@ -1960,8 +1960,25 @@ impl Lowerer<'_, '_> {
     fn release(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
         if ty.wide() || matches!(ty, Ty::Generator(_) | Ty::Closure(_)) {
             if ty.managed() {
+                // A zero value is an empty ownership slot, such as a local
+                // moved out of or not yet assigned, and owns nothing. Testing
+                // it here keeps the runtime call off those paths (issue #384).
+                let word = if self.bcx.func.dfg.value_type(value) == types::I128 {
+                    let (low, high) = self.bcx.ins().isplit(value);
+                    self.bcx.ins().bor(low, high)
+                } else {
+                    value
+                };
+                let release = self.bcx.create_block();
+                let done = self.bcx.create_block();
+                self.bcx.ins().brif(word, release, &[], done, &[]);
+                self.bcx.switch_to_block(release);
+                self.bcx.seal_block(release);
                 self.collection_call(27, &[value], Some(ty))
                     .expect("sum metadata");
+                self.bcx.ins().jump(done, &[]);
+                self.bcx.switch_to_block(done);
+                self.bcx.seal_block(done);
             }
             return;
         }
