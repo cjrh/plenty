@@ -35,6 +35,7 @@ pub enum SqliteOp {
     ColumnText = 26,
     ColumnBlob,
     ColumnName,
+    LoadExtension,
 }
 
 impl SqliteOp {
@@ -68,6 +69,7 @@ impl SqliteOp {
             "__sqlite_column_text" => Self::ColumnText,
             "__sqlite_column_blob" => Self::ColumnBlob,
             "__sqlite_column_name" => Self::ColumnName,
+            "__sqlite_load_extension" => Self::LoadExtension,
             _ => return None,
         })
     }
@@ -83,6 +85,7 @@ impl SqliteOp {
             Self::Open => (vec![Ty::Str, Ty::I64, Ty::I64], opened()),
             Self::Message => (vec![], sum::result(Ty::Str, sum::alloc_error())),
             Self::Execute | Self::ParameterIndex => (vec![handle(), Ty::Str], Ty::I64),
+            Self::LoadExtension => (vec![handle(), Ty::Str, Ty::Str], Ty::I64),
             Self::Prepare => (vec![handle(), Ty::Str], opened()),
             Self::Begin => (vec![handle(), Ty::I64], opened()),
             Self::Changes
@@ -113,12 +116,12 @@ impl SqliteOp {
         }
     }
 
-    /// Opening resolves a path; everything else acts through a handle the
+    /// Opening and extension loading resolve paths; other operations use a handle the
     /// caller owns or borrows. SQLite runs in serialized mode, so a handle
     /// moved to a worker stays safe to use there.
     pub fn effect(self) -> Effect {
         match self {
-            Self::Open => Effect::Path,
+            Self::Open | Self::LoadExtension => Effect::Path,
             Self::Message => Effect::Compute,
             Self::Execute
             | Self::Prepare

@@ -117,3 +117,10 @@ connection holding a write lock makes a write fail at once with SQLite's
 busy code; `set_busy_timeout` makes it wait instead. See the
 [`std.db.sqlite` reference](../../design/stdlib/sqlite.md) for every error,
 the busy policy, and how connections are shared between threads.
+
+SQLite's FTS5 full-text search is built in. Applications that need a native
+extension, such as vector search, can load a trusted shared library with
+`Connection.load_extension(path, entrypoint="")`. This runs native code in the
+application; SQL cannot enable extension loading. See
+[native extensions and full-text search](../../design/stdlib/sqlite.md#native-extensions-and-full-text-search)
+for the loading contract and connection lifetime.
