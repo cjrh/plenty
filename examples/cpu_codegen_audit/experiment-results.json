@@ -1,0 +1,84 @@
+{
+  "commands": [
+    [
+      "/tmp/plenty-audit-target/debug/plenty",
+      "--release",
+      "--no-cache",
+      "--compile",
+      "/tmp/plenty-cpu-codegen-audit/examples/cpu_codegen_audit/kernels.plenty",
+      "-o",
+      "/tmp/plenty-cpu-audit/fold/kernels-plenty"
+    ],
+    [
+      "/tmp/plenty-audit-target/debug/plenty",
+      "--release",
+      "--no-cache",
+      "--compile",
+      "/tmp/plenty-cpu-codegen-audit/examples/cpu_codegen_audit/collections.plenty",
+      "-o",
+      "/tmp/plenty-cpu-audit/fold/collections-plenty"
+    ],
+    [
+      "gcc",
+      "-O2",
+      "-march=x86-64",
+      "-mtune=generic",
+      "-ffp-contract=off",
+      "-fno-omit-frame-pointer",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "/tmp/plenty-cpu-codegen-audit/examples/cpu_codegen_audit/kernels.c",
+      "-o",
+      "/tmp/plenty-cpu-audit/fold/kernels-c-O2"
+    ],
+    [
+      "gcc",
+      "-O3",
+      "-march=x86-64",
+      "-mtune=generic",
+      "-ffp-contract=off",
+      "-fno-omit-frame-pointer",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "/tmp/plenty-cpu-codegen-audit/examples/cpu_codegen_audit/kernels.c",
+      "-o",
+      "/tmp/plenty-cpu-audit/fold/kernels-c-O3"
+    ]
+  ],
+  "gcc": "gcc (GCC) 16.2.1 20260819 (Red Hat 16.2.1-2)",
+  "compiler_sha256": "9c3d056a6c149d8ddc3754ec6fd1ef3eb47579a71a1732f6fdebdc6a167e6e09",
+  "outputs": {
+    "kernels-plenty": "0 0\n0 1\n0 9\n1 0\n1 1\n12345678 9\n1844674407370955161 5\n42 3666665174731619379 8176936325020705148\n130164 0 0\n0 1035377768355840 9\n0 1035377768355840 9\n",
+    "collections-plenty": "200320\n",
+    "kernels-c-O2": "0 0\n0 1\n0 9\n1 0\n1 1\n12345678 9\n1844674407370955161 5\n42 3666665174731619379 8176936325020705148\n130164 0 0\n0 1035377768355840 9\n0 1035377768355840 9\n",
+    "kernels-c-O3": "0 0\n0 1\n0 9\n1 0\n1 1\n12345678 9\n1844674407370955161 5\n42 3666665174731619379 8176936325020705148\n130164 0 0\n0 1035377768355840 9\n0 1035377768355840 9\n"
+  },
+  "function_bytes": {
+    "kernels-plenty": {
+      "div10": 40,
+      "rem10": 48,
+      "mix": 80,
+      "escape": 176,
+      "sum_words": 648,
+      "sum_indexed": 215
+    },
+    "kernels-c-O2": {
+      "div10": 21,
+      "rem10": 34,
+      "mix": 80,
+      "escape": 164,
+      "sum_words": 35,
+      "sum_indexed": 35
+    },
+    "kernels-c-O3": {
+      "div10": 21,
+      "rem10": 34,
+      "mix": 80,
+      "escape": 164,
+      "sum_words": 105,
+      "sum_indexed": 121
+    }
+  }
+}

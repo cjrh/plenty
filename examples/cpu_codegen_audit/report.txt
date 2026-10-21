@@ -1,0 +1,206 @@
+CPU-BOUND CODE-GENERATION AUDIT AND C COMPARISON
+2026-10-21; compiler source baseline 6153b46fa2ec3e293d1783425091cd653e1d7edc
+
+Outcome
+
+Four new issues (#367-#370) identify avoidable generated-code work. The strongest
+new result is that constant-false safety branches survive release optimization.
+A temporary cleanup experiment removes these branches and their dead trap blocks,
+shrinking several kernels without changing their tested outputs.
+
+The compiler is not uniformly producing poor code: division by constants is
+strength-reduced, rotate becomes a hardware instruction, and arithmetic-only
+floating loops keep their values in registers. Collection access and unnecessary
+control flow are much larger concerns than the basic arithmetic selection.
+
+Programs and comparison conditions
+
+collections.plenty adapts the existing examples/collection_bench.py long-string
+hash workload. It constructs 2,048 long keys, inserts 1,024 into a dictionary,
+then performs 400,000 membership queries. The checked result is 200,320. This is
+the larger CPU-bound workload; no end-to-end C hash-table comparison is claimed.
+
+kernels.plenty and kernels.c contain equivalent test programs for:
+  - u64 division/remainder by 10;
+  - a wrapping integer multiply/xor/rotate loop;
+  - Mandelbrot escape iteration, exercised across a 64x48 grid;
+  - a wrapping integer reduction, with borrowed-for and indexed Plenty forms.
+
+Plenty: --release --no-cache, Cranelift 0.131.1, portable x86-64 target.
+C: GCC 16.2.1, both -O2 and -O3, -march=x86-64 -mtune=generic,
+   -ffp-contract=off -fno-omit-frame-pointer -Wall -Wextra -Werror, no LTO.
+C kernel functions are noinline/noclone so whole-program constant propagation
+does not remove the functions being compared. Plenty function boundaries remain
+too. GCC can omit a frame pointer in a leaf that needs no frame; Plenty retains
+it for its tail-call ABI. These prologue differences are not automatically bugs.
+
+C uses uint64_t modular arithmetic where Plenty uses wrapping methods. C signed
+counter updates explicitly use __builtin_add_overflow; this avoids exploiting
+undefined signed overflow to manufacture a favorable comparison. C floating
+code has no fast-math or contraction. Floating output checks cover the finite
+grid and zero/negative iteration limits, not all NaN payloads or floating exception
+modes; any proposed floating rewrite still needs those semantics reviewed.
+
+C's list analogue is a valid borrowed pointer/count to dense u64 storage. Plenty
+lists have a runtime-owned representation, wider payload slots, bounds behavior
+and ownership rules. C does not model that ABI byte-for-byte. This comparison
+shows available direct-loop code, not a promise that Plenty can use the exact
+same binary or achieve a particular speed ratio. The two Plenty implementations
+provide the more controlled comparison for borrowed iteration overhead.
+
+Function symbol sizes in bytes
+
+  Function          Plenty release    GCC -O2    GCC -O3    Plenty experiment
+  div10                         72          21          21                   40
+  rem10                         72          34          34                   48
+  mix                          112          80          80                   80
+  escape                       176         164         164                  176
+  sum_words (borrowed for)      648          35         105                  648
+  sum_indexed                  215          35         121                  215
+
+These are nm symbol sizes, including function-local literal pools/padding where
+present. They are not instruction counts or speed ratios. GCC has loop alignment
+padding too. In objdump output, bytes after a function's return may be a literal
+pool, not executed instructions (notably the reciprocal multiply constant).
+The larger GCC -O3 reductions use SIMD; larger code can be better code.
+
+New finding 1: dead arithmetic checks survive value optimization. Issue #367.
+
+Release div10 has this shape in optimized CLIF:
+    v6 = iconst.i8 0
+    brif v6, division_by_zero_block, normal_path
+The normal path correctly uses umulhi and a right shift. The dead path calls the
+source-aware division trap. In machine code the constant condition becomes:
+    xor %r8d, %r8d
+    test %r8b, %r8b
+    jne trap_block
+The mix loop similarly tests whether literal shift count 13 is invalid, on every
+iteration. These branches cannot fire for any input to the functions.
+
+Cause: src/codegen.rs:2184, :2218, :2296 constructs general diagnostic trap CFGs.
+The pinned Cranelift Context::optimize (context.rs:176-186) eliminates unreachable
+code before egraph optimization folds these comparisons to constants. The observed
+final IR still has constant brif instructions; no effective cleanup removes them.
+This is distinct from #362: no path-sensitive reasoning is needed here.
+
+Experiment: explicitly optimize, replace brif on iconst with the selected jump,
+recompute CFG/dominators, remove unreachable blocks, then compile. It produces
+the last table column. All C/Plenty outputs still match and the 400,000-query
+workload still returns 200,320. Dynamic overflow checks in escape remain.
+
+Recommendation: a narrowly validated constant-branch cleanup or earlier guard
+suppression. Keep real diagnostics. The saved patch is audit instrumentation,
+not an implementation ready to merge: it does extra optimization work, has not
+been tested across the full language suite/cache modes and uses environment
+switches unsuitable for production cache configuration.
+
+New finding 2: borrowed scalar iteration misses an existing fast path. Issue #368.
+
+sum_words uses `for value in values: total = total.wrapping_add(*value)`.
+It has an 80-byte local frame and 96-byte dispatcher scratch area. Each iteration
+calls plenty_list_len and the generic plenty_collection operation 112 (ElementRef),
+then dereferences a wide reference to obtain the scalar. Owner retain/release
+also occurs outside the loop. The resulting function occupies 648 bytes.
+
+Equivalent indexed Plenty code uses the narrow plenty_list_scalar_get ABI and
+occupies 215 bytes. It still calls length/access helpers, unlike C's direct loads.
+GCC -O3 uses movdqu/paddq for the modular sum, without requiring fast-math.
+
+Cause: src/frontend/collections.rs:1454-1515 borrowed_collection_iteration emits
+ElementRef for lists. The owned scalar-iteration path at :1608-1654 already selects
+ListScalarGetRef. Existing issue #361 compounds the cost by putting all locals in
+a wide stack frame once the borrowed iterator needs addresses.
+
+Recommendation: optimize nonescaping scalar dereferences or provide a checked
+borrowed cursor/slice ABI. Keep the reference semantics established by issue #30:
+not all borrowed loop variables can simply become copies. Mutable iteration,
+escaping references and ownership need distinct treatment. Hoist stable length
+and eliminate redundant bounds checks only when proved safe. Auto-vectorization
+is a later opportunity; remove the per-element ABI barrier first.
+
+New finding 3: missing simple induction-range reasoning. Issue #369.
+
+escape initializes its signed counter to zero and increments only while it is
+less than an i64 limit. The increment cannot overflow: the largest counter on
+that edge is i64.MAX-1. Nevertheless Plenty emits add/seto/test/jne and a cold
+overflow trap call. GCC removes the explicit checked-add guard in the C version.
+This proof also covers zero and negative limits, where the loop never increments.
+
+In collections.lookup, i starts zero and increases under i<count. Its i%2048
+still uses signed remainder adjustment code despite i being nonnegative.
+The separate constant zero-divisor guard is covered by #367.
+
+Recommendation: bounded induction/path-range analysis, preserving checked
+arithmetic semantics. Validate variable steps, break/continue, mutation and
+boundary values. Do not replace all checked arithmetic with wrapping operations.
+
+New finding 4: loop-invariant constant rematerialization. Issue #370.
+
+mix executes movabs of its additive 64-bit constant inside the loop. GCC loads
+the additive and multiplicative constants outside the loop. Plenty also uses a
+literal-pool memory operand for the multiplier; that can be a reasonable register
+pressure tradeoff, so not every difference should be called a defect.
+
+escape reconstructs floating 2.0 via movabs+movq inside the loop and multiplies
+by it. GCC doubles the value with addsd and keeps its escape threshold in a
+register. Post-optimization CLIF places constants in loop blocks even where
+input IR had loop-external values. The dead-branch experiment leaves this work.
+
+Recommendation: inspect loop-aware extraction/constant placement and safe
+floating canonicalizations. Hoisting trades instructions for live registers;
+measure register pressure and compiler cost. A backend follow-up may be more
+appropriate than a frontend workaround. Floating special-value semantics still
+need validation before changing operations. The observed instruction difference
+does not itself establish a runtime gain.
+
+What the larger collection program adds
+
+lookup's release symbol is 800 bytes. On each normal iteration its generated IR
+executes 13 direct calls before any calls made inside runtime helpers:
+  2 receiver retains (keys and dictionary),
+  2 generic collection operations (indexing and membership),
+  3 releases (keys receiver, retrieved string, dictionary receiver),
+  6 diagnostic enter/leave calls around those releases.
+Its 16 static IR call sites include another three potential arithmetic-trap
+calls. Both successful and unsuccessful queries pay the 13-call normal path.
+
+The list and dictionary are borrowed and unchanged throughout lookup. This
+supports extending #364's narrow borrowed-operation work to managed string-key
+queries, and #366's context-effect analysis beyond HTTP. It is not evidence of
+a new allocation on every query: retain/release and allocation are different.
+No separate duplicate issue was created for those already-recorded causes.
+
+Validation, artifacts and reproduction
+
+compare.py builds both complete Plenty programs and both C optimization levels,
+checks exact stdout equality, checks the collection checksum independently,
+records compiler SHA/GCC version/commands/function sizes, and saves disassembly.
+Coverage includes u64 zero/max/divisor boundaries, mix counts 0/1/10000, the
+Mandelbrot grid, zero/negative limits, empty/4096-element lists and a wrapping
+sum (UINT64_MAX + 1 + 9). Matching checksums are checks, not a formal equivalence
+proof. There are no timing claims in this audit.
+
+From the repository root, with a freshly built compiler:
+  python3 examples/cpu_codegen_audit/compare.py \
+      --compiler target/release/plenty --output /tmp/plenty-cpu-comparison
+
+baseline-results.json and experiment-results.json preserve the original run
+outputs, sizes and exact commands. Full baseline/folded assembly and per-function
+IR from this session are in /tmp/plenty-cpu-audit and its fold subdirectory.
+Those large temporary artifacts are not checked in.
+
+To reproduce IR capture/cleanup in a disposable worktree at this baseline:
+  git apply examples/cpu_codegen_audit/capture-experiment.patch
+  cargo build --locked --bin plenty
+  python3 examples/cpu_codegen_audit/compare.py \
+      --compiler target/debug/plenty --output /tmp/cpu-baseline --capture-ir
+  PLENTY_AUDIT_FOLD=1 python3 examples/cpu_codegen_audit/compare.py \
+      --compiler target/debug/plenty --output /tmp/cpu-folded --capture-ir
+
+--capture-ir requires the patch; ordinary comparisons do not. Compiler host
+debug/release mode is separate from --release for generated Plenty code. The
+patch is preserved only as a reproducible experiment and has been removed from
+the actual compiler source in this change. No dependency changes are involved.
+
+This audit PR preserves programs, harness, evidence and the report. It does not
+resolve #367-#370. Proposed compiler/runtime fixes remain separate work.
