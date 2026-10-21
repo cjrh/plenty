@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
+from unittest.mock import patch
 
-from build_book import decorate
+from build_book import build_book, decorate
 
 
 class BookVersionTests(unittest.TestCase):
@@ -31,3 +33,27 @@ class BookVersionTests(unittest.TestCase):
             (root / "index.html").write_text('<html><head></head><body>No main</body></html>')
             with self.assertRaisesRegex(ValueError, "Unsupported mdBook"):
                 decorate(root, {"label": "Development"})
+
+    def test_build_preserves_configured_redirect_and_labels_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "book").mkdir()
+            (root / "book/book.toml").write_text(
+                '[output.html.redirect]\n"old/chapter.html" = "new/chapter.html"\n')
+            output = root / "output"
+            old = output / "old/chapter.html"
+            new = output / "new/chapter.html"
+            old.parent.mkdir(parents=True)
+            new.parent.mkdir(parents=True)
+            redirect = '<html><head><meta http-equiv="refresh" content="0; URL=../new/chapter.html"></head></html>'
+            old.write_text(redirect)
+            new.write_text('<html><head></head><body><main>Chapter</main></body></html>')
+            result = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            with patch('build_book.subprocess.run', return_value=result):
+                build_book(root, output, '/plenty/', {"label": "Development"})
+            self.assertEqual(old.read_text(), redirect)
+            self.assertIn('aria-label="Documentation version"', new.read_text())
+            # Unconfigured pages must still fail, even with redirects present.
+            (output / "broken.html").write_text(redirect)
+            with self.assertRaisesRegex(ValueError, "Unsupported mdBook"):
+                decorate(output, {"label": "Development"}, {"old/chapter.html"})

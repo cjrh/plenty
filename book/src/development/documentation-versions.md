@@ -17,6 +17,10 @@ catalog. Selecting another version retains the chapter if it exists there,
 otherwise opens the homepage. A heading may not exist in an older chapter;
 the browser still opens that chapter even when the fragment has no target.
 
+Redirect pages declared in `[output.html.redirect]` in `book/book.toml` are
+excluded from version-banner decoration; their destination pages carry the
+version label. Content pages must still have the expected mdBook layout.
+
 ## Admit a published release
 
 After a stable GitHub Release is published successfully:
