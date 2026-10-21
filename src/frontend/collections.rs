@@ -1,4 +1,5 @@
 use super::*;
+use crate::collection::Query;
 
 pub(super) struct Iteration {
     pub(super) condition: Vec<Op>,
@@ -1650,13 +1651,13 @@ impl Lower<'_> {
             ]);
         } else if reverse {
             ops.extend([
-                if list {
+                if list || text {
                     Op::BorrowLocal(source, false)
                 } else {
                     Op::LoadLocal(source)
                 },
                 Op::Collection(if text {
-                    CollectionOp::TextByteLen
+                    CollectionOp::QueryRef(Query::TextByteLen)
                 } else if list {
                     CollectionOp::ListLenRef(ty.clone())
                 } else {
@@ -1675,13 +1676,13 @@ impl Lower<'_> {
         } else {
             vec![
                 Op::LoadLocal(index),
-                if list {
+                if list || text {
                     Op::BorrowLocal(source, false)
                 } else {
                     Op::LoadLocal(source)
                 },
                 Op::Collection(if text {
-                    CollectionOp::TextByteLen
+                    CollectionOp::QueryRef(Query::TextByteLen)
                 } else if list {
                     CollectionOp::ListLenRef(ty.clone())
                 } else {
@@ -1694,9 +1695,9 @@ impl Lower<'_> {
         if reverse {
             if text {
                 body.extend([
-                    Op::LoadLocal(source),
+                    Op::BorrowLocal(source, false),
                     Op::LoadLocal(index),
-                    Op::Collection(CollectionOp::TextPrevByte),
+                    Op::Collection(CollectionOp::QueryRef(Query::TextPrevByte)),
                     Op::StoreLocal(index),
                 ]);
             } else {
@@ -1704,14 +1705,14 @@ impl Lower<'_> {
             }
         }
         body.extend([
-            if scalar_list {
+            if scalar_list || text {
                 Op::BorrowLocal(source, false)
             } else {
                 Op::LoadLocal(source)
             },
             Op::LoadLocal(index),
             Op::Collection(if text {
-                CollectionOp::TextAtByte
+                CollectionOp::QueryRef(Query::TextAtByte)
             } else if scalar_list {
                 CollectionOp::ListScalarGetRef(ty.clone())
             } else if hashed {
@@ -1735,9 +1736,9 @@ impl Lower<'_> {
             ]);
         } else if !reverse && text {
             step.extend([
-                Op::LoadLocal(source),
+                Op::BorrowLocal(source, false),
                 Op::LoadLocal(index),
-                Op::Collection(CollectionOp::TextNextByte),
+                Op::Collection(CollectionOp::QueryRef(Query::TextNextByte)),
                 Op::StoreLocal(index),
             ]);
         } else if !reverse {
@@ -1888,6 +1889,18 @@ impl Lower<'_> {
                 Self::end_reads(reads, ops);
                 return Ok(value);
             }
+        }
+        if self.place_type(base) == Some(Ty::Str) {
+            // Index a text place in place (issue #364); the scalar result is
+            // inline, so it owns nothing borrowed from the text.
+            let (_, loan) = self.borrow(base, false, ops)?;
+            let (got, mut reads) = self.observe_expected(index, Some(Ty::I64), ops)?;
+            self.same(Some(got), Some(Ty::I64), &index.at)?;
+            self.mark(&e.at, ops);
+            ops.push(Op::Collection(CollectionOp::QueryRef(Query::TextAt)));
+            reads.push(loan);
+            Self::end_reads(reads, ops);
+            return Ok(Ty::Str);
         }
         let (ty, loans) = self.observe(base, ops)?;
         if let Ty::Enum(t) = &ty
@@ -2558,7 +2571,7 @@ impl Lower<'_> {
             if !args.is_empty() {
                 return Err(base.at.error("byte_len takes no arguments"));
             }
-            ops.push(Op::Collection(CollectionOp::TextByteLen));
+            Self::push_query(CollectionOp::TextByteLen, ops);
             Self::end_reads(loans, ops);
             return Ok(Some(Ty::I64));
         }
@@ -2657,12 +2670,13 @@ impl Lower<'_> {
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
             }
-            ops.push(Op::Collection(match name {
+            let operation = match name {
                 "isascii" => CollectionOp::TextIsAscii,
                 "isspace" => CollectionOp::TextIsSpace,
                 "isdigit" => CollectionOp::TextIsDigit,
                 _ => CollectionOp::TextIsAlpha,
-            }));
+            };
+            Self::push_query(operation, ops);
             Self::end_reads(loans, ops);
             return Ok(Some(Ty::Bool));
         }
@@ -3335,7 +3349,7 @@ impl Lower<'_> {
             if ty.element().is_none() || ty.restricted_storage() {
                 return Err(at.error("len requires an iterable"));
             }
-            ops.push(Op::Collection(CollectionOp::Len(ty)));
+            Self::push_query(CollectionOp::Len(ty), ops);
             Self::end_reads(loans, ops);
             return Ok(Ty::I64);
         }

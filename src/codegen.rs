@@ -897,6 +897,19 @@ struct Runtime {
     list_sort_by: FuncId,
     /// `plenty_order_compare(a_low, a_high, b_low, b_high, descriptor) -> i64`.
     order_compare: FuncId,
+    /// Narrow byte and text queries on a borrowed owner (issue #364); see
+    /// `CollectionCodegen::narrow_query`.
+    bytes_len: FuncId,
+    bytes_item: FuncId,
+    bytes_set_item: FuncId,
+    text_len: FuncId,
+    text_byte_len: FuncId,
+    text_is_ascii: FuncId,
+    text_at: FuncId,
+    text_at_byte: FuncId,
+    text_next_byte: FuncId,
+    text_prev_byte: FuncId,
+    text_ascii_equal_folded: FuncId,
     /// Generated key-sort comparators, by adapter name.
     sort_adapters: HashMap<String, FuncId>,
     channel: FuncId,
@@ -988,6 +1001,19 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
     fn nullary(module: &mut ObjectModule, name: &str) -> Result<FuncId> {
         let mut sig = module.make_signature();
         sig.call_conv = CallConv::SystemV;
+        Ok(module.declare_function(name, Linkage::Import, &sig)?)
+    }
+    fn helper(
+        module: &mut ObjectModule,
+        name: &str,
+        params: &[types::Type],
+        ret: Option<types::Type>,
+    ) -> Result<FuncId> {
+        let mut sig = module.make_signature();
+        sig.call_conv = CallConv::SystemV;
+        sig.params
+            .extend(params.iter().map(|ty| AbiParam::new(*ty)));
+        sig.returns.extend(ret.map(AbiParam::new));
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
@@ -1135,6 +1161,53 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_order_compare", Linkage::Import, &sig)?
         },
+        // Owner or text word, then index and trap site where the query has them.
+        bytes_len: helper(module, "plenty_bytes_len", &[PTR_TY], Some(types::I64))?,
+        bytes_item: helper(
+            module,
+            "plenty_bytes_item",
+            &[PTR_TY, types::I64, PTR_TY],
+            Some(types::I64),
+        )?,
+        bytes_set_item: helper(
+            module,
+            "plenty_bytes_set_item",
+            &[PTR_TY, types::I64, types::I64, PTR_TY],
+            None,
+        )?,
+        text_len: helper(module, "plenty_text_len", &[PTR_TY], Some(types::I64))?,
+        text_byte_len: helper(module, "plenty_text_byte_len", &[PTR_TY], Some(types::I64))?,
+        text_is_ascii: helper(module, "plenty_text_is_ascii", &[PTR_TY], Some(types::I64))?,
+        text_at: helper(
+            module,
+            "plenty_text_at",
+            &[PTR_TY, types::I64, PTR_TY],
+            Some(PTR_TY),
+        )?,
+        text_at_byte: helper(
+            module,
+            "plenty_text_at_byte",
+            &[PTR_TY, types::I64],
+            Some(PTR_TY),
+        )?,
+        text_prev_byte: helper(
+            module,
+            "plenty_text_prev_byte",
+            &[PTR_TY, types::I64],
+            Some(types::I64),
+        )?,
+        text_ascii_equal_folded: helper(
+            module,
+            "plenty_text_ascii_equal_folded",
+            &[PTR_TY, PTR_TY],
+            Some(types::I64),
+        )?,
+        text_next_byte: helper(
+            module,
+            "plenty_text_next_byte",
+            &[PTR_TY, types::I64],
+            Some(types::I64),
+        )?,
         sort_adapters: Default::default(),
         print_i8: one_arg(module, "plenty_print_i8", types::I8)?,
         print_i16: one_arg(module, "plenty_print_i16", types::I16)?,

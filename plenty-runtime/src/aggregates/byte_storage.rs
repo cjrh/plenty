@@ -346,6 +346,44 @@ pub(super) unsafe fn call(
     }
 }
 
+// Narrow ABI for the per-byte queries (issue #364): a live borrowed storage
+// owner in a register, no ownership transfer, and no dispatcher argument
+// block. Indexing uses the dispatcher's list rules and trap message.
+
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_bytes_len(owner: *const u8) -> u64 {
+    // SAFETY: the compiler keeps the storage owner alive through the call.
+    unsafe { (*owner.cast::<Storage>()).bytes.len() as u64 }
+}
+
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_bytes_item(
+    owner: *const u8,
+    i: i64,
+    site: *const crate::Site,
+) -> u64 {
+    // SAFETY: as for `plenty_bytes_len`.
+    unsafe {
+        let bytes = &(*owner.cast::<Storage>()).bytes;
+        u64::from(bytes[super::index(i, bytes.len(), site)])
+    }
+}
+
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_bytes_set_item(
+    owner: *mut u8,
+    i: i64,
+    value: u64,
+    site: *const crate::Site,
+) {
+    // SAFETY: the caller holds an exclusive loan of a live storage owner.
+    unsafe {
+        let bytes = &mut (*owner.cast::<Storage>()).bytes;
+        let index = super::index(i, bytes.len(), site);
+        bytes[index] = value as u8;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

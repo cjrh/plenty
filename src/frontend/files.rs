@@ -166,7 +166,7 @@ impl Lower<'_> {
                 reads.extend(self.operand(arg, expected, source == Some(index), ops)?);
             }
         }
-        ops.push(Op::Collection(operation));
+        Self::push_query(operation, ops);
         for loan in loans.into_iter().rev() {
             ops.push(Op::UseLoan(loan));
         }

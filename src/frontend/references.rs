@@ -328,6 +328,32 @@ impl Lower<'_> {
     pub(super) fn end_reads(loans: Vec<usize>, ops: &mut Vec<Op>) {
         ops.extend(loans.into_iter().map(Op::UseLoan));
     }
+    /// Push `operation`, asking a borrowed [`Query`] instead when its operand
+    /// is a copy just read through a reference (issue #364). The reference
+    /// then reaches the query, and the loans that ended after the read move
+    /// past it, so the query observes the value in place: no retain or release.
+    ///
+    /// [`Query`]: crate::collection::Query
+    pub(super) fn push_query(operation: CollectionOp, ops: &mut Vec<Op>) {
+        if let Some(query) = crate::collection::Query::of(&operation) {
+            let read = ops.len()
+                - ops
+                    .iter()
+                    .rev()
+                    .take_while(|op| matches!(op, Op::UseLoan(_)))
+                    .count();
+            if read > 0 && ops[read - 1] == Op::ReadRef(query.operand()) {
+                let loans = ops.split_off(read);
+                ops.pop();
+                // The reference may be writable; the query only reads it.
+                ops.push(Op::Reborrow(Ty::Ref(Arc::new(query.operand()), false)));
+                ops.push(Op::Collection(CollectionOp::QueryRef(query)));
+                ops.extend(loans);
+                return;
+            }
+        }
+        ops.push(Op::Collection(operation));
+    }
     fn named_place(&self, e: &Expr) -> Result<Local> {
         match &e.kind {
             Expression::Group(e) => self.named_place(e),
@@ -772,6 +798,7 @@ impl Lower<'_> {
                 if self.byte_place(base).is_some()
                     || matches!(self.place_type(base), Some(Ty::List(element))
                     if element.is_numeric() || *element == Ty::Bool)
+                    || self.place_type(base) == Some(Ty::Str)
                 {
                     return self.index(e, ops).map(|ty| (ty, vec![]));
                 }

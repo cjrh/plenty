@@ -191,6 +191,7 @@ impl CollectionOp {
             | Clear(_)
             | Len(_)
             | ListLenRef(_)
+            | QueryRef(_)
             | ListScalarGetRef(_)
             | ListScalarSetRef(_)
             | ListSortBy(_)
@@ -206,9 +207,6 @@ impl CollectionOp {
             | TryValues(_)
             | ListTrySlice(_)
             | TextByteLen
-            | TextAtByte
-            | TextNextByte
-            | TextPrevByte
             | TextIndex
             | TextTryConcat
             | TextTryJoin(_)

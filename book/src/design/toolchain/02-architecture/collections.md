@@ -63,6 +63,15 @@ would. Bounds traps report the same site and message as the generic path. Codege
 on `Vec` layout or cached buffer addresses. Named receivers are borrowed without
 temporary retain/release; temporary owners are released after obtaining the result.
 
+`std.bytes` element reads and writes and `Bytes.len` use `plenty_bytes_item`,
+`plenty_bytes_set_item`, and `plenty_bytes_len`. Text `len`, `byte_len`,
+`isascii`, scalar indexing, and the forward and reverse iteration cursors use
+`plenty_text_*` helpers. A text or byte owner reached through a place (a local,
+parameter, field, or row) is read through a shared reference under the
+caller's loan, so the query neither retains nor releases it; other receivers
+are released after the call. A scalar text result is always inline. Indexing
+traps report the same site and message as the generic path.
+
 Managed reads and some nested projections retain the generic ownership path.
 String length is cached, UTF-8 scalar indexing scans boundaries, and text iteration
 uses a byte cursor. Compiler-generated builder/iterator locals count toward the
