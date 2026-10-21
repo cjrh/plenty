@@ -9,6 +9,7 @@ import std.io
 import std.log
 import std.net
 import std.ready
+import std.text
 import std.time
 import std.url
 from std.bytes import ByteSource, Bytes, BytesError
@@ -216,10 +217,7 @@ def valid_method(method: &str) -> bool:
         return True
     if method.byte_len() == 0:
         return False
-    for scalar in method:
-        if not (scalar.isalpha() or scalar.isdigit() or scalar == "-" or scalar == "_" or scalar == "."):
-            return False
-    True
+    std.text.find_not_in(method, b"-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz").is_none()
 
 def listed(values: &list[str], value: &str) -> bool:
     for index in range(len(values)):
@@ -230,10 +228,7 @@ def listed(values: &list[str], value: &str) -> bool:
 def valid_name(name: &str) -> bool:
     if name.byte_len() == 0:
         return False
-    for scalar in name:
-        if not (scalar.isalpha() or scalar.isdigit() or scalar == "_"):
-            return False
-    True
+    std.text.find_not_in(name, b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz").is_none()
 
 def parse_pattern(pattern: &str) -> Result[list[Segment], ServerError]:
     pieces = allocated(pattern.split("/"))?

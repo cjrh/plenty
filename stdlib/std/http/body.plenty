@@ -11,6 +11,7 @@ import std.http
 import std.http.server
 import std.io
 import std.json
+import std.text
 from std.bytes import Bytes, BytesError
 from std.fs import Root, TempFile
 from std.http import Header, HttpError
@@ -127,9 +128,6 @@ def code(data: &Bytes, index: i64) -> i64:
 
 def digit(value: i64) -> bool:
     value >= 48 and value <= 57
-
-def letter(value: i64) -> bool:
-    (value >= 65 and value <= 90) or (value >= 97 and value <= 122)
 
 # The end of the run of RFC 9110 tchar in `start..stop`: one bulk scan over
 # the set `std.http` reads field names with (issue #376). Callers pass
@@ -517,15 +515,7 @@ def valid_boundary(boundary: &str) -> bool:
     size = boundary.byte_len()
     if size < 1 or size > 70 or boundary.endswith(" "):
         return False
-    for scalar in boundary:
-        match ord(scalar):
-            case Ok(point):
-                value = i64(point)
-                if not (digit(value) or letter(value) or (value >= 39 and value <= 41) or (value >= 43 and value <= 47) or value == 58 or value == 61 or value == 63 or value == 95 or value == 32):
-                    return False
-            case Err(_):
-                return False
-    True
+    std.text.find_not_in(boundary, b" '()+,-./0123456789:=?ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz").is_none()
 
 class PartHead:
     name: str

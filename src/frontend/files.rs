@@ -88,6 +88,46 @@ impl Lower<'_> {
         Ok(loans)
     }
 
+    /// `__text_find_in(text, set, member)`: the text and the set are read
+    /// through shared loans, so the narrow helper retains neither
+    /// (issue #383).
+    pub(super) fn text_find_in(
+        &mut self,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        use crate::text::TextOp;
+        let [text, set, member] = args else {
+            return Err(at.error(format!("expected 3 arguments, got {}", args.len())));
+        };
+        if self.place_type(text) != Some(Ty::Str) {
+            return Err(text.at.error("expected a `str` place"));
+        }
+        let mut loans = vec![self.borrow(text, false, ops)?.1];
+        let operation = match self.byte_source(set) {
+            Some(ByteSource::Buffer(class)) => {
+                loans.push(self.byte_storage_place(&class, set, false, ops)?);
+                TextOp::FindIn
+            }
+            Some(ByteSource::Literal) if self.place_type(set).is_some() => {
+                loans.push(self.borrow(set, false, ops)?.1);
+                TextOp::FindInLiteral
+            }
+            _ => {
+                return Err(set
+                    .at
+                    .error("expected a named `std.bytes.Bytes` buffer or `bytes` literal place"));
+            }
+        };
+        let (actual, reads) = self.observe_expected(member, Some(Ty::U8), ops)?;
+        self.same(Some(actual), Some(Ty::U8), &member.at)?;
+        loans.extend(reads);
+        ops.push(Op::Collection(CollectionOp::Text(operation)));
+        Self::end_reads(loans, ops);
+        Ok(Some(Ty::I64))
+    }
+
     pub(super) fn bytes_call(
         &mut self,
         operation: crate::bytes::BytesOp,

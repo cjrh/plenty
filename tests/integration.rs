@@ -181,6 +181,8 @@ mod test_float_constants;
 mod test_float_left_constants;
 #[path = "test_float_negation.rs"]
 mod test_float_negation;
+#[path = "test_float_rounding.rs"]
+mod test_float_rounding;
 #[path = "test_fs_helpers.rs"]
 mod test_fs_helpers;
 #[path = "test_fstrings.rs"]
@@ -418,6 +420,8 @@ mod test_std_sync_mutex;
 mod test_std_tempfile;
 #[path = "test_std_test.rs"]
 mod test_std_test;
+#[path = "test_std_text_set_scans.rs"]
+mod test_std_text_set_scans;
 #[path = "test_std_text_unicode.rs"]
 mod test_std_text_unicode;
 #[path = "test_std_tls.rs"]

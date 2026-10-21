@@ -3758,11 +3758,13 @@ impl Lower<'_> {
                     return self.system_call(CollectionOp::Regex(operation), args, &e.at, ops);
                 }
                 if let Some(operation) = crate::text::TextOp::named(name) {
+                    if operation == crate::text::TextOp::FindIn {
+                        return self.text_find_in(args, &e.at, ops);
+                    }
                     if args.len() == 2
                         && args.iter().all(|arg| self.place_type(arg) == Some(Ty::Str))
                     {
                         // Compare text places in place (issue #364).
-                        let crate::text::TextOp::AsciiEqualFolded = operation;
                         let mut loans = Vec::new();
                         for arg in args {
                             loans.push(self.borrow(arg, false, ops)?.1);
