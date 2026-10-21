@@ -62,7 +62,8 @@ There is no yield-from, send/throw, or async/await.
 `Generator[T]`, with its yielded type inferred from `expression`. Multiple
 `for` and `if` clauses have the same scopes and nesting limits as comprehensions.
 The outer source evaluates once at creation; inner sources, filters, and the
-element expression run only as the frame advances. A sole call argument can
+element expression run only as the frame advances. A range outer source is
+stored in the frame and advances as a [counted loop](01-iterables.md). A sole call argument can
 omit parentheses: `any(n == 2 for n in range(10))`. With other arguments,
 parenthesize the generator expression.
 

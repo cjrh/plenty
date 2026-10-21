@@ -1268,7 +1268,10 @@ impl Lower<'_> {
             ]);
             self.reference_locals.insert(reference_slot, loan);
             plan.target = reference_slot;
-            plan.step.push(Op::DropLocal(value_slot));
+            // A range's counted loop advances its element slot in place.
+            if !matches!(ty, Ty::Range(_)) {
+                plan.step.push(Op::DropLocal(value_slot));
+            }
         }
         if borrowed {
             // The caller's loop scope owns these locals. A borrowed temporary
@@ -1590,6 +1593,11 @@ impl Lower<'_> {
     ) -> Result<Iteration> {
         if let Some(class) = byte_buffers::byte_buffer(&ty) {
             return self.byte_iteration(class, ty, reverse, at, ops);
+        }
+        if let Ty::Range(element) = &ty
+            && element.is_int()
+        {
+            return self.range_value_iteration((**element).clone(), reverse, at, ops);
         }
         let element = ty
             .element()
@@ -3182,9 +3190,7 @@ impl Lower<'_> {
 
     /// Iterate `range(args)` as a counted loop, without a range value or a
     /// runtime call per element (issue #121). The arguments are evaluated
-    /// once, before the loop, as for a range value. The loop variable is
-    /// immutable, so its slot also holds the next element: each step adds
-    /// the step with wrapping arithmetic, which the count keeps exact.
+    /// once, before the loop, as for a range value.
     fn counted_range_iteration(
         &mut self,
         args: &[Expr],
@@ -3208,6 +3214,45 @@ impl Lower<'_> {
             Op::RangeLength(element.clone()),
             Op::StoreLocal(remaining),
         ]);
+        self.counted_iteration((target, step, remaining), element, reverse, at, ops)
+    }
+
+    /// Iterate a range value as the same counted loop as a direct `range`
+    /// call (issue #371). Ranges are copyable inline values, so their first
+    /// element, step, and validated count are read once before the loop.
+    /// This covers ranges in locals, fields, and generator frames, which
+    /// include a generator expression's outer source.
+    fn range_value_iteration(
+        &mut self,
+        element: Ty,
+        reverse: bool,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        let target = self.slot(element.clone(), at)?;
+        let step = self.slot(Ty::I64, at)?;
+        let remaining = self.slot(Ty::I64, at)?;
+        ops.extend([
+            Op::RangeParts(element.clone()),
+            Op::StoreLocal(remaining),
+            Op::StoreLocal(step),
+            Op::StoreLocal(target),
+        ]);
+        self.counted_iteration((target, step, remaining), element, reverse, at, ops)
+    }
+
+    /// The loop over `remaining` elements from `target`, advancing by `step`.
+    /// The loop variable is immutable, so its slot also holds the next
+    /// element: each step adds the step with wrapping arithmetic, which the
+    /// count keeps exact.
+    fn counted_iteration(
+        &mut self,
+        (target, step, remaining): (u8, u8, u8),
+        element: Ty,
+        reverse: bool,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
         // The step at the element's width: modular addition of the
         // truncated step equals adding the full step and truncating.
         let advance = if element == Ty::I64 {
