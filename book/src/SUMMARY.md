@@ -403,6 +403,7 @@
             - [Support index](design/toolchain/02-architecture/support.md)
             - [Runtime contributor guide](runtime.md)
     - [Supplementary examples](design/examples/index.md)
+- [Syntax cheat sheet](design/examples/cheatsheet.md)
         - [Finder feasibility experiment](design/examples/finder.md)
         - [Choose a representation for linked data](design/examples/data-structures/index.md)
             - [Push, pop, and walk an owned chain](design/examples/data-structures/linked-stack.md)
