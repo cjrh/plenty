@@ -156,6 +156,9 @@ impl Lower<'_> {
                 .at
                 .error("augmented assignment currently requires a numeric destination"));
         }
+        if let Some(slot) = self.owned_local(target)? {
+            return self.augment_local(target, slot, ty, op, value, ops);
+        }
         let mut indices = Vec::new();
         self.assignment_indices(target, &mut indices, ops)?;
         // ElementRef consumes its key. Hashable keys are copyable, so the read
@@ -203,6 +206,57 @@ impl Lower<'_> {
             }
         }
         ops.push(Op::UseLoan(write));
+        Ok(())
+    }
+
+    /// The slot of a target naming a local that holds its value directly, as
+    /// opposed to a reference binding or closure capture, which update the
+    /// referent through a borrow.
+    fn owned_local(&self, target: &Expr) -> Result<Option<u8>> {
+        let Expression::Name(name) = &ungroup(target).kind else {
+            return Ok(None);
+        };
+        if self.captures.contains(name) {
+            return Ok(None);
+        }
+        let Some(local) = self.names.get(name) else {
+            return Ok(None);
+        };
+        if matches!(local.ty, Ty::Ref(..)) {
+            return Ok(None);
+        }
+        if !local.mutable {
+            return Err(target.at.error(format!(
+                "immutable binding: `{name}` is immutable; declare it with `mut`"
+            )));
+        }
+        Ok(Some(local.slot))
+    }
+
+    /// `name op= value` on a numeric local reads and writes the local directly.
+    /// Taking its address instead would keep the local in stack memory (issue
+    /// #361). A shared loan without an address still covers the RHS, so the
+    /// RHS cannot modify or exclusively borrow the destination.
+    fn augment_local(
+        &mut self,
+        target: &Expr,
+        slot: u8,
+        ty: Ty,
+        op: &str,
+        value: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        self.mark(&target.at, ops);
+        let read = self.new_loan(slot, false, None, ops);
+        let current = self.expr(target, ops)?;
+        self.same(current, Some(ty.clone()), &target.at)?;
+        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
+        self.same(actual, Some(ty.clone()), &value.at)?;
+        self.mark_arithmetic(op, &ty, &target.at, ops);
+        Self::numeric_operation(op, ty, &target.at, ops)?;
+        ops.push(Op::UseLoan(read));
+        self.mark(&target.at, ops);
+        ops.push(Op::StoreLocal(slot));
         Ok(())
     }
 

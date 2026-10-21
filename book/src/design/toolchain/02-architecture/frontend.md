@@ -108,6 +108,10 @@ whole-program alias analysis or per-call inspection of function bodies.
 
 Native lowering still consumes structured operations. Cranelift SSA variables
 represent slots; stores define variables and sealed joins reconcile paths.
+Only slots whose address is taken (`&x`, `&mut x`) or whose values have inline
+storage live in the function's stack frame; the frame holds those slots alone.
+Augmented assignment of a local (`x += 1`) takes no address. Generators and
+functions that start threads keep every slot in memory.
 Source spans and marker operations carry diagnostic provenance without changing
 move or loan rules. A generic instance also records the use that first required
 it, so that lowering and ownership errors in its body are

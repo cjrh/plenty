@@ -199,3 +199,153 @@ print(table).unwrap()
         "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n{\"123456789\": [7]}\n",
     );
 }
+
+#[test]
+fn local_updates_follow_branches_loops_and_borrows() {
+    expect(
+        r#"
+def bump(value: &mut i64) -> ():
+    *value += 10
+def walk(stop: i64) -> (i64, i64, i64):
+    mut total = 0
+    mut calls = 0
+    mut index = 0
+    while index < stop:
+        if index % 2 == 0:
+            total += index
+        elif index == 3:
+            total -= 1
+            continue_from = index
+            index += continue_from
+            continue
+        else:
+            total *= 2
+        index += 1
+    bump(&mut calls)
+    calls += 1
+    view = &mut calls
+    *view += 100
+    calls -= 1
+    (total, calls, index)
+mut count = 1
+count += count
+mut point = (1, 2)
+grid = &mut point
+mut steps = 0u8
+while steps < 3:
+    steps += 1
+*grid = (3, 4)
+print((count, steps, point, walk(9))).unwrap()
+"#,
+        "(2, 3, (3, 4), (22, 110, 9))\n",
+    );
+}
+
+#[test]
+fn local_updates_keep_checked_overflow() {
+    for source in [
+        "mut small = 250u8\nwhile True:\n    small += 1",
+        "mut wide = 9223372036854775807\nwide += 1",
+        "mut product: i32 = 65536\nproduct *= 65536",
+    ] {
+        let output = support::run(source);
+        assert!(!output.status.success(), "{source}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("overflow"),
+            "{source}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn local_updates_respect_outstanding_borrows() {
+    for (source, message) in [
+        (
+            "mut score = 2\nview = &score\nscore += 1\nprint(*view).unwrap()",
+            "while it is",
+        ),
+        (
+            "mut score = 2\nview = &mut score\nscore += 1\n*view += 1",
+            "while it is",
+        ),
+        (
+            "mut score = 2\nview = &mut score\nscore += *view",
+            "exclusively borrowed",
+        ),
+        (
+            "def reset(value: &mut i64) -> i64:\n    *value = 0\n    1\nmut score = 2\nscore += reset(&mut score)",
+            "cannot modify or exclusively borrow `score` while it is borrowed",
+        ),
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(error.contains(message), "{source}\n{error}");
+    }
+}
+
+/// Issue #361: `+=` on a local used to borrow it, which put every local of
+/// the function in stack memory. Only locals whose address is taken, or that
+/// have inline storage, belong in the frame.
+#[test]
+fn local_updates_keep_unborrowed_locals_out_of_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("frame.plenty"),
+        r#"def count(stop: i64) -> i64:
+    mut total = 0
+    mut index = 0
+    while index < stop:
+        total += index
+        index += 1
+    total
+
+def bump(value: &mut i64) -> ():
+    *value += 1
+
+def mixed(stop: i64) -> i64:
+    mut calls = 0
+    mut total = 0
+    mut index = 0
+    while index < stop:
+        total += index
+        index += 1
+    bump(&mut calls)
+    total + calls
+
+def main() -> Result[(), AllocError | IoError]:
+    print(count(4))?
+    print(mixed(4))?
+    Ok(())
+"#,
+    )
+    .unwrap();
+    let output = std::process::Command::new(support::plenty_bin())
+        .current_dir(dir.path())
+        .env("PLENTY_CACHE", "off")
+        .args(["--dump", "ops,clif", "frame.plenty", "-o", "out"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let section = |stage: &str, name: &str| {
+        let text = std::fs::read_to_string(dir.path().join("out").join(stage)).unwrap();
+        let start = text
+            .find(&format!("==== {name} "))
+            .unwrap_or_else(|| panic!("no `{name}` in {stage}"));
+        let rest = &text[start + 5..];
+        rest[..rest.find("\n==== ").unwrap_or(rest.len())].to_string()
+    };
+    assert!(!section("ops.txt", "count").contains("BorrowLocal"));
+    assert!(!section("clif.txt", "count").contains("explicit_slot"));
+    // `calls` is borrowed: one 16-byte local slot, not one per local.
+    let mixed = section("clif.txt", "mixed");
+    let slots: Vec<_> = mixed
+        .lines()
+        .filter(|line| line.contains("explicit_slot"))
+        .collect();
+    assert_eq!(slots.len(), 1, "{mixed}");
+    assert!(slots[0].contains("explicit_slot 16,"), "{mixed}");
+}
