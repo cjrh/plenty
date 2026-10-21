@@ -24,8 +24,9 @@ total = iter(&payments)
 
 A pipeline is not a generator and not a library object. The compiler lowers the
 whole chain at its consumer into one loop, the same loop a hand-written `for`
-or comprehension produces, with each callback called directly. Only terminals
-that build a collection allocate, and they return `Result`. A `.par(&pool)` step
+or comprehension produces, with each callback called directly. Serial pipeline
+machinery allocates only when a terminal builds a collection, returning `Result`.
+A `.par(&pool)` step
 moves the rest of the pipeline onto an explicit thread pool, reusing the
 existing ordered `map` and fixed-tree `reduce` contracts.
 
@@ -142,12 +143,23 @@ it.** It may be:
   ownership and can continue or collect it afterwards;
 - turned into an owned generator with a generator expression,
   `(x for x in pipeline)`, when the items themselves must cross a function
-  boundary. That conversion is explicit and costs what generators cost today.
+  boundary, subject to the ownership restrictions below. That conversion is
+  explicit and costs what generators cost today.
 
 It may not be returned, passed by value, stored, captured, or held across
 `yield`. Because a pipeline never outlives its scope, it can hold borrowed
 sources and closures with borrowed captures. This removes gaps 2 and 3
 without waiting for stored references (B11).
+
+**Generator conversion is an explicit lowering boundary, not permission to
+store an `Iter` value.** The compiler consumes the plan and transfers its owned
+source, callback environments and progress into a generator frame. Conversion
+is allowed only when all of that state meets the existing
+[generator capture, storage and yield rules](../design/language/09-iteration/03-generators.md).
+Borrowed sources, borrowed callback captures and sub-pipelines lending another
+pipeline are rejected, even if their yielded items are owned. No loan may cross
+`yield`, and no implicit copying makes a borrowed pipeline eligible. The
+resulting generator may leave the scope; the unfinished pipeline itself may not.
 
 ### Lending a pipeline to a function
 
@@ -258,7 +270,9 @@ Rules that keep callbacks predictable:
   `chain` requires both sides to have exactly the same item type.
 - `take_while` drops the first rejected item; there is no peeking.
 - `flat_map`'s callback must return an owned pipeline source (a list, range,
-  generator, or a nested pipeline created inside the callback).
+  or generator). Returning a nested `Iter` is rejected by the same no-return
+  rule as any other pipeline. A callback may use an eligible explicit generator
+  conversion, with the frame cost and ownership restrictions described above.
 
 Later additions, each needing a use case: `step_by`, `map_while`, `scan`,
 `inspect`, `chunks(n)` and `windows(n)` over borrowed lists (as borrowed
@@ -340,6 +354,12 @@ item type is known from the same chain, under B16) remains an
 [open question](#open-questions); it can be added without breaking code that
 writes the types.
 
+The [closure and inference design history](typed-ranges-and-expression-inference.md#reserve-space-for-functions-as-values-and-closures)
+also constrains this choice: captures remain explicit, their loans stay live
+while callbacks may use them, and whether lowering inlines a callback must not
+change which captures are legal. Parameter inference would not imply capture
+ownership inference.
+
 ### Terminals
 
 | Terminal | Result | Notes |
@@ -352,13 +372,21 @@ writes the types.
 | `.for_each(f)` | `()` | `f: (Item) -> ()`; prefer a `for` loop when the body has statements |
 | `.last()` | `Option[Item]` | |
 | `.collect()` | `Result[C, AllocError]` | `C` is the expected `list[T]`, `set[T]` or `dict[K, V]`; see below |
-| `.try_fold(initial, f)` | `Result[A, E]` | Stops at the first `Err` |
-| `.try_for_each(f)` | `Result[(), E]` | Same |
+| `.try_fold(initial, f)` | `Result[A, E]` | `f: (A, Item) -> Result[A, E]`; stops at the first callback `Err` |
+| `.try_for_each(f)` | `Result[(), E]` | `f: (Item) -> Result[(), E]`; stops at the first callback `Err` |
 | `.try_collect()` | `Result[C, AllocError \| E]` | Over `Result[T, E]` items; same targets; first `Err` wins |
 
-`collect` and `try_collect` are the only terminals that allocate. The `try_`
-prefix means "items are `Result`, stop at the first `Err`" and applies
-uniformly.
+For serial pipeline machinery, `collect` and `try_collect` are the only
+terminals that allocate. The `try_` prefix means stopping at the first error,
+but the error source differs: `try_collect` consumes `Result` items, whereas
+`try_fold` and `try_for_each` consume ordinary items and call a fallible callback.
+This preserves the current [`std.iter.try_fold`](../design/stdlib/iter.md)
+contract; these callback terminals do not implicitly unwrap `Result` items.
+
+Early-exit terminals drop the remaining state when consuming an owned pipeline.
+Through `&mut Iter[T]`, they leave the unvisited remainder with the caller,
+just as a borrowed consuming loop does. An item already passed to a callback
+or tested by a predicate has been consumed, including the item causing an error.
 
 ### Choosing the collection
 
@@ -459,26 +487,37 @@ accept a pipeline (or add pipeline overloads there), so `sum` keeps one home.
 
 Closure bodies never return from the enclosing function. A `?` inside a callback
 returns from the callback, as it does today, so a fallible step produces
-`Result` items. Handle them with a `try_` terminal, which stops at the first
-`Err` and drops the rest of the pipeline, or with a `for` loop whose body uses
+`Result` items. Handle them with `try_collect`, which stops at the first
+`Err` and drops the rest of an owned pipeline, or with a `for` loop whose body uses
 `?`:
 
 ```text
 parsed: list[i64] = iter(&lines).map(def(l: &str) -> Result[i64, ParseError]: parse_int(l)).try_collect()?
 ```
 
-The `try_` terminals widen with `AllocError` exactly as anonymous sums widen
-today. There is no implicit error collection and no hidden recovery.
+`try_fold` and `try_for_each` instead propagate their callback's first error;
+handling a `Result` item inside that callback must be explicit. `try_collect`
+widens its item error with `AllocError` exactly as anonymous sums widen today.
+The callback terminals add no allocation error of their own. There is no
+implicit error collection and no hidden recovery.
 
 ### Allocation
 
-A pipeline allocates nothing of its own: no iterator object, no frame, no item
+A serial pipeline allocates nothing of its own: no iterator object, no frame, no item
 buffer, no closure environment beyond the inline one. Only the `collect`
 family allocates, and it returns `Result`. Callback bodies and source
 expressions keep their own contracts. `collect` reserves capacity
 when the pipeline's length is known exactly (a range or collection source with
 only `map`, `enumerate`, `zip` or `take`), and otherwise grows like a
 comprehension.
+
+These guarantees follow the reference's
+[allocation boundaries](../design/language/08-errors/02-allocation-and-traps.md):
+user callbacks, source expressions and destructors retain their own allocation
+behavior. Explicit generator conversion introduces an inline frame. Parallel
+execution is a separate boundary: job cells, output buffers and reduction
+scratch storage can allocate even for a non-collecting terminal, and failures
+must be reported through its parallel error type.
 
 ### Ownership and cleanup
 
@@ -491,7 +530,10 @@ comprehension.
   as long as the pipeline. Two adapters may not both hold `&mut` to the same
   binding, by the ordinary aliasing rule.
 - `break`, `return` and `?` in a consuming loop drop the remaining source,
-  pending items and closures, as loops over generators do today.
+  pending items and closures when the loop owns the pipeline, as loops over
+  owned generators do today. A consumer borrowing `&mut Iter[T]` instead
+  releases its local state and loan, leaving the owner's remaining pipeline
+  available; early termination does not destroy the caller's source or closures.
 - `def once` closures are rejected as adapter callbacks, since adapters call
   their callbacks repeatedly. A terminal that calls its callback at most once
   (none in the core set) could accept them later.
@@ -571,6 +613,11 @@ Acceptance for the implementation, not optional extras:
    loan errors for borrowed sources, partial consumption through `&mut Iter[T]`
    followed by collection in the caller, and every rejected placement (return,
    pass by value, store, capture, `yield`) with specific diagnostics.
+   Cover owned generator conversion and rejection of borrowed conversion,
+   `flat_map` returning `Iter`, and the distinct callback-error and item-error
+   terminal contracts. For parallel stages, verify tree shape across worker
+   counts and chunk boundaries, earliest-input error selection, and draining
+   accepted work on early termination and infrastructure failure.
 
 ## For loops, comprehensions and generator expressions
 
@@ -605,7 +652,7 @@ Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
 
 - **Sources.** Owned lists and integer ranges, as `pool.map` accepts today.
   Borrowed lists follow once scoped pool jobs can borrow (B22).
-- **Allowed steps after `par`.** `map`, `filter`, and `enumerate` applied
+- **Allowed steps after `par`.** `map` and `filter`; `enumerate` must be applied
   before `par`. Order-dependent steps (`take`, `skip`, `take_while`, `chain`,
   `zip`, `flat_map`) are rejected after `par` with a diagnostic naming the step.
 - **Callbacks.** Statically named functions or reusable immutable closures that
@@ -621,6 +668,22 @@ Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
   parallel `fold`: it would need an identity and associativity the type system
   cannot check. `for` loops and `for_each` are rejected after `par`, since
   their bodies would run concurrently.
+- **Reduction tree.** Preserve the exact
+  [fixed-tree reduction contract](../design/facilities/03-concurrency/parallel-reduce.md):
+  adjacent pairs in each round, carrying an odd final item forward. After
+  filtering, use the retained items in input order. Worker count and chunk
+  boundaries must not change that tree; independently reducing each chunk and
+  then combining chunk results is not equivalent. Empty input yields `Nothing`.
+- **Early termination and effects.** Follow the
+  [fallible mapping contract](../design/facilities/03-concurrency/parallel-map.md):
+  `try_collect` selects the lowest original input index's worker error, including
+  across chunks. An earlier accepted input's error takes precedence over a later
+  submission failure. Accepted work is drained before returning, and partial
+  outputs are dropped exactly once. For `any`/`all`, a decisive result may stop
+  further submission, but already accepted chunks may still run callbacks;
+  their effects are not undone. These terminals do not promise the serial
+  callback count. An infrastructure failure already encountered is still
+  reported, rather than hidden by a decisive boolean result.
 - **Result type.** Parallel terminals return `Result[_, PoolMapError]` or
   `ParallelError[E]`, because submission can fail and the pool can be shut down.
 - **Granularity.** Each job runs the fused `map`/`filter` body over a
@@ -673,6 +736,13 @@ benefit and whether effect checks are sufficient.
 Lets `numbers(3).map(sq)` call `std.iter.map`. Cheap to add, but keeps the 9x
 per-item cost and the generator-only, owned-capture limits, and an import that
 adds methods contradicts the protocol rule that imports never add methods.
+
+The related [protocol method bodies proposal](protocol-method-bodies.md)
+distinguishes provided methods selected through a bound or protocol qualification
+from automatic method injection. Its agreed, unimplemented design preserves
+that import rule. Provided bodies could share adapter implementation logic,
+but do not by themselves add fluent methods to built-in generators or remove
+their frame and dispatch costs.
 
 **Rust's model: generic adapter structs plus inlining.** Requires storing
 generator frames and closures in generic class fields (rejected today),
@@ -738,7 +808,7 @@ scope, with lending for helpers, ships the useful part now.
 
 Suggested backlog row: **B75 — Fluent iterator pipelines.** "`iter(source)`
 pipelines with chained adapters and terminals, fused at the consumer into one
-loop with no runtime dispatch or allocation outside collecting terminals.
+loop with no adapter dispatch or serial machinery allocation outside collecting terminals.
 Stages: serial core, composition and `std.iter` deprecation, lending as
 `&mut Iter[T]`, explicit `.par(&pool)`. Depends on issue #371. Relates to B12,
 B22, B24, B49. Design: `proposals/fluent-iterators.md`."
