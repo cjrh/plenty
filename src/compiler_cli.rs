@@ -12,6 +12,7 @@ Usage: {0} FILE
        {0} --check-module FILE
        {0} --compile FILE -o OUT
        {0} --emit-object FILE -o OUT
+       {0} --dump STAGES FILE -o DIR [--dump-std] [--dump-filter TEXT]
        {0} --fuzz FILE -o OUT [--libfuzzer PATH]
        {0} --shared-library FILE --library-name NAME -o OUT
        {0} --static-library FILE --library-name NAME -o OUT
@@ -32,6 +33,11 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --check-module: check a library module without requiring main.
 --compile: emit a native executable with Cranelift.
 --emit-object: emit an application object without linking (requires main).
+--dump: write each function's compiler output as text to DIR (`-o -` prints
+  it): index.txt, then one file per stage. STAGES is `all` or a comma list of
+  ops, clif, clif-opt, asm. Bypasses both caches; links nothing.
+--dump-std: include standard-library functions in --dump.
+--dump-filter TEXT: dump only functions whose name or symbol contains TEXT.
 --fuzz: emit a coverage-instrumented libFuzzer executable that runs main once
   per input; main reads the input through fuzz_input_size/fuzz_input_byte.
 --libfuzzer PATH: libFuzzer archive for --fuzz (default: clang's
@@ -60,6 +66,34 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 
 pub fn usage(program: &str) -> String {
     USAGE.replace("{0}", program)
+}
+
+/// Write `dump`'s files into the directory `output`, or to standard output
+/// under `#### NAME` headers when `output` is `-`. Stage files a previous dump
+/// left in the directory are removed, so none is mistaken for this one's.
+fn write_dump(dump: &plenty::Dump, output: &str) -> Result<(), Box<dyn Error>> {
+    use std::io::Write;
+    if output == "-" {
+        let mut stdout = std::io::stdout().lock();
+        for (name, text) in &dump.files {
+            writeln!(stdout, "#### {name}")?;
+            stdout.write_all(text.as_bytes())?;
+        }
+        return Ok(());
+    }
+    let directory = Path::new(output);
+    std::fs::create_dir_all(directory)?;
+    for stage in plenty::DumpStage::ALL {
+        let name = format!("{}.txt", stage.name());
+        let path = directory.join(&name);
+        if path.is_file() && !dump.files.iter().any(|(written, _)| *written == name) {
+            std::fs::remove_file(path)?;
+        }
+    }
+    for (name, text) in &dump.files {
+        std::fs::write(directory.join(name), text)?;
+    }
+    Ok(())
 }
 
 /// Run the compiler interface on `args`, excluding the program name.
@@ -166,17 +200,35 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         args.remove(index);
         options.cache_stats = true;
     }
+    let mut dump = plenty::DumpOptions::default();
+    let mut dump_options = false;
+    if let Some(index) = args.iter().position(|a| a == "--dump-std") {
+        args.remove(index);
+        dump.standard_library = true;
+        dump_options = true;
+    }
+    if let Some(index) = args.iter().position(|a| a == "--dump-filter") {
+        args.remove(index);
+        if index == args.len() || args[index].is_empty() {
+            return Err("--dump-filter requires nonempty text".into());
+        }
+        dump.filter = Some(args.remove(index));
+        dump_options = true;
+    }
     if let Some(index) = args.iter().position(|a| a == "--release") {
         args.remove(index);
         let compiles = match args.as_slice() {
             [source] => !source.starts_with('-'),
-            [flag, ..] => flag == "--compile" || flag == "--fuzz",
+            [flag, ..] => flag == "--compile" || flag == "--fuzz" || flag == "--dump",
             [] => false,
         };
         if !compiles {
-            return Err("--release requires FILE, --compile, or --fuzz".into());
+            return Err("--release requires FILE, --compile, --fuzz, or --dump".into());
         }
         options.optimize = true;
+    }
+    if dump_options && !args.first().is_some_and(|a| a == "--dump") {
+        return Err("--dump-std and --dump-filter require --dump".into());
     }
     if options.target.is_some() {
         plenty::validate_target(options.target.as_deref())?;
@@ -207,6 +259,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                         | "--help"
                         | "-h"
                         | "--emit-object"
+                        | "--dump"
                         | "--emit-runtime"
                         | "--extract-interface"
                         | "--verify-interface"
@@ -304,6 +357,13 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                 root.as_deref(),
                 &options,
             )?;
+        }
+        [flag, stages, source, option, output]
+            if flag == "--dump" && !legacy && (option == "-o" || option == "--output") =>
+        {
+            dump.stages = plenty::DumpStage::parse_list(stages)?;
+            let result = plenty::dump_file(Path::new(source), root.as_deref(), &options, &dump)?;
+            write_dump(&result, output)?;
         }
         [] if !legacy => {
             print!("{}", usage(program));

@@ -20,7 +20,7 @@ restrictions live with their contracts.
 | Concurrency | [Threads, channels, pools, futures, and parallel operations](../../facilities/03-concurrency/index.md), with [atomics](../../stdlib/atomic.md) and [mutexes](../../facilities/03-concurrency/mutex.md) shared through scoped-thread borrows or atomically counted [`Shared[T]`](../../facilities/01-builtins/shared.md) owners; certified worker effects, serial ordinary loops; no weak handles |
 | Interoperability | [Trusted C imports, exports, metadata, and runtime loading](../../facilities/04-interop/index.md) |
 | Editor support | [Language server](../01-building/language-server.md) with diagnostics, hover, go to definition, and completion, configured for [Neovim](../01-building/neovim.md); generic bodies resolve per instantiation |
-| Native toolchain | [Commands and artifacts](../01-building/index.md); `x86_64-unknown-linux-gnu` only; [release archives](../01-building/installing.md) for glibc 2.28 or later, linking with the host `cc` |
+| Native toolchain | [Commands and artifacts](../01-building/index.md), and [per-function IR and assembly dumps](dump.md); `x86_64-unknown-linux-gnu` only; [release archives](../01-building/installing.md) for glibc 2.28 or later, linking with the host `cc` |
 
 There is no interpreter, REPL, JIT, async/await, inheritance, dynamic attributes,
 or exception unwinding. Future work and priorities remain in the

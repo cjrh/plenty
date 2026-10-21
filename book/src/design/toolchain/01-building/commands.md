@@ -10,6 +10,7 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 | `plenty --check-module FILE` | Check a module and imports without requiring `main` |
 | `plenty --compile FILE -o OUT` | Produce a standalone executable |
 | `plenty --emit-object FILE -o OUT` | Emit one application object, including imported modules; requires `main` |
+| `plenty --dump STAGES FILE -o DIR` | Write each function's [IR and machine code as text](../02-architecture/dump.md); `--dump-std` and `--dump-filter TEXT` select functions |
 | `plenty --fuzz FILE -o OUT` | Produce a coverage-instrumented [libFuzzer executable](fuzzing.md) that runs `main` once per input; `--libfuzzer PATH` selects libFuzzer |
 | `plenty --shared-library FILE --library-name NAME -o OUT` | Build a shared C library with generated header and interface |
 | `plenty --static-library FILE --library-name NAME -o OUT` | Build a static C library with generated header and interface |
@@ -20,7 +21,7 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 | `plenty --print-target` | Print the packaged runtime's target and CPU baseline |
 | `plenty --version` (`-V`) | Print the compiler's version and target: `plenty X.Y.Z (x86_64-unknown-linux-gnu)`, where `X.Y.Z` is the installed version |
 
-`--release` before `FILE`, `--compile`, or `--fuzz` selects Cranelift's speed
+`--release` before `FILE`, `--compile`, `--fuzz`, or `--dump` selects Cranelift's speed
 optimizations, like the [release profile](packages.md#profiles).
 
 Compiled functions are reused from the

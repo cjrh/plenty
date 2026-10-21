@@ -14,9 +14,10 @@ use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::Function;
 use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
 use cranelift_frontend::FunctionBuilderContext;
-use cranelift_module::{FuncId, Module, ModuleReloc};
+use cranelift_module::{FuncId, Module, ModuleReloc, ModuleRelocTarget};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
+use super::dump::{Capture, Entry, Plan};
 use super::symbols::{self, Declared, Request, Symbols};
 use super::{Result, Runtime};
 use crate::cache::{Cache, MachineCode};
@@ -74,6 +75,10 @@ pub(super) struct Output {
     cache: Option<Arc<Cache>>,
     /// Instrument functions built on workers for coverage ([`coverage`]).
     pub coverage: bool,
+    /// The functions `--dump` captures ([`super::dump`]), and their text in
+    /// placement order.
+    pub dump: Option<Arc<Plan>>,
+    pub dumped: Vec<Entry>,
 }
 
 struct Code {
@@ -106,6 +111,7 @@ struct Built {
     id: FuncId,
     code: Compiled,
     requests: Vec<Request>,
+    capture: Option<Box<Capture>>,
 }
 
 /// A job's functions, or why the job failed. Errors cross threads as text.
@@ -138,20 +144,28 @@ impl Output {
             context: Context::new(),
             cache,
             coverage: false,
+            dump: None,
+            dumped: Vec::new(),
         })
     }
 
     /// Compile `func` on this thread as the body of the declared function
     /// `id`. Its IR must name only symbols declared in the module.
     pub(super) fn define(&mut self, id: FuncId, func: Function) -> Result<()> {
+        let mut capture = self
+            .dump
+            .as_ref()
+            .filter(|plan| plan.wants(id, Some(&self.module)))
+            .map(|_| Box::new(Capture::new(&func)));
         let code = compile(
             &mut self.context,
             self.targets.for_function(&func),
             id,
             func,
             self.cache.as_deref(),
+            capture.as_deref_mut(),
         );
-        self.place(id, code, |_, _| Ok(()))
+        self.place(id, code, &[], capture, |_, _| Ok(Vec::new()))
     }
 
     #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -185,10 +199,9 @@ impl Output {
         runtime: &Runtime,
         build: impl Fn(J, &mut Worker) -> Result<()> + Sync,
     ) -> Result<()> {
-        let declared = Arc::new(Declared::snapshot(
-            &self.module,
-            self.targets.ordinary.clone(),
-        ));
+        let mut declared = Declared::snapshot(&self.module, self.targets.ordinary.clone());
+        declared.lines = self.dump.is_some();
+        let declared = Arc::new(declared);
         let total = jobs.len();
         let queue = Mutex::new(jobs.into_iter().enumerate());
         let stop = AtomicBool::new(false);
@@ -196,21 +209,23 @@ impl Output {
         let targets = self.targets.clone();
         let cache = self.cache.clone();
         let coverage = self.coverage;
+        let dump = self.dump.clone();
         std::thread::scope(|scope| {
-            let shared = (&queue, &stop, &build, &targets, &declared, &cache);
+            let shared = (&queue, &stop, &build, &targets, &declared, &cache, &dump);
             let mut helpers = 0;
             for _ in 0..workers.min(total) {
                 let finished = finished.clone();
                 let spawned = std::thread::Builder::new()
                     .stack_size(crate::parallel::HELPER_STACK_BYTES)
                     .spawn_scoped(scope, move || {
-                        let (queue, stop, build, targets, declared, cache) = shared;
+                        let (queue, stop, build, targets, declared, cache, dump) = shared;
                         let mut worker = Worker::new(
                             targets.clone(),
                             Arc::clone(declared),
                             cache.clone(),
                             coverage,
                         );
+                        worker.dump = dump.clone();
                         work(queue, stop, build, &mut worker, &finished);
                     });
                 // A helper that cannot be spawned only costs speed.
@@ -225,6 +240,7 @@ impl Output {
                     cache.clone(),
                     coverage,
                 );
+                worker.dump = dump.clone();
                 work(&queue, &stop, &build, &mut worker, &finished);
             }
             drop(finished);
@@ -256,25 +272,45 @@ impl Output {
                 early.extend(batch);
             };
             for built in finished? {
-                self.place(built.id, built.code, |module, relocs| {
-                    symbols::resolve(module, runtime, built.id, &built.requests, relocs)
-                })?;
+                self.place(
+                    built.id,
+                    built.code,
+                    &built.requests,
+                    built.capture,
+                    |module, relocs| {
+                        symbols::resolve(module, runtime, built.id, &built.requests, relocs)
+                    },
+                )?;
             }
         }
         Ok(())
     }
 
+    /// Define `id` with `code`, after `relocate` names the symbols the body
+    /// requested, returning what each request became.
     fn place(
         &mut self,
         id: FuncId,
         code: Compiled,
-        relocate: impl FnOnce(&mut ObjectModule, &mut [ModuleReloc]) -> Result<()>,
+        requests: &[Request],
+        capture: Option<Box<Capture>>,
+        relocate: impl FnOnce(&mut ObjectModule, &mut [ModuleReloc]) -> Result<Vec<ModuleRelocTarget>>,
     ) -> Result<()> {
         let mut code = code.map_err(|error| {
             let declaration = self.module.declarations().get_function_decl(id);
             format!("compiling `{}`: {error}", declaration.linkage_name(id))
         })?;
-        relocate(&mut self.module, &mut code.relocs)?;
+        let targets = relocate(&mut self.module, &mut code.relocs)?;
+        if let (Some(plan), Some(capture)) = (&self.dump, capture) {
+            let entry = plan.entry(
+                &self.module,
+                id,
+                *capture,
+                (code.bytes.as_slice(), &code.relocs),
+                (requests, &targets),
+            );
+            self.dumped.push(entry);
+        }
         self.module.define_function_bytes(
             id,
             code.alignment,
@@ -331,6 +367,7 @@ pub(super) struct Worker {
     declared: Arc<Declared>,
     cache: Option<Arc<Cache>>,
     coverage: bool,
+    dump: Option<Arc<Plan>>,
     built: Vec<Built>,
 }
 
@@ -348,6 +385,7 @@ impl Worker {
             declared,
             cache,
             coverage,
+            dump: None,
             built: Vec::new(),
         }
     }
@@ -362,20 +400,46 @@ impl Worker {
         if self.coverage {
             super::coverage::instrument(&mut func, &mut symbols);
         }
+        let mut capture = self
+            .dump
+            .as_ref()
+            .filter(|plan| plan.wants(id, None))
+            .map(|_| Box::new(Capture::new(&func)));
         let isa = self.targets.for_function(&func);
-        let code = compile(&mut self.context, isa, id, func, self.cache.as_deref());
+        let code = compile(
+            &mut self.context,
+            isa,
+            id,
+            func,
+            self.cache.as_deref(),
+            capture.as_deref_mut(),
+        );
         self.built.push(Built {
             id,
             code,
             requests: symbols.into_requests(),
+            capture,
         });
     }
+}
+
+/// [`compile`] without a capture.
+#[cfg(test)]
+fn compile_uncaptured(
+    context: &mut Context,
+    isa: &dyn TargetIsa,
+    id: FuncId,
+    func: Function,
+    cache: Option<&Cache>,
+) -> Compiled {
+    compile(context, isa, id, func, cache, None)
 }
 
 /// Compile `func`, or take its code from `cache`. A hit yields the code the
 /// compilation would have: Cranelift keys on the function without its
 /// external names and applies this function's names to the cached result,
-/// and the IR's requested symbols were rebuilt with it ([`symbols`]).
+/// and the IR's requested symbols were rebuilt with it ([`symbols`]). With
+/// `capture`, keep what `--dump` shows of the result there.
 #[cfg_attr(feature = "profile", hotpath::measure)]
 fn compile(
     context: &mut Context,
@@ -383,6 +447,7 @@ fn compile(
     id: FuncId,
     func: Function,
     cache: Option<&Cache>,
+    capture: Option<&mut Capture>,
 ) -> Compiled {
     context.func = func;
     let compiled = crate::profile_block!(
@@ -423,6 +488,18 @@ fn compile(
             }
         })
     });
+    if let (Ok(_), Some(capture)) = (&code, capture) {
+        capture.after = Some(context.func.clone());
+        if let Some(compiled) = context.compiled_code() {
+            capture.srclocs = compiled
+                .buffer
+                .get_srclocs_sorted()
+                .iter()
+                .filter(|range| !range.loc.is_default())
+                .map(|range| (range.start, range.end, range.loc.bits()))
+                .collect();
+        }
+    }
     crate::profile_block!("output::clear_context", context.clear());
     code
 }
@@ -567,7 +644,7 @@ mod tests {
     }
 
     fn machine_code(isa: &dyn TargetIsa, func: &Function) -> Vec<u8> {
-        compile(
+        compile_uncaptured(
             &mut Context::new(),
             isa,
             FuncId::from_u32(0),
@@ -692,6 +769,60 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
             serial == object(&source, 8, cached),
             "warm cache changed the object"
         );
+    }
+
+    /// `--dump` sets source locations, which are part of the cache key; they
+    /// must not change the code. Its text must not depend on the worker count
+    /// (issue #360).
+    #[test]
+    fn dump_changes_no_code_and_ignores_worker_count() {
+        let source = "class Point:
+    x: i64
+    y: i64
+
+def first[T](items: &list[T]) -> i64:
+    len(items)
+
+def main() -> Result[(), AllocError | IoError]:
+    p = Point(3, 4)
+    xs = [p.x, p.y]?
+    print(first(&xs))?
+    offset = 5
+    add = def [offset](v: i64) -> i64:
+        v + offset
+    print(add(2))?
+    Ok(())
+";
+        let options = super::super::DumpOptions {
+            stages: super::super::DumpStage::ALL.to_vec(),
+            standard_library: true,
+            filter: None,
+        };
+        let dumped = Build {
+            dump: Some(options.clone()),
+            ..Build::default()
+        };
+        assert!(
+            object(source, 1, Build::default()) == object(source, 1, dumped),
+            "dump changed the object"
+        );
+        let text = |workers| {
+            let mut heap = Heap::default();
+            let program = crate::frontend::compile(source, &mut heap).unwrap();
+            let dump = super::super::dump_program(
+                program.ops,
+                &heap,
+                program.returns_status,
+                false,
+                workers,
+                &options,
+            )
+            .unwrap();
+            dump.files
+        };
+        let serial = text(1);
+        assert_eq!(serial.len(), 5);
+        assert!(serial == text(8), "workers changed the dump");
     }
 
     /// The object for `source` with `build`, as bytes.
@@ -901,7 +1032,7 @@ def main() -> ():
         let function = constant(types::I64, 123, Some(7));
         let id = FuncId::from_u32(0);
         let mut context = Context::new();
-        let plain = compile(&mut context, &*isa, id, function.clone(), None).unwrap();
+        let plain = compile_uncaptured(&mut context, &*isa, id, function.clone(), None).unwrap();
         assert!(matches!(plain.bytes, CodeBytes::Owned(_)));
 
         // Exercise a cold compilation and a fresh cache reading that entry
@@ -920,7 +1051,7 @@ def main() -> ():
                         let isa = &isa;
                         let function = &function;
                         scope.spawn(move || {
-                            compile(
+                            compile_uncaptured(
                                 &mut Context::new(),
                                 &**isa,
                                 id,
@@ -959,8 +1090,8 @@ def main() -> ():
         for callee in [3, 7, 42] {
             let func = constant(types::I64, 1, Some(callee));
             let id = FuncId::from_u32(callee + 100);
-            let plain = compile(&mut context, &*isa, id, func.clone(), None).unwrap();
-            let cached = compile(&mut context, &*isa, id, func, Some(&cache)).unwrap();
+            let plain = compile_uncaptured(&mut context, &*isa, id, func.clone(), None).unwrap();
+            let cached = compile_uncaptured(&mut context, &*isa, id, func, Some(&cache)).unwrap();
             assert_eq!(plain.bytes.as_slice(), cached.bytes.as_slice());
             assert_eq!(plain.alignment, cached.alignment);
             assert!(!cached.relocs.is_empty());
