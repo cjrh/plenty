@@ -51,6 +51,7 @@ coverage. This is a status review, not a fresh execution of every feature test.
 | Collections | [Ordering](user-type-ordering.md) | [Stable sorting algorithm](timsort.md), [hashing and equality](user-type-hashing.md) |
 | Native platforms and libraries | [Cross-platform assessment](cross-platform.md) | [FFI](ffi-and-dynamic-libraries.md), [export contracts](ffi-export-contracts.md), [GCC backend](codegen-gcc.md) |
 | Allocation and parallel execution | [Memory, parallelism, and SIMD](memory-parallelism-and-simd.md) | [Allocation audit](completed/allocation-audit.md), [shipped concurrency](completed/native-concurrency.md) |
+| Iteration and adapter chains | [Fluent iterator pipelines](fluent-iterators.md) | [Shipped generators](completed/generators.md), [parallel execution](memory-parallelism-and-simd.md) |
 
 These families keep distinct contracts separate: a sorting algorithm does not
 define user equality, protocol defaults do not imply private access, and error
@@ -92,6 +93,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [User-defined ordering](user-type-ordering.md) — one three-way `__cmp__` hook | B37 |
 | [Timsort for stable, adaptive sorting](timsort.md) — fallible workspace, stability, and compatibility choices | B37 (issue #331) |
 | [User-defined dictionary keys and set members](user-type-hashing.md) — derived structural hashing and a `KeyType` bound | None yet |
+| [Fluent iterator pipelines](fluent-iterators.md) — `iter(...)` chains fused into one loop, with an explicit `.par(&pool)` boundary | None yet (relates to B12, B22, B24, B49) |
 
 ## Completed investigations
 
