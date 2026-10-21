@@ -181,6 +181,8 @@ mod test_float_constants;
 mod test_float_left_constants;
 #[path = "test_float_negation.rs"]
 mod test_float_negation;
+#[path = "test_float_rounding.rs"]
+mod test_float_rounding;
 #[path = "test_fs_helpers.rs"]
 mod test_fs_helpers;
 #[path = "test_fstrings.rs"]

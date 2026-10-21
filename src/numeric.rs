@@ -2,8 +2,9 @@
 //! The rules are in `book/src/design/facilities/01-builtins/numbers.md`.
 use crate::op::Ty;
 
-/// A float function evaluated by the runtime. The discriminants are the
-/// `kind` argument of `plenty_f64_math` and `plenty_f32_math`.
+/// A float function. The discriminants are the `kind` argument of
+/// `plenty_f64_math` and `plenty_f32_math`, which evaluate those that native
+/// lowering does not expand inline (`fabs`, `copysign` and rounding are inline).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FloatOp {
     Exp = 0,
