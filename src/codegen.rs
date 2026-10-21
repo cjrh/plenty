@@ -94,6 +94,7 @@ mod sorting;
 mod symbols;
 #[cfg(test)]
 mod tail_tests;
+mod threading;
 mod threads;
 use crate::op::{self, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};

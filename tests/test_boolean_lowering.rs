@@ -202,4 +202,9 @@ fn boolean_matches_have_no_impossible_case_trap() {
     // test of `code < 48` on the false edge of the first.
     let digit = section("clif-opt.txt", "digit");
     assert_eq!(digit.matches(" icmp").count(), 2, "{digit}");
+    // A decided operand of the `if` chain jumps to the `return True` arm, and
+    // the trailing chain's operands meet only at the returned value: one
+    // `bool` block parameter, no join tested again (issue #377).
+    let token_byte = section("clif-opt.txt", "token_byte");
+    assert_eq!(token_byte.matches(": i8)").count(), 1, "{token_byte}");
 }

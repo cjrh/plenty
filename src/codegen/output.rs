@@ -153,6 +153,7 @@ impl Output {
     /// `id`. Its IR must name only symbols declared in the module.
     pub(super) fn define(&mut self, id: FuncId, mut func: Function) -> Result<()> {
         super::known::fold_constant_branches(&mut func);
+        super::threading::thread_branches(&mut func);
         symbols::colocate(&self.module, &mut func);
         let mut capture = self
             .dump
@@ -400,6 +401,7 @@ impl Worker {
     /// Compile `func`, built against `symbols`, as the body of `id`.
     pub(super) fn define(&mut self, id: FuncId, mut func: Function, mut symbols: Symbols) {
         super::known::fold_constant_branches(&mut func);
+        super::threading::thread_branches(&mut func);
         if self.coverage {
             super::coverage::instrument(&mut func, &mut symbols);
         }
