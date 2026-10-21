@@ -80,6 +80,7 @@ mod exports;
 mod foreign;
 mod generators;
 mod inline;
+mod known;
 mod metadata;
 mod mutex;
 mod numeric;
@@ -2411,7 +2412,13 @@ impl Lowerer<'_, '_> {
     ///
     /// The trap block computes the site's address itself, so the passing
     /// path gains nothing, and is cold, so it is laid out after the body.
+    ///
+    /// A guard whose condition is computed from constants and is known to be
+    /// false emits nothing, not even a trap-site record; see `known.rs`.
     fn trap_if(&mut self, flag: cranelift_codegen::ir::Value, kind: TrapKind) -> Result<()> {
+        if known::known_int(&self.bcx.func.dfg, flag) == Some(0) {
+            return Ok(());
+        }
         let trap_block = self.bcx.create_block();
         let after = self.bcx.create_block();
         self.bcx.ins().brif(flag, trap_block, &[], after, &[]);
