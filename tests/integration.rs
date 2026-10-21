@@ -221,6 +221,8 @@ mod test_list_ordering;
 mod test_list_queries;
 #[path = "test_list_removal.rs"]
 mod test_list_removal;
+#[path = "test_loop_counter_ranges.rs"]
+mod test_loop_counter_ranges;
 #[path = "test_loops.rs"]
 mod test_loops;
 #[path = "test_lsp.rs"]
