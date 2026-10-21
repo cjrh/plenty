@@ -13,7 +13,7 @@ page are proposed syntax unless they are labelled as current.
 
 Add `iter(source)`, which starts a *pipeline*: a compiler-known, lazily
 evaluated chain of adapter methods (`map`, `filter`, `take`, ...) ending in a
-loop, a comprehension, or a terminal method (`fold`, `count`, `to_list`, ...).
+loop, a comprehension, or a terminal method (`fold`, `count`, `collect`, ...).
 
 ```text
 total = iter(&payments)
@@ -130,24 +130,103 @@ equal `T` do not unify. `Iter[T]` describes the item contract only.
 
 ### Where a pipeline may appear
 
-Stage 1 uses one hard rule, matching how `enumerate` and `items()` work today:
-**a pipeline is a local value that is consumed in the function that creates
+One hard rule: **an unfinished pipeline never leaves the scope that created
 it.** It may be:
 
 - a `for` source or comprehension source;
 - the receiver of a terminal method;
-- bound to a local and later used once in one of the ways above (it is affine);
+- bound to a local and used later; it is affine, and consuming it ends it;
+- lent to a function as `&mut Iter[T]` (next section); the caller keeps
+  ownership and can continue or collect it afterwards;
 - turned into an owned generator with a generator expression,
-  `(x for x in pipeline)`, when it must cross a function boundary. That
-  conversion is explicit and costs what generators cost today.
+  `(x for x in pipeline)`, when the items themselves must cross a function
+  boundary. That conversion is explicit and costs what generators cost today.
 
 It may not be returned, passed by value, stored, captured, or held across
-`yield`. Because a pipeline never outlives its statement or local, it can hold
-borrowed sources and closures with borrowed captures. This removes gaps 2 and
-3 without waiting for stored references (B11).
+`yield`. Because a pipeline never outlives its scope, it can hold borrowed
+sources and closures with borrowed captures. This removes gaps 2 and 3
+without waiting for stored references (B11).
 
-Stage 3 may allow passing a pipeline by value to a generic parameter, with the
-consumer specialized per pipeline type (see [open questions](#open-questions)).
+### Lending a pipeline to a function
+
+A function can take a pipeline by exclusive reference, consume some of it, and
+return. The caller then continues from where the callee stopped:
+
+```text
+def skip_header(lines: &mut Iter[str]) -> Result[(), CsvError]:
+    match next(lines):
+        case Some(header):
+            check_header(&header)
+        case Nothing:
+            Err(CsvError.Empty)
+
+def main() -> Result[(), CsvError | AllocError | IoError]:
+    mut rows = iter(read_lines(path)?).filter(def(l: &str) -> bool: l != "")
+    skip_header(&mut rows)?
+    records = rows.map(parse_row).try_collect()?
+    ...
+```
+
+Generators already work this way today: `&mut Generator[i64]` parameters
+specialize to the caller's actual frame, and the caller can keep consuming
+after the call (verified with the current compiler). A pipeline reuses that
+model.
+
+**What the callee may do through `&mut Iter[T]`:**
+
+- `next(p) -> Option[T]` takes one item;
+- `for x in p:` consumes items until the loop ends; after `break`, the rest
+  stays in the pipeline;
+- a terminal (`p.count()`, `p.collect()`) consumes everything that remains;
+- an adapter (`p.take(3)`, `p.filter(...)`) makes a *sub-pipeline* that
+  borrows `p` and must be consumed inside the callee. Its own closures may
+  borrow the callee's locals, because it ends in the callee.
+
+**What it may not do:** move, store, or return the pipeline, or add steps that
+persist after it returns. A reference parameter cannot be stored (B11 is not
+implemented), so the rule needs no new check: the pipeline stays owned by its
+creating scope by construction. Loans held by the pipeline's own closures
+stay live through the call, as loans held by any lent value do.
+
+**Type.** The parameter type is `&mut Iter[T]`. Like `&mut Generator[T]`, it
+names the item contract and specializes to the concrete pipeline at each call;
+it is not a generic constraint. `&Iter[T]` (nothing can be advanced through a
+shared reference) and by-value `Iter[T]` parameters and returns are rejected.
+`Iterable[T]` was considered and rejected as the name: in Python and Rust
+"iterable" means something you can start iterating, such as a list, repeatedly.
+A pipeline is single-pass state, an iterator, and `Iter` matches both `iter()`
+and excitertools' `Iter` class. `Iterable[T]` stays free for a possible later
+constraint meaning "any source `iter()` accepts".
+
+**Passing by value and returning it** (the alternative) would let a helper add
+steps: `def evens(p: Iter[i64]) -> Iter[i64]: p.filter(even)`. It is feasible,
+since generator factories already infer a concrete returned identity, but it
+needs a return-derivation rule (a function may only return a pipeline derived
+from a pipeline parameter, never one it created), a rule for loans in the
+steps it adds, and it weakens the hard rule to "may leave if it comes back".
+It is not part of this design; reusable steps are written as functions that
+return closures, e.g. `.filter(longer_than(3))`.
+
+**Complexity, stated honestly.**
+
+- *Resumable state.* A pipeline consumed in one place keeps its progress in
+  registers inside one fused loop. A lent pipeline can be consumed in several
+  places, so its progress lives in slots: the source cursor, counters, `chain`'s
+  phase, `flat_map`'s inner source, and `zip`'s pending left item. Each fused
+  loop loads that state on entry and stores it on exit. The compiler sees every
+  lend in the creating function, so pipelines that are never lent skip the
+  store-back. The extra cost is per loop entry and exit, not per item; `next(p)`
+  expands one step inline, still with no runtime dispatch.
+- *Monomorphization.* The callee is instantiated once per distinct pipeline
+  type passed to it, as with generators today. Pipeline types include closure
+  identities, so two call sites with different closure literals produce two
+  instances. That is code size and compile time, bounded by the existing
+  specialization limits, and must be measured in `compile_bench`.
+- *Diagnostics.* Errors inside an instance name the pipeline by its creation
+  site, as closures are named today.
+- *Every adapter must be resumable.* Each new adapter specifies its slot
+  state; this is a cost on every future addition, and the reason lending is
+  staged after the serial core.
 
 ### Adapters (core set)
 
@@ -170,10 +249,8 @@ Rules that keep callbacks predictable:
 - **Predicates always receive a shared reference to the element.** For an owned
   item `T` that is `&T`; for a borrowed item `&T` it is the same `&T`, never
   `&&T`; for `&mut T` it is `&T`. `map` receives the item itself.
-- **Reference pairs are spread.** A tuple item containing references
-  (`items()`, `zip` or `enumerate` over borrowed sources) is passed to a callback
-  as separate arguments, as loops already require two unpacked bindings for
-  such items. Owned tuple items are passed as one tuple.
+- **Pair items are passed as two arguments.** See
+  [callbacks over pairs](#callbacks-over-pairs).
 - `zip` stops at the shorter input and tests the left side first, as today.
   `chain` requires both sides to have exactly the same item type.
 - `take_while` drops the first rejected item; there is no peeking.
@@ -188,6 +265,78 @@ pipelines, `zip` of more than two sources, `peekable`, `group_by`, and
 `Iter.open`) stays out of the language; such sources belong in `std` modules
 returning generators.
 
+### Callbacks over pairs
+
+Some pipelines produce two values per item:
+
+```text
+for name, score in scores.items():          # name: &str, score: &i64
+for i, row in enumerate(&rows):             # i: i64, row: &Row
+for a, b in zip(&left, &right):             # a: &T, b: &T
+```
+
+A loop binds the two values to two names, which works today. A callback needs
+a parameter list, and the question is what it looks like. The obvious answer is
+one tuple parameter, `def(pair: (&str, &i64)) -> bool`, but Plenty cannot form
+that type: tuples cannot hold references ("references cannot be stored in
+tuples"), because a tuple is a stored value and stored references are B11.
+That is also why borrowed `zip`/`enumerate` loops today require two unpacked
+bindings.
+
+Options:
+
+1. **Two parameters.** `def(name: &str, score: &i64) -> bool`. Works with the
+   current type system; matches the loop's two bindings.
+2. **One tuple parameter.** Needs tuples of references (B11), and every use
+   then indexes `pair[0]`, `pair[1]`.
+3. **A destructuring parameter.** `def((name, score): (&str, &i64)) -> bool`.
+   Reads like the loop, but adds parameter-pattern syntax to the language and
+   still names a reference tuple type.
+4. **Two parameters for borrowed pairs, a tuple for owned pairs.** What the
+   first draft proposed; it makes the callback shape depend on whether the
+   source was borrowed.
+
+**Recommendation: option 1, for every pair item, owned or borrowed.** The hard
+rule is: *a callback over a pair item takes two parameters.* No exception for
+owned pairs, and no new syntax or types:
+
+```text
+top = scores.items()
+    .filter(def(name: &str, score: &i64) -> bool: *score >= 90)
+    .map(def(name: &str, score: &i64) -> str: copy(name))
+    .collect()?
+
+flagged = enumerate(&rows)
+    .filter(def(i: i64, row: &Row) -> bool: row.bad)
+    .map(def(i: i64, row: &Row) -> i64: i)
+    .collect()?
+```
+
+Only the top level is spread. In `zip(enumerate(a), b)` over owned `a`, the
+inner `(i64, T)` is an owned tuple passed as one argument. An inner pair that
+holds references cannot be formed and is rejected until B11; loops cannot
+unpack nested pairs today either. A `map` that returns an owned tuple
+produces a pair item, so the next callback takes two parameters. `collect_dict`
+consumes owned pairs directly. If B11 later adds tuples of references, option 1
+stays valid and nothing has to change.
+
+### Closure parameter types
+
+Callbacks keep the current rule: parameter and result types are always
+written. This proposal does not add inference.
+
+The cost is verbosity: `def(n: i64) -> i64: n * n` where Rust writes `|n| n * n`.
+The benefit is that each step of a chain states its item type where it is
+read. In a long chain, the item type changes at every `map`, and without
+annotations a reader must trace the chain from the source to know what `n` is
+at step five. Explicit types also make errors local: a wrong callback is
+reported at that callback, not as a mismatch several steps later. This
+matches the project's preference for mandatory rules, and the rule is already
+taught. Relaxing it later (inferring parameter types from the adapter when the
+item type is known from the same chain, under B16) remains an
+[open question](#open-questions); it can be added without breaking code that
+writes the types.
+
 ### Terminals
 
 | Terminal | Result | Notes |
@@ -199,10 +348,45 @@ returning generators.
 | `.find(keep)` | `Option[Item]` | First match; drops the rest |
 | `.for_each(f)` | `()` | `f: (Item) -> ()`; prefer a `for` loop when the body has statements |
 | `.last()` | `Option[Item]` | |
-| `.to_list()`, `.to_set()`, `.to_dict()` | `Result[collection, AllocError]` | The only allocating terminals; `to_dict` needs owned pairs |
+| `.collect()` | `Result[list[T], AllocError]` | Always a list |
+| `.collect_set()` | `Result[set[T], AllocError]` | Hashable items |
+| `.collect_dict()` | `Result[dict[K, V], AllocError]` | Owned pair items; later duplicate keys overwrite, as dict displays do |
 | `.try_fold(initial, f)` | `Result[A, E]` | Stops at the first `Err` |
 | `.try_for_each(f)` | `Result[(), E]` | Same |
-| `.try_to_list()` | `Result[list[T], AllocError \| E]` | Over `Result[T, E]` items; first `Err` wins |
+| `.try_collect()` | `Result[list[T], AllocError \| E]` | Over `Result[T, E]` items; first `Err` wins |
+
+The collecting terminals are the only ones that allocate. The `try_` prefix
+means "items are `Result`, stop at the first `Err`" and applies uniformly:
+`try_collect_set()` and `try_collect_dict()` follow the same naming when a use
+case adds them.
+
+### Choosing the collection
+
+**Hard rule: the method name chooses the collection, and nothing else does.**
+`collect()` always builds a `list`; `collect_set()` a `set`; `collect_dict()` a
+`dict`. The element type is the item type. An annotation or expected type is
+checked against the result, never used to choose it:
+
+```text
+names = iter(&people).map(def(p: &Person) -> str: copy(&p.name)).collect()?       # list[str]
+tags = iter(&posts).flat_map(post_tags).collect_set()?                            # set[str]
+bad: set[str] = iter(&people).map(...).collect()?    # error: collect() builds list[str]; use collect_set()
+```
+
+Alternatives considered:
+
+- *Inference from the annotation or expected type* (Rust's `collect` without
+  turbofish) makes the meaning of `collect()` depend on context the reader may
+  not see, such as a parameter type in another module, and needs a fallback when
+  there is no context: an exception to the rule.
+- *Default to list, infer otherwise* combines two rules and the same reader
+  cost.
+- *A type argument*, `collect[set[str]]()`, is the turbofish the user wants to
+  avoid.
+
+Separate terminals keep the target visible at the call, need no inference, and
+cost one method name per collection kind. `list[T].from(pipeline)` is not
+accepted; its diagnostic points to `collect()`, so there is one spelling.
 
 There is no `.sum()`, `.min()` or `.max()` method. Numeric helpers belong in
 `std.math`; extend `std.math.sum_iter`/`prod_iter`/`min_all`/`max_all` to
@@ -218,7 +402,7 @@ returns from the callback, as it does today, so a fallible step produces
 `?`:
 
 ```text
-parsed = iter(&lines).map(def(l: &str) -> Result[i64, ParseError]: parse_int(l)).try_to_list()?
+parsed = iter(&lines).map(def(l: &str) -> Result[i64, ParseError]: parse_int(l)).try_collect()?
 ```
 
 The `try_` terminals widen with `AllocError` exactly as anonymous sums widen
@@ -227,9 +411,9 @@ today. There is no implicit error collection and no hidden recovery.
 ### Allocation
 
 A pipeline allocates nothing of its own: no iterator object, no frame, no item
-buffer, no closure environment beyond the inline one. Only `to_list`, `to_set`,
-`to_dict` and `try_to_list` allocate, and they return `Result`. Callback bodies
-and source expressions keep their own contracts. `to_list` reserves capacity
+buffer, no closure environment beyond the inline one. Only the `collect`
+family allocates, and it returns `Result`. Callback bodies and source
+expressions keep their own contracts. `collect` reserves capacity
 when the pipeline's length is known exactly (a range or collection source with
 only `map`, `enumerate`, `zip` or `take`), and otherwise grows like a
 comprehension.
@@ -299,8 +483,9 @@ chain is not a nested type that must be instantiated and then optimized away.
 Lowering cost is linear in the number of steps at each consumer. Rust's model
 creates one monomorphized type per adapter per chain and relies on LLVM to
 inline them away; Plenty would pay that as extra Cranelift functions and still
-not get the inlining. Each pipeline is lowered once, at its single consumer,
-because it is affine. Apply the existing generator nesting limit (64 steps) to
+not get the inlining. A pipeline that is not lent is lowered once, at its
+single consumer, because it is affine; a lent pipeline is lowered at each
+consuming site and in each callee instance. Apply the existing generator nesting limit (64 steps) to
 chain length.
 
 ### Verification
@@ -321,15 +506,16 @@ Acceptance for the implementation, not optional extras:
 5. **Compile time.** Add a pipeline-heavy workload to `compile_bench` and check
    that cold builds do not regress against the equivalent comprehension code.
 6. **Semantics.** Ordering of callback side effects, cleanup on early exit,
-   loan errors for borrowed sources, and every rejected placement (return,
-   store, capture, `yield`) with specific diagnostics.
+   loan errors for borrowed sources, partial consumption through `&mut Iter[T]`
+   followed by collection in the caller, and every rejected placement (return,
+   pass by value, store, capture, `yield`) with specific diagnostics.
 
 ## For loops, comprehensions and generator expressions
 
 - `for x in pipeline:` is the main consumer. `for x in iter(values):` is valid
   but redundant; prefer `for x in values:`. A lint can suggest the shorter form.
 - A list comprehension `[f(x) for x in s if p(x)]` lowers to the same plan as
-  `iter(s).filter(p).map(f).to_list()`. Comprehensions stay: they are the
+  `iter(s).filter(p).map(f).collect()`. Comprehensions stay: they are the
   Python-shaped way to build a collection, and the tutorial teaches them first.
   The two forms must produce the same operations; that is a test, not a goal.
 - A generator expression is a pipeline converted to a frame. Its outer source
@@ -349,7 +535,7 @@ requires.
 
 ```text
 with ThreadPoolExecutor(8, 64)? as pool:
-    lengths = iter(paths).par(&pool).map(file_size).to_list()?
+    lengths = iter(paths).par(&pool).map(file_size).collect()?
     longest = iter(range(1, n)).par(&pool).map(score).reduce(best)?
 ```
 
@@ -365,7 +551,7 @@ Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
   checks. `mut`, `&mut` and one-shot captures are rejected; shared borrows wait
   for scoped jobs. Generator sources are rejected, as frames are not
   worker-eligible.
-- **Terminals.** `to_list`, `try_to_list` (lowest-index error wins, as
+- **Terminals.** `collect`, `try_collect` (lowest-index error wins, as
   `map_result`), `count`, `any`/`all`, and `reduce`. A parallel `reduce` uses
   the fixed adjacent-pair tree of `reduce_tree`, which reassociates; it is
   deterministic for a given input but differs from the serial left fold for
@@ -375,11 +561,12 @@ Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
   their bodies would run concurrently.
 - **Result type.** Parallel terminals return `Result[_, PoolMapError]` or
   `ParallelError[E]`, because submission can fail and the pool can be shut down.
-- **Granularity.** Fusion matters most here: each job runs the fused
-  `map`/`filter` body over a contiguous chunk of input, not one item, and
-  writes into its slice of the preallocated output. Chunk boundaries are a
-  pure function of input length and `max_workers`, so results do not depend on
-  scheduling. Filtered chunks are concatenated in input order.
+- **Granularity.** Each job runs the fused `map`/`filter` body over a
+  contiguous chunk of input, not one item. The default number of chunks is the
+  number of logical cores. Chunk boundaries depend only on input length and
+  that count, never on scheduling, and filtered chunks are concatenated in input
+  order. Tuning (explicit chunk sizes, `par_chunks`, adaptive splitting) is
+  deferred until stage 4 has benchmarks.
 
 Compile-time checks the type system must enforce: worker eligibility of every
 callback and item type (existing closed-world check), no shared mutable
@@ -445,53 +632,53 @@ for the chaining form.
 
 **First-class storable pipelines from the start.** Convenient, but storing a
 borrowed pipeline needs stored references (B11), and storing an owned one needs
-frame and closure storage in generic data. The local-only rule ships the useful
-part now and leaves a clear extension path.
+frame and closure storage in generic data. Keeping pipelines in their creating
+scope, with lending for helpers, ships the useful part now.
 
 **Free `sum`, `min`, `max` methods.** Rejected for consistency with the
 `std.math` decision.
 
 ## Open questions
 
-1. **Crossing function boundaries.** Should stage 3 allow a pipeline to be
-   passed by value to a generic parameter (`def total[P](items: P) -> i64`) and
-   returned from a function, with fusion happening in the specialized
-   consumer? That is Rust's ergonomics at the cost of one instance per pipeline
-   type. Borrowed pipelines could only be passed down, never returned, until B11.
-2. **Collect spelling.** `to_list()` versus a typed `collect()`, and whether
-   `list[T].from(pipeline)` should also be accepted (two spellings).
-3. **Pair callbacks.** Is spreading reference pairs into two callback
-   parameters clearer than passing a tuple of references, which Plenty does not
-   currently construct?
-4. **User sources.** A user iterator protocol (`next(self: &mut S) ->
+1. **User sources.** A user iterator protocol (`next(self: &mut S) ->
    Option[T]`) could make classes pipeline sources once B12 settles; until then,
    a method returning a generator works.
-5. **Parallel chunking.** Fixed policy versus `.par_chunks(&pool, n)`.
-6. **Closure literal syntax.** Pipelines make the full
-   `def(x: T) -> U: expr` form verbose. Parameter-type inference from the
-   adapter's expected callable (B16) would help more here than anywhere else.
+2. **Closure parameter inference.** Should callbacks later omit parameter
+   types when the adapter knows the item type (B16)? This would shorten chains
+   at the cost of the readability described in
+   [closure parameter types](#closure-parameter-types). Decide after stage 1
+   with real code to compare.
+3. **Passing pipelines by value.** Whether helpers that add steps
+   (`def evens(p: Iter[i64]) -> Iter[i64]`) are worth weakening the
+   never-leaves-its-scope rule. Not planned; revisit only with use cases that
+   closure-returning helpers do not cover.
 
 ## Staged plan and suggested backlog wording
 
 1. **Stage 1 — serial core.** `iter`, `Iter[T]`, local-only placement,
-   `map`/`filter`/`enumerate`/`zip`/`take`/`skip`/`take_while`, and terminals
-   `fold`/`reduce`/`count`/`any`/`all`/`find`/`for_each`/`to_list`/`to_set`/
-   `to_dict`/`try_fold`/`try_for_each`/`try_to_list`, fused at the consumer,
+   `map`/`filter`/`enumerate`/`zip`/`take`/`skip`/`take_while`, two-parameter
+   pair callbacks, and terminals
+   `fold`/`reduce`/`count`/`any`/`all`/`find`/`for_each`/`collect`/
+   `collect_set`/`collect_dict`/`try_fold`/`try_for_each`/`try_collect`, fused
+   at the consumer,
    with the verification suite above. Fix issue #371 first so generator
    expressions and stored ranges do not mislead the benchmarks.
 2. **Stage 2 — composition.** `chain`, `flat_map`, closure-literal splicing,
    comprehensions lowered through the pipeline plan, `std.math` pipeline
    helpers, tutorial rewrite and `std.iter` deprecation.
-3. **Stage 3 — boundaries.** Decide open question 1; if accepted, generic
-   pass-by-value with specialization.
-4. **Stage 4 — parallel.** `.par(&pool)` with chunked fused jobs, the
-   allowed-step rules, and `to_list`/`try_to_list`/`reduce`/`count`/`any`/`all`.
+3. **Stage 3 — lending.** `&mut Iter[T]` parameters specialized per pipeline
+   type, `next(p)`, resumable slot state for every adapter, store-back only for
+   lent pipelines, and partial consumption followed by collection in the
+   caller. Measure instance counts in `compile_bench`.
+4. **Stage 4 — parallel.** `.par(&pool)` with chunked fused jobs (one chunk
+   per logical core by default), the allowed-step rules, and
+   `collect`/`try_collect`/`reduce`/`count`/`any`/`all`.
 
 Suggested backlog row: **B75 — Fluent iterator pipelines.** "`iter(source)`
 pipelines with chained adapters and terminals, fused at the consumer into one
 loop with no runtime dispatch or allocation outside collecting terminals.
-Stages: serial core, composition and `std.iter` deprecation, generic
-boundaries, explicit `.par(&pool)`. Depends on issue #371. Relates to B12,
+Stages: serial core, composition and `std.iter` deprecation, lending as
+`&mut Iter[T]`, explicit `.par(&pool)`. Depends on issue #371. Relates to B12,
 B22, B24, B49. Design: `proposals/fluent-iterators.md`."
 
 ## Issues found
