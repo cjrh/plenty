@@ -104,7 +104,10 @@ values keep reference semantics: writes through `&mut` land in the list, and an
 element can be passed on or returned under the list's loan.
 
 `std.bytes` element reads and writes and `Bytes.len` use `plenty_bytes_item`,
-`plenty_bytes_set_item`, and `plenty_bytes_len`. Text `len`, `byte_len`,
+`plenty_bytes_set_item`, and `plenty_bytes_len`. `Bytes.push` calls
+`plenty_bytes_push` with its storage owner read through the exclusive field
+reference, so appending a byte neither retains nor releases the owner and
+reaches the allocator only when the buffer grows. Text `len`, `byte_len`,
 `isascii`, scalar indexing, and the forward and reverse iteration cursors use
 `plenty_text_*` helpers. A text or byte owner reached through a place (a local,
 parameter, field, or row) is read through a shared reference under the

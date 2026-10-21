@@ -158,13 +158,21 @@ impl Lower<'_> {
                 args.len()
             )));
         }
-        let (_, loan) = self.borrow(&args[0], true, ops)?;
+        let (reference, loan) = self.borrow(&args[0], true, ops)?;
+        let storage = match &inputs[0] {
+            Ty::Ref(inner, _) => (**inner).clone(),
+            other => other.clone(),
+        };
         self.same(
             self.place_type(&args[0]),
-            Some(inputs[0].clone()),
+            Some(storage.clone()),
             &args[0].at,
         )?;
-        ops.push(Op::ReadRef(inputs[0].clone()));
+        if matches!(inputs[0], Ty::Ref(..)) {
+            self.unbox_reference(reference, ops);
+        } else {
+            ops.push(Op::ReadRef(storage));
+        }
         let mut reads = Vec::new();
         for (index, (arg, expected)) in args.iter().zip(inputs).enumerate().skip(1) {
             reads.extend(self.operand(arg, expected, operation.source() == Some(index), ops)?);

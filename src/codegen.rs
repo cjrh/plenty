@@ -917,6 +917,8 @@ struct Runtime {
     bytes_len: FuncId,
     bytes_item: FuncId,
     bytes_set_item: FuncId,
+    /// `plenty_bytes_push(owner, byte) -> high word of Result[(), AllocError]`.
+    bytes_push: FuncId,
     text_len: FuncId,
     text_byte_len: FuncId,
     text_is_ascii: FuncId,
@@ -1223,6 +1225,12 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             "plenty_bytes_set_item",
             &[PTR_TY, types::I64, types::I64, PTR_TY],
             None,
+        )?,
+        bytes_push: helper(
+            module,
+            "plenty_bytes_push",
+            &[PTR_TY, types::I64],
+            Some(types::I64),
         )?,
         text_len: helper(module, "plenty_text_len", &[PTR_TY], Some(types::I64))?,
         text_byte_len: helper(module, "plenty_text_byte_len", &[PTR_TY], Some(types::I64))?,
