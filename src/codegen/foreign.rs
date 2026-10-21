@@ -123,11 +123,9 @@ impl Lowerer<'_, '_> {
                 .ins()
                 .call_indirect(signature, address, &native_arguments)
         } else {
-            let id = self.module.declare_function(
-                declaration.symbol().unwrap(),
-                Linkage::Import,
-                &signature,
-            )?;
+            let id = self
+                .module
+                .declare_foreign(declaration.symbol().unwrap(), &signature);
             let callee = self.module.declare_func_in_func(id, self.bcx.func);
             self.bcx.ins().call(callee, &native_arguments)
         };

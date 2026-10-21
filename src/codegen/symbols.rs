@@ -47,13 +47,13 @@ impl Declared {
                 }
                 (
                     declaration.signature.clone(),
-                    declaration.linkage.is_final(),
+                    runtime_colocated(declaration.linkage),
                 )
             })
             .collect();
         let data = declarations
             .get_data_objects()
-            .map(|(_, declaration)| (declaration.linkage.is_final(), declaration.tls))
+            .map(|(_, declaration)| (data_colocated(declaration.linkage), declaration.tls))
             .collect();
         Self {
             isa,
@@ -72,8 +72,10 @@ pub(super) enum Request {
     Metadata(Ty),
     /// The function's trap-site table, holding these records.
     Sites(Vec<sites::Key>),
-    /// An imported function.
+    /// A runtime helper.
     Import(String, ir::Signature),
+    /// A C function from a native library ([`super::foreign`]).
+    Foreign(String, ir::Signature),
     /// The function's coverage counters, one per block ([`coverage`]).
     Coverage(u32),
 }
@@ -129,8 +131,9 @@ impl Symbols {
         number
     }
 
-    /// Only imports are declared while lowering. A name already declared
-    /// keeps its declaration; the placing thread still checks the signature.
+    /// Only runtime imports are declared while lowering; foreign functions
+    /// use [`Self::declare_foreign`]. A name already declared keeps its
+    /// declaration; the placing thread still checks the signature.
     pub(super) fn declare_function(
         &mut self,
         name: &str,
@@ -142,6 +145,12 @@ impl Symbols {
         }
         let number = self.request(Request::Import(name.to_string(), signature.clone()));
         Ok(FuncId::from_u32(FIRST_REQUEST + number))
+    }
+
+    /// Import the native library function `name`.
+    pub(super) fn declare_foreign(&mut self, name: &str, signature: &ir::Signature) -> FuncId {
+        let number = self.request(Request::Foreign(name.to_string(), signature.clone()));
+        FuncId::from_u32(FIRST_REQUEST + number)
     }
 
     /// Type metadata for `ty`.
@@ -164,15 +173,19 @@ impl Symbols {
                 )
             }
             Some(number) => {
-                let Request::Import(name, signature) = &self.requests[number as usize] else {
-                    unreachable!("function request {number} is not an import")
+                let (signature, colocated) = match &self.requests[number as usize] {
+                    Request::Import(_, signature) => (signature, true),
+                    // A native library may be shared, so the call goes through
+                    // the GOT unless the name is the program's own.
+                    Request::Foreign(name, signature) => (
+                        signature,
+                        self.declared
+                            .names
+                            .get(name)
+                            .is_some_and(|id| self.declared.functions[id.as_u32() as usize].1),
+                    ),
+                    _ => unreachable!("function request {number} is not an import"),
                 };
-                // The same test the module applies to the final linkage.
-                let colocated = self
-                    .declared
-                    .names
-                    .get(name)
-                    .is_some_and(|id| self.declared.functions[id.as_u32() as usize].1);
                 (
                     ir::UserExternalName::new(REQUESTED, number),
                     signature.clone(),
@@ -235,6 +248,60 @@ impl Symbols {
     }
 }
 
+/// Whether calls to a function declared with `linkage` before bodies are
+/// built are direct (`call rel32`, `R_X86_64_PLT32`) rather than through the
+/// GOT. Every function imported then is a runtime helper. The runtime archive
+/// is linked into every executable and shared library built from the object,
+/// and a shared library's version script makes its symbols local, so the
+/// linker resolves the call without a PLT entry. The module applies
+/// [`Linkage::is_final`] alone, which treats the runtime like any shared
+/// library (issue #372).
+pub(super) fn runtime_colocated(linkage: Linkage) -> bool {
+    linkage.is_final() || linkage == Linkage::Import
+}
+
+/// Whether data declared with `linkage` is addressed PC-relatively
+/// ([`super::relax`]): only a definition no other module can preempt, since a
+/// shared library cannot use `R_X86_64_PC32` against an exported symbol.
+pub(super) fn data_colocated(linkage: Linkage) -> bool {
+    matches!(linkage, Linkage::Local | Linkage::Hidden)
+}
+
+/// Apply [`runtime_colocated`] and [`data_colocated`] to `func`, built against
+/// `module` on the placing thread, whose own declarations use
+/// [`Linkage::is_final`].
+pub(super) fn colocate(module: &ObjectModule, func: &mut ir::Function) {
+    let declarations = module.declarations();
+    let names = func.params.user_named_funcs().clone();
+    let id = |name: &ir::ExternalName| match name {
+        ir::ExternalName::User(name) => Some(&names[*name]),
+        _ => None,
+    };
+    for data in func.dfg.ext_funcs.values_mut() {
+        if let Some(name) = id(&data.name)
+            && name.namespace == 0
+        {
+            let linkage = declarations
+                .get_function_decl(FuncId::from_u32(name.index))
+                .linkage;
+            data.colocated = runtime_colocated(linkage);
+        }
+    }
+    for data in func.global_values.values_mut() {
+        if let ir::GlobalValueData::Symbol {
+            name, colocated, ..
+        } = data
+            && let Some(name) = id(name)
+            && name.namespace == 1
+        {
+            let linkage = declarations
+                .get_data_decl(DataId::from_u32(name.index))
+                .linkage;
+            *colocated = data_colocated(linkage);
+        }
+    }
+}
+
 fn symbol(
     func: &mut ir::Function,
     name: ir::UserExternalName,
@@ -273,7 +340,7 @@ pub(super) fn resolve(
                 let id = sites::define(module, records)?;
                 ModuleRelocTarget::user(1, id.as_u32())
             }
-            Request::Import(name, signature) => {
+            Request::Import(name, signature) | Request::Foreign(name, signature) => {
                 let id = module.declare_function(name, Linkage::Import, signature)?;
                 ModuleRelocTarget::user(0, id.as_u32())
             }

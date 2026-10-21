@@ -45,8 +45,10 @@ An entry's name is a SHA-256 of:
 
 The compiled code for a stencil depends on nothing else: the compiler's own
 work ends with the IR, which the key covers, and what it does with the
-result (placing bytes and relocations in the object) is the same whether they
-came from Cranelift or the cache. The compiler's build identity, such as a
+result (rewriting GOT loads of local data, see
+[symbol references](emission.md#symbol-references), then placing bytes and
+relocations in the object) is the same whether they came from Cranelift or the
+cache. Entries hold Cranelift's output before that rewrite. The compiler's build identity, such as a
 Git hash, is deliberately not part of the key: it would empty the cache at
 every commit without excluding any stale entry. A change to Plenty's code
 generation changes the IR it builds, and so the key.

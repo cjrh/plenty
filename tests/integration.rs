@@ -408,6 +408,8 @@ mod test_stdlib_index;
 mod test_storage_diagnostics;
 #[path = "test_stored_closures.rs"]
 mod test_stored_closures;
+#[path = "test_symbol_references.rs"]
+mod test_symbol_references;
 #[path = "test_tail_abi.rs"]
 mod test_tail_abi;
 #[path = "test_tail_call_cleanup.rs"]
