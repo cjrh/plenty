@@ -378,6 +378,71 @@ pub(crate) unsafe extern "C" fn plenty_str_eq(a: *const Text, b: *const Text) ->
 pub(crate) unsafe extern "C" fn plenty_contains(haystack: *const Text, needle: *const Text) -> i8 {
     unsafe { utf8(&haystack).contains(utf8(&needle)) as i8 }
 }
+
+// Narrow ABI for scalar text queries (issue #364): a borrowed text word in a
+// register, no ownership transfer, and no dispatcher argument block. Results
+// match the dispatcher's string operations; a scalar result is always inline.
+
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_len(text: *const Text) -> u64 {
+    // SAFETY: the compiler keeps the text alive through the call.
+    unsafe { scalar_len(text) }
+}
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_byte_len(text: *const Text) -> u64 {
+    // SAFETY: as for `plenty_text_len`.
+    unsafe { byte_len(text) }
+}
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_is_ascii(text: *const Text) -> u64 {
+    // SAFETY: as for `plenty_text_len`.
+    unsafe { bytes(&text).is_ascii() as u64 }
+}
+/// `text[i]`: the scalar at index `i`, negatives from the end.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_at(
+    text: *const Text,
+    i: i64,
+    site: *const crate::Site,
+) -> *mut Text {
+    // SAFETY: as for `plenty_text_len`.
+    unsafe { at(text, i, site) }
+}
+/// The scalar starting at a valid byte cursor of forward iteration.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_at_byte(text: *const Text, offset: u64) -> *mut Text {
+    // SAFETY: as for `plenty_text_len`.
+    unsafe { at_byte(text, offset as usize) }
+}
+/// The cursor after the scalar starting at a valid byte cursor.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_next_byte(text: *const Text, offset: u64) -> u64 {
+    // SAFETY: as for `plenty_text_len`.
+    let tail = unsafe { &utf8(&text)[offset as usize..] };
+    offset + tail.chars().next().expect("valid string cursor").len_utf8() as u64
+}
+/// The cursor before the scalar ending at a positive byte cursor of
+/// reverse iteration.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_prev_byte(text: *const Text, offset: u64) -> u64 {
+    // SAFETY: as for `plenty_text_len`.
+    let head = unsafe { &utf8(&text)[..offset as usize] };
+    // Inspect at most four bytes rather than rescanning the prefix.
+    let previous = head
+        .chars()
+        .next_back()
+        .expect("valid reverse string cursor");
+    offset - previous.len_utf8() as u64
+}
+/// Whether both texts are ASCII and equal ignoring ASCII case.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_ascii_equal_folded(
+    left: *const Text,
+    right: *const Text,
+) -> u64 {
+    // SAFETY: as for `plenty_text_len`, for both texts.
+    unsafe { ascii_equal_folded(left, right) as u64 }
+}
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_readline() -> *mut Text {
     let mut line = Vec::new();

@@ -1708,26 +1708,6 @@ pub(crate) unsafe fn collection_at(
                 c.entries.slot(position, c.ty().kind != b'L') as u128
             }
             114 => strings::at(a as *const Text, b as i64, site) as u128,
-            115 | 116 => {
-                let a_text = a as *const Text;
-                if op == 115 {
-                    return strings::at_byte(a_text, b as usize) as u128;
-                }
-                let source = strings::utf8(&a_text);
-                let tail = &source[b as usize..];
-                b + tail.chars().next().expect("valid string cursor").len_utf8() as u128
-            }
-            165 => {
-                let text = a as *const Text;
-                let source = strings::utf8(&text);
-                // Reverse loops keep a positive cursor at a UTF-8 boundary.
-                // Inspect at most four bytes rather than rescanning the prefix.
-                let previous = source[..b as usize]
-                    .chars()
-                    .next_back()
-                    .expect("valid reverse string cursor");
-                b - previous.len_utf8() as u128
-            }
             167 => {
                 let collection = &*(a as *const Collection);
                 if collection.len() != b as usize {

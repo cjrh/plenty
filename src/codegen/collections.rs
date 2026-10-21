@@ -1,7 +1,68 @@
 use super::*;
 use crate::collection::CollectionOp;
 
+/// The trailing site argument a narrow runtime helper takes.
+#[derive(Clone, Copy)]
+enum Site {
+    None,
+    Trap,
+    Null,
+}
+
 impl Lowerer<'_, '_> {
+    /// A runtime helper that answers `operation` directly: no argument block,
+    /// descriptor, or caller frame, because it never calls back into Plenty
+    /// (issue #364). It takes the receiver word (`true`: read through the shared
+    /// reference the frontend keeps under its loan; `false`: owned and released
+    /// here), the remaining inputs as words, and then the site, if any.
+    fn narrow_helper(&self, operation: &CollectionOp) -> Option<(FuncId, bool, Site)> {
+        use crate::bytes::BytesOp;
+        use crate::collection::Query;
+        let runtime = &self.runtime;
+        Some(match operation {
+            CollectionOp::ListLenRef(_) => (runtime.list_len, true, Site::None),
+            CollectionOp::ListRowsRef(_) => (runtime.list_rows, true, Site::None),
+            CollectionOp::ListRowBytesRef(_) => (runtime.list_row_bytes, true, Site::None),
+            CollectionOp::ListScalarGetRef(_) => (runtime.list_scalar_get, true, Site::Trap),
+            CollectionOp::Len(Ty::List(_)) => (runtime.list_len, false, Site::None),
+            CollectionOp::Get(Ty::List(element)) | CollectionOp::IterGet(Ty::List(element))
+                if element.is_numeric() || **element == Ty::Bool =>
+            {
+                let site = match operation {
+                    CollectionOp::Get(_) => Site::Trap,
+                    _ => Site::Null,
+                };
+                (runtime.list_scalar_get, false, site)
+            }
+            CollectionOp::Bytes(BytesOp::Item) => (runtime.bytes_item, true, Site::Trap),
+            CollectionOp::Bytes(BytesOp::SetItem) => (runtime.bytes_set_item, true, Site::Trap),
+            CollectionOp::Bytes(BytesOp::ValueItem) => (runtime.bytes_item, false, Site::Trap),
+            CollectionOp::Bytes(BytesOp::Len) => (runtime.bytes_len, false, Site::None),
+            CollectionOp::Len(Ty::Str) => (runtime.text_len, false, Site::None),
+            CollectionOp::TextByteLen => (runtime.text_byte_len, false, Site::None),
+            CollectionOp::TextIsAscii => (runtime.text_is_ascii, false, Site::None),
+            CollectionOp::Get(Ty::Str) | CollectionOp::TextIndex => {
+                (runtime.text_at, false, Site::Trap)
+            }
+            CollectionOp::IterGet(Ty::Str) => (runtime.text_at, false, Site::Null),
+            CollectionOp::QueryRef(query) => {
+                let helper = match query {
+                    Query::BytesLen => runtime.bytes_len,
+                    Query::TextLen => runtime.text_len,
+                    Query::TextByteLen => runtime.text_byte_len,
+                    Query::TextIsAscii => runtime.text_is_ascii,
+                    Query::TextAsciiEqualFolded => runtime.text_ascii_equal_folded,
+                    Query::TextAtByte => runtime.text_at_byte,
+                    Query::TextNextByte => runtime.text_next_byte,
+                    Query::TextPrevByte => runtime.text_prev_byte,
+                    Query::TextAt => return Some((runtime.text_at, true, Site::Trap)),
+                };
+                (helper, true, Site::None)
+            }
+            _ => return None,
+        })
+    }
+
     pub(super) fn collection_call(
         &mut self,
         opcode: i64,
@@ -300,26 +361,23 @@ impl Lowerer<'_, '_> {
                 .push((reference, Ty::Ref(Arc::new(element), *mutable)));
             return Ok(());
         }
-        let fast = match operation {
-            CollectionOp::ListLenRef(_) => Some((self.runtime.list_len, true)),
-            CollectionOp::ListRowsRef(_) => Some((self.runtime.list_rows, true)),
-            CollectionOp::ListRowBytesRef(_) => Some((self.runtime.list_row_bytes, true)),
-            CollectionOp::ListScalarGetRef(_) => Some((self.runtime.list_scalar_get, true)),
-            CollectionOp::Len(Ty::List(_)) => Some((self.runtime.list_len, false)),
-            CollectionOp::Get(Ty::List(element)) | CollectionOp::IterGet(Ty::List(element))
-                if element.is_numeric() || **element == Ty::Bool =>
-            {
-                Some((self.runtime.list_scalar_get, false))
-            }
-            _ => None,
-        };
-        if let Some((helper, borrowed)) = fast {
+        if let Some((helper, borrowed, site)) = self.narrow_helper(operation) {
             let (inputs, output) = operation.signature();
-            let index = if inputs.len() == 2 {
-                Some(self.pop_typed(Ty::I64)?.0)
-            } else {
-                None
-            };
+            let mut trailing = Vec::new();
+            for input in inputs[1..].iter().rev() {
+                let (value, _) = self.pop_typed(input.clone())?;
+                // Narrow helpers take later shared references as the value
+                // word and integer arguments as full words.
+                let value = if matches!(input, Ty::Ref(..)) {
+                    self.reference_word(value)
+                } else if clif_type(input.clone()) == types::I64 {
+                    value
+                } else {
+                    self.bcx.ins().uextend(types::I64, value)
+                };
+                trailing.push(value);
+            }
+            trailing.reverse();
             let (receiver, ty) = self.pop_typed(inputs[0].clone())?;
             let owner = if borrowed {
                 self.reference_word(receiver)
@@ -327,19 +385,22 @@ impl Lowerer<'_, '_> {
                 receiver
             };
             let mut args = vec![owner];
-            if let Some(index) = index {
-                // Iteration stays inside the list, so only indexing names a site.
-                let site = if matches!(operation, CollectionOp::IterGet(_)) {
-                    self.bcx.ins().iconst(PTR_TY, 0)
-                } else {
-                    self.trap_site()?
-                };
-                args.extend([index, site]);
+            args.extend(trailing);
+            match site {
+                Site::None => {}
+                Site::Trap => args.push(self.trap_site()?),
+                // A cursor stays inside the value, so it never reports a site.
+                Site::Null => args.push(self.bcx.ins().iconst(PTR_TY, 0)),
             }
             let function = self.module.declare_func_in_func(helper, self.bcx.func);
             let call = self.bcx.ins().call(function, &args);
-            let result = self.bcx.inst_results(call)[0];
-            let result = self.unpack(result, &output);
+            let result = match self.bcx.inst_results(call).first() {
+                Some(&result) => self.unpack(result, &output),
+                None => {
+                    let unit = self.bcx.ins().iconst(types::I64, 0);
+                    self.unpack(unit, &Ty::Unit)
+                }
+            };
             if !borrowed {
                 self.release(receiver, &ty);
             }
