@@ -118,7 +118,7 @@ def storage_failure(cause: StreamError) -> BodyError:
             BodyError.Storage(other)
 
 def text_of(data: &Bytes, start: i64, stop: i64) -> Result[str, BodyError]:
-    lifted(lifted(data.slice(start, stop))?.to_text())
+    lifted(data.to_text_range(start, stop))
 
 # Bytes
 

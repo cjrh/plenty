@@ -82,7 +82,9 @@ name=7 Option[i64].Some(4)
 A parser should not call `get` once per byte: each call costs far more than
 the comparison it feeds. The scans search a whole range in one call and return
 an absolute index. `find_in` stops at any byte of a set, `find_not_in` at the
-end of a run, and `matches_text` compares in place without copying:
+end of a run, and `matches_text` compares in place without copying.
+`to_text_range` copies one range out as checked text, with no intermediate
+`Bytes`:
 
 ```plenty
 import std.bytes
@@ -95,10 +97,10 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     while at < line.len():
         match line.find_in(&stops, at, line.len())?:
             case Some(index):
-                print(index, line.slice(at, index)?.to_text()?)?
+                print(index, line.to_text_range(at, index)?)?
                 at = index + 1
             case Nothing:
-                print("rest", line.slice(at, line.len())?.to_text()?)?
+                print("rest", line.to_text_range(at, line.len())?)?
                 at = line.len()
     print(line.find_not_in(&blank, 9, line.len())?)?
     print(line.matches_text(11, "role")?, line.count(32u8, 0, line.len())?)?

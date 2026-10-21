@@ -50,6 +50,7 @@ read another byte sequence accept a literal or a buffer through
 | `copy()` | shared | `Result[Bytes, BytesError]` | Independent copy of the whole buffer |
 | `to_list()` | shared | `Result[list[u8], BytesError]` | Independent `list[u8]` for the transport builtins |
 | `to_text()` | shared | `Result[str, BytesError]` | Strictly validated UTF-8 copy; otherwise `InvalidUtf8` |
+| `to_text_range(start, stop)` | shared | `Result[str, BytesError]` | `to_text` of one range, validated and copied once with no intermediate `Bytes`; a range that splits a UTF-8 sequence is `InvalidUtf8` |
 | `set(index, value)` | exclusive | `Result[(), BytesError]` | Replace one byte |
 | `write_float(value: f64)` | exclusive | `Result[i64, BytesError]` | Write shortest scientific ASCII into existing bytes at zero; requires `len() >= 32`, returns bytes written, never allocates or changes length |
 | `write_float_spec(value: f64, style: i64, precision: i64, offset: i64)` | exclusive | `Result[i64, BytesError]` | Write a Python format-spec spelling at `offset` for [`std.fmt`](fmt.md): style 1 fixed, 2 exponent, 3 general, 4 general keeping `.0`, 5 f64 and 6 f32 `print` spelling, plus 16 for `#`; a negative value starts with `-`. Returns bytes written, or the negated total length needed when shorter, writing nothing. Other styles, precision outside `0..=4096`, or an offset past the length are `OutOfRange`. Never allocates |
@@ -227,7 +228,7 @@ may over-reserve; `reserve` requests an exact total.
 
 | Allocates | Does not allocate |
 |---|---|
-| Constructors, `slice`, `copy`, `to_list`, `to_text` | `len`, `is_empty`, `capacity`, `get`, index syntax, iteration, every scan, `==`, transport |
+| Constructors, `slice`, `copy`, `to_list`, `to_text`, `to_text_range` | `len`, `is_empty`, `capacity`, `get`, index syntax, iteration, every scan, `==`, transport |
 | `push`, `extend`, `extend_range`, `resize`, `reserve` beyond capacity | The same operations within capacity |
 | | `set`, `fill`, `overwrite`, `truncate`, `pop`, `clear` |
 

@@ -174,7 +174,7 @@ impl BytesOp {
             Self::ToList => (vec![storage()], list()),
             Self::FromText => (vec![Ty::Str], storage()),
             Self::FromStatic => (vec![Ty::ByteStr], storage()),
-            Self::ToText => (vec![storage()], sum::option(Ty::Str)),
+            Self::ToText => (vec![storage(), Ty::I64, Ty::I64], sum::option(Ty::Str)),
             Self::AppendLiteral
             | Self::OverwriteLiteral
             | Self::FindInLiteral

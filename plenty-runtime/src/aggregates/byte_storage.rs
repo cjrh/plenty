@@ -232,10 +232,15 @@ pub(super) unsafe fn call(
                 }))
             }
             182 => result(from_slice(strings::bytes(&(a as *const strings::Text)))),
-            183 => result(match std::str::from_utf8(storage(a)) {
-                Ok(text) => strings::try_new(text).map(|text| wrap(text as u128, 1)),
-                Err(_) => Ok(wrap(0, 0)),
-            }),
+            183 => {
+                let bytes = view(a);
+                result(
+                    match std::str::from_utf8(&bytes[range(b, c, bytes.len())]) {
+                        Ok(text) => strings::try_new(text).map(|text| wrap(text as u128, 1)),
+                        Err(_) => Ok(wrap(0, 0)),
+                    },
+                )
+            }
             188 => {
                 let bytes = storage(a);
                 let within = range(b, c, bytes.len());
@@ -491,14 +496,22 @@ mod tests {
     fn text_conversion_validates_and_keeps_embedded_nul() {
         unsafe {
             let valid = Owner(from_slice("a\0é".as_bytes()).unwrap());
-            let value = run(183, [valid.0, 0, 0, 0, 0]);
+            let value = run(183, [valid.0, 0, 4, 0, 0]);
             // Ok(Some(text)): the option tag sits above the result tag.
             assert_eq!(value >> 64, 2);
             let text = value as u64 as *const strings::Text;
             assert_eq!(strings::bytes(&text), "a\0é".as_bytes());
             memory::plenty_release(text as *mut Header);
+            // A range converts only its own bytes.
+            let value = run(183, [valid.0, 1, 2, 0, 0]);
+            assert_eq!(value >> 64, 2);
+            let text = value as u64 as *const strings::Text;
+            assert_eq!(strings::bytes(&text), b"\0");
+            memory::plenty_release(text as *mut Header);
+            // Cutting the two-byte é in half is invalid.
+            assert_eq!(run(183, [valid.0, 0, 3, 0, 0]), 0);
             let invalid = Owner(from_slice(&[0xff, 0xfe]).unwrap());
-            assert_eq!(run(183, [invalid.0, 0, 0, 0, 0]), 0);
+            assert_eq!(run(183, [invalid.0, 0, 2, 0, 0]), 0);
         }
     }
 

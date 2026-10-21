@@ -86,7 +86,7 @@ def segment(data: &Bytes, start: i64, stop: i64) -> Result[Option[std.path.Path]
     for index in range(start, stop):
         if data[index] == 0u8:
             return Ok(Nothing)
-    text = lifted(lifted(data.slice(start, stop))?.to_text())?
+    text = lifted(data.to_text_range(start, stop))?
     match std.path.from_text(&text):
         case Ok(name):
             Ok(Some(name))
@@ -230,12 +230,12 @@ pub def http_date(seconds: i64) -> Result[Option[str], FilesError]:
         year += 1
     weekday = days % 7
     names = lifted(std.bytes.from_text(day_names()))?
-    mut out = lifted(lifted(names.slice(weekday * 3, weekday * 3 + 3))?.to_text())?
+    mut out = lifted(names.to_text_range(weekday * 3, weekday * 3 + 3))?
     out = allocated(out.concat(", "))?
     out = two(&out, day)?
     months = lifted(std.bytes.from_text(month_names()))?
     out = allocated(out.concat(" "))?
-    out = allocated(out.concat(&lifted(lifted(months.slice(month * 3 - 3, month * 3))?.to_text())?))?
+    out = allocated(out.concat(&lifted(months.to_text_range(month * 3 - 3, month * 3))?))?
     out = allocated(out.concat(" "))?
     out = allocated(out.concat(&allocated(str.from(year))?))?
     out = allocated(out.concat(" "))?
