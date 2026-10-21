@@ -1,6 +1,7 @@
 //! Byte reads and scalar text queries call narrow runtime helpers, reading a
 //! borrowed place in place, with the dispatcher's results, bounds, and trap
-//! sites (issue #364).
+//! sites (issue #364). `ord`, `bytes` literal reads, and queries of owned
+//! locals and temporaries do too, without retaining the receiver (issue #379).
 mod support;
 use rstest::rstest;
 use std::process::Command;
@@ -40,6 +41,8 @@ fn runtime_calls(source: &str, function: &str) -> Vec<String> {
         // Caller context around Plenty calls is issue #366, not a query cost.
         .filter(|name| name.starts_with("plenty_"))
         .filter(|name| !name.starts_with("plenty_trap_") && !name.starts_with("plenty_caller_"))
+        // Literal data, not a call.
+        .filter(|name| !name.starts_with("plenty_str_"))
         .collect()
 }
 
@@ -177,6 +180,120 @@ def main() -> Result[(), AllocError | IoError | BytesError]:
     );
 }
 
+const OWNED: &str = r#"
+def code(s: &str) -> Result[u32, ParseError]:
+    ord(s)
+
+def sizes(s: str) -> i64:
+    n = len(s) * 1000 + s.byte_len() * 10
+    if s.isascii():
+        return n + 1
+    n
+
+def local_code(s: &str) -> Result[u32, ParseError]:
+    t = (s + "").unwrap()
+    ord(t)
+
+def scalars(s: &str) -> Result[u64, ParseError]:
+    mut total = 0u64
+    for c in s:
+        total += u64(ord(c)?)
+    Ok(total)
+
+def temporary(s: &str) -> Result[i64, AllocError]:
+    Ok(s.upper()?.byte_len())
+
+def literal(i: i64) -> u8:
+    b"az\xff"[i]
+
+def literal_sum() -> u64:
+    mut total = 0u64
+    for b in b"az\xff":
+        total += u64(b)
+    total + u64(b"az\xff".len())
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    heap = "a heap string, long enough to be counted"
+    for text in ["a", "é", "🙂", "", "ab", heap]?:
+        print(str.repr(code(text))?, str.repr(local_code(text))?)?
+    print(ord("x")?, ord(("é" + "")?)?, sizes(heap), sizes(("é" + heap)?))?
+    print(scalars(heap)?, str.repr(scalars(""))?, temporary(heap)?)?
+    print(literal(0), literal(-1), literal_sum(), heap)?
+    Ok(())
+"#;
+
+#[test]
+fn ord_literals_and_owned_receivers_return_the_dispatcher_results() {
+    // The expected output is the dispatcher's, from the compiler before #379.
+    // Under `runtime-checks`, exit also reports a leaked or doubly released
+    // receiver.
+    expect(
+        OWNED,
+        "Result[u32, ParseError].Ok(97) Result[u32, ParseError].Ok(97)\n\
+         Result[u32, ParseError].Ok(233) Result[u32, ParseError].Ok(233)\n\
+         Result[u32, ParseError].Ok(128578) Result[u32, ParseError].Ok(128578)\n\
+         Result[u32, ParseError].Err(ParseError.Invalid) Result[u32, ParseError].Err(ParseError.Invalid)\n\
+         Result[u32, ParseError].Err(ParseError.Invalid) Result[u32, ParseError].Err(ParseError.Invalid)\n\
+         Result[u32, ParseError].Err(ParseError.Invalid) Result[u32, ParseError].Err(ParseError.Invalid)\n\
+         120 233 40401 41420\n\
+         3700 Result[u64, ParseError].Ok(0) 40\n\
+         97 255 477 a heap string, long enough to be counted\n",
+    );
+}
+
+#[test]
+fn ord_literals_and_owned_receivers_skip_the_dispatcher_and_retain() {
+    for (function, expected) in [
+        ("code", &["plenty_text_ord"][..]),
+        ("literal", &["plenty_byte_str_item"][..]),
+        // Sorted. The releases are the parameter's drop on each return path.
+        (
+            "sizes",
+            &[
+                "plenty_release",
+                "plenty_release",
+                "plenty_text_byte_len",
+                "plenty_text_is_ascii",
+                "plenty_text_len",
+            ][..],
+        ),
+        (
+            "literal_sum",
+            &[
+                "plenty_byte_str_item",
+                "plenty_text_byte_len",
+                "plenty_text_byte_len",
+            ][..],
+        ),
+    ] {
+        let mut calls = runtime_calls(OWNED, function);
+        calls.sort();
+        assert_eq!(calls, expected, "{function}");
+    }
+    // A local, an iteration scalar, and a full-expression temporary are read
+    // in their slots: the only retain left is of the borrowed argument, which
+    // `+`, `upper`, and the loop's hidden copy consume.
+    for (function, helper) in [
+        ("local_code", "plenty_text_ord"),
+        ("scalars", "plenty_text_ord"),
+        ("temporary", "plenty_text_byte_len"),
+    ] {
+        let calls = runtime_calls(OWNED, function);
+        assert!(
+            calls.iter().any(|name| name == helper),
+            "{function}: {calls:?}"
+        );
+        let retains = calls.iter().filter(|name| *name == "plenty_retain").count();
+        assert_eq!(retains, 1, "{function}: {calls:?}");
+        if function == "scalars" {
+            assert!(
+                !calls.iter().any(|name| name == "plenty_collection"),
+                "{function}: {calls:?}"
+            );
+        }
+    }
+}
+
 fn trap(body: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
     let source = format!(
@@ -223,6 +340,10 @@ fn trap(body: &str) -> String {
 #[case::empty_text(
     "    word = \"\"\n    print(word[0])?\n",
     "9:11: index out of bounds: index 0, length 0"
+)]
+#[case::byte_literal(
+    "    i = -3\n    print(b\"ab\"[i])?\n",
+    "9:11: index out of bounds: index -3, length 2"
 )]
 fn bounds_traps_keep_their_sites(#[case] body: &str, #[case] expected: &str) {
     assert_eq!(trap(body), format!("error: main.plenty:{expected}\n"));

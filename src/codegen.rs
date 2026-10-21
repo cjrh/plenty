@@ -919,6 +919,8 @@ struct Runtime {
     text_byte_len: FuncId,
     text_is_ascii: FuncId,
     text_at: FuncId,
+    text_ord: FuncId,
+    byte_str_item: FuncId,
     text_at_byte: FuncId,
     text_next_byte: FuncId,
     text_prev_byte: FuncId,
@@ -1222,6 +1224,13 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             "plenty_text_at",
             &[PTR_TY, types::I64, PTR_TY],
             Some(PTR_TY),
+        )?,
+        text_ord: helper(module, "plenty_text_ord", &[PTR_TY], Some(types::I64))?,
+        byte_str_item: helper(
+            module,
+            "plenty_byte_str_item",
+            &[PTR_TY, types::I64, PTR_TY],
+            Some(types::I64),
         )?,
         text_at_byte: helper(
             module,
@@ -1687,6 +1696,7 @@ fn build_user_function(
             return_storage,
             return_types: &decl.sig.outputs,
             collection_scratch: None,
+            fresh_load: None,
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
         };
@@ -1791,6 +1801,7 @@ fn build_main(
             return_storage: None,
             return_types: &[],
             collection_scratch: None,
+            fresh_load: None,
             counters: Default::default(),
             position: Default::default(),
         };
@@ -1915,24 +1926,36 @@ struct Lowerer<'a, 'b> {
     /// Loop counter range facts; see [`induction`].
     counters: induction::Facts,
     position: sites::Position,
+    /// The copy the op just lowered, a `LoadLocal` of a counted one-word
+    /// value, pushed, and the `plenty_retain` call that counted it. A narrow
+    /// query lowered next that consumes the copy removes the call and skips
+    /// its release: the slot keeps the value alive (issue #379).
+    fresh_load: Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Inst)>,
 }
 
 impl Lowerer<'_, '_> {
-    fn retain(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
+    /// Counts a new copy of `value`. Returns the `plenty_retain` call for a
+    /// one-word value, which is the copy's only cost.
+    fn retain(
+        &mut self,
+        value: cranelift_codegen::ir::Value,
+        ty: &Ty,
+    ) -> Option<cranelift_codegen::ir::Inst> {
         if ty.wide() || matches!(ty, Ty::Closure(_)) {
             if ty.managed() {
                 self.collection_call(26, &[value], Some(ty))
                     .expect("sum metadata");
             }
-            return;
+            return None;
         }
         let value = self.raw_word(value);
-        if ty.managed() {
-            let f = self
-                .module
-                .declare_func_in_func(self.runtime.retain, self.bcx.func);
-            self.bcx.ins().call(f, &[value]);
+        if !ty.managed() {
+            return None;
         }
+        let f = self
+            .module
+            .declare_func_in_func(self.runtime.retain, self.bcx.func);
+        Some(self.bcx.ins().call(f, &[value]))
     }
     fn release(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
         if ty.wide() || matches!(ty, Ty::Generator(_) | Ty::Closure(_)) {
@@ -2028,6 +2051,7 @@ impl Lowerer<'_, '_> {
         }
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
+        let fresh_load = self.fresh_load.take();
         match op {
             Op::Thread(operation) => self.lower_thread(operation)?,
             Op::Channel(operation) => self.lower_channel(operation)?,
@@ -2107,7 +2131,12 @@ impl Lowerer<'_, '_> {
                 self.write_reference(reference, value, ty);
                 self.stack.push((old, ty.clone()));
             }
-            Op::Collection(operation) => self.lower_collection(operation)?,
+            Op::Collection(operation) => {
+                self.fresh_load = fresh_load;
+                let lowered = self.lower_collection(operation);
+                self.fresh_load = None;
+                lowered?
+            }
             Op::ClosureNew(t) => self.lower_closure_new(t)?,
             Op::ClosureCall(t) => self.lower_closure_call(t)?,
             Op::BoxedCallableNew(source, adapter, sig) => {
@@ -2162,7 +2191,7 @@ impl Lowerer<'_, '_> {
             }
             Op::FloatNeg => {
                 let (value, ty) = self.stack.pop().ok_or("empty float negation")?;
-                let value = self.bcx.ins().fneg(value);
+                let value = self.float_neg(value);
                 self.stack.push((value, ty));
             }
             Op::PushBool(b) => {
@@ -2299,6 +2328,11 @@ impl Lowerer<'_, '_> {
             Op::PrintLn => self.lower_println()?,
             Op::Print => self.lower_print()?,
         }
+        // A nested body may end with a load; the copy stays fresh only for
+        // the op right after its own load.
+        if !matches!(op, Op::LoadLocal(_)) {
+            self.fresh_load = None;
+        }
         Ok(())
     }
 
@@ -2390,7 +2424,10 @@ impl Lowerer<'_, '_> {
         let (a, b, ty) = self.pop_pair()?;
         if ty.is_float() {
             let result = match kind {
-                ArithKind::Sub => self.bcx.ins().fsub(a, b),
+                ArithKind::Sub => {
+                    let a = self.float_left_operand(a, b);
+                    self.bcx.ins().fsub(a, b)
+                }
                 ArithKind::Add | ArithKind::Mul => {
                     // Cranelift rematerializes a float constant in each block
                     // that uses it and, on x86-64, builds a left operand in a
@@ -2498,6 +2535,7 @@ impl Lowerer<'_, '_> {
     fn lower_div(&mut self, floor: bool) -> Result<()> {
         let (a, b, ty) = self.pop_pair()?;
         if ty.is_float() {
+            let a = self.float_left_operand(a, b);
             let value = self.bcx.ins().fdiv(a, b);
             self.stack.push((value, ty));
             return Ok(());
@@ -2962,7 +3000,7 @@ impl Lowerer<'_, '_> {
         if self.counters.nonnegative_locals.contains(&i) {
             self.counters.nonnegative.insert(v);
         }
-        self.retain(v, &ty);
+        self.fresh_load = self.retain(v, &ty).map(|call| (v, call));
         self.stack.push((v, ty));
         Ok(())
     }

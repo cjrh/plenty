@@ -184,6 +184,33 @@ order. `2.0 * x` and `x * 2.0` become `x + x`, which rounds, overflows, and
 propagates signed zero, infinities and NaN identically. No other float
 operation is rewritten; there is no reassociation, fusion, or fast-math mode.
 
+A non-zero constant on the left of `-` or `/`, which cannot move, is emitted as
+lane 0 of a `vconst` vector constant (issue #380). Cranelift does not
+rematerialize a `vconst`, and x86-64 loads it from the constant pool with one
+`movupd`, so `1.5 - x` reads its constant without a general-purpose register.
+The operation and its operand bits are unchanged. Zero keeps its `f64const`,
+which lowers to a register-clearing `xorpd`, and a constant whose other operand
+is also constant is left for Cranelift to fold. In a throughput-bound loop with
+four `c - x` terms (`taskset`, `perf stat`, 10⁹ iterations, Ryzen 7 7840HS) the
+change lowers cycles from 8.8 to 5.4 billion, matching the same loop with the
+constants passed as arguments; in a loop bounded by a dependency chain the
+`movabs` was off the chain and the cycles do not change.
+
+`x.fabs()` and `x.copysign(y)` are bit masks rather than runtime calls: `band`
+with the magnitude mask, and `bor` of that with `band(y, sign mask)`. Every
+mask and constant is a right operand, which x86-64 reads from the constant
+pool; Cranelift's own `fabs` and `fcopysign` build their masks with `movabs`.
+Like Rust's `abs` and `copysign`, they keep a NaN payload. A constant receiver
+or sign argument is folded into the masks while lowering.
+
+Float negation `-x` is `bxor` with the sign mask rather than Cranelift's
+`fneg`, whose x86-64 lowering builds the mask with `movabs` + `movq` at each
+use (issue #385). Both flip only the sign bit, NaN payload included. Lowering
+folds a constant operand and `-(-x)`; Cranelift's other `fneg` rewrites, such
+as `(-x) * (-y)` to `x * y`, no longer apply. In a throughput-bound loop with
+four `s + -(x * a)` terms the change lowers cycles from 7.7 to 4.4 billion and
+instructions per iteration from 30 to 22.
+
 Integer constants are left as Cranelift places them. In the
 `examples/cpu_codegen_audit` `mix` kernel the per-iteration `movabs` is off the
 loop's dependency chain: passing the constant as an argument instead removes

@@ -3606,7 +3606,7 @@ impl Lower<'_> {
                     let (actual, loans) =
                         self.observe_expected(argument, Some(inputs[0].clone()), ops)?;
                     self.same(Some(actual), Some(inputs[0].clone()), &argument.at)?;
-                    ops.push(Op::Collection(operation));
+                    Self::push_query(operation, ops);
                     Self::end_reads(loans, ops);
                     return Ok(Some(output));
                 }

@@ -408,6 +408,30 @@ pub(crate) unsafe extern "C" fn plenty_text_at(
     // SAFETY: as for `plenty_text_len`.
     unsafe { at(text, i, site) }
 }
+/// `ord(text)`: the code point of a text holding exactly one scalar, or
+/// `u64::MAX`, which the compiled caller turns into `Err(ParseError)`
+/// (issue #379).
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_ord(text: *const Text) -> u64 {
+    // SAFETY: as for `plenty_text_len`.
+    let mut scalars = unsafe { utf8(&text) }.chars();
+    match (scalars.next(), scalars.next()) {
+        (Some(scalar), None) => u64::from(scalar),
+        _ => u64::MAX,
+    }
+}
+/// A `bytes` literal's byte at `i`, with the list index rules. The literal
+/// is immortal data in the text layout.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_byte_str_item(
+    literal: *const Text,
+    i: i64,
+    site: *const crate::Site,
+) -> u64 {
+    // SAFETY: the literal is static data that is never freed.
+    let data = unsafe { bytes(&literal) };
+    u64::from(data[crate::aggregates::index(i, data.len(), site)])
+}
 /// The scalar starting at a valid byte cursor of forward iteration.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_text_at_byte(text: *const Text, offset: u64) -> *mut Text {

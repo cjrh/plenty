@@ -143,6 +143,7 @@ pub(super) fn build_generator(
             return_storage: None,
             return_types: &[],
             collection_scratch: None,
+            fresh_load: None,
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             generator: Some(GeneratorContext {
