@@ -59,8 +59,8 @@ Floating rounding means `a == q * b + r` need not hold exactly.
 `isclose` follows Python's weak symmetric comparison: exact equality succeeds
 first, unequal infinities fail, and otherwise either relative tolerance or the
 absolute tolerance may accept the difference. Negative tolerances produce
-`Domain`; NaNs are never close. Both tolerances are explicit because default
-and keyword arguments are unimplemented. `1e-9, 0.0` matches Python's defaults.
+`Domain`; NaNs are never close. Both tolerances are required parameters;
+`1e-9, 0.0` matches Python's defaults.
 
 The module exports `pi`, `e`, `tau`, `inf`, and `nan` as immutable `f64`
 [module constants](../language/02-source/modules.md#numeric-constants). They can also be imported
@@ -116,8 +116,8 @@ It is not the complete Python math API. Missing operations include `hypot`,
 `fma`, special functions, and newer pi-scaled trigonometry. Accurate summation
 and bit-level float decomposition need separate contracts and tests; simple
 arithmetic substitutes must not imply Python's numerical guarantees.
-Default arguments, arbitrary constant expressions, and custom iterator protocols
-remain language design questions. `%` remains integer-only; use `fmod` or
+Arbitrary constant expressions and custom iterator protocols remain language
+design questions. `%` remains integer-only; use `fmod` or
 `divmod_float` for floats. Powers use `.pow()` or `math.pow`; `**` is rejected
 with a diagnostic naming `.pow()`. Remaining scheduling belongs in the
 [backlog](../../backlog.md).
