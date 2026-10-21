@@ -1,0 +1,61 @@
+# Assembly comparison kernels. See report.txt for semantics and commands.
+def div10(x: u64) -> u64:
+    x // 10u64
+
+def rem10(x: u64) -> u64:
+    x % 10u64
+
+def mix(seed: u64, count: u64) -> u64:
+    mut x = seed
+    mut i = 0u64
+    while i < count:
+        x = (x ^ (x >> 13u64)).wrapping_mul(6364136223846793005u64)
+        x = x.rotate_left(17u64).wrapping_add(1442695040888963407u64)
+        i = i.wrapping_add(1u64)
+    x
+
+def escape(cr: f64, ci: f64, limit: i64) -> i64:
+    mut zr = 0.0
+    mut zi = 0.0
+    mut iteration = 0
+    while iteration < limit:
+        rr = zr * zr
+        ii = zi * zi
+        if rr + ii > 4.0:
+            break
+        zi = (2.0 * zr) * zi + ci
+        zr = rr - ii + cr
+        iteration = iteration + 1
+    iteration
+
+def sum_words(values: &list[u64]) -> u64:
+    mut total = 0u64
+    for value in values:
+        total = total.wrapping_add(*value)
+    total
+
+def sum_indexed(values: &list[u64]) -> u64:
+    mut total = 0u64
+    mut i = 0
+    while i < len(values):
+        total = total.wrapping_add(values[i])
+        i = i + 1
+    total
+
+def main() -> Result[(), AllocError | IoError]:
+    for x in [0u64, 1u64, 9u64, 10u64, 11u64, 123456789u64, u64.MAX]?:
+        print(div10(x), rem10(x))?
+    print(mix(42u64, 0u64), mix(42u64, 1u64), mix(42u64, 10000u64))?
+    mut checksum = 0
+    for y in range(48):
+        for x in range(64):
+            cr = f64(x) / 24.0 - 2.0
+            ci = f64(y) / 24.0 - 1.0
+            checksum = checksum + escape(cr, ci, 128)
+    print(checksum, escape(0.0, 0.0, 0), escape(0.0, 0.0, -1))?
+    empty: list[u64] = []?
+    values = [u64(i).wrapping_mul(123456789u64) for i in range(4096)]?
+    overflow = [u64.MAX, 1u64, 9u64]?
+    print(sum_words(&empty), sum_words(&values), sum_words(&overflow))?
+    print(sum_indexed(&empty), sum_indexed(&values), sum_indexed(&overflow))?
+    Ok(())

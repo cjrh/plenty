@@ -1,0 +1,55 @@
+diff --git i/src/codegen/output.rs w/src/codegen/output.rs
+index fe16882f..55ab7620 100644
+--- i/src/codegen/output.rs
++++ w/src/codegen/output.rs
+@@ -275,6 +275,9 @@ impl Output {
+             format!("compiling `{}`: {error}", declaration.linkage_name(id))
+         })?;
+         relocate(&mut self.module, &mut code.relocs)?;
++        if let Ok(dir) = std::env::var("PLENTY_AUDIT_IR") {
++            std::fs::write(format!("{dir}/{}.name", id.as_u32()), self.module.declarations().get_function_decl(id).linkage_name(id).as_bytes()).unwrap();
++        }
+         self.module.define_function_bytes(
+             id,
+             code.alignment,
+@@ -385,6 +388,30 @@ fn compile(
+     cache: Option<&Cache>,
+ ) -> Compiled {
+     context.func = func;
++    if std::env::var_os("PLENTY_AUDIT_FOLD").is_some() {
++        use cranelift_codegen::ir::{InstBuilder, InstructionData, Opcode};
++        context.optimize(isa, &mut ControlPlane::default()).map_err(|e| format!("{e:?}"))?;
++        let instructions: Vec<_> = context.func.layout.blocks().flat_map(|b| context.func.layout.block_insts(b)).collect();
++        for inst in instructions {
++            if let InstructionData::Brif { arg, blocks, .. } = context.func.dfg.insts[inst] {
++                let arg = context.func.dfg.resolve_aliases(arg);
++                if let Some(def) = context.func.dfg.value_def(arg).inst()
++                    && let InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } = context.func.dfg.insts[def]
++                {
++                    let target = blocks[usize::from(imm.bits() == 0)];
++                    let block = target.block(&context.func.dfg.value_lists);
++                    let args: Vec<_> = target.args(&context.func.dfg.value_lists).collect();
++                    context.func.dfg.replace(inst).jump(block, &args);
++                }
++            }
++        }
++        context.compute_cfg();
++        context.compute_domtree();
++        context.eliminate_unreachable_code(isa).map_err(|e| format!("{e:?}"))?;
++    }
++    if let Ok(dir) = std::env::var("PLENTY_AUDIT_IR") {
++        std::fs::write(format!("{dir}/{}.before.clif", id.as_u32()), context.func.display().to_string()).unwrap();
++    }
+     let compiled = crate::profile_block!(
+         "output::cranelift_compile",
+         match cache {
+@@ -395,6 +422,9 @@ fn compile(
+                 .map_err(|error| format!("{:?}", error.inner)),
+         }
+     );
++    if let Ok(dir) = std::env::var("PLENTY_AUDIT_IR") {
++        std::fs::write(format!("{dir}/{}.after.clif", id.as_u32()), context.func.display().to_string()).unwrap();
++    }
+     let code = compiled.map(|compiled| {
+         crate::profile_block!("output::collect_code", {
+             let (alignment, bytes, relocs) = match compiled.as_deref() {
