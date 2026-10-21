@@ -2174,7 +2174,7 @@ impl Lowerer<'_, '_> {
             }
             Op::FloatNeg => {
                 let (value, ty) = self.stack.pop().ok_or("empty float negation")?;
-                let value = self.bcx.ins().fneg(value);
+                let value = self.float_neg(value);
                 self.stack.push((value, ty));
             }
             Op::PushBool(b) => {
