@@ -4,16 +4,16 @@
 //! have zero (unit) or one result, and no backend participates in inference.
 use crate::hash::{HashMap, HashSet};
 use std::cell::Cell;
-use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
+use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::sync::Arc;
 
 use crate::collection::CollectionOp;
 use crate::executor::ExecutorOp;
 use crate::op::{
-    mark_tail_calls, Building, CompiledFn, ElifArm, FnSig, Forward, IntegerOp, MatchArm, Op,
-    Pattern, Ty,
+    Building, CompiledFn, ElifArm, FnSig, Forward, IntegerOp, MatchArm, Op, Pattern, Ty,
+    mark_tail_calls,
 };
 use crate::threading::ThreadOp;
 use crate::value::{Heap, Value};
@@ -63,7 +63,7 @@ pub(crate) struct Program {
     pub(crate) inputs: Inputs,
 }
 
-pub(crate) use modules::inputs::{standard_digest, Inputs};
+pub(crate) use modules::inputs::{Inputs, standard_digest};
 
 /// Every symbol the lexer accepts, so a symbol token needs no allocation.
 const SYMBOLS: [&str; 37] = [
@@ -519,8 +519,8 @@ impl<'a> Lexer<'a> {
                 | b'*' | b'%' | b'/' | b'=' | b'!' | b'<' | b'>' | b'&' | b'|' | b'^' | b'~'
                 | b'?' => {
                     let begin = self.pos;
-                    if let Some(next) = bytes.get(self.pos + 1) {
-                        if matches!(
+                    if let Some(next) = bytes.get(self.pos + 1)
+                        && matches!(
                             (c, *next),
                             (b'-', b'>')
                                 | (b'=', b'=')
@@ -530,10 +530,10 @@ impl<'a> Lexer<'a> {
                                 | (b'/', b'/')
                                 | (b'<', b'<')
                                 | (b'>', b'>')
-                        ) {
-                            self.pos += 1;
-                            self.column += 1;
-                        }
+                        )
+                    {
+                        self.pos += 1;
+                        self.column += 1;
                     }
                     if matches!(
                         &source[begin..=self.pos],
@@ -1263,10 +1263,11 @@ impl Parser {
     }
     fn name(&mut self) -> Result<String> {
         let t = self.take();
-        if let Kind::Word(ref s) = t.kind {
-            if !reserved(s) && !s.starts_with("__plenty_") {
-                return Ok(s.to_string());
-            }
+        if let Kind::Word(ref s) = t.kind
+            && !reserved(s)
+            && !s.starts_with("__plenty_")
+        {
+            return Ok(s.to_string());
         }
         Err(t.error("expected an identifier (keywords and __plenty_ names are reserved)"))
     }
@@ -1341,48 +1342,48 @@ impl Parser {
             });
         }
         let t = self.take();
-        if let Kind::Word(ref name) = t.kind {
-            if !reserved(name) {
-                let mut name = name.to_string();
-                while self.eat(".") {
-                    name.push('.');
-                    name.push_str(&self.name()?);
+        if let Kind::Word(ref name) = t.kind
+            && !reserved(name)
+        {
+            let mut name = name.to_string();
+            while self.eat(".") {
+                name.push('.');
+                name.push_str(&self.name()?);
+            }
+            if matches!(
+                name.as_str(),
+                "Callable" | "BoxedCallable" | "Closure" | "OnceClosure" | "OnceCallable"
+            ) {
+                if !(self.eat("[") && self.eat("[")) {
+                    return Err(self
+                        .peek()
+                        .error(format!("use {name}[[parameter types], return type]")));
                 }
-                if matches!(
-                    name.as_str(),
-                    "Callable" | "BoxedCallable" | "Closure" | "OnceClosure" | "OnceCallable"
-                ) {
-                    if !(self.eat("[") && self.eat("[")) {
-                        return Err(self
-                            .peek()
-                            .error(format!("use {name}[[parameter types], return type]")));
-                    }
-                    let mut args = Vec::new();
-                    while !self.eat("]") {
-                        args.push(self.ty()?);
-                        if self.eat("]") {
-                            break;
-                        }
-                        self.expect(",")?;
+                let mut args = Vec::new();
+                while !self.eat("]") {
+                    args.push(self.ty()?);
+                    if self.eat("]") {
+                        break;
                     }
                     self.expect(",")?;
-                    args.push(self.ty()?);
-                    self.eat(",");
-                    self.expect("]")?;
-                    return Ok(TypeRef {
-                        concrete: None,
-                        at,
-                        name: Some(name),
-                        args,
-                    });
                 }
+                self.expect(",")?;
+                args.push(self.ty()?);
+                self.eat(",");
+                self.expect("]")?;
                 return Ok(TypeRef {
                     concrete: None,
                     at,
                     name: Some(name),
-                    args: self.type_arguments()?,
+                    args,
                 });
             }
+            return Ok(TypeRef {
+                concrete: None,
+                at,
+                name: Some(name),
+                args: self.type_arguments()?,
+            });
         }
         Err(t.error("expected a type name or ()"))
     }
@@ -2182,23 +2183,23 @@ impl Parser {
             if self.peek().is("[") {
                 let saved = self.pos;
                 if let Expression::Member(base, name, pos) = &left.kind {
-                    if let Ok(types) = self.type_arguments() {
-                        if self.peek().is("(") {
-                            // The index reading holds `left` as its base.
-                            self.deepen()?;
-                            let index = self.index_reading(saved, &left);
-                            self.take();
-                            let args = self.arguments()?;
-                            let generic = Expression::GenericMethod(
-                                base.clone(),
-                                name.as_str().into(),
-                                types,
-                                args,
-                                *pos,
-                            );
-                            left.kind = bracketed(&left.at, generic, index);
-                            continue;
-                        }
+                    if let Ok(types) = self.type_arguments()
+                        && self.peek().is("(")
+                    {
+                        // The index reading holds `left` as its base.
+                        self.deepen()?;
+                        let index = self.index_reading(saved, &left);
+                        self.take();
+                        let args = self.arguments()?;
+                        let generic = Expression::GenericMethod(
+                            base.clone(),
+                            name.as_str().into(),
+                            types,
+                            args,
+                            *pos,
+                        );
+                        left.kind = bracketed(&left.at, generic, index);
+                        continue;
                     }
                     self.pos = saved;
                 }
@@ -2699,10 +2700,15 @@ impl Lower<'_> {
         if !ide::active() {
             return;
         }
-        if let Some(Ty::Class(class)) = self.place_type(base).map(classes::unbox) {
-            ide::refer_member(&e.at, *pos, name, ide::field_key(&class.name, name));
-        } else if let Ok(Some(Ty::Enum(t))) = self.qualified_type(base) {
-            ide::refer_member(&e.at, *pos, name, ide::variant_key(&t.name, name));
+        match self.place_type(base).map(classes::unbox) {
+            Some(Ty::Class(class)) => {
+                ide::refer_member(&e.at, *pos, name, ide::field_key(&class.name, name));
+            }
+            _ => {
+                if let Ok(Some(Ty::Enum(t))) = self.qualified_type(base) {
+                    ide::refer_member(&e.at, *pos, name, ide::variant_key(&t.name, name));
+                }
+            }
         }
     }
     fn bind(&mut self, name: String, local: Local) -> Option<Local> {
@@ -2735,7 +2741,9 @@ impl Lower<'_> {
     /// found there but no longer in `names` left scope with its block.
     fn unknown_binding(&self, name: &str) -> String {
         let hint = if self.slot_names.iter().flatten().any(|n| &**n == name) {
-            format!("; a binding declared inside a block ends with that block; bind `mut {name}` to a value before the block and assign it inside")
+            format!(
+                "; a binding declared inside a block ends with that block; bind `mut {name}` to a value before the block and assign it inside"
+            )
         } else {
             String::new()
         };
@@ -3120,7 +3128,7 @@ impl Lower<'_> {
             Expression::Try(value) => self.propagate(e, value, None, ops)?,
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, None, ops)?,
             Expression::Type(_) => {
-                return Err(e.at.error("a type is not a value; select a variant"))
+                return Err(e.at.error("a type is not a value; select a variant"));
             }
             Expression::ClassNew(t) => {
                 let op = crate::record::ClassOp::New(t.clone());
@@ -3136,28 +3144,31 @@ impl Lower<'_> {
             }
             Expression::Member(base, name, _) => {
                 self.ide_member(e);
-                if let Some(ty) = self.qualified_type(base)? {
-                    if ty.is_numeric() {
-                        return self.numeric_constant(ty, name, &e.at, ops).map(Some);
+                match self.qualified_type(base)? {
+                    Some(ty) => {
+                        if ty.is_numeric() {
+                            return self.numeric_constant(ty, name, &e.at, ops).map(Some);
+                        }
+                        self.variant(ty, name, None, &e.at, ops)?
                     }
-                    self.variant(ty, name, None, &e.at, ops)?
-                } else {
-                    let (ty, loans) = self.field(e, ops)?;
-                    if ty.affine() {
-                        let copy = if ty.can_copy() && !ty.recursive_data() {
-                            "copy(value.field).unwrap(), "
-                        } else {
-                            ""
-                        };
-                        let borrow = if matches!(ty, Ty::Enum(_)) && ty.recursive_data() {
-                            "match &value.field (or &mut value.field)"
-                        } else {
-                            "&value.field (or &mut value.field)"
-                        };
-                        return Err(e.at.error(format!("cannot move out of a field; use {copy}{borrow}, or replace(value.field, replacement) on a mutable owner")));
+                    _ => {
+                        let (ty, loans) = self.field(e, ops)?;
+                        if ty.affine() {
+                            let copy = if ty.can_copy() && !ty.recursive_data() {
+                                "copy(value.field).unwrap(), "
+                            } else {
+                                ""
+                            };
+                            let borrow = if matches!(ty, Ty::Enum(_)) && ty.recursive_data() {
+                                "match &value.field (or &mut value.field)"
+                            } else {
+                                "&value.field (or &mut value.field)"
+                            };
+                            return Err(e.at.error(format!("cannot move out of a field; use {copy}{borrow}, or replace(value.field, replacement) on a mutable owner")));
+                        }
+                        Self::end_reads(loans, ops);
+                        Some(ty)
                     }
-                    Self::end_reads(loans, ops);
-                    Some(ty)
                 }
             }
             Expression::Tuple(values) => Some(self.tuple(values, None, &e.at, ops)?),
@@ -3173,10 +3184,10 @@ impl Lower<'_> {
                 }
             }
             Expression::Method(base, name, args, pos) => {
-                if name == "format" {
-                    if let Some(ty) = self.format_method(base, args, &e.at, ops) {
-                        return ty;
-                    }
+                if name == "format"
+                    && let Some(ty) = self.format_method(base, args, &e.at, ops)
+                {
+                    return ty;
                 }
                 ide::enter_method(*pos, name);
                 let ty = self.method(base, name, args, ops);
@@ -3245,10 +3256,10 @@ impl Lower<'_> {
                 if let Some(loan) = self.reference_locals.get(&local.slot) {
                     ops.push(Op::UseLoan(*loan));
                 }
-                if let Ty::Closure(t) = &local.ty {
-                    if let Some(loans) = self.closure_loans.get(&t.name) {
-                        ops.extend(loans.iter().copied().map(Op::UseLoan));
-                    }
+                if let Ty::Closure(t) = &local.ty
+                    && let Some(loans) = self.closure_loans.get(&t.name)
+                {
+                    ops.extend(loans.iter().copied().map(Op::UseLoan));
                 }
                 if local.ty.affine() {
                     ops.push(Op::MoveLocal(local.slot));
@@ -3316,10 +3327,10 @@ impl Lower<'_> {
                     }
                     return Ok(Some((*ty).clone()));
                 }
-                if op == "-" {
-                    if let Expression::Number(n) = &value.kind {
-                        return self.number(n, true, &e.at, ops).map(Some);
-                    }
+                if op == "-"
+                    && let Expression::Number(n) = &value.kind
+                {
+                    return self.number(n, true, &e.at, ops).map(Some);
                 }
                 let mut body = Vec::new();
                 let ty = self.value(value, &mut body)?;
@@ -3407,18 +3418,18 @@ impl Lower<'_> {
                 Some(Ty::Bool)
             }
             Expression::Binary(op, left, right) => {
-                if op == "*" {
-                    if let Some(display) = [left, right].into_iter().find_map(|e| list_display(e)) {
-                        return Err(display.at.error(LIST_REPETITION));
-                    }
+                if op == "*"
+                    && let Some(display) = [left, right].into_iter().find_map(|e| list_display(e))
+                {
+                    return Err(display.at.error(LIST_REPETITION));
                 }
-                if op != "and" && op != "or" {
-                    if let Some(hint) = self.numeric_hint(left).or_else(|| self.numeric_hint(right))
-                    {
-                        return self
-                            .numeric_binary(op, left, right, hint, &e.at, ops)
-                            .map(Some);
-                    }
+                if op != "and"
+                    && op != "or"
+                    && let Some(hint) = self.numeric_hint(left).or_else(|| self.numeric_hint(right))
+                {
+                    return self
+                        .numeric_binary(op, left, right, hint, &e.at, ops)
+                        .map(Some);
                 }
                 let (a, mut loans) = self.observe(left, ops)?;
                 let mut rhs = Vec::new();
@@ -3444,10 +3455,10 @@ impl Lower<'_> {
                 if op == "*" {
                     match (&a, &b) {
                         (Ty::List(_), other) if other.is_int() => {
-                            return Err(left.at.error(LIST_REPETITION))
+                            return Err(left.at.error(LIST_REPETITION));
                         }
                         (other, Ty::List(_)) if other.is_int() => {
-                            return Err(right.at.error(LIST_REPETITION))
+                            return Err(right.at.error(LIST_REPETITION));
                         }
                         _ => {}
                     }
@@ -3875,41 +3886,46 @@ impl Lower<'_> {
                         ops,
                     );
                 }
-                if let Some(target) = lookup_type(name, self.aliases) {
-                    if let Some(target) = target.as_ref().filter(|t| t.is_collection()) {
-                        return self.construct(target.clone(), args, &e.at, ops).map(Some);
-                    }
-                    let target = target.filter(|ty| ty.is_numeric()).ok_or_else(|| {
+                match lookup_type(name, self.aliases) {
+                    Some(target) => {
+                        if let Some(target) = target.as_ref().filter(|t| t.is_collection()) {
+                            return self.construct(target.clone(), args, &e.at, ops).map(Some);
+                        }
+                        let target = target.filter(|ty| ty.is_numeric()).ok_or_else(|| {
                         e.at.error(if lookup_type(name, self.aliases) == Some(Some(Ty::Str)) {
                             "only numeric types support cast syntax; format a number or boolean as text with `str.from(value)?`"
                         } else {
                             "only numeric types support cast syntax"
                         })
                     })?;
-                    if args.len() != 1 {
-                        return Err(e.at.error("numeric casts take one argument"));
+                        if args.len() != 1 {
+                            return Err(e.at.error("numeric casts take one argument"));
+                        }
+                        let source = self.value(&args[0], ops)?;
+                        if !source.is_numeric() {
+                            return Err(e.at.error("numeric casts require a number"));
+                        }
+                        self.checked_cast(&source, &target, &args[0], &e.at, ops)?;
+                        Some(target)
                     }
-                    let source = self.value(&args[0], ops)?;
-                    if !source.is_numeric() {
-                        return Err(e.at.error("numeric casts require a number"));
+                    _ => {
+                        if name == "contains" {
+                            if args.len() != 2 {
+                                return Err(e.at.error("contains takes two strings"));
+                            }
+                            let mut loans = Vec::new();
+                            for arg in args {
+                                let (ty, reads) = self.observe_expected(arg, Some(Ty::Str), ops)?;
+                                self.same(Some(ty), Some(Ty::Str), &arg.at)?;
+                                loans.extend(reads);
+                            }
+                            ops.push(Op::Contains);
+                            Self::end_reads(loans, ops);
+                            Some(Ty::Bool)
+                        } else {
+                            self.call_named(name, args, &e.at, ops)?
+                        }
                     }
-                    self.checked_cast(&source, &target, &args[0], &e.at, ops)?;
-                    Some(target)
-                } else if name == "contains" {
-                    if args.len() != 2 {
-                        return Err(e.at.error("contains takes two strings"));
-                    }
-                    let mut loans = Vec::new();
-                    for arg in args {
-                        let (ty, reads) = self.observe_expected(arg, Some(Ty::Str), ops)?;
-                        self.same(Some(ty), Some(Ty::Str), &arg.at)?;
-                        loans.extend(reads);
-                    }
-                    ops.push(Op::Contains);
-                    Self::end_reads(loans, ops);
-                    Some(Ty::Bool)
-                } else {
-                    self.call_named(name, args, &e.at, ops)?
                 }
             }
             Expression::Invoke(callee, args) => self.call_value(callee, args, ops)?,
@@ -4774,16 +4790,16 @@ impl Lower<'_> {
                 }
             };
             if matches!(tail, Tail::Discard) {
-                if let Some(ty @ Ty::Enum(t)) = &result {
-                    if t.is_result() {
-                        let can_propagate = self.result_success(ty).is_some_and(
-                            |success| !matches!(success, Ty::Enum(t) if t.is_result()),
-                        );
-                        return Err(stmt.at.error(format!(
+                if let Some(ty @ Ty::Enum(t)) = &result
+                    && t.is_result()
+                {
+                    let can_propagate = self
+                        .result_success(ty)
+                        .is_some_and(|success| !matches!(success, Ty::Enum(t) if t.is_result()));
+                    return Err(stmt.at.error(format!(
                             "cannot implicitly discard a Result; {}match the result explicitly, or use `drop(result)` to discard it deliberately",
                             if can_propagate { "use `?` to propagate the error, " } else { "" }
                         )));
-                    }
                 }
                 if result.is_some() {
                     ops.push(Op::Drop);
@@ -5118,7 +5134,7 @@ impl<'a> Sources<'a> {
     }
 }
 
-pub(crate) use modules::harness::{TestFile, TestReturn, RETURNED_ERR};
+pub(crate) use modules::harness::{RETURNED_ERR, TestFile, TestReturn};
 
 /// What `plenty test` runs from the test file at `path`; see [`modules::harness`].
 pub(crate) fn discover_tests(path: &std::path::Path) -> Result<TestFile> {
@@ -5231,13 +5247,13 @@ fn register_resolved(
                 .error("mutable returned references require a mutable reference parameter"));
         }
     }
-    if generators::yields(&f.body) {
-        if let Some(Ty::Generator(t)) = &output {
-            output = Some(crate::generator::ty(
-                t.element.clone(),
-                Some(f.name.clone()),
-            ));
-        }
+    if generators::yields(&f.body)
+        && let Some(Ty::Generator(t)) = &output
+    {
+        output = Some(crate::generator::ty(
+            t.element.clone(),
+            Some(f.name.clone()),
+        ));
     }
     let outputs = output.into_iter().collect();
     let sig = Arc::new(FnSig { inputs, outputs });
@@ -5715,42 +5731,43 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     // implementation retain the existing structural entrypoint diagnostic.
     // Its canonical types imply that the trusted std.report module is loaded.
     let entry_report = if require_main {
-        if let ([Ty::Enum(result)], Some(protocol)) = (
+        match (
             sigs["main"].outputs.as_slice(),
             generics.reporting_protocol().cloned(),
         ) {
-            let error = &result.get().variants[1].fields[0];
-            if protocols::check(
-                &protocol,
-                error,
-                &generics.methods,
-                &generics.templates,
-                &aliases,
-                &access,
-                &generics.standard_sources,
-                &protocol.at,
-                &protocol.at,
-            )
-            .is_ok()
-            {
-                let (symbol, function) = generics.instantiate(
-                    "std.report.entry_report",
-                    vec![error.clone()],
-                    &protocol.at,
+            ([Ty::Enum(result)], Some(protocol)) => {
+                let error = &result.get().variants[1].fields[0];
+                if protocols::check(
+                    &protocol,
+                    error,
+                    &generics.methods,
+                    &generics.templates,
                     &aliases,
                     &access,
-                    "main",
-                )?;
-                if let Some(function) = function {
-                    register_signature(&function, &aliases, &mut sigs, &mut returned_fields)?;
-                    generics.declare(function);
+                    &generics.standard_sources,
+                    &protocol.at,
+                    &protocol.at,
+                )
+                .is_ok()
+                {
+                    let (symbol, function) = generics.instantiate(
+                        "std.report.entry_report",
+                        vec![error.clone()],
+                        &protocol.at,
+                        &aliases,
+                        &access,
+                        "main",
+                    )?;
+                    if let Some(function) = function {
+                        register_signature(&function, &aliases, &mut sigs, &mut returned_fields)?;
+                        generics.declare(function);
+                    }
+                    Some(symbol)
+                } else {
+                    None
                 }
-                Some(symbol)
-            } else {
-                None
             }
-        } else {
-            None
+            _ => None,
         }
     } else {
         None

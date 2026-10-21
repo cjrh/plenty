@@ -260,7 +260,7 @@ pub fn parse_document(text: &str, name: &str, directory: &Path) -> Result<Docume
         None => {
             return Err(format!(
                 "{name}: missing `manifest-version = {MANIFEST_VERSION}`"
-            ))
+            ));
         }
         Some(Entry {
             value: Value::Integer(MANIFEST_VERSION),
@@ -272,7 +272,7 @@ pub fn parse_document(text: &str, name: &str, directory: &Path) -> Result<Docume
                 format!(
                     "unsupported manifest-version; this toolchain reads version {MANIFEST_VERSION}"
                 ),
-            )
+            );
         }
     }
     let members = match document.get("workspace") {
@@ -365,13 +365,13 @@ pub fn parse_document(text: &str, name: &str, directory: &Path) -> Result<Docume
     }
     let optional = |key: &str| package.get(key).map(|e| reader.string(key, e)).transpose();
     let plenty_version = optional("plenty-version")?;
-    if let Some(minimum) = &plenty_version {
-        if parse_version(minimum).is_none() {
-            return reader.error(
-                &package["plenty-version"],
-                format!("plenty-version {minimum:?} must be MAJOR.MINOR.PATCH"),
-            );
-        }
+    if let Some(minimum) = &plenty_version
+        && parse_version(minimum).is_none()
+    {
+        return reader.error(
+            &package["plenty-version"],
+            format!("plenty-version {minimum:?} must be MAJOR.MINOR.PATCH"),
+        );
     }
     let authors = match package.get("authors") {
         None => vec![],
@@ -534,25 +534,23 @@ pub fn parse_document(text: &str, name: &str, directory: &Path) -> Result<Docume
                             }
                             GitSelector::Rev(rev)
                         }
-                        _ => {
-                            return reader.error(
-                                entry,
-                                format!(
+                        _ => return reader.error(
+                            entry,
+                            format!(
                                 "git dependency `{alias}` requires exactly one of `tag` or `rev`"
                             ),
-                            )
-                        }
+                        ),
                     };
                     let subdir = field("subdir")?;
-                    if let Some(subdir) = &subdir {
-                        if !plain_relative(subdir) {
-                            return reader.error(
+                    if let Some(subdir) = &subdir
+                        && !plain_relative(subdir)
+                    {
+                        return reader.error(
                                 &table["subdir"],
                                 format!(
                                     "dependency `{alias}`: subdir {subdir:?} must be a relative directory inside the repository"
                                 ),
                             );
-                        }
                     }
                     Source::Git {
                         url,
@@ -564,13 +562,13 @@ pub fn parse_document(text: &str, name: &str, directory: &Path) -> Result<Docume
                     return reader.error(
                         entry,
                         format!("dependency `{alias}` cannot have both `path` and `git`"),
-                    )
+                    );
                 }
                 (None, None) => {
                     return reader.error(
                         entry,
                         format!("dependency `{alias}` requires `path` or `git`"),
-                    )
+                    );
                 }
             };
             dependencies.insert(

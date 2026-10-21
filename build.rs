@@ -444,7 +444,7 @@ fn build_runtime(out: &Path, vendor: &Path, application: bool) {
         "plenty_runtime",
         "--crate-type",
         "staticlib",
-        "--edition=2021",
+        "--edition=2024",
         "--target",
         &std::env::var("TARGET").unwrap(),
         "-Copt-level=2",

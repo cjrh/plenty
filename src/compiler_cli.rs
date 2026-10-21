@@ -403,7 +403,7 @@ fn with_graph(
                 "--package-graph requires FILE, --check, --check-module, or --compile\n{}",
                 usage(program)
             )
-            .into())
+            .into());
         }
     }
     Ok(ExitCode::SUCCESS)

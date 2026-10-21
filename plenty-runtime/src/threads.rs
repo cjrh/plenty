@@ -10,7 +10,7 @@ pub(crate) type Entry = unsafe extern "C" fn(*mut c_void) -> *mut c_void;
 // This is the x86_64 Linux GNU ABI, the compiler's only supported native target.
 // Keep pthread_t opaque to generated code: it reserves one aligned machine word.
 #[link(name = "pthread")]
-extern "C" {
+unsafe extern "C" {
     fn pthread_create(
         thread: *mut usize,
         attributes: *const c_void,
@@ -41,7 +41,7 @@ unsafe extern "C" fn run(storage: *mut c_void) -> *mut c_void {
 
 /// Start `entry(storage)` on a new thread. `storage` begins with two words
 /// owned by the runtime: the thread id, then the entry for [`run`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_thread_start(storage: *mut usize, entry: Entry) -> i32 {
     #[cfg(any(test, feature = "allocation-checks"))]
     if STARTS_LEFT.with(|left| match left.get() {
@@ -63,7 +63,7 @@ pub(crate) unsafe extern "C" fn plenty_thread_start(storage: *mut usize, entry: 
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_thread_join(storage: *const usize) {
     // SAFETY: exactly one parent joins this successfully started native thread.
     // The task cannot escape, self-join, be detached, or be canceled from Plenty.

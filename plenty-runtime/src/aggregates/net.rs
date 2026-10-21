@@ -9,8 +9,8 @@
 //! network order, the address and, for IPv6, the scope id in network order.
 //! `getaddrinfo` allocates its result list with the C allocator, outside
 //! Plenty's accounting, and frees it before returning.
-use super::filesystem::{byte_list, contiguous};
 use super::Type;
+use super::filesystem::{byte_list, contiguous};
 use crate::text_io::{self, Error, Kind};
 
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
@@ -72,7 +72,7 @@ mod native {
         next: *mut AddrInfo,
     }
 
-    extern "C" {
+    unsafe extern "C" {
         fn socket(domain: i32, kind: i32, protocol: i32) -> i32;
         fn bind(fd: i32, address: *const SocketAddress, length: u32) -> i32;
         fn listen(fd: i32, backlog: i32) -> i32;
@@ -117,7 +117,7 @@ mod native {
     const PTHREAD_CREATE_DETACHED: i32 = 1;
 
     #[link(name = "pthread")]
-    extern "C" {
+    unsafe extern "C" {
         fn pthread_attr_init(attributes: *mut Attributes) -> i32;
         fn pthread_attr_setstacksize(attributes: *mut Attributes, size: usize) -> i32;
         fn pthread_attr_setdetachstate(attributes: *mut Attributes, state: i32) -> i32;
@@ -608,7 +608,7 @@ mod native {
 
 #[cfg(all(test, target_os = "linux", target_pointer_width = "64"))]
 mod tests {
-    use super::native::{start_lookup, wait_for_lookups, Reply};
+    use super::native::{Reply, start_lookup, wait_for_lookups};
     use std::io::Read;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};

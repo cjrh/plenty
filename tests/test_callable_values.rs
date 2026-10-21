@@ -143,10 +143,22 @@ def main() -> Result[(), IoError]:
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "12\n");
     for (source, diagnostic) in [
-        ("def identity(value: &mut i64) -> &mut i64:\n    value\ncallback = identity\nmut x = 1\nalias = callback(&mut x)\nx = 2\nprint(alias).unwrap()", "conflicting borrow"),
-        ("def escape() -> &i64:\n    x = 1\n    x", "exactly one reference parameter"),
-        ("type Invalid = Callable[[&i64, &i64], &i64]", "exactly one reference parameter"),
-        ("type Invalid = Callable[[&i64], &mut i64]", "mutable reference parameter"),
+        (
+            "def identity(value: &mut i64) -> &mut i64:\n    value\ncallback = identity\nmut x = 1\nalias = callback(&mut x)\nx = 2\nprint(alias).unwrap()",
+            "conflicting borrow",
+        ),
+        (
+            "def escape() -> &i64:\n    x = 1\n    x",
+            "exactly one reference parameter",
+        ),
+        (
+            "type Invalid = Callable[[&i64, &i64], &i64]",
+            "exactly one reference parameter",
+        ),
+        (
+            "type Invalid = Callable[[&i64], &mut i64]",
+            "mutable reference parameter",
+        ),
     ] {
         let error = check_source(source).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "{error}");

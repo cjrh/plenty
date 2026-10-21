@@ -78,7 +78,9 @@ fn main_drops_resources_before_the_native_wrapper_returns() {
     let declarations = "class Resource:\n    name: str\n    def __del__(self) -> ():\n        print(self.name).unwrap()\ndef status() -> i32:\n    print('status').unwrap()\n    7i32\n";
     for tail in ["return status()", "status()"] {
         run_both(
-            &format!("{declarations}def main() -> i32:\n    a = Resource('first')\n    b = Resource('second')\n    {tail}\n"),
+            &format!(
+                "{declarations}def main() -> i32:\n    a = Resource('first')\n    b = Resource('second')\n    {tail}\n"
+            ),
             7,
             "second\nfirst\nstatus\n",
         );
@@ -97,14 +99,8 @@ fn invalid_entrypoints_are_rejected_before_execution_or_artifact_creation() {
     for (source, diagnostic) in [
         ("", MISSING_MAIN),
         ("# no program\n", MISSING_MAIN),
-        (
-            "def helper() -> ():\n    pass\n",
-            MISSING_MAIN,
-        ),
-        (
-            "def helper() -> i64:\n    return 1\n",
-            MISSING_MAIN,
-        ),
+        ("def helper() -> ():\n    pass\n", MISSING_MAIN),
+        ("def helper() -> i64:\n    return 1\n", MISSING_MAIN),
         (
             "class App:\n    def main(self) -> ():\n        pass\n",
             MISSING_MAIN,
@@ -113,22 +109,10 @@ fn invalid_entrypoints_are_rejected_before_execution_or_artifact_creation() {
         ("print('must not run').unwrap()\n", "module scope"),
         ("def main() -> ():\n    pass\nmain()\n", "module scope"),
         ("def main() -> ():\n    pass\nx = 1\n", "module scope"),
-        (
-            "def main(x: i64) -> ():\n    pass\n",
-            INVALID_MAIN,
-        ),
-        (
-            "def main() -> i64:\n    0\n",
-            INVALID_MAIN,
-        ),
-        (
-            "def main() -> Result[i64, str]:\n    Ok(0)\n",
-            INVALID_MAIN,
-        ),
-        (
-            "def main() -> Generator[i64]:\n    yield 1\n",
-            INVALID_MAIN,
-        ),
+        ("def main(x: i64) -> ():\n    pass\n", INVALID_MAIN),
+        ("def main() -> i64:\n    0\n", INVALID_MAIN),
+        ("def main() -> Result[i64, str]:\n    Ok(0)\n", INVALID_MAIN),
+        ("def main() -> Generator[i64]:\n    yield 1\n", INVALID_MAIN),
         ("def main() -> ():\n    yield 1\n", INVALID_MAIN),
         ("def main() -> i32:\n    0i64\n", "expected i32, got i64"),
         ("def main() -> ():\n    42\n", "expected (), got i64"),
@@ -247,7 +231,9 @@ fn failure_is_reported_without_details_it_does_not_keep() {
 
 #[test]
 fn an_owned_error_is_reported_and_then_dropped_once() {
-    let source = format!("{RESOURCE}def fail() -> Result[(), Resource]:\n    Err(Resource('payload'))\ndef main() -> Result[(), Resource]:\n    local = Resource('local')\n    fail()?\n    Ok(())\n");
+    let source = format!(
+        "{RESOURCE}def fail() -> Result[(), Resource]:\n    Err(Resource('payload'))\ndef main() -> Result[(), Resource]:\n    local = Resource('local')\n    fail()?\n    Ok(())\n"
+    );
     let report = "error: main returned Resource(name=\"payload\")\n";
     run_both_reporting(&source, 1, "local\npayload\n", report);
     #[cfg(unix)]
@@ -281,7 +267,9 @@ fn errors_without_a_rendering_use_the_fixed_message() {
 #[test]
 fn a_report_that_cannot_allocate_uses_the_fixed_message() {
     run_both_reporting(
-        &format!("{RESOURCE}def main() -> Result[(), Resource]:\n    error = Resource('payload')\n    print('__test_fail_allocations_after_0__').unwrap()\n    Err(error)\n"),
+        &format!(
+            "{RESOURCE}def main() -> Result[(), Resource]:\n    error = Resource('payload')\n    print('__test_fail_allocations_after_0__').unwrap()\n    Err(error)\n"
+        ),
         1,
         "__test_fail_allocations_after_0__\npayload\n",
         FIXED_REPORT,

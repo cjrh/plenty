@@ -65,11 +65,13 @@ fn entries_are_detached_and_preserve_raw_names_and_special_types() {
     std::os::unix::fs::symlink("missing", fixture.path().join("dangling")).unwrap();
     std::os::unix::fs::symlink("dir", fixture.path().join("dirlink")).unwrap();
     let socket = std::os::unix::net::UnixListener::bind(fixture.path().join("socket")).unwrap();
-    assert!(Command::new("mkfifo")
-        .arg(fixture.path().join("fifo"))
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new("mkfifo")
+            .arg(fixture.path().join("fifo"))
+            .status()
+            .unwrap()
+            .success()
+    );
     let source = format!(
         r#"
 import std.fs as fs
@@ -218,7 +220,10 @@ def main() -> Result[(), AllocError | IoError]:
 "#,
     );
     let output = String::from_utf8(program.run(Path::new(".")).stdout).unwrap();
-    assert_eq!(output, "a/link/../x\n[[97], [108, 105, 110, 107], [46, 46], [120]]\nFalse\na/link/..\nx\n/root\n\\xff\\x0a\nIoError.Data(DataError.InvalidUtf8)\n");
+    assert_eq!(
+        output,
+        "a/link/../x\n[[97], [108, 105, 110, 107], [46, 46], [120]]\nFalse\na/link/..\nx\n/root\n\\xff\\x0a\nIoError.Data(DataError.InvalidUtf8)\n"
+    );
 }
 
 fn walking_program(prune: bool, top_down: bool, inject_missing: bool) -> Program {
@@ -490,6 +495,8 @@ def main() -> Result[(), AllocError | IoError | fs.WalkError]:
 "#
     );
     let output = String::from_utf8(Program::new(&source).run(fixture.path()).stdout).unwrap();
-    assert!(output
-        .ends_with("IoError.Data(DataError.Allocation(AllocError.OutOfMemory))\nTrue\nTrue\n"));
+    assert!(
+        output
+            .ends_with("IoError.Data(DataError.Allocation(AllocError.OutOfMemory))\nTrue\nTrue\n")
+    );
 }

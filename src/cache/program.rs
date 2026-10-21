@@ -14,13 +14,13 @@
 //! it was built: an object is stored once a request is built again. Most
 //! programs built once, such as a test suite's temporary programs, are never
 //! built again, and their objects would fill the cache.
-use super::{read_entry, write_entry, Cache, PROGRAMS, PROGRAM_MAGIC};
+use super::{Cache, PROGRAM_MAGIC, PROGRAMS, read_entry, write_entry};
 use crate::frontend::Inputs;
 use sha2::{Digest, Sha256};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 /// Changes whenever the entry format or the meaning of the key changes.

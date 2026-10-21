@@ -5,7 +5,8 @@ use support::assert_visible_stdout as native;
 
 #[test]
 fn copied_records_and_collections_are_independent_and_sources_remain_usable() {
-    native(r#"
+    native(
+        r#"
 class Point:
     x: i64
     values: list[i64]
@@ -25,7 +26,9 @@ print(point).unwrap()
 print(str.repr(change_dictionary(&mapping)).unwrap()).unwrap()
 print(mapping).unwrap()
 print(str.repr(copy({1, 2}.unwrap())).unwrap()).unwrap()
-"#, "Result[Point, AllocError].Ok(Point(x=99, values=[2, 3, 42]))\nPoint(x=1, values=[2, 3])\nResult[dict[str, list[i64]], AllocError].Ok({\"key\": [99]})\n{\"key\": [1]}\nResult[set[i64], AllocError].Ok({1, 2})");
+"#,
+        "Result[Point, AllocError].Ok(Point(x=99, values=[2, 3, 42]))\nPoint(x=1, values=[2, 3])\nResult[dict[str, list[i64]], AllocError].Ok({\"key\": [99]})\n{\"key\": [1]}\nResult[set[i64], AllocError].Ok({1, 2})",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -112,7 +115,8 @@ print(source).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn immutable_values_and_inactive_owned_variants_copy_without_allocating() {
-    native(r#"
+    native(
+        r#"
 enum Label:
     Text(str)
 text = ("hel" + "lo").unwrap()
@@ -137,7 +141,9 @@ print(str.repr(d).unwrap()).unwrap()
 print(str.repr(e).unwrap()).unwrap()
 print(str.repr(f).unwrap()).unwrap()
 print(str.repr(g).unwrap()).unwrap()
-"#, "Result[str, AllocError].Ok(\"hello\")\nResult[Label, AllocError].Ok(Label.Text(\"hello\"))\nResult[Option[list[i64]], AllocError].Ok(Option[list[i64]].Nothing)\nResult[Result[list[i64], str], AllocError].Ok(Result[list[i64], str].Err(\"hello\"))\nResult[u64, AllocError].Ok(18446744073709551615)\nResult[f32, AllocError].Ok(-0.0)\nResult[AllocError, AllocError].Ok(AllocError.OutOfMemory)");
+"#,
+        "Result[str, AllocError].Ok(\"hello\")\nResult[Label, AllocError].Ok(Label.Text(\"hello\"))\nResult[Option[list[i64]], AllocError].Ok(Option[list[i64]].Nothing)\nResult[Result[list[i64], str], AllocError].Ok(Result[list[i64], str].Err(\"hello\"))\nResult[u64, AllocError].Ok(18446744073709551615)\nResult[f32, AllocError].Ok(-0.0)\nResult[AllocError, AllocError].Ok(AllocError.OutOfMemory)",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -167,8 +173,14 @@ print(source).unwrap()
 #[rstest]
 #[case("copy()", "copy takes one argument")]
 #[case("copy(1, 2)", "copy takes one argument")]
-#[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = Guard()\ncopy(source)", "cannot be copied")]
-#[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = [Guard()].unwrap()\ncopy(source)", "cannot be copied")]
+#[case(
+    "class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = Guard()\ncopy(source)",
+    "cannot be copied"
+)]
+#[case(
+    "class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = [Guard()].unwrap()\ncopy(source)",
+    "cannot be copied"
+)]
 #[case(
     "def values() -> Generator[i64]:\n    yield 1\nsource = values()\ncopy(source)",
     "cannot be copied"

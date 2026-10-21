@@ -26,7 +26,10 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "True\nTrue\nTrue\nTrue\nTrue\nTrue\n233\n🙂\na\né\n🙂\nResult[u32, ParseError].Err(ParseError.Invalid)\nResult[u32, ParseError].Err(ParseError.Invalid)\nResult[str, ParseError].Err(ParseError.OutOfRange)\nResult[str, ParseError].Err(ParseError.OutOfRange)\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "True\nTrue\nTrue\nTrue\nTrue\nTrue\n233\n🙂\na\né\n🙂\nResult[u32, ParseError].Err(ParseError.Invalid)\nResult[u32, ParseError].Err(ParseError.Invalid)\nResult[str, ParseError].Err(ParseError.OutOfRange)\nResult[str, ParseError].Err(ParseError.OutOfRange)\n"
+    );
 }
 
 #[test]
@@ -56,7 +59,10 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "True\nTrue\nFalse\nFalse\nFalse\nFalse\nFalse\nabc\nSTRASSE\ni̇\n[\"alpha\", \"beta\"]\n[]\n[\"a\", \"b\"]\n[\"a\", \"\", \"b\"]\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "True\nTrue\nFalse\nFalse\nFalse\nFalse\nFalse\nabc\nSTRASSE\ni̇\n[\"alpha\", \"beta\"]\n[]\n[\"a\", \"b\"]\n[\"a\", \"\", \"b\"]\n"
+    );
 }
 
 #[test]

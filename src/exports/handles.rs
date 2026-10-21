@@ -115,12 +115,11 @@ pub(super) fn arguments(export: &Export) -> (Vec<String>, Vec<String>, String) {
                 transfers.push_str(&format!("    mut consumed{i} = p{i}\n    raw{i} = consumed{i}._handle\n    consumed{i}._handle = {pointer}.null()\n"));
                 return (format!("p{i}: {pointer}"), format!("raw{i}"));
             }
-            if let Ty::Ref(inner, _) = ty {
-                if let Ty::Class(class) = inner.as_ref() {
+            if let Ty::Ref(inner, _) = ty
+                && let Ty::Class(class) = inner.as_ref() {
                     let pointer = format!("_plenty_handle_{}", short_name(class));
                     return (format!("p{i}: {pointer}"), format!("p{i}._handle"));
                 }
-            }
             (format!("p{i}: {ty}"), format!("p{i}"))
         })
         .unzip();

@@ -59,12 +59,15 @@ impl GeneratorType {
             match ty {
                 Ty::Generator(t) => {
                     if t.name == self.name {
-                        return Err(format!("recursive inline generator layout involving `{}`; nested frames must have a finite size", self.name.as_deref().unwrap()));
+                        return Err(format!(
+                            "recursive inline generator layout involving `{}`; nested frames must have a finite size",
+                            self.name.as_deref().unwrap()
+                        ));
                     }
-                    if seen.insert(t.name.as_deref()) {
-                        if let Some(children) = t.slots.get() {
-                            work.extend(children);
-                        }
+                    if seen.insert(t.name.as_deref())
+                        && let Some(children) = t.slots.get()
+                    {
+                        work.extend(children);
                     }
                 }
                 Ty::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => {
@@ -333,7 +336,9 @@ pub fn measure(ty: &Ty, active: &mut Vec<String>) -> Result<Measured, String> {
                 .as_ref()
                 .ok_or("cannot infer a concrete generator type")?;
             if active.contains(name) {
-                return Err(format!("recursive inline generator layout involving `{name}`; nested frames must have a finite size"));
+                return Err(format!(
+                    "recursive inline generator layout involving `{name}`; nested frames must have a finite size"
+                ));
             }
             if active.len() >= NESTING_LIMIT {
                 return Err(
@@ -362,13 +367,13 @@ pub fn measure(ty: &Ty, active: &mut Vec<String>) -> Result<Measured, String> {
         // environment, so only its cached size could hide a nesting error.
         // It is measured again; its contents' layouts are cached.
         Ty::Enum(t) => {
-            if !t.get().restricted_storage {
-                if let Some(bytes) = t.get().payload_bytes.get() {
-                    return Ok(Measured {
-                        bytes: *bytes,
-                        reach: 0,
-                    });
-                }
+            if !t.get().restricted_storage
+                && let Some(bytes) = t.get().payload_bytes.get()
+            {
+                return Ok(Measured {
+                    bytes: *bytes,
+                    reach: 0,
+                });
             }
             nested(&t.name, active, |active| {
                 t.get()

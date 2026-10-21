@@ -204,10 +204,10 @@ impl Lowerer<'_, '_> {
         if !matches!(operation, ExecutorOp::New) {
             self.release(values[0], &inputs[0]);
         }
-        if let ExecutorOp::Map(job, _, _) = operation {
-            if job.shared.is_some() {
-                self.release(values[1], &inputs[1]);
-            }
+        if let ExecutorOp::Map(job, _, _) = operation
+            && job.shared.is_some()
+        {
+            self.release(values[1], &inputs[1]);
         }
         self.stack.push((value, output));
         Ok(())

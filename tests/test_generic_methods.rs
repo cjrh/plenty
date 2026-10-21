@@ -32,7 +32,9 @@ def main() -> Result[(), IoError]:
 
 #[test]
 fn method_type_arguments_do_not_change_callable_field_indexing() {
-    let output = run("class Table:\n    callbacks: list[Callable[[i64], i64]]\ndef double(x: i64) -> i64:\n    x * 2\ndef main() -> Result[(), AllocError | IoError]:\n    table = Table([double]?)\n    index = 0\n    print(table.callbacks[index](7))?\n    Ok(())\n");
+    let output = run(
+        "class Table:\n    callbacks: list[Callable[[i64], i64]]\ndef double(x: i64) -> i64:\n    x * 2\ndef main() -> Result[(), AllocError | IoError]:\n    table = Table([double]?)\n    index = 0\n    print(table.callbacks[index](7))?\n    Ok(())\n",
+    );
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "14\n");
 }
@@ -81,12 +83,28 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn method_generics_preserve_borrow_and_declaration_rules() {
     for (source, expected) in [
-        ("class Cell[T]:\n    value: T\n    def same[T](self, x: T) -> T:\n        x\n", "cannot shadow"),
-        ("class Cell:\n    value: i64\n    def __init__[T](self, x: T) -> ():\n        self.value = 1\n", "lifecycle methods"),
-        ("class Cell:\n    value: i64\n    def borrow[T](self, unused: T) -> &i64:\n        &self.value\ndef main() -> ():\n    value = Cell(1).borrow(2)\n    print(*value).unwrap()\n", "named receiver"),
-        ("class Cell:\n    value: i64\n    def add[T: IntType](self: &mut Cell, x: T) -> ():\n        self.value = self.value + i64(x)\ndef main() -> ():\n    cell = Cell(1)\n    cell.add(2u8)\n", "mutable"),
+        (
+            "class Cell[T]:\n    value: T\n    def same[T](self, x: T) -> T:\n        x\n",
+            "cannot shadow",
+        ),
+        (
+            "class Cell:\n    value: i64\n    def __init__[T](self, x: T) -> ():\n        self.value = 1\n",
+            "lifecycle methods",
+        ),
+        (
+            "class Cell:\n    value: i64\n    def borrow[T](self, unused: T) -> &i64:\n        &self.value\ndef main() -> ():\n    value = Cell(1).borrow(2)\n    print(*value).unwrap()\n",
+            "named receiver",
+        ),
+        (
+            "class Cell:\n    value: i64\n    def add[T: IntType](self: &mut Cell, x: T) -> ():\n        self.value = self.value + i64(x)\ndef main() -> ():\n    cell = Cell(1)\n    cell.add(2u8)\n",
+            "mutable",
+        ),
     ] {
-        let source = if source.contains("def main") { source.to_owned() } else { format!("{source}def main() -> ():\n    pass\n") };
+        let source = if source.contains("def main") {
+            source.to_owned()
+        } else {
+            format!("{source}def main() -> ():\n    pass\n")
+        };
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }

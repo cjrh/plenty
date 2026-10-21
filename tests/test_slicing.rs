@@ -24,7 +24,8 @@ fn list_bounds_are_clamped(#[case] start: &str, #[case] stop: &str, #[case] expe
 
 #[test]
 fn list_slice_retains_strings_and_nested_sum_tags_after_source_drop() {
-    native(r#"
+    native(
+        r#"
 mut items = [("A" + "da").unwrap(), ("B" + "ea").unwrap(), ("C" + "am").unwrap()].unwrap()
 slice = items.slice(1, 3)
 items[1] = "changed"
@@ -36,12 +37,15 @@ drop(values)
 print(str.repr(result).unwrap()).unwrap()
 print(str.repr(list[i64]().unwrap().slice(-10, 10)).unwrap()).unwrap()
 print(str.repr([1.5f32, 2.5f32].unwrap().slice(1, 2)).unwrap()).unwrap()
-"#, "Result[list[str], AllocError].Ok([\"Bea\", \"Cam\"])\nResult[list[Option[str]], AllocError].Ok([Option[str].Nothing, Option[str].Some(\"é🙂\")])\nResult[list[i64], AllocError].Ok([])\nResult[list[f32], AllocError].Ok([2.5])");
+"#,
+        "Result[list[str], AllocError].Ok([\"Bea\", \"Cam\"])\nResult[list[Option[str]], AllocError].Ok([Option[str].Nothing, Option[str].Some(\"é🙂\")])\nResult[list[i64], AllocError].Ok([])\nResult[list[f32], AllocError].Ok([2.5])",
+    );
 }
 
 #[test]
 fn slicing_borrows_fields_and_indices_and_evaluates_once_left_to_right() {
-    native(r#"
+    native(
+        r#"
 class Data:
     items: list[i64]
 def slice(items: &list[i64], start: &i64, stop: &i64) -> Result[list[i64], AllocError]:
@@ -58,7 +62,9 @@ start = 0
 stop = 2
 print(str.repr(slice(&record.items, &start, &stop)).unwrap()).unwrap()
 print(str.repr(data().slice(index(1), index(3))).unwrap()).unwrap()
-"#, "Result[list[i64], AllocError].Ok([10, 20])\nreceiver\n1\n3\nResult[list[i64], AllocError].Ok([2, 3])");
+"#,
+        "Result[list[i64], AllocError].Ok([10, 20])\nreceiver\n1\n3\nResult[list[i64], AllocError].Ok([2, 3])",
+    );
 }
 
 #[test]
@@ -84,7 +90,9 @@ print(Custom().slice(42)).unwrap()
 fn every_list_slice_allocation_failure_preserves_borrowed_sources() {
     for (start, stop, allocations, selected) in [(0, 2, 2, "[\"Ada\", \"Bea\"]"), (2, 0, 1, "[]")] {
         for budget in 0..=allocations {
-            native(&format!(r#"
+            native(
+                &format!(
+                    r#"
 items = [("A" + "da").unwrap(), ("B" + "ea").unwrap()].unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = items.slice({start}, {stop})
@@ -92,7 +100,17 @@ print("__test_restore_allocations__").unwrap()
 print(str.repr(result).unwrap()).unwrap()
 print(items).unwrap()
 print(str.repr(items.slice({start}, {stop})).unwrap()).unwrap()
-"#), &format!("Result[list[str], AllocError].{}\n[\"Ada\", \"Bea\"]\nResult[list[str], AllocError].Ok({selected})", if budget < allocations { "Err(AllocError.OutOfMemory)".to_owned() } else { format!("Ok({selected})") }));
+"#
+                ),
+                &format!(
+                    "Result[list[str], AllocError].{}\n[\"Ada\", \"Bea\"]\nResult[list[str], AllocError].Ok({selected})",
+                    if budget < allocations {
+                        "Err(AllocError.OutOfMemory)".to_owned()
+                    } else {
+                        format!("Ok({selected})")
+                    }
+                ),
+            );
         }
     }
 }
@@ -179,14 +197,17 @@ fn string_slices_use_scalar_bounds(
     #[case] expected: &str,
 ) {
     native(
-        &format!("text = \"Aé🙂\\0Z\"\nprint(str.repr(text.slice({start}, {stop})).unwrap()).unwrap()\nprint(len(text)).unwrap()"),
+        &format!(
+            "text = \"Aé🙂\\0Z\"\nprint(str.repr(text.slice({start}, {stop})).unwrap()).unwrap()\nprint(len(text)).unwrap()"
+        ),
         &format!("Result[str, AllocError].Ok(\"{expected}\")\n5"),
     );
 }
 
 #[test]
 fn string_slices_borrow_references_and_outlive_source_replacement() {
-    native(r#"
+    native(
+        r#"
 class Message:
     text: str
 def slice(text: &str, start: &i64, stop: &i64) -> Result[str, AllocError]:
@@ -201,12 +222,15 @@ drop(message)
 print(str.repr(saved).unwrap()).unwrap()
 print(str.repr("".slice(0, 1)).unwrap()).unwrap()
 print(str.repr("é".slice(1, 2)).unwrap()).unwrap()
-"#, "Result[str, AllocError].Ok(\"é🙂\")\nResult[str, AllocError].Ok(\"\")\nResult[str, AllocError].Ok(\"́\")");
+"#,
+        "Result[str, AllocError].Ok(\"é🙂\")\nResult[str, AllocError].Ok(\"\")\nResult[str, AllocError].Ok(\"́\")",
+    );
 }
 
 #[test]
 fn string_slice_operands_run_once_in_source_order_and_short_circuit_errors() {
-    native(r#"
+    native(
+        r#"
 def text() -> str:
     print("receiver").unwrap()
     return "Aé🙂Z"
@@ -222,7 +246,9 @@ def bad() -> Result[str, AllocError]:
     (("A" + "B").unwrap()).slice(missing()?, index(2)?)
 print(str.repr(good()).unwrap()).unwrap()
 print(str.repr(bad()).unwrap()).unwrap()
-"#, "receiver\n1\n3\nResult[str, AllocError].Ok(\"é🙂\")\nmissing\nResult[str, AllocError].Err(AllocError.CapacityOverflow)");
+"#,
+        "receiver\n1\n3\nResult[str, AllocError].Ok(\"é🙂\")\nmissing\nResult[str, AllocError].Err(AllocError.CapacityOverflow)",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

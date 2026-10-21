@@ -61,7 +61,7 @@ mod native {
     const EFD_NONBLOCK: i32 = 0o4000;
     const EFD_CLOEXEC: i32 = 0o2000000;
 
-    extern "C" {
+    unsafe extern "C" {
         fn eventfd(initial: u32, flags: i32) -> i32;
         fn write(fd: i32, data: *const std::ffi::c_void, length: usize) -> isize;
     }
@@ -159,7 +159,7 @@ unsafe extern "C" fn destroy(header: *mut Header) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_control(op: i64, args: *const u128, out: *mut u128) {
     // SAFETY: compiler-checked operations provide live token borrows, the exact
     // arity, and one output slot. The constructor returns its sole owned count.
@@ -219,7 +219,7 @@ mod tests {
             events: i16,
             revents: i16,
         }
-        extern "C" {
+        unsafe extern "C" {
             fn poll(fds: *mut PollFd, count: u64, timeout: i32) -> i32;
         }
         unsafe {

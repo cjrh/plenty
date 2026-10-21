@@ -67,7 +67,8 @@ Single-file compiler (also available as plentyc):
 fn main() -> ExitCode {
     pretty_env_logger::init();
     #[cfg(feature = "profile")]
-    let _profile = plenty::profile::start();
+    // SAFETY: startup has not spawned any threads.
+    let _profile = unsafe { plenty::profile::start() };
     match run(std::env::args().skip(1).collect()) {
         Ok(code) => code,
         Err(error) => {
@@ -142,7 +143,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, Box<dyn Error>> {
                 match arg.as_str() {
                     "--offline" => offline = true,
                     flag if flag.starts_with('-') => {
-                        return Err(format!("unknown option {flag}").into())
+                        return Err(format!("unknown option {flag}").into());
                     }
                     name => packages.push(name.to_owned()),
                 }

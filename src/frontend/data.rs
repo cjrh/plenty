@@ -832,7 +832,9 @@ mod tests {
 
     #[test]
     fn repeated_data_method_calls_share_native_specializations() {
-        let mut source = String::from("class Cell[T]:\n    value: T\n    def keep[U](self, value: U) -> U:\n        value\ntype Byte = u8\ntype ByteCell = Cell[Byte]\ndef main() -> ():\n    cell = ByteCell(7)\n");
+        let mut source = String::from(
+            "class Cell[T]:\n    value: T\n    def keep[U](self, value: U) -> U:\n        value\ntype Byte = u8\ntype ByteCell = Cell[Byte]\ndef main() -> ():\n    cell = ByteCell(7)\n",
+        );
         for _ in 0..100 {
             source.push_str("    cell.keep(1u8)\n    cell.keep[u8](1)\n    cell.keep[Byte](1)\n");
         }

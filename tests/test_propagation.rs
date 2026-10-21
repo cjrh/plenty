@@ -19,7 +19,8 @@ fn native(source: &str, expected: &str) {
 
 #[test]
 fn result_and_option_success_failure_and_changed_success_type() {
-    native(r#"
+    native(
+        r#"
 def number(ok: bool) -> Result[i64, str]:
     Ok(21) if ok else Err("failed")
 def doubled(ok: bool) -> Result[str, str]:
@@ -35,12 +36,15 @@ print(str.repr(doubled(True)).unwrap()).unwrap()
 print(str.repr(doubled(False)).unwrap()).unwrap()
 print(changed(True)).unwrap()
 print(changed(False)).unwrap()
-"#, "42\nResult[str, str].Ok(\"done\")\nResult[str, str].Err(\"failed\")\n21\nOption[str].Some(\"done\")\nOption[str].Nothing\n");
+"#,
+        "42\nResult[str, str].Ok(\"done\")\nResult[str, str].Err(\"failed\")\n21\nOption[str].Some(\"done\")\nOption[str].Nothing\n",
+    );
 }
 
 #[test]
 fn nested_postfix_unit_returns_and_comprehensions() {
-    native(r#"
+    native(
+        r#"
 class Point:
     x: i64
 def unwrap() -> Option[i64]:
@@ -63,7 +67,9 @@ print(str.repr(unit(False)).unwrap()).unwrap()
 print(str.repr(collect(3)).unwrap()).unwrap()
 print(str.repr(collect(5)).unwrap()).unwrap()
 print(field()).unwrap()
-"#, "Option[i64].Some(5)\nResult[i64, str].Ok(9)\nResult[i64, str].Err(\"stop\")\nResult[list[i64], str].Ok([0, 1, 4])\nResult[list[i64], str].Err(\"large\")\nOption[i64].Some(7)\n");
+"#,
+        "Option[i64].Some(5)\nResult[i64, str].Ok(9)\nResult[i64, str].Err(\"stop\")\nResult[list[i64], str].Ok([0, 1, 4])\nResult[list[i64], str].Err(\"large\")\nOption[i64].Some(7)\n",
+    );
 }
 
 #[test]
@@ -98,7 +104,8 @@ match work():
 
 #[test]
 fn inline_sums_survive_references_storage_copies_and_generator_suspension() {
-    native(r#"
+    native(
+        r#"
 class Holder:
     value: Option[list[i64]]
 def replace(value: &mut Option[list[i64]]) -> ():
@@ -117,12 +124,15 @@ for value in values(Ok(Some(-0.0))):
 mut it = values(Ok(Nothing))
 print(next(it)).unwrap()
 drop(it)
-"#, "Holder(value=Option[list[i64]].Some([9]))\n[Result[Option[u64], str].Ok(Option[u64].Some(18446744073709551615)), Result[Option[u64], str].Err(\"bad\")]\nResult[Option[u64], str].Ok(Option[u64].Some(18446744073709551615))\nResult[Option[f64], str].Ok(Option[f64].Some(-0.0))\nResult[Option[f64], str].Err(\"end\")\nOption[Result[Option[f64], str]].Some(Result[Option[f64], str].Ok(Option[f64].Nothing))\n");
+"#,
+        "Holder(value=Option[list[i64]].Some([9]))\n[Result[Option[u64], str].Ok(Option[u64].Some(18446744073709551615)), Result[Option[u64], str].Err(\"bad\")]\nResult[Option[u64], str].Ok(Option[u64].Some(18446744073709551615))\nResult[Option[f64], str].Ok(Option[f64].Some(-0.0))\nResult[Option[f64], str].Err(\"end\")\nOption[Result[Option[f64], str]].Some(Result[Option[f64], str].Ok(Option[f64].Nothing))\n",
+    );
 }
 
 #[test]
 fn propagation_obeys_short_circuiting_loop_conditions_and_unit_errors() {
-    native(r#"
+    native(
+        r#"
 def flag() -> Result[bool, ()]:
     print("flag").unwrap()
     Err(())
@@ -137,7 +147,9 @@ def filter_items() -> Result[list[i64], ()]:
 print(str.repr(short()).unwrap()).unwrap()
 print(str.repr(looping()).unwrap()).unwrap()
 print(str.repr(filter_items()).unwrap()).unwrap()
-"#, "Result[bool, ()].Ok(False)\nflag\nResult[(), ()].Err(())\nflag\nResult[list[i64], ()].Err(())\n");
+"#,
+        "Result[bool, ()].Ok(False)\nflag\nResult[(), ()].Err(())\nflag\nResult[list[i64], ()].Err(())\n",
+    );
 }
 
 #[test]
@@ -208,7 +220,8 @@ def main() -> ():
 #[test]
 fn constructing_copying_comparing_and_propagating_sums_never_allocate() {
     // runtime-checks counts allocation attempts, not merely live allocations.
-    native(r#"
+    native(
+        r#"
 def number(ok: bool) -> Result[u64, i64]:
     Ok(18446744073709551615u64) if ok else Err(-42)
 def nested(ok: bool) -> Result[Option[u64], i64]:
@@ -241,12 +254,15 @@ print(str.repr(good).unwrap()).unwrap()
 print(str.repr(bad).unwrap()).unwrap()
 print(missing).unwrap()
 print(same).unwrap()
-"#, "__test_begin_no_allocations__\n__test_end_no_allocations__\nResult[Option[u64], i64].Ok(Option[u64].Some(18446744073709551615))\nResult[Option[u64], i64].Err(-42)\nOption[u64].Nothing\nTrue\n");
+"#,
+        "__test_begin_no_allocations__\n__test_end_no_allocations__\nResult[Option[u64], i64].Ok(Option[u64].Some(18446744073709551615))\nResult[Option[u64], i64].Err(-42)\nOption[u64].Nothing\nTrue\n",
+    );
 }
 
 #[test]
 fn generator_next_and_stored_sum_reads_add_no_allocations() {
-    native(r#"
+    native(
+        r#"
 def values() -> Generator[i64]:
     yield 42
 def main() -> ():
@@ -264,13 +280,17 @@ def main() -> ():
     print(again).unwrap()
     print(loaded).unwrap()
     print(same).unwrap()
-"#, "__test_begin_no_allocations__\n__test_end_no_allocations__\nOption[i64].Some(42)\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Some(7)\nTrue\n");
+"#,
+        "__test_begin_no_allocations__\n__test_end_no_allocations__\nOption[i64].Some(42)\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Some(7)\nTrue\n",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn allocation_instrumentation_detects_a_temporary_allocation() {
-    let output = support::run("print(\"__test_begin_no_allocations__\").unwrap()\nlen((\"abcd\" + \"efgh\").unwrap())\nprint(\"__test_end_no_allocations__\").unwrap()");
+    let output = support::run(
+        "print(\"__test_begin_no_allocations__\").unwrap()\nlen((\"abcd\" + \"efgh\").unwrap())\nprint(\"__test_end_no_allocations__\").unwrap()",
+    );
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected successful allocation"));
 }
@@ -300,7 +320,10 @@ fn allocation_instrumentation_detects_a_temporary_allocation() {
     "def f() -> Generator[i64]:\n    yield Some(1)?",
     "not supported in generators"
 )]
-#[case("def f() -> Result[i64, str]:\n    x: Result[list[i64], str] = Ok([1].unwrap())\n    values = x?\n    print(str.repr(x).unwrap()).unwrap()\n    Ok(1)", "moved")]
+#[case(
+    "def f() -> Result[i64, str]:\n    x: Result[list[i64], str] = Ok([1].unwrap())\n    values = x?\n    print(str.repr(x).unwrap()).unwrap()\n    Ok(1)",
+    "moved"
+)]
 fn rejects_invalid_propagation(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");

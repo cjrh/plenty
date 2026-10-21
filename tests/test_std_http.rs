@@ -141,7 +141,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}{HELPERS}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.io.StreamError | AllocError | IoError]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}{HELPERS}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.io.StreamError | AllocError | IoError]:\n{body}    Ok(())\n"
+    )
 }
 
 fn output(source: &str) -> String {

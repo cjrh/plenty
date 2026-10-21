@@ -38,7 +38,9 @@ pub(super) fn mismatch_hint(expected: &Ty, actual: &Ty) -> Option<String> {
         ("Callable", "&F")
     };
     let requirement = expected.to_string().replacen("Callable", bound, 1);
-    Some(format!("{explanation}; for a generic callback API, use `F: {requirement}` with `callback: {parameter}`"))
+    Some(format!(
+        "{explanation}; for a generic callback API, use `F: {requirement}` with `callback: {parameter}`"
+    ))
 }
 
 fn output(ty: &Ty) -> Type {

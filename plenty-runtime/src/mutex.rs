@@ -28,7 +28,7 @@ unsafe extern "C" {
 ///
 /// `state` is the live, aligned state word of a `Mutex` that no thread moves
 /// or drops while any thread can lock it.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_mutex_lock_slow(state: *const AtomicU32) {
     // SAFETY: the caller's loans keep the mutex in place while it is locked.
     let state = unsafe { &*state };
@@ -60,7 +60,7 @@ pub(crate) unsafe extern "C" fn plenty_mutex_lock_slow(state: *const AtomicU32) 
 /// # Safety
 ///
 /// As for [`plenty_mutex_lock_slow`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_mutex_wake(state: *const AtomicU32) {
     // SAFETY: as for the wait; waking reads no memory beyond the word's address.
     let status = unsafe { syscall(SYS_FUTEX, (*state).as_ptr(), FUTEX_WAKE_PRIVATE, 1_i64) };

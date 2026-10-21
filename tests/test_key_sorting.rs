@@ -136,15 +136,27 @@ print(rows).unwrap()
     "def key(x: &i64) -> bool:\n    True\nmut items = [1].unwrap()\nitems.sort_by_key(key)",
     "callback must return"
 )]
-#[case("def key(x: &i64) -> i64:\n    *x\nmut items = [1].unwrap()\nloan = &items\nitems.sort_by_key(key)\nprint(loan).unwrap()", "borrow")]
+#[case(
+    "def key(x: &i64) -> i64:\n    *x\nmut items = [1].unwrap()\nloan = &items\nitems.sort_by_key(key)\nprint(loan).unwrap()",
+    "borrow"
+)]
 #[case(
     "mut items = [1].unwrap()\nitems.sort_by_key()",
     "takes a key callback"
 )]
 #[case("sorted(1)", "list")]
-#[case("def key(x: &i64) -> i64:\n    *x\nitems = [1].unwrap()\nshared = &items\nshared.sort_by_key(key)", "shared")]
-#[case("mut items = [1].unwrap()\nkey = def [&items](x: &i64) -> i64:\n    len(items) + *x\nitems.sort_by_key(key)", "borrow")]
-#[case("mut items = [1].unwrap()\ncount = 0\nkey = def [mut count](x: &i64) -> i64:\n    count += 1\n    *x\nitems.sort_by_key(key)", "mutable")]
+#[case(
+    "def key(x: &i64) -> i64:\n    *x\nitems = [1].unwrap()\nshared = &items\nshared.sort_by_key(key)",
+    "shared"
+)]
+#[case(
+    "mut items = [1].unwrap()\nkey = def [&items](x: &i64) -> i64:\n    len(items) + *x\nitems.sort_by_key(key)",
+    "borrow"
+)]
+#[case(
+    "mut items = [1].unwrap()\ncount = 0\nkey = def [mut count](x: &i64) -> i64:\n    count += 1\n    *x\nitems.sort_by_key(key)",
+    "mutable"
+)]
 fn invalid_key_sorting(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");

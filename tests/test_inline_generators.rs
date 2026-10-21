@@ -84,7 +84,8 @@ print(next(source)).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn scalar_frames_work_with_all_heap_allocation_disabled() {
-    expect(r#"
+    expect(
+        r#"
 def numbers(n: i64) -> Generator[i64]:
     for value in range(n):
         yield value
@@ -107,7 +108,9 @@ drop(make())
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(total).unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n10\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n10\n",
+    );
 }
 
 #[test]

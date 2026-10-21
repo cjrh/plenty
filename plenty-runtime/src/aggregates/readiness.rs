@@ -19,7 +19,7 @@ const EVENT_SIZE: usize = 16;
 mod native {
     use super::super::byte_storage::Storage;
     use super::*;
-    use crate::control::{wake, Wake};
+    use crate::control::{Wake, wake};
     use std::os::fd::{FromRawFd, OwnedFd};
 
     /// The longest a wait blocks when the token has no wake descriptor.
@@ -66,7 +66,7 @@ mod native {
         data: u64,
     }
 
-    extern "C" {
+    unsafe extern "C" {
         fn ppoll(
             fds: *mut PollFd,
             count: u64,

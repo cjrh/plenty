@@ -4,7 +4,7 @@
 //! `Command` builds its argument vector with the host allocator; that short
 //! transient is the one allocation here outside Plenty's fallible accounting.
 use super::filesystem::{byte_list, contiguous};
-use super::{wrap, Collection, OwnedValue, Type};
+use super::{Collection, OwnedValue, Type, wrap};
 use crate::text_io::{self, Error, Kind};
 
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
@@ -55,7 +55,7 @@ mod native {
         revents: i16,
     }
 
-    extern "C" {
+    unsafe extern "C" {
         fn kill(pid: i32, signal: i32) -> i32;
         fn poll(fds: *mut PollFd, count: u64, timeout: i32) -> i32;
     }
@@ -145,13 +145,13 @@ mod native {
             match command.spawn() {
                 Ok(child) => break child,
                 Err(error) => {
-                    if error.raw_os_error() == Some(ETXTBSY) {
-                        if let Some(&wait) = waits.next() {
-                            // The lock stays held so no thread here forks
-                            // another child that could inherit a descriptor.
-                            std::thread::sleep(Duration::from_millis(wait));
-                            continue;
-                        }
+                    if error.raw_os_error() == Some(ETXTBSY)
+                        && let Some(&wait) = waits.next()
+                    {
+                        // The lock stays held so no thread here forks
+                        // another child that could inherit a descriptor.
+                        std::thread::sleep(Duration::from_millis(wait));
+                        continue;
                     }
                     if table.is_empty() {
                         *table = Vec::new();

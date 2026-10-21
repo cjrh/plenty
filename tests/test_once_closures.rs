@@ -35,7 +35,9 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn one_shot_and_reusable_annotations_do_not_unify() {
     for (annotation, modifier) in [("Closure", "once "), ("OnceClosure", "")] {
-        let source = format!("def main() -> ():\n    value = 1\n    f: {annotation}[[], i64] = def {modifier}[value]() -> i64:\n        value\n    pass\n");
+        let source = format!(
+            "def main() -> ():\n    value = 1\n    f: {annotation}[[], i64] = def {modifier}[value]() -> i64:\n        value\n    pass\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(
             error.contains("expected") && error.contains("OnceClosure"),
@@ -74,7 +76,9 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn one_shot_values_cannot_be_called_twice_or_through_references() {
     for statement in ["take()\n    take()", "alias = &take\n    alias()"] {
-        let source = format!("def main() -> ():\n    value = 1\n    take = def once [value]() -> i64:\n        value\n    {statement}\n    pass\n");
+        let source = format!(
+            "def main() -> ():\n    value = 1\n    take = def once [value]() -> i64:\n        value\n    {statement}\n    pass\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(
             error.contains("moved") || error.contains("must be owned"),

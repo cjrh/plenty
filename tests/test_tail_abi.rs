@@ -173,7 +173,8 @@ drop(callback)
 #[cfg(all(target_os = "linux", feature = "runtime-checks"))]
 #[test]
 fn inline_result_transfer_needs_no_heap_allocation() {
-    bounded(r#"
+    bounded(
+        r#"
 def recurse(n: i64) -> Option[range[i64]]:
     if n == 0:
         return Some(range(4, 7))
@@ -186,7 +187,9 @@ def main() -> Result[(), IoError]:
     print("__test_end_no_allocations__")?
     print(result)?
     Ok(())
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\nOption[range].Some(range(4, 7, 1))\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\nOption[range].Some(range(4, 7, 1))\n",
+    );
 }
 
 #[test]
@@ -220,5 +223,8 @@ print(indirect(Parcel(range(2, 5), Guard("argument")))).unwrap()
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "direct cleanup\nrange(2, 5, 1)\nrange(6, 8, 1)\nargument\n42\nindirect cleanup\nrange(2, 5, 1)\nrange(6, 8, 1)\nargument\n42\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "direct cleanup\nrange(2, 5, 1)\nrange(6, 8, 1)\nargument\n42\nindirect cleanup\nrange(2, 5, 1)\nrange(6, 8, 1)\nargument\n42\n"
+    );
 }

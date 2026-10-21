@@ -61,7 +61,9 @@ def main() -> ():
 
 #[test]
 fn return_only_instances_register_their_drop_methods() {
-    let output = run("class Resource[T]:\n    value: T\n    def __del__(self) -> ():\n        write_stdout(\"drop\\n\").unwrap()\n        pass\ndef missing[T](value: T) -> Result[Resource[T], AllocError]:\n    Err(AllocError.OutOfMemory)\ndef main() -> ():\n    print(str.repr(missing(1u8)).unwrap()).unwrap()\n");
+    let output = run(
+        "class Resource[T]:\n    value: T\n    def __del__(self) -> ():\n        write_stdout(\"drop\\n\").unwrap()\n        pass\ndef missing[T](value: T) -> Result[Resource[T], AllocError]:\n    Err(AllocError.OutOfMemory)\ndef main() -> ():\n    print(str.repr(missing(1u8)).unwrap()).unwrap()\n",
+    );
     assert!(
         output.status.success(),
         "{}",
@@ -146,7 +148,10 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n21\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n21\n"
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -176,7 +181,10 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_fail_allocations_after_0__\n__test_restore_allocations__\nHolder[Resource](value=Resource())\nPacket[Resource].Value(Resource())\ndrop\ndrop\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "__test_fail_allocations_after_0__\n__test_restore_allocations__\nHolder[Resource](value=Resource())\nPacket[Resource].Value(Resource())\ndrop\ndrop\n"
+    );
 }
 
 #[test]

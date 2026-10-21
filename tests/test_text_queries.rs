@@ -94,7 +94,9 @@ fn prefix_and_suffix_are_literal(
     #[case] expected: &str,
 ) {
     native(
-        &format!("print({text:?}.startswith({prefix:?})).unwrap()\nprint({text:?}.endswith({suffix:?})).unwrap()"),
+        &format!(
+            "print({text:?}.startswith({prefix:?})).unwrap()\nprint({text:?}.endswith({suffix:?})).unwrap()"
+        ),
         expected,
     );
 }
@@ -195,7 +197,8 @@ fn searches_return_optional_scalar_positions(
 
 #[test]
 fn search_references_propagation_and_inherent_methods() {
-    native(r#"
+    native(
+        r#"
 def last(text: &str, needle: &str) -> Option[i64]:
     index = text.rfind(needle)?
     Some(index + 1)
@@ -215,7 +218,9 @@ print(last(&text, &text)).unwrap()
 print(text.find("missing")).unwrap()
 print(source().find(needle())).unwrap()
 print(Custom().find()).unwrap()
-"#, "Option[i64].Some(2)\nOption[i64].Some(1)\nOption[i64].Nothing\nreceiver\nargument\nOption[i64].Some(0)\n42");
+"#,
+        "Option[i64].Some(2)\nOption[i64].Some(1)\nOption[i64].Nothing\nreceiver\nargument\nOption[i64].Some(0)\n42",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

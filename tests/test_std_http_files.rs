@@ -123,11 +123,13 @@ fn site(dir: &Path) -> std::path::PathBuf {
     std::os::unix::fs::symlink("..", site.join("up")).unwrap();
     std::os::unix::fs::symlink("index.html", site.join("alias.html")).unwrap();
     let fifo = site.join("pipe");
-    assert!(Command::new("mkfifo")
-        .arg(&fifo)
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
     site
 }
 

@@ -25,7 +25,8 @@ fn run(body: &str) -> String {
 
 #[test]
 fn floating_algorithms_and_generic_helpers() {
-    assert_eq!(run(r#"    print(math.sqrt(9.0)?)?
+    assert_eq!(
+        run(r#"    print(math.sqrt(9.0)?)?
     print(math.log2(8.0)?)?
     print(math.log10(100.0)?)?
     print(math.log_base(8.0, 2.0)?)?
@@ -59,7 +60,9 @@ fn floating_algorithms_and_generic_helpers() {
     items = [2i16, 3, 4]?
     print(math.sum(&items, 1i16))?
     print(math.prod(&items, 1i16))?
-"#), "3.0\n3.0\n2.0\n3.0\n8.0\nTrue\nTrue\nTrue\n0.0\n1.0\n0.0\n0.0\n0.0\n0.0\n0.0\n0.0\n1.0\n0.0\n0.0\n0.0\n0.0\nTrue\n180.0\n0.125\n-1.5\n-3\n-2\n-2\n7\n2\n3.0\n10\n24\n");
+"#),
+        "3.0\n3.0\n2.0\n3.0\n8.0\nTrue\nTrue\nTrue\n0.0\n1.0\n0.0\n0.0\n0.0\n0.0\n0.0\n0.0\n1.0\n0.0\n0.0\n0.0\n0.0\nTrue\n180.0\n0.125\n-1.5\n-3\n-2\n-2\n7\n2\n3.0\n10\n24\n"
+    );
 }
 
 #[test]
@@ -97,7 +100,10 @@ fn quotient_and_remainder_agree_at_integer_edges() {
     print(math.divmod(i64.MIN, -1) == Result[(i64, i64), math.MathError].Err(math.MathError.Overflow))?
     print(math.divmod(i8.MIN, -1i8) == Result[(i8, i8), math.MathError].Err(math.MathError.Overflow))?
 "#);
-    assert_eq!(output, "(2, 1)\n(-3, 2)\n(-3, -2)\n(2, -1)\n(-9223372036854775808, 0)\n(9223372036854775807, 1)\n(-43, 1)\n(1, 0)\nTrue\nTrue\nTrue\n");
+    assert_eq!(
+        output,
+        "(2, 1)\n(-3, 2)\n(-3, -2)\n(2, -1)\n(-9223372036854775808, 0)\n(9223372036854775807, 1)\n(-43, 1)\n(1, 0)\nTrue\nTrue\nTrue\n"
+    );
 }
 
 #[test]
@@ -118,7 +124,10 @@ fn floating_divmod_preserves_signs_and_recovers_errors() {
     print(math.divmod_float(f64.NAN, 2.0) == Result[(f64, f64), math.MathError].Err(math.MathError.Domain))?
     print(math.divmod_float(1e308, 1e-308) == Result[(f64, f64), math.MathError].Err(math.MathError.Overflow))?
 "#);
-    assert_eq!(output, "(3.0, 1.5)\n(-4.0, 0.5)\n(-4.0, -0.5)\n(3.0, -1.5)\n(9.0, 0.09999999999999995)\n-0.0\n0.0\n-0.0\n-0.0\nTrue\nTrue\nTrue\nTrue\n");
+    assert_eq!(
+        output,
+        "(3.0, 1.5)\n(-4.0, 0.5)\n(-4.0, -0.5)\n(3.0, -1.5)\n(9.0, 0.09999999999999995)\n-0.0\n0.0\n-0.0\n-0.0\nTrue\nTrue\nTrue\nTrue\n"
+    );
 }
 
 #[test]
@@ -355,7 +364,8 @@ fn math_algorithms_and_error_construction_allocate_nothing() {
 
 #[test]
 fn fixed_width_integer_algorithms_cover_the_range() {
-    assert_eq!(run(r#"    print(math.factorial(0)?)?
+    assert_eq!(
+        run(r#"    print(math.factorial(0)?)?
     print(math.factorial(20)?)?
     print(math.factorial(21) == Integer.Err(math.MathError.Overflow))?
     print(math.factorial(-1) == Integer.Err(math.MathError.Domain))?
@@ -380,7 +390,9 @@ fn fixed_width_integer_algorithms_cover_the_range() {
     print(math.comb(u64.MAX, 1)?)?
     print(math.comb(67, 33)?)?
     print(math.comb(68, 34) == Integer.Err(math.MathError.Overflow))?
-"#), "1\n2432902008176640000\nTrue\nTrue\n0\n18446744073709551615\n6\n0\n36\nTrue\n0\n1\n3\n4\n4294967295\n60\n0\n1\n18446744073709551615\nTrue\n10\n0\n18446744073709551615\n14226520737620288370\nTrue\n");
+"#),
+        "1\n2432902008176640000\nTrue\nTrue\n0\n18446744073709551615\n6\n0\n36\nTrue\n0\n1\n3\n4\n4294967295\n60\n0\n1\n18446744073709551615\nTrue\n10\n0\n18446744073709551615\n14226520737620288370\nTrue\n"
+    );
 }
 
 #[test]
@@ -409,10 +421,12 @@ fn std_is_reserved_and_unknown_modules_fail_without_filesystem_fallback() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("main.plenty");
     std::fs::write(&source, "import std.missing\ndef main() -> ():\n    pass\n").unwrap();
-    assert!(plenty::check_file(&source, None)
-        .unwrap_err()
-        .to_string()
-        .contains("unknown standard library module"));
+    assert!(
+        plenty::check_file(&source, None)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown standard library module")
+    );
     for name in ["std", "std.plenty", "std.plentyi"] {
         let path = dir.path().join(name);
         if name == "std" {
@@ -420,10 +434,12 @@ fn std_is_reserved_and_unknown_modules_fail_without_filesystem_fallback() {
         } else {
             std::fs::write(&path, "").unwrap();
         }
-        assert!(plenty::check_file(&source, None)
-            .unwrap_err()
-            .to_string()
-            .contains("`std` is reserved"));
+        assert!(
+            plenty::check_file(&source, None)
+                .unwrap_err()
+                .to_string()
+                .contains("`std` is reserved")
+        );
         if name == "std" {
             std::fs::remove_dir(path).unwrap();
         } else {
@@ -448,10 +464,12 @@ fn aliases_and_diamonds_share_std_nominal_types_and_privacy() {
         "from std.math import unary_result\ndef main() -> ():\n    pass\n",
     )
     .unwrap();
-    assert!(plenty::check_file(&source, None)
-        .unwrap_err()
-        .to_string()
-        .contains("private"));
+    assert!(
+        plenty::check_file(&source, None)
+            .unwrap_err()
+            .to_string()
+            .contains("private")
+    );
 }
 
 #[test]

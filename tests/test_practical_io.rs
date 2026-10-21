@@ -24,7 +24,10 @@ fn input_distinguishes_empty_lines_eof_and_invalid_utf8() {
         "é\0\r\n\nlast".as_bytes(),
     );
     assert!(output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "Result[Option[str], IoError].Ok(Option[str].Some(\"é\\0\"))\nResult[Option[str], IoError].Ok(Option[str].Some(\"\"))\nResult[Option[str], IoError].Ok(Option[str].Some(\"last\"))\nResult[Option[str], IoError].Ok(Option[str].Nothing)\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "Result[Option[str], IoError].Ok(Option[str].Some(\"é\\0\"))\nResult[Option[str], IoError].Ok(Option[str].Some(\"\"))\nResult[Option[str], IoError].Ok(Option[str].Some(\"last\"))\nResult[Option[str], IoError].Ok(Option[str].Nothing)\n"
+    );
     let output = with_input("print(str.repr(input()).unwrap()).unwrap()", b"\xff\n");
     assert!(output.status.success());
     assert_eq!(
@@ -84,13 +87,16 @@ print(str.repr(write_stdout("")).unwrap()).unwrap()
 
 #[test]
 fn io_errors_are_constructible_and_matchable() {
-    native(r#"
+    native(
+        r#"
 def error() -> Result[i64, IoError]:
     Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))
 print(str.repr(error()).unwrap()).unwrap()
 print(IoError.System(5i32)).unwrap()
 print(IoError.Data(DataError.InvalidUtf8)).unwrap()
-"#, "Result[i64, IoError].Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))\nIoError.System(5)\nIoError.Data(DataError.InvalidUtf8)\n");
+"#,
+        "Result[i64, IoError].Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))\nIoError.System(5)\nIoError.Data(DataError.InvalidUtf8)\n",
+    );
 }
 
 #[test]
@@ -150,7 +156,9 @@ fn arguments_reject_invalid_utf8() {
         .output()
         .unwrap();
     assert!(output.status.success());
-    assert!(String::from_utf8_lossy(&output.stdout).contains("IoError.Data(DataError.InvalidUtf8)"));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("IoError.Data(DataError.InvalidUtf8)")
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -223,16 +231,18 @@ def main() -> i32:
         &executable,
     )
     .unwrap();
-    assert!(std::process::Command::new(executable)
-        .stdout(
-            std::fs::OpenOptions::new()
-                .write(true)
-                .open("/dev/full")
-                .unwrap()
-        )
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        std::process::Command::new(executable)
+            .stdout(
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open("/dev/full")
+                    .unwrap()
+            )
+            .status()
+            .unwrap()
+            .success()
+    );
 }
 
 #[cfg(target_os = "linux")]

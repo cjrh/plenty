@@ -105,11 +105,26 @@ fn payload_loan_diagnostics_point_at_the_scrutinee_and_the_payload_use() {
 #[test]
 fn payload_loans_reject_invalidation_and_escaping_storage() {
     for (source, expected) in [
-        ("mut value = Some(1)\nmatch &value:\n    case Some(number):\n        value = Nothing\n        print(*number).unwrap()\n    case Nothing:\n        pass", "conflicting borrow"),
-        ("mut value = Some(1)\nmatch &mut value:\n    case Some(number):\n        print(value).unwrap()\n        *number = 2\n    case Nothing:\n        pass", "conflicting borrow"),
-        ("value = Some(1)\nmatch &value:\n    case Some(number):\n        *number = 2\n    case Nothing:\n        pass", "exclusive reference"),
-        ("def bad(source: &i64) -> &i64:\n    value = Some(*source)\n    match &value:\n        case Some(number):\n            number\n        case Nothing:\n            source", "reference parameter"),
-        ("match &Some(1):\n    case Some(number):\n        pass\n    case Nothing:\n        pass", "named binding"),
+        (
+            "mut value = Some(1)\nmatch &value:\n    case Some(number):\n        value = Nothing\n        print(*number).unwrap()\n    case Nothing:\n        pass",
+            "conflicting borrow",
+        ),
+        (
+            "mut value = Some(1)\nmatch &mut value:\n    case Some(number):\n        print(value).unwrap()\n        *number = 2\n    case Nothing:\n        pass",
+            "conflicting borrow",
+        ),
+        (
+            "value = Some(1)\nmatch &value:\n    case Some(number):\n        *number = 2\n    case Nothing:\n        pass",
+            "exclusive reference",
+        ),
+        (
+            "def bad(source: &i64) -> &i64:\n    value = Some(*source)\n    match &value:\n        case Some(number):\n            number\n        case Nothing:\n            source",
+            "reference parameter",
+        ),
+        (
+            "match &Some(1):\n    case Some(number):\n        pass\n    case Nothing:\n        pass",
+            "named binding",
+        ),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "{source}\n{error}");
@@ -127,7 +142,8 @@ fn mutable_matches_update_inline_enums_without_changing_copies() {
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn recursive_class_traversal_and_nested_mutation_do_not_allocate() {
-    runs(r#"
+    runs(
+        r#"
 class Node:
     value: i64
     next: Option[Box[Node]]
@@ -153,7 +169,9 @@ print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(answer).unwrap()
 print(total(&root)).unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n5\n5\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n5\n5\n",
+    );
 }
 
 #[test]
@@ -187,7 +205,8 @@ print(str.repr(number).unwrap()).unwrap()
 
 #[test]
 fn inline_range_and_marker_payloads_preserve_surrounding_tags() {
-    runs(r#"
+    runs(
+        r#"
 mut value: Option[Result[range[i64], AllocError]] = Some(Ok(range(3)))
 match &mut value:
     case Some(result):
@@ -210,7 +229,9 @@ match &mut value:
     case Nothing:
         pass
 print(value).unwrap()
-"#, "Option[Result[range, AllocError]].Some(Result[range, AllocError].Ok(range(4, 9, 2)))\nAllocError.CapacityOverflow\nOption[Result[range, AllocError]].Some(Result[range, AllocError].Err(AllocError.CapacityOverflow))\n");
+"#,
+        "Option[Result[range, AllocError]].Some(Result[range, AllocError].Ok(range(4, 9, 2)))\nAllocError.CapacityOverflow\nOption[Result[range, AllocError]].Some(Result[range, AllocError].Err(AllocError.CapacityOverflow))\n",
+    );
 }
 
 #[test]
@@ -303,7 +324,10 @@ fn returned_and_projected_payloads_reject_mutation_until_last_use() {
         "def values() -> Generator[i64]:\n    value = Some(1)\n    match &value:\n        case Some(n):\n            yield *n\n            yield *n\n        case Nothing:\n            pass",
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
-        assert!(error.contains("borrow") || error.contains("moved"), "{source}\n{error}");
+        assert!(
+            error.contains("borrow") || error.contains("moved"),
+            "{source}\n{error}"
+        );
     }
 }
 

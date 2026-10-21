@@ -53,7 +53,10 @@ pub(super) fn check_callable_bound(
             if matches!(ty, Ty::Closure(t) if t.borrowed) {
                 "; a one-shot closure with borrowed captures can only be consumed locally".into()
             } else {
-                format!("; a one-shot closure is consumed by its call; use `F: {}` with an owned `F` parameter for a consuming callback API", expected.to_string().replacen("Callable", "OnceCallable", 1))
+                format!(
+                    "; a one-shot closure is consumed by its call; use `F: {}` with an owned `F` parameter for a consuming callback API",
+                    expected.to_string().replacen("Callable", "OnceCallable", 1)
+                )
             }
         } else {
             String::new()
@@ -301,10 +304,10 @@ impl Engine {
     /// `source` relative to the source root (unchanged without a root), and
     /// whether it is a standard library module.
     pub(super) fn source_facts(&mut self, source: &Arc<str>) -> (Arc<str>, bool) {
-        if let Some((last, relative, standard)) = &self.source_facts {
-            if Arc::ptr_eq(last, source) {
-                return (Arc::clone(relative), *standard);
-            }
+        if let Some((last, relative, standard)) = &self.source_facts
+            && Arc::ptr_eq(last, source)
+        {
+            return (Arc::clone(relative), *standard);
         }
         let relative: Arc<str> = self
             .source_root
@@ -332,7 +335,7 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
                 concrete: Some(ty.clone()),
                 name: None,
                 args: vec![],
-            }
+            };
         }
         Ty::Callable(sig) => (
             Some("Callable".into()),
@@ -488,13 +491,14 @@ fn infer_inner(
         *inferred = candidates.pop().unwrap();
         return Ok(());
     }
-    if let Some((name, arguments)) = aliases.data.arguments(actual) {
-        if pattern.name.as_ref() == Some(&name) && pattern.args.len() == arguments.len() {
-            for (pattern, argument) in pattern.args.iter().zip(&arguments) {
-                infer_inner(pattern, argument, template, inferred, aliases, at, false)?;
-            }
-            return Ok(());
+    if let Some((name, arguments)) = aliases.data.arguments(actual)
+        && pattern.name.as_ref() == Some(&name)
+        && pattern.args.len() == arguments.len()
+    {
+        for (pattern, argument) in pattern.args.iter().zip(&arguments) {
+            infer_inner(pattern, argument, template, inferred, aliases, at, false)?;
         }
+        return Ok(());
     }
     let children: Option<Vec<&Ty>> = match (pattern.name.as_deref(), actual) {
         (Some("Closure" | "OnceClosure"), Ty::Closure(t))
@@ -1497,7 +1501,9 @@ mod tests {
 
     #[test]
     fn repeated_generator_calls_share_consumer_specializations_and_resume_bodies() {
-        let mut source = String::from("def values() -> Generator[i64]:\n    yield 1\ndef factory() -> Generator[i64]:\n    values()\ndef consume(source: Generator[i64]) -> ():\n    drop(source)\ndef main() -> ():\n");
+        let mut source = String::from(
+            "def values() -> Generator[i64]:\n    yield 1\ndef factory() -> Generator[i64]:\n    values()\ndef consume(source: Generator[i64]) -> ():\n    drop(source)\ndef main() -> ():\n",
+        );
         for _ in 0..100 {
             source.push_str("    consume(factory())\n    consume(values())\n");
         }
@@ -1536,7 +1542,9 @@ mod tests {
 
     #[test]
     fn explicit_inferred_alias_and_recursive_calls_share_one_specialization() {
-        let mut source = String::from("type Count = i64\ndef down[T: IntType](x: T) -> T:\n    if x == 0:\n        return x\n    down(x - 1)\ndef main() -> ():\n");
+        let mut source = String::from(
+            "type Count = i64\ndef down[T: IntType](x: T) -> T:\n    if x == 0:\n        return x\n    down(x - 1)\ndef main() -> ():\n",
+        );
         for _ in 0..100 {
             source.push_str("    down(3)\n    down[i64](3)\n    down[Count](3)\n");
         }

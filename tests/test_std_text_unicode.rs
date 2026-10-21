@@ -7,7 +7,10 @@ fn run(body: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
     let source = format!(
         "import std.text\nimport std.unicode\nimport std.bytes\ndef failed[T, E](value: Result[T, E]) -> bool:\n    match value:\n        case Ok(_):\n            False\n        case Err(_):\n            True\ndef absent[T](value: Option[T]) -> bool:\n    match value:\n        case Some(_):\n            False\n        case Nothing:\n            True\ndef main() -> Result[(), AllocError | IoError | std.text.TextError | std.bytes.BytesError]:\n{}\n    Ok(())\n",
-        body.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n")
+        body.lines()
+            .map(|l| format!("    {l}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     let output = std::process::Command::new(compile(dir.path(), &source))
         .output()
@@ -27,7 +30,8 @@ fn run(body: &str) -> String {
 
 #[test]
 fn bounded_builders_join_and_scalar_wrapping() {
-    assert_eq!(run(r#"
+    assert_eq!(
+        run(r#"
 mut builder = std.text.builder(7)?
 builder.append("é🙂")?
 print(builder.byte_len(), builder.limit(), builder.to_text()?)?
@@ -47,7 +51,9 @@ empty = std.text.builder(0)?
 print(empty.to_text()? == "", std.text.join(&list[str].new()?, "", 0)? == "")?
 bad = std.bytes.from_list(&[255u8]?)?
 print(failed(bad.to_text()))?
-"#), "6 7 é🙂\nTrue True\n7 3\nagain\né::🙂\nTrue\n\"é🙂\\nab\\nc\\n\"\n\"e\\ń\\nx\"\nTrue True\nTrue True\nTrue");
+"#),
+        "6 7 é🙂\nTrue True\n7 3\nagain\né::🙂\nTrue\n\"é🙂\\nab\\nc\\n\"\n\"e\\ń\\nx\"\nTrue True\nTrue True\nTrue"
+    );
 }
 
 #[test]

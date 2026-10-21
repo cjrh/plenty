@@ -189,10 +189,12 @@ fn ambiguous_source_and_interface_modules_are_rejected() {
     }
     let main = temp.path().join("main.plenty");
     std::fs::write(&main, "import native\ndef main() -> ():\n    pass\n").unwrap();
-    assert!(plenty::check_file(&main, None)
-        .unwrap_err()
-        .to_string()
-        .contains("ambiguous module"));
+    assert!(
+        plenty::check_file(&main, None)
+            .unwrap_err()
+            .to_string()
+            .contains("ambiguous module")
+    );
 }
 
 fn adapters(root: &Path) {
@@ -254,7 +256,10 @@ def main() -> Result[(), AllocError | CStrError | IoError]:
 "#,
         library,
     );
-    assert_eq!(visible(output), "-128\n65535\n1.5\n-2.25\n-9223372036854775808\n429\n0\n364\n429\nResult[u64, CStrError].Ok(2)\nResult[u64, CStrError].Ok(2)\nResult[u64, CStrError].Err(CStrError.EmbeddedNul)\nResult[u64, CStrError].Err(CStrError.EmbeddedNul)\n4\n2.5\n42");
+    assert_eq!(
+        visible(output),
+        "-128\n65535\n1.5\n-2.25\n-9223372036854775808\n429\n0\n364\n429\nResult[u64, CStrError].Ok(2)\nResult[u64, CStrError].Ok(2)\nResult[u64, CStrError].Err(CStrError.EmbeddedNul)\nResult[u64, CStrError].Err(CStrError.EmbeddedNul)\n4\n2.5\n42"
+    );
 }
 
 #[test]
@@ -343,7 +348,12 @@ def main() -> Result[(), AllocError | native.NativeError | IoError]:
             "Result[u64, CStrError].Err(CStrError.Allocation(AllocError.OutOfMemory))\n0"
         };
         // Constructing the owner needs no allocation, so the handle opens and closes.
-        assert_eq!(actual, format!("{result}\n1\n0\n532\nResult[(), CStrError].Err(CStrError.Allocation(AllocError.OutOfMemory))\n0"));
+        assert_eq!(
+            actual,
+            format!(
+                "{result}\n1\n0\n532\nResult[(), CStrError].Err(CStrError.Allocation(AllocError.OutOfMemory))\n0"
+            )
+        );
     }
 }
 
@@ -370,6 +380,14 @@ fn adapters_reject_invalid_types_and_preserve_borrow_rules() {
         "import native\ndef main() -> ():\n    mut n = 1\n    native.write(&mut n, &n)\n",
         "borrow",
     );
-    rejected(include_str!("fixtures/ffi.plentyi"), "import native\ndef main() -> ():\n    source = native.create(0).unwrap()\n    moved = source\n    print(source.value()).unwrap()\n", "moved");
-    rejected(include_str!("fixtures/ffi.plentyi"), "import native\ndef main() -> ():\n    source = native.create(0).unwrap()\n    copy(source).unwrap()\n", "cannot be copied");
+    rejected(
+        include_str!("fixtures/ffi.plentyi"),
+        "import native\ndef main() -> ():\n    source = native.create(0).unwrap()\n    moved = source\n    print(source.value()).unwrap()\n",
+        "moved",
+    );
+    rejected(
+        include_str!("fixtures/ffi.plentyi"),
+        "import native\ndef main() -> ():\n    source = native.create(0).unwrap()\n    copy(source).unwrap()\n",
+        "cannot be copied",
+    );
 }

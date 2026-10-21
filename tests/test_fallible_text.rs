@@ -122,7 +122,8 @@ fn splitting_recovers_at_every_allocation_and_preserves_sources() {
     // One entry buffer, one list owner, and three pieces too long to be inline.
     for budget in 0..=5 {
         native(
-            &format!(r#"
+            &format!(
+                r#"
 source = ("alphabet:" + "betagamma:deltaepsilon").unwrap()
 separator = ("" + ":").unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
@@ -132,9 +133,16 @@ print(str.repr(result).unwrap()).unwrap()
 print(source).unwrap()
 print(separator).unwrap()
 print(str.repr(source.split(separator)).unwrap()).unwrap()
-"#),
-            &format!("Result[list[str], AllocError].{}\nalphabet:betagamma:deltaepsilon\n:\nResult[list[str], AllocError].Ok([\"alphabet\", \"betagamma\", \"deltaepsilon\"])",
-                if budget < 5 { "Err(AllocError.OutOfMemory)" } else { "Ok([\"alphabet\", \"betagamma\", \"deltaepsilon\"])" }),
+"#
+            ),
+            &format!(
+                "Result[list[str], AllocError].{}\nalphabet:betagamma:deltaepsilon\n:\nResult[list[str], AllocError].Ok([\"alphabet\", \"betagamma\", \"deltaepsilon\"])",
+                if budget < 5 {
+                    "Err(AllocError.OutOfMemory)"
+                } else {
+                    "Ok([\"alphabet\", \"betagamma\", \"deltaepsilon\"])"
+                }
+            ),
         );
     }
 }
@@ -178,8 +186,10 @@ fn split_rejects_empty_separator_at_runtime() {
         "separator = \"\"\nprint(str.repr(\"abc\".split(separator)).unwrap()).unwrap()",
     );
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("string split requires a nonempty separator"));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("string split requires a nonempty separator")
+    );
 }
 
 #[test]
@@ -270,7 +280,9 @@ fn one_output_allocation_suffices_and_failure_can_be_retried(
     #[case] expected: &str,
 ) {
     for budget in 0..=1 {
-        native(&format!(r#"
+        native(
+            &format!(
+                r#"
 left = ("le" + "ft").unwrap()
 right = ("-ri" + "ght").unwrap()
 separator = "|"
@@ -284,7 +296,17 @@ print(str.repr({expression}).unwrap()).unwrap()
 print(left).unwrap()
 print(right).unwrap()
 print(parts).unwrap()
-"#), &format!("Result[str, AllocError].{}\nResult[str, AllocError].Ok(\"{expected}\")\nleft\n-right\n[\"left\", \"right\"]", if budget == 0 { "Err(AllocError.OutOfMemory)".into() } else { format!("Ok(\"{expected}\")") }));
+"#
+            ),
+            &format!(
+                "Result[str, AllocError].{}\nResult[str, AllocError].Ok(\"{expected}\")\nleft\n-right\n[\"left\", \"right\"]",
+                if budget == 0 {
+                    "Err(AllocError.OutOfMemory)".into()
+                } else {
+                    format!("Ok(\"{expected}\")")
+                }
+            ),
+        );
     }
 }
 

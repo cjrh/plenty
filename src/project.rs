@@ -11,7 +11,7 @@ pub mod manifest;
 mod toml;
 
 use fingerprint::Fingerprint;
-use manifest::{Dependency, GitSelector, Manifest, Source, MANIFEST};
+use manifest::{Dependency, GitSelector, MANIFEST, Manifest, Source};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -712,13 +712,13 @@ impl Project {
             .into());
         }
         let path = path.canonicalize()?;
-        if let PackageSource::Git { snapshot, .. } = &target_source {
-            if !path.starts_with(snapshot) {
-                return Err(format!(
-                    "package `{owner}`: dependency `{alias}` leaves its repository snapshot"
-                )
-                .into());
-            }
+        if let PackageSource::Git { snapshot, .. } = &target_source
+            && !path.starts_with(snapshot)
+        {
+            return Err(format!(
+                "package `{owner}`: dependency `{alias}` leaves its repository snapshot"
+            )
+            .into());
         }
         // Check the chain first: a Git package still being visited is also
         // found by `same_git_package`, which would accept the cycle.
@@ -1213,21 +1213,21 @@ fn build_member(
         profile: options.profile,
         started: false,
     };
-    if only.is_none() {
-        if let Some(library) = &package.manifest.library {
-            let entry = package.directory.join(library);
-            let digest = fingerprint::digest(&graph, &entry, "library", &compile)?;
-            reuse_or_build(
-                Fingerprint::new(
-                    &directory,
-                    &format!("lib-{}", package.manifest.name),
-                    digest,
-                ),
-                None,
-                &mut progress,
-                || check_entry(&entry, &graph, false),
-            )?;
-        }
+    if only.is_none()
+        && let Some(library) = &package.manifest.library
+    {
+        let entry = package.directory.join(library);
+        let digest = fingerprint::digest(&graph, &entry, "library", &compile)?;
+        reuse_or_build(
+            Fingerprint::new(
+                &directory,
+                &format!("lib-{}", package.manifest.name),
+                digest,
+            ),
+            None,
+            &mut progress,
+            || check_entry(&entry, &graph, false),
+        )?;
     }
     let mut outputs = vec![];
     for (name, entry) in &package.manifest.binaries {
@@ -1334,7 +1334,7 @@ pub fn run(
                     packages(),
                     names()
                 )
-                .into())
+                .into());
             }
         },
     };

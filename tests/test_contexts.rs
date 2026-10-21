@@ -127,10 +127,15 @@ with &mut original as counter:
 
 #[test]
 fn multiple_managers_enter_left_to_right_and_share_prior_bindings() {
-    run(&format!(r#"{MANAGER}
+    run(
+        &format!(
+            r#"{MANAGER}
 with Manager("first") as first, Manager(first.name) as second:
     print("body").unwrap()
-"#), "first\nentry dropped\nbody\nentry dropped\nexit\nmanager dropped\nentry dropped\nexit\nmanager dropped\n");
+"#
+        ),
+        "first\nentry dropped\nbody\nentry dropped\nexit\nmanager dropped\nentry dropped\nexit\nmanager dropped\n",
+    );
 }
 
 #[test]
@@ -242,7 +247,9 @@ print("returned").unwrap()
 
 #[test]
 fn propagation_cleans_nested_contexts_and_pending_operands() {
-    run(&format!(r#"{MANAGER}
+    run(
+        &format!(
+            r#"{MANAGER}
 def fail() -> Result[i64, i64]:
     Err(9)
 def work() -> Result[i64, i64]:
@@ -251,12 +258,17 @@ def work() -> Result[i64, i64]:
             value = fail()?
     Ok(1)
 print(str.repr(work()).unwrap()).unwrap()
-"#), "outer\ninner\nentry dropped\nexit\nmanager dropped\nentry dropped\nexit\nmanager dropped\nResult[i64, i64].Err(9)\n");
+"#
+        ),
+        "outer\ninner\nentry dropped\nexit\nmanager dropped\nentry dropped\nexit\nmanager dropped\nResult[i64, i64].Err(9)\n",
+    );
 }
 
 #[test]
 fn loop_exits_cleanup_once_and_inner_loop_keeps_manager() {
-    run(&format!(r#"{MANAGER}
+    run(
+        &format!(
+            r#"{MANAGER}
 for n in range(2):
     with Manager("enter") as r:
         if n == 0:
@@ -264,7 +276,10 @@ for n in range(2):
         while True:
             break
         break
-"#), "enter\nentry dropped\nexit\nmanager dropped\nenter\nentry dropped\nexit\nmanager dropped\n");
+"#
+        ),
+        "enter\nentry dropped\nexit\nmanager dropped\nenter\nentry dropped\nexit\nmanager dropped\n",
+    );
 }
 
 #[test]
@@ -304,7 +319,10 @@ fn invalid_contexts_are_rejected() {
         ),
         "yield inside with",
     );
-    reject("class Bad:\n    def __enter__(self) -> ():\n        pass\n    def __exit__(self: &mut Bad) -> ():\n        pass\nwith Bad():\n    pass\n", "__enter__ requires only self: &mut");
+    reject(
+        "class Bad:\n    def __enter__(self) -> ():\n        pass\n    def __exit__(self: &mut Bad) -> ():\n        pass\nwith Bad():\n    pass\n",
+        "__enter__ requires only self: &mut",
+    );
 }
 
 #[test]

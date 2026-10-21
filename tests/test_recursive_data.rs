@@ -96,7 +96,9 @@ fn recursive_owners_preserve_borrow_and_move_rules() {
         ),
         ("node.next = Some(Box(node).unwrap())", "moved"),
     ] {
-        let source = format!("class Node:\n    value: i64\n    next: Option[Box[Node]]\nmut node = Node(1, Nothing)\n{body}\n");
+        let source = format!(
+            "class Node:\n    value: i64\n    next: Option[Box[Node]]\nmut node = Node(1, Nothing)\n{body}\n"
+        );
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "{source}\n{error}");
     }
@@ -114,7 +116,9 @@ fn unsupported_deep_operations_are_rejected_through_wrappers() {
         "wrapped = [node].unwrap()\nwrapped == wrapped",
         "other = Node(2, Nothing)\nwrapped = [node].unwrap()\nother in wrapped",
     ] {
-        let source = format!("class Node:\n    value: i64\n    next: Option[Box[Node]]\nnode = Node(1, Nothing)\n{body}\n");
+        let source = format!(
+            "class Node:\n    value: i64\n    next: Option[Box[Node]]\nnode = Node(1, Nothing)\n{body}\n"
+        );
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(
             error.contains("not supported for recursive data"),
@@ -158,7 +162,8 @@ print(head.value).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_boxes_drop_the_values_they_would_own_exactly_once() {
-    runs(r#"
+    runs(
+        r#"
 class Node:
     next: Option[Box[Node]]
     def __del__(self) -> ():
@@ -185,7 +190,9 @@ match failed_tree:
         print("unexpected").unwrap()
     case Err(error):
         print(error).unwrap()
-"#, "__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\nAllocError.OutOfMemory\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\nAllocError.OutOfMemory\n");
+"#,
+        "__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\nAllocError.OutOfMemory\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\nAllocError.OutOfMemory\n",
+    );
 }
 
 #[cfg(all(feature = "runtime-checks", target_os = "linux"))]
@@ -233,7 +240,8 @@ print("__test_end_no_allocations__").unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn nested_recursive_field_updates_do_not_allocate_and_drop_replaced_values() {
-    runs(r#"
+    runs(
+        r#"
 class Node:
     value: i64
     children: list[Node]
@@ -250,5 +258,7 @@ print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(root.children[0].value).unwrap()
 drop(root)
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\n3\ndrop\ndrop\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\n3\ndrop\ndrop\n",
+    );
 }

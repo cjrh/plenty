@@ -34,7 +34,7 @@ const MOUNT: &str = "/etc/plenty-proxy";
 
 const SIGTERM: i32 = 15;
 
-extern "C" {
+unsafe extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
 }
 
@@ -696,7 +696,7 @@ fn shutdown_drains_through_the_proxy(kind: Kind) {
 }
 
 macro_rules! behind {
-    ($kind:expr, $($test:ident => $scenario:ident),* $(,)?) => {
+    ($kind:expr_2021, $($test:ident => $scenario:ident),* $(,)?) => {
         $(
             #[test]
             fn $test() {

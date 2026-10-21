@@ -1,7 +1,7 @@
 //! `std.atomic` surface: construction, methods on a borrowed place, `fence`,
 //! and compile-time `Ordering` validation.
 use super::*;
-use crate::atomic::{AtomicOp, Modify, Ordering, OrderingUse, ORDERING};
+use crate::atomic::{AtomicOp, Modify, ORDERING, Ordering, OrderingUse};
 
 const ELEMENTS: &str = "bool, i8, i16, i32, i64, u8, u16, u32, or u64";
 

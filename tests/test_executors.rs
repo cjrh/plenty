@@ -56,7 +56,8 @@ def main() -> Result[(), AllocError | FutureError | IoError | PoolError | Submit
 
 #[test]
 fn map_is_ordered_for_ranges_owned_lists_and_inline_results() {
-    runs(r#"
+    runs(
+        r#"
 def square[T: IntType](value: T) -> T:
     value * value
 def owned(values: list[i64]) -> list[i64]:
@@ -69,7 +70,9 @@ with ThreadPoolExecutor(3, 1).unwrap() as pool:
     print(pool.map(owned, values).unwrap()).unwrap()
     print(pool.map(span, range(4)).unwrap()).unwrap()
     print(pool.map(square, range(0)).unwrap()).unwrap()
-"#, "[0, 1, 4, 9, 16, 25, 36, 49]\n[[1, 2], [3]]\n[Option[range].Some(range(0, 3, 1)), Option[range].Some(range(1, 4, 1)), Option[range].Some(range(2, 5, 1)), Option[range].Some(range(3, 6, 1))]\n[]\n");
+"#,
+        "[0, 1, 4, 9, 16, 25, 36, 49]\n[[1, 2], [3]]\n[Option[range].Some(range(0, 3, 1)), Option[range].Some(range(1, 4, 1)), Option[range].Some(range(2, 5, 1)), Option[range].Some(range(3, 6, 1))]\n[]\n",
+    );
 }
 
 #[test]
@@ -201,13 +204,34 @@ def main() -> Result[(), AllocError | FutureError | IoError | PoolError | Submit
 #[test]
 fn handles_are_affine_and_worker_dependencies_are_rejected() {
     for (source, expected) in [
-        ("def f() -> i64:\n    1\npool = ThreadPoolExecutor(1, 1).unwrap()\nfuture = pool.submit(f).unwrap()\nfuture.result().unwrap()\nfuture.result().unwrap()\n", "moved"),
-        ("pool = ThreadPoolExecutor(1, 1).unwrap()\ncopy(pool).unwrap()\n", "copied"),
-        ("n = 1\njob = def [&n]() -> i64:\n    n\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(job).unwrap()\n", "wholly owned"),
-        ("def work() -> ():\n    pool = ThreadPoolExecutor(1, 1).unwrap()\n    pass\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(work).unwrap()\n", "cannot enter worker"),
-        ("def seven() -> i64:\n    7\ndef work() -> ():\n    f: Callable[[], i64] = seven\n    f()\n    pass\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(work).unwrap()\n", "indirect callable"),
-        ("def work(future: Future[i64]) -> i64:\n    future.result().unwrap()\ndef one() -> i64:\n    1\npool = ThreadPoolExecutor(1, 1).unwrap()\nf = pool.submit(one).unwrap()\npool.submit(work, f).unwrap()\n", "cannot enter worker"),
-        ("def borrowed(f: &Future[i64]) -> &Future[i64]:\n    f\ndef one() -> i64:\n    1\npool = ThreadPoolExecutor(1, 1).unwrap()\nf = pool.submit(one).unwrap()\nborrowed(&f).result().unwrap()\n", "owned Future"),
+        (
+            "def f() -> i64:\n    1\npool = ThreadPoolExecutor(1, 1).unwrap()\nfuture = pool.submit(f).unwrap()\nfuture.result().unwrap()\nfuture.result().unwrap()\n",
+            "moved",
+        ),
+        (
+            "pool = ThreadPoolExecutor(1, 1).unwrap()\ncopy(pool).unwrap()\n",
+            "copied",
+        ),
+        (
+            "n = 1\njob = def [&n]() -> i64:\n    n\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(job).unwrap()\n",
+            "wholly owned",
+        ),
+        (
+            "def work() -> ():\n    pool = ThreadPoolExecutor(1, 1).unwrap()\n    pass\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(work).unwrap()\n",
+            "cannot enter worker",
+        ),
+        (
+            "def seven() -> i64:\n    7\ndef work() -> ():\n    f: Callable[[], i64] = seven\n    f()\n    pass\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(work).unwrap()\n",
+            "indirect callable",
+        ),
+        (
+            "def work(future: Future[i64]) -> i64:\n    future.result().unwrap()\ndef one() -> i64:\n    1\npool = ThreadPoolExecutor(1, 1).unwrap()\nf = pool.submit(one).unwrap()\npool.submit(work, f).unwrap()\n",
+            "cannot enter worker",
+        ),
+        (
+            "def borrowed(f: &Future[i64]) -> &Future[i64]:\n    f\ndef one() -> i64:\n    1\npool = ThreadPoolExecutor(1, 1).unwrap()\nf = pool.submit(one).unwrap()\nborrowed(&f).result().unwrap()\n",
+            "owned Future",
+        ),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "expected {expected}: {error}");
@@ -217,7 +241,8 @@ fn handles_are_affine_and_worker_dependencies_are_rejected() {
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn allocation_failure_returns_the_entire_job_for_retry() {
-    runs(r#"
+    runs(
+        r#"
 def fallback[F: OnceCallable[[], i64]](pool: &ThreadPoolExecutor, job: F) -> i64:
     match pool.submit(job):
         case Ok(future):
@@ -248,13 +273,16 @@ with ThreadPoolExecutor(1, 1).unwrap() as pool:
     second_answer = fallback(pool, other)
     print("__test_end_no_allocations__").unwrap()
     print(second_answer).unwrap()
-"#, "__test_fail_allocations_after_0__\n__test_restore_allocations__\n22\n__test_begin_no_allocations__\n__test_end_no_allocations__\n42\n");
+"#,
+        "__test_fail_allocations_after_0__\n__test_restore_allocations__\n22\n__test_begin_no_allocations__\n__test_end_no_allocations__\n42\n",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn creation_failures_are_inline_and_partial_native_startup_is_reclaimed() {
-    runs(r#"
+    runs(
+        r#"
 print(str.repr(ThreadPoolExecutor(0, 1)).unwrap()).unwrap()
 print(str.repr(ThreadPoolExecutor(1, 0)).unwrap()).unwrap()
 print(str.repr(ThreadPoolExecutor(1, 18446744073709551615u64)).unwrap()).unwrap()
@@ -266,12 +294,15 @@ print("__test_one_thread_start__").unwrap()
 partial = ThreadPoolExecutor(3, 2)
 print("__test_restore_thread_starts__").unwrap()
 print(str.repr(partial).unwrap()).unwrap()
-"#, "Result[ThreadPoolExecutor, PoolError].Err(PoolError.InvalidSize)\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.InvalidSize)\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.Allocation(AllocError.CapacityOverflow))\n__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.Allocation(AllocError.OutOfMemory))\n__test_one_thread_start__\n__test_restore_thread_starts__\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.Thread(ThreadError.System(11)))\n");
+"#,
+        "Result[ThreadPoolExecutor, PoolError].Err(PoolError.InvalidSize)\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.InvalidSize)\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.Allocation(AllocError.CapacityOverflow))\n__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.Allocation(AllocError.OutOfMemory))\n__test_one_thread_start__\n__test_restore_thread_starts__\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.Thread(ThreadError.System(11)))\n",
+    );
 }
 
 #[test]
 fn future_collections_and_error_results_keep_ownership() {
-    runs(r#"
+    runs(
+        r#"
 def make(n: i64) -> Result[list[i64], i64]:
     if n == 1:
         return Err(n)
@@ -287,7 +318,9 @@ with ThreadPoolExecutor(2, 2).unwrap() as pool:
     for future in futures:
         print(str.repr(future.result().unwrap()).unwrap()).unwrap()
     print(pool.map(make, range(3)).unwrap()).unwrap()
-"#, "Result[list[i64], i64].Ok([0])\nResult[list[i64], i64].Err(1)\nResult[list[i64], i64].Ok([2])\n[Result[list[i64], i64].Ok([0]), Result[list[i64], i64].Err(1), Result[list[i64], i64].Ok([2])]\n");
+"#,
+        "Result[list[i64], i64].Ok([0])\nResult[list[i64], i64].Err(1)\nResult[list[i64], i64].Ok([2])\n[Result[list[i64], i64].Ok([0]), Result[list[i64], i64].Err(1), Result[list[i64], i64].Ok([2])]\n",
+    );
 }
 
 #[test]
@@ -340,7 +373,8 @@ with spawn(count, receiver).unwrap() as counter:
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn waiting_and_cleanup_after_submission_do_not_allocate() {
-    runs(r#"
+    runs(
+        r#"
 def work(values: list[range[i64]]) -> list[range[i64]]:
     values
 with ThreadPoolExecutor(2, 2).unwrap() as pool:
@@ -352,7 +386,9 @@ with ThreadPoolExecutor(2, 2).unwrap() as pool:
     pool.shutdown()
     print("__test_restore_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

@@ -19,7 +19,8 @@ fn native(source: &str, expected: &str) {
 
 #[test]
 fn reverse_lists_text_and_ranges_in_loops_and_comprehensions() {
-    native(r#"
+    native(
+        r#"
 print([x for x in reversed([1, 2, 3].unwrap())].unwrap()).unwrap()
 print([x for x in reversed(range(1, 8, 2))].unwrap()).unwrap()
 print([x for x in reversed(range(8u8, 1u8, -3))].unwrap()).unwrap()
@@ -31,7 +32,9 @@ print([x for x in reversed(range(0))].unwrap()).unwrap()
 print([x for x in reversed(list[i64]().unwrap())].unwrap()).unwrap()
 print([x for x in reversed(range(i64.MAX - 1, i64.MAX))].unwrap()).unwrap()
 print([x for x in reversed(range(0u64, u64.MAX, i64.MAX))].unwrap()).unwrap()
-"#, "[3, 2, 1]\n[7, 5, 3, 1]\n[2, 5, 8]\n🙂\n中\né\na\n[]\n[]\n[9223372036854775806]\n[18446744073709551614, 9223372036854775807, 0]");
+"#,
+        "[3, 2, 1]\n[7, 5, 3, 1]\n[2, 5, 8]\n🙂\n中\né\na\n[]\n[]\n[9223372036854775806]\n[18446744073709551614, 9223372036854775807, 0]",
+    );
 }
 
 #[test]
@@ -216,7 +219,8 @@ print(all({True: 1}.unwrap())).unwrap()
 
 #[test]
 fn reductions_short_circuit_generators_and_release_their_frames() {
-    native(r#"
+    native(
+        r#"
 class Guard:
     def __del__(self) -> ():
         print("drop frame").unwrap()
@@ -235,7 +239,9 @@ def empty() -> Generator[bool]:
         yield True
 print(any(empty())).unwrap()
 print(all(empty())).unwrap()
-"#, "first\ndrop frame\nTrue\nfirst\ndrop frame\nFalse\nfirst\nsecond\ndrop frame\nTrue\nfirst\nsecond\ndrop frame\nFalse\nFalse\nTrue");
+"#,
+        "first\ndrop frame\nTrue\nfirst\ndrop frame\nFalse\nfirst\nsecond\ndrop frame\nTrue\nfirst\nsecond\ndrop frame\nFalse\nFalse\nTrue",
+    );
 }
 
 #[test]
@@ -321,8 +327,14 @@ for x in methods.reversed():
     "requires a list, str, bytes, range, or Bytes"
 )]
 #[case("saved = reversed(range(3))", "supported directly in for loops")]
-#[case("mut values = [1].unwrap()\nfor x in reversed(&values):\n    values.append(2).unwrap()\n    print(*x).unwrap()", "borrow")]
-#[case("mut values = [1].unwrap()\nfor x in reversed(&mut values):\n    print(values).unwrap()\n    *x = 2", "borrow")]
+#[case(
+    "mut values = [1].unwrap()\nfor x in reversed(&values):\n    values.append(2).unwrap()\n    print(*x).unwrap()",
+    "borrow"
+)]
+#[case(
+    "mut values = [1].unwrap()\nfor x in reversed(&mut values):\n    print(values).unwrap()\n    *x = 2",
+    "borrow"
+)]
 fn rejects_unsupported_sources_and_invalid_borrows(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");

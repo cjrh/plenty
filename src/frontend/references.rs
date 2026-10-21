@@ -56,11 +56,11 @@ impl Lower<'_> {
     pub(super) fn reserve_receiver(&mut self, loan: usize, ops: &mut [Op]) {
         self.loans[loan].mutable = false;
         for op in ops.iter_mut().rev() {
-            if let Op::Loan(fact) = op {
-                if fact.id == loan {
-                    fact.mutable = false;
-                    return;
-                }
+            if let Op::Loan(fact) = op
+                && fact.id == loan
+            {
+                fact.mutable = false;
+                return;
             }
         }
         unreachable!("receiver loan was just emitted")
@@ -216,14 +216,13 @@ impl Lower<'_> {
     }
 
     pub(super) fn reference_origin(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
-        if let Expression::Name(name) = &ungroup(e).kind {
-            if let Some(local) = self.names.get(name) {
-                if let Some(id) = self.reference_locals.get(&local.slot) {
-                    return Ok(*id);
-                }
-            }
+        if let Expression::Name(name) = &ungroup(e).kind
+            && let Some(local) = self.names.get(name)
+            && let Some(id) = self.reference_locals.get(&local.slot)
+        {
+            return Ok(*id);
         }
-        if matches!(&ungroup(e).kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
+        if (matches!(&ungroup(e).kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
             || matches!(
                 &ungroup(e).kind,
                 Expression::Call(..)
@@ -231,17 +230,16 @@ impl Lower<'_> {
                     | Expression::Method(..)
                     | Expression::GenericMethod(..)
                     | Expression::Invoke(..)
-            )
-        {
-            if let Some(id) = ops.iter().rev().find_map(|op| {
+            ))
+            && let Some(id) = ops.iter().rev().find_map(|op| {
                 if let Op::Loan(l) = op {
                     Some(l.id)
                 } else {
                     None
                 }
-            }) {
-                return Ok(id);
-            }
+            })
+        {
+            return Ok(id);
         }
         Err(e.at.error("reference result requires a named reference, direct borrow, or reference-returning call"))
     }
@@ -406,40 +404,40 @@ impl Lower<'_> {
             let collection = self.place_type(base).ok_or_else(|| {
                 e.at.error("element borrowing requires a named collection or field")
             })?;
-            if let Ty::Enum(t) = &collection {
-                if t.tuple() {
-                    let Expression::Number(n) = &ungroup(index).kind else {
-                        return Err(index
-                            .at
-                            .error("tuple index must be a nonnegative integer literal"));
-                    };
-                    let index = n
-                        .parse::<usize>()
-                        .map_err(|_| index.at.error("invalid tuple index"))?;
-                    let field = t.get().variants[0]
-                        .fields
-                        .get(index)
-                        .cloned()
-                        .ok_or_else(|| e.at.error("tuple index out of bounds"))?;
-                    let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
-                    if self.loans[loan].precise {
-                        self.loans[loan].fields.push(index);
-                        if let Some(Op::Loan(fact)) = ops
-                            .iter_mut()
-                            .rev()
-                            .find(|op| matches!(op, Op::Loan(l) if l.id == loan))
-                        {
-                            *fact = self.loans[loan].clone();
-                        }
+            if let Ty::Enum(t) = &collection
+                && t.tuple()
+            {
+                let Expression::Number(n) = &ungroup(index).kind else {
+                    return Err(index
+                        .at
+                        .error("tuple index must be a nonnegative integer literal"));
+                };
+                let index = n
+                    .parse::<usize>()
+                    .map_err(|_| index.at.error("invalid tuple index"))?;
+                let field = t.get().variants[0]
+                    .fields
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| e.at.error("tuple index out of bounds"))?;
+                let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
+                if self.loans[loan].precise {
+                    self.loans[loan].fields.push(index);
+                    if let Some(Op::Loan(fact)) = ops
+                        .iter_mut()
+                        .rev()
+                        .find(|op| matches!(op, Op::Loan(l) if l.id == loan))
+                    {
+                        *fact = self.loans[loan].clone();
                     }
-                    ops.push(Op::Enum(crate::sum::EnumOp::FieldRef(
-                        t.clone(),
-                        0,
-                        index,
-                        mutable,
-                    )));
-                    return Ok((Ty::Ref(Arc::new(field), mutable), loan));
                 }
+                ops.push(Op::Enum(crate::sum::EnumOp::FieldRef(
+                    t.clone(),
+                    0,
+                    index,
+                    mutable,
+                )));
+                return Ok((Ty::Ref(Arc::new(field), mutable), loan));
             }
             let key = match &collection {
                 Ty::List(_) => Ty::I64,
@@ -447,7 +445,7 @@ impl Lower<'_> {
                 _ => {
                     return Err(e
                         .at
-                        .error("element references require a list or dictionary"))
+                        .error("element references require a list or dictionary"));
                 }
             };
             let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
@@ -455,11 +453,11 @@ impl Lower<'_> {
             // must therefore retain the whole collection's loan footprint.
             self.loans[loan].precise = false;
             for op in ops.iter_mut().rev() {
-                if let Op::Loan(fact) = op {
-                    if fact.id == loan {
-                        *fact = self.loans[loan].clone();
-                        break;
-                    }
+                if let Op::Loan(fact) = op
+                    && fact.id == loan
+                {
+                    *fact = self.loans[loan].clone();
+                    break;
                 }
             }
             if let Some(indices) = indices {
@@ -475,34 +473,34 @@ impl Lower<'_> {
             ops.push(Op::Collection(operation));
             return Ok((output, loan));
         }
-        if let Expression::Unary(op, base) = &ungroup(e).kind {
-            if op == "*" {
-                if mutable && matches!(self.place_type(base), Some(Ty::Shared(_))) {
-                    return Err(e.at.error(shared::MUTATION));
-                }
-                let reference_binding = self.reference_binding(base);
-                let (reference, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
-                let Ty::Ref(inner, _) = &reference else {
-                    unreachable!()
-                };
-                return match &**inner {
-                    Ty::Box(content) => {
-                        ops.push(Op::Box(crate::boxed::BoxOp::Ref(
-                            (**content).clone(),
-                            mutable,
-                        )));
-                        Ok((Ty::Ref(content.clone(), mutable), loan))
-                    }
-                    Ty::Shared(content) => {
-                        ops.push(Op::Box(crate::boxed::BoxOp::SharedRef((**content).clone())));
-                        Ok((Ty::Ref(content.clone(), false), loan))
-                    }
-                    _ if reference_binding => Ok((reference, loan)),
-                    _ => Err(e
-                        .at
-                        .error("`*` requires a reference, a Box, or a Shared handle")),
-                };
+        if let Expression::Unary(op, base) = &ungroup(e).kind
+            && op == "*"
+        {
+            if mutable && matches!(self.place_type(base), Some(Ty::Shared(_))) {
+                return Err(e.at.error(shared::MUTATION));
             }
+            let reference_binding = self.reference_binding(base);
+            let (reference, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
+            let Ty::Ref(inner, _) = &reference else {
+                unreachable!()
+            };
+            return match &**inner {
+                Ty::Box(content) => {
+                    ops.push(Op::Box(crate::boxed::BoxOp::Ref(
+                        (**content).clone(),
+                        mutable,
+                    )));
+                    Ok((Ty::Ref(content.clone(), mutable), loan))
+                }
+                Ty::Shared(content) => {
+                    ops.push(Op::Box(crate::boxed::BoxOp::SharedRef((**content).clone())));
+                    Ok((Ty::Ref(content.clone(), false), loan))
+                }
+                _ if reference_binding => Ok((reference, loan)),
+                _ => Err(e
+                    .at
+                    .error("`*` requires a reference, a Box, or a Shared handle")),
+            };
         }
         if let Expression::Member(base, name, _) = &ungroup(e).kind {
             if matches!(self.place_type(base), Some(Ty::Shared(_))) {
@@ -536,11 +534,11 @@ impl Lower<'_> {
             // Recursive projections refine the one loan created at the root.
             // Update its emitted fact before any checker sees the final place.
             for op in ops.iter_mut().rev() {
-                if let Op::Loan(fact) = op {
-                    if fact.id == loan {
-                        *fact = self.loans[loan].clone();
-                        break;
-                    }
+                if let Op::Loan(fact) = op
+                    && fact.id == loan
+                {
+                    *fact = self.loans[loan].clone();
+                    break;
                 }
             }
             let result = Ty::Ref(Arc::new(class.get().fields[index].1.clone()), mutable);
@@ -778,29 +776,29 @@ impl Lower<'_> {
                     return self.index(e, ops).map(|ty| (ty, vec![]));
                 }
                 let (ty, loans) = self.observe(base, ops)?;
-                if let Ty::Enum(t) = &ty {
-                    if t.tuple() {
-                        let Expression::Number(n) = &ungroup(index).kind else {
-                            return Err(index
-                                .at
-                                .error("tuple index must be a nonnegative integer literal"));
-                        };
-                        let i = n.parse::<usize>().map_err(|_| {
-                            index
-                                .at
-                                .error("tuple index must be a nonnegative integer literal")
-                        })?;
-                        let value = t.get().variants[0]
-                            .fields
-                            .get(i)
-                            .ok_or_else(|| index.at.error("tuple index out of bounds"))?
-                            .clone();
-                        if value == Ty::Unit {
-                            return Err(e.at.error("expected a value, got ()"));
-                        }
-                        ops.push(Op::Enum(crate::sum::EnumOp::Field(t.clone(), 0, i)));
-                        return Ok((value, loans));
+                if let Ty::Enum(t) = &ty
+                    && t.tuple()
+                {
+                    let Expression::Number(n) = &ungroup(index).kind else {
+                        return Err(index
+                            .at
+                            .error("tuple index must be a nonnegative integer literal"));
+                    };
+                    let i = n.parse::<usize>().map_err(|_| {
+                        index
+                            .at
+                            .error("tuple index must be a nonnegative integer literal")
+                    })?;
+                    let value = t.get().variants[0]
+                        .fields
+                        .get(i)
+                        .ok_or_else(|| index.at.error("tuple index out of bounds"))?
+                        .clone();
+                    if value == Ty::Unit {
+                        return Err(e.at.error("expected a value, got ()"));
                     }
+                    ops.push(Op::Enum(crate::sum::EnumOp::Field(t.clone(), 0, i)));
+                    return Ok((value, loans));
                 }
                 if let Some(class) = byte_buffers::byte_buffer(&ty) {
                     let reads = self.byte_value_item(&class, index, &e.at, ops)?;
@@ -816,7 +814,7 @@ impl Lower<'_> {
                     _ => {
                         return Err(e
                             .at
-                            .error("indexing requires list, dict, str, bytes, range, or Bytes"))
+                            .error("indexing requires list, dict, str, bytes, range, or Bytes"));
                     }
                 };
                 let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;

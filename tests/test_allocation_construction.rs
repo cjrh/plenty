@@ -5,7 +5,8 @@ use support::assert_visible_stdout as native;
 
 #[test]
 fn constructors_support_type_aliases_nested_payloads_and_propagation() {
-    native(r#"
+    native(
+        r#"
 type Numbers = list[i64]
 def numbers() -> Result[Numbers, AllocError]:
     mut values = Numbers.with_capacity(2)?
@@ -25,7 +26,9 @@ print(str.repr(nested()).unwrap()).unwrap()
 print(str.repr(dictionary()).unwrap()).unwrap()
 print(str.repr(set[str].new()).unwrap()).unwrap()
 print(str.repr(list[f32].new()).unwrap()).unwrap()
-"#, "Result[list[i64], AllocError].Ok([21, 42])\nResult[list[list[i64]], AllocError].Ok([[21, 42]])\nResult[dict[str, list[i64]], AllocError].Ok({\"answer\": [21, 42]})\nResult[set[str], AllocError].Ok(set())\nResult[list[f32], AllocError].Ok([])");
+"#,
+        "Result[list[i64], AllocError].Ok([21, 42])\nResult[list[list[i64]], AllocError].Ok([[21, 42]])\nResult[dict[str, list[i64]], AllocError].Ok({\"answer\": [21, 42]})\nResult[set[str], AllocError].Ok(set())\nResult[list[f32], AllocError].Ok([])",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -89,7 +92,8 @@ match build():
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn invalid_capacities_allocate_nothing_even_when_memory_is_exhausted() {
-    native(r#"
+    native(
+        r#"
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 a = list[i64].with_capacity(-1)
@@ -100,7 +104,9 @@ print("__test_end_no_allocations__").unwrap()
 print(str.repr(a).unwrap()).unwrap()
 print(str.repr(b).unwrap()).unwrap()
 print(str.repr(c).unwrap()).unwrap()
-"#, "Result[list[i64], AllocError].Err(AllocError.CapacityOverflow)\nResult[set[i64], AllocError].Err(AllocError.CapacityOverflow)\nResult[dict[str, i64], AllocError].Err(AllocError.CapacityOverflow)");
+"#,
+        "Result[list[i64], AllocError].Err(AllocError.CapacityOverflow)\nResult[set[i64], AllocError].Err(AllocError.CapacityOverflow)\nResult[dict[str, i64], AllocError].Err(AllocError.CapacityOverflow)",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -135,7 +141,8 @@ print("__test_restore_allocations__").unwrap()
 
 #[test]
 fn capacity_expression_runs_once_and_can_propagate_before_construction() {
-    native(r#"
+    native(
+        r#"
 def capacity(ok: bool) -> Result[i64, AllocError]:
     print("capacity").unwrap()
     Ok(2) if ok else Err(AllocError.CapacityOverflow)
@@ -143,7 +150,9 @@ def build(ok: bool) -> Result[list[i64], AllocError]:
     list[i64].with_capacity(capacity(ok)?)
 print(str.repr(build(True)).unwrap()).unwrap()
 print(str.repr(build(False)).unwrap()).unwrap()
-"#, "capacity\nResult[list[i64], AllocError].Ok([])\ncapacity\nResult[list[i64], AllocError].Err(AllocError.CapacityOverflow)");
+"#,
+        "capacity\nResult[list[i64], AllocError].Ok([])\ncapacity\nResult[list[i64], AllocError].Err(AllocError.CapacityOverflow)",
+    );
 }
 
 #[rstest]

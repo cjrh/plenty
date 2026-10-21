@@ -44,7 +44,7 @@ pub(super) unsafe fn byte_list(bytes: &[u8], ty: &'static Type) -> Result<u128, 
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 mod native {
     use super::*;
-    use std::ffi::{c_char, c_void, CStr, OsStr};
+    use std::ffi::{CStr, OsStr, c_char, c_void};
     use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::MetadataExt;
@@ -111,7 +111,7 @@ mod native {
         fn mkdirat(fd: i32, path: *const c_char, mode: u32) -> i32;
         fn unlinkat(fd: i32, path: *const c_char, flags: i32) -> i32;
         fn renameat2(from: i32, old: *const c_char, to: i32, new: *const c_char, flags: u32)
-            -> i32;
+        -> i32;
         fn linkat(from: i32, old: *const c_char, to: i32, new: *const c_char, flags: i32) -> i32;
         fn fdopendir(fd: i32) -> *mut c_void;
     }

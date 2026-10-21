@@ -25,7 +25,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n{body}    Ok(())\n")
+    format!(
+        "import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n{body}    Ok(())\n"
+    )
 }
 
 fn stderr(output: &Output) -> String {
@@ -260,20 +262,24 @@ fn scratch_uses_tmpdir() {
     let printed = String::from_utf8(output.stdout).unwrap();
     let printed = Path::new(printed.trim_end());
     assert_eq!(printed.parent().unwrap(), base);
-    assert!(printed
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .starts_with("plenty-test-"));
+    assert!(
+        printed
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("plenty-test-")
+    );
     assert_eq!(std::fs::read_dir(&base).unwrap().count(), 0);
     // A relative TMPDIR is ignored in favour of /tmp.
     let output = Command::new(&executable)
         .env("TMPDIR", "relative")
         .output()
         .unwrap();
-    assert!(String::from_utf8(output.stdout)
-        .unwrap()
-        .starts_with("/tmp/plenty-test-"));
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .starts_with("/tmp/plenty-test-")
+    );
 }
 
 #[test]
@@ -542,10 +548,7 @@ fn discovery_errors_name_the_file() {
             "type Outcome = Result[(), AllocError | IoError]\n\ndef test_x() -> Outcome:\n    Ok(())\n",
             "test function `test_x` must take no parameters",
         ),
-        (
-            "def test_x() -> ():\n    undefined()\n",
-            "both.plenty:2:5",
-        ),
+        ("def test_x() -> ():\n    undefined()\n", "both.plenty:2:5"),
     ];
     for (source, message) in cases {
         let dir = tempfile::tempdir().unwrap();

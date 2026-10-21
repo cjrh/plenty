@@ -256,20 +256,24 @@ fn counters_and_pc_tables_reach_the_driver() {
     std::fs::write(&stub, STUB).unwrap();
     let object = dir.path().join("stub.o");
     let archive = dir.path().join("libstub.a");
-    assert!(Command::new("cc")
-        .args(["-c", "-o"])
-        .arg(&object)
-        .arg(&stub)
-        .status()
-        .unwrap()
-        .success());
-    assert!(Command::new("ar")
-        .arg("rcs")
-        .arg(&archive)
-        .arg(&object)
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new("cc")
+            .args(["-c", "-o"])
+            .arg(&object)
+            .arg(&stub)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        Command::new("ar")
+            .arg("rcs")
+            .arg(&archive)
+            .arg(&object)
+            .status()
+            .unwrap()
+            .success()
+    );
     let target = build(
         dir.path(),
         r#"import fuzz_input

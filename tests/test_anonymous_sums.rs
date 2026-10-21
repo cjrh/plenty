@@ -587,7 +587,10 @@ def main() -> ():
 "#,
         "7\nTrue\n",
     );
-    rejects("enum A:\n    Value\nenum B:\n    Value\ndef keep[T](n: T, value: list[A | B]) -> T:\n    n\ndef main() -> ():\n    narrow = [A.Value].unwrap()\n    drop(keep(7, narrow))\n", &["expected"]);
+    rejects(
+        "enum A:\n    Value\nenum B:\n    Value\ndef keep[T](n: T, value: list[A | B]) -> T:\n    n\ndef main() -> ():\n    narrow = [A.Value].unwrap()\n    drop(keep(7, narrow))\n",
+        &["expected"],
+    );
 }
 
 #[test]

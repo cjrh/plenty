@@ -5,7 +5,8 @@ use support::assert_visible_stdout as native;
 
 #[test]
 fn lookup_handles_signed_bounds_and_preserves_the_list() {
-    native(r#"
+    native(
+        r#"
 items = [0, 10, 20].unwrap()
 for index in [-4, -3, -1, 0, 2, 3, -9223372036854775808, 9223372036854775807].unwrap():
     print(items.get(index)).unwrap()
@@ -13,12 +14,15 @@ print(list[i64]().unwrap().get(0)).unwrap()
 print(items).unwrap()
 print([False].unwrap().get(0)).unwrap()
 print([1.5f32].unwrap().get(0)).unwrap()
-"#, "Option[i64].Nothing\nOption[i64].Some(0)\nOption[i64].Some(20)\nOption[i64].Some(0)\nOption[i64].Some(20)\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\n[0, 10, 20]\nOption[bool].Some(False)\nOption[f32].Some(1.5)");
+"#,
+        "Option[i64].Nothing\nOption[i64].Some(0)\nOption[i64].Some(20)\nOption[i64].Some(0)\nOption[i64].Some(20)\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\n[0, 10, 20]\nOption[bool].Some(False)\nOption[f32].Some(1.5)",
+    );
 }
 
 #[test]
 fn managed_results_survive_replacement_and_list_destruction() {
-    native(r#"
+    native(
+        r#"
 enum Value:
     Text(str)
 mut words = [("é" + "\0🙂").unwrap()].unwrap()
@@ -35,7 +39,9 @@ options: list[Option[str]] = [Nothing, Some("hello")].unwrap()
 print(options.get(0)).unwrap()
 print(options.get(1)).unwrap()
 print(options.get(2)).unwrap()
-"#, "Option[str].Some(\"é\\0🙂\")\nOption[Value].Some(Value.Text(\"Ada\"))\nOption[str].Some(\"Bea\")\nOption[Option[str]].Some(Option[str].Nothing)\nOption[Option[str]].Some(Option[str].Some(\"hello\"))\nOption[Option[str]].Nothing");
+"#,
+        "Option[str].Some(\"é\\0🙂\")\nOption[Value].Some(Value.Text(\"Ada\"))\nOption[str].Some(\"Bea\")\nOption[Option[str]].Some(Option[str].Nothing)\nOption[Option[str]].Some(Option[str].Some(\"hello\"))\nOption[Option[str]].Nothing",
+    );
 }
 
 #[test]
@@ -81,7 +87,8 @@ print(short).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn hits_misses_and_retention_work_with_allocation_disabled() {
-    native(r#"
+    native(
+        r#"
 enum Value:
     Text(str)
 items = [("A" + "da").unwrap()].unwrap()
@@ -100,7 +107,9 @@ print(found).unwrap()
 print(again).unwrap()
 print(missing).unwrap()
 print(value).unwrap()
-"#, "Option[str].Some(\"Ada\")\nOption[str].Some(\"Ada\")\nOption[str].Nothing\nOption[Value].Some(Value.Text(\"Bea\"))");
+"#,
+        "Option[str].Some(\"Ada\")\nOption[str].Some(\"Ada\")\nOption[str].Nothing\nOption[Value].Some(Value.Text(\"Bea\"))",
+    );
 }
 
 #[rstest]

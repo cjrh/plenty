@@ -43,7 +43,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}\ndef main() -> Result[(), AllocError | IoError | PoolError | FormatError]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | PoolError | FormatError]:\n{body}    Ok(())\n"
+    )
 }
 
 fn output(source: &str) -> String {
@@ -342,7 +344,9 @@ fn a_nested_lock_of_the_same_type_is_rejected_when_it_could_alias() {
     );
     rejects_body(
         "cells = [Mutex(1), Mutex(2)]?\ni = 0\nj = 1\nwith cells[i].lock() as x, cells[j].lock() as y:\n    pass",
-        &format!("this locks `cells[?]` while an enclosing `with` block holds a lock on `cells[?]`; {alias}"),
+        &format!(
+            "this locks `cells[?]` while an enclosing `with` block holds a lock on `cells[?]`; {alias}"
+        ),
     );
     // Distinct owned places are distinct mutexes.
     let source = program(
@@ -370,7 +374,9 @@ def bump(counter: Shared[Mutex[i64]]) -> i64:
             .lines()
             .map(|line| format!("    {line}\n"))
             .collect::<String>();
-        format!("{HEADER}{job}\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | ThreadError | str]:\n{body}    Ok(())\n")
+        format!(
+            "{HEADER}{job}\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | ThreadError | str]:\n{body}    Ok(())\n"
+        )
     };
     rejects(
         &with_job(

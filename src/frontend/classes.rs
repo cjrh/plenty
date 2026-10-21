@@ -1,6 +1,6 @@
 //! Fixed-layout records, method expansion, and constructor initialization checks.
 use super::*;
-use crate::record::{method, ClassOp, ClassType};
+use crate::record::{ClassOp, ClassType, method};
 
 #[derive(Clone)]
 pub(super) struct ClassDecl {
@@ -77,14 +77,13 @@ impl Parser {
                         .at
                         .error("method type parameters cannot shadow class type parameters"));
                 }
-                if let Some((_, receiver)) = f.inputs.first_mut() {
-                    if let Some(owner) = receiver
+                if let Some((_, receiver)) = f.inputs.first_mut()
+                    && let Some(owner) = receiver
                         .args
                         .first_mut()
                         .filter(|t| t.name.as_ref() == Some(&name) && t.args.is_empty())
-                    {
-                        owner.args = type_params.iter().map(|(n, _)| type_ref(&at, n)).collect();
-                    }
+                {
+                    owner.args = type_params.iter().map(|(n, _)| type_ref(&at, n)).collect();
                 }
                 let member = f.name.clone();
                 methods.push(f);
@@ -475,14 +474,14 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
             Ok(())
         }
         fn target(&self, target: &Expr, set: &mut HashSet<String>) -> Result<()> {
-            if let Expression::Member(base, field, _) = &target.kind {
-                if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") {
-                    if !self.ty.fields.iter().any(|(n, _)| n == field) {
-                        return Err(target.at.error(format!("unknown field `{field}`")));
-                    }
-                    set.insert(field.clone());
-                    return Ok(());
+            if let Expression::Member(base, field, _) = &target.kind
+                && matches!(&ungroup(base).kind, Expression::Name(n) if n == "self")
+            {
+                if !self.ty.fields.iter().any(|(n, _)| n == field) {
+                    return Err(target.at.error(format!("unknown field `{field}`")));
                 }
+                set.insert(field.clone());
+                return Ok(());
             }
             if let Expression::Name(name) = &target.kind {
                 return self.binding(name, &target.at);
@@ -609,7 +608,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                     }
                     Statement::Break | Statement::Continue => return Ok(None),
                     Statement::Yield { .. } => {
-                        return Err(stmt.at.error("constructors cannot yield"))
+                        return Err(stmt.at.error("constructors cannot yield"));
                     }
                     Statement::Pass => {}
                 }
@@ -703,7 +702,11 @@ impl Lower<'_> {
         let end = ops.len();
         self.finish_temporaries(start, ops);
         let call = match &ops[..end] {
-            [.., Op::ForwardsReferences, Op::Call(_) | Op::CallIndirect(_)] => 2,
+            [
+                ..,
+                Op::ForwardsReferences,
+                Op::Call(_) | Op::CallIndirect(_),
+            ] => 2,
             [.., Op::Call(_) | Op::CallIndirect(_)] => 1,
             _ => return,
         };
@@ -756,16 +759,19 @@ impl Lower<'_> {
             "assignment requires a named binding, field, or collection element",
             ops,
         )?;
-        if let Some(list) = collections::scalar_element_ref(ops) {
-            ops.extend([
-                Op::MoveLocal(temp),
-                Op::Collection(CollectionOp::ListScalarSetRef(list)),
-                Op::Drop,
-            ]);
-        } else {
-            ops.push(Op::MoveLocal(temp));
-            ops.push(Op::Swap);
-            ops.push(Op::WriteRef(ty));
+        match collections::scalar_element_ref(ops) {
+            Some(list) => {
+                ops.extend([
+                    Op::MoveLocal(temp),
+                    Op::Collection(CollectionOp::ListScalarSetRef(list)),
+                    Op::Drop,
+                ]);
+            }
+            _ => {
+                ops.push(Op::MoveLocal(temp));
+                ops.push(Op::Swap);
+                ops.push(Op::WriteRef(ty));
+            }
         }
         ops.push(Op::UseLoan(loan));
         Ok(())
@@ -889,46 +895,45 @@ impl Lower<'_> {
         super::ide::method_call(&base.at, name, &callee);
         self.sync_data()?;
         if name == "format" {
-            if let Some(ty) = self.place_type(base).map(unbox) {
-                if self
+            if let Some(ty) = self.place_type(base).map(unbox)
+                && self
                     .aliases
                     .data
                     .report_context(&ty, &self.generics.standard_sources)
                     .is_some()
-                {
-                    let protocol = self.generics.reporting_protocol().ok_or_else(|| {
-                        base.at
-                            .error("Context formatting requires std.report.Formattable")
-                    })?;
-                    protocols::check(
-                        protocol,
-                        &ty,
-                        &self.generics.methods,
-                        &self.generics.templates,
-                        self.aliases,
-                        self.access,
-                        &self.generics.standard_sources,
-                        &protocol.at,
-                        &base.at,
-                    )?;
-                    if let Some(function) = self.generics.require_reporting_method(&callee) {
-                        // Instances created before the initial signature pass
-                        // were deliberately absent from its pending queue.
-                        if !self.sigs.contains_key(&callee) {
-                            register_signature(
-                                &function,
-                                self.aliases,
-                                self.sigs,
-                                self.returned_fields,
-                            )?;
-                        }
+            {
+                let protocol = self.generics.reporting_protocol().ok_or_else(|| {
+                    base.at
+                        .error("Context formatting requires std.report.Formattable")
+                })?;
+                protocols::check(
+                    protocol,
+                    &ty,
+                    &self.generics.methods,
+                    &self.generics.templates,
+                    self.aliases,
+                    self.access,
+                    &self.generics.standard_sources,
+                    &protocol.at,
+                    &base.at,
+                )?;
+                if let Some(function) = self.generics.require_reporting_method(&callee) {
+                    // Instances created before the initial signature pass
+                    // were deliberately absent from its pending queue.
+                    if !self.sigs.contains_key(&callee) {
+                        register_signature(
+                            &function,
+                            self.aliases,
+                            self.sigs,
+                            self.returned_fields,
+                        )?;
                     }
                 }
             }
-            if let Some(ty @ Ty::Enum(_)) = self.place_type(base).map(unbox) {
-                if matches!(&ty, Ty::Enum(sum) if sum.anonymous()) {
-                    self.report_sum_method(&ty, &callee, &base.at)?;
-                }
+            if let Some(ty @ Ty::Enum(_)) = self.place_type(base).map(unbox)
+                && matches!(&ty, Ty::Enum(sum) if sum.anonymous())
+            {
+                self.report_sum_method(&ty, &callee, &base.at)?;
             }
         }
         modules::check_member(self.access, owner, name, &base.at)?;
@@ -1077,10 +1082,10 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if let Some(ty) = self.place_type(base).map(unbox) {
-            if let Some(owner) = method_owner(&ty) {
-                return self.class_method(base, owner, name, Some(types), args, ops);
-            }
+        if let Some(ty) = self.place_type(base).map(unbox)
+            && let Some(owner) = method_owner(&ty)
+        {
+            return self.class_method(base, owner, name, Some(types), args, ops);
         }
         let observed = self.observe(base, ops)?;
         self.temporary_class_method(base, name, Some(types), args, observed, ops)

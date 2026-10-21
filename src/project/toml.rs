@@ -197,7 +197,7 @@ impl Parser<'_> {
                                 return self.error_at(
                                     line,
                                     format!("`{}` is already defined as a value", path.join(".")),
-                                )
+                                );
                             }
                         }
                     } else {
@@ -298,7 +298,7 @@ impl Parser<'_> {
                         "{}:{line}: `{}` is not a table",
                         self.name,
                         path[..=i].join(".")
-                    ))
+                    ));
                 }
             };
         }
@@ -500,7 +500,7 @@ impl Parser<'_> {
                     out.extend_from_slice(escaped.encode_utf8(&mut buffer).as_bytes());
                 }
                 Some(c) if c < 0x20 && c != b'\t' => {
-                    return self.error("control character in string")
+                    return self.error("control character in string");
                 }
                 Some(c) => {
                     out.push(c);

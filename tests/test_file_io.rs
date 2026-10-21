@@ -17,7 +17,13 @@ print(str.repr(read_text("sample.txt")).unwrap()).unwrap()
             "{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        assert_eq!(String::from_utf8_lossy(&out.stdout), format!("Result[i64, IoError].Ok(2)\nResult[i64, IoError].Ok(0)\nResult[i64, IoError].Ok(4)\nResult[str, IoError].Ok(\"{}é\\nlast\")\n", if initial.is_some() { "first\\n" } else { "" }));
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            format!(
+                "Result[i64, IoError].Ok(2)\nResult[i64, IoError].Ok(0)\nResult[i64, IoError].Ok(4)\nResult[str, IoError].Ok(\"{}é\\nlast\")\n",
+                if initial.is_some() { "first\\n" } else { "" }
+            )
+        );
     }
     let dir = tempfile::tempdir().unwrap();
     let executable = dir.path().join("program");
@@ -26,11 +32,13 @@ print(str.repr(read_text("sample.txt")).unwrap()).unwrap()
         &executable,
     )
     .unwrap();
-    assert!(std::process::Command::new(executable)
-        .current_dir(dir.path())
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        std::process::Command::new(executable)
+            .current_dir(dir.path())
+            .status()
+            .unwrap()
+            .success()
+    );
     assert_eq!(
         std::fs::read(dir.path().join("sample.txt")).unwrap(),
         "é\0\r\n".as_bytes()

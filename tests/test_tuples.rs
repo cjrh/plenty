@@ -29,7 +29,10 @@ print(x).unwrap()
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "(\"a\", 1)\n(\"b\", 2)\n[12]\n{\"a\": Point(x=11), \"b\": Point(x=12)}\n[(\"a\", 2), (\"b\", 4)]\n[3, 7]\n11\n99\n");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "(\"a\", 1)\n(\"b\", 2)\n[12]\n{\"a\": Point(x=11), \"b\": Point(x=12)}\n[(\"a\", 2), (\"b\", 4)]\n[3, 7]\n11\n99\n"
+    );
 }
 
 #[test]

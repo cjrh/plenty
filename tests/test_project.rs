@@ -123,10 +123,16 @@ fn path_dependencies_resolve_by_alias_with_one_package_per_name() {
         dir.path(),
         "base",
         "",
-        &[(
-            "src/lib.plenty",
-            "from helper import scale\n\npub class Point:\n    pub x: i64\n\npub def make(x: i64) -> Point:\n    Point(scale(x))\n",
-        ), ("src/helper.plenty", "pub def scale(x: i64) -> i64:\n    x * 10\n")],
+        &[
+            (
+                "src/lib.plenty",
+                "from helper import scale\n\npub class Point:\n    pub x: i64\n\npub def make(x: i64) -> Point:\n    Point(scale(x))\n",
+            ),
+            (
+                "src/helper.plenty",
+                "pub def scale(x: i64) -> i64:\n    x * 10\n",
+            ),
+        ],
     );
     package(
         dir.path(),
@@ -157,7 +163,10 @@ fn path_dependencies_resolve_by_alias_with_one_package_per_name() {
                 "import left\nimport right\nfrom helper import scale\n\nclass Point:\n    z: i64\n\ndef main() -> Result[(), IoError]:\n    print(left.via(1) + right.twice(1) + left.Point(1).y + Point(2).z + scale(1))?\n    Ok(())\n",
             ),
             // The root package's own `helper` is distinct from base's.
-            ("src/helper.plenty", "pub def scale(x: i64) -> i64:\n    x + 100\n"),
+            (
+                "src/helper.plenty",
+                "pub def scale(x: i64) -> i64:\n    x + 100\n",
+            ),
         ],
     );
     let app = dir.path().join("app");
@@ -306,18 +315,27 @@ fn profiles_tests_and_clean() {
         "calc",
         "",
         &[
-            ("src/lib.plenty", "pub def add(a: i64, b: i64) -> i64:\n    a + b\n"),
+            (
+                "src/lib.plenty",
+                "pub def add(a: i64, b: i64) -> i64:\n    a + b\n",
+            ),
             (
                 "src/main.plenty",
                 "from calc import add\n\ndef main() -> Result[(), IoError]:\n    print(add(2, 3))?\n    Ok(())\n",
             ),
-            ("src/calc.plenty", "pub def add(a: i64, b: i64) -> i64:\n    a + b\n"),
+            (
+                "src/calc.plenty",
+                "pub def add(a: i64, b: i64) -> i64:\n    a + b\n",
+            ),
             (
                 "tests/adds.plenty",
                 "import calc\n\ndef main() -> i32:\n    if calc.add(2, 2) == 4:\n        0\n    else:\n        1\n",
             ),
             ("tests/broken.plenty", "def main() -> i32:\n    3\n"),
-            ("tests/support/not_a_test.plenty", "pub def x() -> i64:\n    1\n"),
+            (
+                "tests/support/not_a_test.plenty",
+                "pub def x() -> i64:\n    1\n",
+            ),
         ],
     );
     let calc = dir.path().join("calc");
@@ -364,7 +382,10 @@ fn manifest_targets_and_errors() {
         "no executable target `three`",
     );
 
-    write(&app.join("plenty.toml"), "manifest-version = 1\n[package]\nname = \"tools\"\nversion = \"1.0.0\"\nedition = \"2024\"\n");
+    write(
+        &app.join("plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"tools\"\nversion = \"1.0.0\"\nedition = \"2024\"\n",
+    );
     fails(
         &app,
         &["check"],
@@ -934,7 +955,10 @@ fn workspaces_share_a_lockfile_and_target_directory() {
         "util",
         "",
         &[
-            ("src/lib.plenty", "pub def twice(x: i64) -> i64:\n    x * 2\n"),
+            (
+                "src/lib.plenty",
+                "pub def twice(x: i64) -> i64:\n    x * 2\n",
+            ),
             (
                 "tests/unit.plenty",
                 "import std.test\nimport util\n\ndef test_twice() -> Result[(), std.test.TestError]:\n    std.test.equal(&util.twice(1), &2)?\n    Ok(())\n",
@@ -1018,14 +1042,16 @@ fn plentyc_compiles_through_a_package_graph() {
         "{}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert!(plentyc(&[
-        "--package-graph",
-        "graph.toml",
-        "--check",
-        "src/main.plenty"
-    ])
-    .status
-    .success());
+    assert!(
+        plentyc(&[
+            "--package-graph",
+            "graph.toml",
+            "--check",
+            "src/main.plenty"
+        ])
+        .status
+        .success()
+    );
     let compile = plentyc(&[
         "--package-graph",
         "graph.toml",

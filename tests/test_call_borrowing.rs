@@ -121,7 +121,10 @@ fn later_arguments_cannot_move_or_mutate_an_implicitly_borrowed_owner() {
         "def f(a: &list[i64], b: list[i64]) -> ():\n    pass\nxs = [1].unwrap()\nf(xs, xs)\n",
         "conflicting borrow",
     );
-    reject("def f(a: &list[i64], b: &mut list[i64]) -> ():\n    pass\nmut xs = [1].unwrap()\nf(xs, &mut xs)\n", "conflicting borrow");
+    reject(
+        "def f(a: &list[i64], b: &mut list[i64]) -> ():\n    pass\nmut xs = [1].unwrap()\nf(xs, &mut xs)\n",
+        "conflicting borrow",
+    );
     reject(
         "def f(a: &mut i64) -> ():\n    pass\nmut n = 1\nf(n)\n",
         "explicit &mut",
@@ -157,7 +160,10 @@ fn numeric_context_preserves_typed_variable_and_range_errors() {
         "def f(n: &u8) -> ():\n    pass\nf(-1)\n",
         "unary minus is not defined for unsigned type u8",
     );
-    run("xs = [1u8, 2u8].unwrap()\nprint(xs.count(1)).unwrap()\nprint(xs.find(&2)).unwrap()\nd = {1u8: 9}.unwrap()\nprint(d.get(1)).unwrap()\n", "1\nOption[i64].Some(1)\nOption[i64].Some(9)\n");
+    run(
+        "xs = [1u8, 2u8].unwrap()\nprint(xs.count(1)).unwrap()\nprint(xs.find(&2)).unwrap()\nd = {1u8: 9}.unwrap()\nprint(d.get(1)).unwrap()\n",
+        "1\nOption[i64].Some(1)\nOption[i64].Some(9)\n",
+    );
 }
 
 #[test]

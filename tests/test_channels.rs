@@ -22,7 +22,8 @@ fn runs(source: &str, expected: &str) {
 
 #[test]
 fn bounded_queue_preserves_fifo_errors_and_failed_message_ownership() {
-    runs(r#"
+    runs(
+        r#"
 sender, receiver = channel[list[i64]](1).unwrap()
 print(str.repr(receiver.recv_nowait()).unwrap()).unwrap()
 sender.send([1, 2].unwrap()).unwrap()
@@ -44,7 +45,9 @@ other, destination = channel[i64](1).unwrap()
 drop(destination)
 print(str.repr(other.send(42)).unwrap()).unwrap()
 print(str.repr(other.send_nowait(43)).unwrap()).unwrap()
-"#, "Result[list[i64], RecvError].Err(RecvError.Empty)\n[3]\n[1, 2]\n[4]\nResult[list[i64], RecvError].Err(RecvError.Disconnected)\nResult[(), SendError[i64]].Err(SendError[i64].Disconnected(42))\nResult[(), SendError[i64]].Err(SendError[i64].Disconnected(43))\n");
+"#,
+        "Result[list[i64], RecvError].Err(RecvError.Empty)\n[3]\n[1, 2]\n[4]\nResult[list[i64], RecvError].Err(RecvError.Disconnected)\nResult[(), SendError[i64]].Err(SendError[i64].Disconnected(42))\nResult[(), SendError[i64]].Err(SendError[i64].Disconnected(43))\n",
+    );
 }
 
 #[test]
@@ -85,7 +88,8 @@ with spawn(first).unwrap() as a, spawn(second).unwrap() as b, spawn(consumer).un
 
 #[test]
 fn last_endpoint_drop_wakes_blocked_peers() {
-    runs(r#"
+    runs(
+        r#"
 sender, receiver = channel[i64](1).unwrap()
 sender.send(1).unwrap()
 job = def once [sender]() -> Result[(), SendError[i64]]:
@@ -99,12 +103,15 @@ waiting = def once [destination]() -> Result[i64, RecvError]:
 with spawn(waiting).unwrap() as task:
     drop(other)
     print(str.repr(task.join()).unwrap()).unwrap()
-"#, "Result[(), SendError[i64]].Err(SendError[i64].Disconnected(2))\nResult[i64, RecvError].Err(RecvError.Disconnected)\n");
+"#,
+        "Result[(), SendError[i64]].Err(SendError[i64].Disconnected(2))\nResult[i64, RecvError].Err(RecvError.Disconnected)\n",
+    );
 }
 
 #[test]
 fn channel_generics_and_stored_handles_preserve_explicit_sharing() {
-    runs(r#"
+    runs(
+        r#"
 class Mailbox[T]:
     sender: Sender[T]
 def deliver[T](sender: &Sender[T], message: T) -> Result[(), SendError[T]]:
@@ -118,17 +125,34 @@ print(receiver.recv().unwrap()).unwrap()
 print(str.repr(receiver.recv_nowait()).unwrap()).unwrap()
 drop(mailbox)
 print(str.repr(receiver.recv()).unwrap()).unwrap()
-"#, "hello\nResult[str, RecvError].Err(RecvError.Empty)\nResult[str, RecvError].Err(RecvError.Disconnected)\n");
+"#,
+        "hello\nResult[str, RecvError].Err(RecvError.Empty)\nResult[str, RecvError].Err(RecvError.Disconnected)\n",
+    );
 }
 
 #[test]
 fn channel_messages_reject_uncertified_effects_and_endpoint_copy_or_equality() {
     for (source, expected) in [
-        ("sender, receiver = channel[Callable[[], i64]](1).unwrap()\n", "indirect callable"),
-        ("sender, receiver = channel[&i64](1).unwrap()\n", "wholly owned"),
-        ("sender, receiver = channel[i64](1).unwrap()\nother = copy(sender)\n", "cannot be copied"),
-        ("sender, receiver = channel[i64](1).unwrap()\nprint(sender == sender).unwrap()\n", "equality"),
-        ("sender, receiver = channel[i64](1).unwrap()\nvalues = [sender].unwrap()\nprint(values == values).unwrap()\n", "equality"),
+        (
+            "sender, receiver = channel[Callable[[], i64]](1).unwrap()\n",
+            "indirect callable",
+        ),
+        (
+            "sender, receiver = channel[&i64](1).unwrap()\n",
+            "wholly owned",
+        ),
+        (
+            "sender, receiver = channel[i64](1).unwrap()\nother = copy(sender)\n",
+            "cannot be copied",
+        ),
+        (
+            "sender, receiver = channel[i64](1).unwrap()\nprint(sender == sender).unwrap()\n",
+            "equality",
+        ),
+        (
+            "sender, receiver = channel[i64](1).unwrap()\nvalues = [sender].unwrap()\nprint(values == values).unwrap()\n",
+            "equality",
+        ),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
@@ -140,7 +164,8 @@ fn channel_messages_reject_uncertified_effects_and_endpoint_copy_or_equality() {
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn construction_failure_is_recoverable_and_queue_operations_do_not_allocate() {
-    runs(r#"
+    runs(
+        r#"
 print(str.repr(channel[i64](0)).unwrap()).unwrap()
 print(str.repr(channel[i64](18446744073709551615u64)).unwrap()).unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
@@ -167,7 +192,9 @@ print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(answer).unwrap()
 print(str.repr(closed).unwrap()).unwrap()
-"#, "Result[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.InvalidCapacity)\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.CapacityOverflow))\n__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.OutOfMemory))\n__test_fail_allocations_after_1__\n__test_restore_allocations__\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Ok((<sender>, <receiver>))\n__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n13\nResult[range, RecvError].Err(RecvError.Disconnected)\n");
+"#,
+        "Result[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.InvalidCapacity)\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.CapacityOverflow))\n__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.OutOfMemory))\n__test_fail_allocations_after_1__\n__test_restore_allocations__\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Ok((<sender>, <receiver>))\n__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n13\nResult[range, RecvError].Err(RecvError.Disconnected)\n",
+    );
 }
 
 #[test]
@@ -202,7 +229,8 @@ print(str.repr(report.recv()).unwrap()).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn large_closure_messages_relocate_and_failed_sends_return_the_original_job() {
-    runs(r#"
+    runs(
+        r#"
 def exercise[F: OnceCallable[[], i64]](first: F, second: F) -> i64:
     sender, receiver = channel[F](1).unwrap()
     print("__test_begin_no_allocations__").unwrap()
@@ -231,7 +259,9 @@ def make(n: i64) -> OnceClosure[[], i64]:
     def once [a, b]() -> i64:
         a[2] + b[2]
 print(exercise(make(0), make(100))).unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n228\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n228\n",
+    );
 }
 
 #[test]
@@ -533,15 +563,18 @@ def main() -> ():
         ),
         // Approximation: a moved endpoint counts even when a call in the
         // returned expression consumes it. Calling first is accepted.
-        ("Result[(), Sender[i64]]", "        return Ok(consume(sender))"),
+        (
+            "Result[(), Sender[i64]]",
+            "        return Ok(consume(sender))",
+        ),
     ] {
         let source = returning_start(returns, body);
-        let error = support::check_source(&source)
-            .unwrap_err()
-            .to_string();
+        let error = support::check_source(&source).unwrap_err().to_string();
         assert!(
             error.contains("while the returned value still holds `Sender[i64]`")
-                && error.contains("holds `Sender[i64]`, moved from `sender`, until this function returns"),
+                && error.contains(
+                    "holds `Sender[i64]`, moved from `sender`, until this function returns"
+                ),
             "{source}\n{error}"
         );
     }
@@ -629,7 +662,8 @@ fn returned_values_without_a_matching_endpoint_reach_the_join() {
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn native_worker_sends_and_waits_with_allocation_disabled() {
-    runs(r#"
+    runs(
+        r#"
 sender, receiver = channel[i64](1).unwrap()
 ready, started = channel[i64](1).unwrap()
 sender.send(1).unwrap()
@@ -648,7 +682,9 @@ with spawn(producer).unwrap() as task:
     drop(receiver)
     task.join()
     print(first + second).unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n3\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n3\n",
+    );
 }
 
 #[test]

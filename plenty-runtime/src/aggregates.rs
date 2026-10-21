@@ -1,7 +1,7 @@
 //! Rust-owned metadata and buffers behind a small, layout-stable native prefix.
 use crate::entries::{Entries, Entry};
-use crate::generators::{plenty_generator_resume, Generator};
-use crate::memory::{self, plenty_release, plenty_retain, AllocError, Header};
+use crate::generators::{Generator, plenty_generator_resume};
+use crate::memory::{self, AllocError, Header, plenty_release, plenty_retain};
 use crate::ranges::{self, Range};
 use crate::strings::{self, Text};
 use std::cmp::Ordering;
@@ -418,11 +418,11 @@ unsafe extern "C" fn collection_destroy(header: *mut Header) {
                 memory::continue_after(header, child);
                 return;
             }
-            if let Some(value) = ty.value {
-                if let Some(child) = release_next((*c).entries.slot(index, true), value) {
-                    memory::continue_after(header, child);
-                    return;
-                }
+            if let Some(value) = ty.value
+                && let Some(child) = release_next((*c).entries.slot(index, true), value)
+            {
+                memory::continue_after(header, child);
+                return;
             }
             entry = if ty.kind == b'L' {
                 (index + 1 < (*c).entries.len()).then_some(index + 1)
@@ -644,15 +644,15 @@ impl Collection {
     /// Insert owned operands without adjusting their ownership.
     unsafe fn try_store(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
         unsafe {
-            if self.ty().kind != b'L' {
-                if let Some(i) = self.find(key) {
-                    if let Some(ty) = &self.ty().value {
-                        release(self.entries.get(i).value, ty);
-                    }
-                    release(key, self.ty().key());
-                    self.entries.set(i, true, value);
-                    return Ok(());
+            if self.ty().kind != b'L'
+                && let Some(i) = self.find(key)
+            {
+                if let Some(ty) = &self.ty().value {
+                    release(self.entries.get(i).value, ty);
                 }
+                release(key, self.ty().key());
+                self.entries.set(i, true, value);
+                return Ok(());
             }
             let additional = if self.entries.len() == self.entries.capacity() {
                 // Geometric growth without making explicit reserve speculative.
@@ -1357,7 +1357,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
 
 /// Narrow ABI: a live borrowed list owner, with no ownership transfer. The
 /// compiler never reads Collection, Entries, or Vec layout across this boundary.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_list_len(owner: *const u8) -> u64 {
     // SAFETY: the compiler keeps the list's owner alive through the call.
     unsafe { (*(owner.cast::<Collection>())).entries.len() as u64 }
@@ -1365,7 +1365,7 @@ pub(crate) unsafe extern "C" fn plenty_list_len(owner: *const u8) -> u64 {
 
 /// Narrow ABI: the total sort order of two values of `descriptor`'s type as
 /// -1, 0, or 1. Operands arrive as 64-bit halves; neither changes ownership.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_order_compare(
     a_low: u64,
     a_high: u64,
@@ -1388,7 +1388,7 @@ type KeyOrder = unsafe extern "C" fn(*const u128, *const u128, *const u128) -> i
 /// them, so no element is retained, released, or copied, and nothing is
 /// allocated. The comparator calls user code, which cannot reach the list
 /// while the caller holds its exclusive loan.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_list_sort_by(
     owner: *mut u8,
     compare: KeyOrder,
@@ -1412,7 +1412,7 @@ pub(crate) unsafe extern "C" fn plenty_list_sort_by(
 
 /// Returns the low 64 payload bits of an integer, float, or boolean list row.
 /// No pointer into the buffer escapes, including across later growing mutations.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
     owner: *const u8,
     i: i64,
@@ -1429,7 +1429,7 @@ pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
 
 /// Stores the low 64 payload bits of an integer, float, or boolean list row,
 /// exactly as a write through the generic `ElementRef` would.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_list_scalar_set(
     owner: *mut u8,
     i: i64,
@@ -1447,7 +1447,7 @@ pub(crate) unsafe extern "C" fn plenty_list_scalar_set(
 
 /// `std.compress` operations under their own symbol, as for `plenty_crypto`:
 /// a program that never compresses links without zlib-rs.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_compress(
     op: i64,
     args: *const u128,
@@ -1464,7 +1464,7 @@ pub(crate) unsafe extern "C" fn plenty_compress(
 /// `std.db.sqlite` operations under their own symbol, as for
 /// `plenty_crypto`: a program that never opens a database links without SQLite.
 #[cfg(plenty_runtime_sqlite)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_sqlite(
     op: i64,
     args: *const u128,
@@ -1480,7 +1480,7 @@ pub(crate) unsafe extern "C" fn plenty_sqlite(
 
 /// `std.tls` operations under their own symbol, as for `plenty_crypto`: a
 /// program that never starts a session links without rustls and ring.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_tls(
     op: i64,
     args: *const u128,
@@ -1497,7 +1497,7 @@ pub(crate) unsafe extern "C" fn plenty_tls(
 /// `std.crypto` operations under their own symbol, with `plenty_collection`'s
 /// argument layout. Nothing else refers to it, so a program that never hashes
 /// links without the hashing code.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_crypto(
     op: i64,
     args: *const u128,
@@ -1512,7 +1512,7 @@ pub(crate) unsafe extern "C" fn plenty_crypto(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_collection(
     op: i64,
     args: *const u128,

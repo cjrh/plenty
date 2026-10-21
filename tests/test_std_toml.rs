@@ -231,7 +231,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}\ndef main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.bytes.BytesError | std.toml.TomlError]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.bytes.BytesError | std.toml.TomlError]:\n{body}    Ok(())\n"
+    )
 }
 
 /// Runs a program and shortens the qualified names in rendered values.
@@ -314,41 +316,88 @@ fn keys_strings_and_tables_build_the_documented_tree() {
             ("", "{}"),
             ("# only a comment\n\n", "{}"),
             ("key = \"value\"", r#"{"key"="value"}"#),
-            ("bare_key = 1\nbare-key = 2\n1234 = 3", r#"{"bare_key"=1,"bare-key"=2,"1234"=3}"#),
-            ("\"127.0.0.1\" = \"v\"\n\"ʎǝʞ\" = 1\n'quoted \"value\"' = 2", r#"{"127.0.0.1"="v","ʎǝʞ"=1,"quoted \"value\""=2}"#),
+            (
+                "bare_key = 1\nbare-key = 2\n1234 = 3",
+                r#"{"bare_key"=1,"bare-key"=2,"1234"=3}"#,
+            ),
+            (
+                "\"127.0.0.1\" = \"v\"\n\"ʎǝʞ\" = 1\n'quoted \"value\"' = 2",
+                r#"{"127.0.0.1"="v","ʎǝʞ"=1,"quoted \"value\""=2}"#,
+            ),
             ("\"\" = \"blank\"", r#"{""="blank"}"#),
-            ("name = \"Orange\"\nphysical.color = \"orange\"\nphysical.shape = \"round\"\nsite.\"google.com\" = true",
-             r#"{"name"="Orange","physical"={"color"="orange","shape"="round"},"site"={"google.com"=true}}"#),
-            ("fruit . name = \"banana\"\nfruit. color = \"yellow\"", r#"{"fruit"={"name"="banana","color"="yellow"}}"#),
+            (
+                "name = \"Orange\"\nphysical.color = \"orange\"\nphysical.shape = \"round\"\nsite.\"google.com\" = true",
+                r#"{"name"="Orange","physical"={"color"="orange","shape"="round"},"site"={"google.com"=true}}"#,
+            ),
+            (
+                "fruit . name = \"banana\"\nfruit. color = \"yellow\"",
+                r#"{"fruit"={"name"="banana","color"="yellow"}}"#,
+            ),
             ("3.14159 = \"pi\"", r#"{"3"={"14159"="pi"}}"#),
-            ("[table-1]\nkey1 = \"some string\"\n\n[table-2]\nkey1 = \"another\"",
-             r#"{"table-1"={"key1"="some string"},"table-2"={"key1"="another"}}"#),
-            ("[dog.\"tater.man\"]\ntype.name = \"pug\"", r#"{"dog"={"tater.man"={"type"={"name"="pug"}}}}"#),
-            ("[ g .  h  . i ]\n[ j . \"ʞ\" . 'l' ]", r#"{"g"={"h"={"i"={}}},"j"={"ʞ"={"l"={}}}}"#),
+            (
+                "[table-1]\nkey1 = \"some string\"\n\n[table-2]\nkey1 = \"another\"",
+                r#"{"table-1"={"key1"="some string"},"table-2"={"key1"="another"}}"#,
+            ),
+            (
+                "[dog.\"tater.man\"]\ntype.name = \"pug\"",
+                r#"{"dog"={"tater.man"={"type"={"name"="pug"}}}}"#,
+            ),
+            (
+                "[ g .  h  . i ]\n[ j . \"ʞ\" . 'l' ]",
+                r#"{"g"={"h"={"i"={}}},"j"={"ʞ"={"l"={}}}}"#,
+            ),
             ("[x.y.z.w]\n[x]", r#"{"x"={"y"={"z"={"w"={}}}}}"#),
-            ("[fruit]\napple.color = \"red\"\napple.taste.sweet = true\n[fruit.apple.texture]\nsmooth = true",
-             r#"{"fruit"={"apple"={"color"="red","taste"={"sweet"=true},"texture"={"smooth"=true}}}}"#),
-            ("str = \"I'm a string. \\\"You can quote me\\\". Name\\tJos\\u00E9\\nLocation\\tSF.\"",
-             r#"{"str"="I'm a string. \"You can quote me\". Name\tJosé\nLocation\tSF."}"#),
-            ("s = \"\\b\\f\\r\\\\\\U0001F600\"", r#"{"s"="\u{8}\u{c}\r\\😀"}"#),
-            ("str1 = \"\"\"\nRoses are red\nViolets are blue\"\"\"", r#"{"str1"="Roses are red\nViolets are blue"}"#),
+            (
+                "[fruit]\napple.color = \"red\"\napple.taste.sweet = true\n[fruit.apple.texture]\nsmooth = true",
+                r#"{"fruit"={"apple"={"color"="red","taste"={"sweet"=true},"texture"={"smooth"=true}}}}"#,
+            ),
+            (
+                "str = \"I'm a string. \\\"You can quote me\\\". Name\\tJos\\u00E9\\nLocation\\tSF.\"",
+                r#"{"str"="I'm a string. \"You can quote me\". Name\tJosé\nLocation\tSF."}"#,
+            ),
+            (
+                "s = \"\\b\\f\\r\\\\\\U0001F600\"",
+                r#"{"s"="\u{8}\u{c}\r\\😀"}"#,
+            ),
+            (
+                "str1 = \"\"\"\nRoses are red\nViolets are blue\"\"\"",
+                r#"{"str1"="Roses are red\nViolets are blue"}"#,
+            ),
             ("s = \"\"\"\r\nOne\r\nTwo\"\"\"", r#"{"s"="One\r\nTwo"}"#),
-            ("str = \"\"\"\nThe quick brown \\\n\n\n  fox jumps over \\\n    the lazy dog.\"\"\"",
-             r#"{"str"="The quick brown fox jumps over the lazy dog."}"#),
-            ("str = \"\"\"\\\n       The quick brown \\\n       fox.\\\n       \"\"\"", r#"{"str"="The quick brown fox."}"#),
+            (
+                "str = \"\"\"\nThe quick brown \\\n\n\n  fox jumps over \\\n    the lazy dog.\"\"\"",
+                r#"{"str"="The quick brown fox jumps over the lazy dog."}"#,
+            ),
+            (
+                "str = \"\"\"\\\n       The quick brown \\\n       fox.\\\n       \"\"\"",
+                r#"{"str"="The quick brown fox."}"#,
+            ),
             ("s = \"\"\"a \\  \n  b\"\"\"", r#"{"s"="a b"}"#),
-            ("str4 = \"\"\"Here are two quotation marks: \"\". Simple enough.\"\"\"",
-             r#"{"str4"="Here are two quotation marks: \"\". Simple enough."}"#),
-            ("str7 = \"\"\"\"This,\" she said, \"is just a pointless statement.\"\"\"\"",
-             r#"{"str7"="\"This,\" she said, \"is just a pointless statement.\""}"#),
+            (
+                "str4 = \"\"\"Here are two quotation marks: \"\". Simple enough.\"\"\"",
+                r#"{"str4"="Here are two quotation marks: \"\". Simple enough."}"#,
+            ),
+            (
+                "str7 = \"\"\"\"This,\" she said, \"is just a pointless statement.\"\"\"\"",
+                r#"{"str7"="\"This,\" she said, \"is just a pointless statement.\""}"#,
+            ),
             ("s = \"\"\"\"\"\"\"\"", r#"{"s"="\"\""}"#),
-            ("winpath = 'C:\\Users\\nodejs\\templates'\nregex = '<\\i\\c*\\s*>'",
-             r#"{"winpath"="C:\\Users\\nodejs\\templates","regex"="<\\i\\c*\\s*>"}"#),
-            ("re = '''I [dw]on't need \\d{2} apples'''\nlines = '''\nThe first newline is\ntrimmed in raw strings.\n'''",
-             r#"{"re"="I [dw]on't need \\d{2} apples","lines"="The first newline is\ntrimmed in raw strings.\n"}"#),
-            ("apos15 = \"Here are fifteen apostrophes: '''''''''''''''\"\nq = '''''That,' she said.''''",
-             r#"{"apos15"="Here are fifteen apostrophes: '''''''''''''''","q"="''That,' she said.'"}"#),
-            ("tab = \"a\tb\"\nlit = 'a\tb'", r#"{"tab"="a\tb","lit"="a\tb"}"#),
+            (
+                "winpath = 'C:\\Users\\nodejs\\templates'\nregex = '<\\i\\c*\\s*>'",
+                r#"{"winpath"="C:\\Users\\nodejs\\templates","regex"="<\\i\\c*\\s*>"}"#,
+            ),
+            (
+                "re = '''I [dw]on't need \\d{2} apples'''\nlines = '''\nThe first newline is\ntrimmed in raw strings.\n'''",
+                r#"{"re"="I [dw]on't need \\d{2} apples","lines"="The first newline is\ntrimmed in raw strings.\n"}"#,
+            ),
+            (
+                "apos15 = \"Here are fifteen apostrophes: '''''''''''''''\"\nq = '''''That,' she said.''''",
+                r#"{"apos15"="Here are fifteen apostrophes: '''''''''''''''","q"="''That,' she said.'"}"#,
+            ),
+            (
+                "tab = \"a\tb\"\nlit = 'a\tb'",
+                r#"{"tab"="a\tb","lit"="a\tb"}"#,
+            ),
             ("k = \"é\" # comment with é and \t tab", r#"{"k"="é"}"#),
             ("a = 1\r\nb = 2\r\n", r#"{"a"=1,"b"=2}"#),
             ("\t a \t= \t1\t", r#"{"a"=1}"#),
@@ -361,28 +410,74 @@ fn keys_strings_and_tables_build_the_documented_tree() {
 fn numbers_booleans_and_date_times_follow_the_specification() {
     table(
         &[
-            ("int1 = +99\nint2 = 42\nint3 = 0\nint4 = -17", r#"{"int1"=99,"int2"=42,"int3"=0,"int4"=-17}"#),
-            ("int5 = 1_000\nint6 = 5_349_221\nint7 = 53_49_221\nint8 = 1_2_3_4_5", r#"{"int5"=1000,"int6"=5349221,"int7"=5349221,"int8"=12345}"#),
-            ("hex1 = 0xDEADBEEF\nhex2 = 0xdeadbeef\nhex3 = 0xdead_beef", r#"{"hex1"=3735928559,"hex2"=3735928559,"hex3"=3735928559}"#),
-            ("oct1 = 0o01234567\noct2 = 0o755\nbin1 = 0b11010110", r#"{"oct1"=342391,"oct2"=493,"bin1"=214}"#),
-            ("max = 9223372036854775807\nmin = -9223372036854775808\nhex = 0x7fffffffffffffff", r#"{"max"=9223372036854775807,"min"=-9223372036854775808,"hex"=9223372036854775807}"#),
-            ("zero = +0\nnzero = -0\nhzero = 0x0", r#"{"zero"=0,"nzero"=0,"hzero"=0}"#),
-            ("flt1 = +1.0\nflt2 = 3.1415\nflt3 = -0.01", r#"{"flt1"=1.0,"flt2"=3.1415,"flt3"=-0.01}"#),
-            ("flt4 = 5e+22\nflt5 = 1e06\nflt6 = -2E-2\nflt7 = 6.626e-34", r#"{"flt4"=5e22,"flt5"=1000000.0,"flt6"=-0.02,"flt7"=6.626e-34}"#),
-            ("flt8 = 224_617.445_991_228\nf = 0.0\ng = -0.0\nh = 0e0", r#"{"flt8"=224617.445991228,"f"=0.0,"g"=-0.0,"h"=0.0}"#),
-            ("sf1 = inf\nsf2 = +inf\nsf3 = -inf\nsf4 = nan\nsf5 = +nan\nsf6 = -nan", r#"{"sf1"=inf,"sf2"=inf,"sf3"=-inf,"sf4"=NaN,"sf5"=NaN,"sf6"=NaN}"#),
-            ("bool1 = true\nbool2 = false", r#"{"bool1"=true,"bool2"=false}"#),
-            ("odt1 = 1979-05-27T07:32:00Z\nodt2 = 1979-05-27T00:32:00-07:00\nodt3 = 1979-05-27T00:32:00.999999-07:00",
-             r#"{"odt1"=odt(1979-05-27 07:32:00 0 0),"odt2"=odt(1979-05-27 00:32:00 0 -420),"odt3"=odt(1979-05-27 00:32:00 999999000 -420)}"#),
-            ("odt4 = 1979-05-27 07:32:00Z\nodt5 = 1979-05-27t07:32:00z\nodt6 = 2000-01-01T00:00:00+05:30",
-             r#"{"odt4"=odt(1979-05-27 07:32:00 0 0),"odt5"=odt(1979-05-27 07:32:00 0 0),"odt6"=odt(2000-01-01 00:00:00 0 330)}"#),
-            ("ldt1 = 1979-05-27T07:32:00\nldt2 = 1979-05-27T00:32:00.999999",
-             r#"{"ldt1"=ldt(1979-05-27 07:32:00 0 0),"ldt2"=ldt(1979-05-27 00:32:00 999999000 0)}"#),
-            ("ld1 = 1979-05-27\nlt1 = 07:32:00\nlt2 = 00:32:00.999999",
-             r#"{"ld1"=ld(1979-05-27 00:00:00 0 0),"lt1"=lt(0000-00-00 07:32:00 0 0),"lt2"=lt(0000-00-00 00:32:00 999999000 0)}"#),
-            ("long = 00:00:00.1234567891234\nleap = 2024-02-29\nsecond = 1990-12-31T23:59:60Z",
-             r#"{"long"=lt(0000-00-00 00:00:00 123456789 0),"leap"=ld(2024-02-29 00:00:00 0 0),"second"=odt(1990-12-31 23:59:60 0 0)}"#),
-            ("d = 1979-05-27 # a date, then a comment", r#"{"d"=ld(1979-05-27 00:00:00 0 0)}"#),
+            (
+                "int1 = +99\nint2 = 42\nint3 = 0\nint4 = -17",
+                r#"{"int1"=99,"int2"=42,"int3"=0,"int4"=-17}"#,
+            ),
+            (
+                "int5 = 1_000\nint6 = 5_349_221\nint7 = 53_49_221\nint8 = 1_2_3_4_5",
+                r#"{"int5"=1000,"int6"=5349221,"int7"=5349221,"int8"=12345}"#,
+            ),
+            (
+                "hex1 = 0xDEADBEEF\nhex2 = 0xdeadbeef\nhex3 = 0xdead_beef",
+                r#"{"hex1"=3735928559,"hex2"=3735928559,"hex3"=3735928559}"#,
+            ),
+            (
+                "oct1 = 0o01234567\noct2 = 0o755\nbin1 = 0b11010110",
+                r#"{"oct1"=342391,"oct2"=493,"bin1"=214}"#,
+            ),
+            (
+                "max = 9223372036854775807\nmin = -9223372036854775808\nhex = 0x7fffffffffffffff",
+                r#"{"max"=9223372036854775807,"min"=-9223372036854775808,"hex"=9223372036854775807}"#,
+            ),
+            (
+                "zero = +0\nnzero = -0\nhzero = 0x0",
+                r#"{"zero"=0,"nzero"=0,"hzero"=0}"#,
+            ),
+            (
+                "flt1 = +1.0\nflt2 = 3.1415\nflt3 = -0.01",
+                r#"{"flt1"=1.0,"flt2"=3.1415,"flt3"=-0.01}"#,
+            ),
+            (
+                "flt4 = 5e+22\nflt5 = 1e06\nflt6 = -2E-2\nflt7 = 6.626e-34",
+                r#"{"flt4"=5e22,"flt5"=1000000.0,"flt6"=-0.02,"flt7"=6.626e-34}"#,
+            ),
+            (
+                "flt8 = 224_617.445_991_228\nf = 0.0\ng = -0.0\nh = 0e0",
+                r#"{"flt8"=224617.445991228,"f"=0.0,"g"=-0.0,"h"=0.0}"#,
+            ),
+            (
+                "sf1 = inf\nsf2 = +inf\nsf3 = -inf\nsf4 = nan\nsf5 = +nan\nsf6 = -nan",
+                r#"{"sf1"=inf,"sf2"=inf,"sf3"=-inf,"sf4"=NaN,"sf5"=NaN,"sf6"=NaN}"#,
+            ),
+            (
+                "bool1 = true\nbool2 = false",
+                r#"{"bool1"=true,"bool2"=false}"#,
+            ),
+            (
+                "odt1 = 1979-05-27T07:32:00Z\nodt2 = 1979-05-27T00:32:00-07:00\nodt3 = 1979-05-27T00:32:00.999999-07:00",
+                r#"{"odt1"=odt(1979-05-27 07:32:00 0 0),"odt2"=odt(1979-05-27 00:32:00 0 -420),"odt3"=odt(1979-05-27 00:32:00 999999000 -420)}"#,
+            ),
+            (
+                "odt4 = 1979-05-27 07:32:00Z\nodt5 = 1979-05-27t07:32:00z\nodt6 = 2000-01-01T00:00:00+05:30",
+                r#"{"odt4"=odt(1979-05-27 07:32:00 0 0),"odt5"=odt(1979-05-27 07:32:00 0 0),"odt6"=odt(2000-01-01 00:00:00 0 330)}"#,
+            ),
+            (
+                "ldt1 = 1979-05-27T07:32:00\nldt2 = 1979-05-27T00:32:00.999999",
+                r#"{"ldt1"=ldt(1979-05-27 07:32:00 0 0),"ldt2"=ldt(1979-05-27 00:32:00 999999000 0)}"#,
+            ),
+            (
+                "ld1 = 1979-05-27\nlt1 = 07:32:00\nlt2 = 00:32:00.999999",
+                r#"{"ld1"=ld(1979-05-27 00:00:00 0 0),"lt1"=lt(0000-00-00 07:32:00 0 0),"lt2"=lt(0000-00-00 00:32:00 999999000 0)}"#,
+            ),
+            (
+                "long = 00:00:00.1234567891234\nleap = 2024-02-29\nsecond = 1990-12-31T23:59:60Z",
+                r#"{"long"=lt(0000-00-00 00:00:00 123456789 0),"leap"=ld(2024-02-29 00:00:00 0 0),"second"=odt(1990-12-31 23:59:60 0 0)}"#,
+            ),
+            (
+                "d = 1979-05-27 # a date, then a comment",
+                r#"{"d"=ld(1979-05-27 00:00:00 0 0)}"#,
+            ),
         ],
         "",
     );
@@ -392,24 +487,46 @@ fn numbers_booleans_and_date_times_follow_the_specification() {
 fn arrays_inline_tables_and_arrays_of_tables_nest() {
     table(
         &[
-            ("integers = [ 1, 2, 3 ]\ncolors = [ \"red\", \"yellow\", \"green\" ]\nnested_arrays_of_ints = [ [ 1, 2 ], [3, 4, 5] ]",
-             r#"{"integers"=[1,2,3],"colors"=["red","yellow","green"],"nested_arrays_of_ints"=[[1,2],[3,4,5]]}"#),
-            ("nested_mixed_array = [ [ 1, 2 ], [\"a\", \"b\", \"c\"] ]\nstring_array = [ \"all\", 'strings', \"\"\"are the same\"\"\", '''type''' ]",
-             r#"{"nested_mixed_array"=[[1,2],["a","b","c"]],"string_array"=["all","strings","are the same","type"]}"#),
-            ("numbers = [ 0.1, 0.2, 0.5, 1, 2, 5 ]\ncontributors = [\n  \"Foo Bar <foo@example.com>\",\n  { name = \"Baz Qux\", email = \"bazqux@example.com\", url = \"https://example.com/bazqux\" }\n]",
-             r#"{"numbers"=[0.1,0.2,0.5,1,2,5],"contributors"=["Foo Bar <foo@example.com>",{"name"="Baz Qux","email"="bazqux@example.com","url"="https://example.com/bazqux"}]}"#),
-            ("integers2 = [\n  1, 2, 3\n]\nintegers3 = [\n  1,\n  2, # this is ok\n]\nempty = [ ]\nspaced = [ # c\n\n]",
-             r#"{"integers2"=[1,2,3],"integers3"=[1,2],"empty"=[],"spaced"=[]}"#),
-            ("name = { first = \"Tom\", last = \"Preston-Werner\" }\npoint = { x = 1, y = 2 }\nanimal = { type.name = \"pug\" }",
-             r#"{"name"={"first"="Tom","last"="Preston-Werner"},"point"={"x"=1,"y"=2},"animal"={"type"={"name"="pug"}}}"#),
-            ("e = {}\nn = { a = { b = [ { c = 1 } ] } }", r#"{"e"={},"n"={"a"={"b"=[{"c"=1}]}}}"#),
-            ("[[products]]\nname = \"Hammer\"\nsku = 738594937\n\n[[products]]  # empty table within the array\n\n[[products]]\nname = \"Nail\"\nsku = 284758393\n\ncolor = \"gray\"",
-             r#"{"products"=[{"name"="Hammer","sku"=738594937},{},{"name"="Nail","sku"=284758393,"color"="gray"}]}"#),
-            ("[[fruits]]\nname = \"apple\"\n\n[fruits.physical]\ncolor = \"red\"\nshape = \"round\"\n\n[[fruits.varieties]]\nname = \"red delicious\"\n\n[[fruits.varieties]]\nname = \"granny smith\"\n\n\n[[fruits]]\nname = \"banana\"\n\n[[fruits.varieties]]\nname = \"plantain\"",
-             r#"{"fruits"=[{"name"="apple","physical"={"color"="red","shape"="round"},"varieties"=[{"name"="red delicious"},{"name"="granny smith"}]},{"name"="banana","varieties"=[{"name"="plantain"}]}]}"#),
-            ("points = [ { x = 1, y = 2, z = 3 },\n           { x = 7, y = 8, z = 9 },\n           { x = 2, y = 4, z = 8 } ]",
-             r#"{"points"=[{"x"=1,"y"=2,"z"=3},{"x"=7,"y"=8,"z"=9},{"x"=2,"y"=4,"z"=8}]}"#),
-            ("mixed = [ 1, { a = 1 } ]\nlast = [ [ { a = 1 } ] ]", r#"{"mixed"=[1,{"a"=1}],"last"=[[{"a"=1}]]}"#),
+            (
+                "integers = [ 1, 2, 3 ]\ncolors = [ \"red\", \"yellow\", \"green\" ]\nnested_arrays_of_ints = [ [ 1, 2 ], [3, 4, 5] ]",
+                r#"{"integers"=[1,2,3],"colors"=["red","yellow","green"],"nested_arrays_of_ints"=[[1,2],[3,4,5]]}"#,
+            ),
+            (
+                "nested_mixed_array = [ [ 1, 2 ], [\"a\", \"b\", \"c\"] ]\nstring_array = [ \"all\", 'strings', \"\"\"are the same\"\"\", '''type''' ]",
+                r#"{"nested_mixed_array"=[[1,2],["a","b","c"]],"string_array"=["all","strings","are the same","type"]}"#,
+            ),
+            (
+                "numbers = [ 0.1, 0.2, 0.5, 1, 2, 5 ]\ncontributors = [\n  \"Foo Bar <foo@example.com>\",\n  { name = \"Baz Qux\", email = \"bazqux@example.com\", url = \"https://example.com/bazqux\" }\n]",
+                r#"{"numbers"=[0.1,0.2,0.5,1,2,5],"contributors"=["Foo Bar <foo@example.com>",{"name"="Baz Qux","email"="bazqux@example.com","url"="https://example.com/bazqux"}]}"#,
+            ),
+            (
+                "integers2 = [\n  1, 2, 3\n]\nintegers3 = [\n  1,\n  2, # this is ok\n]\nempty = [ ]\nspaced = [ # c\n\n]",
+                r#"{"integers2"=[1,2,3],"integers3"=[1,2],"empty"=[],"spaced"=[]}"#,
+            ),
+            (
+                "name = { first = \"Tom\", last = \"Preston-Werner\" }\npoint = { x = 1, y = 2 }\nanimal = { type.name = \"pug\" }",
+                r#"{"name"={"first"="Tom","last"="Preston-Werner"},"point"={"x"=1,"y"=2},"animal"={"type"={"name"="pug"}}}"#,
+            ),
+            (
+                "e = {}\nn = { a = { b = [ { c = 1 } ] } }",
+                r#"{"e"={},"n"={"a"={"b"=[{"c"=1}]}}}"#,
+            ),
+            (
+                "[[products]]\nname = \"Hammer\"\nsku = 738594937\n\n[[products]]  # empty table within the array\n\n[[products]]\nname = \"Nail\"\nsku = 284758393\n\ncolor = \"gray\"",
+                r#"{"products"=[{"name"="Hammer","sku"=738594937},{},{"name"="Nail","sku"=284758393,"color"="gray"}]}"#,
+            ),
+            (
+                "[[fruits]]\nname = \"apple\"\n\n[fruits.physical]\ncolor = \"red\"\nshape = \"round\"\n\n[[fruits.varieties]]\nname = \"red delicious\"\n\n[[fruits.varieties]]\nname = \"granny smith\"\n\n\n[[fruits]]\nname = \"banana\"\n\n[[fruits.varieties]]\nname = \"plantain\"",
+                r#"{"fruits"=[{"name"="apple","physical"={"color"="red","shape"="round"},"varieties"=[{"name"="red delicious"},{"name"="granny smith"}]},{"name"="banana","varieties"=[{"name"="plantain"}]}]}"#,
+            ),
+            (
+                "points = [ { x = 1, y = 2, z = 3 },\n           { x = 7, y = 8, z = 9 },\n           { x = 2, y = 4, z = 8 } ]",
+                r#"{"points"=[{"x"=1,"y"=2,"z"=3},{"x"=7,"y"=8,"z"=9},{"x"=2,"y"=4,"z"=8}]}"#,
+            ),
+            (
+                "mixed = [ 1, { a = 1 } ]\nlast = [ [ { a = 1 } ] ]",
+                r#"{"mixed"=[1,{"a"=1}],"last"=[[{"a"=1}]]}"#,
+            ),
             ("a.b = 1\n[a.c]\nd = 2", r#"{"a"={"b"=1,"c"={"d"=2}}}"#),
         ],
         "",
@@ -424,23 +541,56 @@ fn malformed_documents_report_the_offending_byte() {
             ("key = # nothing", "UnexpectedByte 6 1 7"),
             ("= \"no key\"", "UnexpectedByte 0 1 1"),
             ("key \"value\"", "UnexpectedByte 4 1 5"),
-            ("first = \"Tom\" last = \"Preston-Werner\"", "UnexpectedByte 14 1 15"),
+            (
+                "first = \"Tom\" last = \"Preston-Werner\"",
+                "UnexpectedByte 14 1 15",
+            ),
             ("name = \"Tom\"\nname = \"Pradyun\"", "DuplicateKey 13 2 1"),
-            ("spelling = \"favorite\"\n\"spelling\" = \"favourite\"", "DuplicateKey 22 2 1"),
-            ("fruit.apple = 1\nfruit.apple.smooth = true", "KeyConflict 16 2 1"),
-            ("[fruit]\napple = \"red\"\n\n[fruit]\norange = \"orange\"", "DuplicateTable 23 4 1"),
-            ("[fruit]\napple = \"red\"\n\n[fruit.apple]\ntexture = \"smooth\"", "KeyConflict 23 4 1"),
-            ("[fruit]\napple.color = \"red\"\napple.taste.sweet = true\n\n[fruit.apple]", "DuplicateTable 54 5 1"),
-            ("[fruit]\napple.color = \"red\"\n[fruit.apple.taste]\n[fruit.apple]", "DuplicateTable 48 4 1"),
-            ("[product]\ntype = { name = \"Nail\" }\ntype.edible = false", "KeyConflict 35 3 1"),
-            ("[product]\ntype.name = \"Nail\"\ntype = { edible = false }", "DuplicateKey 29 3 1"),
+            (
+                "spelling = \"favorite\"\n\"spelling\" = \"favourite\"",
+                "DuplicateKey 22 2 1",
+            ),
+            (
+                "fruit.apple = 1\nfruit.apple.smooth = true",
+                "KeyConflict 16 2 1",
+            ),
+            (
+                "[fruit]\napple = \"red\"\n\n[fruit]\norange = \"orange\"",
+                "DuplicateTable 23 4 1",
+            ),
+            (
+                "[fruit]\napple = \"red\"\n\n[fruit.apple]\ntexture = \"smooth\"",
+                "KeyConflict 23 4 1",
+            ),
+            (
+                "[fruit]\napple.color = \"red\"\napple.taste.sweet = true\n\n[fruit.apple]",
+                "DuplicateTable 54 5 1",
+            ),
+            (
+                "[fruit]\napple.color = \"red\"\n[fruit.apple.taste]\n[fruit.apple]",
+                "DuplicateTable 48 4 1",
+            ),
+            (
+                "[product]\ntype = { name = \"Nail\" }\ntype.edible = false",
+                "KeyConflict 35 3 1",
+            ),
+            (
+                "[product]\ntype.name = \"Nail\"\ntype = { edible = false }",
+                "DuplicateKey 29 3 1",
+            ),
             ("a = { b = 1 }\n[a]", "DuplicateTable 14 2 1"),
             ("a = { b = 1 }\n[a.c]", "KeyConflict 14 2 1"),
             ("[x]\n[x.y]\n[x]", "DuplicateTable 10 3 1"),
             ("[a.b]\n[a]\nb.c = 1", "KeyConflict 10 3 1"),
             ("fruits = []\n[[fruits]]", "KeyConflict 12 2 1"),
-            ("[[fruits]]\nname = \"apple\"\n[[fruits.varieties]]\nname = \"red delicious\"\n[fruits.varieties]\nname = \"granny smith\"", "KeyConflict 70 5 1"),
-            ("[fruit.physical]\ncolor = \"red\"\n[[fruit]]\nname = \"apple\"", "KeyConflict 31 3 1"),
+            (
+                "[[fruits]]\nname = \"apple\"\n[[fruits.varieties]]\nname = \"red delicious\"\n[fruits.varieties]\nname = \"granny smith\"",
+                "KeyConflict 70 5 1",
+            ),
+            (
+                "[fruit.physical]\ncolor = \"red\"\n[[fruit]]\nname = \"apple\"",
+                "KeyConflict 31 3 1",
+            ),
             ("[[a]]\n[a]", "KeyConflict 6 2 1"),
             ("a = [ { b = 1 } ]\n[a.c]", "KeyConflict 18 2 1"),
             ("a = [ { b = 1 } ]\n[[a]]", "KeyConflict 18 2 1"),
@@ -817,10 +967,12 @@ fn every_prefix_parses_or_fails_with_a_position() {
             "{result}"
         );
     }
-    assert!(results
-        .last()
-        .unwrap()
-        .starts_with(r#"{"t"=odt(1979-05-27 07:32:00 500000000 -480)"#));
+    assert!(
+        results
+            .last()
+            .unwrap()
+            .starts_with(r#"{"t"=odt(1979-05-27 07:32:00 500000000 -480)"#)
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

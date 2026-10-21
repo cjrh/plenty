@@ -3,7 +3,8 @@ use support::assert_stdout as expect;
 
 #[test]
 fn ranges_cross_calls_and_standard_sum_returns_by_value() {
-    expect(r#"
+    expect(
+        r#"
 def make(n: i64) -> range[i64]:
     range(n, n + 4)
 def forward(r: range[i64]) -> range[i64]:
@@ -28,12 +29,15 @@ print(maybe(3)).unwrap()
 print(maybe(-1)).unwrap()
 print(str.repr(propagate(-1)).unwrap()).unwrap()
 print(str.repr(propagate(7)).unwrap()).unwrap()
-"#, "[2, 3, 4, 5]\n[20, 21, 22, 23]\nOption[range].Some(range(3, 7, 1))\nOption[range].Nothing\nResult[range, range].Err(range(10, 14, 1))\nResult[range, range].Ok(range(7, 11, 1))\n");
+"#,
+        "[2, 3, 4, 5]\n[20, 21, 22, 23]\nOption[range].Some(range(3, 7, 1))\nOption[range].Nothing\nResult[range, range].Err(range(10, 14, 1))\nResult[range, range].Ok(range(7, 11, 1))\n",
+    );
 }
 
 #[test]
 fn ranges_survive_collection_reallocation_removal_and_copy() {
-    expect(r#"
+    expect(
+        r#"
 def build() -> list[range[i64]]:
     mut values: list[range[i64]] = [].unwrap()
     for n in range(20):
@@ -58,12 +62,15 @@ removed_value = mapping.pop("b").unwrap()
 mapping.clear()
 print(snapshot).unwrap()
 print(removed_value).unwrap()
-"#, "range(0, 2, 1)\nrange(19, 21, 1)\nrange(18, 20, 1)\nrange(0, 2, 1)\n[Option[range].Some(range(0, 2, 1)), Option[range].Some(range(0, 5, 1)), Option[range].Some(range(0, 8, 1))]\nOption[range].Some(range(0, 5, 1))\n");
+"#,
+        "range(0, 2, 1)\nrange(19, 21, 1)\nrange(18, 20, 1)\nrange(0, 2, 1)\n[Option[range].Some(range(0, 2, 1)), Option[range].Some(range(0, 5, 1)), Option[range].Some(range(0, 8, 1))]\nOption[range].Some(range(0, 5, 1))\n",
+    );
 }
 
 #[test]
 fn range_fields_references_and_generator_captures_keep_their_storage() {
-    expect(r#"
+    expect(
+        r#"
 class Crate:
     before: i64
     values: range[i64]
@@ -92,7 +99,9 @@ second = next(g).unwrap()
 drop(g)
 print(first).unwrap()
 print(second).unwrap()
-"#, "11\nrange(6, 9, 1)\nOption[range].Some(range(10, 12, 1))\n22\nrange(0, 3, 1)\nrange(7, 9, 1)\n");
+"#,
+        "11\nrange(6, 9, 1)\nOption[range].Some(range(10, 12, 1))\n22\nrange(0, 3, 1)\nrange(7, 9, 1)\n",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

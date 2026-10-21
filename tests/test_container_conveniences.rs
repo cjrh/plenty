@@ -150,7 +150,8 @@ for value in data.into_values().unwrap():
 
 #[test]
 fn deque_wraps_grows_and_preserves_both_ends() {
-    native(r#"
+    native(
+        r#"
 from std.deque import Deque
 mut queue = Deque[i64]().unwrap()
 for n in range(8):
@@ -165,12 +166,15 @@ print(queue.len(), queue.pop().unwrap(), queue.popleft().unwrap()).unwrap()
 while not queue.is_empty():
     print(queue.popleft().unwrap()).unwrap()
 print(queue.pop(), queue.popleft()).unwrap()
-"#, "0\n1\n2\n3\n4\n22 24 -2\n-1\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\nOption[i64].Nothing Option[i64].Nothing");
+"#,
+        "0\n1\n2\n3\n4\n22 24 -2\n-1\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\nOption[i64].Nothing Option[i64].Nothing",
+    );
 }
 
 #[test]
 fn deque_moves_owned_values_and_clears_without_shifting() {
-    native(r#"
+    native(
+        r#"
 from std.deque import Deque
 class Guard:
     n: i64
@@ -185,7 +189,9 @@ queue.clear()
 queue.appendleft(Guard(99)).unwrap()
 print(queue.len()).unwrap()
 drop(queue)
-"#, "drop 0\ndrop 19\ndrop 18\ndrop 17\ndrop 16\ndrop 15\ndrop 14\ndrop 13\ndrop 12\ndrop 11\ndrop 10\ndrop 9\ndrop 8\ndrop 7\ndrop 6\ndrop 5\ndrop 4\ndrop 3\ndrop 2\ndrop 1\n1\ndrop 99");
+"#,
+        "drop 0\ndrop 19\ndrop 18\ndrop 17\ndrop 16\ndrop 15\ndrop 14\ndrop 13\ndrop 12\ndrop 11\ndrop 10\ndrop 9\ndrop 8\ndrop 7\ndrop 6\ndrop 5\ndrop 4\ndrop 3\ndrop 2\ndrop 1\n1\ndrop 99",
+    );
 }
 
 #[test]
@@ -282,15 +288,39 @@ for value in (i + x for i, x in enumerate(reversed(range(3)), 10)):
 #[test]
 fn invalid_conveniences_have_compile_time_diagnostics() {
     for (source, diagnostic) in [
-        ("result: Result[i64, str] = Ok(2)\nprint(1, result).unwrap()", "print cannot print a Result directly"),
-        ("mut xs = [1].unwrap()\nprint(xs, xs.pop().unwrap()).unwrap()", "conflicting borrow"),
-        ("xs = [1].unwrap()\ng = (x for x in &xs)", "references cannot be suspended"),
-        ("def f(xs: Generator[i64], n: i64) -> ():\n    pass\nf(x for x in range(3), 1)", "expected `)`"),
-        ("data = {1: [2].unwrap()}.unwrap()\nvalues = data.into_values().unwrap()\nprint(data).unwrap()", "moved"),
-        ("xs = [1, 2].unwrap()\na, b = xs\nprint(xs).unwrap()", "moved"),
+        (
+            "result: Result[i64, str] = Ok(2)\nprint(1, result).unwrap()",
+            "print cannot print a Result directly",
+        ),
+        (
+            "mut xs = [1].unwrap()\nprint(xs, xs.pop().unwrap()).unwrap()",
+            "conflicting borrow",
+        ),
+        (
+            "xs = [1].unwrap()\ng = (x for x in &xs)",
+            "references cannot be suspended",
+        ),
+        (
+            "def f(xs: Generator[i64], n: i64) -> ():\n    pass\nf(x for x in range(3), 1)",
+            "expected `)`",
+        ),
+        (
+            "data = {1: [2].unwrap()}.unwrap()\nvalues = data.into_values().unwrap()\nprint(data).unwrap()",
+            "moved",
+        ),
+        (
+            "xs = [1, 2].unwrap()\na, b = xs\nprint(xs).unwrap()",
+            "moved",
+        ),
         ("values = {(1, 2.0)}.unwrap()", "set elements must"),
-        ("values = ((n for n in range(2)) for _ in range(2))", "generator expression elements cannot"),
-        ("values = (&n for n in range(2))", "generator expression elements cannot"),
+        (
+            "values = ((n for n in range(2)) for _ in range(2))",
+            "generator expression elements cannot",
+        ),
+        (
+            "values = (&n for n in range(2))",
+            "generator expression elements cannot",
+        ),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "{source}\n{error}");
@@ -400,7 +430,8 @@ while not queue.is_empty():
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn print_failure_writes_no_prefix_and_keeps_observed_owners() {
-    native(r#"
+    native(
+        r#"
 class Guard:
     label: str
     def __del__(self) -> ():
@@ -412,7 +443,9 @@ print("__test_restore_allocations__").unwrap()
 print(str.repr(result).unwrap()).unwrap()
 print(owner.label).unwrap()
 drop(owner)
-"#, "Result[(), IoError].Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))\ndestroyed\ndestroyed");
+"#,
+        "Result[(), IoError].Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))\ndestroyed\ndestroyed",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

@@ -20,7 +20,8 @@ fn native(source: &str, expected: &str) {
 
 #[test]
 fn queries_find_first_last_missing_and_content_equal_elements() {
-    native(r#"
+    native(
+        r#"
 def locate(items: &list[str], query: &str) -> Option[i64]:
     items.find(query)
 items = [("é" + "").unwrap(), "other", "é"].unwrap()
@@ -36,12 +37,15 @@ print([False, True, False].unwrap().count(False)).unwrap()
 print([1u8, 2u8, 1u8].unwrap().rfind(1u8)).unwrap()
 print([-1, 2, -1].unwrap().find(-1)).unwrap()
 print(len(items)).unwrap()
-"#, "Option[i64].Some(0)\nOption[i64].Some(2)\n2\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\n0\n2\nOption[i64].Some(2)\nOption[i64].Some(0)\n3");
+"#,
+        "Option[i64].Some(0)\nOption[i64].Some(2)\n2\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\n0\n2\nOption[i64].Some(2)\nOption[i64].Some(0)\n3",
+    );
 }
 
 #[test]
 fn float_search_uses_ieee_equality() {
-    native(r#"
+    native(
+        r#"
 nan = 0.0 / 0.0
 values = [nan, -0.0, 1.5, 0.0, nan].unwrap()
 print(values.count(nan)).unwrap()
@@ -51,7 +55,9 @@ print(values.count(0.0)).unwrap()
 print(values.find(0.0)).unwrap()
 print(values.rfind(-0.0)).unwrap()
 print([0.0f32, -0.0f32].unwrap().count(0.0f32)).unwrap()
-"#, "0\nOption[i64].Nothing\nOption[i64].Nothing\n2\nOption[i64].Some(1)\nOption[i64].Some(3)\n2");
+"#,
+        "0\nOption[i64].Nothing\nOption[i64].Nothing\n2\nOption[i64].Some(1)\nOption[i64].Some(3)\n2",
+    );
 }
 
 #[test]

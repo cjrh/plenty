@@ -68,10 +68,12 @@ fn old_prefixes_are_rejected() {
     for source in ["print(try [1])", "try_print(1)", "x = list[i64].try_new()"] {
         assert!(support::check_source(source).is_err(), "{source}");
     }
-    assert!(support::check_source("print = 1\nprint(42)")
-        .unwrap_err()
-        .to_string()
-        .contains("not callable"));
+    assert!(
+        support::check_source("print = 1\nprint(42)")
+            .unwrap_err()
+            .to_string()
+            .contains("not callable")
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -166,10 +168,12 @@ def main() -> ():
         source.push_str(&format!("type T{n} = Option[T{}]\n", n - 1));
     }
     source.push_str("T64.Nothing.new()\n");
-    assert!(support::check_source(&source)
-        .unwrap_err()
-        .to_string()
-        .contains("type nesting exceeds"));
+    assert!(
+        support::check_source(&source)
+            .unwrap_err()
+            .to_string()
+            .contains("type nesting exceeds")
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

@@ -91,7 +91,9 @@ fn incomplete_sum_and_inexact_or_private_methods_keep_structural_fallback() {
         "pub def format(self, output: &mut Formatter) -> ():\n        pass",
     ] {
         reports(
-            &format!("from std.report import Formatter, FormatError\npub class Hidden:\n    value: i64\n    {method}\ndef main() -> Result[(), Hidden]:\n    Err(Hidden(9))\n"),
+            &format!(
+                "from std.report import Formatter, FormatError\npub class Hidden:\n    value: i64\n    {method}\ndef main() -> Result[(), Hidden]:\n    Err(Hidden(9))\n"
+            ),
             "",
             "error: main returned Hidden(value=9)\n",
         );
@@ -115,7 +117,9 @@ fn generic_and_normalized_alias_error_types_select_reporting() {
 #[test]
 fn nested_typed_context_reports_once_and_unformattable_cause_falls_back() {
     reports(
-        &format!("{TYPES}\nfrom std.error import Context, Subject\ndef main() -> Result[(), Context[Context[Problem]]]:\n    inner = Context[Problem]('read', Subject.Absent, Problem('missing'))\n    Err(Context[Context[Problem]]('load', Subject.Absent, inner))\n"),
+        &format!(
+            "{TYPES}\nfrom std.error import Context, Subject\ndef main() -> Result[(), Context[Context[Problem]]]:\n    inner = Context[Problem]('read', Subject.Absent, Problem('missing'))\n    Err(Context[Context[Problem]]('load', Subject.Absent, inner))\n"
+        ),
         "dropped\n",
         "error: main returned load: read: missing\n",
     );
@@ -173,7 +177,9 @@ fn record_budget_includes_prefix_and_newline_and_recursion_is_bounded() {
 #[cfg(unix)]
 #[test]
 fn stdout_is_flushed_before_report_and_error_destruction() {
-    let source = format!("{TYPES}\ndef main() -> Result[(), Problem]:\n    print('before').unwrap()\n    Err(Problem('input'))\n");
+    let source = format!(
+        "{TYPES}\ndef main() -> Result[(), Problem]:\n    print('before').unwrap()\n    Err(Problem('input'))\n"
+    );
     let (_directory, commands) = both(&source);
     for command in commands {
         let output = Command::new("sh")
@@ -194,7 +200,9 @@ fn stdout_is_flushed_before_report_and_error_destruction() {
 #[test]
 fn human_reporting_does_not_need_allocations() {
     reports(
-        &format!("{TYPES}\ndef main() -> Result[(), Problem]:\n    error = Problem('input')\n    print('__test_fail_allocations_after_0__').unwrap()\n    Err(error)\n"),
+        &format!(
+            "{TYPES}\ndef main() -> Result[(), Problem]:\n    error = Problem('input')\n    print('__test_fail_allocations_after_0__').unwrap()\n    Err(error)\n"
+        ),
         "__test_fail_allocations_after_0__\ndropped\n",
         "error: main returned input\n",
     );

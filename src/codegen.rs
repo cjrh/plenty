@@ -53,7 +53,7 @@ use std::sync::Arc;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{
-    types, AbiParam, Block, BlockArg, Function, InstBuilder, Signature, TrapCode, UserFuncName,
+    AbiParam, Block, BlockArg, Function, InstBuilder, Signature, TrapCode, UserFuncName, types,
 };
 use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings;
@@ -1187,10 +1187,10 @@ fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, (
             Op::PushStr(id) | Op::PushBytes(id) if seen.insert(*id, ()).is_none() => out.push(*id),
             Op::Match(arms) => {
                 for arm in arms.iter() {
-                    if let Pattern::Str(id) = arm.pattern {
-                        if seen.insert(id, ()).is_none() {
-                            out.push(id);
-                        }
+                    if let Pattern::Str(id) = arm.pattern
+                        && seen.insert(id, ()).is_none()
+                    {
+                        out.push(id);
                     }
                     collect_str_ids(&arm.body, out, seen);
                 }
@@ -1745,7 +1745,8 @@ impl Lowerer<'_, '_> {
             .as_ref()
             .map(|g| (g.frame, 64))
             .or(self.local_frame.map(|p| (p, 0)));
-        let value = if let Some((frame, base)) = frame {
+
+        if let Some((frame, base)) = frame {
             let offset = base + self.local_offset(i as usize);
             let value = self.bcx.ins().load(
                 types::I128,
@@ -1756,8 +1757,7 @@ impl Lowerer<'_, '_> {
             self.unpack(value, &ty)
         } else {
             self.bcx.use_var(var)
-        };
-        value
+        }
     }
     fn write_local(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
         let (var, ty) = self.locals[i as usize].clone();

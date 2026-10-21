@@ -265,10 +265,10 @@ impl Parser {
             Kind::Format(_) => {
                 return Err(
                     at.error("a pattern cannot be an f-string; match a plain string literal")
-                )
+                );
             }
             Kind::Bytes(_) => {
-                return Err(at.error("a pattern cannot be a byte literal; compare with `==`"))
+                return Err(at.error("a pattern cannot be a byte literal; compare with `==`"));
             }
             Kind::Word(word) if matches!(&**word, "True" | "False") => {
                 Literal::Bool(&**word == "True")
@@ -623,7 +623,7 @@ impl<'a> Compiler<'a> {
         let (boxes, t) = match first.patterns[column] {
             Checked::Variant { boxes, t, .. } => (boxes, t),
             Checked::Literal { boxes, ty, .. } => {
-                return self.compare(rows, occurrences, column, boxes, ty)
+                return self.compare(rows, occurrences, column, boxes, ty);
             }
             _ => unreachable!(),
         };
@@ -916,18 +916,18 @@ impl Lower<'_> {
             }
             PatKind::Wildcard => Ok(Checked::Wildcard),
             PatKind::Binding(name) => {
-                if let Ty::Enum(t) = content {
-                    if t.get().tag(name).is_some() {
-                        let owner = t.display_name().split('[').next().unwrap_or_default();
-                        let role = if root {
-                            "the matched value"
-                        } else {
-                            "a payload binding"
-                        };
-                        return Err(pattern.at.error(format!(
+                if let Ty::Enum(t) = content
+                    && t.get().tag(name).is_some()
+                {
+                    let owner = t.display_name().split('[').next().unwrap_or_default();
+                    let role = if root {
+                        "the matched value"
+                    } else {
+                        "a payload binding"
+                    };
+                    return Err(pattern.at.error(format!(
                             "`{name}` is a variant of `{owner}`, so it cannot name {role}; write `{owner}.{name}` to match the variant"
                         )));
-                    }
                 }
                 if bound.iter().any(|(other, _)| other == name) {
                     return Err(pattern.at.error("duplicate payload binding"));

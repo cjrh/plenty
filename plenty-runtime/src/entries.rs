@@ -64,10 +64,11 @@ impl Entries {
     }
     pub fn get(&self, index: usize) -> Entry {
         assert!(index < self.data.len() / self.stride);
-        debug_assert!(self
-            .order
-            .as_ref()
-            .map_or(index < self.len(), |order| order.contains(index)));
+        debug_assert!(
+            self.order
+                .as_ref()
+                .map_or(index < self.len(), |order| order.contains(index))
+        );
         Entry {
             key: self.data[index * self.stride],
             value: self.data[index * self.stride + self.key.slot_words()],
@@ -105,10 +106,11 @@ impl Entries {
     }
     pub fn slot(&mut self, index: usize, value: bool) -> *mut u128 {
         assert!(index < self.data.len() / self.stride);
-        debug_assert!(self
-            .order
-            .as_ref()
-            .map_or(index < self.len(), |order| order.contains(index)));
+        debug_assert!(
+            self.order
+                .as_ref()
+                .map_or(index < self.len(), |order| order.contains(index))
+        );
         unsafe {
             self.data
                 .as_mut_ptr()

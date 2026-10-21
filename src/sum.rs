@@ -108,11 +108,11 @@ impl crate::nominal::Nominal<EnumType> {
 pub fn anonymous(types: Vec<Ty>) -> Ty {
     let mut members = Vec::new();
     for ty in types {
-        if let Ty::Enum(t) = &ty {
-            if t.anonymous() {
-                members.extend(t.get().variants.iter().map(|v| v.fields[0].clone()));
-                continue;
-            }
+        if let Ty::Enum(t) = &ty
+            && t.anonymous()
+        {
+            members.extend(t.get().variants.iter().map(|v| v.fields[0].clone()));
+            continue;
         }
         members.push(ty);
     }

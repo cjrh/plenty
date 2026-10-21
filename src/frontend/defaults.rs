@@ -96,10 +96,12 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
             // Defaults are written inside the parameter brackets, where
             // `inline_body` admits only a one-expression body; statements,
             // including `match`, `for`, and `with`, cannot appear here.
-            let [Stmt {
-                kind: Statement::Expr(body),
-                ..
-            }] = function.body.as_slice()
+            let [
+                Stmt {
+                    kind: Statement::Expr(body),
+                    ..
+                },
+            ] = function.body.as_slice()
             else {
                 unreachable!("an anonymous function inside brackets has one expression body")
             };
@@ -146,8 +148,10 @@ mod tests {
 
     #[test]
     fn required_parameters_cannot_follow_defaults() {
-        assert!(diagnostic("def f(a: i64 = 1, b: i64) -> i64:\n    b\n")
-            .contains("required parameters must precede"));
+        assert!(
+            diagnostic("def f(a: i64 = 1, b: i64) -> i64:\n    b\n")
+                .contains("required parameters must precede")
+        );
     }
 
     #[test]

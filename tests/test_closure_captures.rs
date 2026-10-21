@@ -28,7 +28,9 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn exclusive_captures_exclude_competing_access_and_arguments() {
     for access in ["print(count)?", "count = 9", "other = &count"] {
-        let source = format!("def main() -> Result[(), IoError]:\n    mut count = 0\n    mut change = def [&mut count]() -> ():\n        count = count + 1\n    {access}\n    change()\n    Ok(())\n");
+        let source = format!(
+            "def main() -> Result[(), IoError]:\n    mut count = 0\n    mut change = def [&mut count]() -> ():\n        count = count + 1\n    {access}\n    change()\n    Ok(())\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
     }
@@ -63,7 +65,9 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn shared_capture_loans_survive_moves_and_control_flow() {
     for action in ["values.append(2)?", "drop(values)"] {
-        let source = format!("def main() -> Result[(), AllocError | IoError]:\n    mut values = [1]?\n    read = def [&values]() -> i64:\n        len(values)\n    moved = read\n    {action}\n    print(moved())?\n    Ok(())\n");
+        let source = format!(
+            "def main() -> Result[(), AllocError | IoError]:\n    mut values = [1]?\n    read = def [&values]() -> i64:\n        len(values)\n    moved = read\n    {action}\n    print(moved())?\n    Ok(())\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
     }
@@ -144,12 +148,25 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn owned_captures_enforce_moves_and_explicit_lists() {
     for (body, expected) in [
-        ("values = [1]?\n    f = def [values]() -> i64:\n        len(values)\n    print(values)?", "moved"),
-        ("value = 1\n    f = def [value, value]() -> i64:\n        value", "duplicate closure capture"),
-        ("value = 1\n    f = def [value](value: i64) -> i64:\n        value", "parameter cannot shadow"),
-        ("values = [1]?\n    f = def [values]() -> list[i64]:\n        values", "cannot move out of a closure capture"),
+        (
+            "values = [1]?\n    f = def [values]() -> i64:\n        len(values)\n    print(values)?",
+            "moved",
+        ),
+        (
+            "value = 1\n    f = def [value, value]() -> i64:\n        value",
+            "duplicate closure capture",
+        ),
+        (
+            "value = 1\n    f = def [value](value: i64) -> i64:\n        value",
+            "parameter cannot shadow",
+        ),
+        (
+            "values = [1]?\n    f = def [values]() -> list[i64]:\n        values",
+            "cannot move out of a closure capture",
+        ),
     ] {
-        let source = format!("def main() -> Result[(), AllocError | IoError]:\n    {body}\n    Ok(())\n");
+        let source =
+            format!("def main() -> Result[(), AllocError | IoError]:\n    {body}\n    Ok(())\n");
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "expected {expected}: {error}");
     }

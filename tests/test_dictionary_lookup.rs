@@ -5,7 +5,8 @@ use support::assert_visible_stdout as native;
 
 #[test]
 fn lookup_distinguishes_missing_keys_from_zero_false_and_empty_values() {
-    native(r#"
+    native(
+        r#"
 numbers = {"zero": 0, "negative": -2}.unwrap()
 print(numbers.get("zero")).unwrap()
 print(numbers.get("negative")).unwrap()
@@ -20,12 +21,15 @@ print(text.get(2u8)).unwrap()
 print({1: 2.5f32}.unwrap().get(1)).unwrap()
 print({1: 3.5}.unwrap().get(1)).unwrap()
 print(numbers).unwrap()
-"#, "Option[i64].Some(0)\nOption[i64].Some(-2)\nOption[i64].Nothing\nOption[i64].Nothing\nOption[bool].Some(False)\nOption[str].Some(\"\")\nOption[str].Some(\"é\\0🙂\")\nOption[str].Nothing\nOption[f32].Some(2.5)\nOption[f64].Some(3.5)\n{\"zero\": 0, \"negative\": -2}");
+"#,
+        "Option[i64].Some(0)\nOption[i64].Some(-2)\nOption[i64].Nothing\nOption[i64].Nothing\nOption[bool].Some(False)\nOption[str].Some(\"\")\nOption[str].Some(\"é\\0🙂\")\nOption[str].Nothing\nOption[f32].Some(2.5)\nOption[f64].Some(3.5)\n{\"zero\": 0, \"negative\": -2}",
+    );
 }
 
 #[test]
 fn nested_options_results_and_immutable_enums_preserve_tags() {
-    native(r#"
+    native(
+        r#"
 enum Value:
     Empty
     Text(str)
@@ -39,7 +43,9 @@ print(results.get(1)).unwrap()
 print(results.get(2)).unwrap()
 print(values.get(1)).unwrap()
 print(values.get(2)).unwrap()
-"#, "Option[Option[str]].Some(Option[str].Nothing)\nOption[Option[str]].Some(Option[str].Some(\"hello\"))\nOption[Option[str]].Nothing\nOption[Result[(), i64]].Some(Result[(), i64].Ok(()))\nOption[Result[(), i64]].Some(Result[(), i64].Err(4))\nOption[Value].Some(Value.Empty)\nOption[Value].Some(Value.Text(\"hello\"))");
+"#,
+        "Option[Option[str]].Some(Option[str].Nothing)\nOption[Option[str]].Some(Option[str].Some(\"hello\"))\nOption[Option[str]].Nothing\nOption[Result[(), i64]].Some(Result[(), i64].Ok(()))\nOption[Result[(), i64]].Some(Result[(), i64].Err(4))\nOption[Value].Some(Value.Empty)\nOption[Value].Some(Value.Text(\"hello\"))",
+    );
 }
 
 #[test]
@@ -118,7 +124,8 @@ print(missing).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn lookup_and_result_retention_allocate_nothing() {
-    native(r#"
+    native(
+        r#"
 enum Value:
     Text(str)
 strings = {("na" + "me").unwrap(): ("A" + "da").unwrap()}.unwrap()
@@ -138,7 +145,9 @@ print(found).unwrap()
 print(again).unwrap()
 print(missing).unwrap()
 print(value).unwrap()
-"#, "Option[str].Some(\"Ada\")\nOption[str].Some(\"Ada\")\nOption[str].Nothing\nOption[Value].Some(Value.Text(\"Bea\"))");
+"#,
+        "Option[str].Some(\"Ada\")\nOption[str].Some(\"Ada\")\nOption[str].Nothing\nOption[Value].Some(Value.Text(\"Bea\"))",
+    );
 }
 
 #[test]

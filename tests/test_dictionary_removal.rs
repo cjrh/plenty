@@ -5,7 +5,8 @@ use support::assert_visible_stdout as native;
 
 #[test]
 fn pop_transfers_lists_and_preserves_order_on_reinsertion() {
-    native(r#"
+    native(
+        r#"
 mut values = {"a": [1].unwrap(), "b": [2].unwrap(), "c": [3].unwrap()}.unwrap()
 match values.pop("b"):
     case Some(items):
@@ -21,7 +22,9 @@ print(values.pop("b")).unwrap()
 print(values.pop("c")).unwrap()
 print(values.pop("c")).unwrap()
 print(len(values)).unwrap()
-"#, "{\"a\": [1], \"c\": [3], \"b\": [2, 4]}\nOption[list[i64]].Nothing\nOption[list[i64]].Some([1])\nOption[list[i64]].Some([2, 4])\nOption[list[i64]].Some([3])\nOption[list[i64]].Nothing\n0");
+"#,
+        "{\"a\": [1], \"c\": [3], \"b\": [2, 4]}\nOption[list[i64]].Nothing\nOption[list[i64]].Some([1])\nOption[list[i64]].Some([2, 4])\nOption[list[i64]].Some([3])\nOption[list[i64]].Nothing\n0",
+    );
 }
 
 #[test]
@@ -48,7 +51,8 @@ print("done").unwrap()
 
 #[test]
 fn borrowed_fields_keys_and_key_expression_are_supported() {
-    native(r#"
+    native(
+        r#"
 class Storage:
     values: dict[str, str]
 def take(values: &mut dict[str, str], key: &str) -> Option[str]:
@@ -66,7 +70,9 @@ name = "missing"
 print(take(&mut storage.values, &name)).unwrap()
 print(name).unwrap()
 print(Custom().pop(42)).unwrap()
-"#, "Option[str].Some(\"value\")\nkey\nOption[str].Some(\"b\")\nOption[str].Nothing\nmissing\n42");
+"#,
+        "Option[str].Some(\"value\")\nkey\nOption[str].Some(\"b\")\nOption[str].Nothing\nmissing\n42",
+    );
 }
 
 #[test]

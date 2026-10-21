@@ -72,7 +72,7 @@ thread_local! {
     static CALLER: std::cell::Cell<*const Site> = const { std::cell::Cell::new(std::ptr::null()) };
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn plenty_caller_enter(site: *const Site) -> *const Site {
     CALLER.with(|caller| {
         let old = caller.get();
@@ -83,7 +83,7 @@ extern "C" fn plenty_caller_enter(site: *const Site) -> *const Site {
     })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn plenty_caller_leave(site: *const Site) {
     CALLER.with(|caller| caller.set(site));
 }
@@ -125,7 +125,7 @@ fn caller() -> Option<Position> {
 /// none. Standard-library code reaches it as `__caller_location`; see "Caller
 /// locations" in the errors reference. Formats straight to standard error, so
 /// it never allocates.
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn plenty_write_caller_location() -> u8 {
     match caller() {
         Some(position) => {
@@ -150,10 +150,10 @@ fn fail_at(site: *const Site, message: std::fmt::Arguments) -> ! {
         eprintln!("error: {}: {message}", Position(site));
     }
     // SAFETY: a non-null site is a record in the compiler's site table.
-    if unsafe { site.as_ref() }.is_some_and(|at| at.standard_library != 0) {
-        if let Some(caller) = caller() {
-            eprintln!("note: called from {caller}");
-        }
+    if unsafe { site.as_ref() }.is_some_and(|at| at.standard_library != 0)
+        && let Some(caller) = caller()
+    {
+        eprintln!("note: called from {caller}");
     }
     std::process::exit(1)
 }
@@ -161,12 +161,12 @@ fn fail_at(site: *const Site, message: std::fmt::Arguments) -> ! {
 // Cargo tests provide their own entry point. The compiler's packaged archive
 // instead exports the system entry point and calls the Cranelift object.
 #[cfg(plenty_runtime_embedded)]
-extern "C" {
+unsafe extern "C" {
     fn plenty_main() -> i32;
 }
 
 #[cfg(plenty_runtime_embedded)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// Native entry point for a compiled Plenty executable.
 ///
 /// # Safety

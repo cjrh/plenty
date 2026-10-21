@@ -8,7 +8,7 @@
 //! byte buffer, so every operation first checks the object's destructor and
 //! stops the process on anything else. Finishing and destruction both
 //! overwrite the hasher, which holds the HMAC key's padded forms.
-use super::byte_storage::{range, result, size, Storage};
+use super::byte_storage::{Storage, range, result, size};
 use crate::memory::{self, AllocError, Header};
 use crate::strings;
 use hmac::{Hmac, Mac};

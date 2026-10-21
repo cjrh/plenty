@@ -45,7 +45,10 @@ print(d).unwrap()
     "print([1i8, -2i8, 127i8].unwrap()).unwrap()\nprint([255u8, 0u8].unwrap()).unwrap()",
     "[1, -2, 127]\n[255, 0]\n"
 )]
-#[case("print([[1, 2].unwrap(), [3].unwrap()].unwrap()).unwrap()\nprint([[1].unwrap(), [2].unwrap()].unwrap()[-1][0]).unwrap()", "[[1, 2], [3]]\n2\n")]
+#[case(
+    "print([[1, 2].unwrap(), [3].unwrap()].unwrap()).unwrap()\nprint([[1].unwrap(), [2].unwrap()].unwrap()[-1][0]).unwrap()",
+    "[[1, 2], [3]]\n2\n"
+)]
 #[case(
     "print({'a': 1, 'b': 2, 'a': 3}.unwrap()).unwrap()",
     "{\"a\": 3, \"b\": 2}\n"
@@ -54,7 +57,10 @@ print(d).unwrap()
     "print(len({1, 1, 2}.unwrap())).unwrap()\nprint(2 in {1, 2}.unwrap()).unwrap()\nprint(3 not in {1, 2}.unwrap()).unwrap()",
     "2\nTrue\nTrue\n"
 )]
-#[case("xs: list[i64] = [].unwrap()\nd: dict[str, i64] = {}.unwrap()\ns: set[i64] = set().unwrap()\nprint(xs).unwrap()\nprint(d).unwrap()\nprint(s).unwrap()", "[]\n{}\nset()\n")]
+#[case(
+    "xs: list[i64] = [].unwrap()\nd: dict[str, i64] = {}.unwrap()\ns: set[i64] = set().unwrap()\nprint(xs).unwrap()\nprint(d).unwrap()\nprint(s).unwrap()",
+    "[]\n{}\nset()\n"
+)]
 #[case(
     "print(list[i32]().unwrap()).unwrap()\nprint(dict[str, list[i64]]().unwrap()).unwrap()\nprint(set[str]().unwrap()).unwrap()",
     "[]\n{}\nset()\n"
@@ -63,7 +69,10 @@ print(d).unwrap()
     "type Values = list[i64]\ndef empty() -> Values:\n    [].unwrap()\nprint(empty()).unwrap()",
     "[]\n"
 )]
-#[case("type Values = list[Count]\ntype Count = i64\ndef twice(xs: Values) -> Values:\n    [x * 2 for x in xs].unwrap()\nprint(twice([1, 2].unwrap())).unwrap()", "[2, 4]\n")]
+#[case(
+    "type Values = list[Count]\ntype Count = i64\ndef twice(xs: Values) -> Values:\n    [x * 2 for x in xs].unwrap()\nprint(twice([1, 2].unwrap())).unwrap()",
+    "[2, 4]\n"
+)]
 #[case(
     "def empty() -> list[i64]:\n    return [].unwrap()\nprint(empty()).unwrap()",
     "[]\n"
@@ -110,13 +119,22 @@ print(d).unwrap()
     "for x in [1, 2].unwrap():\n    for y in [3, 4].unwrap():\n        print(x + y).unwrap()",
     "4\n5\n5\n6\n"
 )]
-#[case("d = {'a': 1, 'b': 2}.unwrap()\nfor key in &d:\n    print(key).unwrap()\n    print(d[key]).unwrap()\nprint(d.keys().unwrap()).unwrap()\nprint(d.values().unwrap()).unwrap()", "a\n1\nb\n2\n[\"a\", \"b\"]\n[1, 2]\n")]
+#[case(
+    "d = {'a': 1, 'b': 2}.unwrap()\nfor key in &d:\n    print(key).unwrap()\n    print(d[key]).unwrap()\nprint(d.keys().unwrap()).unwrap()\nprint(d.values().unwrap()).unwrap()",
+    "a\n1\nb\n2\n[\"a\", \"b\"]\n[1, 2]\n"
+)]
 #[case(
     "for c in 'hé🙂':\n    print(c).unwrap()\nprint(len('hé🙂')).unwrap()\nprint('hé🙂'[-1]).unwrap()",
     "h\né\n🙂\n3\n🙂\n"
 )]
-#[case("print(list(range(5, -2, -2)).unwrap()).unwrap()\nprint(len(range(5, 0))).unwrap()\nprint(3 in range(1, 8, 2)).unwrap()\nprint(4 not in range(1, 8, 2)).unwrap()", "[5, 3, 1, -1]\n0\nTrue\nTrue\n")]
-#[case("print(list(range(9223372036854775806, 9223372036854775807)).unwrap()).unwrap()\nprint(list(range(0, -9223372036854775808, -9223372036854775808)).unwrap()).unwrap()", "[9223372036854775806]\n[0]\n")]
+#[case(
+    "print(list(range(5, -2, -2)).unwrap()).unwrap()\nprint(len(range(5, 0))).unwrap()\nprint(3 in range(1, 8, 2)).unwrap()\nprint(4 not in range(1, 8, 2)).unwrap()",
+    "[5, 3, 1, -1]\n0\nTrue\nTrue\n"
+)]
+#[case(
+    "print(list(range(9223372036854775806, 9223372036854775807)).unwrap()).unwrap()\nprint(list(range(0, -9223372036854775808, -9223372036854775808)).unwrap()).unwrap()",
+    "[9223372036854775806]\n[0]\n"
+)]
 #[case(
     "print(range(2, 8, 2)[-1]).unwrap()\nprint(range(3, 0) == range(0)).unwrap()",
     "6\nTrue\n"
@@ -145,12 +163,30 @@ print(d).unwrap()
     "mut xs = [[1].unwrap()].unwrap()\nmut child = copy(xs[0]).unwrap()\nchild.append(2).unwrap()\nprint(xs).unwrap()\nxs[0] = child\nprint(xs).unwrap()",
     "[[1]]\n[[1, 2]]\n"
 )]
-#[case("def changed(xs: list[i64]) -> list[i64]:\n    mut result = xs\n    result.append(2).unwrap()\n    result\na = [1].unwrap()\nprint(changed(copy(a).unwrap())).unwrap()\nprint(a).unwrap()", "[1, 2]\n[1]\n")]
-#[case("print([1, 2].unwrap() == [1, 2].unwrap()).unwrap()\nprint([[1].unwrap()].unwrap() != [[2].unwrap()].unwrap()).unwrap()\nprint({'a': 1, 'b': 2}.unwrap() == {'b': 2, 'a': 1}.unwrap()).unwrap()\nprint({1, 2}.unwrap() == {2, 1}.unwrap()).unwrap()", "True\nTrue\nTrue\nTrue\n")]
-#[case("print([1].unwrap() in [[1].unwrap(), [2].unwrap()].unwrap()).unwrap()\nprint('é' in 'héllo').unwrap()", "True\nTrue\n")]
-#[case("def find(xs: list[i64]) -> i64:\n    for x in xs:\n        if x > 2:\n            return x\n    -1\nprint(find([1, 3, 4].unwrap())).unwrap()\nprint(find([].unwrap())).unwrap()", "3\n-1\n")]
-#[case("def f(n: i64) -> i64:\n    for x in range(1):\n        if n > 0:\n            return f(n - 1)\n    42\nprint(f(100_000)).unwrap()", "42\n")]
-#[case("def source() -> list[i64]:\n    print('source').unwrap()\n    [1, 2].unwrap()\ndef item(n: i64) -> i64:\n    print(n).unwrap()\n    n\nprint([item(x) for x in source() if x > 1].unwrap()).unwrap()", "source\n2\n[2]\n")]
+#[case(
+    "def changed(xs: list[i64]) -> list[i64]:\n    mut result = xs\n    result.append(2).unwrap()\n    result\na = [1].unwrap()\nprint(changed(copy(a).unwrap())).unwrap()\nprint(a).unwrap()",
+    "[1, 2]\n[1]\n"
+)]
+#[case(
+    "print([1, 2].unwrap() == [1, 2].unwrap()).unwrap()\nprint([[1].unwrap()].unwrap() != [[2].unwrap()].unwrap()).unwrap()\nprint({'a': 1, 'b': 2}.unwrap() == {'b': 2, 'a': 1}.unwrap()).unwrap()\nprint({1, 2}.unwrap() == {2, 1}.unwrap()).unwrap()",
+    "True\nTrue\nTrue\nTrue\n"
+)]
+#[case(
+    "print([1].unwrap() in [[1].unwrap(), [2].unwrap()].unwrap()).unwrap()\nprint('é' in 'héllo').unwrap()",
+    "True\nTrue\n"
+)]
+#[case(
+    "def find(xs: list[i64]) -> i64:\n    for x in xs:\n        if x > 2:\n            return x\n    -1\nprint(find([1, 3, 4].unwrap())).unwrap()\nprint(find([].unwrap())).unwrap()",
+    "3\n-1\n"
+)]
+#[case(
+    "def f(n: i64) -> i64:\n    for x in range(1):\n        if n > 0:\n            return f(n - 1)\n    42\nprint(f(100_000)).unwrap()",
+    "42\n"
+)]
+#[case(
+    "def source() -> list[i64]:\n    print('source').unwrap()\n    [1, 2].unwrap()\ndef item(n: i64) -> i64:\n    print(n).unwrap()\n    n\nprint([item(x) for x in source() if x > 1].unwrap()).unwrap()",
+    "source\n2\n[2]\n"
+)]
 #[case(
     "def key(n: i64) -> i64:\n    print(n).unwrap()\n    n\nprint({key(1): key(2), key(1): key(3)}.unwrap()).unwrap()",
     "1\n2\n1\n3\n{1: 3}\n"
@@ -240,7 +276,9 @@ fn runtime_errors(#[case] source: &str, #[case] diagnostic: &str) {
 
 #[test]
 fn large_builders_and_hash_tables() {
-    let output = support::run("xs = [x for x in range(10_000)].unwrap()\nd = {*x: x + 1 for x in &xs}.unwrap()\ns = set(copy(xs).unwrap()).unwrap()\nprint(len(xs)).unwrap()\nprint(d[9999]).unwrap()\nprint(9999 in s).unwrap()");
+    let output = support::run(
+        "xs = [x for x in range(10_000)].unwrap()\nd = {*x: x + 1 for x in &xs}.unwrap()\ns = set(copy(xs).unwrap()).unwrap()\nprint(len(xs)).unwrap()\nprint(d[9999]).unwrap()\nprint(9999 in s).unwrap()",
+    );
     assert!(
         output.status.success(),
         "{}",
@@ -258,9 +296,18 @@ fn large_builders_and_hash_tables() {
     "print(-7 % 3).unwrap()\nprint(7 % -3).unwrap()\nprint(-7 % -3).unwrap()\nprint(-128i8 % -1i8).unwrap()\nprint(255u8 % 2u8).unwrap()",
     "2\n-2\n-1\n0\n1\n"
 )]
-#[case("print(list[i64]([1, 2].unwrap()).unwrap()).unwrap()\nprint(set[i64]([1, 1].unwrap()).unwrap()).unwrap()", "[1, 2]\n{1}\n")]
-#[case("d = {True: 1, False: 2}.unwrap()\nprint(d[True]).unwrap()\nprint(d[False]).unwrap()\nprint({-128i8: 2}.unwrap()[-128i8]).unwrap()\nprint({18446744073709551615u64: 3}.unwrap()[18446744073709551615u64]).unwrap()", "1\n2\n2\n3\n")]
-#[case("def f(xs: list[i64]) -> list[i64]:\n    if len(xs) == 0:\n        return [].unwrap()\n    [x * 2 for x in xs].unwrap()\nprint(f([].unwrap())).unwrap()\nprint(f([2].unwrap())).unwrap()", "[]\n[4]\n")]
+#[case(
+    "print(list[i64]([1, 2].unwrap()).unwrap()).unwrap()\nprint(set[i64]([1, 1].unwrap()).unwrap()).unwrap()",
+    "[1, 2]\n{1}\n"
+)]
+#[case(
+    "d = {True: 1, False: 2}.unwrap()\nprint(d[True]).unwrap()\nprint(d[False]).unwrap()\nprint({-128i8: 2}.unwrap()[-128i8]).unwrap()\nprint({18446744073709551615u64: 3}.unwrap()[18446744073709551615u64]).unwrap()",
+    "1\n2\n2\n3\n"
+)]
+#[case(
+    "def f(xs: list[i64]) -> list[i64]:\n    if len(xs) == 0:\n        return [].unwrap()\n    [x * 2 for x in xs].unwrap()\nprint(f([].unwrap())).unwrap()\nprint(f([2].unwrap())).unwrap()",
+    "[]\n[4]\n"
+)]
 #[case(
     "type A = dict[str, B]\ntype B = list[i64]\nx: A = {'a': [1].unwrap()}.unwrap()\nprint(x).unwrap()",
     "{\"a\": [1]}\n"

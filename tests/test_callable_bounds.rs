@@ -44,7 +44,10 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n10\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n10\n"
+    );
 }
 
 #[test]
@@ -81,7 +84,9 @@ fn constrained_callbacks_cannot_erase_loans_or_mutation_permissions() {
         ("f: &F", "consume(&f)", "mutable"),
         ("f: &mut F, value: i64", "consume(&mut f, value)", "borrow"),
     ] {
-        let source = format!("def consume[F: Callable[[], i64]]({parameters}) -> i64:\n    f()\ndef main() -> ():\n    mut value = 0\n    mut f = def [&mut value]() -> i64:\n        value = value + 1\n        value\n    {call}\n    pass\n");
+        let source = format!(
+            "def consume[F: Callable[[], i64]]({parameters}) -> i64:\n    f()\ndef main() -> ():\n    mut value = 0\n    mut f = def [&mut value]() -> i64:\n        value = value + 1\n        value\n    {call}\n    pass\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }
@@ -148,7 +153,9 @@ def main() -> Result[(), IoError]:
 #[test]
 fn callable_bounds_validate_signatures_before_lowering_the_body() {
     for expression in ["1", "wrong"] {
-        let source = format!("def unused[F: Callable[[i64], i64]](f: F) -> ():\n    pass\ndef wrong(x: u8) -> u8:\n    x\ndef main() -> ():\n    unused({expression})\n");
+        let source = format!(
+            "def unused[F: Callable[[i64], i64]](f: F) -> ():\n    pass\ndef wrong(x: u8) -> u8:\n    x\ndef main() -> ():\n    unused({expression})\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("does not satisfy Callable"), "{error}");
     }

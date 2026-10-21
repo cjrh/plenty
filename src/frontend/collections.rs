@@ -143,10 +143,10 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
-        if let Expression::Index(base, index) = &ungroup(target).kind {
-            if let Some(class) = self.byte_place(base) {
-                return self.augment_byte(&class, (base, index), op, value, &target.at, ops);
-            }
+        if let Expression::Index(base, index) = &ungroup(target).kind
+            && let Some(class) = self.byte_place(base)
+        {
+            return self.augment_byte(&class, (base, index), op, value, &target.at, ops);
         }
         let ty = self.place_type(target).ok_or_else(|| {
             target.at.error("augmented assignment requires an existing writable binding, field, or collection element")
@@ -170,10 +170,13 @@ impl Lower<'_> {
         }
         let (_, read) =
             self.borrow_with_indices(target, false, &mut Some(read_indices.iter()), ops)?;
-        if let Some(list) = scalar_element_ref(ops) {
-            ops.push(Op::Collection(CollectionOp::ListScalarGetRef(list)));
-        } else {
-            ops.push(Op::ReadRef(ty.clone()));
+        match scalar_element_ref(ops) {
+            Some(list) => {
+                ops.push(Op::Collection(CollectionOp::ListScalarGetRef(list)));
+            }
+            _ => {
+                ops.push(Op::ReadRef(ty.clone()));
+            }
         }
         // Keep the shared loan through RHS evaluation: it permits observation
         // but prevents replacing or resizing the owner behind the saved path.
@@ -185,16 +188,19 @@ impl Lower<'_> {
         ops.push(Op::StoreLocal(result));
         ops.push(Op::UseLoan(read));
         let (_, write) = self.borrow_with_indices(target, true, &mut Some(indices.iter()), ops)?;
-        if let Some(list) = scalar_element_ref(ops) {
-            ops.extend([
-                Op::MoveLocal(result),
-                Op::Collection(CollectionOp::ListScalarSetRef(list)),
-                Op::Drop,
-            ]);
-        } else {
-            ops.push(Op::MoveLocal(result));
-            ops.push(Op::Swap);
-            ops.push(Op::WriteRef(ty));
+        match scalar_element_ref(ops) {
+            Some(list) => {
+                ops.extend([
+                    Op::MoveLocal(result),
+                    Op::Collection(CollectionOp::ListScalarSetRef(list)),
+                    Op::Drop,
+                ]);
+            }
+            _ => {
+                ops.push(Op::MoveLocal(result));
+                ops.push(Op::Swap);
+                ops.push(Op::WriteRef(ty));
+            }
         }
         ops.push(Op::UseLoan(write));
         Ok(())
@@ -534,9 +540,10 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         let mut hint = expected.clone();
-        if let Some(Ty::Enum(sum)) = &expected {
-            if sum.anonymous() {
-                let candidates: Option<Vec<Ty>> = match &ungroup(e).kind {
+        if let Some(Ty::Enum(sum)) = &expected
+            && sum.anonymous()
+        {
+            let candidates: Option<Vec<Ty>> = match &ungroup(e).kind {
                     Expression::Call(name, _) | Expression::Name(name)
                         if enums::prelude_variant(name) && !self.names.contains_key(name) =>
                     {
@@ -551,12 +558,11 @@ impl Lower<'_> {
                         .cloned().collect()),
                     _ => None,
                 };
-                if let Some(mut candidates) = candidates {
-                    if candidates.len() > 1 {
-                        return Err(e.at.error("ambiguous anonymous sum constructor context; construct a member with an explicit type first"));
-                    }
-                    hint = candidates.pop();
+            if let Some(mut candidates) = candidates {
+                if candidates.len() > 1 {
+                    return Err(e.at.error("ambiguous anonymous sum constructor context; construct a member with an explicit type first"));
                 }
+                hint = candidates.pop();
             }
         }
         let ty = self.expr_hinted(e, hint, ops)?;
@@ -963,10 +969,10 @@ impl Lower<'_> {
         let (_, loan) = self.borrow(base, mutable, ops)?;
         self.loans[loan].precise = false;
         for op in ops.iter_mut() {
-            if let Op::Loan(fact) = op {
-                if fact.id == loan {
-                    fact.precise = false;
-                }
+            if let Op::Loan(fact) = op
+                && fact.id == loan
+            {
+                fact.precise = false;
             }
         }
         ops.push(Op::ReadRef(ty.clone()));
@@ -1040,21 +1046,20 @@ impl Lower<'_> {
         hint: Option<Ty>,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
-        if let Expression::Call(function, args) = &ungroup(iterable).kind {
-            if matches!(function.as_str(), "enumerate" | "zip" | "reversed")
-                && !self.names.contains_key(function)
-                && !self.sigs.contains_key(function)
-                && !self.generics.templates.contains_key(function)
-                && !self.aliases.contains_key(function)
-            {
-                if function == "reversed" {
-                    let [source] = args.as_slice() else {
-                        return Err(iterable.at.error("reversed requires one iterable"));
-                    };
-                    return self.iteration_source(names, source, hint, true, ops);
-                }
-                return self.iteration_adapter(names, function, args, &iterable.at, ops);
+        if let Expression::Call(function, args) = &ungroup(iterable).kind
+            && matches!(function.as_str(), "enumerate" | "zip" | "reversed")
+            && !self.names.contains_key(function)
+            && !self.sigs.contains_key(function)
+            && !self.generics.templates.contains_key(function)
+            && !self.aliases.contains_key(function)
+        {
+            if function == "reversed" {
+                let [source] = args.as_slice() else {
+                    return Err(iterable.at.error("reversed requires one iterable"));
+                };
+                return self.iteration_source(names, source, hint, true, ops);
             }
+            return self.iteration_adapter(names, function, args, &iterable.at, ops);
         }
         self.iteration_source(names, iterable, hint, false, ops)
     }
@@ -1187,10 +1192,10 @@ impl Lower<'_> {
             let loan = loans[0];
             self.loans[loan].precise = false;
             for op in ops.iter_mut() {
-                if let Op::Loan(fact) = op {
-                    if fact.id == loan {
-                        fact.precise = false;
-                    }
+                if let Op::Loan(fact) = op
+                    && fact.id == loan
+                {
+                    fact.precise = false;
                 }
             }
             self.reference_locals.insert(plan.target, loan);
@@ -1823,32 +1828,32 @@ impl Lower<'_> {
             }
         }
         let (ty, loans) = self.observe(base, ops)?;
-        if let Ty::Enum(t) = &ty {
-            if t.tuple() {
-                let Expression::Number(n) = &ungroup(index).kind else {
-                    return Err(index
-                        .at
-                        .error("tuple index must be a nonnegative integer literal"));
-                };
-                let i = n.parse::<usize>().map_err(|_| {
-                    index
-                        .at
-                        .error("tuple index must be a nonnegative integer literal")
-                })?;
-                let value = t.get().variants[0]
-                    .fields
-                    .get(i)
-                    .ok_or_else(|| index.at.error("tuple index out of bounds"))?
-                    .clone();
-                if value.affine() {
-                    return Err(index
-                        .at
-                        .error("cannot move out of a tuple index; unpack the tuple instead"));
-                }
-                ops.push(Op::Enum(crate::sum::EnumOp::Field(t.clone(), 0, i)));
-                Self::end_reads(loans, ops);
-                return Ok(value);
+        if let Ty::Enum(t) = &ty
+            && t.tuple()
+        {
+            let Expression::Number(n) = &ungroup(index).kind else {
+                return Err(index
+                    .at
+                    .error("tuple index must be a nonnegative integer literal"));
+            };
+            let i = n.parse::<usize>().map_err(|_| {
+                index
+                    .at
+                    .error("tuple index must be a nonnegative integer literal")
+            })?;
+            let value = t.get().variants[0]
+                .fields
+                .get(i)
+                .ok_or_else(|| index.at.error("tuple index out of bounds"))?
+                .clone();
+            if value.affine() {
+                return Err(index
+                    .at
+                    .error("cannot move out of a tuple index; unpack the tuple instead"));
             }
+            ops.push(Op::Enum(crate::sum::EnumOp::Field(t.clone(), 0, i)));
+            Self::end_reads(loans, ops);
+            return Ok(value);
         }
         if let Some(class) = byte_buffers::byte_buffer(&ty) {
             let reads = self.byte_value_item(&class, index, &e.at, ops)?;
@@ -1865,7 +1870,7 @@ impl Lower<'_> {
             _ => {
                 return Err(base
                     .at
-                    .error("indexing requires list, dict, str, bytes, range, or Bytes"))
+                    .error("indexing requires list, dict, str, bytes, range, or Bytes"));
             }
         };
         if value.affine() {
@@ -1903,10 +1908,10 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
-        if let Expression::Index(base, index) = &ungroup(target).kind {
-            if let Some(class) = self.byte_place(base) {
-                return self.set_byte(&class, base, index, value, &target.at, ops);
-            }
+        if let Expression::Index(base, index) = &ungroup(target).kind
+            && let Some(class) = self.byte_place(base)
+        {
+            return self.set_byte(&class, base, index, value, &target.at, ops);
         }
         self.set_field(target, value, ops)
     }
@@ -2085,11 +2090,11 @@ impl Lower<'_> {
             }),
         ];
         let mut no = vec![Op::MoveLocal(fallback)];
-        if let Ty::Enum(t) = &result {
-            if convert {
-                yes.push(Op::Enum(crate::sum::EnumOp::New(t.clone(), 0)));
-                no.push(Op::Enum(crate::sum::EnumOp::New(t.clone(), 1)));
-            }
+        if let Ty::Enum(t) = &result
+            && convert
+        {
+            yes.push(Op::Enum(crate::sum::EnumOp::New(t.clone(), 0)));
+            no.push(Op::Enum(crate::sum::EnumOp::New(t.clone(), 1)));
         }
         ops.extend([
             Op::LoadLocal(source),
@@ -2145,14 +2150,14 @@ impl Lower<'_> {
             };
             return self.call_value(&field, args, ops);
         }
-        if name == "null" {
-            if let Some(ty @ Ty::ForeignPtr(_)) = self.qualified_type(base)? {
-                if !args.is_empty() {
-                    return Err(base.at.error("null takes no arguments"));
-                }
-                ops.push(Op::ForeignNull(ty.clone()));
-                return Ok(Some(ty));
+        if name == "null"
+            && let Some(ty @ Ty::ForeignPtr(_)) = self.qualified_type(base)?
+        {
+            if !args.is_empty() {
+                return Err(base.at.error("null takes no arguments"));
             }
+            ops.push(Op::ForeignNull(ty.clone()));
+            return Ok(Some(ty));
         }
         if name == "unwrap"
             && !self
@@ -2180,41 +2185,40 @@ impl Lower<'_> {
             return self.drop_job_method(base, args, ops);
         }
         if name == "new" {
-            if let Expression::Name(function) = &ungroup(base).kind {
-                if !self.names.contains_key(function)
-                    && self
-                        .generics
-                        .functions
-                        .get(function)
-                        .is_some_and(|f| f.yields)
-                {
-                    return self.call_named(function, args, &base.at, ops);
-                }
+            if let Expression::Name(function) = &ungroup(base).kind
+                && !self.names.contains_key(function)
+                && self
+                    .generics
+                    .functions
+                    .get(function)
+                    .is_some_and(|f| f.yields)
+            {
+                return self.call_named(function, args, &base.at, ops);
             }
-            if let Expression::Member(owner, variant, _) = &ungroup(base).kind {
-                if let Some(Ty::Enum(t)) = self.qualified_type(owner)? {
-                    if Ty::Enum(t.clone()).layout_depth() >= 64 {
-                        return Err(base
-                            .at
-                            .error("type nesting exceeds the implementation limit of 64"));
-                    }
-                    let definition = t.get();
-                    let nullary = definition
-                        .tag(variant)
-                        .is_some_and(|tag| definition.variants[tag].fields.is_empty());
-                    let result = self.variant(
-                        Ty::Enum(t.clone()),
-                        variant,
-                        if nullary && args.is_empty() {
-                            None
-                        } else {
-                            Some(args)
-                        },
-                        &base.at,
-                        ops,
-                    )?;
-                    return Ok(result);
+            if let Expression::Member(owner, variant, _) = &ungroup(base).kind
+                && let Some(Ty::Enum(t)) = self.qualified_type(owner)?
+            {
+                if Ty::Enum(t.clone()).layout_depth() >= 64 {
+                    return Err(base
+                        .at
+                        .error("type nesting exceeds the implementation limit of 64"));
                 }
+                let definition = t.get();
+                let nullary = definition
+                    .tag(variant)
+                    .is_some_and(|tag| definition.variants[tag].fields.is_empty());
+                let result = self.variant(
+                    Ty::Enum(t.clone()),
+                    variant,
+                    if nullary && args.is_empty() {
+                        None
+                    } else {
+                        Some(args)
+                    },
+                    &base.at,
+                    ops,
+                )?;
+                return Ok(result);
             }
         }
         if let Some(ty) = self.qualified_type(base)? {
@@ -2322,17 +2326,17 @@ impl Lower<'_> {
             }
             return self.variant(ty, name, Some(args), &base.at, ops);
         }
-        if let Some(ty) = self.place_type(base).map(classes::unbox) {
-            if classes::inherent_receiver(&ty) {
-                return self.class_method(
-                    base,
-                    classes::method_owner(&ty).unwrap(),
-                    name,
-                    None,
-                    args,
-                    ops,
-                );
-            }
+        if let Some(ty) = self.place_type(base).map(classes::unbox)
+            && classes::inherent_receiver(&ty)
+        {
+            return self.class_method(
+                base,
+                classes::method_owner(&ty).unwrap(),
+                name,
+                None,
+                args,
+                ops,
+            );
         }
         if self.place_type(base) == Some(Ty::File) {
             return self.file_method(base, name, args, ops);
@@ -2643,35 +2647,33 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        if let Ty::List(element) = &ty {
-            if matches!(name, "count" | "find" | "rfind") {
-                if !(element.is_int()
-                    || element.is_float()
-                    || matches!(**element, Ty::Bool | Ty::Str))
-                {
-                    return Err(base
-                        .at
-                        .error("list search supports integer, float, bool, and str elements"));
-                }
-                if args.len() != 1 {
-                    return Err(base
-                        .at
-                        .error(format!("{name} requires one element argument")));
-                }
-                let (actual, reads) =
-                    self.observe_expected(&args[0], Some((**element).clone()), ops)?;
-                self.same(Some(actual), Some((**element).clone()), &args[0].at)?;
-                let operation = match name {
-                    "count" => CollectionOp::ListCount(ty),
-                    "find" => CollectionOp::ListFind(ty),
-                    _ => CollectionOp::ListRFind(ty),
-                };
-                let (_, result) = operation.signature();
-                ops.push(Op::Collection(operation));
-                Self::end_reads(reads, ops);
-                Self::end_reads(loans, ops);
-                return Ok(Some(result));
+        if let Ty::List(element) = &ty
+            && matches!(name, "count" | "find" | "rfind")
+        {
+            if !(element.is_int() || element.is_float() || matches!(**element, Ty::Bool | Ty::Str))
+            {
+                return Err(base
+                    .at
+                    .error("list search supports integer, float, bool, and str elements"));
             }
+            if args.len() != 1 {
+                return Err(base
+                    .at
+                    .error(format!("{name} requires one element argument")));
+            }
+            let (actual, reads) =
+                self.observe_expected(&args[0], Some((**element).clone()), ops)?;
+            self.same(Some(actual), Some((**element).clone()), &args[0].at)?;
+            let operation = match name {
+                "count" => CollectionOp::ListCount(ty),
+                "find" => CollectionOp::ListFind(ty),
+                _ => CollectionOp::ListRFind(ty),
+            };
+            let (_, result) = operation.signature();
+            ops.push(Op::Collection(operation));
+            Self::end_reads(reads, ops);
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
         }
         if (name != "get" || ty == Ty::Str)
             && matches!(
@@ -3046,7 +3048,7 @@ impl Lower<'_> {
             _ => {
                 return Err(base
                     .at
-                    .error(format!("unsupported method `{name}` for {ty}")))
+                    .error(format!("unsupported method `{name}` for {ty}")));
             }
         };
         if args.len() != inputs.len() {

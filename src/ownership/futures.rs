@@ -1,5 +1,5 @@
 //! Local submission provenance for blocking future retrieval.
-use super::{graph, Hazard, Node, Op, Program, Site};
+use super::{Hazard, Node, Op, Program, Site, graph};
 use crate::executor::ExecutorOp;
 use crate::hash::HashSet;
 use crate::op::{Forward, TokenMark, Ty};
@@ -40,8 +40,15 @@ fn transparent(op: &Op) -> bool {
 /// Result at the start of `ops` (see `Generator::drop_job`), when there is
 /// one. The converted Result fails exactly when the submission failed.
 pub(super) fn after_drop_job(ops: &[Op]) -> Option<&[Op]> {
-    let [Op::StoreLocal(source), Op::LoadLocal(load), Op::Enum(EnumOp::Tag(_)), Op::PushInt(_), Op::Eq, Op::Match(arms), rest @ ..] =
-        ops
+    let [
+        Op::StoreLocal(source),
+        Op::LoadLocal(load),
+        Op::Enum(EnumOp::Tag(_)),
+        Op::PushInt(_),
+        Op::Eq,
+        Op::Match(arms),
+        rest @ ..,
+    ] = ops
     else {
         return None;
     };
@@ -178,7 +185,7 @@ impl Futures {
                 }
                 match (op, call) {
                     (Some(Op::Forwards(Forward::Arguments(start))), Some(id)) if *start == id => {
-                        continue
+                        continue;
                     }
                     (Some(Op::Executor(ExecutorOp::Submit(job, _))), _) => {
                         for hazard in Hazard::of(&job.input) {

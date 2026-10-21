@@ -40,7 +40,7 @@ mod native {
         restorer: usize,
     }
 
-    extern "C" {
+    unsafe extern "C" {
         fn sigaction(signal: i32, action: *const Action, previous: *mut Action) -> i32;
         fn socketpair(domain: i32, kind: i32, protocol: i32, pair: *mut i32) -> i32;
         fn send(fd: i32, data: *const u8, length: usize, flags: i32) -> isize;

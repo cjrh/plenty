@@ -2,7 +2,7 @@
 //! describes representations, not whether a reference outlives the current frame.
 use crate::hash::HashMap;
 use crate::op::{CompiledFn, ElifArm, FnSig, MatchArm, Op, Ty};
-use cranelift_codegen::ir::{types, Type};
+use cranelift_codegen::ir::{Type, types};
 use std::fmt;
 use std::sync::Arc;
 

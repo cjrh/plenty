@@ -1,6 +1,6 @@
 //! C output parameters become ordinary typed method results.
 use crate::exports::{
-    error_source, error_variants, handles, rebuild_error, result_payloads, Export, Interface,
+    Export, Interface, error_source, error_variants, handles, rebuild_error, result_payloads,
 };
 use crate::op::Ty;
 

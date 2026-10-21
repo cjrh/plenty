@@ -11,7 +11,7 @@
 //!
 //! zlib-rs is driven through its zlib-style calls (`__internal-api`), whose
 //! `init` reports allocation failure as `MemError` instead of aborting.
-use super::byte_storage::{range, result, Storage};
+use super::byte_storage::{Storage, range, result};
 use crate::memory::{self, AllocError, Header};
 use std::ffi::CStr;
 use std::ptr;

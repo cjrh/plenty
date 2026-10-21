@@ -127,7 +127,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | std.compress.CompressError | std.io.Partial | std.io.StreamError | std.io.CopyError]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | std.compress.CompressError | std.io.Partial | std.io.StreamError | std.io.CopyError]:\n{body}    Ok(())\n"
+    )
 }
 
 /// Runs the program with `input` on stdin and returns its raw stdout.

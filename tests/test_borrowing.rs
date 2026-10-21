@@ -27,7 +27,10 @@ use std::process::Command;
     "mut x = 3\nr = &mut x\n*r = 7\nprint(*r).unwrap()\nprint(x).unwrap()",
     "7\n7\n"
 )]
-#[case("mut a = [[1].unwrap()].unwrap()\nmut b = copy(a).unwrap()\nmut child = copy(b[0]).unwrap()\nchild.append(2).unwrap()\nb[0] = child\nprint(a).unwrap()\nprint(b).unwrap()", "[[1]]\n[[1, 2]]\n")]
+#[case(
+    "mut a = [[1].unwrap()].unwrap()\nmut b = copy(a).unwrap()\nmut child = copy(b[0]).unwrap()\nchild.append(2).unwrap()\nb[0] = child\nprint(a).unwrap()\nprint(b).unwrap()",
+    "[[1]]\n[[1, 2]]\n"
+)]
 #[case(
     "mut a = [1].unwrap()\nr = &mut a\ns = &r\nprint(s).unwrap()\nr.append(2).unwrap()\nprint(r).unwrap()",
     "[1]\n[1, 2]\n"
@@ -48,25 +51,46 @@ use std::process::Command;
     "mut a = [1].unwrap()\nr = &mut a\n*r = [2, 3].unwrap()\nprint(r).unwrap()\nprint(a).unwrap()",
     "[2, 3]\n[2, 3]\n"
 )]
-#[case("def add(xs: &mut list[i64]) -> ():\n    xs.append(len(xs)).unwrap()\ndef twice(xs: &mut list[i64]) -> ():\n    add(xs)\n    add(&mut xs)\nmut a = [7].unwrap()\ntwice(&mut a)\nprint(a).unwrap()", "[7, 1, 2]\n")]
-#[case("def count(xs: &list[i64]) -> i64:\n    mut n = 0\n    for x in xs:\n        n = n + x\n    n\na = [1, 2, 3].unwrap()\nprint(count(&a)).unwrap()\nprint(a).unwrap()", "6\n[1, 2, 3]\n")]
-#[case("def g() -> Generator[i64]:\n    yield 3\ndef advance(g: &mut Generator[i64]) -> Option[i64]:\n    next(g)\nmut it = g()\nprint(advance(&mut it)).unwrap()\nprint(next(it)).unwrap()", "Option[i64].Some(3)\nOption[i64].Nothing\n")]
-#[case("def g() -> Generator[i64]:\n    mut a = [1].unwrap()\n    r = &mut a\n    r.append(2).unwrap()\n    yield len(a)\n    yield 3\nprint(list(g()).unwrap()).unwrap()", "[2, 3]\n")]
+#[case(
+    "def add(xs: &mut list[i64]) -> ():\n    xs.append(len(xs)).unwrap()\ndef twice(xs: &mut list[i64]) -> ():\n    add(xs)\n    add(&mut xs)\nmut a = [7].unwrap()\ntwice(&mut a)\nprint(a).unwrap()",
+    "[7, 1, 2]\n"
+)]
+#[case(
+    "def count(xs: &list[i64]) -> i64:\n    mut n = 0\n    for x in xs:\n        n = n + x\n    n\na = [1, 2, 3].unwrap()\nprint(count(&a)).unwrap()\nprint(a).unwrap()",
+    "6\n[1, 2, 3]\n"
+)]
+#[case(
+    "def g() -> Generator[i64]:\n    yield 3\ndef advance(g: &mut Generator[i64]) -> Option[i64]:\n    next(g)\nmut it = g()\nprint(advance(&mut it)).unwrap()\nprint(next(it)).unwrap()",
+    "Option[i64].Some(3)\nOption[i64].Nothing\n"
+)]
+#[case(
+    "def g() -> Generator[i64]:\n    mut a = [1].unwrap()\n    r = &mut a\n    r.append(2).unwrap()\n    yield len(a)\n    yield 3\nprint(list(g()).unwrap()).unwrap()",
+    "[2, 3]\n"
+)]
 #[case(
     "mut a = [1].unwrap()\nr = &a\nif True:\n    print(r).unwrap()\nelse:\n    print(r).unwrap()\na.append(2).unwrap()\nprint(a).unwrap()",
     "[1]\n[1, 2]\n"
 )]
-#[case("mut a = [1].unwrap()\nmut n = 0\nwhile n < 3:\n    r = &a\n    print(len(r)).unwrap()\n    a.append(n).unwrap()\n    n = n + 1\nprint(a).unwrap()", "1\n2\n3\n[1, 0, 1, 2]\n")]
+#[case(
+    "mut a = [1].unwrap()\nmut n = 0\nwhile n < 3:\n    r = &a\n    print(len(r)).unwrap()\n    a.append(n).unwrap()\n    n = n + 1\nprint(a).unwrap()",
+    "1\n2\n3\n[1, 0, 1, 2]\n"
+)]
 #[case(
     "mut a = [1, 2].unwrap()\na[len(a) - 1] = len(a) + 1\nprint(a).unwrap()",
     "[1, 3]\n"
 )]
-#[case("type R = Result[list[i64], str]\na = R.Ok([1].unwrap())\nb = copy(a).unwrap()\nmatch b:\n    case R.Ok(items):\n        mut x = items\n        x.append(2).unwrap()\n        print(x).unwrap()\n    case R.Err(_):\n        pass\nprint(str.repr(a).unwrap()).unwrap()", "[1, 2]\nResult[list[i64], str].Ok([1])\n")]
+#[case(
+    "type R = Result[list[i64], str]\na = R.Ok([1].unwrap())\nb = copy(a).unwrap()\nmatch b:\n    case R.Ok(items):\n        mut x = items\n        x.append(2).unwrap()\n        print(x).unwrap()\n    case R.Err(_):\n        pass\nprint(str.repr(a).unwrap()).unwrap()",
+    "[1, 2]\nResult[list[i64], str].Ok([1])\n"
+)]
 #[case(
     "mut a: list[i64] = [].unwrap()\nfor n in range(20_000):\n    a.append(n).unwrap()\nprint(len(a)).unwrap()\nprint(a[-1]).unwrap()",
     "20000\n19999\n"
 )]
-#[case("type View = &list[i64]\ndef length(v: View) -> i64:\n    len(v)\na = [1, 2].unwrap()\nprint(length(&a)).unwrap()", "2\n")]
+#[case(
+    "type View = &list[i64]\ndef length(v: View) -> i64:\n    len(v)\na = [1, 2].unwrap()\nprint(length(&a)).unwrap()",
+    "2\n"
+)]
 #[case(
     "mut text = 'old'\nr = &mut text\n*r = ('new' + ' text').unwrap()\nprint(text).unwrap()",
     "new text\n"

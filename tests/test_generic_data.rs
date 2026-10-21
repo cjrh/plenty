@@ -3,7 +3,9 @@ use support::{check_source, run};
 
 #[test]
 fn integer_constraints_apply_to_class_and_enum_arguments() {
-    let output = run("class Counter[T: IntType]:\n    value: T\nenum Integer[T: IntType]:\n    Value(T)\ndef main() -> ():\n    print(Counter(3u8)).unwrap()\n    print(Integer[u16].Value(4)).unwrap()\n");
+    let output = run(
+        "class Counter[T: IntType]:\n    value: T\nenum Integer[T: IntType]:\n    Value(T)\ndef main() -> ():\n    print(Counter(3u8)).unwrap()\n    print(Integer[u16].Value(4)).unwrap()\n",
+    );
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
@@ -113,7 +115,9 @@ fn inference_rejects_conflicting_and_different_nominal_arguments() {
         ("Pair[u8, u16](1, 2)", "conflicting types"),
         ("Other[u8, u8](1, 2)", "does not match"),
     ] {
-        let source = format!("class Pair[A, B]:\n    a: A\n    b: B\nclass Other[A, B]:\n    a: A\n    b: B\ndef require[T](value: &Pair[T, T]) -> ():\n    pass\ndef main() -> ():\n    value = {actual}\n    require(&value)\n");
+        let source = format!(
+            "class Pair[A, B]:\n    a: A\n    b: B\nclass Other[A, B]:\n    a: A\n    b: B\ndef require[T](value: &Pair[T, T]) -> ():\n    pass\ndef main() -> ():\n    value = {actual}\n    require(&value)\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }
@@ -226,9 +230,18 @@ fn class_instance_method_errors_are_reported_at_the_requiring_use() {
     // All methods of an instance are checked when the instance is first
     // required, whether or not the failing one is called.
     for (code, at) in [
-        ("def main() -> Result[(), AllocError]:\n    a = Cell(1)\n    b = Cell([1, 2]?)\n    Ok(())\n", "8:9"),
-        ("def main() -> Result[(), AllocError]:\n    b = Cell[list[i64]]([1, 2]?)\n    b.get()\n    Ok(())\n", "7:9"),
-        ("def size(cell: &Cell[list[i64]]) -> i64:\n    1\n\ndef main() -> ():\n    pass\n", "6:17"),
+        (
+            "def main() -> Result[(), AllocError]:\n    a = Cell(1)\n    b = Cell([1, 2]?)\n    Ok(())\n",
+            "8:9",
+        ),
+        (
+            "def main() -> Result[(), AllocError]:\n    b = Cell[list[i64]]([1, 2]?)\n    b.get()\n    Ok(())\n",
+            "7:9",
+        ),
+        (
+            "def size(cell: &Cell[list[i64]]) -> i64:\n    1\n\ndef main() -> ():\n    pass\n",
+            "6:17",
+        ),
     ] {
         let error = plenty::check_source(&format!("{cell}\n{code}"))
             .unwrap_err()

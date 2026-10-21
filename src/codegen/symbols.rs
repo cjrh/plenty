@@ -275,10 +275,10 @@ pub(super) fn resolve(
         });
     }
     for reloc in relocs {
-        if let ModuleRelocTarget::User { namespace, index } = reloc.name {
-            if namespace == REQUESTED {
-                reloc.name = targets[index as usize].clone();
-            }
+        if let ModuleRelocTarget::User { namespace, index } = reloc.name
+            && namespace == REQUESTED
+        {
+            reloc.name = targets[index as usize].clone();
         }
     }
     Ok(())

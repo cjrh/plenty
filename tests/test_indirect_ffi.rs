@@ -18,14 +18,16 @@ void *fixture_address(void) { return (void *)&calculate; }
     )
     .unwrap();
     let object = root.join("fixture.o");
-    assert!(Command::new("cc")
-        .args(["-Wall", "-Wextra", "-Werror", "-c"])
-        .arg(root.join("fixture.c"))
-        .arg("-o")
-        .arg(&object)
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new("cc")
+            .args(["-Wall", "-Wextra", "-Werror", "-c"])
+            .arg(root.join("fixture.c"))
+            .arg("-o")
+            .arg(&object)
+            .status()
+            .unwrap()
+            .success()
+    );
     std::fs::write(root.join("native.plentyi"), r#"
 opaque Function
 extern def address() -> Function = "fixture_address"

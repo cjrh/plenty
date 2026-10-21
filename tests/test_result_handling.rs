@@ -7,7 +7,9 @@ use rstest::rstest;
 #[case("[1, 2]")]
 #[case("\"hello\" + \"world\"")]
 #[case("if True:\n        print(\"lost\")")]
-#[case("match Some(1):\n        case Some(_):\n            print(\"lost\")\n        case Nothing:\n            pass")]
+#[case(
+    "match Some(1):\n        case Some(_):\n            print(\"lost\")\n        case Nothing:\n            pass"
+)]
 #[case("for n in range(1):\n        print(n)")]
 #[case("while False:\n        print(\"lost\")")]
 #[case("with open(\"unused.txt\")? as file:\n        print(\"lost\")")]
@@ -192,7 +194,10 @@ def main() -> Result[(), AllocError | str | IoError]:
 "#,
     );
     assert!(output.status.success(), "{:?}", output);
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n4\nResult[i64, str].Err(\"debug\")\nOption[i64].Some(5)\nRecord(result=Result[i64, str].Ok(6))\n[Result[i64, str].Ok(7)]\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "3\n4\nResult[i64, str].Err(\"debug\")\nOption[i64].Some(5)\nRecord(result=Result[i64, str].Ok(6))\n[Result[i64, str].Ok(7)]\n"
+    );
 }
 
 #[test]

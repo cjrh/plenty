@@ -7,12 +7,12 @@
 //! worker count.
 use crate::hash::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
+use cranelift_codegen::Context;
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::Function;
 use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
-use cranelift_codegen::Context;
 use cranelift_frontend::FunctionBuilderContext;
 use cranelift_module::{FuncId, Module, ModuleReloc};
 use cranelift_object::{ObjectBuilder, ObjectModule};
@@ -156,7 +156,7 @@ impl Output {
 
     #[cfg_attr(feature = "profile", hotpath::measure)]
     pub(super) fn finish(self) -> cranelift_object::ObjectProduct {
-        use cranelift_object::object::{elf, FileFlags};
+        use cranelift_object::object::{FileFlags, elf};
         if let Some(cache) = &self.cache {
             cache.finish();
         }
@@ -434,7 +434,7 @@ mod tests {
     use crate::cache::CacheMode;
     use crate::value::Heap;
     use cranelift_codegen::ir::condcodes::IntCC;
-    use cranelift_codegen::ir::{self, types, AbiParam, InstBuilder, Signature, UserFuncName};
+    use cranelift_codegen::ir::{self, AbiParam, InstBuilder, Signature, UserFuncName, types};
     use cranelift_frontend::FunctionBuilder;
 
     fn targets() -> Targets {

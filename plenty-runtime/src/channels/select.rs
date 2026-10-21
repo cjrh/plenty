@@ -2,12 +2,12 @@
 //! waiter list; queue locks protect registration, notification and removal.
 //! A per-selection flag bridges queue inspection and condvar sleep without a
 //! global lock, allocator calls, or a missed notification window.
-use super::{core, Core, State};
+use super::{Core, State, core};
 use crate::{aggregates, aggregates::Type, deadline::Deadline, ranges};
 use std::{
     cell::UnsafeCell,
     marker::PhantomPinned,
-    pin::{pin, Pin},
+    pin::{Pin, pin},
     sync::{Condvar, Mutex},
 };
 

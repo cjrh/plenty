@@ -1,5 +1,5 @@
 //! Native C library packaging. Source visibility remains independent of exports.
-use crate::{exports::Interface, CompileOptions};
+use crate::{CompileOptions, exports::Interface};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;

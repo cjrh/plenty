@@ -5,7 +5,7 @@
 //! No user callback or destructor runs under a scheduler or future lock.
 use crate::aggregates::{self, Type};
 use crate::deadline::Deadline;
-use crate::memory::{self, plenty_release, plenty_retain, AllocError, Header};
+use crate::memory::{self, AllocError, Header, plenty_release, plenty_retain};
 use crate::{ranges, threads};
 use std::ffi::c_void;
 use std::sync::{Condvar, Mutex, MutexGuard};
@@ -478,7 +478,7 @@ unsafe extern "C" fn destroy_job(header: *mut Header) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_executor(
     op: i64,
     args: *const u128,

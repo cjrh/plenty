@@ -1,4 +1,4 @@
-use crate::aggregates::{release, Type};
+use crate::aggregates::{Type, release};
 use crate::memory::{self, Header};
 use crate::ranges;
 
@@ -18,7 +18,7 @@ const _: () = assert!(std::mem::offset_of!(Generator, slots) == 64);
 /// Initialize caller-owned storage. Metadata describes all slots, including
 /// their inline payloads; captures are a packed prefix of ordinary value bits.
 /// No callback runs and no memory is allocated by this operation.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_generator_init(
     g: *mut Generator,
     resume: Resume,
@@ -89,7 +89,7 @@ unsafe fn slot_words(g: *const Generator) -> usize {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_generator_finish(g: *mut Generator) {
     // SAFETY: generated frames match this prefix; their managed mask is immortal.
     // Do not create a mutable Rust view across releases, which can call user code.

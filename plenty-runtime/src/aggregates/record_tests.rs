@@ -212,6 +212,11 @@ fn wide_tuple_traversal_benchmark() {
                 black_box(hashing::hash_with_key(black_box(a), &ty, &[0; 16]));
             }
         }
-        eprintln!("width={width} iterations={REPEATS} legacy_offsets_us={} running_offsets_us={} hash_equal_us={}", old.as_micros(), new.as_micros(), start.elapsed().as_micros());
+        eprintln!(
+            "width={width} iterations={REPEATS} legacy_offsets_us={} running_offsets_us={} hash_equal_us={}",
+            old.as_micros(),
+            new.as_micros(),
+            start.elapsed().as_micros()
+        );
     }
 }

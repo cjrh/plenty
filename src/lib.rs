@@ -9,7 +9,7 @@
 // Keep scoped measurements expression-shaped: `?`, early returns and borrows
 // retain their original behavior, and feature-disabled builds need no hotpath.
 macro_rules! profile_block {
-    ($label:literal, $body:expr) => {{
+    ($label:literal, $body:expr_2021) => {{
         #[cfg(feature = "profile")]
         {
             hotpath::measure_block!($label, $body)
@@ -95,8 +95,8 @@ mod value;
 /// Editor queries over a checked file, for the language server (issue #155).
 pub mod ide {
     pub use crate::frontend::ide::{
-        analyze, standard_modules, Analysis, Diagnostic, File, Location, Reference, Symbol,
-        SymbolKind,
+        Analysis, Diagnostic, File, Location, Reference, Symbol, SymbolKind, analyze,
+        standard_modules,
     };
 }
 
@@ -108,14 +108,14 @@ pub use codegen::{
     compile_source_to_object,
 };
 pub use library::{
-    compile_file_to_library, emit_runtime_interface, runtime_interface_source, LibraryArtifacts,
-    LibraryKind, LibraryOptions,
+    LibraryArtifacts, LibraryKind, LibraryOptions, compile_file_to_library, emit_runtime_interface,
+    runtime_interface_source,
 };
 pub use library_metadata::{
-    extract_library_interface, read_library_interfaces, verify_library_interface, LibraryInterface,
+    LibraryInterface, extract_library_interface, read_library_interfaces, verify_library_interface,
 };
 pub use toolchain::{
-    emit_runtime, find_libfuzzer, native_target, validate_target, CompileOptions, RuntimeArtifacts,
+    CompileOptions, RuntimeArtifacts, emit_runtime, find_libfuzzer, native_target, validate_target,
 };
 
 /// Parse and type-check a standalone modern Plenty binary without executing

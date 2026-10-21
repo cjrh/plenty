@@ -52,9 +52,18 @@ fn constraints_check_every_required_method_and_exact_signature() {
     let prefix = "protocol Readable:\n    def read(self) -> i64:\n        pass\ndef accepts[T: Readable](value: &T) -> ():\n    pass\n";
     for (declaration, expected) in [
         ("class Bad:\n    value: i64\n", "missing method `read`"),
-        ("class Bad:\n    value: i64\n    def read(self) -> str:\n        return 'bad'\n", "signature of `read`"),
-        ("class Bad:\n    value: i64\n    def read(self: &mut Bad) -> i64:\n        self.value\n", "signature of `read`"),
-        ("class Bad:\n    value: i64\n    def read(self, n: i64) -> i64:\n        n\n", "signature of `read`"),
+        (
+            "class Bad:\n    value: i64\n    def read(self) -> str:\n        return 'bad'\n",
+            "signature of `read`",
+        ),
+        (
+            "class Bad:\n    value: i64\n    def read(self: &mut Bad) -> i64:\n        self.value\n",
+            "signature of `read`",
+        ),
+        (
+            "class Bad:\n    value: i64\n    def read(self, n: i64) -> i64:\n        n\n",
+            "signature of `read`",
+        ),
     ] {
         for callee in ["accepts[Bad]", "accepts"] {
             let source = format!("{prefix}{declaration}x = Bad(1)\n{callee}(&x)");

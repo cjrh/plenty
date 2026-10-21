@@ -29,6 +29,10 @@ from different dependency graphs are not compared as if only Plenty changed.
 
 ## Rust build profiles
 
+Both workspace crates (`plenty` and `plenty-runtime`) use Rust edition 2024.
+The embedded runtime archives built directly by `build.rs` use the same edition;
+vendored third-party crates retain their upstream editions.
+
 Development and release builds disable incremental compilation. Workspace
 sources (`plenty` and `plenty-runtime`) retain line tables for backtraces with
 file names and line numbers; third-party dependencies emit no debug information.

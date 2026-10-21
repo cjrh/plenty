@@ -72,10 +72,11 @@ impl Lower<'_> {
         if let Some((call, propagate, drop_job)) = threads::spawn_expression(manager) {
             return self.with_thread(call, propagate, drop_job, name, body, ops);
         }
-        if let Expression::Method(base, method, args, _) = &ungroup(manager).kind {
-            if method == "cancel_on_exit" && self.token_place(base) {
-                return self.with_cancel(manager, base, args, name, body, ops);
-            }
+        if let Expression::Method(base, method, args, _) = &ungroup(manager).kind
+            && method == "cancel_on_exit"
+            && self.token_place(base)
+        {
+            return self.with_cancel(manager, base, args, name, body, ops);
         }
         let saved = self.names.clone();
         let start = self.locals.len();

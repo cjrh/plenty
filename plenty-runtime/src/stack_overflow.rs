@@ -70,7 +70,7 @@ const _: () = {
     assert!(std::mem::offset_of!(Context, registers) == 40);
 };
 
-extern "C" {
+unsafe extern "C" {
     fn sigaction(signal: i32, action: *const Action, previous: *mut Action) -> i32;
     fn sigaltstack(stack: *const SignalStack, previous: *mut SignalStack) -> i32;
     fn write(descriptor: i32, bytes: *const c_void, count: usize) -> isize;

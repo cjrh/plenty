@@ -90,7 +90,9 @@ fn unconstrained_generic_bodies_keep_private_access_lexical() {
         ("pub ", "source.value", "`Cell.value` is private"),
     ] {
         let api = format!("pub def read[T](source: &T) -> i64:\n    {operation}\n");
-        let main = format!("import api\n{visibility}class Cell:\n    value: i64\n    pub def read(self) -> i64:\n        self.value\n    def hidden(self) -> i64:\n        self.value\ndef main() -> Result[(), IoError]:\n    cell = Cell(7)\n    print(api.read(&cell))?\n    Ok(())\n");
+        let main = format!(
+            "import api\n{visibility}class Cell:\n    value: i64\n    pub def read(self) -> i64:\n        self.value\n    def hidden(self) -> i64:\n        self.value\ndef main() -> Result[(), IoError]:\n    cell = Cell(7)\n    print(api.read(&cell))?\n    Ok(())\n"
+        );
         let dir = workspace(&[("api.plenty", &api), ("main.plenty", &main)]);
         let error = plenty::check_file(&dir.path().join("main.plenty"), None)
             .unwrap_err()
@@ -101,7 +103,14 @@ fn unconstrained_generic_bodies_keep_private_access_lexical() {
             "{error}"
         );
     }
-    run(&[("main.plenty", "protocol Readable:\n    def read(self) -> i64:\n        pass\nclass Cell:\n    value: i64\n    def read(self) -> i64:\n        self.value\ndef read[T: Readable](source: &T) -> i64:\n    source.read()\ndef main() -> Result[(), IoError]:\n    cell = Cell(7)\n    print(read(&cell))?\n    Ok(())\n")], "main.plenty", "7\n");
+    run(
+        &[(
+            "main.plenty",
+            "protocol Readable:\n    def read(self) -> i64:\n        pass\nclass Cell:\n    value: i64\n    def read(self) -> i64:\n        self.value\ndef read[T: Readable](source: &T) -> i64:\n    source.read()\ndef main() -> Result[(), IoError]:\n    cell = Cell(7)\n    print(read(&cell))?\n    Ok(())\n",
+        )],
+        "main.plenty",
+        "7\n",
+    );
 }
 
 #[test]
@@ -135,28 +144,56 @@ def main() -> Result[(), AllocError | Error | IoError]:
 
 #[test]
 fn parameterized_protocols_are_explicit_imported_contracts() {
-    run(&[
-        ("api.plenty", "pub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def read[T, R: Readable[T]](source: &R) -> T:\n    source.read()\n"),
-        ("main.plenty", "import api\npub class Cell:\n    value: u8\n    pub def read(self) -> u8:\n        self.value\ndef main() -> Result[(), IoError]:\n    cell = Cell(7)\n    print(api.read(&cell))?\n    Ok(())\n"),
-    ], "main.plenty", "7\n");
+    run(
+        &[
+            (
+                "api.plenty",
+                "pub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def read[T, R: Readable[T]](source: &R) -> T:\n    source.read()\n",
+            ),
+            (
+                "main.plenty",
+                "import api\npub class Cell:\n    value: u8\n    pub def read(self) -> u8:\n        self.value\ndef main() -> Result[(), IoError]:\n    cell = Cell(7)\n    print(api.read(&cell))?\n    Ok(())\n",
+            ),
+        ],
+        "main.plenty",
+        "7\n",
+    );
     for api in [
         "class Hidden:\n    value: i64\npub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def use[R: Readable[Hidden]](source: &R) -> ():\n    pass\n",
         "protocol Hidden[T]:\n    def read(self) -> T:\n        pass\npub def use[T, R: Hidden[T]](source: &R) -> ():\n    pass\n",
     ] {
-        let dir = workspace(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> ():\n    pass\n")]);
-        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path())).unwrap_err().to_string();
+        let dir = workspace(&[
+            ("api.plenty", api),
+            ("main.plenty", "import api\ndef main() -> ():\n    pass\n"),
+        ]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path()))
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("private"), "{error}");
     }
 }
 
 #[test]
 fn channel_message_types_preserve_module_visibility_and_generic_inference() {
-    run(&[
-        ("messages.plenty", "pub def deliver[T](sender: &Sender[T], value: T) -> Result[(), SendError[T]]:\n    sender.send(value)\n"),
-        ("main.plenty", "import messages\ndef main() -> Result[(), ChannelError | SendError[u8] | RecvError | IoError]:\n    sender, receiver = channel[u8](1)?\n    messages.deliver(&sender, 7u8)?\n    print(receiver.recv()?)?\n    Ok(())\n"),
-    ], "main.plenty", "7\n");
+    run(
+        &[
+            (
+                "messages.plenty",
+                "pub def deliver[T](sender: &Sender[T], value: T) -> Result[(), SendError[T]]:\n    sender.send(value)\n",
+            ),
+            (
+                "main.plenty",
+                "import messages\ndef main() -> Result[(), ChannelError | SendError[u8] | RecvError | IoError]:\n    sender, receiver = channel[u8](1)?\n    messages.deliver(&sender, 7u8)?\n    print(receiver.recv()?)?\n    Ok(())\n",
+            ),
+        ],
+        "main.plenty",
+        "7\n",
+    );
     let dir = workspace(&[
-        ("api.plenty", "class Hidden:\n    value: i64\npub def receive(receiver: &Receiver[Hidden]) -> ():\n    pass\n"),
+        (
+            "api.plenty",
+            "class Hidden:\n    value: i64\npub def receive(receiver: &Receiver[Hidden]) -> ():\n    pass\n",
+        ),
         ("main.plenty", "import api\ndef main() -> ():\n    pass\n"),
     ]);
     let error = plenty::check_file(&dir.path().join("main.plenty"), None)
@@ -167,18 +204,38 @@ fn channel_message_types_preserve_module_visibility_and_generic_inference() {
 
 #[test]
 fn generic_data_imports_keep_methods_and_constructors_visible() {
-    run(&[
-        ("data.plenty", "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\npub enum Choice[T]:\n    Value(T)\npub def read[T](cell: &Cell[T]) -> T:\n    cell.get()\n"),
-        ("main.plenty", "import data\nfrom data import Cell as Crate\ndef main() -> Result[(), IoError]:\n    box = Crate(7u8)\n    print(data.read(&box))?\n    item = data.Choice[u8].Value(9)\n    match item:\n        case data.Choice.Value(value):\n            print(value)?\n    Ok(())\n"),
-    ], "main.plenty", "7\n9\n");
+    run(
+        &[
+            (
+                "data.plenty",
+                "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\npub enum Choice[T]:\n    Value(T)\npub def read[T](cell: &Cell[T]) -> T:\n    cell.get()\n",
+            ),
+            (
+                "main.plenty",
+                "import data\nfrom data import Cell as Crate\ndef main() -> Result[(), IoError]:\n    box = Crate(7u8)\n    print(data.read(&box))?\n    item = data.Choice[u8].Value(9)\n    match item:\n        case data.Choice.Value(value):\n            print(value)?\n    Ok(())\n",
+            ),
+        ],
+        "main.plenty",
+        "7\n9\n",
+    );
 }
 
 #[test]
 fn callable_data_constraints_preserve_imports_and_public_type_visibility() {
-    run(&[
-        ("handlers.plenty", "pub class Handler[T, F: Callable[[T], T]]:\n    pub callback: F\n    pub def call(self, value: T) -> T:\n        self.callback(value)\n"),
-        ("main.plenty", "from handlers import Handler\ndef main() -> Result[(), IoError]:\n    offset = 5u8\n    callback = def [offset](n: u8) -> u8:\n        n + offset\n    handler = Handler(callback)\n    print(handler.call(3))?\n    Ok(())\n"),
-    ], "main.plenty", "8\n");
+    run(
+        &[
+            (
+                "handlers.plenty",
+                "pub class Handler[T, F: Callable[[T], T]]:\n    pub callback: F\n    pub def call(self, value: T) -> T:\n        self.callback(value)\n",
+            ),
+            (
+                "main.plenty",
+                "from handlers import Handler\ndef main() -> Result[(), IoError]:\n    offset = 5u8\n    callback = def [offset](n: u8) -> u8:\n        n + offset\n    handler = Handler(callback)\n    print(handler.call(3))?\n    Ok(())\n",
+            ),
+        ],
+        "main.plenty",
+        "8\n",
+    );
     for declaration in [
         "pub class Handler[F: Callable[[Hidden], i64]]:\n    value: i64\n",
         "pub enum Job[F: OnceCallable[[], Hidden]]:\n    Empty\n",
@@ -228,14 +285,33 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn recursive_declarations_preserve_field_and_public_signature_privacy() {
     let api = "pub class Node:\n    pub value: i64\n    next: Option[Box[Node]]\npub def make() -> Result[Node, AllocError]:\n    Ok(Node(7, Nothing))\n";
-    run(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> Result[(), AllocError | IoError]:\n    node = api.make()?\n    print(node.value)?\n    Ok(())\n")], "main.plenty", "7\n");
-    let dir = workspace(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> Result[(), AllocError | IoError]:\n    node = api.make()?\n    drop(node.next)\n    Ok(())\n")]);
+    run(
+        &[
+            ("api.plenty", api),
+            (
+                "main.plenty",
+                "import api\ndef main() -> Result[(), AllocError | IoError]:\n    node = api.make()?\n    print(node.value)?\n    Ok(())\n",
+            ),
+        ],
+        "main.plenty",
+        "7\n",
+    );
+    let dir = workspace(&[
+        ("api.plenty", api),
+        (
+            "main.plenty",
+            "import api\ndef main() -> Result[(), AllocError | IoError]:\n    node = api.make()?\n    drop(node.next)\n    Ok(())\n",
+        ),
+    ]);
     let error = plenty::check_file(&dir.path().join("main.plenty"), None)
         .unwrap_err()
         .to_string();
     assert!(error.contains("private"), "{error}");
     let dir = workspace(&[
-        ("api.plenty", "class Hidden:\n    parent: Option[Box[Visible]]\npub class Visible:\n    pub hidden: Option[Box[Hidden]]\n"),
+        (
+            "api.plenty",
+            "class Hidden:\n    parent: Option[Box[Visible]]\npub class Visible:\n    pub hidden: Option[Box[Hidden]]\n",
+        ),
         ("main.plenty", "import api\ndef main() -> ():\n    pass\n"),
     ]);
     let error = plenty::check_file(&dir.path().join("main.plenty"), None)
@@ -257,8 +333,14 @@ fn generic_data_cannot_bypass_member_privacy() {
         "cell = data.make().unwrap()\n    cell.hidden()",
     ] {
         let dir = workspace(&[
-            ("data.plenty", "pub class Cell[T]:\n    value: T\n    def hidden(self) -> ():\n        pass\npub def make() -> Result[Cell[i64], AllocError]:\n    Ok(Cell(1))\n"),
-            ("main.plenty", &format!("import data\ndef main() -> ():\n    {body}\n    pass\n")),
+            (
+                "data.plenty",
+                "pub class Cell[T]:\n    value: T\n    def hidden(self) -> ():\n        pass\npub def make() -> Result[Cell[i64], AllocError]:\n    Ok(Cell(1))\n",
+            ),
+            (
+                "main.plenty",
+                &format!("import data\ndef main() -> ():\n    {body}\n    pass\n"),
+            ),
         ]);
         let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path()))
             .unwrap_err()
@@ -274,8 +356,13 @@ fn generic_public_signatures_preserve_nominal_and_phantom_privacy() {
         "class Hidden:\n    item: i64\npub class Marker[T]:\n    pub number: i64\npub type Leak = Marker[Hidden]\n",
         "class Hidden[T]:\n    item: T\npub enum Exposed[T]:\n    Value(Hidden[T])\n",
     ] {
-        let dir = workspace(&[("data.plenty", source), ("main.plenty", "import data\ndef main() -> ():\n    pass\n")]);
-        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path())).unwrap_err().to_string();
+        let dir = workspace(&[
+            ("data.plenty", source),
+            ("main.plenty", "import data\ndef main() -> ():\n    pass\n"),
+        ]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path()))
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("private"), "{error}");
     }
 }
@@ -287,40 +374,66 @@ fn public_protocol_signatures_cannot_expose_private_requirements() {
         "class Hidden:\n    value: i64\npub protocol Reader:\n    def read(self) -> Hidden:\n        pass\ndef main() -> ():\n    pass\n",
     ] {
         let dir = workspace(&[("main.plenty", source)]);
-        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path())).unwrap_err().to_string();
+        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path()))
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("private"), "{error}");
     }
 }
 
 #[test]
 fn function_values_keep_import_visibility_and_definition_scope() {
-    run(&[
-        ("api.plenty", "def hidden(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def make() -> Callable[[i64], i64]:\n    def(x: i64) -> i64:\n        hidden(x)\n"),
-        ("main.plenty", "import api\nfrom api import identity as keep\ndef main() -> Result[(), IoError]:\n    f = keep[u8]\n    print(f(7))?\n    print(api.make()(8))?\n    Ok(())\n"),
-    ], "main.plenty", "7\n9\n");
+    run(
+        &[
+            (
+                "api.plenty",
+                "def hidden(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def make() -> Callable[[i64], i64]:\n    def(x: i64) -> i64:\n        hidden(x)\n",
+            ),
+            (
+                "main.plenty",
+                "import api\nfrom api import identity as keep\ndef main() -> Result[(), IoError]:\n    f = keep[u8]\n    print(f(7))?\n    print(api.make()(8))?\n    Ok(())\n",
+            ),
+        ],
+        "main.plenty",
+        "7\n9\n",
+    );
     for api in [
         "class Hidden:\n    value: i64\npub def leak(callback: Callable[[Hidden], i64]) -> ():\n    pass\n",
         "class Hidden:\n    value: i64\npub def leak() -> Callable[[], Hidden]:\n    pass\n",
     ] {
-        let dir = workspace(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> ():\n    pass\n")]);
-        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path())).unwrap_err().to_string();
+        let dir = workspace(&[
+            ("api.plenty", api),
+            ("main.plenty", "import api\ndef main() -> ():\n    pass\n"),
+        ]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path()))
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("private"), "{error}");
     }
 }
 
 #[test]
 fn explicit_generics_resolve_imports_aliases_and_definition_scope() {
-    run(&[
-        ("maths.plenty", "def helper(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def bumped[T: IntType](x: T) -> i64:\n    helper(i64(x))\n"),
-        ("main.plenty", "import maths\nfrom maths import identity as keep\ntype Count = u8\ndef main() -> ():\n    print(keep[Count](7)).unwrap()\n    print(maths.identity[list[i64]]([1, 2].unwrap())).unwrap()\n    print(maths.bumped[u16](4)).unwrap()\n"),
-    ], "main.plenty", "7\n[1, 2]\n5\n");
+    run(
+        &[
+            (
+                "maths.plenty",
+                "def helper(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def bumped[T: IntType](x: T) -> i64:\n    helper(i64(x))\n",
+            ),
+            (
+                "main.plenty",
+                "import maths\nfrom maths import identity as keep\ntype Count = u8\ndef main() -> ():\n    print(keep[Count](7)).unwrap()\n    print(maths.identity[list[i64]]([1, 2].unwrap())).unwrap()\n    print(maths.bumped[u16](4)).unwrap()\n",
+            ),
+        ],
+        "main.plenty",
+        "7\n[1, 2]\n5\n",
+    );
 }
 
 #[test]
 fn protocol_imports_do_not_activate_methods_and_preserve_visibility() {
     let api = "pub protocol Readable:\n    def read(self) -> i64:\n        pass\npub def read[T: Readable](source: &T) -> i64:\n    source.read()\n";
-    let implementation =
-        "pub class Crate:\n    pub value: i64\n    pub def read(self) -> i64:\n        self.value\n";
+    let implementation = "pub class Crate:\n    pub value: i64\n    pub def read(self) -> i64:\n        self.value\n";
     let main = "import api\nfrom data import Crate\ndef main() -> ():\n    box = Crate(7)\n    print(box.read()).unwrap()\n    print(api.read[Crate](&box)).unwrap()\n";
     run(
         &[
@@ -489,10 +602,20 @@ fn reject(files: &[(&str, &str)], expected: &str) {
 
 #[test]
 fn absolute_imports_aliases_forward_calls_and_private_helpers() {
-    run(&[
-        ("app/main.plenty", "import math.arithmetic\nfrom math.arithmetic import twice as double\nimport math.arithmetic as numbers\ndef main() -> ():\n    print(math.arithmetic.twice(10)).unwrap()\n    print(double(11)).unwrap()\n    print(numbers.twice(12)).unwrap()\n"),
-        ("math/arithmetic.plenty", "pub def twice(n: i64) -> i64:\n    helper(n)\ndef helper(n: i64) -> i64:\n    n * 2\ndef main() -> ():\n    print('not an entrypoint').unwrap()\n"),
-    ], "app/main.plenty", "20\n22\n24\n");
+    run(
+        &[
+            (
+                "app/main.plenty",
+                "import math.arithmetic\nfrom math.arithmetic import twice as double\nimport math.arithmetic as numbers\ndef main() -> ():\n    print(math.arithmetic.twice(10)).unwrap()\n    print(double(11)).unwrap()\n    print(numbers.twice(12)).unwrap()\n",
+            ),
+            (
+                "math/arithmetic.plenty",
+                "pub def twice(n: i64) -> i64:\n    helper(n)\ndef helper(n: i64) -> i64:\n    n * 2\ndef main() -> ():\n    print('not an entrypoint').unwrap()\n",
+            ),
+        ],
+        "app/main.plenty",
+        "20\n22\n24\n",
+    );
 }
 
 #[test]
@@ -526,10 +649,17 @@ const MODEL: &str = "pub class Counter:\n    value: i64\n    pub def __init__(se
 
 #[test]
 fn public_methods_construction_and_private_drop_work_across_modules() {
-    run(&[
-        ("main.plenty", "from model import Counter, peek\ndef main() -> ():\n    mut counter = Counter(40)\n    counter.increment()\n    print(counter.get()).unwrap()\n    print(peek(&counter)).unwrap()\n"),
-        ("model.plenty", MODEL),
-    ], "main.plenty", "41\n41\n41\n");
+    run(
+        &[
+            (
+                "main.plenty",
+                "from model import Counter, peek\ndef main() -> ():\n    mut counter = Counter(40)\n    counter.increment()\n    print(counter.get()).unwrap()\n    print(peek(&counter)).unwrap()\n",
+            ),
+            ("model.plenty", MODEL),
+        ],
+        "main.plenty",
+        "41\n41\n41\n",
+    );
     for operation in [
         "print(c.value).unwrap()",
         "c.value = 42",
@@ -549,10 +679,20 @@ fn public_methods_construction_and_private_drop_work_across_modules() {
 
 #[test]
 fn public_fields_generated_constructors_and_qualified_enum_patterns() {
-    run(&[
-        ("main.plenty", "import model as m\nfrom model import Event as E, Count\ndef read(x: m.Event) -> i64:\n    match x:\n        case m.Event.Value(n):\n            n\n        case E.Empty:\n            0\ndef main() -> ():\n    mut p = m.Point(3)\n    p.x = 4\n    print(p.x).unwrap()\n    print(read(m.Event.Value(42))).unwrap()\n    n: Count = Count(7)\n    print(n).unwrap()\n"),
-        ("model.plenty", "pub type Count = u32\npub class Point:\n    pub x: i64\npub enum Event:\n    Value(i64)\n    Empty\n"),
-    ], "main.plenty", "4\n42\n7\n");
+    run(
+        &[
+            (
+                "main.plenty",
+                "import model as m\nfrom model import Event as E, Count\ndef read(x: m.Event) -> i64:\n    match x:\n        case m.Event.Value(n):\n            n\n        case E.Empty:\n            0\ndef main() -> ():\n    mut p = m.Point(3)\n    p.x = 4\n    print(p.x).unwrap()\n    print(read(m.Event.Value(42))).unwrap()\n    n: Count = Count(7)\n    print(n).unwrap()\n",
+            ),
+            (
+                "model.plenty",
+                "pub type Count = u32\npub class Point:\n    pub x: i64\npub enum Event:\n    Value(i64)\n    Empty\n",
+            ),
+        ],
+        "main.plenty",
+        "4\n42\n7\n",
+    );
 }
 
 #[test]
@@ -561,15 +701,31 @@ fn private_constructors_and_aliases_cannot_bypass_visibility() {
         "pub class Secret:\n    value: i64\n",
         "pub class Secret:\n    pub value: i64\n    def __init__(self, value: i64) -> ():\n        self.value = value\n",
     ] {
-        reject(&[
-            ("main.plenty", "from lib import Secret\ntype Alias = Secret\ndef main() -> ():\n    value = Alias(42).unwrap()\n"),
-            ("lib.plenty", body),
-        ], "__new__` is private");
+        reject(
+            &[
+                (
+                    "main.plenty",
+                    "from lib import Secret\ntype Alias = Secret\ndef main() -> ():\n    value = Alias(42).unwrap()\n",
+                ),
+                ("lib.plenty", body),
+            ],
+            "__new__` is private",
+        );
     }
-    run(&[
-        ("main.plenty", "from lib import make\ndef main() -> ():\n    value = make()\n    print(value.get()).unwrap()\n"),
-        ("lib.plenty", "pub class Secret:\n    value: i64\n    pub def get(self) -> i64:\n        self.value\npub def make() -> Secret:\n    Secret(42)\n"),
-    ], "main.plenty", "42\n");
+    run(
+        &[
+            (
+                "main.plenty",
+                "from lib import make\ndef main() -> ():\n    value = make()\n    print(value.get()).unwrap()\n",
+            ),
+            (
+                "lib.plenty",
+                "pub class Secret:\n    value: i64\n    pub def get(self) -> i64:\n        self.value\npub def make() -> Secret:\n    Secret(42)\n",
+            ),
+        ],
+        "main.plenty",
+        "42\n",
+    );
 }
 
 #[test]
@@ -717,11 +873,13 @@ fn cycles_collisions_and_source_root_boundaries_are_diagnosed() {
     let entry = dir.path().join("app/main.plenty");
     assert!(plenty::check_file(&entry, None).is_err());
     plenty::check_file(&entry, Some(dir.path())).unwrap();
-    assert!(plenty::check_file(
-        &dir.path().join("lib.plenty"),
-        Some(&dir.path().join("app"))
-    )
-    .is_err());
+    assert!(
+        plenty::check_file(
+            &dir.path().join("lib.plenty"),
+            Some(&dir.path().join("app"))
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -766,10 +924,20 @@ fn in_memory_api_imports_embedded_std_modules() {
 
 #[test]
 fn imported_generators_enums_and_tail_recursion_keep_their_identities() {
-    run(&[
-        ("main.plenty", "import data\ndef main() -> ():\n    for value in data.values():\n        match value:\n            case data.Reading.Value(n):\n                print(n).unwrap()\n            case data.Reading.Empty:\n                pass\n    print(data.count(100_000)).unwrap()\n"),
-        ("data.plenty", "pub enum Reading:\n    Value(i64)\n    Empty\npub def values() -> Generator[Reading]:\n    yield Reading.Value(42)\n    yield Reading.Empty\npub def count(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        count(n - 1)\n"),
-    ], "main.plenty", "42\n0\n");
+    run(
+        &[
+            (
+                "main.plenty",
+                "import data\ndef main() -> ():\n    for value in data.values():\n        match value:\n            case data.Reading.Value(n):\n                print(n).unwrap()\n            case data.Reading.Empty:\n                pass\n    print(data.count(100_000)).unwrap()\n",
+            ),
+            (
+                "data.plenty",
+                "pub enum Reading:\n    Value(i64)\n    Empty\npub def values() -> Generator[Reading]:\n    yield Reading.Value(42)\n    yield Reading.Empty\npub def count(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        count(n - 1)\n",
+            ),
+        ],
+        "main.plenty",
+        "42\n0\n",
+    );
 }
 
 #[test]
@@ -838,7 +1006,10 @@ fn imported_ownership_errors_retain_the_defining_source_path() {
 fn canonical_paths_deduplicate_symlinks_and_reject_root_escape() {
     use std::os::unix::fs::symlink;
     let dir = workspace(&[
-        ("main.plenty", "import original, alias\ndef main() -> ():\n    p: original.Point = alias.Point(42)\n    print(p.x).unwrap()\n"),
+        (
+            "main.plenty",
+            "import original, alias\ndef main() -> ():\n    p: original.Point = alias.Point(42)\n    print(p.x).unwrap()\n",
+        ),
         ("original.plenty", "pub class Point:\n    pub x: i64\n"),
     ]);
     symlink(
