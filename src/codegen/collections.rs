@@ -91,6 +91,30 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// Read a range value's first element, step, and count. A range value
+    /// addresses the runtime's `Range` payload (`plenty-runtime/src/ranges.rs`):
+    /// `start`, `stop`, and `step` words followed by the validated length.
+    /// `start` holds the element's bits, so truncating it restores a narrow
+    /// element.
+    pub(super) fn lower_range_parts(&mut self, element: &Ty) -> Result<()> {
+        let (range, _) = self.pop_typed(Ty::Range(Arc::new(element.clone())))?;
+        let flags = cranelift_codegen::ir::MemFlags::trusted();
+        let b = &mut self.bcx;
+        let start = b.ins().load(types::I64, flags, range, 0);
+        let step = b.ins().load(types::I64, flags, range, 16);
+        let length = b.ins().load(types::I64, flags, range, 24);
+        let native = clif_type(element.clone());
+        let start = if native == types::I64 {
+            start
+        } else {
+            b.ins().ireduce(native, start)
+        };
+        self.stack.push((start, element.clone()));
+        self.stack.push((step, Ty::I64));
+        self.stack.push((length, Ty::I64));
+        Ok(())
+    }
+
     /// `site` is the trap site of an operation that can trap.
     fn collection_call_at(
         &mut self,

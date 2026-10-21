@@ -927,6 +927,11 @@ pub enum Op {
     /// as constructing the range value. Counted `for` loops over a `range`
     /// call use this instead of a range value (issue #121).
     RangeLength(Ty),
+    /// Pop a `range[T]` value; push its first element (`T`), its `i64` step,
+    /// and its `i64` element count. The range was validated when it was
+    /// built, so this never fails. `for` loops over a stored range use this
+    /// to run the same counted loop as a direct `range` call (issue #371).
+    RangeParts(Ty),
     /// Read one newline-terminated line from stdin into the heap and push
     /// (line, got-line?). On EOF, line is the empty string and the Bool
     /// is `false`; the user is expected to discriminate via `match` on
@@ -2393,6 +2398,13 @@ fn step(
                 return Err(format!("range length requires ({element} {element} i64)").into());
             }
             stack.push(Ty::I64);
+        }
+        Op::RangeParts(element) => {
+            let range = stack.pop();
+            if !element.is_int() || range != Some(Ty::Range(Arc::new(element.clone()))) {
+                return Err(format!("range parts requires range[{element}]").into());
+            }
+            stack.extend([element.clone(), Ty::I64, Ty::I64]);
         }
         Op::CheckedCast(target) => {
             let top = stack.pop().ok_or("stack underflow on cast")?;

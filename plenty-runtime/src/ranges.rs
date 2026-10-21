@@ -10,6 +10,11 @@ pub(crate) struct Range {
     pub len: u64,
 }
 const _: () = assert!(size_of::<Range>() == 32);
+// Compiled loops over a stored range read these fields directly
+// (`lower_range_parts` in the compiler's codegen).
+const _: () = assert!(std::mem::offset_of!(Range, start) == 0);
+const _: () = assert!(std::mem::offset_of!(Range, step) == 16);
+const _: () = assert!(std::mem::offset_of!(Range, len) == 24);
 
 impl Range {
     #[cfg(test)]

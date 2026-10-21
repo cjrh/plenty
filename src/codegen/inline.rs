@@ -27,6 +27,9 @@ impl Lowerer<'_, '_> {
         if ty.flat_record() {
             return self.copy_flat_record(value, ty, destination);
         }
+        if matches!(ty, Ty::Range(_)) {
+            return self.copy_range(value, destination);
+        }
         // A null value word owns no inline payload, and the runtime returns
         // such a value unchanged. Testing it here keeps calls out of the
         // common payload-free cases, such as `Ok(())` returned as a
@@ -80,6 +83,34 @@ impl Lowerer<'_, '_> {
         let tags = self.high_word(value);
         let moved = self.bcx.ins().iconcat(destination, tags);
         self.bcx.ins().jump(done, &[moved.into()]);
+        self.bcx.switch_to_block(done);
+        self.bcx.seal_block(done);
+        self.bcx.block_params(done)[0]
+    }
+
+    /// Copy a range's payload: plain words with no internal addresses, as the
+    /// runtime's `copy_payload` treats them. Copying a stored range for a loop
+    /// or an argument then needs no runtime call (issue #371). A null value
+    /// word owns nothing and is not copied.
+    fn copy_range(&mut self, value: NativeValue, destination: NativeValue) -> NativeValue {
+        let copy = self.bcx.create_block();
+        let done = self.bcx.create_block();
+        self.bcx.append_block_param(done, PTR_TY);
+        self.bcx.ins().brif(value, copy, &[], done, &[value.into()]);
+        self.bcx.switch_to_block(copy);
+        self.bcx.seal_block(copy);
+        let config = self.module.target_config();
+        self.bcx.emit_small_memory_copy(
+            config,
+            destination,
+            value,
+            32,
+            8,
+            8,
+            false,
+            MemFlags::trusted(),
+        );
+        self.bcx.ins().jump(done, &[destination.into()]);
         self.bcx.switch_to_block(done);
         self.bcx.seal_block(done);
         self.bcx.block_params(done)[0]

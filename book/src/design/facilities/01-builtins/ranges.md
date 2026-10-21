@@ -3,8 +3,10 @@
 `range(stop)`, `range(start, stop)`, and `range(start, stop, step)` return
 `range[T]` directly. Stop is exclusive; omitted start is zero and omitted step
 is one. A range is a small copyable value: construction, passing, returning,
-standard-sum wrapping, and repeated iteration allocate nothing. Collecting its
-elements into a collection is fallible.
+standard-sum wrapping, and repeated iteration allocate nothing. Iterating a
+stored range is a [counted loop](../../language/09-iteration/01-iterables.md),
+like a direct `range(...)` source. Collecting its elements into a collection is
+fallible.
 
 `range[T](...)` selects any integer type. Start and stop have type `T`; step is
 always signed `i64`, permitting descending unsigned ranges. Without explicit type
