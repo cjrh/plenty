@@ -321,6 +321,7 @@
             - [Runtime loading](design/facilities/04-interop/loading.md)
             - [Trusted loading primitives](design/facilities/04-interop/loading-primitives.md)
     - [Standard library](design/stdlib/index.md)
+- [Signature index](design/stdlib/signatures.md)
         - [`std.archive`](design/stdlib/archive.md)
         - [`std.atomic`](design/stdlib/atomic.md)
         - [`std.bytes`](design/stdlib/bytes.md)

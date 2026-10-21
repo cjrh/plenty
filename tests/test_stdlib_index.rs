@@ -1,0 +1,214 @@
+//! The standard library signature index (issue #359) is generated from the
+//! public declarations the compiler's own editor analysis records for each
+//! `std` module, so it cannot drift from the sources. Module summaries come
+//! from the hand-written table in `design/stdlib/index.md`, whose rows must
+//! match the compiler's module list. Rewrite the page after a stdlib change:
+//!
+//! ```sh
+//! UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::
+//! ```
+use plenty::ide::{self, File, Symbol, SymbolKind};
+use std::path::{Path, PathBuf};
+
+const PAGE: &str = "design/stdlib/signatures.md";
+
+fn book_src() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("book/src")
+}
+
+struct Row {
+    module: String,
+    link: String,
+    contents: String,
+    errors: String,
+}
+
+/// The rows of the module table: ``| [`std.x`](x.md) | contents | errors |``.
+fn module_table() -> Vec<Row> {
+    let index = std::fs::read_to_string(book_src().join("design/stdlib/index.md")).unwrap();
+    index
+        .lines()
+        .filter(|line| line.starts_with("| [`std."))
+        .map(|line| {
+            let cells: Vec<&str> = line.split(" | ").collect();
+            assert_eq!(cells.len(), 3, "module table row needs three cells: {line}");
+            let (name, link) = cells[0]
+                .trim_start_matches("| [`")
+                .split_once("`](")
+                .unwrap_or_else(|| panic!("module cell needs a link: {line}"));
+            Row {
+                module: name.into(),
+                link: link.trim_end_matches(')').into(),
+                contents: cells[1].trim().into(),
+                errors: cells[2].trim_end_matches('|').trim().into(),
+            }
+        })
+        .collect()
+}
+
+/// The public declarations of `module`'s source, in source order, members
+/// indented under their class, enum, or protocol. An enum's variants share
+/// one line.
+fn declarations(module: &str, symbols: &[Symbol]) -> Vec<String> {
+    let file = File::Standard(format!("{}.plenty", module.replace('.', "/")));
+    let mut own: Vec<&Symbol> = symbols
+        .iter()
+        .filter(|s| s.location.as_ref().is_some_and(|l| l.file == file))
+        .collect();
+    own.sort_by_key(|s| {
+        let l = s.location.as_ref().unwrap();
+        (l.line, l.column)
+    });
+    let public = |s: &Symbol| s.declaration.starts_with("pub ");
+    let top = |s: &Symbol| {
+        s.name.rsplit_once('.').map(|(owner, _)| owner) == Some(module)
+            && matches!(
+                s.kind,
+                SymbolKind::Function
+                    | SymbolKind::Class
+                    | SymbolKind::Enum
+                    | SymbolKind::Protocol
+                    | SymbolKind::Constant
+                    | SymbolKind::TypeAlias
+            )
+    };
+    let owners: Vec<&Symbol> = own
+        .iter()
+        .copied()
+        .filter(|s| top(s) && public(s))
+        .collect();
+    let mut lines: Vec<String> = Vec::new();
+    let mut variants_of = None;
+    for symbol in &own {
+        let shown = symbol.declaration.trim_start_matches("pub ");
+        if owners.iter().any(|o| o.name == symbol.name) {
+            lines.push(shown.to_string());
+            variants_of = None;
+            continue;
+        }
+        if !matches!(
+            symbol.kind,
+            SymbolKind::Field | SymbolKind::Method | SymbolKind::Variant
+        ) {
+            continue;
+        }
+        let Some((owner, _)) = symbol.name.rsplit_once('.') else {
+            continue;
+        };
+        let Some(owner) = owners.iter().find(|o| o.name == owner) else {
+            continue;
+        };
+        // Variants and protocol requirements are public with their owner.
+        let member_public = public(symbol)
+            || symbol.kind == SymbolKind::Variant
+            || owner.kind == SymbolKind::Protocol;
+        if !member_public {
+            continue;
+        }
+        let variant = symbol.kind == SymbolKind::Variant;
+        match lines.last_mut() {
+            Some(line) if variant && variants_of == Some(&owner.name) => {
+                line.push_str(" | ");
+                line.push_str(shown);
+            }
+            _ => lines.push(format!("    {shown}")),
+        }
+        variants_of = variant.then_some(&owner.name);
+    }
+    lines
+}
+
+fn analyze(module: &str, dir: &Path) -> Vec<String> {
+    let path = dir.join(format!("{}.plenty", module.replace('.', "_")));
+    std::fs::write(&path, format!("import {module}\n")).unwrap();
+    let analysis = ide::analyze(&path, None, Default::default());
+    let messages: Vec<_> = analysis.diagnostics.iter().map(|d| &d.message).collect();
+    assert!(messages.is_empty(), "{module}: {messages:?}");
+    declarations(module, &analysis.symbols)
+}
+
+fn render(rows: &[Row], listings: &[Vec<String>], provided: &[Vec<&str>]) -> String {
+    let mut page = String::from(
+        "# Standard library signatures\n\n\
+         <!-- Generated by tests/test_stdlib_index.rs; do not edit. -->\n\n\
+         Every public declaration of each `std` module, one line each, so you can\n\
+         check that an operation exists and what it returns before reading its\n\
+         module page. The page states the contracts: ownership, allocation, error\n\
+         variants, and limits. `pub` is omitted. Fields, methods, and variants are\n\
+         indented under their owner. Summaries come from the\n\
+         [module table](index.md#modules).\n\n\
+         After changing a standard module, regenerate this page with\n\
+         `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.\n",
+    );
+    for ((row, lines), provided) in rows.iter().zip(listings).zip(provided) {
+        page.push_str(&format!("\n## `{}`\n\n{}.", row.module, row.contents));
+        if row.errors != "None" {
+            page.push_str(&format!(" Errors: {}.", row.errors));
+        }
+        page.push_str(&format!(" [Reference]({}).\n", row.link));
+        if !provided.is_empty() {
+            let names: Vec<String> = provided.iter().map(|n| format!("`{n}`")).collect();
+            page.push_str(&format!(
+                "\nCompiler-provided: {}. Their signatures are on the reference page.\n",
+                names.join(", ")
+            ));
+        }
+        if !lines.is_empty() {
+            page.push_str("\n```text\n");
+            for line in lines {
+                page.push_str(line);
+                page.push('\n');
+            }
+            page.push_str("```\n");
+        }
+    }
+    page
+}
+
+#[test]
+fn signature_index_matches_standard_sources() {
+    let rows = module_table();
+    let standard = ide::standard_modules();
+    let mut tabled: Vec<&str> = rows.iter().map(|r| r.module.as_str()).collect();
+    let mut known: Vec<&str> = standard.iter().map(|(name, _)| *name).collect();
+    tabled.sort_unstable();
+    known.sort_unstable();
+    assert_eq!(
+        tabled, known,
+        "design/stdlib/index.md's module table must list every standard module once"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let listings: Vec<Vec<String>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = rows
+            .iter()
+            .map(|row| {
+                let dir = dir.path();
+                std::thread::Builder::new()
+                    .stack_size(64 << 20)
+                    .spawn_scoped(scope, move || analyze(&row.module, dir))
+                    .unwrap()
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let provided: Vec<Vec<&str>> = rows
+        .iter()
+        .map(|row| {
+            let (_, names) = standard.iter().find(|(n, _)| *n == row.module).unwrap();
+            names.clone()
+        })
+        .collect();
+    let page = render(&rows, &listings, &provided);
+
+    let path = book_src().join(PAGE);
+    if std::env::var_os("UPDATE_STDLIB_INDEX").is_some() {
+        std::fs::write(&path, &page).unwrap();
+        return;
+    }
+    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        current == page,
+        "{PAGE} is out of date; rerun with UPDATE_STDLIB_INDEX=1 (see tests/test_stdlib_index.rs)"
+    );
+}

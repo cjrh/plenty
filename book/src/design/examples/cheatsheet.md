@@ -3,7 +3,8 @@
 A compact summary of everyday Plenty, for readers who already know Python. Every
 program on this page runs as a test, so the forms shown are current. Each
 section links to the reference, which remains authoritative. The
-[tutorial](../../tutorial/index.md) teaches the same material in order.
+[tutorial](../../tutorial/index.md) teaches the same material in order, and the
+[signature index](../stdlib/signatures.md) lists the standard library.
 
 ## Programs and printing
 

@@ -39,7 +39,9 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.http.proxy`](http-proxy.md) | The client address and scheme behind explicitly trusted reverse proxies; deployment guidance | `ProxyError` |
 | [`std.http.server`](http-server.md) | HTTP/1.1 server: routing, a bounded worker pool and admission queue, idle connections parked off the workers, per-phase deadlines, and graceful shutdown | `ServerError` |
 | [`std.http.tls`](http-server.md#https) | `std.http.server` over [`std.tls`](tls.md), with handshake deadlines | `ServerError` |
+| [`std.http.typed`](http-typed.md) | Fixed-length and close-delimited body readers over `std.io.typed` streams that keep the transport cause | `FramingError[E]` |
 | [`std.io`](io.md) | Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters | `StreamError`, `Partial`, `CopyError`, `CloseError` |
+| [`std.io.typed`](io-typed.md) | Byte stream protocols that carry a caller-chosen error type, adapters for `std.io` streams, and exact read, write, and copy helpers | `StepError[E]`, `Partial[E]`, `CopyFailure[R, W]` |
 | [`std.iter`](iter.md) | Allocation-free `map`, `filter`, `take`, `fold`, and `try_fold` over generators | None |
 | [`std.json`](json.md) | Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree | `JsonError` |
 | [`std.log`](log.md) | Leveled events with typed fields, delivered to caller-chosen sinks: logfmt lines, bounded memory, or a nonblocking channel | `LogError` |
@@ -50,6 +52,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.random`](random.md) | Caller-owned seeded generators with unbiased ranges, shuffling, and index sampling; not for secrets | `RandomError` |
 | [`std.ready`](ready.md) | Readiness waits on pipes and other handles, bounded by a deadline and a cancellation token | `WaitError` |
 | [`std.regex`](regex.md) | Linear-time regular expressions over text and bytes: search, captures, iteration, split, and replacement under explicit pattern, memory, and work limits | `RegexError` |
+| [`std.report`](report.md) | A bounded formatter for human-readable reports, to standard error or an owned collector | `FormatError` |
 | [`std.secrets`](secrets.md) | Operating-system entropy: secret bytes, hex and base64url tokens, and unbiased integers, with no fallback source | `SecretsError` |
 | [`std.signal`](signal.md) | `SIGTERM` and `SIGINT` as an event to wait or select on, and a helper that cancels a token on one | `SignalError`, `WaitError` |
 | [`std.sync`](sync.md) | Shared cooperative cancellation tokens | `AllocError` |
@@ -62,6 +65,9 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.toml`](toml.md) | Strict TOML 1.0 parsing into a value tree and writing back as text, under depth, input, and output limits | `TomlError` |
 | [`std.unicode`](unicode.md) | Unicode 17 normalization, combining classes, and Mark classification | `TextError` |
 | [`std.url`](url.md) | Strict RFC 3986 absolute URL parsing and formatting without normalization, component-aware percent encoding, and query pairs | `UrlError` |
+
+The generated [signature index](signatures.md) lists every public declaration
+of every module on one page.
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in
