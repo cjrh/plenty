@@ -215,6 +215,8 @@ mod test_large_functions;
 mod test_library_metadata;
 #[path = "test_library_publication.rs"]
 mod test_library_publication;
+#[path = "test_list_element_refs.rs"]
+mod test_list_element_refs;
 #[path = "test_list_fast_paths.rs"]
 mod test_list_fast_paths;
 #[path = "test_list_lookup.rs"]
@@ -329,6 +331,8 @@ mod test_set_operations;
 mod test_set_removal;
 #[path = "test_shared.rs"]
 mod test_shared;
+#[path = "test_short_circuit_branches.rs"]
+mod test_short_circuit_branches;
 #[path = "test_slicing.rs"]
 mod test_slicing;
 #[path = "test_small_conveniences.rs"]

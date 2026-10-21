@@ -6,9 +6,9 @@ runtime archives, which contain `plenty-runtime`'s dependencies, the Rust
 standard library, and the vendored SQLite amalgamation. Build scripts,
 procedural macros, and dev-dependencies do not ship and are not listed.
 
-Every listed crate must provide its license text in its source package. A
-crate without one fails the build, so a new dependency cannot ship without
-its notice being reviewed.
+Every listed crate must provide its license text in its source package or
+have a reviewed fallback below. A crate without one fails the build, so a
+new dependency cannot ship without its notice being reviewed.
 
 Usage: third_party_notices.py --repo DIR --out FILE [--list]
 """
@@ -23,6 +23,18 @@ from pathlib import Path
 TARGET = "x86_64-unknown-linux-gnu"
 ROOTS = ("plenty", "plenty-runtime")
 LICENSE_PREFIXES = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "COPYRIGHT", "UNLICENSE")
+LICENSE_DIR = Path(__file__).resolve().parent / "licenses"
+
+# The published crate omits the repository license. Pin the fallback to the
+# version and declared license; upgrades must be reviewed again. The commit
+# comes from the crate's .cargo_vcs_info.json.
+FALLBACK_LICENSE_TEXT = {
+    ("iced-x86", "1.21.0", "MIT"): (
+        "iced-x86-1.21.0-LICENSE.txt",
+        "https://github.com/icedland/iced/blob/"
+        "c50f29b7bc305696895c075f3fc7719751426b12/LICENSE.txt",
+    ),
+}
 
 # Vendored C code that is not a Cargo package; see build.rs.
 VENDORED = """\
@@ -97,6 +109,12 @@ def license_files(package):
         named = directory / package["license_file"]
         if named.is_file() and named not in found:
             found.append(named)
+    if not found:
+        fallback = FALLBACK_LICENSE_TEXT.get(
+            (package["name"], package["version"], package.get("license"))
+        )
+        if fallback:
+            found.append(LICENSE_DIR / fallback[0])
     return found
 
 
@@ -105,7 +123,7 @@ def render(packages):
         "# Third-party notices\n",
         "Plenty release archives contain the following third-party software.",
         "Each entry gives the package, its declared license, and the license",
-        "and notice files from its source package.\n",
+        "and notice files from its source package or a reviewed upstream source.\n",
         VENDORED,
         RUST_STD,
     ]
@@ -125,6 +143,11 @@ def render(packages):
             out.append(f"License text: as reproduced under {shared}, from the same repository.")
         out.append("")
         for f in files:
+            if f.parent == LICENSE_DIR:
+                fallback = FALLBACK_LICENSE_TEXT[
+                    (package["name"], package["version"], package.get("license"))
+                ]
+                out.append(f"License text source: {fallback[1]}\n")
             text = f.read_text(encoding="utf-8", errors="replace").rstrip()
             out.append(f"### {f.name}\n")
             out.append("```text")

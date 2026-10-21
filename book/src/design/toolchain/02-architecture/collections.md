@@ -63,6 +63,12 @@ would. Bounds traps report the same site and message as the generic path. Codege
 on `Vec` layout. Named receivers are borrowed without
 temporary retain/release; temporary owners are released after obtaining the result.
 
+An explicit element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`) of any
+element type calls `plenty_list_row(list, index, site)`, which checks the index
+like the scalar helpers and returns the row's address. That address is the
+reference; reads and writes through it are direct loads and stores. Dictionary
+element references still use the generic dispatcher.
+
 A borrowed list loop (`for x in &xs`, `for x in &mut xs`, `reversed(&xs)`, or a
 loop over a list reference) iterates through the reference without copying the
 list's owner. Before the first iteration it reads the length with

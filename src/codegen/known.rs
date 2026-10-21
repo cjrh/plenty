@@ -41,7 +41,17 @@ const DEPTH: u32 = 8;
 /// The value's bits, zero-extended from its type's width, when every input
 /// it is computed from is an `iconst`.
 pub(super) fn known_int(dfg: &DataFlowGraph, value: Value) -> Option<u64> {
-    evaluate(dfg, value, DEPTH)
+    evaluate(dfg, value, DEPTH, &|_| None)
+}
+
+/// [`known_int`], also treating each block parameter `params` knows as that
+/// constant: the value seen on one incoming edge.
+pub(super) fn known_int_given(
+    dfg: &DataFlowGraph,
+    value: Value,
+    params: &dyn Fn(Value) -> Option<u64>,
+) -> Option<u64> {
+    evaluate(dfg, value, DEPTH, params)
 }
 
 /// The value of an `f32const` or `f64const`, widened to `f64` (exactly).
@@ -62,14 +72,21 @@ pub(super) fn known_float(dfg: &DataFlowGraph, value: Value) -> Option<f64> {
     }
 }
 
-fn evaluate(dfg: &DataFlowGraph, value: Value, depth: u32) -> Option<u64> {
+fn evaluate(
+    dfg: &DataFlowGraph,
+    value: Value,
+    depth: u32,
+    params: &dyn Fn(Value) -> Option<u64>,
+) -> Option<u64> {
     let value = dfg.resolve_aliases(value);
     let bits = width(dfg, value)?;
-    let ValueDef::Result(inst, index) = dfg.value_def(value) else {
-        return None;
+    let (inst, index) = match dfg.value_def(value) {
+        ValueDef::Result(inst, index) => (inst, index),
+        ValueDef::Param(..) => return params(value).map(|x| truncate(x, bits)),
+        _ => return None,
     };
     let depth = depth.checked_sub(1)?;
-    let operand = |v: Value| evaluate(dfg, v, depth);
+    let operand = |v: Value| evaluate(dfg, v, depth, params);
     let result = match dfg.insts[inst] {
         InstructionData::UnaryImm {
             opcode: Opcode::Iconst,

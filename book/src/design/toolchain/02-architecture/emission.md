@@ -189,6 +189,24 @@ whose condition compares it with another local or a literal, as in
 Counters in memory, borrowed locals and generator frames, are not analyzed.
 `for` loops over ranges already step with wrapping arithmetic.
 
+## Short circuits in conditions
+
+`a or b` lowers to a `match` on `a` whose arms push `True` or evaluate `b`; the
+arms meet in a join block that takes the `bool` as a parameter. Cranelift does
+not thread branches through block parameters, so an `if`, `while`, `match`, or
+enclosing `and`/`or` that consumes the result would test the join parameter
+again, even on edges where an arm passed a constant.
+
+Before Cranelift runs, `src/codegen/threading.rs` retargets each edge into a
+block that only passes its parameters on or branches on them, when no other
+block uses its values and it has no instruction that traps, touches memory, or
+calls. An edge whose arguments decide the block's `brif` goes straight to the
+chosen target; a `jump` whose argument is the unknown condition, or its `not`, becomes that
+`brif`, with the targets swapped for `not` (issue #377). Only branches move, so
+operands still run in order, only when needed, with their traps and `?`
+propagation. A short-circuit result stored in a variable and read after the
+condition keeps its join block.
+
 ## Measuring compilation
 
 `examples/compile_bench.rs` generates units containing a protocol, class, enum,
