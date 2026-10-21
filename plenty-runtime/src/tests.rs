@@ -63,6 +63,40 @@ fn c_string_adapter_preserves_utf8_terminates_and_rejects_nuls() {
     }
 }
 
+#[test]
+fn ascii_folded_equality_needs_ascii_and_equal_lengths() {
+    let cases: [(&str, &str, bool); 9] = [
+        ("", "", true),
+        ("Content-Length", "content-LENGTH", true),
+        (
+            "a-header-name-past-inline-storage",
+            "A-HEADER-NAME-PAST-INLINE-STORAGE",
+            true,
+        ),
+        ("a[", "A{", false),
+        ("host", "hosts", false),
+        ("é", "é", false),
+        ("ab", "é", false),
+        ("e", "é", false),
+        ("\0", "\0", true),
+    ];
+    // SAFETY: each text is live until released after the comparison.
+    unsafe {
+        for (left, right, expected) in cases {
+            let one = strings::new(left.as_bytes());
+            let other = strings::new(right.as_bytes());
+            assert_eq!(
+                strings::ascii_equal_folded(one, other),
+                expected,
+                "{left:?} {right:?}"
+            );
+            assert_eq!(strings::ascii_equal_folded(other, one), expected);
+            plenty_release(one.cast());
+            plenty_release(other.cast());
+        }
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn c_string_conversion_failure_preserves_source_without_allocating_an_error() {

@@ -107,6 +107,18 @@ pub(crate) unsafe fn utf8(text: &*const Text) -> &str {
     // SAFETY: both new() and compiler literals validate UTF-8.
     unsafe { str::from_utf8_unchecked(bytes(text)) }
 }
+/// Whether both texts are ASCII and equal ignoring ASCII case. Folding maps
+/// only ASCII letters, so an ASCII `left` equal to `right` makes `right`
+/// ASCII too.
+///
+/// # Safety
+/// Both words must be live texts borrowed for the call.
+pub(crate) unsafe fn ascii_equal_folded(left: *const Text, right: *const Text) -> bool {
+    // SAFETY: the compiler passes borrowed text words that outlive the call;
+    // inline views borrow the parameters, which live until return.
+    let (one, other) = unsafe { (bytes(&left), bytes(&right)) };
+    one.is_ascii() && one.eq_ignore_ascii_case(other)
+}
 pub(crate) fn new(bytes: &[u8]) -> *mut Text {
     let text = str::from_utf8(bytes).unwrap_or_else(|_| crate::fail("invalid UTF-8 input"));
     try_new(text).unwrap_or_else(|_| crate::fail("string allocation failed"))

@@ -84,6 +84,7 @@ mod sqlite;
 mod stream;
 mod sum;
 mod tail_abi;
+mod text;
 mod threading;
 mod time;
 mod tls;
