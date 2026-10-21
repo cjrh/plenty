@@ -41,6 +41,8 @@ mod test_book_highlighting;
 mod test_boolean_lowering;
 #[path = "test_borrowed_iteration.rs"]
 mod test_borrowed_iteration;
+#[path = "test_borrowed_list_rows.rs"]
+mod test_borrowed_list_rows;
 #[path = "test_borrowed_match.rs"]
 mod test_borrowed_match;
 #[path = "test_borrowing.rs"]

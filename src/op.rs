@@ -1925,8 +1925,13 @@ fn step(
         }
         Op::Collection(operation) => {
             match operation {
-                crate::collection::CollectionOp::ListLenRef(ty) if !matches!(ty, Ty::List(_)) => {
-                    return Err("list length requires a list reference".into());
+                crate::collection::CollectionOp::ListLenRef(ty)
+                | crate::collection::CollectionOp::ListRowsRef(ty)
+                | crate::collection::CollectionOp::ListRowBytesRef(ty)
+                | crate::collection::CollectionOp::ListRowRef(ty, _)
+                    if !matches!(ty, Ty::List(_)) =>
+                {
+                    return Err("list length and rows require a list reference".into());
                 }
                 crate::collection::CollectionOp::ListScalarGetRef(ty)
                 | crate::collection::CollectionOp::ListScalarSetRef(ty)

@@ -891,6 +891,10 @@ struct Runtime {
     /// programs that never start a session.
     tls: FuncId,
     list_len: FuncId,
+    /// `plenty_list_rows(list) -> first row address` and
+    /// `plenty_list_row_bytes(list) -> row size`, for borrowed iteration.
+    list_rows: FuncId,
+    list_row_bytes: FuncId,
     list_scalar_get: FuncId,
     list_scalar_set: FuncId,
     /// `plenty_list_sort_by(list, comparator, environment, descending)`.
@@ -1091,6 +1095,20 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_list_len", Linkage::Import, &sig)?
+        },
+        list_rows: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.push(AbiParam::new(PTR_TY));
+            sig.returns.push(AbiParam::new(PTR_TY));
+            module.declare_function("plenty_list_rows", Linkage::Import, &sig)?
+        },
+        list_row_bytes: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.push(AbiParam::new(PTR_TY));
+            sig.returns.push(AbiParam::new(types::I64));
+            module.declare_function("plenty_list_row_bytes", Linkage::Import, &sig)?
         },
         list_scalar_get: {
             let mut sig = module.make_signature();
@@ -1932,7 +1950,12 @@ impl Lowerer<'_, '_> {
             }
             Op::ReadRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
-                let packed = self.read_reference(reference);
+                // A scalar is entirely in its slot's first word.
+                let packed = if ty.is_numeric() || *ty == Ty::Bool {
+                    self.reference_word(reference)
+                } else {
+                    self.read_reference(reference)
+                };
                 let value = self.unpack(packed, ty);
                 let value = if ty.can_copy() {
                     self.snapshot_inline(value, ty)

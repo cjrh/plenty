@@ -104,6 +104,12 @@ impl Entries {
     pub fn next(&self, index: usize) -> Option<usize> {
         self.order.as_ref().expect("hash entries").next(index)
     }
+    /// Dense row `i` is at `rows() + i * row_bytes()`, as `slot(i, false)`
+    /// returns, until the next mutation.
+    pub fn rows(&mut self) -> *mut u128 {
+        debug_assert!(self.order.is_none());
+        self.data.as_mut_ptr()
+    }
     pub fn slot(&mut self, index: usize, value: bool) -> *mut u128 {
         assert!(index < self.data.len() / self.stride);
         debug_assert!(

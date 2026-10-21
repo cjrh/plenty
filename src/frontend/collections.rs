@@ -1193,7 +1193,10 @@ impl Lower<'_> {
             let Ty::Ref(ty, _) = reference else {
                 unreachable!()
             };
-            ops.push(Op::ReadRef((*ty).clone()));
+            // A list is iterated through its reference (`borrowed_list_iteration`).
+            if !matches!(*ty, Ty::List(_)) {
+                ops.push(Op::ReadRef((*ty).clone()));
+            }
             ((*ty).clone(), vec![loan])
         } else if borrowed {
             let base = match &iterable.kind {
@@ -1201,10 +1204,16 @@ impl Lower<'_> {
                 _ => iterable,
             };
             let (reference, loan) = self.shared_argument(base, None, ops)?;
-            let Ty::Ref(ty, _) = reference else {
+            let Ty::Ref(ty, writable) = reference else {
                 unreachable!()
             };
-            ops.push(Op::ReadRef((*ty).clone()));
+            if matches!(*ty, Ty::List(_)) {
+                if writable {
+                    ops.push(Op::Reborrow(Ty::Ref(ty.clone(), false)));
+                }
+            } else {
+                ops.push(Op::ReadRef((*ty).clone()));
+            }
             ((*ty).clone(), vec![loan])
         } else {
             (self.value(iterable, ops)?, vec![])
@@ -1237,8 +1246,10 @@ impl Lower<'_> {
         }
         let mut plan = if let Some((args, element)) = counted {
             self.counted_range_iteration(args, element, reverse, &iterable.at, ops)?
+        } else if references && matches!(ty, Ty::List(_)) {
+            self.borrowed_list_iteration(ty.clone(), mutable, reverse, &iterable.at, ops)?
         } else if references {
-            self.borrowed_collection_iteration(ty.clone(), mutable, reverse, &iterable.at, ops)?
+            self.borrowed_collection_iteration(ty.clone(), &iterable.at, ops)?
         } else {
             self.iteration_on_stack_direction(ty.clone(), reverse, &iterable.at, ops)?
         };
@@ -1508,7 +1519,13 @@ impl Lower<'_> {
         Ok(left)
     }
 
-    fn borrowed_collection_iteration(
+    /// Iterates a borrowed list through a row cursor. The loop holds the
+    /// list's loan from the first condition to the last body use, so no
+    /// mutation can grow, shrink, or reallocate the rows meanwhile: the length,
+    /// first-row address, and row size are read once, and each element
+    /// reference is the address of its row, as `ElementRef` would return.
+    /// The list reference is on the stack.
+    fn borrowed_list_iteration(
         &mut self,
         ty: Ty,
         mutable: bool,
@@ -1516,66 +1533,95 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
-        let source = self.slot(ty.clone(), at)?;
-        let target = self.slot(Ty::Ref(Arc::new(ty.element().unwrap()), mutable), at)?;
+        let source = self.slot(Ty::Ref(Arc::new(ty.clone()), mutable), at)?;
+        let length = self.slot(Ty::I64, at)?;
+        let rows = self.slot(Ty::I64, at)?;
+        let row_bytes = self.slot(Ty::I64, at)?;
         let index = self.slot(Ty::I64, at)?;
+        let target = self.slot(Ty::Ref(Arc::new(ty.element().unwrap()), mutable), at)?;
         ops.push(Op::StoreLocal(source));
-        if reverse {
-            ops.extend([
-                Op::BorrowLocal(source, false),
-                Op::Collection(CollectionOp::ListLenRef(ty.clone())),
-            ]);
-        } else {
-            ops.push(Op::PushInt(Value::I64(0)));
-        }
-        ops.push(Op::StoreLocal(index));
-        let mut step = Vec::new();
-        let hashed = matches!(ty, Ty::Dict(..) | Ty::Set(_));
-        if hashed {
-            ops.extend([
-                Op::LoadLocal(source),
-                Op::Collection(CollectionOp::HashIterFirst(ty.clone())),
-                Op::StoreLocal(index),
-            ]);
-            step.extend([
-                Op::LoadLocal(source),
-                Op::LoadLocal(index),
-                Op::Collection(CollectionOp::HashIterNext(ty.clone())),
-                Op::StoreLocal(index),
-            ]);
-        } else if !reverse {
-            increment(index, &mut step);
+        let shared = Ty::Ref(Arc::new(ty.clone()), false);
+        for (operation, slot) in [
+            (CollectionOp::ListLenRef(ty.clone()), length),
+            (CollectionOp::ListRowsRef(ty.clone()), rows),
+            (CollectionOp::ListRowBytesRef(ty.clone()), row_bytes),
+        ] {
+            ops.push(Op::LoadLocal(source));
+            if mutable {
+                ops.push(Op::Reborrow(shared.clone()));
+            }
+            ops.extend([Op::Collection(operation), Op::StoreLocal(slot)]);
         }
         let mut body = Vec::new();
-        if reverse {
-            decrement(index, &mut body);
-        }
+        let mut step = Vec::new();
+        let condition = if reverse {
+            ops.extend([Op::LoadLocal(length), Op::StoreLocal(index)]);
+            body.extend([
+                Op::LoadLocal(index),
+                Op::PushInt(Value::I64(1)),
+                Op::Integer(IntegerOp::WrappingSub),
+                Op::StoreLocal(index),
+            ]);
+            vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Gt]
+        } else {
+            ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
+            // `index < length` bounds the index, so it cannot overflow.
+            step.extend([
+                Op::LoadLocal(index),
+                Op::PushInt(Value::I64(1)),
+                Op::Integer(IntegerOp::WrappingAdd),
+                Op::StoreLocal(index),
+            ]);
+            vec![Op::LoadLocal(index), Op::LoadLocal(length), Op::Lt]
+        };
         body.extend([
-            Op::BorrowLocal(source, mutable),
+            Op::LoadLocal(rows),
+            Op::LoadLocal(row_bytes),
             Op::LoadLocal(index),
-            Op::Collection(if hashed {
-                CollectionOp::HashIterKeyRef(ty.clone())
-            } else {
-                CollectionOp::ElementRef(ty.clone(), mutable)
-            }),
+            Op::Collection(CollectionOp::ListRowRef(ty, mutable)),
             Op::StoreLocal(target),
         ]);
         Ok(Iteration {
-            condition: if hashed {
-                vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne]
-            } else if reverse {
-                vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Gt]
-            } else {
-                vec![
-                    Op::LoadLocal(index),
-                    Op::BorrowLocal(source, false),
-                    Op::Collection(CollectionOp::ListLenRef(ty.clone())),
-                    Op::Lt,
-                ]
-            },
+            condition,
             absent: vec![],
             body,
             step,
+            target,
+        })
+    }
+
+    /// Iterates a borrowed dictionary's keys or a borrowed set's members by
+    /// hash cursor. The collection is on the stack.
+    fn borrowed_collection_iteration(
+        &mut self,
+        ty: Ty,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        let source = self.slot(ty.clone(), at)?;
+        let target = self.slot(Ty::Ref(Arc::new(ty.element().unwrap()), false), at)?;
+        let index = self.slot(Ty::I64, at)?;
+        ops.extend([
+            Op::StoreLocal(source),
+            Op::LoadLocal(source),
+            Op::Collection(CollectionOp::HashIterFirst(ty.clone())),
+            Op::StoreLocal(index),
+        ]);
+        Ok(Iteration {
+            condition: vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne],
+            absent: vec![],
+            body: vec![
+                Op::BorrowLocal(source, false),
+                Op::LoadLocal(index),
+                Op::Collection(CollectionOp::HashIterKeyRef(ty.clone())),
+                Op::StoreLocal(target),
+            ],
+            step: vec![
+                Op::LoadLocal(source),
+                Op::LoadLocal(index),
+                Op::Collection(CollectionOp::HashIterNext(ty)),
+                Op::StoreLocal(index),
+            ],
             target,
         })
     }
