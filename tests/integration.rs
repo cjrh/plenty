@@ -105,6 +105,8 @@ mod test_compiler_parallelism;
 mod test_concurrency_control;
 #[path = "test_concurrency_modules.rs"]
 mod test_concurrency_modules;
+#[path = "test_constant_guards.rs"]
+mod test_constant_guards;
 #[path = "test_consuming_threads.rs"]
 mod test_consuming_threads;
 #[path = "test_container_conveniences.rs"]
