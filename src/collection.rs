@@ -35,6 +35,8 @@ pub enum Query {
     TextAtByte,
     TextNextByte,
     TextPrevByte,
+    /// `ord(text)`: the code point of a one-scalar text, or a `ParseError`.
+    TextOrd,
 }
 
 impl Query {
@@ -45,6 +47,7 @@ impl Query {
             CollectionOp::Len(Ty::Str) => Self::TextLen,
             CollectionOp::TextByteLen => Self::TextByteLen,
             CollectionOp::TextIsAscii => Self::TextIsAscii,
+            CollectionOp::TextOrd => Self::TextOrd,
             _ => return None,
         })
     }
@@ -73,6 +76,7 @@ impl Query {
         match self {
             Self::TextIsAscii | Self::TextAsciiEqualFolded => Ty::Bool,
             Self::TextAt | Self::TextAtByte => Ty::Str,
+            Self::TextOrd => crate::sum::result(Ty::U32, crate::sum::parse_error()),
             Self::BytesLen
             | Self::TextLen
             | Self::TextByteLen

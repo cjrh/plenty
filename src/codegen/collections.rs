@@ -1,5 +1,5 @@
 use super::*;
-use crate::collection::CollectionOp;
+use crate::collection::{CollectionOp, Query};
 
 /// The trailing site argument a narrow runtime helper takes.
 #[derive(Clone, Copy)]
@@ -17,7 +17,6 @@ impl Lowerer<'_, '_> {
     /// here), the remaining inputs as words, and then the site, if any.
     fn narrow_helper(&self, operation: &CollectionOp) -> Option<(FuncId, bool, Site)> {
         use crate::bytes::BytesOp;
-        use crate::collection::Query;
         let runtime = &self.runtime;
         Some(match operation {
             CollectionOp::ListLenRef(_) => (runtime.list_len, true, Site::None),
@@ -45,6 +44,10 @@ impl Lowerer<'_, '_> {
                 (runtime.text_at, false, Site::Trap)
             }
             CollectionOp::IterGet(Ty::Str) => (runtime.text_at, false, Site::Null),
+            // A `bytes` literal is immortal, so its release is a no-op.
+            CollectionOp::Get(Ty::ByteStr) => (runtime.byte_str_item, false, Site::Trap),
+            CollectionOp::IterGet(Ty::ByteStr) => (runtime.byte_str_item, false, Site::Null),
+            CollectionOp::Len(Ty::ByteStr) => (runtime.text_byte_len, false, Site::None),
             CollectionOp::QueryRef(query) => {
                 let helper = match query {
                     Query::BytesLen => runtime.bytes_len,
@@ -56,11 +59,59 @@ impl Lowerer<'_, '_> {
                     Query::TextNextByte => runtime.text_next_byte,
                     Query::TextPrevByte => runtime.text_prev_byte,
                     Query::TextAt => return Some((runtime.text_at, true, Site::Trap)),
+                    Query::TextOrd => unreachable!("ord builds its Result inline"),
                 };
                 (helper, true, Site::None)
             }
             _ => return None,
         })
+    }
+
+    /// Whether `receiver` is the copy the previous op loaded from a local
+    /// slot; if so, its retain is removed, and the caller reads it as
+    /// borrowed and does not release it. Nothing ran between the load and
+    /// this op, so the slot still holds the value through the helper call.
+    fn forget_fresh_load(&mut self, receiver: cranelift_codegen::ir::Value) -> bool {
+        match self.fresh_load.take() {
+            Some((value, retain)) if value == receiver => {
+                self.bcx.func.layout.remove_inst(retain);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// `ord(text)` (issue #379): the helper returns the code point, or
+    /// `u64::MAX` when the text is not one scalar, and the `Result` is built
+    /// here with the dispatcher's encoding: `Ok(code)` in the low word, or
+    /// tag 1 over `ParseError` variant 0 in the high word.
+    fn lower_text_ord(&mut self, operation: &CollectionOp) -> Result<()> {
+        let (inputs, output) = operation.signature();
+        let (receiver, ty) = self.pop_typed(inputs[0].clone())?;
+        let reference = matches!(ty, Ty::Ref(..));
+        let borrowed = reference || self.forget_fresh_load(receiver);
+        let text = if reference {
+            self.reference_word(receiver)
+        } else {
+            receiver
+        };
+        let function = self
+            .module
+            .declare_func_in_func(self.runtime.text_ord, self.bcx.func);
+        let call = self.bcx.ins().call(function, &[text]);
+        let code = self.bcx.inst_results(call)[0];
+        if !borrowed {
+            self.release(receiver, &ty);
+        }
+        let b = &mut self.bcx;
+        let failed = b.ins().icmp_imm(IntCC::Equal, code, -1);
+        let zero = b.ins().iconst(types::I64, 0);
+        let low = b.ins().select(failed, zero, code);
+        let high = b.ins().uextend(types::I64, failed);
+        let result = b.ins().iconcat(low, high);
+        let result = self.unpack(result, &output);
+        self.stack.push((result, output));
+        Ok(())
     }
 
     pub(super) fn collection_call(
@@ -378,6 +429,9 @@ impl Lowerer<'_, '_> {
                 .push((reference, Ty::Ref(element.clone(), *mutable)));
             return Ok(());
         }
+        if let CollectionOp::TextOrd | CollectionOp::QueryRef(Query::TextOrd) = operation {
+            return self.lower_text_ord(operation);
+        }
         if let Some((helper, borrowed, site)) = self.narrow_helper(operation) {
             let (inputs, output) = operation.signature();
             let mut trailing = Vec::new();
@@ -401,6 +455,7 @@ impl Lowerer<'_, '_> {
             } else {
                 receiver
             };
+            let borrowed = borrowed || self.forget_fresh_load(receiver);
             let mut args = vec![owner];
             args.extend(trailing);
             match site {
