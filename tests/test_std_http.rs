@@ -1028,3 +1028,169 @@ print(authority)?
         "a-host-name-too-long-for-inline-storage.example:8080",
     );
 }
+
+/// One letter per outcome, so a byte sweep prints one line per position.
+const SWEEP: &str = r#"
+def outcome[T](result: &Result[T, HttpError]) -> str:
+    match result:
+        case Ok(_):
+            "."
+        case Err(error):
+            match error:
+                case HttpError.InvalidHeader:
+                    "H"
+                case HttpError.InvalidRequestLine:
+                    "R"
+                case HttpError.InvalidStatusLine:
+                    "S"
+                case HttpError.BareLineFeed:
+                    "L"
+                case _:
+                    "?"
+
+# `prefix`, the byte `code`, then `suffix`, read as one request or response.
+def parsed(prefix: &str, code: i64, suffix: &str, response: bool) -> Result[str, std.bytes.BytesError | std.io.StreamError]:
+    mut data = std.bytes.from_text(prefix)?
+    data.push(u8(code))?
+    data.extend(&std.bytes.from_text(suffix)?)?
+    mut conn = std.io.buffered_reader(std.io.cursor(data), 7)?
+    if response:
+        return Ok(outcome(&std.http.read_response(&mut conn, &std.http.limits())))
+    Ok(outcome(&std.http.read_request(&mut conn, &std.http.limits())))
+
+def read_sweep(prefix: &str, suffix: &str, response: bool) -> Result[(), std.bytes.BytesError | std.io.StreamError | AllocError | IoError]:
+    mut line = ""
+    for code in range(256):
+        line = line.concat(parsed(prefix, code, suffix, response)?)?
+    print(line)?
+    Ok(())
+
+def wrapped(left: &str, middle: &str, right: &str) -> Result[str, AllocError]:
+    left.concat(middle)?.concat(right)
+
+# Writes heads with `piece` placed in the method, target, a field name, a
+# field value and a reason phrase.
+def written_outcomes(piece: &str) -> Result[list[str], AllocError | IoError]:
+    mut sink = std.io.cursor(std.bytes.empty().unwrap())
+    mut out = list[str].new()?
+    method = std.http.request(wrapped("G", piece, "T")?, "/").unwrap()
+    out.append(outcome(&std.http.write_request(&mut sink, &method)))?
+    target = std.http.request("GET", wrapped("/", piece, "")?).unwrap()
+    out.append(outcome(&std.http.write_request(&mut sink, &target)))?
+    mut name = std.http.request("GET", "/").unwrap()
+    name.add(wrapped("X", piece, "Y")?, "v").unwrap()
+    out.append(outcome(&std.http.write_request(&mut sink, &name)))?
+    mut value = std.http.request("GET", "/").unwrap()
+    value.add("X", wrapped("a", piece, "b")?).unwrap()
+    out.append(outcome(&std.http.write_request(&mut sink, &value)))?
+    reason = std.http.response(200, wrapped("O", piece, "K")?).unwrap()
+    out.append(outcome(&std.http.write_response(&mut sink, &reason)))?
+    Ok(out)
+
+def write_sweep() -> Result[(), AllocError | IoError]:
+    mut lines = ["", "", "", "", ""]?
+    for code in range(128):
+        piece = chr(u32(code)).unwrap()
+        outcomes = written_outcomes(&piece)?
+        for index in range(5):
+            lines[index] = lines[index].concat(&outcomes[index])?
+    for index in range(5):
+        print(lines[index], outcomes_of_non_ascii(index)?)?
+    Ok(())
+
+def outcomes_of_non_ascii(index: i64) -> Result[str, AllocError | IoError]:
+    outcomes = written_outcomes("é")?
+    Ok(outcomes[index])
+"#;
+
+/// RFC 9110 tchar.
+fn tchar(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
+}
+
+/// Field content a single byte can form: tab and printable ASCII. A lone
+/// byte above 127 is not UTF-8, so a value holding one is still invalid.
+fn field(byte: u8) -> bool {
+    byte == b'\t' || (b' '..=b'~').contains(&byte)
+}
+
+fn visible(byte: u8) -> bool {
+    (b'!'..=b'~').contains(&byte)
+}
+
+fn sweep_line(range: std::ops::Range<u16>, tag: impl Fn(u8) -> char) -> String {
+    range.map(|code| tag(code as u8)).collect()
+}
+
+/// Issue #365: the bulk scans behind request, status and field lines accept
+/// exactly the RFC byte classes, for every byte value at every position, on
+/// the reading and the writing side.
+#[test]
+fn every_byte_is_classified_like_the_rfc_sets() {
+    let body = r#"
+read_sweep("G", "T / HTTP/1.1\r\nHost: a\r\n\r\n", False)?
+read_sweep("GET /", " HTTP/1.1\r\nHost: a\r\n\r\n", False)?
+read_sweep("GET / HTTP/1.1\r\nHost: a\r\nX", "Y: v\r\n\r\n", False)?
+read_sweep("GET / HTTP/1.1\r\nHost: a\r\nX: a", "b\r\n\r\n", False)?
+read_sweep("HTTP/1.1 200 O", "K\r\nContent-Length: 0\r\n\r\n", True)?
+write_sweep()?
+"#;
+    let source = program(body).replacen("\ndef main()", &format!("{SWEEP}\ndef main()"), 1);
+    let read = |accepted: fn(u8) -> bool, other: char| {
+        move |byte: u8| match byte {
+            b'\n' => 'L',
+            _ if accepted(byte) => '.',
+            _ => other,
+        }
+    };
+    // A colon ends the name early, leaving a valid `X: Y: v` field.
+    let name = |byte: u8| {
+        if byte == b':' {
+            '.'
+        } else {
+            read(tchar, 'H')(byte)
+        }
+    };
+    let written = |accepted: fn(u8) -> bool, other: char| {
+        move |byte: u8| if accepted(byte) { '.' } else { other }
+    };
+    let expected = [
+        sweep_line(0..256, read(tchar, 'R')),
+        sweep_line(0..256, read(visible, 'R')),
+        sweep_line(0..256, name),
+        sweep_line(0..256, read(field, 'H')),
+        sweep_line(0..256, read(field, 'S')),
+        format!("{} R", sweep_line(0..128, written(tchar, 'R'))),
+        format!("{} R", sweep_line(0..128, written(visible, 'R'))),
+        format!("{} H", sweep_line(0..128, written(tchar, 'H'))),
+        format!("{} .", sweep_line(0..128, written(field, 'H'))),
+        format!("{} .", sweep_line(0..128, written(field, 'S'))),
+    ]
+    .join("\n");
+    assert_eq!(output(&source), expected);
+}
+
+/// Issue #365: `same_name` is one native comparison with the documented
+/// contract: equal byte lengths, ASCII only, ASCII letters folded.
+#[test]
+fn header_names_fold_only_ascii_letters() {
+    native(
+        r#"
+print(std.http.same_name("Content-Length", "content-LENGTH"), std.http.same_name("", ""), std.http.same_name("x-Y", "X-y"))?
+print(std.http.same_name("host", "hosts"), std.http.same_name("", "a"), std.http.same_name("a[", "A{"), std.http.same_name("@", "`"))?
+print(std.http.same_name("é", "é"), std.http.same_name("aé", "Aé"), std.http.same_name("é", "e"), std.http.same_name("ab", "é"))?
+long = "A-Header-Name-Too-Long-For-Inline-Storage-Ä"
+print(std.http.same_name(long, long), std.http.same_name("A-Header-Name-Too-Long-For-Inline-Storage", "a-header-name-too-long-for-inline-storagE"))?
+mut mixed = 0
+for code in range(128):
+    upper = chr(u32(code)).unwrap()
+    lower = upper.lower()?
+    if std.http.same_name(&upper, &lower) != True:
+        mixed += 1
+    if code != 0 and std.http.same_name(&upper, &chr(u32(code - 1)).unwrap()):
+        mixed += 1
+print(mixed)?
+"#,
+        "True True True\nFalse False False False\nFalse False False False\nFalse True\n0",
+    );
+}

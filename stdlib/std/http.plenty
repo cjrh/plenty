@@ -150,20 +150,6 @@ def blank(value: u8) -> bool:
 def digit(code: i64) -> bool:
     code >= 48 and code <= 57
 
-# RFC 9110 tchar.
-def token_byte(code: i64) -> bool:
-    if digit(code) or (code >= 65 and code <= 90) or (code >= 97 and code <= 122):
-        return True
-    code == 33 or (code >= 35 and code <= 39) or code == 42 or code == 43 or code == 45 or code == 46 or code == 94 or code == 95 or code == 96 or code == 124 or code == 126
-
-# Field content: visible ASCII, space, tab, and bytes above 127, which must
-# then form UTF-8 because values are `str`.
-def field_byte(code: i64) -> bool:
-    code == 9 or (code >= 32 and code != 127)
-
-def visible(code: i64) -> bool:
-    code > 32 and code < 127
-
 def hex_value(code: i64) -> i64:
     if digit(code):
         return code - 48
@@ -173,22 +159,27 @@ def hex_value(code: i64) -> i64:
         return code - 87
     -1
 
-# The end of the run of `start..stop` that `kind` accepts: 0 tokens,
-# 1 field content, 2 visible ASCII.
+# The end of the run of `start..stop` that `kind` accepts: 0 RFC 9110
+# tchar, 1 field content, 2 visible ASCII. Field content is visible ASCII,
+# space, tab, and bytes above 127, which must then form UTF-8 because values
+# are `str`; it is scanned for the bytes it rejects. Each kind is one bulk
+# scan over a literal set, so nothing is allocated. Callers pass ranges
+# within `data`; should one not be, `start` is returned so the field fails.
 def run(data: &Bytes, start: i64, stop: i64, kind: i64) -> i64:
-    mut index = start
-    while index < stop:
-        code = i64(data[index])
-        if kind == 0:
-            if not token_byte(code):
-                return index
-        elif kind == 1:
-            if not field_byte(code):
-                return index
-        elif not visible(code):
-            return index
-        index += 1
-    stop
+    found = match kind:
+        case 0:
+            data.find_not_in(b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", start, stop)
+        case 1:
+            data.find_in(b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f", start, stop)
+        case _:
+            data.find_not_in(b"!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", start, stop)
+    match found:
+        case Ok(Some(index)):
+            index
+        case Ok(Nothing):
+            stop
+        case Err(_):
+            start
 
 def folded(scalar: &str) -> i64:
     match ord(scalar):
@@ -201,16 +192,9 @@ def folded(scalar: &str) -> i64:
             -1
 
 # Whether `left` and `right` are equal ignoring ASCII case. Never allocates;
-# non-ASCII text is never equal.
+# non-ASCII text is never equal. One native comparison over both byte views.
 pub def same_name(left: &str, right: &str) -> bool:
-    if left.byte_len() != right.byte_len() or not left.isascii() or not right.isascii():
-        return False
-    mut index = 0
-    for scalar in left:
-        if folded(scalar) != folded(right[index]):
-            return False
-        index += 1
-    True
+    __text_ascii_equal_folded(left, right)
 
 # Whether any comma-separated element of `value` is `token`, ignoring ASCII
 # case. `token` is lowercase ASCII.

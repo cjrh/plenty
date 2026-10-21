@@ -2433,6 +2433,7 @@ pub(crate) fn builtin(name: &str) -> bool {
         || crate::time::TimeOp::named(name).is_some()
         || crate::unicode::UnicodeOp::named(name).is_some()
         || crate::regex::RegexOp::named(name).is_some()
+        || crate::text::TextOp::named(name).is_some()
         || crate::sqlite::SqliteOp::named(name).is_some()
         || crate::tls::TlsOp::named(name).is_some()
         || crate::net::NetOp::named(name).is_some()
@@ -3755,6 +3756,9 @@ impl Lower<'_> {
                 }
                 if let Some(operation) = crate::regex::RegexOp::named(name) {
                     return self.system_call(CollectionOp::Regex(operation), args, &e.at, ops);
+                }
+                if let Some(operation) = crate::text::TextOp::named(name) {
+                    return self.system_call(CollectionOp::Text(operation), args, &e.at, ops);
                 }
                 if let Some(operation) = crate::net::NetOp::named(name) {
                     let operation = match operation.literal() {
