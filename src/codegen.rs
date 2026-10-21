@@ -72,6 +72,7 @@ mod closures;
 mod collections;
 mod control;
 mod coverage;
+mod dump;
 mod enums;
 mod executors;
 mod exports;
@@ -422,6 +423,8 @@ struct Build {
     /// tests set it: the flag is part of the cache key, so these builds use
     /// entries of their own.
     check_cache_hits: bool,
+    /// Capture functions' text for `--dump`.
+    dump: Option<DumpOptions>,
 }
 
 impl Build {
@@ -433,6 +436,7 @@ impl Build {
             cache: Cache::open(&options.cache),
             functions_only: !options.program_cache,
             check_cache_hits: false,
+            dump: None,
         }
     }
 
@@ -505,6 +509,52 @@ pub fn compile_file_to_object_with_options(
 }
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+pub use dump::{Dump, DumpOptions, DumpStage};
+
+/// Compile the program at `path` and return the text `dump` asks for,
+/// without writing an object or linking. Both caches are bypassed, so every
+/// function is compiled, and the text does not depend on the cache or the
+/// worker count.
+pub fn dump_file(
+    path: &Path,
+    root: Option<&Path>,
+    options: &crate::CompileOptions,
+    dump: &DumpOptions,
+) -> Result<Dump> {
+    crate::validate_target(None)?;
+    let sources = Sources::file(path, root)?;
+    let mut heap = Heap::default();
+    let program = sources.compile(&mut heap)?;
+    op::check(&program.ops)?;
+    dump_program(
+        program.ops,
+        &heap,
+        program.returns_status,
+        options.optimize,
+        crate::parallel::workers(),
+        dump,
+    )
+}
+
+fn dump_program(
+    ops: Vec<Op>,
+    heap: &Heap,
+    returns_status: bool,
+    optimize: bool,
+    workers: usize,
+    dump: &DumpOptions,
+) -> Result<Dump> {
+    let build = Build {
+        optimize,
+        functions_only: true,
+        dump: Some(dump.clone()),
+        ..Build::default()
+    };
+    let mut out = object_module(ops, heap, Some(returns_status), &[], None, workers, build)?;
+    let entries = std::mem::take(&mut out.dumped);
+    Ok(out.dump.as_ref().expect("dump plan").finish(entries))
+}
 
 /// Lower `ops` to a native object file at `output`.
 ///
@@ -650,6 +700,17 @@ fn object_module(
     // every `PushStr` or `Pattern::Str`. The compiler's string pool is the
     // source of truth for the literal bytes.
     let str_data = declare_str_data(&ops, heap, &mut out.module)?;
+    let mut dump = build.dump.as_ref().map(|options| {
+        dump::Plan::new(
+            options,
+            build.optimize,
+            &ops,
+            &user_fns,
+            &out.module,
+            heap,
+            &str_data,
+        )
+    });
 
     // An immortal empty string substitutes for the legacy input helper's EOF.
     let eof_empty_str = declare_eof_empty_str(&mut out.module)?;
@@ -659,6 +720,10 @@ fn object_module(
     // until the last function is (issue #54). Top-level `DefineFn`s are
     // no-ops in `plenty_main`.
     ops.retain(|op| !matches!(op, Op::DefineFn(..)));
+    if let (Some(plan), Some(id)) = (&mut dump, main_id) {
+        plan.set_entry_ops(id, &ops, heap);
+    }
+    out.dump = dump.map(Arc::new);
     let mut jobs: Vec<Job> = threads
         .into_iter()
         .map(|(task, id)| Job::Thread(task, id))
@@ -1803,7 +1868,13 @@ impl Lowerer<'_, '_> {
                 cleanup,
             } => self.lower_try(source, target, cleanup)?,
             Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
-            Op::Site(site) => self.position.set(site),
+            Op::Site(site) => {
+                if self.module.lines() {
+                    self.bcx
+                        .set_srcloc(cranelift_codegen::ir::SourceLoc::new(site.line));
+                }
+                self.position.set(site)
+            }
             Op::CallerSite(site) => self.position.set_call(site),
             Op::Returning(..)
             | Op::Building(_)

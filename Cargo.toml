@@ -61,6 +61,11 @@ rustc-hash = "2.1.2"
 # Compiler phase profiler, compiled only with the `profile` feature. Pinned:
 # its report formats may change between releases.
 hotpath = { version = "=0.28.6", optional = true, default-features = false }
+# x86-64 decoder and AT&T formatter for `--dump asm` (issue #360). Cranelift's
+# own listing (`set_disasm`) has no byte offsets and prints pseudo-instructions
+# rather than the final encoding; its `disas` feature would build the C
+# Capstone library. Pure Rust, decoder and formatter only.
+iced-x86 = { version = "1.21.0", default-features = false, features = ["std", "decoder", "gas"] }
 
 # Run the benchmark's argument-parsing tests with the workspace suite; Cargo
 # only builds examples by default.

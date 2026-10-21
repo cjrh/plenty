@@ -30,6 +30,9 @@ pub(super) struct Declared {
     /// Colocation and thread-locality by [`DataId`].
     data: Vec<(bool, bool)>,
     names: HashMap<String, FuncId>,
+    /// Record each operation's source line in the IR, for `--dump`. Off
+    /// otherwise: source locations are part of the compiled-function cache key.
+    pub(super) lines: bool,
 }
 
 impl Declared {
@@ -57,6 +60,7 @@ impl Declared {
             functions,
             data,
             names,
+            lines: false,
         }
     }
 }
@@ -100,6 +104,11 @@ impl Symbols {
             self.requests[number as usize] = Request::Sites(self.sites.into_records());
         }
         self.requests
+    }
+
+    /// Whether to record source lines in the IR ([`Declared::lines`]).
+    pub(super) fn lines(&self) -> bool {
+        self.declared.lines
     }
 
     pub(super) fn make_signature(&self) -> ir::Signature {
@@ -249,9 +258,9 @@ pub(super) fn resolve(
     function: FuncId,
     requests: &[Request],
     relocs: &mut [ModuleReloc],
-) -> Result<()> {
+) -> Result<Vec<ModuleRelocTarget>> {
     if requests.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let mut targets = Vec::with_capacity(requests.len());
     for request in requests {
@@ -281,5 +290,5 @@ pub(super) fn resolve(
             reloc.name = targets[index as usize].clone();
         }
     }
-    Ok(())
+    Ok(targets)
 }

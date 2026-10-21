@@ -17,6 +17,7 @@ source → lexer/parser → name and alias resolution → signatures → checkin
 - [Collections](collections.md): storage, hash order, and current costs.
 - [Generators and closure environments](environments.md): frames and captures.
 - [Tail-call ABI](tail-calls.md): approved transfers and hidden result storage.
+- [Inspecting generated code](dump.md): `--dump` text for each function's IR and machine code.
 - [Runtime packaging](runtime.md): archives, platform checks, and stack overflow.
 - [Concurrent mechanisms](concurrency.md): pinned storage, locks, and waiters.
 - [Native interfaces](interop.md): adapters, metadata, and resident code.

@@ -34,6 +34,11 @@ release build of the compiler in `target/`; pass `--target-dir` to keep both.
 The compiler turns hotpath's live-metrics HTTP server off unless
 `HOTPATH_METRICS_SERVER_OFF` is set.
 
+To see what the compiler generated rather than how long it took, use
+[`plenty --dump`](../design/toolchain/02-architecture/dump.md): it writes each
+function's operations, Cranelift IR before and after optimization, and
+assembly, with an index sorted by code size.
+
 ## Selecting a benchmark workload
 
 The first two `compile_bench` arguments are generated units (not lines) and
