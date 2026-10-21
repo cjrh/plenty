@@ -113,6 +113,30 @@ environment variables may not persist between tool calls. For summarized test
 output, use the available output-filtering tools or capture a log while retaining
 the original process exit status; a successful `grep` does not prove tests passed.
 
+### Shell conditions and pipelines
+
+Agent shells run with `set -o pipefail`, and an `rtk` hook rewrites some
+commands before they run: `grep` becomes `rtk grep`, and a leading `git log` or
+`cargo test` becomes `rtk git log` or `rtk cargo test`. `rtk grep` reads stdin
+and keeps grep's exit status. These cause failures:
+
+- `grep -q` or `grep -m1` stops reading at the first match, so the writer dies
+  of SIGPIPE and the pipeline exits 141. `until git log main | grep -q X` never
+  ends, even after `X` lands.
+- `rtk git log` prints at most 50 commits. `rtk cargo test` replaces the
+  `test result:` lines with one summary line.
+
+In `if`, `until`, `while`, and `&&` conditions, prefer a command that needs no
+pipe. In a pipe, use `grep -c` (reads all input), not `-q` or `-m`. Do not parse
+`rtk` output; use its exit status. To wait for a merge, test the branch while it
+exists and has commits; otherwise test the merge commit's subject:
+
+```sh
+until git -C "$PLENTY_MAIN_WORKTREE" merge-base --is-ancestor claude/issue-15 main; do sleep 30; done
+until test -n "$(git -C "$PLENTY_MAIN_WORKTREE" log -1 --fixed-strings \
+    --grep='Merge local PR #447' --format=%H main)"; do sleep 30; done
+```
+
 ### Quick reproductions
 
 Before writing Plenty, read the executable
