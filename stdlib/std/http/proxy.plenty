@@ -67,7 +67,7 @@ pub class Proxies:
                 slash = found
             case Nothing:
                 pass
-        ip = match std.net.parse_ip(&lifted(lifted(source.slice(0, slash))?.to_text())?):
+        ip = match std.net.parse_ip(&lifted(source.to_text_range(0, slash))?):
             case Ok(parsed):
                 mapped(parsed)
             case Err(_):
@@ -197,7 +197,7 @@ def node_ip(node: &Bytes) -> Result[IpAddress, ProxyError]:
                         stop = first
             case Nothing:
                 pass
-    text = lifted(lifted(node.slice(start, stop))?.to_text())?
+    text = lifted(node.to_text_range(start, stop))?
     match std.net.parse_ip(&text):
         case Ok(ip):
             Ok(mapped(ip))
@@ -272,7 +272,7 @@ def element(data: &Bytes) -> Result[Hop, ProxyError]:
             at += 1
         if at == count or data[at] != 61u8:
             return Err(ProxyError.InvalidForwarded)
-        name = match lifted(lifted(data.slice(start, at))?.to_text())?.lower():
+        name = match lifted(data.to_text_range(start, at))?.lower():
             case Ok(folded):
                 folded
             case Err(cause):

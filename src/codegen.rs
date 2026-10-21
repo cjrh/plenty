@@ -667,6 +667,7 @@ fn object_module(
     let mut user_fns: HashMap<String, UserFn> = HashMap::default();
     let mut bodies = Vec::new();
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
+    sites::mark_context_preserving(&bodies, &mut user_fns);
     runtime.drop_hooks = user_fns
         .iter()
         .filter_map(|(name, f)| Some((name.clone(), f.drop_callback?)))
@@ -1393,6 +1394,10 @@ struct UserFn {
     /// File that defines the body, relative to the source root, for trap
     /// positions.
     source: Option<Arc<str>>,
+    /// Every return leaves the caller context as the call found it, so a
+    /// standard-library caller need not save and restore it; see
+    /// [`sites::mark_context_preserving`].
+    preserves_caller: bool,
 }
 
 /// Build a Cranelift `Signature` from a Plenty `FnSig`. User functions
@@ -1469,6 +1474,7 @@ fn collect_user_fns(
                         locals: Arc::clone(&f.locals),
                         source: f.origins.trap_file.clone(),
                         standard_library: f.origins.standard_library,
+                        preserves_caller: false,
                     },
                 );
                 bodies.push((name.clone(), Arc::clone(&f.body)));
@@ -1924,7 +1930,14 @@ impl Lowerer<'_, '_> {
             let f = self
                 .module
                 .declare_func_in_func(self.runtime.release, self.bcx.func);
-            let saved = self.enter_call().expect("drop caller site");
+            // User code names itself as the caller of std destructors. In
+            // std the context is already right, and the runtime restores it
+            // after destructors.
+            let saved = if self.in_standard_library() {
+                None
+            } else {
+                self.enter_call().expect("drop caller site")
+            };
             self.bcx.ins().call(f, &[value]);
             self.leave_call(saved);
         }
@@ -2948,9 +2961,14 @@ impl Lowerer<'_, '_> {
     fn lower_call(&mut self, name: &str) -> Result<()> {
         let caller_standard = self.in_standard_library();
         let (decl, mut args) = self.pop_call_args(name)?;
-        // Even a std-to-std call may tail-call through user code before it
-        // returns, so its caller must restore the enclosing user site.
-        let track_caller = caller_standard || decl.standard_library || decl.source.is_none();
+        // User code names itself as the caller of std. Std restores the
+        // enclosing user site after a callee that may change it, such as one
+        // that tail-calls through user code before it returns.
+        let track_caller = if caller_standard {
+            !decl.preserves_caller
+        } else {
+            decl.standard_library || decl.source.is_none()
+        };
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
         let bytes = outputs.iter().map(Ty::inline_bytes).sum();
@@ -2991,7 +3009,10 @@ impl Lowerer<'_, '_> {
             let native = user_fn_signature(&sig);
             let reference = self.bcx.import_signature(native);
             self.release_locals();
-            self.enter_call()?;
+            // In std the site would be null, which changes nothing.
+            if !self.in_standard_library() {
+                self.enter_call()?;
+            }
             self.bcx
                 .ins()
                 .return_call_indirect(reference, callee, &args);
@@ -3025,7 +3046,9 @@ impl Lowerer<'_, '_> {
     fn lower_tail_call(&mut self, name: &str) -> Result<()> {
         let caller_standard = self.in_standard_library();
         let (decl, mut args) = self.pop_call_args(name)?;
-        let track_caller = caller_standard != decl.standard_library || decl.source.is_none();
+        // Only user code sets a site; std would pass null, which changes
+        // nothing.
+        let track_caller = !caller_standard && (decl.standard_library || decl.source.is_none());
         let func_id = decl.id;
         let sig = decl.sig.clone();
         self.tail_arguments(&sig, &mut args)?;

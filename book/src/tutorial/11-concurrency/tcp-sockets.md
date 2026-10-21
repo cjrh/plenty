@@ -41,7 +41,7 @@ def main() -> Result[(), ThreadError | IoError | AllocError | SocketOperationErr
         mut reply = std.bytes.with_capacity(16)?
         reply.resize(16, 0u8)?
         count = stream.read_before(&mut reply, 0, 16, &deadline, &cancel)?
-        print(reply.slice(0, count)?.to_text()?)?
+        print(reply.to_text_range(0, count)?)?
         print(server.join()?)?
     listener.close()?
     match connect(&address, &deadline, &cancel):

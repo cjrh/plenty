@@ -226,8 +226,7 @@ def connection_lists(headers: &list[Header], token: &str) -> bool:
     False
 
 def text_of(data: &Bytes, start: i64, stop: i64, invalid: HttpError) -> Result[str, HttpError]:
-    piece = lifted(data.slice(start, stop))?
-    match piece.to_text():
+    match data.to_text_range(start, stop):
         case Ok(text):
             Ok(text)
         case Err(error):

@@ -320,7 +320,7 @@ def put(target: &mut Bytes, text: &str) -> Result[(), UrlError]:
     lifted(target.extend(&piece))
 
 def text_of(source: &Bytes, start: i64, stop: i64) -> Result[str, UrlError]:
-    lifted(lifted(source.slice(start, stop))?.to_text())
+    lifted(source.to_text_range(start, stop))
 
 def optional(source: &Bytes, start: i64, stop: i64) -> Result[Option[str], UrlError]:
     if start < 0:

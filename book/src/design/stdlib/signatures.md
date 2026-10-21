@@ -131,6 +131,7 @@ class Bytes
     def utf8_run(self, start: i64, stop: i64) -> Result[i64, BytesError]
     def to_list(self) -> Result[list[u8], BytesError]
     def to_text(self) -> Result[str, BytesError]
+    def to_text_range(self, start: i64, stop: i64) -> Result[str, BytesError]
     def read_file(self: &mut Bytes, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]
     def write_file(self, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]
     def read_stdin(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]

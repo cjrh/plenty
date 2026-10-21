@@ -167,7 +167,10 @@ pub(crate) unsafe fn plenty_generator_resume(g: *mut Generator, out: *mut u128) 
             return 0;
         }
         (*g).running = 1;
-        let result = ((*g).resume)(g, out);
+        let result = {
+            let _caller = crate::CallerScope::save();
+            ((*g).resume)(g, out)
+        };
         (*g).running = 0;
         result
     }

@@ -119,13 +119,13 @@ def split_pairs(field: &str, cookies: &mut list[Cookie], limit: i64) -> Result[(
         if last > first:
             match lifted(data.find(61u8, first, last))?:
                 case Some(equals):
-                    name = lifted(lifted(data.slice(first, equals))?.to_text())?
+                    name = lifted(data.to_text_range(first, equals))?
                     mut value_start = equals + 1
                     mut value_stop = last
                     if value_stop - value_start >= 2 and code(&data, value_start) == 34 and code(&data, value_stop - 1) == 34:
                         value_start += 1
                         value_stop -= 1
-                    match lifted(data.slice(value_start, value_stop))?.to_text():
+                    match data.to_text_range(value_start, value_stop):
                         case Ok(value):
                             if valid_name(&name) and valid_value(&value):
                                 if len(cookies) >= limit:
@@ -329,7 +329,7 @@ pub def verify(keys: &list[Bytes], name: &str, signed: &str) -> Result[Option[st
             matched = True
     if not matched:
         return Ok(Nothing)
-    Ok(Some(lifted(lifted(data.slice(0, dot))?.to_text())?))
+    Ok(Some(lifted(data.to_text_range(0, dot))?))
 
 # The value of the first cookie named `name` whose signature verifies.
 pub def find_signed(cookies: &list[Cookie], keys: &list[Bytes], name: &str) -> Result[Option[str], CookieError]:

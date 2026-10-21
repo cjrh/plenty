@@ -215,6 +215,7 @@ impl Record<'_> {
                     *state = 0;
                     let mut owner = value;
                     let hook = ty.drop.expect("class destructor");
+                    let _caller = crate::CallerScope::save();
                     memory::with_nested_drops(|| hook(&mut owner));
                     if owner != value {
                         crate::fail("destructor replaced its receiver");
@@ -1417,7 +1418,10 @@ pub(crate) unsafe extern "C" fn plenty_list_sort_by(
     unsafe {
         let entries = &mut (*owner.cast::<Collection>()).entries;
         entries.sort_unstable_rows_by(|a, b| {
-            let order = compare(environment, &a, &b).cmp(&0);
+            let order = {
+                let _caller = crate::CallerScope::save();
+                compare(environment, &a, &b).cmp(&0)
+            };
             if descending != 0 {
                 order.reverse()
             } else {

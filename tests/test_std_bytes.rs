@@ -123,6 +123,60 @@ Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
     );
 }
 
+/// Issue #375: `to_text_range` converts a range without an intermediate
+/// `Bytes`, with the same range rule and UTF-8 check as `slice` + `to_text`.
+#[test]
+fn text_ranges_validate_the_range_and_its_utf8() {
+    native(
+        r#"
+buffer = std.bytes.from_text("aé\0z")?
+print(buffer.to_text_range(0, 5)? == "aé\0z", buffer.to_text_range(1, 3)?, buffer.to_text_range(4, 5)?)?
+print(str.repr(buffer.to_text_range(2, 2))?)?
+print(str.repr(buffer.to_text_range(0, 2))?)?
+print(str.repr(buffer.to_text_range(2, 5))?)?
+print(str.repr(buffer.to_text_range(-1, 2))?)?
+print(str.repr(buffer.to_text_range(3, 2))?)?
+print(str.repr(buffer.to_text_range(0, 6))?)?
+mut invalid = std.bytes.from_text("ok")?
+invalid.push(255u8)?
+print(str.repr(invalid.to_text_range(0, 2))?, str.repr(invalid.to_text_range(1, 3))?)?
+"#,
+        r#"
+True é z
+Result[str, std.bytes.BytesError].Ok("")
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)
+Result[str, std.bytes.BytesError].Ok("ok") Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+"#,
+    );
+}
+
+/// Issue #375: the range form allocates only the text, so it succeeds when
+/// every allocation after the first fails.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn text_ranges_allocate_once() {
+    native(
+        r#"
+long = std.bytes.from_text("<<a text too long for inline string storage>>")?
+print("__test_fail_allocations_after_0__")?
+a = long.to_text_range(2, 43)
+print("__test_fail_allocations_after_1__")?
+b = long.to_text_range(2, 43)
+print("__test_restore_allocations__")?
+print(str.repr(a)?)?
+print(str.repr(b)?)?
+"#,
+        r#"
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError.OutOfMemory))
+Result[str, std.bytes.BytesError].Ok("a text too long for inline string storage")
+"#,
+    );
+}
+
 #[test]
 fn ranges_follow_one_rule_without_clamping_or_negative_offsets() {
     let expected = format!(
