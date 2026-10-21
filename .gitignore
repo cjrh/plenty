@@ -26,3 +26,6 @@ target/
 # SQLite WAL files for the issues register
 /issues.db-wal
 /issues.db-shm
+
+# Local semantic search index, model cache, Python environment and executable
+/.search/

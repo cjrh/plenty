@@ -512,5 +512,6 @@
 - [Development workflow](development/workflow.md)
     - [Documentation versions](development/documentation-versions.md)
     - [Local semantic search trial](development/semantic-search.md)
+    - [Search the repository](development/semantic-search-corpus.md)
 - [Profiling the compiler](development/profiling.md)
 - [Releasing Plenty](development/releasing.md)

@@ -170,10 +170,10 @@ B17 also tracks local semantic search over documentation, source docstrings,
 and issue/PR descriptions, using a separate SQLite index. The
 [Plenty search trial](development/semantic-search.md) exercises document-owned
 embeddings, incremental document replacement and hybrid queries, with a pinned
-Python/FastEmbed subprocess used only for inference. Follow-on work: extract
-the corpus, improve chunk boundaries, automate incremental sync and deletion
-discovery, and measure retrieval quality and compact snapshot size
-before deciding whether to commit the index. Prefer Plenty for the interface;
+Python/FastEmbed subprocess used only for inference. Repository extraction,
+incremental sync and deletion discovery are implemented in Plenty. Follow-on
+work: improve chunk boundaries and measure retrieval quality before deciding
+whether to commit index snapshots. Prefer Plenty for the interface;
 record encountered language gaps in the issues register.
 
 | ID | Work | Scope / dependency |
