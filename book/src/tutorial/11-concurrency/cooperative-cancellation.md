@@ -113,9 +113,60 @@ def main() -> Result[(), AllocError | ThreadError | IoError | str]:
 ready
 ```
 
-The guard holds a share of the token and allocates nothing. A worker that
-cancels a token when it finishes, so that its caller can stop waiting, puts its
-body in `with stop.cancel_on_exit():` for the same reason. The
+The guard holds a share of the token and allocates nothing.
+
+The same mistake can happen the other way round. Here the parent waits for
+the worker to cancel `stop` when it finishes, but a `?` in the worker skips
+the cancel:
+
+```plenty-error
+def prepare() -> Result[(), str]:
+    Ok(())
+
+def client(stop: CancellationToken) -> Result[(), str]:
+    prepare()?
+    stop.cancel()
+    Ok(())
+
+def main() -> Result[(), AllocError | ThreadError | IoError | str]:
+    stop = CancellationToken()?
+    with spawn(client, stop.share())? as task:
+        stop.wait()
+        task.join()?
+    Ok(())
+```
+
+```error
+`?` leaves this function without cancelling `stop`, which its normal end cancels
+```
+
+Put the worker's body in `with stop.cancel_on_exit():`, so the parent's
+`stop.wait()` returns however the worker ends. `task.join()?` after the wait
+then reports the worker's error, if it had one:
+
+```plenty
+def prepare() -> Result[(), str]:
+    Ok(())
+
+def client(stop: CancellationToken) -> Result[(), str]:
+    with stop.cancel_on_exit():
+        prepare()?
+    Ok(())
+
+def main() -> Result[(), AllocError | ThreadError | IoError | str]:
+    stop = CancellationToken()?
+    with spawn(client, stop.share())? as task:
+        stop.wait()
+        task.join()?
+        print("client finished")?
+    Ok(())
+```
+
+```output
+client finished
+```
+
+The
 [cancellation reference](../../design/facilities/03-concurrency/cancellation.md#cancel-on-every-exit)
 describes the check and its limits.
 

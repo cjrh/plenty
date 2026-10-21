@@ -95,6 +95,12 @@ HTTP/1.1 404 Not Found | Not Found
 4
 ```
 
+The client cancels `stop` when it is done, which stops the server. Its body
+is in `with stop.cancel_on_exit():`, so a failed request stops the server too,
+and `task.join()?` after `serve` reports that failure; see
+[cancel on every exit](cooperative-cancellation.md#cancel-on-every-exit). The
+later HTTP lessons use the same shape.
+
 `FetchError` names the client's errors, shared by `get` and `client`.
 `ServerSetupError` names this example's server and listener errors. `serve`
 already wraps its network failures in `ServerError`; the separate `NetError`
