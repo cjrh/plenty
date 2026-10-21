@@ -54,6 +54,35 @@ pub(super) fn find_in(haystack: &[u8], set: &[u8], member: bool) -> Option<usize
     haystack.iter().position(|byte| table[*byte as usize])
 }
 
+/// The scalar position in UTF-8 `text` of the first scalar that is
+/// (`member`) or is not (`!member`) an ASCII byte of `set` (issue #383).
+/// Set bytes from 0x80 match nothing, so no byte of a multi-byte scalar is a
+/// member: a member search skips them, and a non-member search stops at the
+/// lead byte.
+pub(super) fn text_find_in(text: &[u8], set: &[u8], member: bool) -> Option<usize> {
+    let index = if set.is_ascii() {
+        find_in(text, set, member)?
+    } else {
+        let (mut ascii, mut seen, mut len) = ([0u8; 128], [false; 128], 0);
+        for &byte in set.iter().filter(|byte| byte.is_ascii()) {
+            if !seen[byte as usize] {
+                seen[byte as usize] = true;
+                ascii[len] = byte;
+                len += 1;
+            }
+        }
+        find_in(text, &ascii[..len], member)?
+    };
+    // Before a non-member every byte is an ASCII member, one scalar each.
+    Some(match member {
+        true => text[..index]
+            .iter()
+            .filter(|byte| (**byte as i8) >= -0x40)
+            .count(),
+        false => index,
+    })
+}
+
 /// Searches by first byte, then compares: at most `haystack.len()` candidate
 /// positions of `needle.len()` bytes each.
 pub(super) fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -149,6 +178,57 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// Text scans agree with a per-scalar model for every byte value in the
+    /// set, ASCII and non-ASCII scalars at every position, and both senses.
+    #[test]
+    fn text_scans_report_scalar_positions_and_never_match_non_ascii() {
+        fn model(text: &str, set: &[u8], member: bool) -> Option<usize> {
+            text.chars()
+                .position(|scalar| (scalar.is_ascii() && set.contains(&(scalar as u8))) == member)
+        }
+        let scalars = [
+            "a", "-", ",", "\u{0}", "\u{7f}", "é", "\u{80}", "ÿ", "€", "😀",
+        ];
+        let sets: [&[u8]; 7] = [
+            b"",
+            b",",
+            b"a-",
+            b"a-,\x7f",
+            &[0xc3, 0xa9, 0x80, 0xff, b'a'],
+            &[0, b'a', b'a', 0xe2, b'-'],
+            b"abcdefghijklmnopqrstuvwxyz-,",
+        ];
+        for length in 0..12 {
+            for filler in ["a", "é"] {
+                for hit in 0..length.max(1) {
+                    for value in scalars {
+                        let mut text = String::new();
+                        for at in 0..length {
+                            text.push_str(if at == hit { value } else { filler });
+                        }
+                        for set in sets {
+                            for member in [true, false] {
+                                assert_eq!(
+                                    text_find_in(text.as_bytes(), set, member),
+                                    model(&text, set, member),
+                                    "{text:?} {set:?} {member}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for byte in 0..=255u8 {
+            let set = [byte];
+            let text = "\u{0}\u{7f}é\u{ff}";
+            assert_eq!(
+                text_find_in(text.as_bytes(), &set, true),
+                model(text, &set, true)
+            );
         }
     }
 

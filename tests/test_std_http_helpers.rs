@@ -842,6 +842,23 @@ def part_sweep(handler: &Probe, before: &str, after: &str) -> Result[(), std.byt
         probe(handler, &head, code, &after.concat("\r\n\r\nv\r\n--XyZ--")?)?
     Ok(())
 
+# Issue #383: a quoted boundary `a`, the byte `code`, `b`, used by the body.
+def boundary_sweep(handler: &Probe) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
+    for code in range(256):
+        mut data = std.bytes.from_text("POST /upload HTTP/1.1\r\nHost: x\r\nContent-Length: 59\r\nContent-Type: multipart/form-data; boundary=\"a")?
+        data.push(u8(code))?
+        data.extend(&std.bytes.from_text("b\"\r\n\r\n--a")?)?
+        data.push(u8(code))?
+        data.extend(&std.bytes.from_text("b\r\nContent-Disposition: form-data; name=f\r\n\r\nv\r\n--a")?)?
+        data.push(u8(code))?
+        data.extend(&std.bytes.from_text("b--")?)?
+        table = routes()?
+        stop = CancellationToken()?
+        cancel = CancellationToken()?
+        report = std.http.server.serve_connection_from(Quiet(data, 0), Nothing, &table, handler, &std.http.server.config(), &stop, &cancel)
+        print("/")?
+    Ok(())
+
 def cookie_sweep(before: &str, after: &str) -> Result[(), std.http.cookie.CookieError | AllocError | IoError]:
     for code in range(128):
         field = before.concat(&chr(u32(code)).unwrap())?.concat(after)?
@@ -1004,6 +1021,49 @@ def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | st
             index / 128,
             index % 128
         );
+    }
+}
+
+/// Issue #383: the boundary check is a set scan; a quoted boundary accepts
+/// exactly the RFC 2046 bchars. `H` marks a request `std.http` rejects first.
+#[test]
+fn multipart_boundaries_accept_exactly_bchars() {
+    let main = format!(
+        r##"{PROBE}
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+    boundary_sweep(&Probe(app()?))?
+    Ok(())
+"##
+    );
+    let output = run(&main);
+    let mut lines = output.lines().peekable();
+    let mut requests = Vec::new();
+    while let Some(line) = lines.next() {
+        if line == "/" {
+            requests.push("H".to_string());
+        } else {
+            assert_eq!(lines.next(), Some("/"), "{line}");
+            requests.push(line.to_string());
+        }
+    }
+    let bchar = |code: u8| code.is_ascii_alphanumeric() || b" '()+,-./:=?_".contains(&code);
+    let expected: Vec<String> = (0..=255u8)
+        .map(|code| {
+            if !field_byte(code) {
+                "H".into()
+            } else if code == b'"' {
+                // The quoted string ends early, leaving a malformed media type.
+                "U".into()
+            } else if bchar(code) {
+                ".f".into()
+            } else {
+                "M".into()
+            }
+        })
+        .collect();
+    assert_eq!(requests.len(), expected.len());
+    for (code, (found, wanted)) in requests.iter().zip(&expected).enumerate() {
+        assert_eq!(found, wanted, "byte {code}");
     }
 }
 

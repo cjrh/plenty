@@ -16,6 +16,7 @@ import std.error
 import std.http
 import std.io
 import std.net
+import std.text
 import std.time
 import std.url
 from std.bytes import ByteSource, Bytes, BytesError
@@ -589,12 +590,7 @@ def managed(name: &str) -> Result[bool, AllocError]:
 
 # RFC 9110 token characters, so that a bad method fails before connecting.
 def token(text: &str) -> bool:
-    if text.byte_len() == 0 or not text.isascii():
-        return False
-    for piece in text:
-        if not (piece.isalpha() or piece.isdigit() or piece in "!#$%&'*+-.^_`|~"):
-            return False
-    True
+    text.byte_len() > 0 and std.text.find_not_in(text, b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz").is_none()
 
 def idempotent(method: &str) -> bool:
     method == "GET" or method == "HEAD" or method == "OPTIONS" or method == "TRACE" or method == "PUT" or method == "DELETE"

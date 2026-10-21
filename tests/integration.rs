@@ -412,6 +412,8 @@ mod test_std_sync_mutex;
 mod test_std_tempfile;
 #[path = "test_std_test.rs"]
 mod test_std_test;
+#[path = "test_std_text_set_scans.rs"]
+mod test_std_text_set_scans;
 #[path = "test_std_text_unicode.rs"]
 mod test_std_text_unicode;
 #[path = "test_std_tls.rs"]

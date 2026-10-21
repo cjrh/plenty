@@ -8,6 +8,7 @@ import std.bytes
 import std.crypto
 import std.encoding
 import std.http
+import std.text
 from std.bytes import Bytes, BytesError
 from std.crypto import Algorithm, CryptoError
 from std.encoding import EncodingError
@@ -55,15 +56,10 @@ def http[T](result: Result[T, HttpError]) -> Result[T, CookieError]:
 def code(data: &Bytes, index: i64) -> i64:
     i64(data[index])
 
-# RFC 9110 tchar.
-def token_byte(value: i64) -> bool:
-    if (value >= 48 and value <= 57) or (value >= 65 and value <= 90) or (value >= 97 and value <= 122):
-        return True
-    value == 33 or (value >= 35 and value <= 39) or value == 42 or value == 43 or value == 45 or value == 46 or value == 94 or value == 95 or value == 96 or value == 124 or value == 126
-
 # Whether `start..stop` of `data` is entirely RFC 9110 tchar (`tokens`) or
-# RFC 6265 cookie-octet: one bulk scan over the same sets as `token_byte`
-# and `cookie_byte` (issue #376). Callers pass ranges within `data`.
+# RFC 6265 cookie-octet (visible ASCII except `"`, `,`, `;` and `\`): one
+# bulk scan (issue #376). Callers pass ranges within `data`. `all_bytes`
+# scans text with the same sets.
 def all_in(data: &Bytes, start: i64, stop: i64, tokens: bool) -> bool:
     found = match tokens:
         case True:
@@ -76,28 +72,20 @@ def all_in(data: &Bytes, start: i64, stop: i64, tokens: bool) -> bool:
         case _:
             False
 
-# RFC 6265 cookie-octet: visible ASCII except `"`, `,`, `;` and `\`.
-def cookie_byte(value: i64) -> bool:
-    value == 33 or (value >= 35 and value <= 43) or (value >= 45 and value <= 58) or (value >= 60 and value <= 91) or (value >= 93 and value <= 126)
-
+# Whether all of `text` is in one set: 0 tchar, 1 cookie-octet, 2 path (any
+# visible ASCII or space except `;`), 3 domain (letters, digits, `-` and
+# `.`). One native scan; a non-ASCII scalar is never a member (issue #383).
 def all_bytes(text: &str, kind: i64) -> bool:
-    for scalar in text:
-        match ord(scalar):
-            case Ok(point):
-                value = i64(point)
-                if kind == 0 and not token_byte(value):
-                    return False
-                if kind == 1 and not cookie_byte(value):
-                    return False
-                # Path: any visible ASCII or space except `;`.
-                if kind == 2 and (value < 32 or value > 126 or value == 59):
-                    return False
-                # Domain: letters, digits, `-` and `.`.
-                if kind == 3 and not ((value >= 48 and value <= 57) or (value >= 65 and value <= 90) or (value >= 97 and value <= 122) or value == 45 or value == 46):
-                    return False
-            case Err(_):
-                return False
-    True
+    found = match kind:
+        case 0:
+            std.text.find_not_in(text, b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+        case 1:
+            std.text.find_not_in(text, b"!#$%&'()*+-./0123456789:<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~")
+        case 2:
+            std.text.find_not_in(text, b" !\"#$%&'()*+,-./0123456789:<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~")
+        case _:
+            std.text.find_not_in(text, b"-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+    found.is_none()
 
 def valid_name(name: &str) -> bool:
     name.byte_len() > 0 and all_bytes(name, 0)
