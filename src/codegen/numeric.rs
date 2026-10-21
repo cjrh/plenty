@@ -3,9 +3,9 @@
 //! See `book/src/design/facilities/01-builtins/numbers.md`.
 use super::*;
 use crate::numeric::{FloatOp, NumericOp};
-use cranelift_codegen::ir::ConstantData;
 use cranelift_codegen::ir::Value as NativeValue;
 use cranelift_codegen::ir::immediates::{Ieee32, Ieee64};
+use cranelift_codegen::ir::{ConstantData, InstructionData, Opcode, ValueDef};
 
 impl Lowerer<'_, '_> {
     pub(super) fn lower_numeric(&mut self, operation: &NumericOp) -> Result<()> {
@@ -110,6 +110,30 @@ impl Lowerer<'_, '_> {
         }
         let mask = self.float_bits(x, magnitude);
         self.bcx.ins().band(x, mask)
+    }
+
+    /// `-x` flips the sign bit, NaN payload included, as Cranelift's `fneg`
+    /// does. The mask is the right operand of `bxor`, so x86-64 reads it from
+    /// the constant pool; `fneg` builds it with `movabs` + `movq` at each use
+    /// (issue #385). A constant folds here, and so does `-(-x)`, which
+    /// Cranelift's `fneg(fneg x)` rule no longer sees.
+    pub(super) fn float_neg(&mut self, x: NativeValue) -> NativeValue {
+        let (sign, _) = self.float_masks(x);
+        let dfg = &self.bcx.func.dfg;
+        if let Some(bits) = known::known_float_bits(dfg, x) {
+            return self.float_bits(x, bits ^ sign);
+        }
+        if let ValueDef::Result(inst, _) = dfg.value_def(dfg.resolve_aliases(x))
+            && let InstructionData::Binary {
+                opcode: Opcode::Bxor,
+                args: [inner, mask],
+            } = dfg.insts[inst]
+            && known::known_float_bits(dfg, mask) == Some(sign)
+        {
+            return inner;
+        }
+        let mask = self.float_bits(x, sign);
+        self.bcx.ins().bxor(x, mask)
     }
 
     /// `x.copysign(y)`: the magnitude bits of `x` with the sign bit of `y`,
