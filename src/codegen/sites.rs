@@ -142,9 +142,11 @@ impl Lowerer<'_, '_> {
         })
     }
 
-    /// A normal call restores its caller context on return, including calls
-    /// made by std to user callbacks. Tail calls transfer the context without
-    /// growing a stack. Null preserves context for std and synthetic adapters.
+    /// Saves the caller context and, in user code, names this call site as
+    /// the caller. A normal call restores the context on return; a user tail
+    /// call transfers it without growing a stack. In std the site is null, so
+    /// the save matters only when [`Self::leave_call`] follows a callee that
+    /// may change the context; see [`mark_context_preserving`].
     pub(super) fn enter_call(&mut self) -> Result<Option<Value>> {
         if !self.runtime.standard_calls {
             return Ok(None);
@@ -167,6 +169,105 @@ impl Lowerer<'_, '_> {
                 .module
                 .declare_func_in_func(self.runtime.caller_leave, self.bcx.func);
             self.bcx.ins().call(leave, &[saved]);
+        }
+    }
+}
+
+/// Marks each function that returns with the caller context it was entered
+/// with, so a standard-library call to it needs no save and restore.
+///
+/// Only a call that sets a site and then gives up its frame leaves the context
+/// changed: a user tail call into std or an adapter, or any indirect tail call
+/// (from std its callee is unknown). Every other operation preserves it:
+/// - an ordinary call from user code into std or an adapter, and an indirect
+///   call, save and restore around the callee;
+/// - runtime helpers restore it after each callback into compiled code
+///   (`CallerScope` in the runtime);
+/// - a direct tail call, a user-to-user call, or a std call to a preserving
+///   callee preserves it exactly when that callee does.
+///
+/// The result is the greatest fixed point, so recursion through preserving
+/// functions stays preserving. Generator constructors and functions without
+/// a source file are left unmarked.
+pub(super) fn mark_context_preserving(
+    bodies: &[(String, Arc<[Op]>)],
+    fns: &mut HashMap<String, UserFn>,
+) {
+    let index: HashMap<&str, usize> = bodies
+        .iter()
+        .enumerate()
+        .map(|(i, (name, _))| (name.as_str(), i))
+        .collect();
+    let mut preserving = vec![true; bodies.len()];
+    // `callers[g]`: functions that preserve the context only if `g` does.
+    let mut callers: Vec<Vec<usize>> = vec![Vec::new(); bodies.len()];
+    for (i, (name, body)) in bodies.iter().enumerate() {
+        let caller = &fns[name];
+        let mut depends = Vec::new();
+        let mut changes = caller.generator.is_some() || caller.source.is_none();
+        walk_body(body, &mut |op| match op {
+            Op::TailCallIndirect(_) => changes = true,
+            Op::TailCall(callee) | Op::Call(callee) => {
+                let Some(&g) = index.get(callee.as_str()) else {
+                    changes = true;
+                    return;
+                };
+                let decl = &fns[callee];
+                let sets_site =
+                    !caller.standard_library && (decl.standard_library || decl.source.is_none());
+                match op {
+                    Op::TailCall(_) if sets_site => changes = true,
+                    // Restored by its caller: std restores unless the callee
+                    // preserves, user code whenever it sets a site.
+                    Op::Call(_) if caller.standard_library || sets_site => {}
+                    _ => depends.push(g),
+                }
+            }
+            _ => {}
+        });
+        if changes {
+            preserving[i] = false;
+        }
+        for g in depends {
+            callers[g].push(i);
+        }
+    }
+    let mut pending: Vec<usize> = (0..bodies.len()).filter(|&i| !preserving[i]).collect();
+    while let Some(g) = pending.pop() {
+        for &f in &callers[g] {
+            if preserving[f] {
+                preserving[f] = false;
+                pending.push(f);
+            }
+        }
+    }
+    for ((name, _), preserves) in bodies.iter().zip(preserving) {
+        fns.get_mut(name).unwrap().preserves_caller = preserves;
+    }
+}
+
+/// Visits every operation of one function, not of the functions it defines.
+fn walk_body<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
+    let mut pending = vec![ops];
+    while let Some(ops) = pending.pop() {
+        for op in ops {
+            visit(op);
+            match op {
+                Op::Match(arms) => pending.extend(arms.iter().map(|arm| arm.body.as_ref())),
+                Op::Loop { condition, body } => pending.extend([condition.as_ref(), body.as_ref()]),
+                Op::If {
+                    then,
+                    elifs,
+                    otherwise,
+                } => {
+                    pending.extend([then.as_ref(), otherwise.as_ref()]);
+                    for arm in elifs.iter() {
+                        pending.extend([arm.condition.as_ref(), arm.body.as_ref()]);
+                    }
+                }
+                Op::Try { cleanup, .. } => pending.push(cleanup),
+                _ => {}
+            }
         }
     }
 }

@@ -81,11 +81,16 @@ site. Iteration reads and operations that cannot trap pass null. The runtime
 reads the record only when the trap fires and formats the report directly to
 standard error.
 
-For objects containing embedded std functions, calls crossing between std and
-user code save and restore a thread-local pointer to the nearest user call site.
-Indirect and synthetic calls, generator advancement, and cleanup also preserve
-this context where callbacks can run. Ordinary std-to-std calls also restore
-context because their callee may tail-call through a user callback. Direct
+For objects containing embedded std functions, user calls into std save and
+restore a thread-local pointer to the nearest user call site. User code also
+saves and restores it around generator advancement, cleanup, and collection
+operations that can run callbacks. Std code saves and restores it only around
+indirect calls and direct calls to functions that may change it: a function
+may change the context when it tail-calls std from user code, makes an indirect
+tail call, calls such a function in tail position, or is a generator or a
+function without Plenty source. The runtime restores the context itself after
+each destructor, generator resumption, and sort-key comparison it runs, so no
+runtime helper changes it. Direct
 user-to-user calls need no context operations. Tail calls transfer the pointer without retaining
 the discarded frame. A std trap prints the original site and a caller note;
 ordinary user traps ignore this context. Site records are immutable, so the

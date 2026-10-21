@@ -427,3 +427,84 @@ fn caller_positions_name_the_call_after_argument_evaluation(
         "{error}"
     );
 }
+
+/// Calls into the caller-context runtime in each function of a release clif
+/// dump that includes `std`, keyed by the dump's function header.
+fn caller_context_calls(source: &str) -> Vec<(String, usize)> {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.plenty"), source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .current_dir(dir.path())
+        .env("PLENTY_CACHE", "off")
+        .args([
+            "--release",
+            "--dump",
+            "clif",
+            "--dump-std",
+            "main.plenty",
+            "-o",
+            "-",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let dump = String::from_utf8(output.stdout).unwrap();
+    dump.split("\n==== ")
+        .skip(1)
+        .map(|function| {
+            let header = function.lines().next().unwrap().to_string();
+            (header, function.matches("plenty_caller_enter").count())
+        })
+        .collect()
+}
+
+/// Issue #366: standard-library code keeps the user caller it was entered
+/// with, so formatting and collection-heavy std functions make no caller
+/// context calls; user calls into std still name their call site.
+#[test]
+fn standard_library_code_makes_no_caller_context_calls() {
+    let source = "from std.collections import Heap\nfrom std.fmt import FormatError\ndef main() -> Result[(), AllocError | IoError | FormatError]:\n    xs = [3, 4, 5]?\n    print(f\"{xs} {1.5}\"?)?\n    empty = Heap[i64]()?\n    print(*empty.peek())?\n    Ok(())\n";
+    let calls = caller_context_calls(source);
+    let standard: Vec<_> = calls
+        .iter()
+        .filter(|(header, _)| header.contains("source=std/"))
+        .collect();
+    assert!(standard.len() > 20, "{calls:?}");
+    assert!(
+        standard.iter().all(|(_, count)| *count == 0),
+        "{standard:?}"
+    );
+    assert!(
+        calls
+            .iter()
+            .any(|(header, count)| header.starts_with("main ") && *count > 0),
+        "{calls:?}"
+    );
+    let error = trap(&[("main.plenty", source)]);
+    assert!(
+        error.starts_with("error: std/collections.plenty:20:10: index out of bounds"),
+        "{error}"
+    );
+    assert!(
+        error.ends_with("note: called from main.plenty:7:12\n"),
+        "{error}"
+    );
+}
+
+/// A std function calling back through a callable keeps saving and restoring
+/// the context: the callback may tail-call std and leave its own site behind.
+#[test]
+fn standard_indirect_calls_still_restore_the_caller_context() {
+    let calls = caller_context_calls(
+        "from std.iter import fold\nfrom std.math import abs\ndef values() -> Generator[i64]:\n    yield 1\ndef positive(a: i64, b: i64) -> i64:\n    abs(a + b)\ndef main() -> Result[(), IoError]:\n    print(fold(values(), 0, positive))?\n    Ok(())\n",
+    );
+    let fold = calls
+        .iter()
+        .find(|(header, _)| header.contains("source=std/iter.plenty"))
+        .unwrap_or_else(|| panic!("{calls:?}"));
+    assert_eq!(fold.1, 1, "{calls:?}");
+}
