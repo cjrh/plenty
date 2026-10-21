@@ -2,15 +2,45 @@
 //! A payload projection keeps the original storage alive through its loan;
 //! it never manufactures a pointer to a temporary unpacked value.
 use super::*;
-use cranelift_codegen::ir::{MemFlags, Value as NativeValue};
+use cranelift_codegen::ir::{InstructionData, MemFlags, Opcode, Value as NativeValue, ValueDef};
 
 impl Lowerer<'_, '_> {
-    pub(super) fn read_reference(&mut self, reference: NativeValue) -> NativeValue {
+    /// The slot address, and the tag shift unless the reference was just
+    /// made from an address (a local or a list row), which projects nothing.
+    /// Cranelift does not see through `isplit` of a `uextend`, so without
+    /// this every read would keep a dead shift-and-select.
+    fn reference_parts(&mut self, reference: NativeValue) -> (NativeValue, Option<NativeValue>) {
+        if let ValueDef::Result(inst, _) = self.bcx.func.dfg.value_def(reference)
+            && let InstructionData::Unary {
+                opcode: Opcode::Uextend,
+                arg,
+            } = self.bcx.func.dfg.insts[inst]
+        {
+            return (arg, None);
+        }
         let (address, shift) = self.bcx.ins().isplit(reference);
+        (address, Some(shift))
+    }
+
+    /// The low payload word of a referenced slot: the owner of a referenced
+    /// collection, for helpers that take only that. Targets are
+    /// little-endian, so it is the slot's first eight bytes.
+    pub(super) fn reference_word(&mut self, reference: NativeValue) -> NativeValue {
+        let (address, _) = self.reference_parts(reference);
+        self.bcx
+            .ins()
+            .load(types::I64, MemFlags::trusted(), address, 0)
+    }
+
+    pub(super) fn read_reference(&mut self, reference: NativeValue) -> NativeValue {
+        let (address, shift) = self.reference_parts(reference);
         let packed = self
             .bcx
             .ins()
             .load(types::I128, MemFlags::trusted(), address, 0);
+        let Some(shift) = shift else {
+            return packed;
+        };
         let (word, tags) = self.bcx.ins().isplit(packed);
         // The deepest legal projection (64) produces zero, which a 64-bit
         // shift, masked to 0, would not.

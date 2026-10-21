@@ -21,6 +21,8 @@ impl Lowerer<'_, '_> {
         let runtime = &self.runtime;
         Some(match operation {
             CollectionOp::ListLenRef(_) => (runtime.list_len, true, Site::None),
+            CollectionOp::ListRowsRef(_) => (runtime.list_rows, true, Site::None),
+            CollectionOp::ListRowBytesRef(_) => (runtime.list_row_bytes, true, Site::None),
             CollectionOp::ListScalarGetRef(_) => (runtime.list_scalar_get, true, Site::Trap),
             CollectionOp::Len(Ty::List(_)) => (runtime.list_len, false, Site::None),
             CollectionOp::Get(Ty::List(element)) | CollectionOp::IterGet(Ty::List(element))
@@ -298,8 +300,7 @@ impl Lowerer<'_, '_> {
             let (value, _) = self.pop_typed(element.clone())?;
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), true))?;
-            let packed = self.read_reference(receiver);
-            let owner = self.raw_word(packed);
+            let owner = self.reference_word(receiver);
             let packed = self.pack(value, &element);
             let bits = self.raw_word(packed);
             let site = self.trap_site()?;
@@ -316,8 +317,7 @@ impl Lowerer<'_, '_> {
             let (descending, _) = self.pop_typed(Ty::Bool)?;
             let (callback, _) = self.pop_typed(sort.callback.clone())?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(sort.list.clone()), true))?;
-            let packed = self.read_reference(receiver);
-            let owner = self.raw_word(packed);
+            let owner = self.reference_word(receiver);
             let environment = self.bcx.ins().ireduce(PTR_TY, callback);
             let adapter = self.runtime.sort_adapters[&sort.adapter];
             let adapter = self.module.declare_func_in_func(adapter, self.bcx.func);
@@ -348,6 +348,19 @@ impl Lowerer<'_, '_> {
             self.stack.push((order, Ty::I64));
             return Ok(());
         }
+        if let CollectionOp::ListRowRef(ty, mutable) = operation {
+            let (index, _) = self.pop_typed(Ty::I64)?;
+            let (row_bytes, _) = self.pop_typed(Ty::I64)?;
+            let (rows, _) = self.pop_typed(Ty::I64)?;
+            let offset = self.bcx.ins().imul(index, row_bytes);
+            let address = self.bcx.ins().iadd(rows, offset);
+            // A row is a top-level slot: no inline-sum tag is projected.
+            let reference = self.bcx.ins().uextend(types::I128, address);
+            let element = ty.element().unwrap();
+            self.stack
+                .push((reference, Ty::Ref(Arc::new(element), *mutable)));
+            return Ok(());
+        }
         if let Some((helper, borrowed, site)) = self.narrow_helper(operation) {
             let (inputs, output) = operation.signature();
             let mut trailing = Vec::new();
@@ -356,8 +369,7 @@ impl Lowerer<'_, '_> {
                 // Narrow helpers take later shared references as the value
                 // word and integer arguments as full words.
                 let value = if matches!(input, Ty::Ref(..)) {
-                    let packed = self.read_reference(value);
-                    self.raw_word(packed)
+                    self.reference_word(value)
                 } else if clif_type(input.clone()) == types::I64 {
                     value
                 } else {
@@ -368,8 +380,7 @@ impl Lowerer<'_, '_> {
             trailing.reverse();
             let (receiver, ty) = self.pop_typed(inputs[0].clone())?;
             let owner = if borrowed {
-                let packed = self.read_reference(receiver);
-                self.raw_word(packed)
+                self.reference_word(receiver)
             } else {
                 receiver
             };

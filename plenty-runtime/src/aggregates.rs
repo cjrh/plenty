@@ -1363,6 +1363,23 @@ pub(crate) unsafe extern "C" fn plenty_list_len(owner: *const u8) -> u64 {
     unsafe { (*(owner.cast::<Collection>())).entries.len() as u64 }
 }
 
+/// Narrow ABI: the address of a live borrowed list's first row. Borrowed
+/// iteration addresses row `i` at `rows + i * row_bytes`, exactly the element
+/// slot a generic element reference names. The compiler holds the list's loan
+/// for the whole loop, so no mutation can move the rows while it uses them.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_list_rows(owner: *mut u8) -> *mut u128 {
+    // SAFETY: the compiler keeps the list's owner alive through the call.
+    unsafe { (*(owner.cast::<Collection>())).entries.rows() }
+}
+
+/// Narrow ABI: the distance in bytes between a live list's rows.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_list_row_bytes(owner: *const u8) -> u64 {
+    // SAFETY: the compiler keeps the list's owner alive through the call.
+    unsafe { (*(owner.cast::<Collection>())).entries.row_bytes() as u64 }
+}
+
 /// Narrow ABI: the total sort order of two values of `descriptor`'s type as
 /// -1, 0, or 1. Operands arrive as 64-bit halves; neither changes ownership.
 #[unsafe(no_mangle)]

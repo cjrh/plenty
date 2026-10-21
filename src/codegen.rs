@@ -80,6 +80,7 @@ mod exports;
 mod foreign;
 mod generators;
 mod inline;
+mod known;
 mod metadata;
 mod mutex;
 mod numeric;
@@ -891,6 +892,10 @@ struct Runtime {
     /// programs that never start a session.
     tls: FuncId,
     list_len: FuncId,
+    /// `plenty_list_rows(list) -> first row address` and
+    /// `plenty_list_row_bytes(list) -> row size`, for borrowed iteration.
+    list_rows: FuncId,
+    list_row_bytes: FuncId,
     list_scalar_get: FuncId,
     list_scalar_set: FuncId,
     /// `plenty_list_sort_by(list, comparator, environment, descending)`.
@@ -1117,6 +1122,20 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_list_len", Linkage::Import, &sig)?
+        },
+        list_rows: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.push(AbiParam::new(PTR_TY));
+            sig.returns.push(AbiParam::new(PTR_TY));
+            module.declare_function("plenty_list_rows", Linkage::Import, &sig)?
+        },
+        list_row_bytes: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.push(AbiParam::new(PTR_TY));
+            sig.returns.push(AbiParam::new(types::I64));
+            module.declare_function("plenty_list_row_bytes", Linkage::Import, &sig)?
         },
         list_scalar_get: {
             let mut sig = module.make_signature();
@@ -1477,51 +1496,45 @@ fn collect_user_fns(
 }
 
 /// Which locals need stack storage: those with inline storage and those whose
-/// address the body takes with `BorrowLocal`. Any `Op::Thread` keeps every
-/// local in memory. The rest stay in CLIF variables, so taking one local's
-/// address does not move unrelated locals into memory (issue #361).
+/// address the body takes with `BorrowLocal`. The rest stay in CLIF variables,
+/// so taking one local's address does not move unrelated locals into memory
+/// (issue #361). Thread operations add none: task storage is a separate stack
+/// slot, the task token local is only read and written, and a worker reaches
+/// parent locals only through borrowed arguments (issue #373).
 fn addressed_locals(ops: &[Op], locals: &[(Variable, Ty)]) -> Vec<bool> {
     let mut addressed: Vec<bool> = locals.iter().map(|(_, t)| t.has_inline_storage()).collect();
-    if mark_borrowed_locals(ops, &mut addressed) {
-        addressed.fill(true);
-    }
+    mark_borrowed_locals(ops, &mut addressed);
     addressed
 }
 
-/// Mark each local borrowed anywhere in `ops`, including nested bodies;
-/// return whether `ops` contains an `Op::Thread`.
-fn mark_borrowed_locals(ops: &[Op], addressed: &mut [bool]) -> bool {
-    let mut thread = false;
+/// Mark each local borrowed anywhere in `ops`, including nested bodies.
+fn mark_borrowed_locals(ops: &[Op], addressed: &mut [bool]) {
     for op in ops {
-        thread |= match op {
-            Op::BorrowLocal(i, _) => {
-                addressed[*i as usize] = true;
-                false
-            }
-            Op::Thread(_) => true,
-            Op::Match(arms) => arms.iter().fold(false, |found, arm| {
-                mark_borrowed_locals(&arm.body, addressed) | found
-            }),
+        match op {
+            Op::BorrowLocal(i, _) => addressed[*i as usize] = true,
+            Op::Match(arms) => arms
+                .iter()
+                .for_each(|arm| mark_borrowed_locals(&arm.body, addressed)),
             Op::Loop { condition, body } => {
-                mark_borrowed_locals(condition, addressed) | mark_borrowed_locals(body, addressed)
+                mark_borrowed_locals(condition, addressed);
+                mark_borrowed_locals(body, addressed);
             }
             Op::If {
                 then,
                 elifs,
                 otherwise,
-            } => elifs.iter().fold(
-                mark_borrowed_locals(then, addressed) | mark_borrowed_locals(otherwise, addressed),
-                |found, arm| {
-                    mark_borrowed_locals(&arm.condition, addressed)
-                        | mark_borrowed_locals(&arm.body, addressed)
-                        | found
-                },
-            ),
+            } => {
+                mark_borrowed_locals(then, addressed);
+                for arm in elifs.iter() {
+                    mark_borrowed_locals(&arm.condition, addressed);
+                    mark_borrowed_locals(&arm.body, addressed);
+                }
+                mark_borrowed_locals(otherwise, addressed);
+            }
             Op::Try { cleanup, .. } => mark_borrowed_locals(cleanup, addressed),
-            _ => false,
-        };
+            _ => {}
+        }
     }
-    thread
 }
 
 /// Stack storage for the locals [`addressed_locals`] selects.
@@ -2005,7 +2018,12 @@ impl Lowerer<'_, '_> {
             }
             Op::ReadRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
-                let packed = self.read_reference(reference);
+                // A scalar is entirely in its slot's first word.
+                let packed = if ty.is_numeric() || *ty == Ty::Bool {
+                    self.reference_word(reference)
+                } else {
+                    self.read_reference(reference)
+                };
                 let value = self.unpack(packed, ty);
                 let value = if ty.can_copy() {
                     self.snapshot_inline(value, ty)
@@ -2467,7 +2485,13 @@ impl Lowerer<'_, '_> {
     ///
     /// The trap block computes the site's address itself, so the passing
     /// path gains nothing, and is cold, so it is laid out after the body.
+    ///
+    /// A guard whose condition is computed from constants and is known to be
+    /// false emits nothing, not even a trap-site record; see `known.rs`.
     fn trap_if(&mut self, flag: cranelift_codegen::ir::Value, kind: TrapKind) -> Result<()> {
+        if known::known_int(&self.bcx.func.dfg, flag) == Some(0) {
+            return Ok(());
+        }
         let trap_block = self.bcx.create_block();
         let after = self.bcx.create_block();
         self.bcx.ins().brif(flag, trap_block, &[], after, &[]);

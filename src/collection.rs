@@ -193,6 +193,14 @@ pub enum CollectionOp {
     /// A [`Query`] of the value behind a shared reference, which the
     /// frontend keeps alive under its loan; nothing is retained or released.
     QueryRef(Query),
+    /// Borrowed iteration's row cursor: the first row's address and the row
+    /// size in bytes, valid while the frontend keeps the list's loan live and
+    /// nothing mutates it.
+    ListRowsRef(Ty),
+    ListRowBytesRef(Ty),
+    /// First-row address, row size, in-bounds index -> reference to that row's
+    /// element, the address `ElementRef` returns. The index is not checked.
+    ListRowRef(Ty, bool),
     IterGet(Ty),
     // Hash cursors are stable slot IDs plus one; zero terminates traversal.
     HashIterFirst(Ty),
@@ -577,7 +585,13 @@ impl CollectionOp {
             ListSort(t) => (vec![t.clone(), Ty::Bool], t.clone()),
             ListSwap(t) => (vec![t.clone(), Ty::I64, Ty::I64], t.clone()),
             Len(t) | HashIterFirst(t) => (vec![t.clone()], Ty::I64),
-            ListLenRef(t) => (vec![Ty::Ref(Arc::new(t.clone()), false)], Ty::I64),
+            ListLenRef(t) | ListRowsRef(t) | ListRowBytesRef(t) => {
+                (vec![Ty::Ref(Arc::new(t.clone()), false)], Ty::I64)
+            }
+            ListRowRef(t, mutable) => (
+                vec![Ty::I64, Ty::I64, Ty::I64],
+                Ty::Ref(Arc::new(t.element().unwrap()), *mutable),
+            ),
             QueryRef(query) => (query.inputs(), query.output()),
             ListScalarGetRef(t) => (
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
@@ -751,6 +765,9 @@ impl CollectionOp {
             Self::ListLenRef(_)
             | Self::ListScalarGetRef(_)
             | Self::ListScalarSetRef(_)
+            | Self::ListRowsRef(_)
+            | Self::ListRowBytesRef(_)
+            | Self::ListRowRef(..)
             | Self::ListSortBy(_)
             | Self::OrderCompare(_)
             | Self::QueryRef(_) => {

@@ -60,8 +60,20 @@ receiver, or an inner row (`grid[i][j] += 1`). The helpers take a live owner
 pointer and an `i64` index; reads preserve payload bits before narrowing or
 bitcasting, and writes store the same bits a write through an element reference
 would. Bounds traps report the same site and message as the generic path. Codegen does not depend
-on `Vec` layout or cached buffer addresses. Named receivers are borrowed without
+on `Vec` layout. Named receivers are borrowed without
 temporary retain/release; temporary owners are released after obtaining the result.
+
+A borrowed list loop (`for x in &xs`, `for x in &mut xs`, `reversed(&xs)`, or a
+loop over a list reference) iterates through the reference without copying the
+list's owner. Before the first iteration it reads the length with
+`plenty_list_len`, the first row's address with `plenty_list_rows`, and the
+distance between rows with `plenty_list_row_bytes`. Each element reference is
+then `rows + index * row_bytes`, the slot a generic element reference names, so
+a scalar read is one load with no call. The loop holds the list's loan from its
+first condition to its last body use; no mutation can grow, shrink, or move the
+rows meanwhile, which is what makes the cached length and address valid. Element
+values keep reference semantics: writes through `&mut` land in the list, and an
+element can be passed on or returned under the list's loan.
 
 `std.bytes` element reads and writes and `Bytes.len` use `plenty_bytes_item`,
 `plenty_bytes_set_item`, and `plenty_bytes_len`. Text `len`, `byte_len`,
