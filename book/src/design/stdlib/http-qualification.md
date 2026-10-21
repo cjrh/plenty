@@ -36,6 +36,25 @@ x86-64 Linux with the GNU C library, the only target of
 [`std.net`](net.md) and [`std.ready`](ready.md) (epoll). Results here were
 taken on Linux 7.2 (Fedora 44). No other target is supported.
 
+## Application error composition
+
+The installed offline package test also checks B14/B71 through its shared CSV
+summary dependency. The CLI reports invalid integer data with its record number
+and `ParseError`, malformed row width with the complete `CsvError`, and a missing
+file with its nested stream/I/O cause. Each report retains the operation and path,
+prints no partial JSON, and exits 1; argument errors still exit 2 and help exits 0.
+
+The JSON service returns those same causes as `Context[SummaryError]` in its
+handler error sum and reports them before propagation. One client repeats all
+three failures and a successful summary three times. The test checks identical
+CLI/service diagnostics, generic `500` responses without private error details,
+successful requests after failures, nine handler errors among twelve requests,
+and no protocol errors. After the client, workers, CSV readers and listener have
+dropped, the process has the same number of open descriptors as before the run.
+This qualifies application composition over the existing CSV/HTTP APIs; typed
+chunked framing, validated heads and full client cause preservation remain
+separate work in [B71](../../backlog.md).
+
 ## Handler errors and traps
 
 A handler reports a problem by returning `Err`; the server answers it, counts
