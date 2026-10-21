@@ -1466,6 +1466,24 @@ pub(crate) unsafe extern "C" fn plenty_list_scalar_set(
     }
 }
 
+/// Narrow ABI: the address of row `i` of a live borrowed list, the slot a
+/// generic element reference (opcode 112) names. Bounds and negative indices
+/// use the same normalization, site, and message as the generic dispatcher.
+/// The compiler holds the list's loan while it uses the address.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_list_row(
+    owner: *mut u8,
+    i: i64,
+    site: *const crate::Site,
+) -> *mut u128 {
+    // SAFETY: generated callers supply a live list owner under a loan.
+    unsafe {
+        let collection = &mut *owner.cast::<Collection>();
+        let i = index(i, collection.entries.len(), site);
+        collection.entries.slot(i, false)
+    }
+}
+
 /// `std.compress` operations under their own symbol, as for `plenty_crypto`:
 /// a program that never compresses links without zlib-rs.
 #[unsafe(no_mangle)]
