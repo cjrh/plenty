@@ -172,3 +172,96 @@ fn match_on_an_owned_parameter_moves_it() {
     let kept = section(dir.path(), "ops.txt", "kept");
     assert!(kept.contains("LoadLocal(0)"), "{kept}");
 }
+
+// Issue #391: a slot moved from on every path to its drop releases nothing at
+// the drop. `partial_join` moves `word` on one path only, so its exit release
+// stays. `wide` moves a two-word parameter into a tail call.
+const DROPS: &str = r#"def consume(word: str) -> i64:
+    word.find("b").unwrap_or(0)
+
+def consume_opt(o: Option[str]) -> i64:
+    match o:
+        case Some(word):
+            consume(word)
+        case Nothing:
+            0
+
+def starts(word: str) -> bool:
+    word.startswith("ab")
+
+def both(word: str, flag: bool) -> i64:
+    if flag:
+        consume(word) + 1
+    else:
+        consume(word) + 2
+
+def partial_join(word: str, flag: bool) -> i64:
+    mut n = 0
+    if flag:
+        n = consume(word)
+    n
+
+def wide(o: Option[str]) -> i64:
+    consume_opt(o)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut total = 0
+    for i in range(1000):
+        word = ("ab" + str.from(i)?)?
+        flag = i % 2 == 0
+        if starts(word):
+            total += both(word, flag) + partial_join(word, flag)
+        total += wide(Some(word)) + wide(Nothing)
+    print(total)?
+    print(both("abc", True))?
+    print(both("abc", False))?
+    print(partial_join("abc", True))?
+    print(partial_join("abc", False))?
+    print(wide(Some("xb")))?
+    print("__test_small_live_heap__")?
+    Ok(())
+"#;
+
+const DROPS_EXPECTED: &str = "4000\n2\n3\n1\n0\n1\n";
+
+#[test]
+fn moved_slot_drops_keep_behaviour() {
+    native(DROPS, DROPS_EXPECTED);
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), DROPS).unwrap();
+    let output = stdout(plenty(dir.path(), &["--release", "p.plenty"]));
+    let visible: String = output
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .flat_map(|line| [line, "\n"])
+        .collect();
+    assert_eq!(visible, DROPS_EXPECTED);
+}
+
+#[test]
+fn moved_slot_drops_emit_no_release() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), DROPS).unwrap();
+    let args = ["--release", "--dump", "clif-opt", "p.plenty", "-o", "out"];
+    stdout(plenty(dir.path(), &args));
+    // Calls to `plenty_release`, or to the dispatcher, which releases a
+    // two-word value.
+    let releases = |name: &str| {
+        let text = section(dir.path(), "clif-opt.txt", name);
+        let callees: Vec<String> = text
+            .lines()
+            .filter(|line| line.contains("plenty_release") || line.contains("plenty_collection"))
+            .filter_map(|line| line.trim_start().split(" = ").next())
+            .map(|callee| format!("call {callee}("))
+            .collect();
+        text.lines()
+            .filter(|line| callees.iter().any(|callee| line.contains(callee.as_str())))
+            .count()
+    };
+    // `starts` releases its receiver's copy once; the moved slot adds nothing.
+    assert_eq!(releases("starts"), 1);
+    assert_eq!(releases("both"), 0);
+    assert_eq!(releases("wide"), 0);
+    // Moved on one path only: the exit release stays.
+    assert_eq!(releases("partial_join"), 1);
+}

@@ -44,6 +44,21 @@ pub(super) fn known_int(dfg: &DataFlowGraph, value: Value) -> Option<u64> {
     evaluate(dfg, value, DEPTH, &|_| None)
 }
 
+/// Whether `value` is known to be zero. Unlike [`known_int`], this also
+/// accepts a two-word value zero-extended from a known zero word.
+pub(super) fn known_zero(dfg: &DataFlowGraph, value: Value) -> bool {
+    let value = dfg.resolve_aliases(value);
+    if let ValueDef::Result(inst, _) = dfg.value_def(value)
+        && let InstructionData::Unary {
+            opcode: Opcode::Uextend,
+            arg,
+        } = dfg.insts[inst]
+    {
+        return known_int(dfg, arg) == Some(0);
+    }
+    known_int(dfg, value) == Some(0)
+}
+
 /// [`known_int`], also treating each block parameter `params` knows as that
 /// constant: the value seen on one incoming edge.
 pub(super) fn known_int_given(

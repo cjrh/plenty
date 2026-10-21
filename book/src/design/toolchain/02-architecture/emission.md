@@ -174,8 +174,15 @@ After substitution, `src/codegen/last_use.rs` turns the last read of a local
 into a move (issue #388). A read of a local counts a new owner, and the
 local's own owner is released later, when it is reassigned or the function
 returns. When no later operation can read the local, the read takes its value
-and leaves an empty slot, whose release makes no call. A `match` on an owned
-parameter and a payload binding read once are the common cases.
+and leaves an empty slot. A `match` on an owned parameter and a payload binding
+read once are the common cases.
+
+An empty slot holds zero, and the release of a value known to be zero emits
+nothing (issue #391). Every write of an empty slot in a function uses the same
+one-word and two-word zero constants from its entry block, so where all paths
+into a join leave a slot empty, the slot's value there is that constant and its
+later release emits nothing. A slot moved from on only some paths keeps its
+release; for a two-word value it tests for zero before calling the runtime.
 
 A backward liveness pass over each function finds these reads. Loops are
 solved to a fixed point; `break`, `continue`, early returns and the error path

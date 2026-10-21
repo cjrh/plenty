@@ -70,6 +70,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         collection_scratch: None,
         fresh_load: None,
         slot_copies: Vec::new(),
+        empty_slot: None,
         counters: Default::default(),
         position: Default::default(),
     };
