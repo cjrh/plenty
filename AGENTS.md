@@ -16,7 +16,7 @@
 
 # Project conventions
 
-- When the local semantic index is available, use `bash scripts/search.sh find 'concept'` to discover related docs, source documentation, and local issue/PR descriptions. Read the original sources and use `rg` for exact/code searches. Use `bash scripts/search.sh check` for a deterministic, read-only hash comparison; `bash scripts/search.sh sync` refreshes stale entries. See `CLAUDE.md` and `book/src/development/semantic-search-corpus.md` for setup, coverage and shared-index usage.
+- Use the [plenty-search skill](.agents/skills/plenty-search/SKILL.md) for related concepts across docs, source documentation and local issue/PR descriptions. It covers freshness checks, synchronization, source verification and missing setup. Use `rg` for exact symbols and implementation code.
 
 - Docs are an mdBook in `book/src/`. `SUMMARY.md` lists every page in reading order.
 - Before writing Plenty code, read the executable syntax cheat sheet, `book/src/design/examples/cheatsheet.md`. Keep it current when syntax changes.
