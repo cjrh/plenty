@@ -29,6 +29,15 @@ by this or any other program, is taken from the
 [compiled-function cache](cache.md) instead; the object is the same either
 way.
 
+For ordinary user functions, each worker reuses the previous compilation's
+cleared Cranelift `Function` buffers as well as its builder and compilation
+contexts. Function names, signatures, instructions, source locations and symbol
+references are rebuilt; only storage survives. Both cache hits and misses clear
+the function before reuse. Storage lasts until the worker finishes, and a large
+function can leave larger buffers for later small functions. Generator bodies
+and generated adapters still construct fresh IR. See the
+[allocation measurements](../../../development/profiling.md#reusing-function-storage).
+
 Workers claim one job at a time to balance functions of different sizes, but
 send completed results in batches of up to 32 jobs. This reduces result-channel
 wakeups on warm-cache builds. A partial batch is sent when a worker finishes or

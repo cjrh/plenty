@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
 use cranelift_codegen::control::ControlPlane;
-use cranelift_codegen::ir::Function;
+use cranelift_codegen::ir::{Function, Signature, UserFuncName};
 use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
 use cranelift_codegen::{Context, FinalizedMachReloc};
 use cranelift_frontend::FunctionBuilderContext;
@@ -396,6 +396,16 @@ impl Worker {
     /// The module view for building one function.
     pub(super) fn symbols(&self) -> Symbols {
         Symbols::new(Arc::clone(&self.declared))
+    }
+
+    /// Start a body with the previous compilation's cleared IR buffers.
+    /// `define` returns it to the context; `compile` clears all function state
+    /// after either a cache hit or compilation, while retaining storage.
+    pub(super) fn take_function(&mut self, id: FuncId, signature: Signature) -> Function {
+        let mut func = std::mem::replace(&mut self.context.func, Function::new());
+        func.name = UserFuncName::user(0, id.as_u32());
+        func.signature = signature;
+        func
     }
 
     /// Compile `func`, built against `symbols`, as the body of `id`.
