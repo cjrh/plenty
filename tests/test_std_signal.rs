@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 const SIGINT: i32 = 2;
 const SIGTERM: i32 = 15;
 
-extern "C" {
+unsafe extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
 }
 

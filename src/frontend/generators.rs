@@ -138,33 +138,32 @@ impl Lower<'_> {
         inputs: &mut Vec<(String, TypeRef)>,
         ops: &mut Vec<Op>,
     ) -> Result<Expr> {
-        if let Expression::Call(name, args) = &ungroup(source).kind {
-            if matches!(name.as_str(), "enumerate" | "zip" | "reversed")
-                && !self.names.contains_key(name)
-                && !self.sigs.contains_key(name)
-                && !self.generics.templates.contains_key(name)
-                && !self.aliases.contains_key(name)
-            {
-                let (valid, expected) = match name.as_str() {
-                    "enumerate" => ((1..=2).contains(&args.len()), "1 or 2"),
-                    "zip" => (args.len() == 2, "2"),
-                    _ => (args.len() == 1, "1"),
-                };
-                if !valid {
-                    return Err(source.at.error(format!(
-                        "`{name}` expects {expected} arguments, got {}",
-                        args.len()
-                    )));
-                }
-                let args = args
-                    .iter()
-                    .map(|arg| self.generator_source(arg, inputs, ops))
-                    .collect::<Result<_>>()?;
-                return Ok(Expr {
-                    at: source.at.clone(),
-                    kind: Expression::Call(name.clone(), args),
-                });
+        if let Expression::Call(name, args) = &ungroup(source).kind
+            && matches!(name.as_str(), "enumerate" | "zip" | "reversed")
+            && !self.names.contains_key(name)
+            && !self.sigs.contains_key(name)
+            && !self.generics.templates.contains_key(name)
+            && !self.aliases.contains_key(name)
+        {
+            let (valid, expected) = match name.as_str() {
+                "enumerate" => ((1..=2).contains(&args.len()), "1 or 2"),
+                "zip" => (args.len() == 2, "2"),
+                _ => (args.len() == 1, "1"),
+            };
+            if !valid {
+                return Err(source.at.error(format!(
+                    "`{name}` expects {expected} arguments, got {}",
+                    args.len()
+                )));
             }
+            let args = args
+                .iter()
+                .map(|arg| self.generator_source(arg, inputs, ops))
+                .collect::<Result<_>>()?;
+            return Ok(Expr {
+                at: source.at.clone(),
+                kind: Expression::Call(name.clone(), args),
+            });
         }
         let ty = self.value(source, ops)?;
         if ty.contains_reference() {
@@ -352,28 +351,29 @@ impl Lower<'_> {
         }
     }
     pub(super) fn next(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<Type> {
-        if let [arg] = args {
-            if let Expression::Unary(op, base) = &ungroup(arg).kind {
-                if op == "&mut" {
-                    let (ty, loan) = self.borrow(base, true, ops)?;
-                    let Ty::Ref(inner, _) = ty else {
-                        unreachable!()
-                    };
-                    let Ty::Generator(element) = &*inner else {
-                        return Err(at.error("next requires a generator"));
-                    };
-                    let output = crate::sum::option(element.element.clone());
-                    ops.push(Op::ReadRef((*inner).clone()));
-                    ops.push(Op::Collection(CollectionOp::Next((*inner).clone())));
-                    ops.push(Op::UseLoan(loan));
-                    return Ok(Some(output));
-                }
-            }
+        if let [arg] = args
+            && let Expression::Unary(op, base) = &ungroup(arg).kind
+            && op == "&mut"
+        {
+            let (ty, loan) = self.borrow(base, true, ops)?;
+            let Ty::Ref(inner, _) = ty else {
+                unreachable!()
+            };
+            let Ty::Generator(element) = &*inner else {
+                return Err(at.error("next requires a generator"));
+            };
+            let output = crate::sum::option(element.element.clone());
+            ops.push(Op::ReadRef((*inner).clone()));
+            ops.push(Op::Collection(CollectionOp::Next((*inner).clone())));
+            ops.push(Op::UseLoan(loan));
+            return Ok(Some(output));
         }
-        let [Expr {
-            kind: Expression::Name(name),
-            ..
-        }] = args
+        let [
+            Expr {
+                kind: Expression::Name(name),
+                ..
+            },
+        ] = args
         else {
             return Err(at.error("next requires one named mutable generator binding"));
         };

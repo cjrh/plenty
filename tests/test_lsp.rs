@@ -1,7 +1,7 @@
 //! `plenty lsp` driven over stdio with scripted messages (issue #155).
 
 mod support;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};

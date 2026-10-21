@@ -1,6 +1,6 @@
 //! Key the complete structural input, rather than an unkeyed prehash whose
 //! collisions would survive any finalizer or secret suffix.
-use super::{strings, Text, Type};
+use super::{Text, Type, strings};
 use siphasher::sip::SipHasher24;
 use std::hash::Hasher;
 use std::io;

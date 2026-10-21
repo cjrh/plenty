@@ -154,10 +154,20 @@ def main() -> Result[(), AllocError | FutureError | IoError | PoolError | Submit
 #[test]
 fn aliases_preserve_both_channel_join_hang_diagnostics() {
     for (worker, endpoint, expected) in [
-        ("def worker(rx: Receiver[i64]) -> ():\n    drop(rx.recv().unwrap())\n", "rx", "could block the worker's receive"),
-        ("def worker(tx: Sender[i64]) -> ():\n    tx.send(1).unwrap()\n    tx.send(2).unwrap()\n", "tx", "could block the worker's send"),
+        (
+            "def worker(rx: Receiver[i64]) -> ():\n    drop(rx.recv().unwrap())\n",
+            "rx",
+            "could block the worker's receive",
+        ),
+        (
+            "def worker(tx: Sender[i64]) -> ():\n    tx.send(1).unwrap()\n    tx.send(2).unwrap()\n",
+            "tx",
+            "could block the worker's send",
+        ),
     ] {
-        let source = format!("from std.thread import spawn as start\nfrom std.channel import channel as bounded, Sender, Receiver\n{worker}\ndef main() -> Result[(), ChannelError | ThreadError]:\n    tx, rx = bounded[i64](1)?\n    with start(worker, {endpoint})? as task:\n        task.join()\n    Ok(())\n");
+        let source = format!(
+            "from std.thread import spawn as start\nfrom std.channel import channel as bounded, Sender, Receiver\n{worker}\ndef main() -> Result[(), ChannelError | ThreadError]:\n    tx, rx = bounded[i64](1)?\n    with start(worker, {endpoint})? as task:\n        task.join()\n    Ok(())\n"
+        );
         rejected(&source, expected);
     }
 }
@@ -227,14 +237,29 @@ def main() -> Result[(), AllocError | ThreadError]:
 #[test]
 fn imports_do_not_override_unrelated_bindings_or_allow_reexports() {
     for (source, expected) in [
-        ("from std.sync import CancellationToken as print\ndef main() -> ():\n    pass\n", "conflicts with an existing name"),
-        ("from std.sync import CancellationToken as Token\nclass Token:\n    value: i64\ndef main() -> ():\n    pass\n", "conflicts with an existing name"),
-        ("pub from std.thread import spawn\ndef main() -> ():\n    pass\n", "re-exports are not supported"),
-        ("from std.sync import Semaphore\ndef main() -> ():\n    pass\n", "not a declared export"),
+        (
+            "from std.sync import CancellationToken as print\ndef main() -> ():\n    pass\n",
+            "conflicts with an existing name",
+        ),
+        (
+            "from std.sync import CancellationToken as Token\nclass Token:\n    value: i64\ndef main() -> ():\n    pass\n",
+            "conflicts with an existing name",
+        ),
+        (
+            "pub from std.thread import spawn\ndef main() -> ():\n    pass\n",
+            "re-exports are not supported",
+        ),
+        (
+            "from std.sync import Semaphore\ndef main() -> ():\n    pass\n",
+            "not a declared export",
+        ),
     ] {
         rejected(source, expected);
     }
-    runs("from std.sync import CancellationToken as Token\ndef main() -> ():\n    Token = 7\n    print(Token).unwrap()\n", "7");
+    runs(
+        "from std.sync import CancellationToken as Token\ndef main() -> ():\n    Token = 7\n    print(Token).unwrap()\n",
+        "7",
+    );
 }
 
 #[test]

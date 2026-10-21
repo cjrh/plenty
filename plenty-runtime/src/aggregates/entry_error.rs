@@ -1,5 +1,5 @@
 //! Reports the error a program's `main` returned, on stderr.
-use super::{render, Type};
+use super::{Type, render};
 use crate::render_buffer::Buffer;
 use std::io::Write;
 

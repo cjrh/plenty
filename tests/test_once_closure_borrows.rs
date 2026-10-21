@@ -30,7 +30,9 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn pending_one_shot_calls_keep_capture_loans_through_later_arguments() {
     for operation in ["value", "change(&mut value)"] {
-        let source = format!("def change(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> ():\n    mut value = 1\n    f = def once [&mut value](arg: i64) -> i64:\n        value + arg\n    f({operation})\n    pass\n");
+        let source = format!(
+            "def change(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> ():\n    mut value = 1\n    f = def once [&mut value](arg: i64) -> i64:\n        value + arg\n    f({operation})\n    pass\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
     }

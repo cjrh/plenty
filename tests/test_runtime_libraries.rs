@@ -105,7 +105,10 @@ fn runtime_helpers_load_without_a_link_time_dependency() {
         ),
     );
     assert_eq!(output.status.code(), Some(42), "{output:?}");
-    let output = run(root, "import native\ndef main() -> i32:\n    path = \"/no/plenty/library.so\"\n    native.calculate(&path)\n");
+    let output = run(
+        root,
+        "import native\ndef main() -> i32:\n    path = \"/no/plenty/library.so\"\n    native.calculate(&path)\n",
+    );
     assert_eq!(output.status.code(), Some(255), "{output:?}");
 }
 
@@ -121,7 +124,14 @@ fn runtime_loader_prototypes_cannot_be_redeclared_with_another_abi() {
         "opaque Lease\nextern def bad(lease: Lease, name: &str as utf8, output: &mut Lease) -> i64 = \"plenty_library_symbol_v1\"",
     ] {
         std::fs::write(root.join("native.plentyi"), format!("{declaration}\n")).unwrap();
-        let error = plenty::compile_file_to_executable_with_options(&entry, &root.join("app"), None, &Default::default()).unwrap_err().to_string();
+        let error = plenty::compile_file_to_executable_with_options(
+            &entry,
+            &root.join("app"),
+            None,
+            &Default::default(),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("fixed runtime loader signature"), "{error}");
     }
 }
@@ -234,7 +244,10 @@ def main() -> Result[(), AllocError | IoError | LoadError]:
 "#,
     );
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "1\n2\n3\n4\n5\n6\n7\nFalse\nResult[Option[LoadError], LoadError].Ok(Option[LoadError].Some(LoadError.IncompatibleContract))\n");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "1\n2\n3\n4\n5\n6\n7\nFalse\nResult[Option[LoadError], LoadError].Ok(Option[LoadError].Some(LoadError.IncompatibleContract))\n"
+    );
 }
 
 #[test]
@@ -324,7 +337,10 @@ def main() -> Result[(), AllocError | IoError | LoadError]:
         ),
     );
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, ParseError].Ok(1.25)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\n12\nResult[(), u64].Ok(())\nResult[(), u64].Err(18446744073709551615)\nResult[i32, AllocError].Err(AllocError.CapacityOverflow)\nResult[(), Failure].Err(Failure.Unspecified)\nResult[i32, plugin.Stage].Err(plugin.Stage.Parse)\nResult[i32, plugin.Stage].Err(plugin.Stage.Check)\nResult[i32, plugin.Stage].Err(plugin.Stage.Link)\nResult[i32, plugin.Stage].Ok(3)\ncheck\n5.0\n");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "Result[f32, ParseError].Ok(1.25)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\n12\nResult[(), u64].Ok(())\nResult[(), u64].Err(18446744073709551615)\nResult[i32, AllocError].Err(AllocError.CapacityOverflow)\nResult[(), Failure].Err(Failure.Unspecified)\nResult[i32, plugin.Stage].Err(plugin.Stage.Parse)\nResult[i32, plugin.Stage].Err(plugin.Stage.Check)\nResult[i32, plugin.Stage].Err(plugin.Stage.Link)\nResult[i32, plugin.Stage].Ok(3)\ncheck\n5.0\n"
+    );
 }
 
 const OWNERS: &str = r#"
@@ -550,7 +566,14 @@ fn partial_resolution_never_publishes_a_callable_table() {
         .collect::<Vec<_>>()
         .join(",");
     for guard in [false, true] {
-        let body = format!("#include <stddef.h>\n#include <stdio.h>\nstatic const unsigned char contract[] = {{{bytes}}};\nconst unsigned char *calc_plenty_interface_v1(size_t *len) {{ *len = sizeof(contract); return contract; }}\nint calc_first(void) {{ puts(\"must not run\"); return 1; }}\n{}", if guard { format!("void calc_plenty_contract_v1_{hash}(void) {{}}\n") } else { String::new() });
+        let body = format!(
+            "#include <stddef.h>\n#include <stdio.h>\nstatic const unsigned char contract[] = {{{bytes}}};\nconst unsigned char *calc_plenty_interface_v1(size_t *len) {{ *len = sizeof(contract); return contract; }}\nint calc_first(void) {{ puts(\"must not run\"); return 1; }}\n{}",
+            if guard {
+                format!("void calc_plenty_contract_v1_{hash}(void) {{}}\n")
+            } else {
+                String::new()
+            }
+        );
         let fake = library(root, &body);
         let output = run(
             root,

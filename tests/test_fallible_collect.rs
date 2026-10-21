@@ -4,14 +4,17 @@ use support::assert_filtered_stdout as native;
 
 #[test]
 fn collect_ranges_generators_and_owned_elements() {
-    native(r#"
+    native(
+        r#"
 def numbers() -> Generator[i64]:
     yield 2
     yield 4
 print(str.repr(list[i64].from(range(3))).unwrap()).unwrap()
 print(str.repr(list[i64].from(numbers())).unwrap()).unwrap()
 print(str.repr(list[list[i64]].from([[1].unwrap(), [2].unwrap()].unwrap())).unwrap()).unwrap()
-"#, "Result[list[i64], AllocError].Ok([0, 1, 2])\nResult[list[i64], AllocError].Ok([2, 4])\nResult[list[list[i64]], AllocError].Ok([[1], [2]])");
+"#,
+        "Result[list[i64], AllocError].Ok([0, 1, 2])\nResult[list[i64], AllocError].Ok([2, 4])\nResult[list[list[i64]], AllocError].Ok([[1], [2]])",
+    );
 }
 
 #[test]
@@ -35,12 +38,15 @@ fn collection_conversion_checks_types_and_consumes_its_source() {
 
 #[test]
 fn set_conversion_deduplicates_and_preserves_first_seen_order() {
-    native(r#"
+    native(
+        r#"
 print(str.repr(set[i64].from([3, 1, 3, 2].unwrap())).unwrap()).unwrap()
 print(str.repr(set[str].from(["a", "b", "a"].unwrap())).unwrap()).unwrap()
 print(str.repr(set[i64].from(range(0))).unwrap()).unwrap()
 print(str.repr(list[str].from({"a": 1, "b": 2}.unwrap())).unwrap()).unwrap()
-"#, "Result[set[i64], AllocError].Ok({3, 1, 2})\nResult[set[str], AllocError].Ok({\"a\", \"b\"})\nResult[set[i64], AllocError].Ok(set())\nResult[list[str], AllocError].Ok([\"a\", \"b\"])");
+"#,
+        "Result[set[i64], AllocError].Ok({3, 1, 2})\nResult[set[str], AllocError].Ok({\"a\", \"b\"})\nResult[set[i64], AllocError].Ok(set())\nResult[list[str], AllocError].Ok([\"a\", \"b\"])",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

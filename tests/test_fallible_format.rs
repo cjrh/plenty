@@ -4,7 +4,8 @@ use support::assert_filtered_stdout as native;
 
 #[test]
 fn repr_and_print_preserve_values_and_string_escaping() {
-    native(r#"
+    native(
+        r#"
 values = [1, 2].unwrap()
 match str.repr(values):
     case Ok(text):
@@ -19,7 +20,9 @@ match str.repr("é\n\0"):
 print(str.repr(print(values)).unwrap()).unwrap()
 print(str.repr(print("plain")).unwrap()).unwrap()
 print(values).unwrap()
-"#, "[1, 2]\n\"é\\n\\0\"\n[1, 2]\nResult[(), IoError].Ok(())\nplain\nResult[(), IoError].Ok(())\n[1, 2]");
+"#,
+        "[1, 2]\n\"é\\n\\0\"\n[1, 2]\nResult[(), IoError].Ok(())\nplain\nResult[(), IoError].Ok(())\n[1, 2]",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

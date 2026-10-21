@@ -27,7 +27,8 @@ def main() -> Result[(), Failure]:
 
 #[test]
 fn different_errors_erase_in_helpers_and_marker_is_an_ordinary_inline_value() {
-    native(r#"
+    native(
+        r#"
 def parse(text: str) -> Result[u8, Failure]:
     Ok(u8.parse(text)?)
 def io() -> Result[(), IoError]:
@@ -46,7 +47,8 @@ def main() -> Result[(), Failure]:
             print("discarded")?
     Ok(())
 "#,
-        "Result[u8, Failure].Err(Failure.Unspecified)\nResult[(), Failure].Err(Failure.Unspecified)\nTrue\ndiscarded\n");
+        "Result[u8, Failure].Err(Failure.Unspecified)\nResult[(), Failure].Err(Failure.Unspecified)\nTrue\ndiscarded\n",
+    );
 }
 
 #[test]
@@ -84,7 +86,8 @@ def main() -> Result[(), IoError]:
 
 #[test]
 fn discarding_existing_owned_errors_never_allocates() {
-    native(r#"
+    native(
+        r#"
 class Guard:
     def __del__(self) -> ():
         print("dropped").unwrap()
@@ -106,7 +109,9 @@ def main() -> Result[(), Failure]:
     print(str.repr(good).unwrap())?
     print(same)?
     Ok(())
-"#, "__test_begin_no_allocations__\ndropped\n__test_end_no_allocations__\nResult[(), Failure].Ok(())\nTrue\n");
+"#,
+        "__test_begin_no_allocations__\ndropped\n__test_end_no_allocations__\nResult[(), Failure].Ok(())\nTrue\n",
+    );
 }
 
 #[test]
@@ -136,7 +141,8 @@ def main() -> Result[(), Failure]:
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn actual_allocation_failure_can_be_erased_without_allocating() {
-    native(r#"
+    native(
+        r#"
 def work() -> Result[(), Failure]:
     values: list[u8] = [1, 2]?
     print("unreachable")?
@@ -147,18 +153,38 @@ def main() -> Result[(), IoError]:
     print("__test_restore_allocations__")?
     print(str.repr(failed).unwrap())?
     Ok(())
-"#, "__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[(), Failure].Err(Failure.Unspecified)\n");
+"#,
+        "__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[(), Failure].Err(Failure.Unspecified)\n",
+    );
 }
 
 #[test]
 fn erasure_is_only_for_result_propagation_and_requires_explicit_success() {
     for (source, expected) in [
-        ("def f() -> Result[i64, Failure]:\n    Ok(Some(1)?)", "same Result or Option family"),
-        ("def f() -> Result[(), IoError]:\n    r: Result[(), Failure] = Err(Failure.Unspecified)\n    r?\n    Ok(())", "identical Result error types"),
-        ("def f() -> Result[(), Failure]:\n    Err(\"details\")", "expected Failure"),
-        ("def f() -> Result[list[i64], Failure]:\n    [1, 2]", "expected Result[list[i64], Failure]"),
-        ("def f() -> Result[(), Failure]:\n    print(\"hello\")?", "expected Result[(), Failure]"),
-        ("def f() -> Result[(), Failure]:\n    Failure.Unspecified?\n    Ok(())", "same Result or Option family"),
+        (
+            "def f() -> Result[i64, Failure]:\n    Ok(Some(1)?)",
+            "same Result or Option family",
+        ),
+        (
+            "def f() -> Result[(), IoError]:\n    r: Result[(), Failure] = Err(Failure.Unspecified)\n    r?\n    Ok(())",
+            "identical Result error types",
+        ),
+        (
+            "def f() -> Result[(), Failure]:\n    Err(\"details\")",
+            "expected Failure",
+        ),
+        (
+            "def f() -> Result[list[i64], Failure]:\n    [1, 2]",
+            "expected Result[list[i64], Failure]",
+        ),
+        (
+            "def f() -> Result[(), Failure]:\n    print(\"hello\")?",
+            "expected Result[(), Failure]",
+        ),
+        (
+            "def f() -> Result[(), Failure]:\n    Failure.Unspecified?\n    Ok(())",
+            "same Result or Option family",
+        ),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "{source}\n{error}");

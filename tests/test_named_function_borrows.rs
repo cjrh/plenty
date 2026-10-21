@@ -133,7 +133,9 @@ def main() -> Result[(), IoError]:
 
 #[test]
 fn repeated_function_borrows_share_one_local_slot() {
-    let mut source = String::from("def double(x: i64) -> i64:\n    x * 2\ndef apply[F: Callable[[i64], i64]](f: &F) -> i64:\n    f(4)\ndef main() -> ():\n");
+    let mut source = String::from(
+        "def double(x: i64) -> i64:\n    x * 2\ndef apply[F: Callable[[i64], i64]](f: &F) -> i64:\n    f(4)\ndef main() -> ():\n",
+    );
     for _ in 0..300 {
         source.push_str("    apply(&double)\n");
     }
@@ -190,5 +192,8 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n12\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n12\n"
+    );
 }

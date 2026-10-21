@@ -136,10 +136,18 @@ def main() -> ():
 #[test]
 fn mapping_does_not_change_propagation_or_accept_wrong_callbacks() {
     for (body, expected) in [
-        ("def f() -> Result[i64, IoError]:\n    i64.parse(\"bad\")?\n    Ok(0)\n", "identical Result error types"),
-        ("def wrong(error: IoError) -> i64:\n    0\ndef f() -> ():\n    drop(map_error(i64.parse(\"bad\"), wrong))\n", "ParseError"),
+        (
+            "def f() -> Result[i64, IoError]:\n    i64.parse(\"bad\")?\n    Ok(0)\n",
+            "identical Result error types",
+        ),
+        (
+            "def wrong(error: IoError) -> i64:\n    0\ndef f() -> ():\n    drop(map_error(i64.parse(\"bad\"), wrong))\n",
+            "ParseError",
+        ),
     ] {
-        let source = format!("from std.error import map_error\n{body}def main() -> ():\n    f()\n    pass\n");
+        let source = format!(
+            "from std.error import map_error\n{body}def main() -> ():\n    f()\n    pass\n"
+        );
         let workspace = tempfile::tempdir().unwrap();
         let file = workspace.path().join("main.plenty");
         std::fs::write(&file, source).unwrap();

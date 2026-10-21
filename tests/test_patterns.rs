@@ -93,11 +93,17 @@ print(receiver.recv().unwrap()).unwrap()
 #[test]
 fn patterns_reject_type_arguments_and_qualified_prelude_variants() {
     assert_eq!(
-        rejects("Choice[i64]", "case Choice[i64].Empty:\n    0\ncase _:\n    1"),
+        rejects(
+            "Choice[i64]",
+            "case Choice[i64].Empty:\n    0\ncase _:\n    1"
+        ),
         "13:20: a pattern takes no type arguments, because the matched value supplies them; write `Choice.Empty`"
     );
     assert_eq!(
-        rejects("Option[i64]", "case Option[i64].Some(v):\n    v\ncase _:\n    1"),
+        rejects(
+            "Option[i64]",
+            "case Option[i64].Some(v):\n    v\ncase _:\n    1"
+        ),
         "13:20: a pattern takes no type arguments, because the matched value supplies them; write `Some`"
     );
     assert_eq!(
@@ -774,7 +780,10 @@ fn payload_positions_take_only_patterns() {
         "13:14: a case cannot bind the whole value to the bare name `other`; bind it with `_ as other`, match any value with `_`, or qualify a variant with its enum type"
     );
     assert_eq!(
-        rejects("Option[i64]", "case Some(Shape.Dot):\n    0\ncase _:\n    1"),
+        rejects(
+            "Option[i64]",
+            "case Some(Shape.Dot):\n    0\ncase _:\n    1"
+        ),
         "13:19: a variant pattern requires an enum payload, but this payload has type i64; bind it with a name or skip it with `_`"
     );
     assert_eq!(
@@ -785,7 +794,10 @@ fn payload_positions_take_only_patterns() {
         "13:19: case `Rect` requires 2 payload bindings (no parentheses for nullary variants)"
     );
     assert_eq!(
-        rejects("Option[Option[i64]]", "case Some(Some(mut v)):\n    0\ncase _:\n    1"),
+        rejects(
+            "Option[Option[i64]]",
+            "case Some(Some(mut v)):\n    0\ncase _:\n    1"
+        ),
         "13:24: payload bindings cannot be declared `mut`; bind the payload and move it into a mutable local in the arm, as in `mut local = payload`, or match `&mut value` to change it in place"
     );
     assert_eq!(

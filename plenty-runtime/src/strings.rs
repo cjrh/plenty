@@ -192,7 +192,7 @@ unsafe extern "C" fn destroy(header: *mut Header) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_concat(a: *const Text, b: *const Text) -> *mut Text {
     unsafe { try_concat(a, b) }.unwrap_or_else(|_| crate::fail("string allocation failed"))
 }
@@ -261,11 +261,9 @@ pub(crate) unsafe fn try_join(
         let (mut total, mut scalars) = (0, 0);
         let mut first = true;
         for piece in pieces.clone() {
-            if !first {
-                if let Some(separator) = separator {
-                    total = add_length(total, byte_len(separator))?;
-                    scalars = add_length(scalars, scalar_len(separator))?;
-                }
+            if !first && let Some(separator) = separator {
+                total = add_length(total, byte_len(separator))?;
+                scalars = add_length(scalars, scalar_len(separator))?;
             }
             total = add_length(total, byte_len(piece))?;
             scalars = add_length(scalars, scalar_len(piece))?;
@@ -280,10 +278,8 @@ pub(crate) unsafe fn try_join(
             };
             let mut first = true;
             for piece in pieces {
-                if !first {
-                    if let Some(separator) = separator {
-                        append(separator);
-                    }
+                if !first && let Some(separator) = separator {
+                    append(separator);
                 }
                 append(piece);
                 first = false;
@@ -362,15 +358,15 @@ pub(crate) unsafe fn try_join_generator(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_str_eq(a: *const Text, b: *const Text) -> i8 {
     unsafe { (a == b || bytes(&a) == bytes(&b)) as i8 }
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_contains(haystack: *const Text, needle: *const Text) -> i8 {
     unsafe { utf8(&haystack).contains(utf8(&needle)) as i8 }
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_readline() -> *mut Text {
     let mut line = Vec::new();
     match std::io::stdin().lock().read_until(b'\n', &mut line) {

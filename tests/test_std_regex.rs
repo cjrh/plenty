@@ -64,7 +64,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.regex.RegexError | std.bytes.BytesError]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.regex.RegexError | std.bytes.BytesError]:\n{body}    Ok(())\n"
+    )
 }
 
 fn output(source: &str) -> String {
@@ -592,7 +594,9 @@ fn pathological_patterns_run_in_linear_time() {
         "(?:a*)*$x",
         "((a+)+)+!",
     ];
-    let mut body = String::from("for size in [10, 1000, 20000]?:\n    text = repeated(\"a\", size)?\n    x = repeated(\"x\", size)?\n");
+    let mut body = String::from(
+        "for size in [10, 1000, 20000]?:\n    text = repeated(\"a\", size)?\n    x = repeated(\"x\", size)?\n",
+    );
     for (i, pattern) in patterns.iter().enumerate() {
         body.push_str(&format!(
             "    probe{i} = std.regex.compile({p}, &std.regex.limits())?\n\

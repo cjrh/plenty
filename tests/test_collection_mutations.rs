@@ -158,7 +158,8 @@ drop(Bag([Guard(4), Guard(5)].unwrap()))
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn clear_and_reuse_keep_capacity_and_allocate_nothing() {
-    native(r#"
+    native(
+        r#"
 mut items = [("A" + "da").unwrap(), ("B" + "ea").unwrap()].unwrap()
 mut entries = {"a": "Ada", "b": "Bea"}.unwrap()
 mut members = {"a", "b"}.unwrap()
@@ -180,7 +181,9 @@ print(len(members)).unwrap()
 print(str.repr(a).unwrap()).unwrap()
 print(str.repr(b).unwrap()).unwrap()
 print(str.repr(c).unwrap()).unwrap()
-"#, "[\"Ada\"]\n{\"c\": \"Ada\"}\n1\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())");
+"#,
+        "[\"Ada\"]\n{\"c\": \"Ada\"}\n1\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())",
+    );
 }
 
 #[rstest]
@@ -203,7 +206,8 @@ fn invalid_clear(#[case] source: &str, #[case] expected: &str) {
 
 #[test]
 fn sparse_dictionary_traversal_snapshots_copy_and_update_preserve_order() {
-    native(r#"
+    native(
+        r#"
 mut data = {"a": 1, "b": 2, "c": 3, "d": 4}.unwrap()
 drop(data.pop("a"))
 drop(data.pop("c"))
@@ -232,7 +236,9 @@ data.clear()
 print(len(data)).unwrap()
 data.insert("fresh", 7).unwrap()
 print(data).unwrap()
-"#, "{\"b\": 20, \"d\": 4, \"a\": 10}\n[\"b\", \"d\", \"a\"]\n[20, 4, 10]\nTrue\n[\"b\", \"d\", \"a\"]\nb\n20\nd\n4\na\n10\n68\n{\"b\": 20, \"d\": 4, \"a\": 100, \"z\": 26}\n0\n{\"fresh\": 7}");
+"#,
+        "{\"b\": 20, \"d\": 4, \"a\": 10}\n[\"b\", \"d\", \"a\"]\n[20, 4, 10]\nTrue\n[\"b\", \"d\", \"a\"]\nb\n20\nd\n4\na\n10\n68\n{\"b\": 20, \"d\": 4, \"a\": 100, \"z\": 26}\n0\n{\"fresh\": 7}",
+    );
 }
 
 #[test]

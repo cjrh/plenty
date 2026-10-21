@@ -44,14 +44,22 @@ fn guard_return_and_implicit_tail(#[case] expression: &str, #[case] printed: &st
 #[case("f(2)", "44\n")]
 #[case("f(3)", "45\n")]
 fn nested_and_sibling_return_branches(#[case] expression: &str, #[case] printed: &str) {
-    assert_result("def f(n: i64) -> i64:\n    if n < 2:\n        if n == 0:\n            local = 42\n            return local\n        return 43\n    elif n == 2:\n        return 44\n    else:\n        return 45", expression, printed);
+    assert_result(
+        "def f(n: i64) -> i64:\n    if n < 2:\n        if n == 0:\n            local = 42\n            return local\n        return 43\n    elif n == 2:\n        return 44\n    else:\n        return 45",
+        expression,
+        printed,
+    );
 }
 
 #[rstest]
 #[case("f(True)", "42\n")]
 #[case("f(False)", "10\n")]
 fn mutation_survives_only_on_continuing_path(#[case] expression: &str, #[case] printed: &str) {
-    assert_result("def f(flag: bool) -> i64:\n    mut x = 1\n    if flag:\n        x = 40\n    else:\n        return x + 9\n    return x + 2", expression, printed);
+    assert_result(
+        "def f(flag: bool) -> i64:\n    mut x = 1\n    if flag:\n        x = 40\n    else:\n        return x + 9\n    return x + 2",
+        expression,
+        printed,
+    );
 }
 
 #[rstest]
@@ -72,22 +80,38 @@ fn discarded_branch_value_does_not_join_with_a_return(
     #[case] expression: &str,
     #[case] printed: &str,
 ) {
-    assert_result("def f(flag: bool) -> i64:\n    if flag:\n        return 42\n    else:\n        'discarded'\n    return 12", expression, printed);
+    assert_result(
+        "def f(flag: bool) -> i64:\n    if flag:\n        return 42\n    else:\n        'discarded'\n    return 12",
+        expression,
+        printed,
+    );
 }
 
 #[test]
 fn nested_calls_preserve_caller_operands_and_locals() {
-    assert_result("def early(n: i64) -> i64:\n    if n > 0:\n        return n + 1\n    0\ndef caller(n: i64) -> i64:\n    local = 100\n    n + early(1) * early(2) + local", "caller(7)", "113\n");
+    assert_result(
+        "def early(n: i64) -> i64:\n    if n > 0:\n        return n + 1\n    0\ndef caller(n: i64) -> i64:\n    local = 100\n    n + early(1) * early(2) + local",
+        "caller(7)",
+        "113\n",
+    );
 }
 
 #[test]
 fn explicit_return_operands_evaluate_once_in_order() {
-    assert_result("def value(n: i64) -> i64:\n    print(n).unwrap()\n    return n\ndef caller(flag: bool) -> i64:\n    if flag:\n        return value(1) + value(2)\n    return 0", "caller(True)", "1\n2\n3\n");
+    assert_result(
+        "def value(n: i64) -> i64:\n    print(n).unwrap()\n    return n\ndef caller(flag: bool) -> i64:\n    if flag:\n        return value(1) + value(2)\n    return 0",
+        "caller(True)",
+        "1\n2\n3\n",
+    );
 }
 
 #[test]
 fn returned_strings_survive_frame_cleanup() {
-    assert_result("def text(flag: bool) -> str:\n    if flag:\n        local = ('hel' + 'lo').unwrap()\n        return local\n    return 'world'", "((text(True) + ' ').unwrap() + text(False)).unwrap()", "hello world\n");
+    assert_result(
+        "def text(flag: bool) -> str:\n    if flag:\n        local = ('hel' + 'lo').unwrap()\n        return local\n    return 'world'",
+        "((text(True) + ' ').unwrap() + text(False)).unwrap()",
+        "hello world\n",
+    );
 }
 
 #[test]
@@ -101,22 +125,38 @@ fn return_skips_runtime_errors_on_later_paths() {
 
 #[test]
 fn unit_guard_returns_to_the_caller() {
-    assert_result("def stop(flag: bool) -> ():\n    if flag:\n        return\n    1 // 0\n    ()\ndef caller() -> i64:\n    stop(True)\n    42", "caller()", "42\n");
+    assert_result(
+        "def stop(flag: bool) -> ():\n    if flag:\n        return\n    1 // 0\n    ()\ndef caller() -> i64:\n    stop(True)\n    42",
+        "caller()",
+        "42\n",
+    );
 }
 
 #[test]
 fn explicit_early_tail_calls_use_bounded_stack_space() {
-    assert_result("def count(n: i64, total: i64) -> i64:\n    if n > 0:\n        return count(n - 1, total + 1)\n    return total", "count(100_000, 0)", "100000\n");
+    assert_result(
+        "def count(n: i64, total: i64) -> i64:\n    if n > 0:\n        return count(n - 1, total + 1)\n    return total",
+        "count(100_000, 0)",
+        "100000\n",
+    );
 }
 
 #[test]
 fn returned_conditional_preserves_mutual_tail_calls() {
-    assert_result("def even(n: i64) -> bool:\n    return True if n == 0 else odd(n - 1)\ndef odd(n: i64) -> bool:\n    return False if n == 0 else even(n - 1)", "even(100_000)", "True\n");
+    assert_result(
+        "def even(n: i64) -> bool:\n    return True if n == 0 else odd(n - 1)\ndef odd(n: i64) -> bool:\n    return False if n == 0 else even(n - 1)",
+        "even(100_000)",
+        "True\n",
+    );
 }
 
 #[test]
 fn unit_early_tail_calls_use_bounded_stack_space() {
-    assert_result("def stop(n: i64) -> ():\n    if n > 0:\n        return stop(n - 1)\n    return\ndef caller() -> i64:\n    stop(100_000)\n    42", "caller()", "42\n");
+    assert_result(
+        "def stop(n: i64) -> ():\n    if n > 0:\n        return stop(n - 1)\n    return\ndef caller() -> i64:\n    stop(100_000)\n    42",
+        "caller()",
+        "42\n",
+    );
 }
 
 #[test]

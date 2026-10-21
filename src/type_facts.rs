@@ -193,26 +193,29 @@ impl Ty {
             let children = match &nodes[i] {
                 Self::Class(t) => {
                     facts.affine = true;
-                    if let Some(t) = t.try_get() {
-                        facts.destructor |= t.destructor.is_some();
-                        facts.copyable &= t.destructor.is_none();
-                        t.fields.iter().map(|(_, t)| t.clone()).collect()
-                    } else {
+                    match t.try_get() {
+                        Some(t) => {
+                            facts.destructor |= t.destructor.is_some();
+                            facts.copyable &= t.destructor.is_none();
+                            t.fields.iter().map(|(_, t)| t.clone()).collect()
+                        }
+                        _ => {
+                            facts.complete = false;
+                            vec![]
+                        }
+                    }
+                }
+                Self::Enum(t) => match t.try_get() {
+                    Some(t) => t
+                        .variants
+                        .iter()
+                        .flat_map(|v| v.fields.iter().cloned())
+                        .collect(),
+                    _ => {
                         facts.complete = false;
                         vec![]
                     }
-                }
-                Self::Enum(t) => {
-                    if let Some(t) = t.try_get() {
-                        t.variants
-                            .iter()
-                            .flat_map(|v| v.fields.iter().cloned())
-                            .collect()
-                    } else {
-                        facts.complete = false;
-                        vec![]
-                    }
-                }
+                },
                 Self::List(t) | Self::Set(t) | Self::Box(t) => {
                     facts.affine = true;
                     vec![(**t).clone()]
@@ -336,7 +339,7 @@ mod tests {
     use super::*;
     use crate::nominal::Types;
     use crate::record::ClassType;
-    use crate::sum::{option, EnumType, Variant};
+    use crate::sum::{EnumType, Variant, option};
     use std::sync::Arc;
     use std::sync::OnceLock;
 

@@ -68,22 +68,21 @@ impl Parser {
                         .at
                         .error("method type parameters cannot shadow enum type parameters"));
                 }
-                if let Some((_, receiver)) = f.inputs.first_mut() {
-                    if let Some(owner) = receiver
+                if let Some((_, receiver)) = f.inputs.first_mut()
+                    && let Some(owner) = receiver
                         .args
                         .first_mut()
                         .filter(|t| t.name.as_ref() == Some(&name) && t.args.is_empty())
-                    {
-                        owner.args = type_params
-                            .iter()
-                            .map(|(n, _)| TypeRef {
-                                concrete: None,
-                                at: at.clone(),
-                                name: Some(n.clone()),
-                                args: vec![],
-                            })
-                            .collect();
-                    }
+                {
+                    owner.args = type_params
+                        .iter()
+                        .map(|(n, _)| TypeRef {
+                            concrete: None,
+                            at: at.clone(),
+                            name: Some(n.clone()),
+                            args: vec![],
+                        })
+                        .collect();
                 }
                 if public {
                     public_members.insert(f.name.clone());
@@ -314,13 +313,12 @@ pub(super) fn resolve_types(
             let mut refs = declaration.refs();
             while let Some(t) = refs.pop() {
                 refs.extend(&t.args);
-                if let Some(name) = &t.name {
-                    if let Some(&dep) = names.get(name.as_str()) {
-                        if matches!(declarations[dep], Decl::Alias(_)) && !completed.contains(&dep)
-                        {
-                            work.push((dep, false));
-                        }
-                    }
+                if let Some(name) = &t.name
+                    && let Some(&dep) = names.get(name.as_str())
+                    && matches!(declarations[dep], Decl::Alias(_))
+                    && !completed.contains(&dep)
+                {
+                    work.push((dep, false));
                 }
             }
         }
@@ -530,8 +528,7 @@ impl Lower<'_> {
     }
 }
 
-const NOT_MATCHABLE: &str =
-    "match requires an enum, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain";
+const NOT_MATCHABLE: &str = "match requires an enum, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain";
 
 /// The types a literal pattern can match.
 fn literal_matchable(ty: &Ty) -> bool {

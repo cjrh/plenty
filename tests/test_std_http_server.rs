@@ -1594,7 +1594,9 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | AllocE
     ] {
         let error = check(program(output, &body)).unwrap_err();
         assert!(
-            error.contains("App does not satisfy std.http.server.Handler: signature of `handle` does not match"),
+            error.contains(
+                "App does not satisfy std.http.server.Handler: signature of `handle` does not match"
+            ),
             "{error}"
         );
     }

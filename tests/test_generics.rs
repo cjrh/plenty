@@ -82,7 +82,9 @@ fn expanding_closure_identities_keep_the_depth_guard_through_lifted_code() {
         "    grow(def once (n: i64) -> i64: n)\n",
         "    next = def () -> ():\n        grow(def once (n: i64) -> i64: n)\n    next()\n",
     ] {
-        let source = format!("def grow[T](value: T) -> ():\n    drop(value)\n{body}\ndef main() -> ():\n    grow(0)\n");
+        let source = format!(
+            "def grow[T](value: T) -> ():\n    drop(value)\n{body}\ndef main() -> ():\n    grow(0)\n"
+        );
         let error = rejection(&source);
         assert!(
             error.contains("dependency depth limit of 256 exceeded"),
@@ -310,12 +312,16 @@ fn only_checks_of_an_instance_body_move_to_the_use() {
     );
     // Declaration checks need no instance and stay at the definition.
     assert_eq!(
-        rejection("def keep[T: Missing](value: T) -> T:\n    value\n\ndef main() -> ():\n    x = keep(1)\n"),
+        rejection(
+            "def keep[T: Missing](value: T) -> T:\n    value\n\ndef main() -> ():\n    x = keep(1)\n"
+        ),
         "1:13: unknown type `Missing`"
     );
     // A use that does not satisfy the declaration never reaches the body.
     assert_eq!(
-        rejection("def add[T: IntType](a: T, b: T) -> T:\n    a + b\n\ndef main() -> ():\n    x = add('a', 'b')\n"),
+        rejection(
+            "def add[T: IntType](a: T, b: T) -> T:\n    a + b\n\ndef main() -> ():\n    x = add('a', 'b')\n"
+        ),
         "5:9: str does not satisfy IntType"
     );
 }

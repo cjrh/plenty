@@ -5,7 +5,8 @@ use support::assert_visible_stdout as native;
 
 #[test]
 fn snapshots_preserve_order_types_and_empty_lists() {
-    native(r#"
+    native(
+        r#"
 mut data = {3u8: 2.5f32, 1u8: -1.5f32, 2u8: 0f32}.unwrap()
 data[1u8] = 4.5f32
 print(str.repr(data.keys()).unwrap()).unwrap()
@@ -16,12 +17,15 @@ print(str.repr(dict[str, i64]().unwrap().values()).unwrap()).unwrap()
 flags = {False: True, True: False}.unwrap()
 print(str.repr(flags.keys()).unwrap()).unwrap()
 print(str.repr(flags.values()).unwrap()).unwrap()
-"#, "Result[list[u8], AllocError].Ok([3, 1, 2])\nResult[list[f32], AllocError].Ok([2.5, 4.5, 0.0])\n{3: 2.5, 1: 4.5, 2: 0.0}\nResult[list[str], AllocError].Ok([])\nResult[list[i64], AllocError].Ok([])\nResult[list[bool], AllocError].Ok([False, True])\nResult[list[bool], AllocError].Ok([True, False])");
+"#,
+        "Result[list[u8], AllocError].Ok([3, 1, 2])\nResult[list[f32], AllocError].Ok([2.5, 4.5, 0.0])\n{3: 2.5, 1: 4.5, 2: 0.0}\nResult[list[str], AllocError].Ok([])\nResult[list[i64], AllocError].Ok([])\nResult[list[bool], AllocError].Ok([False, True])\nResult[list[bool], AllocError].Ok([True, False])",
+    );
 }
 
 #[test]
 fn snapshots_retain_strings_and_inline_and_heap_enum_payloads() {
-    native(r#"
+    native(
+        r#"
 enum Label:
     Text(str)
 mut data = {("na" + "me").unwrap(): ("é" + "🙂").unwrap()}.unwrap()
@@ -36,12 +40,15 @@ options: dict[i64, Option[str]] = {0: Nothing, 1: Some(("B" + "ea").unwrap())}.u
 result = options.values()
 drop(options)
 print(str.repr(result).unwrap()).unwrap()
-"#, "Result[list[str], AllocError].Ok([\"name\"])\nResult[list[str], AllocError].Ok([\"é🙂\"])\nResult[list[Label], AllocError].Ok([Label.Text(\"Ada\")])\nResult[list[Option[str]], AllocError].Ok([Option[str].Nothing, Option[str].Some(\"Bea\")])");
+"#,
+        "Result[list[str], AllocError].Ok([\"name\"])\nResult[list[str], AllocError].Ok([\"é🙂\"])\nResult[list[Label], AllocError].Ok([Label.Text(\"Ada\")])\nResult[list[Option[str]], AllocError].Ok([Option[str].Nothing, Option[str].Some(\"Bea\")])",
+    );
 }
 
 #[test]
 fn references_fields_and_propagation_preserve_the_source() {
-    native(r#"
+    native(
+        r#"
 class Data:
     entries: dict[str, i64]
 def values(data: &dict[str, i64]) -> Result[list[i64], AllocError]:
@@ -55,12 +62,15 @@ print(str.repr(keys(&mut data.entries)).unwrap()).unwrap()
 print(str.repr(data.entries.values()).unwrap()).unwrap()
 data.entries["a"] = 3
 print(data.entries).unwrap()
-"#, "Result[list[i64], AllocError].Ok([1, 2])\nResult[list[str], AllocError].Ok([\"a\", \"b\"])\nResult[list[i64], AllocError].Ok([1, 2])\n{\"a\": 3, \"b\": 2}");
+"#,
+        "Result[list[i64], AllocError].Ok([1, 2])\nResult[list[str], AllocError].Ok([\"a\", \"b\"])\nResult[list[i64], AllocError].Ok([1, 2])\n{\"a\": 3, \"b\": 2}",
+    );
 }
 
 #[test]
 fn explicit_fallible_copy_produces_independent_mutable_values() {
-    native(r#"
+    native(
+        r#"
 def snapshot(data: &dict[str, list[i64]]) -> Result[list[list[i64]], AllocError]:
     mut items = copy(data)?.values()?
     match items.pop():
@@ -75,7 +85,9 @@ data = {"a": [1, 2].unwrap()}.unwrap()
 print(str.repr(snapshot(&data)).unwrap()).unwrap()
 print(data).unwrap()
 print(str.repr(data.keys()).unwrap()).unwrap()
-"#, "Result[list[list[i64]], AllocError].Ok([[1, 2, 3]])\n{\"a\": [1, 2]}\nResult[list[str], AllocError].Ok([\"a\"])");
+"#,
+        "Result[list[list[i64]], AllocError].Ok([[1, 2, 3]])\n{\"a\": [1, 2]}\nResult[list[str], AllocError].Ok([\"a\"])",
+    );
 }
 
 #[test]
@@ -100,7 +112,8 @@ print("done").unwrap()
 
 #[test]
 fn receiver_runs_once_and_inherent_methods_keep_their_names() {
-    native(r#"
+    native(
+        r#"
 def make() -> dict[i64, i64]:
     print("make").unwrap()
     {1: 2}.unwrap()
@@ -114,7 +127,9 @@ print(str.repr(make().values()).unwrap()).unwrap()
 print(Custom().keys(42)).unwrap()
 custom = Custom()
 print(custom.values()).unwrap()
-"#, "make\nResult[list[i64], AllocError].Ok([1])\nmake\nResult[list[i64], AllocError].Ok([2])\n42\nTrue");
+"#,
+        "make\nResult[list[i64], AllocError].Ok([1])\nmake\nResult[list[i64], AllocError].Ok([2])\n42\nTrue",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -127,7 +142,9 @@ fn each_snapshot_allocation_can_fail_and_retry(
     #[case] expected: &str,
 ) {
     for budget in 0..=2 {
-        native(&format!(r#"
+        native(
+            &format!(
+                r#"
 data = {{("k" + "ey").unwrap(): ("val" + "ue").unwrap()}}.unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = data.{method}()
@@ -135,7 +152,17 @@ print("__test_restore_allocations__").unwrap()
 print(str.repr(result).unwrap()).unwrap()
 print(data).unwrap()
 print(str.repr(data.{method}()).unwrap()).unwrap()
-"#), &format!("Result[list[{element}], AllocError].{}\n{{\"key\": \"value\"}}\nResult[list[{element}], AllocError].Ok({expected})", if budget < 2 { "Err(AllocError.OutOfMemory)".to_owned() } else { format!("Ok({expected})") }));
+"#
+            ),
+            &format!(
+                "Result[list[{element}], AllocError].{}\n{{\"key\": \"value\"}}\nResult[list[{element}], AllocError].Ok({expected})",
+                if budget < 2 {
+                    "Err(AllocError.OutOfMemory)".to_owned()
+                } else {
+                    format!("Ok({expected})")
+                }
+            ),
+        );
     }
 }
 

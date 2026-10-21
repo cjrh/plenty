@@ -5,7 +5,7 @@
 //! The protocol needs only JSON-RPC framing and a handful of messages, so they
 //! are written here over `serde_json` values rather than through an LSP crate.
 use crate::ide::{self, Analysis, File, Location, Reference, Symbol, SymbolKind};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::{BufRead, Write};
@@ -94,10 +94,10 @@ fn read_message(
         if line.is_empty() {
             break;
         }
-        if let Some((name, value)) = line.split_once(':') {
-            if name.eq_ignore_ascii_case("content-length") {
-                length = Some(value.trim().parse::<usize>()?);
-            }
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("content-length")
+        {
+            length = Some(value.trim().parse::<usize>()?);
         }
     }
     let mut body = vec![0; length.ok_or("message without Content-Length")?];
@@ -262,13 +262,13 @@ impl Server {
         let mut analysis = ide::analyze(&path, graph.as_ref(), overlay);
         // A file that does not parse yields no names; keep the last ones so
         // queries away from the edit still work.
-        if analysis.references.is_empty() {
-            if let Some(previous) = self.analyses.remove(uri) {
-                analysis.symbols = previous.symbols;
-                analysis.references = previous.references;
-                for (file, text) in previous.sources {
-                    analysis.sources.entry(file).or_insert(text);
-                }
+        if analysis.references.is_empty()
+            && let Some(previous) = self.analyses.remove(uri)
+        {
+            analysis.symbols = previous.symbols;
+            analysis.references = previous.references;
+            for (file, text) in previous.sources {
+                analysis.sources.entry(file).or_insert(text);
             }
         }
         let this = path.canonicalize().unwrap_or(path);
@@ -484,10 +484,9 @@ fn hover_text(symbol: &Symbol, reference: &Reference) -> String {
     let mut declaration = symbol.declaration.clone();
     if matches!(symbol.kind, SymbolKind::Local | SymbolKind::Parameter)
         && !declaration.contains(':')
+        && let Some(ty) = &reference.ty
     {
-        if let Some(ty) = &reference.ty {
-            declaration = format!("{declaration}: {ty}");
-        }
+        declaration = format!("{declaration}: {ty}");
     }
     let mut text = format!("```plenty\n{declaration}\n```");
     let qualified = !matches!(symbol.kind, SymbolKind::Local | SymbolKind::Parameter);

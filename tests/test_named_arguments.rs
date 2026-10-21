@@ -52,7 +52,9 @@ fn defaults_do_not_double_the_parameter_slot_budget() {
         .collect::<Vec<_>>()
         .join(", ");
     native(
-        &format!("def f({parameters}) -> i64:\n    a0 + a129\ndef main() -> ():\n    print(f()).unwrap()\n"),
+        &format!(
+            "def f({parameters}) -> i64:\n    a0 + a129\ndef main() -> ():\n    print(f()).unwrap()\n"
+        ),
         "129\n",
     );
     let arguments = (0..130)
@@ -61,7 +63,9 @@ fn defaults_do_not_double_the_parameter_slot_budget() {
         .collect::<Vec<_>>()
         .join(", ");
     native(
-        &format!("def f({parameters}) -> i64:\n    a0 + a129\ndef main() -> ():\n    print(f({arguments})).unwrap()\n"),
+        &format!(
+            "def f({parameters}) -> i64:\n    a0 + a129\ndef main() -> ():\n    print(f({arguments})).unwrap()\n"
+        ),
         "129\n",
     );
 }

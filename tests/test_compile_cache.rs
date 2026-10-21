@@ -264,9 +264,11 @@ fn concurrent_compilers_share_one_directory() {
             }
         }
     }
-    assert!(entries(&cache)
-        .iter()
-        .all(|path| path.extension().is_none()));
+    assert!(
+        entries(&cache)
+            .iter()
+            .all(|path| path.extension().is_none())
+    );
 }
 
 #[test]

@@ -191,7 +191,9 @@ fn last_sender_cleanup_precedes_receiving_joins() {
         "with spawn(consume, receiver).unwrap():\n        drop(sender)",
         "with spawn(consume, receiver).unwrap(), sender as outbox:\n        return",
     ] {
-        let source = format!("{CONSUME}def main() -> ():\n    sender, receiver = channel[i64](1).unwrap()\n    {body}\n");
+        let source = format!(
+            "{CONSUME}def main() -> ():\n    sender, receiver = channel[i64](1).unwrap()\n    {body}\n"
+        );
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("receiving-join");
         support::compile_source_to_executable(&source, &executable).unwrap();

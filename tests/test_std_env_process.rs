@@ -80,7 +80,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError]:\n{body}    Ok(())\n")
+    format!(
+        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError]:\n{body}    Ok(())\n"
+    )
 }
 
 /// Runs the program with a known environment; stdout and stderr are captured.

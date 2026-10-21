@@ -5,7 +5,7 @@
 /// `kind` is `plenty::numeric::FloatOp`. Unary functions ignore `y`.
 macro_rules! float_math {
     ($name:ident, $float:ty) => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub(crate) extern "C" fn $name(kind: u64, x: $float, y: $float) -> $float {
             match kind {
                 0 => x.exp(),
@@ -65,7 +65,7 @@ fn checked_pow(base: i128, mut exponent: u64, min: i128, max: i128) -> Option<i1
 
 /// `kind` is the integer type's width in bits, plus one when it is signed.
 /// Both operands arrive extended to 64 bits from that type.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_int_pow(
     base: u64,
     exponent: u64,

@@ -36,7 +36,10 @@ print(str.repr(work()).unwrap()).unwrap()
 "#,
         Some("é🦀\r\nlast".as_bytes()),
     );
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "Result[str, IoError].Ok(\"\")\nResult[str, IoError].Ok(\"é🦀\")\nResult[str, IoError].Ok(\"\\n\")\nResult[str, IoError].Ok(\"last\")\nResult[(), IoError].Ok(())\n");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "Result[str, IoError].Ok(\"\")\nResult[str, IoError].Ok(\"é🦀\")\nResult[str, IoError].Ok(\"\\n\")\nResult[str, IoError].Ok(\"last\")\nResult[(), IoError].Ok(())\n"
+    );
 }
 
 #[test]
@@ -55,7 +58,10 @@ print(str.repr(work()).unwrap()).unwrap()
 "#,
         Some("é🦀\r\nnext\nz".as_bytes()),
     );
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "Result[str, IoError].Ok(\"é\")\nResult[str, IoError].Ok(\"\")\nResult[str, IoError].Ok(\"🦀\\n\")\nResult[str, IoError].Ok(\"next\\n\")\nResult[str, IoError].Ok(\"z\")\nResult[(), IoError].Ok(())\n");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "Result[str, IoError].Ok(\"é\")\nResult[str, IoError].Ok(\"\")\nResult[str, IoError].Ok(\"🦀\\n\")\nResult[str, IoError].Ok(\"next\\n\")\nResult[str, IoError].Ok(\"z\")\nResult[(), IoError].Ok(())\n"
+    );
 }
 
 #[test]
@@ -124,7 +130,10 @@ print(str.repr(work()).unwrap()).unwrap()
 "#,
         Some(b"hello"),
     );
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "True\nFalse\nResult[bool, IoError].Err(IoError.Closed)\nFalse\nTrue\nResult[str, IoError].Err(IoError.NotReadable)\nResult[(), IoError].Ok(())\n");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "True\nFalse\nResult[bool, IoError].Err(IoError.Closed)\nFalse\nTrue\nResult[str, IoError].Err(IoError.NotReadable)\nResult[(), IoError].Ok(())\n"
+    );
 }
 
 #[test]
@@ -140,7 +149,10 @@ print(str.repr(work()).unwrap()).unwrap()
 "#,
         Some("é\r\n\r\n\n\0last".as_bytes()),
     );
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "Result[str, IoError].Ok(\"é\\n\")\nResult[str, IoError].Ok(\"\\n\")\nResult[str, IoError].Ok(\"\\n\")\nResult[str, IoError].Ok(\"\\0last\")\nResult[str, IoError].Ok(\"\")\nResult[str, IoError].Ok(\"\")\nResult[(), IoError].Ok(())\n");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "Result[str, IoError].Ok(\"é\\n\")\nResult[str, IoError].Ok(\"\\n\")\nResult[str, IoError].Ok(\"\\n\")\nResult[str, IoError].Ok(\"\\0last\")\nResult[str, IoError].Ok(\"\")\nResult[str, IoError].Ok(\"\")\nResult[(), IoError].Ok(())\n"
+    );
 }
 
 #[test]
@@ -529,12 +541,18 @@ print(str.repr(work()).unwrap()).unwrap()
 
 #[test]
 fn file_ownership_types_and_mutability_are_checked() {
-    reject("def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    file.close()\n    Ok(())\n", "mut binding");
+    reject(
+        "def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    file.close()\n    Ok(())\n",
+        "mut binding",
+    );
     reject(
         "def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    copy(file).unwrap()\n    Ok(())\n",
         "cannot be copied",
     );
-    reject("def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    other = file\n    print(file.closed).unwrap()\n    Ok(())\n", "moved");
+    reject(
+        "def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    other = file\n    print(file.closed).unwrap()\n    Ok(())\n",
+        "moved",
+    );
     reject("open(1)", "expected str");
     reject("open()", "takes a path");
 }
@@ -779,7 +797,10 @@ print(str.repr(work()).unwrap()).unwrap()
 "#,
             Some(input.as_bytes()),
         );
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "🦀\n🦀end\né\nResult[u64, IoError].Err(IoError.Closed)\nResult[(), IoError].Err(IoError.Closed)\nResult[(), IoError].Ok(())\n");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "🦀\n🦀end\né\nResult[u64, IoError].Err(IoError.Closed)\nResult[(), IoError].Err(IoError.Closed)\nResult[(), IoError].Ok(())\n"
+        );
     }
 }
 
@@ -890,7 +911,12 @@ print(str.repr(work()).unwrap()).unwrap()
         b"abXde!"
     );
     for mode in ["w+", "x+"] {
-        let (_, dir) = run(&format!("def work() -> Result[(), IoError]:\n    with open(\"sample.txt\", \"{mode}\")? as file:\n        file.write(\"ok\")?\n    Ok(())\nprint(str.repr(work()).unwrap()).unwrap()"), None);
+        let (_, dir) = run(
+            &format!(
+                "def work() -> Result[(), IoError]:\n    with open(\"sample.txt\", \"{mode}\")? as file:\n        file.write(\"ok\")?\n    Ok(())\nprint(str.repr(work()).unwrap()).unwrap()"
+            ),
+            None,
+        );
         assert_eq!(std::fs::read(dir.path().join("sample.txt")).unwrap(), b"ok");
     }
     let (out, dir) = run(

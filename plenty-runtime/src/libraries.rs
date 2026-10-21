@@ -4,7 +4,7 @@ use std::ffi::{c_char, c_int, c_void};
 use std::ptr;
 
 #[link(name = "dl")]
-extern "C" {
+unsafe extern "C" {
     fn dlopen(path: *const c_char, flags: c_int) -> *mut c_void;
     fn dlclose(handle: *mut c_void) -> c_int;
     fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
@@ -102,7 +102,7 @@ unsafe fn symbol(handle: *mut c_void, name: &[u8]) -> Result<*mut c_void, LoadEr
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_library_open_v1(
     path: *const u8,
     len: usize,
@@ -118,7 +118,7 @@ pub(crate) unsafe extern "C" fn plenty_library_open_v1(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_library_symbol_v1(
     handle: *mut c_void,
     name: *const u8,
@@ -135,7 +135,7 @@ pub(crate) unsafe extern "C" fn plenty_library_symbol_v1(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_library_close_v1(handle: *mut c_void) {
     // SAFETY: exactly one matching successful open, or an empty wrapper. This
     // releases the lookup lease, never unmaps NODELETE code or its static state.
@@ -144,7 +144,7 @@ pub(crate) unsafe extern "C" fn plenty_library_close_v1(handle: *mut c_void) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_library_require_origin_v1(
     expected: *const c_void,
     actual: *const c_void,
@@ -154,7 +154,7 @@ pub(crate) extern "C" fn plenty_library_require_origin_v1(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_library_contract_v1(
     handle: *mut c_void,
     discovery: *const u8,

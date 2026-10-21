@@ -183,13 +183,13 @@ impl Lower<'_> {
         if !(1..=2).contains(&args.len()) {
             return Err(at.error("open takes a path and optional mode string"));
         }
-        if let Some(Expression::Text(mode)) = args.get(1).map(|mode| &ungroup(mode).kind) {
-            if open_modes::OpenMode::parse(mode).is_none() {
-                return Err(args[1].at.error(format!(
-                    "unknown open mode `{mode}`; use one of {}",
-                    open_modes::NAMES
-                )));
-            }
+        if let Some(Expression::Text(mode)) = args.get(1).map(|mode| &ungroup(mode).kind)
+            && open_modes::OpenMode::parse(mode).is_none()
+        {
+            return Err(args[1].at.error(format!(
+                "unknown open mode `{mode}`; use one of {}",
+                open_modes::NAMES
+            )));
         }
         let mut loans = Vec::new();
         for arg in args {

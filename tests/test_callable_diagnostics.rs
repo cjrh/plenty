@@ -16,7 +16,9 @@ fn code_only_parameters_explain_closure_state_and_show_generic_borrowing() {
         } else {
             ""
         };
-        let source = format!("def apply{generic}({parameters}, value: i64) -> i64:\n    callback(value)\ndef main() -> ():\n    offset = 3\n    add = def [offset](value: i64) -> i64:\n        value + offset\n    {call}\n");
+        let source = format!(
+            "def apply{generic}({parameters}, value: i64) -> i64:\n    callback(value)\ndef main() -> ():\n    offset = 3\n    add = def [offset](value: i64) -> i64:\n        value + offset\n    {call}\n"
+        );
         // The generic form puts `extra` before `value`; both are i64 here.
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("stores only a code address"), "{error}");
@@ -41,7 +43,9 @@ fn mutable_and_consuming_callbacks_get_their_own_ownership_advice() {
             "callback: F",
         ),
     ] {
-        let source = format!("def apply(callback: Callable[[i64], i64], value: i64) -> i64:\n    callback(value)\ndef main() -> ():\n    offset = 3\n    add = {closure}(value: i64) -> i64:\n        value + offset\n    apply(add, 4)\n");
+        let source = format!(
+            "def apply(callback: Callable[[i64], i64], value: i64) -> i64:\n    callback(value)\ndef main() -> ():\n    offset = 3\n    add = {closure}(value: i64) -> i64:\n        value + offset\n    apply(add, 4)\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected_bound), "{error}");
         assert!(error.contains(expected_parameter), "{error}");
@@ -89,7 +93,9 @@ fn borrowed_one_shot_callbacks_do_not_get_impossible_transfer_advice() {
         } else {
             ""
         };
-        let source = format!("def ignore{bound}(callback: {parameter}) -> ():\n    pass\ndef main() -> ():\n    offset = 3\n    callback = def once [&offset]() -> i64:\n        offset\n    ignore(&callback)\n");
+        let source = format!(
+            "def ignore{bound}(callback: {parameter}) -> ():\n    pass\ndef main() -> ():\n    offset = 3\n    callback = def once [&offset]() -> i64:\n        offset\n    ignore(&callback)\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(
             error.contains("borrowed captures can only be consumed locally"),
@@ -126,7 +132,9 @@ fn source_locations_do_not_unify_different_generic_environments() {
     ] {
         let original = wrapper.replace("{}", "make(1u8)");
         let replacement = wrapper.replace("{}", "make(2u16)");
-        let source = format!("def make[T](value: T) -> Closure[[], i64]:\n    def [value]() -> i64:\n        1\nclass Holder[T]:\n    value: T\ndef wrap[T](value: T) -> Result[T, AllocError]:\n    Ok(value)\ndef main() -> ():\n    mut callback = {original}\n    callback = {replacement}\n");
+        let source = format!(
+            "def make[T](value: T) -> Closure[[], i64]:\n    def [value]() -> i64:\n        1\nclass Holder[T]:\n    value: T\ndef wrap[T](value: T) -> Result[T, AllocError]:\n    Ok(value)\ndef main() -> ():\n    mut callback = {original}\n    callback = {replacement}\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert_eq!(
             error.matches("Closure[[], i64] defined at 2:5").count(),
@@ -139,7 +147,9 @@ fn source_locations_do_not_unify_different_generic_environments() {
 
 #[test]
 fn stored_generic_environments_keep_their_own_specialized_code() {
-    let output = run("class Holder[F: Callable[[], i64]]:\n    callback: F\n    def call(self) -> i64:\n        self.callback()\ndef make[T: IntType](value: T) -> Closure[[], i64]:\n    def [value]() -> i64:\n        i64(value)\ndef main() -> ():\n    first = Holder(make(7u8))\n    second = Holder(make(300u16))\n    print(first.call()).unwrap()\n    print(second.call()).unwrap()\n");
+    let output = run(
+        "class Holder[F: Callable[[], i64]]:\n    callback: F\n    def call(self) -> i64:\n        self.callback()\ndef make[T: IntType](value: T) -> Closure[[], i64]:\n    def [value]() -> i64:\n        i64(value)\ndef main() -> ():\n    first = Holder(make(7u8))\n    second = Holder(make(300u16))\n    print(first.call()).unwrap()\n    print(second.call()).unwrap()\n",
+    );
     assert!(
         output.status.success(),
         "{}",

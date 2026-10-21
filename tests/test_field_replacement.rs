@@ -282,7 +282,8 @@ def main() -> ():
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn exchange_allocates_nothing_and_keeps_inline_sum_payloads() {
-    expect(r#"
+    expect(
+        r#"
 class C:
     value: Option[range[i64]]
 mut c = C(Some(range(1, 4)))
@@ -293,5 +294,7 @@ print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(old).unwrap()
 print(c.value).unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\nOption[range].Some(range(1, 4, 1))\nOption[range].Some(range(5, 8, 1))\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\nOption[range].Some(range(1, 4, 1))\nOption[range].Some(range(5, 8, 1))\n",
+    );
 }

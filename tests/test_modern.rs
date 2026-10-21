@@ -187,10 +187,12 @@ fn local_slot_limit_is_a_diagnostic() {
     let source = (0..257)
         .map(|i| format!("x{i} = {i}\n"))
         .collect::<String>();
-    assert!(support::check_source(&source)
-        .unwrap_err()
-        .to_string()
-        .contains("256"));
+    assert!(
+        support::check_source(&source)
+            .unwrap_err()
+            .to_string()
+            .contains("256")
+    );
 }
 
 struct Artifact {
@@ -237,8 +239,14 @@ impl Drop for Artifact {
 
 #[rstest]
 #[case(include_str!("../examples/sum.plenty"), "5051\n")]
-#[case("def plenty_main() -> i64:\n    42\ndef plenty_println() -> str:\n    return 'safe'\nprint(plenty_main()).unwrap()\nprint(plenty_println()).unwrap()", "42\nsafe\n")]
-#[case("print('héllo\\nworld').unwrap()\nprint(True).unwrap()\nprint(False).unwrap()\nprint(-128i8).unwrap()\nprint(18446744073709551615u64).unwrap()", "héllo\nworld\nTrue\nFalse\n-128\n18446744073709551615\n")]
+#[case(
+    "def plenty_main() -> i64:\n    42\ndef plenty_println() -> str:\n    return 'safe'\nprint(plenty_main()).unwrap()\nprint(plenty_println()).unwrap()",
+    "42\nsafe\n"
+)]
+#[case(
+    "print('héllo\\nworld').unwrap()\nprint(True).unwrap()\nprint(False).unwrap()\nprint(-128i8).unwrap()\nprint(18446744073709551615u64).unwrap()",
+    "héllo\nworld\nTrue\nFalse\n-128\n18446744073709551615\n"
+)]
 #[case(
     "mut x = 1\nif True:\n    x = 40\nelse:\n    x = 0\nx = x + 2\nprint(x).unwrap()",
     "42\n"
@@ -247,17 +255,38 @@ impl Drop for Artifact {
     "mut x = 1\nif False:\n    x = 40\nelse:\n    x = 2\nprint(x).unwrap()",
     "2\n"
 )]
-#[case("def f(flag: bool) -> i64:\n    if flag:\n        a = 42\n        a\n    else:\n        b = 7\n        b\nprint(f(True)).unwrap()\nprint(f(False)).unwrap()", "42\n7\n")]
-#[case("def count(n: i64, total: i64) -> i64:\n    if n == 0:\n        total\n    else:\n        x = total + 1\n        count(n - 1, x)\nprint(count(100_000, 0)).unwrap()", "100000\n")]
-#[case("def even(n: i64) -> bool:\n    True if n == 0 else odd(n - 1)\ndef odd(n: i64) -> bool:\n    False if n == 0 else even(n - 1)\nprint(even(100_000)).unwrap()", "True\n")]
-#[case("def unit(n: i64) -> ():\n    if n == 0:\n        pass\n    else:\n        unit(n - 1)\nunit(100_000)\nprint(42).unwrap()", "42\n")]
-#[case("def f(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        1 + f(n - 1)\nprint(f(30)).unwrap()", "30\n")]
-#[case("def side() -> bool:\n    print('side').unwrap()\n    True\nprint(False and side()).unwrap()\nprint(True or side()).unwrap()\nprint(True and side()).unwrap()", "False\nTrue\nside\nTrue\n")]
+#[case(
+    "def f(flag: bool) -> i64:\n    if flag:\n        a = 42\n        a\n    else:\n        b = 7\n        b\nprint(f(True)).unwrap()\nprint(f(False)).unwrap()",
+    "42\n7\n"
+)]
+#[case(
+    "def count(n: i64, total: i64) -> i64:\n    if n == 0:\n        total\n    else:\n        x = total + 1\n        count(n - 1, x)\nprint(count(100_000, 0)).unwrap()",
+    "100000\n"
+)]
+#[case(
+    "def even(n: i64) -> bool:\n    True if n == 0 else odd(n - 1)\ndef odd(n: i64) -> bool:\n    False if n == 0 else even(n - 1)\nprint(even(100_000)).unwrap()",
+    "True\n"
+)]
+#[case(
+    "def unit(n: i64) -> ():\n    if n == 0:\n        pass\n    else:\n        unit(n - 1)\nunit(100_000)\nprint(42).unwrap()",
+    "42\n"
+)]
+#[case(
+    "def f(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        1 + f(n - 1)\nprint(f(30)).unwrap()",
+    "30\n"
+)]
+#[case(
+    "def side() -> bool:\n    print('side').unwrap()\n    True\nprint(False and side()).unwrap()\nprint(True or side()).unwrap()\nprint(True and side()).unwrap()",
+    "False\nTrue\nside\nTrue\n"
+)]
 #[case(
     "def value(n: i64) -> i64:\n    print(n).unwrap()\n    n\nprint(value(1) + value(2)).unwrap()",
     "1\n2\n3\n"
 )]
-#[case("print(-7 // 3).unwrap()\nprint(7 // -3).unwrap()\nprint(-7 // -3).unwrap()\nprint(-128i8 // 3i8).unwrap()\nprint(-9223372036854775808 // 1).unwrap()", "-3\n-3\n2\n-43\n-9223372036854775808\n")]
+#[case(
+    "print(-7 // 3).unwrap()\nprint(7 // -3).unwrap()\nprint(-7 // -3).unwrap()\nprint(-128i8 // 3i8).unwrap()\nprint(-9223372036854775808 // 1).unwrap()",
+    "-3\n-3\n2\n-43\n-9223372036854775808\n"
+)]
 #[case(
     "print(42 if True else 1 // 0).unwrap()\nprint(False and 1 // 0 == 0).unwrap()",
     "42\nFalse\n"

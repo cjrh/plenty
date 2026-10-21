@@ -293,7 +293,10 @@ fn each_trap_site_keeps_its_own_position() {
 
 #[test]
 fn an_empty_standard_heap_names_the_actual_call_not_its_first_instantiation() {
-    let error = trap(&[("main.plenty", "from std.collections import Heap\ndef main() -> Result[(), AllocError | IoError]:\n    mut full = Heap[i64]()?\n    full.push(1)?\n    print(*full.peek())?\n    empty = Heap[i64]()?\n    print(*empty.peek())?\n    Ok(())\n")]);
+    let error = trap(&[(
+        "main.plenty",
+        "from std.collections import Heap\ndef main() -> Result[(), AllocError | IoError]:\n    mut full = Heap[i64]()?\n    full.push(1)?\n    print(*full.peek())?\n    empty = Heap[i64]()?\n    print(*empty.peek())?\n    Ok(())\n",
+    )]);
     assert!(
         error.starts_with("error: std/collections.plenty:20:10: index out of bounds"),
         "{error}"
@@ -307,8 +310,14 @@ fn an_empty_standard_heap_names_the_actual_call_not_its_first_instantiation() {
 #[test]
 fn standard_traps_keep_the_nearest_imported_user_caller_through_tail_calls() {
     let error = trap(&[
-        ("numbers.plenty", "from std.math import abs\npub def recurse(n: i64, x: i64) -> i64:\n    if n > 0:\n        return recurse(n - 1, x)\n    abs(x)\n"),
-        ("main.plenty", "from numbers import recurse\ndef main() -> Result[(), IoError]:\n    print(recurse(100000, -9223372036854775808))?\n    Ok(())\n"),
+        (
+            "numbers.plenty",
+            "from std.math import abs\npub def recurse(n: i64, x: i64) -> i64:\n    if n > 0:\n        return recurse(n - 1, x)\n    abs(x)\n",
+        ),
+        (
+            "main.plenty",
+            "from numbers import recurse\ndef main() -> Result[(), IoError]:\n    print(recurse(100000, -9223372036854775808))?\n    Ok(())\n",
+        ),
     ]);
     assert!(error.contains("integer overflow"), "{error}");
     assert!(
@@ -319,7 +328,10 @@ fn standard_traps_keep_the_nearest_imported_user_caller_through_tail_calls() {
 
 #[test]
 fn indirect_standard_calls_keep_the_dynamic_call_site() {
-    let error = trap(&[("main.plenty", "from std.math import abs\ndef main() -> Result[(), IoError]:\n    f = abs[i64]\n    print(f(-9223372036854775808))?\n    Ok(())\n")]);
+    let error = trap(&[(
+        "main.plenty",
+        "from std.math import abs\ndef main() -> Result[(), IoError]:\n    f = abs[i64]\n    print(f(-9223372036854775808))?\n    Ok(())\n",
+    )]);
     assert!(error.contains("integer overflow"), "{error}");
     assert!(
         error.ends_with("note: called from main.plenty:4:11\n"),
@@ -329,13 +341,19 @@ fn indirect_standard_calls_keep_the_dynamic_call_site() {
 
 #[test]
 fn a_user_callback_trap_keeps_its_own_position_without_a_standard_note() {
-    let error = trap(&[("main.plenty", "from std.iter import fold\ndef values() -> Generator[i64]:\n    yield 0\ndef divide(a: i64, b: i64) -> i64:\n    a // b\ndef main() -> Result[(), IoError]:\n    print(fold(values(), 1, divide))?\n    Ok(())\n")]);
+    let error = trap(&[(
+        "main.plenty",
+        "from std.iter import fold\ndef values() -> Generator[i64]:\n    yield 0\ndef divide(a: i64, b: i64) -> i64:\n    a // b\ndef main() -> Result[(), IoError]:\n    print(fold(values(), 1, divide))?\n    Ok(())\n",
+    )]);
     assert_eq!(error, "error: main.plenty:5:5: division by zero\n");
 }
 
 #[test]
 fn a_callback_can_enter_std_again_through_nested_generator_adapters() {
-    let error = trap(&[("main.plenty", "from std.math import abs\nfrom std.iter import map, take\ndef values() -> Generator[i64]:\n    yield -9223372036854775808\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), IoError]:\n    for x in take(map(values(), positive), 1):\n        print(x)?\n    Ok(())\n")]);
+    let error = trap(&[(
+        "main.plenty",
+        "from std.math import abs\nfrom std.iter import map, take\ndef values() -> Generator[i64]:\n    yield -9223372036854775808\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), IoError]:\n    for x in take(map(values(), positive), 1):\n        print(x)?\n    Ok(())\n",
+    )]);
     assert!(error.contains("integer overflow"), "{error}");
     assert!(
         error.ends_with("note: called from main.plenty:6:5\n"),
@@ -346,8 +364,14 @@ fn a_callback_can_enter_std_again_through_nested_generator_adapters() {
 #[test]
 fn a_user_module_named_like_std_does_not_gain_standard_provenance() {
     let error = trap(&[
-        ("app/std/collections.plenty", "pub def fail() -> i64:\n    1 // 0\n"),
-        ("main.plenty", "from app.std.collections import fail\nfrom std.math import abs\ndef main() -> Result[(), AllocError | IoError]:\n    print(abs(1))?\n    print(fail())?\n    Ok(())\n"),
+        (
+            "app/std/collections.plenty",
+            "pub def fail() -> i64:\n    1 // 0\n",
+        ),
+        (
+            "main.plenty",
+            "from app.std.collections import fail\nfrom std.math import abs\ndef main() -> Result[(), AllocError | IoError]:\n    print(abs(1))?\n    print(fail())?\n    Ok(())\n",
+        ),
     ]);
     assert_eq!(
         error,
@@ -357,7 +381,10 @@ fn a_user_module_named_like_std_does_not_gain_standard_provenance() {
 
 #[test]
 fn worker_calls_report_the_worker_source_without_inheriting_the_parent() {
-    let error = trap(&[("main.plenty", "from std.math import abs\nfrom std.thread import spawn\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), AllocError | ThreadError | IoError]:\n    print(abs(1))?\n    with spawn(positive, -9223372036854775808)? as task:\n        print(task.join())?\n    Ok(())\n")]);
+    let error = trap(&[(
+        "main.plenty",
+        "from std.math import abs\nfrom std.thread import spawn\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), AllocError | ThreadError | IoError]:\n    print(abs(1))?\n    with spawn(positive, -9223372036854775808)? as task:\n        print(task.join())?\n    Ok(())\n",
+    )]);
     assert!(
         error.ends_with("note: called from main.plenty:4:5\n"),
         "{error}"
@@ -366,7 +393,10 @@ fn worker_calls_report_the_worker_source_without_inheriting_the_parent() {
 
 #[test]
 fn directly_scheduled_std_jobs_do_not_inherit_an_earlier_jobs_tail_caller() {
-    let error = trap(&[("main.plenty", "from std.math import abs\nfrom std.concurrent import ThreadPoolExecutor, FutureError, PoolError, SubmitError\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[()]]:\n    with ThreadPoolExecutor(1, 1)? as pool:\n        first = pool.submit(positive, 1).drop_job()?\n        print(first.result()?)?\n        second = pool.submit(abs, -9223372036854775808).drop_job()?\n        print(second.result()?)?\n    Ok(())\n")]);
+    let error = trap(&[(
+        "main.plenty",
+        "from std.math import abs\nfrom std.concurrent import ThreadPoolExecutor, FutureError, PoolError, SubmitError\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[()]]:\n    with ThreadPoolExecutor(1, 1)? as pool:\n        first = pool.submit(positive, 1).drop_job()?\n        print(first.result()?)?\n        second = pool.submit(abs, -9223372036854775808).drop_job()?\n        print(second.result()?)?\n    Ok(())\n",
+    )]);
     assert!(error.contains("integer overflow"), "{error}");
     assert!(!error.contains("note:"), "{error}");
 }
@@ -377,7 +407,10 @@ fn directly_scheduled_std_jobs_do_not_inherit_an_earlier_jobs_tail_caller() {
     "    f = BoxedCallable(abs[i64])?\n    print(f(-9223372036854775808 + 0))?\n",
     "4:11"
 )]
-#[case::closure("    k = 0\n    f = def [k](x: i64) -> i64:\n        abs(x + k)\n    print(f(-9223372036854775808))?\n", "5:9")]
+#[case::closure(
+    "    k = 0\n    f = def [k](x: i64) -> i64:\n        abs(x + k)\n    print(f(-9223372036854775808))?\n",
+    "5:9"
+)]
 fn caller_positions_name_the_call_after_argument_evaluation(
     #[case] body: &str,
     #[case] site: &str,

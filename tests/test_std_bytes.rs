@@ -10,7 +10,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | RangeError]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | RangeError]:\n{body}    Ok(())\n"
+    )
 }
 
 fn output(source: &str) -> String {

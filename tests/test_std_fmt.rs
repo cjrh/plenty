@@ -49,7 +49,8 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 
 #[test]
 fn scalars_bounds_bases_width_and_escaping() {
-    assert_eq!(run(r#"
+    assert_eq!(
+        run(r#"
 import std.fmt
 def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     mut out = std.fmt.string_formatter(500, 8)?
@@ -71,7 +72,9 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     out.debug_text("a\n\0\"\\é🙂\t\r")?
     print(std.fmt.finish(&out)?)?
     Ok(())
-"#), "é🙂-9223372036854775808/ffffffffffffffff/   -12/  101/True/   1.25e0/-0e0/\"a\\n\\u{0}\\\"\\\\é🙂\\t\\r\"");
+"#),
+        "é🙂-9223372036854775808/ffffffffffffffff/   -12/  101/True/   1.25e0/-0e0/\"a\\n\\u{0}\\\"\\\\é🙂\\t\\r\""
+    );
 }
 
 #[test]
@@ -110,7 +113,8 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 
 #[test]
 fn short_interrupted_zero_invalid_and_failed_writers_keep_progress() {
-    assert_eq!(run(r#"
+    assert_eq!(
+        run(r#"
 import std.fmt
 import std.bytes
 from std.bytes import ByteSource, Bytes
@@ -143,7 +147,9 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.fmt.F
             case Err(error):
                 print(error, out.completed())?
     Ok(())
-"#), "std.fmt.FormatError.Output(std.io.StreamError.WriteZero) 2\nstd.fmt.FormatError.Output(std.io.StreamError.InvalidProgress) 2\nstd.fmt.FormatError.Output(std.io.StreamError.OutOfRange) 2\nok 4");
+"#),
+        "std.fmt.FormatError.Output(std.io.StreamError.WriteZero) 2\nstd.fmt.FormatError.Output(std.io.StreamError.InvalidProgress) 2\nstd.fmt.FormatError.Output(std.io.StreamError.OutOfRange) 2\nok 4"
+    );
 }
 
 #[test]
@@ -283,10 +289,22 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError | std.bytes.
 #[test]
 fn ordinary_visibility_ownership_and_contract_errors_remain_checked() {
     for (source, expected) in [
-        ("import std.fmt\nfrom std.fmt import Formatter, FormatError\nenum E:\n    V\n    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:\n        out.text(\"value\")\ndef main() -> Result[(), AllocError | IoError]:\n    value = E.V\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n", "enum `E` is private"),
-        ("import std.fmt\ndef main() -> Result[(), AllocError | IoError]:\n    value = 42\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n", "display"),
-        ("import std.fmt\ndef main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:\n    mut out = std.fmt.string_formatter(32, 8)?\n    view = &out\n    out.text(\"changed\")?\n    print(view.completed())?\n    Ok(())\n", "conflicting borrow"),
-        ("import std.fmt\ndef main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:\n    out = std.fmt.string_formatter(32, 8)?\n    drop(copy(out))\n    Ok(())\n", "cannot be copied"),
+        (
+            "import std.fmt\nfrom std.fmt import Formatter, FormatError\nenum E:\n    V\n    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:\n        out.text(\"value\")\ndef main() -> Result[(), AllocError | IoError]:\n    value = E.V\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n",
+            "enum `E` is private",
+        ),
+        (
+            "import std.fmt\ndef main() -> Result[(), AllocError | IoError]:\n    value = 42\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n",
+            "display",
+        ),
+        (
+            "import std.fmt\ndef main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:\n    mut out = std.fmt.string_formatter(32, 8)?\n    view = &out\n    out.text(\"changed\")?\n    print(view.completed())?\n    Ok(())\n",
+            "conflicting borrow",
+        ),
+        (
+            "import std.fmt\ndef main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:\n    out = std.fmt.string_formatter(32, 8)?\n    drop(copy(out))\n    Ok(())\n",
+            "cannot be copied",
+        ),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("main.plenty");

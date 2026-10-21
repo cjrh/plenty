@@ -90,7 +90,7 @@ fn run_aot_outcome(source: &str, label: &str) -> Outcome {
 }
 
 macro_rules! native_output {
-    ($name:ident, $label:expr, $expected:expr, $source:expr $(,)?) => {
+    ($name:ident, $label:expr_2021, $expected:expr_2021, $source:expr_2021 $(,)?) => {
         #[test]
         fn $name() {
             assert_eq!(run_aot($source, $label), $expected, "{}", $source);
@@ -99,7 +99,7 @@ macro_rules! native_output {
 }
 
 macro_rules! native_error {
-    ($name:ident, $label:expr, $source:expr $(,)?) => {
+    ($name:ident, $label:expr_2021, $source:expr_2021 $(,)?) => {
         #[test]
         fn $name() {
             let outcome = run_aot_outcome($source, $label);

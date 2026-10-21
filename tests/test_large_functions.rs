@@ -30,11 +30,7 @@ def main() -> Result[(), IoError]:
     let expected = |x: i64| {
         (0..STEPS).fold(x, |y, i| {
             let y = y + i;
-            if y > i * 7 {
-                y - 3
-            } else {
-                y
-            }
+            if y > i * 7 { y - 3 } else { y }
         })
     };
     // The three inputs take the conditional sometimes, never, and always.

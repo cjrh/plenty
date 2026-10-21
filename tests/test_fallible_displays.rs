@@ -4,7 +4,8 @@ use support::assert_filtered_stdout as native;
 
 #[test]
 fn literals_preserve_types_order_and_duplicate_rules() {
-    native(r#"
+    native(
+        r#"
 print(str.repr([1, 2, 3]).unwrap()).unwrap()
 print(str.repr({3, 1, 3}).unwrap()).unwrap()
 print(str.repr({"a": 1, "a": 2}).unwrap()).unwrap()
@@ -13,16 +14,21 @@ print(str.repr(empty).unwrap()).unwrap()
 def nested() -> Result[list[list[i64]], AllocError]:
     [([1, 2])?, ([3])?]
 print(str.repr(nested()).unwrap()).unwrap()
-"#, "Result[list[i64], AllocError].Ok([1, 2, 3])\nResult[set[i64], AllocError].Ok({3, 1})\nResult[dict[str, i64], AllocError].Ok({\"a\": 2})\nResult[list[u8], AllocError].Ok([])\nResult[list[list[i64]], AllocError].Ok([[1, 2], [3]])");
+"#,
+        "Result[list[i64], AllocError].Ok([1, 2, 3])\nResult[set[i64], AllocError].Ok({3, 1})\nResult[dict[str, i64], AllocError].Ok({\"a\": 2})\nResult[list[u8], AllocError].Ok([])\nResult[list[list[i64]], AllocError].Ok([[1, 2], [3]])",
+    );
 }
 
 #[test]
 fn comprehensions_support_nested_loops_filters_and_all_collection_kinds() {
-    native(r#"
+    native(
+        r#"
 print(str.repr([a * b for a in range(3) for b in range(3) if b != 1]).unwrap()).unwrap()
 print(str.repr({a % 2 for a in range(5)}).unwrap()).unwrap()
 print(str.repr({a: a * a for a in range(3)}).unwrap()).unwrap()
-"#, "Result[list[i64], AllocError].Ok([0, 0, 0, 2, 0, 4])\nResult[set[i64], AllocError].Ok({0, 1})\nResult[dict[i64, i64], AllocError].Ok({0: 0, 1: 1, 2: 4})");
+"#,
+        "Result[list[i64], AllocError].Ok([0, 0, 0, 2, 0, 4])\nResult[set[i64], AllocError].Ok({0, 1})\nResult[dict[i64, i64], AllocError].Ok({0: 0, 1: 1, 2: 4})",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -103,7 +109,9 @@ fn failure_at_each_literal_allocation_is_recoverable() {
         ),
     ] {
         for budget in 0..=allocations {
-            let source = format!("print(\"__test_fail_allocations_after_{budget}__\").unwrap()\nresult = {literal}\nprint(\"__test_restore_allocations__\").unwrap()\nprint(str.repr(result).unwrap()).unwrap()");
+            let source = format!(
+                "print(\"__test_fail_allocations_after_{budget}__\").unwrap()\nresult = {literal}\nprint(\"__test_restore_allocations__\").unwrap()\nprint(str.repr(result).unwrap()).unwrap()"
+            );
             let failure = format!(
                 "{}.Err(AllocError.OutOfMemory)",
                 value.split(".Ok").next().unwrap()

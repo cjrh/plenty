@@ -37,7 +37,8 @@ def main() -> Result[(), IoError]:
 
 #[test]
 fn structural_types_aliases_and_nested_calls_infer_without_return_context() {
-    native(r#"
+    native(
+        r#"
 type Count = u16
 def identity[T](value: T) -> T:
     value
@@ -73,7 +74,9 @@ def main() -> Result[(), AllocError | IoError]:
     print(identity(2.5))?
     print(1 + identity[u8](2))?
     Ok(())
-"#, "42\n1\n7\n{1, 2}\n3\nResult[u64, str].Ok(18446744073709551615)\nOption[u8].Some(1)\n6\n2.5\n3\n");
+"#,
+        "42\n1\n7\n{1, 2}\n3\nResult[u64, str].Ok(18446744073709551615)\nOption[u8].Some(1)\n6\n2.5\n3\n",
+    );
 }
 
 #[test]
@@ -132,17 +135,50 @@ def main() -> Result[(), IoError]:
 #[test]
 fn inference_does_not_hide_type_conflicts_missing_information_or_invalid_bounds() {
     for (source, expected) in [
-        ("def same[T](a: T, b: T) -> T:\n    a\nsame(1u8, 2i64)", "conflicting types for `T`"),
-        ("def same[T](a: T, b: T) -> T:\n    a\nsame(1, 2u8)", "conflicting types for `T`"),
-        ("def same[T](a: T, b: T) -> T:\n    a\nsame(1u8, 2)", "conflicting types for `T`"),
-        ("def make[T]() -> T:\n    1\nx: i64 = make()", "cannot infer type parameter `T`"),
-        ("def ignore[T, U](x: T) -> T:\n    x\nignore(1)", "cannot infer type parameter `U`"),
-        ("def take[T](values: list[T]) -> ():\n    pass\ntake(1)", "does not match parameter type"),
-        ("def number[T: IntType](x: T) -> T:\n    x\nnumber('bad')", "does not satisfy IntType"),
-        ("def identity[T](x: T) -> T:\n    x\nidentity = 1\nidentity(2)", "not callable"),
-        ("def identity[T](x: T) -> T:\n    x\na = [1].unwrap()\nb = identity(a)\nprint(a).unwrap()", "moved"),
-        ("def use[T](x: &mut T, y: &mut T) -> ():\n    pass\nmut n = 1\nuse(&mut n, &mut n)", "borrow"),
-        ("def view[T](x: &T) -> &T:\n    x\ndef bad() -> &i64:\n    n = 1\n    view(&n)", "reference parameter"),
+        (
+            "def same[T](a: T, b: T) -> T:\n    a\nsame(1u8, 2i64)",
+            "conflicting types for `T`",
+        ),
+        (
+            "def same[T](a: T, b: T) -> T:\n    a\nsame(1, 2u8)",
+            "conflicting types for `T`",
+        ),
+        (
+            "def same[T](a: T, b: T) -> T:\n    a\nsame(1u8, 2)",
+            "conflicting types for `T`",
+        ),
+        (
+            "def make[T]() -> T:\n    1\nx: i64 = make()",
+            "cannot infer type parameter `T`",
+        ),
+        (
+            "def ignore[T, U](x: T) -> T:\n    x\nignore(1)",
+            "cannot infer type parameter `U`",
+        ),
+        (
+            "def take[T](values: list[T]) -> ():\n    pass\ntake(1)",
+            "does not match parameter type",
+        ),
+        (
+            "def number[T: IntType](x: T) -> T:\n    x\nnumber('bad')",
+            "does not satisfy IntType",
+        ),
+        (
+            "def identity[T](x: T) -> T:\n    x\nidentity = 1\nidentity(2)",
+            "not callable",
+        ),
+        (
+            "def identity[T](x: T) -> T:\n    x\na = [1].unwrap()\nb = identity(a)\nprint(a).unwrap()",
+            "moved",
+        ),
+        (
+            "def use[T](x: &mut T, y: &mut T) -> ():\n    pass\nmut n = 1\nuse(&mut n, &mut n)",
+            "borrow",
+        ),
+        (
+            "def view[T](x: &T) -> &T:\n    x\ndef bad() -> &i64:\n    n = 1\n    view(&n)",
+            "reference parameter",
+        ),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "{source}\n{error}");

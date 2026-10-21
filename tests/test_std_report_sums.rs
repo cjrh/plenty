@@ -106,22 +106,51 @@ def main() -> Result[(), FormatError | IoError]:
 #[test]
 fn rejects_any_member_with_missing_wrong_or_private_method() {
     for (declaration, expected) in [
-        ("pub class Bad:\n    value: i64\n", "missing method `format`"),
-        ("pub class Bad:\n    value: i64\n    pub def format(self: &mut Bad, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n", "signature of `format` does not match"),
-        ("pub class Bad:\n    value: i64\n    pub def format(self, output: &Formatter) -> Result[(), FormatError]:\n        Ok(())\n", "signature of `format` does not match"),
-        ("pub class Bad:\n    value: i64\n    pub def format(self, output: &mut Formatter) -> ():\n        pass\n", "signature of `format` does not match"),
-        ("pub class Bad:\n    value: i64\n    pub def format[T](self, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n", "signature of `format` does not match"),
-        ("pub class Bad:\n    value: i64\n    def format(self, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n", "private to its defining module"),
-        ("class Bad:\n    value: i64\n    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n", "private to its defining module"),
+        (
+            "pub class Bad:\n    value: i64\n",
+            "missing method `format`",
+        ),
+        (
+            "pub class Bad:\n    value: i64\n    pub def format(self: &mut Bad, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n",
+            "signature of `format` does not match",
+        ),
+        (
+            "pub class Bad:\n    value: i64\n    pub def format(self, output: &Formatter) -> Result[(), FormatError]:\n        Ok(())\n",
+            "signature of `format` does not match",
+        ),
+        (
+            "pub class Bad:\n    value: i64\n    pub def format(self, output: &mut Formatter) -> ():\n        pass\n",
+            "signature of `format` does not match",
+        ),
+        (
+            "pub class Bad:\n    value: i64\n    pub def format[T](self, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n",
+            "signature of `format` does not match",
+        ),
+        (
+            "pub class Bad:\n    value: i64\n    def format(self, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n",
+            "private to its defining module",
+        ),
+        (
+            "class Bad:\n    value: i64\n    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n",
+            "private to its defining module",
+        ),
     ] {
-        for call in ["std.report.render(&value, &mut out)", "value.format(&mut out)"] {
-            rejects(&format!(r#"{TYPES}
+        for call in [
+            "std.report.render(&value, &mut out)",
+            "value.format(&mut out)",
+        ] {
+            rejects(
+                &format!(
+                    r#"{TYPES}
 {declaration}
 def main() -> Result[(), FormatError]:
     value: Label | Bad = Label("active valid member")
     mut out = std.report.string_formatter(100, 1)?
     {call}
-"#), expected);
+"#
+                ),
+                expected,
+            );
         }
     }
 }

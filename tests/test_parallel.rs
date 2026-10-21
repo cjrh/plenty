@@ -22,7 +22,8 @@ fn runs(source: &str, expected: &str) {
 
 #[test]
 fn maps_share_owned_immutable_closures_including_generic_callable_workers() {
-    runs(r#"
+    runs(
+        r#"
 class Capture:
     values: list[i64]
     def __del__(self) -> ():
@@ -49,20 +50,42 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
             n + offset
         print(pool.map(shift, range(3))?)?
     Ok(())
-"#, "capture dropped\n[0, 2, 4, 6]\nResult[list[i64], ParallelError[str]].Err(ParallelError[str].Worker(\"error\"))\n[10, 11, 12]\n");
+"#,
+        "capture dropped\n[0, 2, 4, 6]\nResult[list[i64], ParallelError[str]].Err(ParallelError[str].Worker(\"error\"))\n[10, 11, 12]\n",
+    );
 }
 
 #[test]
 fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
     for (worker, diagnostic) in [
-        ("job = def once [value](n: i64) -> i64:\n    n + value\n", "reusable immutable closure"),
-        ("mut job = def [mut value](n: i64) -> i64:\n    value = value + n\n    value\n", "reusable immutable closure"),
-        ("job = def [&value](n: i64) -> i64:\n    n + value\n", "must own their captures"),
-        ("def seven() -> i64:\n    7\njob = def [value](n: i64) -> i64:\n    f: Callable[[], i64] = seven\n    n + value + f()\n", "indirect callable effects"),
-        ("def identity(n: i64) -> i64:\n    n\njob = identity\n", "lack worker eligibility evidence"),
-        ("job = def [value](n: &i64) -> i64:\n    *n + value\n", "one owned input"),
+        (
+            "job = def once [value](n: i64) -> i64:\n    n + value\n",
+            "reusable immutable closure",
+        ),
+        (
+            "mut job = def [mut value](n: i64) -> i64:\n    value = value + n\n    value\n",
+            "reusable immutable closure",
+        ),
+        (
+            "job = def [&value](n: i64) -> i64:\n    n + value\n",
+            "must own their captures",
+        ),
+        (
+            "def seven() -> i64:\n    7\njob = def [value](n: i64) -> i64:\n    f: Callable[[], i64] = seven\n    n + value + f()\n",
+            "indirect callable effects",
+        ),
+        (
+            "def identity(n: i64) -> i64:\n    n\njob = identity\n",
+            "lack worker eligibility evidence",
+        ),
+        (
+            "job = def [value](n: &i64) -> i64:\n    *n + value\n",
+            "one owned input",
+        ),
     ] {
-        let source = format!("value = 2\n{worker}with ThreadPoolExecutor(2, 1).unwrap() as pool:\n    drop(pool.map(job, range(3)))\n");
+        let source = format!(
+            "value = 2\n{worker}with ThreadPoolExecutor(2, 1).unwrap() as pool:\n    drop(pool.map(job, range(3)))\n"
+        );
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "{source}\n{error}");
     }
@@ -129,7 +152,9 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
 #[test]
 fn map_failure_and_shutdown_drop_shared_captures_once_and_drain_jobs() {
     for budget in 0..8 {
-        runs(&format!(r#"
+        runs(
+            &format!(
+                r#"
 class Capture:
     message: str
     def __del__(self) -> ():
@@ -147,13 +172,19 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
         n
     pool.shutdown()
     drop(pool.map(shutdown_work, range(0)))
-"#), &format!("__test_fail_allocations_after_{budget}__\ndropped\n__test_restore_allocations__\nshutdown capture\n"));
+"#
+            ),
+            &format!(
+                "__test_fail_allocations_after_{budget}__\ndropped\n__test_restore_allocations__\nshutdown capture\n"
+            ),
+        );
     }
 }
 
 #[test]
 fn fallible_map_preserves_order_and_concrete_error() {
-    runs(r#"
+    runs(
+        r#"
 def square[T: IntType](n: T) -> Result[T, str]:
     Ok(n * n)
 def fail(n: i64) -> Result[i64, range[i64]]:
@@ -181,7 +212,9 @@ def main() -> Result[(), IoError | ParallelError[str] | PoolError]:
         pool.shutdown()
         print(str.repr(pool.map_result(square, range(0))).unwrap())?
     Ok(())
-"#, "[0, 1, 4, 9, 16]\n[]\nrange(2, 4, 1)\nResult[list[i64], ParallelError[str]].Err(ParallelError[str].Shutdown)\n");
+"#,
+        "[0, 1, 4, 9, 16]\n[]\nrange(2, 4, 1)\nResult[list[i64], ParallelError[str]].Err(ParallelError[str].Shutdown)\n",
+    );
 }
 
 #[test]
@@ -255,7 +288,8 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
 
 #[test]
 fn tree_grouping_is_fixed_across_pool_sizes_and_not_a_left_fold() {
-    runs(r#"
+    runs(
+        r#"
 def subtract[T: IntType](left: T, right: T) -> T:
     left - right
 def add(left: f64, right: f64) -> f64:
@@ -272,13 +306,18 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
         pool.shutdown()
         print(str.repr(pool.reduce_tree(subtract, range(0))).unwrap())?
     Ok(())
-"#, &format!("{}Option[i64].Nothing\nOption[i64].Some(9)\nResult[Option[i64], PoolMapError].Err(PoolMapError.Shutdown)\n",
-    "Option[i64].Some(-5)\nOption[i32].Some(0)\nOption[f64].Some(0.0)\n".repeat(4)));
+"#,
+        &format!(
+            "{}Option[i64].Nothing\nOption[i64].Some(9)\nResult[Option[i64], PoolMapError].Err(PoolMapError.Shutdown)\n",
+            "Option[i64].Some(-5)\nOption[i32].Some(0)\nOption[f64].Some(0.0)\n".repeat(4)
+        ),
+    );
 }
 
 #[test]
 fn tree_transfers_owned_and_nested_inline_values() {
-    runs(r#"
+    runs(
+        r#"
 def left[T](a: T, b: T) -> T:
     a
 def callback(n: i64) -> Closure[[], i64]:
@@ -295,14 +334,18 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
         chosen = (pool.reduce_tree(left, callbacks)?).unwrap()
         print(chosen())?
     Ok(())
-"#, "Option[list[i64]].Some([1, 2])\nOption[Option[range]].Some(Option[range].Some(range(2, 5, 1)))\nOption[Option[range]].Some(Option[range].Some(range(4, 8, 1)))\n42\n");
+"#,
+        "Option[list[i64]].Some([1, 2])\nOption[Option[range]].Some(Option[range].Some(range(2, 5, 1)))\nOption[Option[range]].Some(Option[range].Some(range(4, 8, 1)))\n42\n",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn reduction_failure_at_every_allocation_cleans_up_and_keeps_pool_usable() {
     for budget in 0..12 {
-        runs(&format!(r#"
+        runs(
+            &format!(
+                r#"
 def left[T](a: T, b: T) -> T:
     a
 with ThreadPoolExecutor(2, 1).unwrap() as pool:
@@ -312,14 +355,20 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
     print("__test_restore_allocations__").unwrap()
     drop(result)
     print(pool.reduce_tree(left, range(2)).unwrap()).unwrap()
-"#), &format!("__test_fail_allocations_after_{budget}__\n__test_restore_allocations__\nOption[i64].Some(0)\n"));
+"#
+            ),
+            &format!(
+                "__test_fail_allocations_after_{budget}__\n__test_restore_allocations__\nOption[i64].Some(0)\n"
+            ),
+        );
     }
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn empty_and_singleton_reductions_do_not_allocate() {
-    runs(r#"
+    runs(
+        r#"
 def left[T](a: T, b: T) -> T:
     a
 with ThreadPoolExecutor(2, 1).unwrap() as pool:
@@ -332,17 +381,34 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
     print("__test_end_no_allocations__").unwrap()
     print(empty).unwrap()
     print(single).unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\nOption[i64].Nothing\nOption[Option[range]].Some(Option[range].Some(range(4, 8, 1)))\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\nOption[i64].Nothing\nOption[Option[range]].Some(Option[range].Some(range(4, 8, 1)))\n",
+    );
 }
 
 #[test]
 fn parallel_operations_reject_uncertified_workers_and_wrong_signatures() {
     for (source, diagnostic) in [
-        ("def work(n: i64) -> i64:\n    n\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.map_result(work, range(3))\n", "map_result worker must return Result"),
-        ("def work(n: i64) -> Result[(), str]:\n    Ok(())\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.map_result(work, range(3))\n", "non-unit T"),
-        ("def work(a: i64, b: i64) -> str:\n    return \"wrong\"\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.reduce_tree(work, range(3))\n", "return that same type"),
-        ("def work(a: i64, b: i64) -> i64:\n    pool = ThreadPoolExecutor(1, 1).unwrap()\n    a + b\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    drop(pool.reduce_tree(work, range(3)))\n", "executor"),
-        ("def work(n: i64) -> Result[i64, Future[i64]]:\n    Ok(n)\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    drop(pool.map_result(work, range(3)))\n", "future handles cannot enter worker threads"),
+        (
+            "def work(n: i64) -> i64:\n    n\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.map_result(work, range(3))\n",
+            "map_result worker must return Result",
+        ),
+        (
+            "def work(n: i64) -> Result[(), str]:\n    Ok(())\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.map_result(work, range(3))\n",
+            "non-unit T",
+        ),
+        (
+            "def work(a: i64, b: i64) -> str:\n    return \"wrong\"\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.reduce_tree(work, range(3))\n",
+            "return that same type",
+        ),
+        (
+            "def work(a: i64, b: i64) -> i64:\n    pool = ThreadPoolExecutor(1, 1).unwrap()\n    a + b\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    drop(pool.reduce_tree(work, range(3)))\n",
+            "executor",
+        ),
+        (
+            "def work(n: i64) -> Result[i64, Future[i64]]:\n    Ok(n)\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    drop(pool.map_result(work, range(3)))\n",
+            "future handles cannot enter worker threads",
+        ),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "expected {diagnostic}: {error}");
@@ -352,7 +418,8 @@ fn parallel_operations_reject_uncertified_workers_and_wrong_signatures() {
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn earlier_worker_error_takes_precedence_over_later_submission_failure() {
-    runs(r#"
+    runs(
+        r#"
 def reject(n: i64) -> Result[i64, i64]:
     Err(n)
 with ThreadPoolExecutor(2, 1).unwrap() as pool:
@@ -360,5 +427,7 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
     result = pool.map_result(reject, range(8))
     print("__test_restore_allocations__").unwrap()
     print(str.repr(result).unwrap()).unwrap()
-"#, "__test_fail_allocations_after_4__\n__test_restore_allocations__\nResult[list[i64], ParallelError[i64]].Err(ParallelError[i64].Worker(0))\n");
+"#,
+        "__test_fail_allocations_after_4__\n__test_restore_allocations__\nResult[list[i64], ParallelError[i64]].Err(ParallelError[i64].Worker(0))\n",
+    );
 }

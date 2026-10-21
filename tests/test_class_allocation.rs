@@ -76,7 +76,8 @@ drop(Buffer.new())
 
 #[test]
 fn initializer_can_reject_before_initializing_fields() {
-    native(r#"
+    native(
+        r#"
 class Number:
     value: i64
     def __init__(self: &mut Number, n: i64) -> Result[(), AllocError]:
@@ -86,7 +87,9 @@ class Number:
         Ok(())
 print(str.repr(Number.new(-1)).unwrap()).unwrap()
 print(str.repr(Number.new(4)).unwrap()).unwrap()
-"#, "Result[Number, AllocError].Err(AllocError.CapacityOverflow)\nResult[Number, AllocError].Ok(Number(value=4))");
+"#,
+        "Result[Number, AllocError].Err(AllocError.CapacityOverflow)\nResult[Number, AllocError].Ok(Number(value=4))",
+    );
 }
 
 #[test]
@@ -99,7 +102,9 @@ fn fallible_initialization_still_requires_complete_success_and_checked_calls() {
             "not initialized",
         ),
     ] {
-        let source = format!("class C:\n    n: i64\n    def __init__(self) -> Result[(), AllocError]:\n        {body}\n{use_site}");
+        let source = format!(
+            "class C:\n    n: i64\n    def __init__(self) -> Result[(), AllocError]:\n        {body}\n{use_site}"
+        );
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(error.contains(message), "{error}");
     }

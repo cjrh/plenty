@@ -18,11 +18,7 @@ impl ClassType {
     /// A class with `__del__` keeps a state word before its fields: whether
     /// initialization completed, and how many observers borrow it.
     pub fn state_bytes(&self) -> usize {
-        if self.destructor.is_some() {
-            16
-        } else {
-            0
-        }
+        if self.destructor.is_some() { 16 } else { 0 }
     }
 }
 impl PartialEq for ClassType {

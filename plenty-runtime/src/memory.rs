@@ -1,8 +1,8 @@
 //! Intrusive, reentrant destruction without recursion through owned object graphs.
-use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::alloc::{Layout, alloc_zeroed, dealloc};
 use std::cell::Cell;
 use std::ptr;
-use std::sync::atomic::{fence, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering, fence};
 
 /// Tags match the compiler's allocation-free AllocError builtin.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,7 +124,7 @@ fn inert(object: *mut Header) -> bool {
     object.is_null() || object as usize & 1 != 0
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_retain(object: *mut Header) {
     // SAFETY: callers supply a live object or the null moved-slot sentinel.
     unsafe {
@@ -145,7 +145,7 @@ pub(crate) unsafe extern "C" fn plenty_retain(object: *mut Header) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_release(object: *mut Header) {
     // SAFETY: each caller consumes exactly one live owned reference. The dead
     // object's count stores the queue link until its destruction callback runs.
@@ -313,7 +313,7 @@ mod reserve_tests {
 #[cfg(test)]
 mod sharing_tests {
     use super::*;
-    use std::sync::{atomic::AtomicUsize, Arc, Barrier};
+    use std::sync::{Arc, Barrier, atomic::AtomicUsize};
 
     #[repr(C)]
     struct Shared {

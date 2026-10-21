@@ -513,7 +513,10 @@ fn nested_spec_fields_are_checked_at_compile_time() {
             "print(f\"{s:{s}{x}d}\"?)?",
             "format spec `{}{}d` does not apply to str: type `d` requires a number",
         ),
-        ("print(f\"{x:{undefined}}\"?)?", "6:17: unknown binding `undefined`"),
+        (
+            "print(f\"{x:{undefined}}\"?)?",
+            "6:17: unknown binding `undefined`",
+        ),
     ];
     for (line, expected) in cases {
         let message = error(line);

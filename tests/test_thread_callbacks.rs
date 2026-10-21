@@ -82,8 +82,13 @@ fn stored_callback_capture_and_body_effects_are_checked_transitively() {
         "class Holder[F]:\n    callback: F\nholder = Holder(unsafe_job(1))\nwith spawn(&holder.callback).unwrap():\n    pass",
         "with spawn(unsafe_job, 1).unwrap():\n    pass",
     ] {
-        let error = support::check_source(&format!("{definitions}{body}\n")).unwrap_err().to_string();
-        assert!(error.contains("worker") && error.contains("indirect callable"), "{error}");
+        let error = support::check_source(&format!("{definitions}{body}\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("worker") && error.contains("indirect callable"),
+            "{error}"
+        );
     }
 }
 
@@ -104,7 +109,8 @@ fn worker_loans_prevent_callback_removal_replacement_and_repeated_consumption() 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn worker_closure_results_and_unclaimed_capture_cleanup_need_no_allocation() {
-    run(r#"
+    run(
+        r#"
 def make(n: i64) -> Closure[[], i64]:
     span = range(n, n + 3)
     inner = def [span]() -> i64:
@@ -122,7 +128,9 @@ with spawn(make, 20).unwrap():
     pass
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

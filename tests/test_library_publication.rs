@@ -12,11 +12,13 @@ fn artifacts(root: &Path) -> Vec<std::path::PathBuf> {
 }
 
 fn no_temporary_directories(root: &Path) {
-    assert!(!std::fs::read_dir(root).unwrap().any(|entry| entry
-        .unwrap()
-        .file_name()
-        .to_string_lossy()
-        .starts_with(".plenty-")));
+    assert!(!std::fs::read_dir(root).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".plenty-")
+    }));
 }
 
 #[test]
@@ -58,9 +60,11 @@ fn library_publication_preserves_previous_artifacts_on_failure() {
         // Successful replacement, including a version-script path containing a comma.
         plenty::compile_file_to_library(&source, &library, None, &options).unwrap();
         plenty::verify_library_interface(&library, &paths[1]).unwrap();
-        assert!(std::fs::read_to_string(&paths[0])
-            .unwrap()
-            .contains("int64_t calc_answer"));
+        assert!(
+            std::fs::read_to_string(&paths[0])
+                .unwrap()
+                .contains("int64_t calc_answer")
+        );
         no_temporary_directories(&root);
     }
 }

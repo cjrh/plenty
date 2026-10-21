@@ -5,7 +5,8 @@ use support::assert_visible_stdout as native;
 
 #[test]
 fn extend_moves_elements_in_order_through_exclusive_references_and_fields() {
-    native(r#"
+    native(
+        r#"
 def extend(items: &mut list[i64], other: list[i64]) -> Result[(), AllocError]:
     items.extend(other)?
     Ok(())
@@ -23,7 +24,9 @@ class Custom:
     def extend(self, n: i64) -> i64:
         n
 print(Custom().extend(42)).unwrap()
-"#, "Result[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\n[1, 2, 3, 4, 5]\nResult[(), AllocError].Ok(())\n[[1], [2], [3]]\n42");
+"#,
+        "Result[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\n[1, 2, 3, 4, 5]\nResult[(), AllocError].Ok(())\n[[1], [2], [3]]\n42",
+    );
 }
 
 #[test]
@@ -133,7 +136,8 @@ fn invalid_extension(#[case] source: &str, #[case] expected: &str) {
 
 #[test]
 fn dictionary_update_preserves_existing_order_and_transfers_nested_values() {
-    native(r#"
+    native(
+        r#"
 def update(data: &mut dict[str, i64], source: dict[str, i64]) -> Result[(), AllocError]:
     data.update(source)
 class Data:
@@ -149,12 +153,15 @@ class Custom:
     def update(self, n: i64) -> i64:
         n
 print(Custom().update(42)).unwrap()
-"#, "Result[(), AllocError].Ok(())\n{\"a\": 10, \"b\": 20, \"c\": 30, \"d\": 40}\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\n{1: [20], 2: [30]}\n42");
+"#,
+        "Result[(), AllocError].Ok(())\n{\"a\": 10, \"b\": 20, \"c\": 30, \"d\": 40}\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\n{1: [20], 2: [30]}\n42",
+    );
 }
 
 #[test]
 fn update_explicit_copy_preserves_sources_and_argument_errors_skip_mutation() {
-    native(r#"
+    native(
+        r#"
 def update(data: &mut dict[str, list[i64]], source: &dict[str, list[i64]]) -> Result[(), AllocError]:
     data.update(copy(source)?)
 def missing() -> Result[dict[str, list[i64]], AllocError]:
@@ -167,7 +174,9 @@ print(str.repr(update(&mut data, &source)).unwrap()).unwrap()
 print(str.repr(fail(&mut data)).unwrap()).unwrap()
 print(data).unwrap()
 print(source).unwrap()
-"#, "Result[(), AllocError].Ok(())\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\n{\"a\": [2], \"b\": [3]}\n{\"a\": [2], \"b\": [3]}");
+"#,
+        "Result[(), AllocError].Ok(())\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\n{\"a\": [2], \"b\": [3]}\n{\"a\": [2], \"b\": [3]}",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -202,7 +211,9 @@ drop(data)
 "#
             ),
             &if budget < 3 {
-                format!("{incoming_drops}\nResult[(), AllocError].Err(AllocError.OutOfMemory)\n1\ndrop destination\n1")
+                format!(
+                    "{incoming_drops}\nResult[(), AllocError].Err(AllocError.OutOfMemory)\n1\ndrop destination\n1"
+                )
             } else {
                 format!("1\nResult[(), AllocError].Ok(())\n10\ndrop destination\n{incoming_drops}")
             },
@@ -269,7 +280,8 @@ fn invalid_dictionary_update(#[case] source: &str, #[case] expected: &str) {
 
 #[test]
 fn set_update_transfers_members_and_eliminates_content_equal_duplicates() {
-    native(r#"
+    native(
+        r#"
 def update(data: &mut set[str], source: set[str]) -> Result[(), AllocError]:
     data.update(source)
 class Data:
@@ -286,7 +298,9 @@ print(len(flags)).unwrap()
 mut bytes = {1u8}.unwrap()
 print(str.repr(bytes.update({1u8, 2u8}.unwrap())).unwrap()).unwrap()
 print(2u8 in bytes).unwrap()
-"#, "Result[(), AllocError].Ok(())\n2\nTrue\nTrue\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\n2\nResult[(), AllocError].Ok(())\nTrue");
+"#,
+        "Result[(), AllocError].Ok(())\n2\nTrue\nTrue\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\n2\nResult[(), AllocError].Ok(())\nTrue",
+    );
 }
 
 #[test]

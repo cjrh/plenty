@@ -28,7 +28,9 @@ fn unsigned_minus_is_rejected_for_literals_in_every_context() {
 
 #[test]
 fn signed_minima_and_float_negative_zero_are_preserved() {
-    let output = support::run("print(-128i8).unwrap()\nprint(-32768i16).unwrap()\nprint(-2147483648i32).unwrap()\nprint(-9223372036854775808i64).unwrap()\nprint(-0.0).unwrap()\nprint(-0f32).unwrap()\nprint(0u64).unwrap()");
+    let output = support::run(
+        "print(-128i8).unwrap()\nprint(-32768i16).unwrap()\nprint(-2147483648i32).unwrap()\nprint(-9223372036854775808i64).unwrap()\nprint(-0.0).unwrap()\nprint(-0f32).unwrap()\nprint(0u64).unwrap()",
+    );
     assert!(output.status.success());
     assert_eq!(
         output.stdout,

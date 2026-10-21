@@ -10,7 +10,7 @@
 //! file that would shadow, conflict with, or replace a module is noticed.
 //! Standard modules are part of the compiler: the cache key covers the
 //! compiler's identity and [`standard_digest`].
-use super::{prepare_packages, Import, Kind, Loader, ModuleSource, Token, STANDARD_MODULES};
+use super::{Import, Kind, Loader, ModuleSource, STANDARD_MODULES, Token, prepare_packages};
 use crate::hash::HashMap;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};

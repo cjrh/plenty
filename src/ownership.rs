@@ -3,7 +3,7 @@ use crate::executor::ExecutorOp;
 use crate::hash::HashMap;
 use crate::mutex::MutexOp;
 use crate::op::{Building, Op, Ty};
-use crate::threading::{endpoints, owns_executor, Task, ThreadOp};
+use crate::threading::{Task, ThreadOp, endpoints, owns_executor};
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::fmt;
@@ -12,7 +12,7 @@ use std::sync::Arc;
 mod calls;
 mod cancel;
 mod futures;
-pub use calls::{future_results, Program};
+pub use calls::{Program, future_results};
 
 /// Source position of the operations that follow an `Op::Site` marker in the
 /// same sequence. Nested blocks inherit it until they place their own marker.
@@ -165,7 +165,7 @@ enum Hazard {
 
 impl Hazard {
     /// Every hazard a value of `ty` carries into a job.
-    fn of(ty: &Ty) -> impl Iterator<Item = Self> {
+    fn of(ty: &Ty) -> impl Iterator<Item = Self> + use<> {
         endpoints([ty.clone()], true, true)
             .into_iter()
             .map(Self::Sends)
@@ -1047,43 +1047,42 @@ impl Checker<'_, '_> {
             };
             error.notes.push((at, note));
         }
-        if let Some((residual, at)) = &*self.propagating.borrow() {
-            if let Some(message) = endpoints([residual.clone()], !worker_sends, false)
+        if let Some((residual, at)) = &*self.propagating.borrow()
+            && let Some(message) = endpoints([residual.clone()], !worker_sends, false)
                 .into_iter()
                 .find(|message| messages.contains(message))
-            {
-                let first = error.is_none();
-                let error = error.get_or_insert_with(|| {
-                    let mut error = self.error(kind(message.to_string()), None, site);
-                    error.in_flight = InFlight::Propagated;
-                    error
-                });
-                let endpoint = if worker_sends { "Receiver" } else { "Sender" };
-                // A failed job start keeps the job for retry. `drop_job()`
-                // drops it at the start instead; named arguments of a failed
-                // start drop too. `Failure` erasure is the last resort.
-                let advice = match residual {
-                    Ty::Enum(t) if t.name.starts_with("SpawnError[") => {
-                        "call `drop_job()` on the start, which drops the job before `?` \
+        {
+            let first = error.is_none();
+            let error = error.get_or_insert_with(|| {
+                let mut error = self.error(kind(message.to_string()), None, site);
+                error.in_flight = InFlight::Propagated;
+                error
+            });
+            let endpoint = if worker_sends { "Receiver" } else { "Sender" };
+            // A failed job start keeps the job for retry. `drop_job()`
+            // drops it at the start instead; named arguments of a failed
+            // start drop too. `Failure` erasure is the last resort.
+            let advice = match residual {
+                Ty::Enum(t) if t.name.starts_with("SpawnError[") => {
+                    "call `drop_job()` on the start, which drops the job before `?` \
                          returns, or pass the endpoint to `spawn` as a named argument, which a \
                          failed start drops; `Failure` also drops the job, as a last resort"
-                    }
-                    Ty::Enum(t) if t.name.starts_with("SubmitError[") => {
-                        "call `drop_job()` on the submission, which drops the job before `?` \
-                         returns; `Failure` also drops the job, as a last resort"
-                    }
-                    _ => "propagate `Failure`, which drops the error first",
-                };
-                if let Some(at) = at.or(site) {
-                    error.notes.push((
-                        at,
-                        format!(
-                            "the error that `?` propagates here {}holds `{endpoint}[{message}]` \
-                             until this function returns; {advice}",
-                            if first { "" } else { "also " }
-                        ),
-                    ));
                 }
+                Ty::Enum(t) if t.name.starts_with("SubmitError[") => {
+                    "call `drop_job()` on the submission, which drops the job before `?` \
+                         returns; `Failure` also drops the job, as a last resort"
+                }
+                _ => "propagate `Failure`, which drops the error first",
+            };
+            if let Some(at) = at.or(site) {
+                error.notes.push((
+                    at,
+                    format!(
+                        "the error that `?` propagates here {}holds `{endpoint}[{message}]` \
+                             until this function returns; {advice}",
+                        if first { "" } else { "also " }
+                    ),
+                ));
             }
         }
         error
@@ -1833,12 +1832,12 @@ impl Checker<'_, '_> {
                     _ => None,
                 };
                 let mut found = None;
-                if let Some(Op::Yield(_)) = &nodes[i].op {
-                    if let Some(&id) = after.0.first() {
-                        let loan = &loans[&id];
-                        let place = self.place(loan.root, &loan.fields, loan.precise);
-                        found = Some((self.error(Kind::LiveAcrossYield, place, site), id));
-                    }
+                if let Some(Op::Yield(_)) = &nodes[i].op
+                    && let Some(&id) = after.0.first()
+                {
+                    let loan = &loans[&id];
+                    let place = self.place(loan.root, &loan.fields, loan.precise);
+                    found = Some((self.error(Kind::LiveAcrossYield, place, site), id));
                 }
                 if let Some((root, write, via, defining, action)) = access {
                     for id in &after.0 {

@@ -62,7 +62,8 @@ print(text).unwrap()
 
 #[test]
 fn replacement_operands_evaluate_once_in_order_and_propagate_before_later_operands() {
-    native(r#"
+    native(
+        r#"
 def text(label: str, value: str) -> str:
     print(label).unwrap()
     value
@@ -77,7 +78,9 @@ class Custom:
     def replace(self, value: i64) -> i64:
         value
 print(Custom().replace(42)).unwrap()
-"#, "receiver\nold\nnew\nResult[str, AllocError].Ok(\"XbX\")\nreceiver\nmissing\nResult[str, AllocError].Err(AllocError.CapacityOverflow)\n42");
+"#,
+        "receiver\nold\nnew\nResult[str, AllocError].Ok(\"XbX\")\nreceiver\nmissing\nResult[str, AllocError].Err(AllocError.CapacityOverflow)\n42",
+    );
 }
 
 #[test]
@@ -147,7 +150,10 @@ print(str.repr(text.replace(old, new)).unwrap()).unwrap()
 #[case("print(\"text\".replace(1, \"X\")).unwrap()", "expected str")]
 #[case("print(\"text\".replace(\"t\", 1)).unwrap()", "expected str")]
 #[case("print([1].unwrap().replace(\"t\", \"X\")).unwrap()", "expected str")]
-#[case("mut text = \"text\"\nloan = &mut text\nprint(str.repr(text.replace(\"t\", \"X\")).unwrap()).unwrap()\n*loan = \"changed\"", "borrow")]
+#[case(
+    "mut text = \"text\"\nloan = &mut text\nprint(str.repr(text.replace(\"t\", \"X\")).unwrap()).unwrap()\n*loan = \"changed\"",
+    "borrow"
+)]
 fn invalid_replacement_is_rejected(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");

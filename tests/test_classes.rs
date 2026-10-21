@@ -49,8 +49,12 @@ class Resource:
 
 #[test]
 fn fields_constructors_methods_and_copy() {
-    run(&format!("{POINT}\nmut p = Point(3, 4)\nprint(p.magnitude_squared()).unwrap()\np.shift(1)\nmut q = copy(p).unwrap()\nq.x = 20\nprint(p).unwrap()\nprint(q).unwrap()\nprint(p == q).unwrap()\nprint(Point(2, 3).magnitude_squared()).unwrap()"),
-        "25\nPoint(x=4, y=5)\nPoint(x=20, y=5)\nFalse\n13\n");
+    run(
+        &format!(
+            "{POINT}\nmut p = Point(3, 4)\nprint(p.magnitude_squared()).unwrap()\np.shift(1)\nmut q = copy(p).unwrap()\nq.x = 20\nprint(p).unwrap()\nprint(q).unwrap()\nprint(p == q).unwrap()\nprint(Point(2, 3).magnitude_squared()).unwrap()"
+        ),
+        "25\nPoint(x=4, y=5)\nPoint(x=20, y=5)\nFalse\n13\n",
+    );
 }
 
 #[test]
@@ -223,7 +227,9 @@ print(caller()).unwrap()
 
 #[test]
 fn generator_capture_and_abandonment() {
-    run(&format!(r#"{RESOURCE}
+    run(
+        &format!(
+            r#"{RESOURCE}
 def values(a: Resource, b: Resource) -> Generator[i64]:
     c = Resource("local")
     yield 1
@@ -235,7 +241,10 @@ drop(it)
 mut done = values(Resource("finished a"), Resource("finished b"))
 next(done)
 next(done)
-"#), "unstarted b\nunstarted a\nOption[i64].Some(1)\nlocal\nb\na\ncomplete\nlocal\nfinished b\nfinished a\n");
+"#
+        ),
+        "unstarted b\nunstarted a\nOption[i64].Some(1)\nlocal\nb\na\ncomplete\nlocal\nfinished b\nfinished a\n",
+    );
 }
 
 #[test]
@@ -401,10 +410,14 @@ fn shared_reference_errors_do_not_suggest_changing_a_bare_receiver() {
         "class C:\n    value: i64\n    def __del__(self) -> ():\n        shared = &self\n        shared.value = 1\n",
     ] {
         let directory = tempfile::tempdir().unwrap();
-        let error = support::compile_source_to_executable(source, &directory.path().join("program"))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("cannot borrow shared reference as mutable"), "{source}\n{error}");
+        let error =
+            support::compile_source_to_executable(source, &directory.path().join("program"))
+                .unwrap_err()
+                .to_string();
+        assert!(
+            error.contains("cannot borrow shared reference as mutable"),
+            "{source}\n{error}"
+        );
         assert!(!error.contains("declare `self:"), "{source}\n{error}");
     }
 }
@@ -559,7 +572,9 @@ print("after").unwrap()
 
 #[test]
 fn class_copy_recursively_duplicates_owned_fields() {
-    run(&format!(r#"{POINT}
+    run(
+        &format!(
+            r#"{POINT}
 class Shape:
     origin: Point
     vertices: list[Point]
@@ -569,7 +584,10 @@ changed.origin.x = 9
 changed.vertices.append(Point(5, 6)).unwrap()
 print(original).unwrap()
 print(changed).unwrap()
-"#), "Shape(origin=Point(x=1, y=2), vertices=[Point(x=3, y=4)])\nShape(origin=Point(x=9, y=2), vertices=[Point(x=3, y=4), Point(x=5, y=6)])\n");
+"#
+        ),
+        "Shape(origin=Point(x=1, y=2), vertices=[Point(x=3, y=4)])\nShape(origin=Point(x=9, y=2), vertices=[Point(x=3, y=4), Point(x=5, y=6)])\n",
+    );
 }
 
 #[test]

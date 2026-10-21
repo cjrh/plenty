@@ -238,8 +238,9 @@ fn replay(inputs: &[&[u8]], step: usize) -> Vec<(String, String)> {
         }
         blob.push_str("ff");
     }
-    let source =
-        format!("{SCRIPTED}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.http.server.ServerError | AllocError | IoError]:\n    replay(\"{blob}\", {step})?\n    Ok(())\n");
+    let source = format!(
+        "{SCRIPTED}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.http.server.ServerError | AllocError | IoError]:\n    replay(\"{blob}\", {step})?\n    Ok(())\n"
+    );
     let text = output(&source);
     let cases: Vec<(String, String)> = text
         .split("--\n")
@@ -1046,7 +1047,14 @@ def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.serv
         .split(' ')
         .map(|n| n.parse().unwrap_or_else(|_| panic!("{text}")))
         .collect();
-    let [connections, accounted, requests, protocol_errors, handler_errors, rejected] = fault[..]
+    let [
+        connections,
+        accounted,
+        requests,
+        protocol_errors,
+        handler_errors,
+        rejected,
+    ] = fault[..]
     else {
         panic!("{text}");
     };

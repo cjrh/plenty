@@ -73,14 +73,13 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
     check_loader_signature(f, inputs, output)?;
     use crate::foreign::Argument;
     let declaration = f.foreign.as_ref().unwrap();
-    if let crate::foreign::Target::Parameter(index) = declaration.target {
-        if !matches!(inputs[index].1, Ty::ForeignPtr(_))
-            || declaration.arguments[index] != Argument::Direct
-        {
-            return Err(f
-                .at
-                .error("C function-address parameter must have an opaque pointer type"));
-        }
+    if let crate::foreign::Target::Parameter(index) = declaration.target
+        && (!matches!(inputs[index].1, Ty::ForeignPtr(_))
+            || declaration.arguments[index] != Argument::Direct)
+    {
+        return Err(f
+            .at
+            .error("C function-address parameter must have an opaque pointer type"));
     }
     let scalar = |ty: &Ty| ty.is_numeric() || matches!(ty, Ty::ForeignPtr(_));
     for ((_, ty), mode) in inputs.iter().zip(&declaration.arguments) {
@@ -110,12 +109,13 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
     } else {
         output.as_ref()
     };
-    if let Some(ty) = output {
-        if *ty != Ty::Unit && !scalar(ty) {
-            return Err(f.at.error(format!(
-                "`{ty}` has no supported C ABI return representation"
-            )));
-        }
+    if let Some(ty) = output
+        && *ty != Ty::Unit
+        && !scalar(ty)
+    {
+        return Err(f.at.error(format!(
+            "`{ty}` has no supported C ABI return representation"
+        )));
     }
     Ok(())
 }
@@ -149,12 +149,12 @@ pub(super) fn check_symbols<'a>(
                 }
             }
             let signature = (inputs, declaration.output(sig).map(abi));
-            if let Some(previous) = symbols.insert(symbol, signature.clone()) {
-                if previous != signature {
-                    return Err(f
-                        .at
-                        .error(format!("conflicting C signatures for symbol `{symbol}`")));
-                }
+            if let Some(previous) = symbols.insert(symbol, signature.clone())
+                && previous != signature
+            {
+                return Err(f
+                    .at
+                    .error(format!("conflicting C signatures for symbol `{symbol}`")));
             }
         }
     }

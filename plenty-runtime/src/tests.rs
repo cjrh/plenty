@@ -2,7 +2,7 @@
 use crate::aggregates::collection;
 use crate::aggregates::{Type, Variant};
 use crate::generators::Generator;
-use crate::memory::{plenty_release, plenty_retain, Header};
+use crate::memory::{Header, plenty_release, plenty_retain};
 use crate::strings::{self, plenty_concat, plenty_contains, plenty_str_eq};
 use std::cell::RefCell;
 use std::ptr;
@@ -383,12 +383,14 @@ fn reader_lines_release_partial_prefixes_and_own_their_results() {
         plenty_release(lines as *mut Header);
         assert_eq!(strings::text(last as *const strings::Text), "two");
         plenty_release(last as *mut Header);
-        assert!(crate::aggregates::try_reader_lines(
-            &mut std::io::Cursor::new(b"one\n\xff\n"),
-            &mut false,
-            &LIST_TEXT
-        )
-        .is_err());
+        assert!(
+            crate::aggregates::try_reader_lines(
+                &mut std::io::Cursor::new(b"one\n\xff\n"),
+                &mut false,
+                &LIST_TEXT
+            )
+            .is_err()
+        );
     }
 }
 
@@ -434,11 +436,13 @@ fn text_snapshots_own_members_and_clean_partial_validation_failures() {
         plenty_release(value as *mut Header);
         assert_eq!(strings::text(text as *const strings::Text), "é\0");
         plenty_release(text as *mut Header);
-        assert!(crate::aggregates::try_text_list(
-            [Ok("first"), Err(crate::text_io::Error::InvalidUtf8)].into_iter(),
-            &LIST_TEXT
-        )
-        .is_err());
+        assert!(
+            crate::aggregates::try_text_list(
+                [Ok("first"), Err(crate::text_io::Error::InvalidUtf8)].into_iter(),
+                &LIST_TEXT
+            )
+            .is_err()
+        );
     }
 }
 static ALLOC_ERROR: Type = Type {

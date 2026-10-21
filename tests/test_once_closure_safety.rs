@@ -34,7 +34,10 @@ def main() -> Result[(), IoError]:
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n2\n1\nResult[(), AllocError].Err(AllocError.OutOfMemory)\nentered\n3\n2\n1\nResult[(), AllocError].Err(AllocError.OutOfMemory)\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "3\n2\n1\nResult[(), AllocError].Err(AllocError.OutOfMemory)\nentered\n3\n2\n1\nResult[(), AllocError].Err(AllocError.OutOfMemory)\n"
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -74,7 +77,10 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\n10\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\n10\n"
+    );
 }
 
 #[test]
@@ -83,7 +89,9 @@ fn move_checking_covers_branches_and_repeated_loop_calls() {
         "if True:\n        f()\n    f()",
         "for n in range(2):\n        f()",
     ] {
-        let source = format!("def main() -> ():\n    f = def once () -> i64:\n        1\n    {statement}\n    pass\n");
+        let source = format!(
+            "def main() -> ():\n    f = def once () -> i64:\n        1\n    {statement}\n    pass\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("moved"), "{error}");
     }
@@ -142,7 +150,9 @@ fn callable_bounds_validate_shape_and_explain_storage_constraints() {
     let error = check_source("def invalid(callback: OnceCallable[[], i64]) -> ():\n    pass\ndef main() -> ():\n    pass\n").unwrap_err().to_string();
     assert!(error.contains("generic constraint"), "{error}");
     for constraint in ["Callable", "OnceCallable"] {
-        let source = format!("class Private:\n    value: i64\npub def exposed[T, F: {constraint}[[Private], T]](f: F) -> ():\n    pass\ndef main() -> ():\n    pass\n");
+        let source = format!(
+            "class Private:\n    value: i64\npub def exposed[T, F: {constraint}[[Private], T]](f: F) -> ():\n    pass\ndef main() -> ():\n    pass\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(
             error.contains("public signature exposes private type"),

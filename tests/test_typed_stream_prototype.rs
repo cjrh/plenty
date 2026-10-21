@@ -113,7 +113,9 @@ fn execute_modules(body: &str, expected: &str, standard: bool) {
 
 #[test]
 fn incompatible_protocol_error_is_diagnosed() {
-    let source = format!("{FIXTURES}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:\n    mut source = Source(0, 0)\n    mut buffer = scratch()?\n    drop(read_exact[Storage, Source](&mut source, &mut buffer, 0, 4))\n    Ok(())\n");
+    let source = format!(
+        "{FIXTURES}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:\n    mut source = Source(0, 0)\n    mut buffer = scratch()?\n    drop(read_exact[Storage, Source](&mut source, &mut buffer, 0, 4))\n    Ok(())\n"
+    );
     let workspace = fixture(&source);
     let error = plenty::check_file(&workspace.path().join("main.plenty"), None)
         .unwrap_err()
@@ -429,7 +431,8 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
 
 #[test]
 fn http_body_copy_has_one_error_path_and_preserves_transport_cause() {
-    execute(r#"
+    execute(
+        r#"
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[Transport] | CopyFailure[FramingError[Transport], Storage]]:
     mut buffer = scratch()?
     for mode in range(6):
@@ -463,7 +466,9 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingEr
     mut sink = Sink(0, 0, 0)
     print(copy_all[FramingError[Transport], Storage, FixedBody[Transport, Source], Sink](&mut finished, &mut sink, &mut buffer)?)?
     Ok(())
-"#, "2\ntruncated\nbroken\n2\n47\nhandshake\nbroken\n2\ncancelled\nbroken\n2\ninvalid\nbroken\n2\ninvalid\nbroken\n2\nallocation\nbroken\n2\n");
+"#,
+        "2\ntruncated\nbroken\n2\n47\nhandshake\nbroken\n2\ncancelled\nbroken\n2\ninvalid\nbroken\n2\ninvalid\nbroken\n2\nallocation\nbroken\n2\n",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

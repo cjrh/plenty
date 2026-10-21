@@ -50,7 +50,8 @@ def main() -> Result[(), IoError]:
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn callable_values_and_inline_results_need_no_heap_allocation() {
-    expect(r#"
+    expect(
+        r#"
 def make() -> Callable[[u64], Result[Option[range[u64]], AllocError]]:
     def(n: u64) -> Result[Option[range[u64]], AllocError]:
         Ok(Some(range[u64](n, n + 3)))
@@ -69,7 +70,9 @@ def main() -> ():
     print("__test_end_no_allocations__").unwrap()
     print(size).unwrap()
     print(last).unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n3\n12\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n3\n12\n",
+    );
 }
 
 #[test]

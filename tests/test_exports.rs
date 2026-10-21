@@ -195,10 +195,12 @@ fn static_and_shared_exports_work_from_c_cpp_and_plenty() {
         assert!(header.contains("No ownership crosses"));
         assert!(header.contains("* / must remain inside"));
         let interface = std::fs::read(&artifacts.interface).unwrap();
-        assert!(std::fs::read(&library)
-            .unwrap()
-            .windows(interface.len())
-            .any(|w| w == interface));
+        assert!(
+            std::fs::read(&library)
+                .unwrap()
+                .windows(interface.len())
+                .any(|w| w == interface)
+        );
         if kind == LibraryKind::Shared {
             let symbols = success(
                 Command::new("nm")
@@ -221,10 +223,12 @@ fn static_and_shared_exports_work_from_c_cpp_and_plenty() {
                     .output()
                     .unwrap(),
             );
-            assert!(std::fs::read(&library)
-                .unwrap()
-                .windows(interface.len())
-                .any(|w| w == interface));
+            assert!(
+                std::fs::read(&library)
+                    .unwrap()
+                    .windows(interface.len())
+                    .any(|w| w == interface)
+            );
         }
         let c = root.join("caller.c");
         std::fs::write(&c, r##"
@@ -275,10 +279,12 @@ int main(void) {
         if kind == LibraryKind::Static {
             // This caller never invokes discovery. The retained section still
             // survives archive extraction and native section garbage collection.
-            assert!(std::fs::read(&executable)
-                .unwrap()
-                .windows(interface.len())
-                .any(|w| w == interface));
+            assert!(
+                std::fs::read(&executable)
+                    .unwrap()
+                    .windows(interface.len())
+                    .any(|w| w == interface)
+            );
         }
         assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
     }
@@ -476,7 +482,10 @@ int main(void) {
         };
         plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
         let output = success(Command::new(executable).output().unwrap());
-        assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, i16].Ok(1.25)\nResult[f32, i16].Err(-123)\nResult[(), u64].Err(18000000000)\n41\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Err(AllocError.OutOfMemory)\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\nResult[i64, ParseError].Err(ParseError.OutOfRange)\nResult[(), Failure].Err(Failure.Unspecified)\n");
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "Result[f32, i16].Ok(1.25)\nResult[f32, i16].Err(-123)\nResult[(), u64].Err(18000000000)\n41\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Err(AllocError.OutOfMemory)\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\nResult[i64, ParseError].Err(ParseError.OutOfRange)\nResult[(), Failure].Err(Failure.Unspecified)\n"
+        );
     }
 }
 
@@ -594,7 +603,10 @@ int main(void) {
         };
         plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
         let output = success(Command::new(&executable).output().unwrap());
-        assert_eq!(String::from_utf8(output.stdout).unwrap(), "2.5\nnegative\ntoo large\nzero\nResult[(), calc.CalcError].Err(calc.CalcError.Empty)\nResult[i32, calc.Shape].Err(calc.Shape.Odd)\nResult[i32, calc.Shape].Err(calc.Shape.Huge)\nResult[i32, calc.Shape].Ok(4)\n");
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "2.5\nnegative\ntoo large\nzero\nResult[(), calc.CalcError].Err(calc.CalcError.Empty)\nResult[i32, calc.Shape].Err(calc.Shape.Odd)\nResult[i32, calc.Shape].Err(calc.Shape.Huge)\nResult[i32, calc.Shape].Ok(4)\n"
+        );
         std::fs::remove_file(&app).unwrap();
     }
 }
@@ -924,23 +936,66 @@ fn generated_library_names_reject_collisions_before_publication() {
         .unwrap();
     }
     for (text, expected) in [
-        ("class Foo:\n    value: i64\nclass Foo_destroy:\n    value: i64\nexport def a(x: &Foo) -> i64 = \"calc_a\":\n    x.value\nexport def b(x: &Foo_destroy) -> i64 = \"calc_b\":\n    x.value\n", "identifier collision"),
-        ("import foreign\nclass Foo:\n    value: i64\nexport def create() -> Result[Foo, AllocError] = \"calc_create\":\n    Ok(Foo(1))\n", "imported C symbol"),
-        ("import discovery\nexport def answer() -> i32 = \"calc_answer\":\n    42\n", "imported C symbol"),
-        ("import first\nimport second\nexport def a(x: &first.Item) -> i64 = \"calc_a\":\n    x.value\nexport def b(x: &second.Item) -> i64 = \"calc_b\":\n    x.value\n", "conflicting interface name"),
-        ("export def _plenty_require_contract() -> () = \"calc_bad\":\n    pass\n", "reserved"),
+        (
+            "class Foo:\n    value: i64\nclass Foo_destroy:\n    value: i64\nexport def a(x: &Foo) -> i64 = \"calc_a\":\n    x.value\nexport def b(x: &Foo_destroy) -> i64 = \"calc_b\":\n    x.value\n",
+            "identifier collision",
+        ),
+        (
+            "import foreign\nclass Foo:\n    value: i64\nexport def create() -> Result[Foo, AllocError] = \"calc_create\":\n    Ok(Foo(1))\n",
+            "imported C symbol",
+        ),
+        (
+            "import discovery\nexport def answer() -> i32 = \"calc_answer\":\n    42\n",
+            "imported C symbol",
+        ),
+        (
+            "import first\nimport second\nexport def a(x: &first.Item) -> i64 = \"calc_a\":\n    x.value\nexport def b(x: &second.Item) -> i64 = \"calc_b\":\n    x.value\n",
+            "conflicting interface name",
+        ),
+        (
+            "export def _plenty_require_contract() -> () = \"calc_bad\":\n    pass\n",
+            "reserved",
+        ),
         // A generated adapter is named `_plenty_c_<export>`; the `_plenty_` guard rejects the collision.
-        ("export def make() -> Result[i64, AllocError] = \"calc_make\":\n    Ok(1)\nexport def _plenty_c_make() -> () = \"calc_raw\":\n    pass\n", "reserved for generated adapters"),
-        ("class plenty_metadata:\n    value: i64\nexport def read(x: &plenty_metadata) -> i64 = \"calc_read\":\n    x.value\n", "reserved C metadata"),
-        ("export def guard() -> () = \"calc_plenty_contract_other\":\n    pass\n", "reserved"),
-        ("import left\nimport right\nexport def a() -> Result[(), left.Code] = \"calc_a\":\n    Err(left.Code.Failed)\nexport def b() -> Result[(), right.Code] = \"calc_b\":\n    Err(right.Code.Failed)\n", "conflicting interface name `Code`"),
-        ("enum Code:\n    x\nexport def a() -> Result[(), Code] = \"calc_a\":\n    Err(Code.x)\nexport def b() -> () = \"calc_Code_x\":\n    pass\n", "C error constant `calc_Code_x` collides"),
-        ("import left\nexport def Code() -> Result[(), left.Code] = \"calc_code\":\n    Err(left.Code.Failed)\n", "conflicts with a generated interface name"),
+        (
+            "export def make() -> Result[i64, AllocError] = \"calc_make\":\n    Ok(1)\nexport def _plenty_c_make() -> () = \"calc_raw\":\n    pass\n",
+            "reserved for generated adapters",
+        ),
+        (
+            "class plenty_metadata:\n    value: i64\nexport def read(x: &plenty_metadata) -> i64 = \"calc_read\":\n    x.value\n",
+            "reserved C metadata",
+        ),
+        (
+            "export def guard() -> () = \"calc_plenty_contract_other\":\n    pass\n",
+            "reserved",
+        ),
+        (
+            "import left\nimport right\nexport def a() -> Result[(), left.Code] = \"calc_a\":\n    Err(left.Code.Failed)\nexport def b() -> Result[(), right.Code] = \"calc_b\":\n    Err(right.Code.Failed)\n",
+            "conflicting interface name `Code`",
+        ),
+        (
+            "enum Code:\n    x\nexport def a() -> Result[(), Code] = \"calc_a\":\n    Err(Code.x)\nexport def b() -> () = \"calc_Code_x\":\n    pass\n",
+            "C error constant `calc_Code_x` collides",
+        ),
+        (
+            "import left\nexport def Code() -> Result[(), left.Code] = \"calc_code\":\n    Err(left.Code.Failed)\n",
+            "conflicts with a generated interface name",
+        ),
     ] {
         std::fs::write(&source, text).unwrap();
-        let error = plenty::compile_file_to_library(&source, &output, None, &LibraryOptions::new("calc", LibraryKind::Static)).unwrap_err().to_string();
+        let error = plenty::compile_file_to_library(
+            &source,
+            &output,
+            None,
+            &LibraryOptions::new("calc", LibraryKind::Static),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains(expected), "{expected}: {error}");
-        assert_eq!(std::fs::read_to_string(&output).unwrap(), "previous library");
+        assert_eq!(
+            std::fs::read_to_string(&output).unwrap(),
+            "previous library"
+        );
         assert!(!temp.path().join("calc.h").exists());
     }
 }
@@ -950,17 +1005,43 @@ fn export_diagnostics_reject_unsupported_and_ambiguous_interfaces() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("source.plenty");
     for (source, expected) in [
-        ("export def bad[T](x: T) -> T = \"calc_bad\":\n    x\n", "cannot be generic"),
-        ("export def bad(x: str) -> str = \"calc_bad\":\n    x\n", "numeric scalar"),
-        ("export def bad() -> bool = \"calc_bad\":\n    True\n", "numeric scalar"),
-        ("export def a() -> () = \"calc_same\":\n    pass\nexport def b() -> () = \"calc_same\":\n    pass\n", "duplicate or imported"),
-        ("enum Bad:\n    Empty\n    Code(i32)\nexport def bad() -> Result[(), Bad] = \"calc_bad\":\n    Err(Bad.Code(1))\n", "error enum `Bad` has payload variant `Bad.Code`; only payload-free enums cross C"),
-        ("export def bad() -> Result[(), AllocError | ParseError] = \"calc_bad\":\n    Err(ParseError.Invalid)\n", "cannot return the error sum `AllocError | ParseError` yet (backlog B27)"),
-        ("enum Bad[T]:\n    Empty\nexport def bad() -> Result[(), Bad[i32]] = \"calc_bad\":\n    Err(Bad[i32].Empty)\n", "is generic"),
-        ("export def bad() -> Result[(), LoadError] = \"calc_bad\":\n    Err(LoadError.OpenFailed)\n", "builtin error `LoadError` has no C error code"),
+        (
+            "export def bad[T](x: T) -> T = \"calc_bad\":\n    x\n",
+            "cannot be generic",
+        ),
+        (
+            "export def bad(x: str) -> str = \"calc_bad\":\n    x\n",
+            "numeric scalar",
+        ),
+        (
+            "export def bad() -> bool = \"calc_bad\":\n    True\n",
+            "numeric scalar",
+        ),
+        (
+            "export def a() -> () = \"calc_same\":\n    pass\nexport def b() -> () = \"calc_same\":\n    pass\n",
+            "duplicate or imported",
+        ),
+        (
+            "enum Bad:\n    Empty\n    Code(i32)\nexport def bad() -> Result[(), Bad] = \"calc_bad\":\n    Err(Bad.Code(1))\n",
+            "error enum `Bad` has payload variant `Bad.Code`; only payload-free enums cross C",
+        ),
+        (
+            "export def bad() -> Result[(), AllocError | ParseError] = \"calc_bad\":\n    Err(ParseError.Invalid)\n",
+            "cannot return the error sum `AllocError | ParseError` yet (backlog B27)",
+        ),
+        (
+            "enum Bad[T]:\n    Empty\nexport def bad() -> Result[(), Bad[i32]] = \"calc_bad\":\n    Err(Bad[i32].Empty)\n",
+            "is generic",
+        ),
+        (
+            "export def bad() -> Result[(), LoadError] = \"calc_bad\":\n    Err(LoadError.OpenFailed)\n",
+            "builtin error `LoadError` has no C error code",
+        ),
     ] {
         std::fs::write(&path, source).unwrap();
-        let error = plenty::check_module_file(&path, None).unwrap_err().to_string();
+        let error = plenty::check_module_file(&path, None)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains(expected), "{error}");
     }
     std::fs::write(

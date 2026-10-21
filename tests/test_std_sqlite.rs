@@ -33,7 +33,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError | std.bytes.BytesError]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError | std.bytes.BytesError]:\n{body}    Ok(())\n"
+    )
 }
 
 fn output(source: &str) -> String {

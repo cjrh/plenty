@@ -40,13 +40,15 @@ fn command_generates_without_a_toolchain_and_preserves_source_files() {
     assert_eq!(std::fs::read(&helper).unwrap(), original);
     let link = root.join("link.plentyi");
     std::os::unix::fs::symlink(&helper, &link).unwrap();
-    assert!(!command()
-        .arg("-o")
-        .arg(&link)
-        .output()
-        .unwrap()
-        .status
-        .success());
+    assert!(
+        !command()
+            .arg("-o")
+            .arg(&link)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
     assert_eq!(std::fs::read(&helper).unwrap(), original);
     let old = std::fs::read(&output).unwrap();
     for flags in [
@@ -64,13 +66,15 @@ fn command_generates_without_a_toolchain_and_preserves_source_files() {
         assert_eq!(std::fs::read(&output).unwrap(), old);
     }
     let wrong_extension = root.join("plugin.plenty");
-    assert!(!command()
-        .arg("-o")
-        .arg(&wrong_extension)
-        .output()
-        .unwrap()
-        .status
-        .success());
+    assert!(
+        !command()
+            .arg("-o")
+            .arg(&wrong_extension)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
     assert!(!wrong_extension.exists());
 }
 
@@ -132,8 +136,14 @@ fn loaded_wrappers_keep_raw_addresses_private_and_enforce_moves() {
     let entry = root.join("main.plenty");
     for (body, expected) in [
         ("    address = library._origin\n", "private"),
-        ("    owner = library.create()?\n    library.finish(owner)\n    print(library.read(&owner))?\n", "moved"),
-        ("    owner = library.create()?\n    raw = owner._handle\n", "private"),
+        (
+            "    owner = library.create()?\n    library.finish(owner)\n    print(library.read(&owner))?\n",
+            "moved",
+        ),
+        (
+            "    owner = library.create()?\n    raw = owner._handle\n",
+            "private",
+        ),
     ] {
         std::fs::write(&entry, format!("import plugin\ndef main() -> Result[(), AllocError | LoadError | IoError]:\n    path = \"./libcalc.so\"\n    library = plugin.load(&path)?\n{body}    Ok(())\n")).unwrap();
         let error = plenty::check_file(&entry, None).unwrap_err().to_string();

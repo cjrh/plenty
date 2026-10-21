@@ -39,7 +39,7 @@ pub(crate) fn publish(workspace: tempfile::TempDir, files: &[(PathBuf, PathBuf)]
                 Ok(_) => {
                     return Err(std::io::Error::other(
                         "artifact destination changed to a non-regular file",
-                    ))
+                    ));
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
                 Err(error) => return Err(error),
@@ -53,15 +53,13 @@ pub(crate) fn publish(workspace: tempfile::TempDir, files: &[(PathBuf, PathBuf)]
     if let Err(error) = install {
         let mut failures = Vec::new();
         for (destination, previous, installed) in changed.into_iter().rev() {
-            if installed {
-                if let Err(error) = std::fs::remove_file(&destination) {
-                    failures.push(format!("removing {}: {error}", destination.display()));
-                }
+            if installed && let Err(error) = std::fs::remove_file(&destination) {
+                failures.push(format!("removing {}: {error}", destination.display()));
             }
-            if let Some(backup) = previous {
-                if let Err(error) = std::fs::rename(&backup, &destination) {
-                    failures.push(format!("restoring {}: {error}", destination.display()));
-                }
+            if let Some(backup) = previous
+                && let Err(error) = std::fs::rename(&backup, &destination)
+            {
+                failures.push(format!("restoring {}: {error}", destination.display()));
             }
         }
         if failures.is_empty() {

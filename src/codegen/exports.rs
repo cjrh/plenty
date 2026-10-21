@@ -86,12 +86,12 @@ pub(super) fn emit(
         for (argument, (_, ty)) in arguments.iter_mut().zip(&export.signature.inputs) {
             // A C handle is a box holding the instance. A borrow lends the
             // box's content slot; an owned argument moves the content out.
-            if let Ty::Ref(inner, _) = ty {
-                if matches!(inner.as_ref(), Ty::Class(_)) {
-                    let slot = b.ins().iadd_imm(*argument, 32);
-                    *argument = b.ins().uextend(types::I128, slot);
-                    continue;
-                }
+            if let Ty::Ref(inner, _) = ty
+                && matches!(inner.as_ref(), Ty::Class(_))
+            {
+                let slot = b.ins().iadd_imm(*argument, 32);
+                *argument = b.ins().uextend(types::I128, slot);
+                continue;
             }
             if matches!(ty, Ty::Class(_)) {
                 let storage = stack_storage(&mut b, ty.inline_bytes());

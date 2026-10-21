@@ -5,7 +5,8 @@ use support::assert_visible_stdout as native;
 
 #[test]
 fn splitlines_preserves_optional_terminators_and_independent_results() {
-    native(r#"
+    native(
+        r#"
 def lines(text: &str) -> Result[list[str], AllocError]:
     text.splitlines()
 mut text = ("é\r\n\n🦀\rlast" + "").unwrap()
@@ -18,7 +19,9 @@ print(str.repr("".splitlines()).unwrap()).unwrap()
 print(str.repr("\n".splitlines()).unwrap()).unwrap()
 print(str.repr("a\nb\n".splitlines()).unwrap()).unwrap()
 print(str.repr("a\0b".splitlines()).unwrap()).unwrap()
-"#, "Result[list[str], AllocError].Ok([\"é\\r\\n\", \"\\n\", \"🦀\\r\", \"last\"])\nResult[list[str], AllocError].Ok([\"é\", \"\", \"🦀\", \"last\"])\nResult[list[str], AllocError].Ok([])\nResult[list[str], AllocError].Ok([\"\"])\nResult[list[str], AllocError].Ok([\"a\", \"b\"])\nResult[list[str], AllocError].Ok([\"a\\0b\"])");
+"#,
+        "Result[list[str], AllocError].Ok([\"é\\r\\n\", \"\\n\", \"🦀\\r\", \"last\"])\nResult[list[str], AllocError].Ok([\"é\", \"\", \"🦀\", \"last\"])\nResult[list[str], AllocError].Ok([])\nResult[list[str], AllocError].Ok([\"\"])\nResult[list[str], AllocError].Ok([\"a\", \"b\"])\nResult[list[str], AllocError].Ok([\"a\\0b\"])",
+    );
     for source in [
         "print(\"x\".splitlines(1)).unwrap()",
         "print(\"x\".splitlines(True, False)).unwrap()",
@@ -82,7 +85,8 @@ fn affix_removal_is_literal(
 
 #[test]
 fn affix_arguments_are_observed_in_order_and_results_outlive_inputs() {
-    native(r#"
+    native(
+        r#"
 def source() -> str:
     print("source").unwrap()
     "pre-value"
@@ -103,7 +107,9 @@ class Custom:
     def removeprefix(self) -> i64:
         42
 print(Custom().removeprefix()).unwrap()
-"#, "source\npattern\nResult[str, AllocError].Ok(\"value\")\nResult[str, AllocError].Ok(\"é\")\n42");
+"#,
+        "source\npattern\nResult[str, AllocError].Ok(\"value\")\nResult[str, AllocError].Ok(\"é\")\n42",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -168,7 +174,8 @@ fn strip_keeps_inner_text(#[case] method: &str, #[case] text: &str, #[case] expe
 
 #[test]
 fn stripping_uses_unicode_whitespace_and_borrows_references() {
-    native(&r#"
+    native(
+        &r#"
 def strip(text: &str) -> Result[str, AllocError]:
     result = text.strip()?
     Ok(result)
@@ -183,7 +190,10 @@ class Custom:
     def strip(self, value: i64) -> i64:
         value
 print(Custom().strip(42)).unwrap()
-"#.replace("ZERO_WIDTH_SPACE", "\u{200b}"), "Result[str, AllocError].Ok(\"é🙂\")\nResult[str, AllocError].Ok(\"é🙂 　\")\nResult[str, AllocError].Ok(\"　 é🙂\")\n6\n1\nResult[str, AllocError].Ok(\"\u{200b}\")\n42");
+"#
+        .replace("ZERO_WIDTH_SPACE", "\u{200b}"),
+        "Result[str, AllocError].Ok(\"é🙂\")\nResult[str, AllocError].Ok(\"é🙂 　\")\nResult[str, AllocError].Ok(\"　 é🙂\")\n6\n1\nResult[str, AllocError].Ok(\"\u{200b}\")\n42",
+    );
 }
 
 #[test]
@@ -272,7 +282,8 @@ fn repeat_handles_counts_and_exact_utf8(
 
 #[test]
 fn repeat_borrows_operands_and_outlives_source_changes() {
-    native(r#"
+    native(
+        r#"
 def repeat(text: &str, count: &i64) -> Result[str, AllocError]:
     output = text.repeat(count)?
     Ok(output)
@@ -293,7 +304,9 @@ def copies() -> i64:
     print("count").unwrap()
     2
 print(str.repr(source().repeat(copies())).unwrap()).unwrap()
-"#, "Result[str, AllocError].Ok(\"é🙂é🙂é🙂\")\n42\nreceiver\ncount\nResult[str, AllocError].Ok(\"xx\")");
+"#,
+        "Result[str, AllocError].Ok(\"é🙂é🙂é🙂\")\n42\nreceiver\ncount\nResult[str, AllocError].Ok(\"xx\")",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -324,7 +337,8 @@ print(str.repr(text.repeat({count})).unwrap()).unwrap()
             );
         }
     }
-    native(r#"
+    native(
+        r#"
 print("__test_fail_allocations_after_0__").unwrap()
 print("__test_begin_no_allocations__").unwrap()
 a = "x".repeat(9223372036854775807)
@@ -333,7 +347,9 @@ print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(str.repr(a).unwrap()).unwrap()
 print(str.repr(b).unwrap()).unwrap()
-"#, "Result[str, AllocError].Err(AllocError.CapacityOverflow)\nResult[str, AllocError].Err(AllocError.CapacityOverflow)");
+"#,
+        "Result[str, AllocError].Err(AllocError.CapacityOverflow)\nResult[str, AllocError].Err(AllocError.CapacityOverflow)",
+    );
 }
 
 #[rstest]

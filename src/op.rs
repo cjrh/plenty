@@ -100,7 +100,7 @@ impl StorageBarrier {
             Self::UnresolvedClosure => {
                 return format!(
                     "a closure signature does not name a concrete environment, so it cannot be stored in {place}; let the type be inferred from the stored closure or use a generic parameter bounded by Callable"
-                )
+                );
             }
         };
         format!("{subject} cannot be stored in {place}")
@@ -510,7 +510,7 @@ impl fmt::Display for Ty {
             Ty::Atomic(t) => return write!(f, "Atomic[{t}]"),
             Ty::Future(t) => return write!(f, "Future[{t}]"),
             Ty::Channel(t, sender) => {
-                return write!(f, "{}[{t}]", if *sender { "Sender" } else { "Receiver" })
+                return write!(f, "{}[{t}]", if *sender { "Sender" } else { "Receiver" });
             }
             Ty::Closure(t) => {
                 let signature = t.signature.to_string().replacen(
@@ -526,7 +526,7 @@ impl fmt::Display for Ty {
             }
             Ty::Callable(sig) => return write!(f, "{sig}"),
             Ty::BoxedCallable(sig) => {
-                return f.write_str(&sig.to_string().replacen("Callable", "BoxedCallable", 1))
+                return f.write_str(&sig.to_string().replacen("Callable", "BoxedCallable", 1));
             }
             Ty::I8 => "i8",
             Ty::I16 => "i16",
@@ -558,7 +558,7 @@ impl fmt::Display for Ty {
                     f.write_str("range")
                 } else {
                     write!(f, "range[{t}]")
-                }
+                };
             }
             Ty::Enum(t) => return f.write_str(t.display_name()),
             Ty::Class(t) => return f.write_str(t.display_name()),
@@ -1099,10 +1099,10 @@ impl Compiler<'_, '_> {
         let name = match self.toks.get(self.pos).cloned() {
             Some(Tok::Word(w)) if w != ":" && w != ";" => w.to_string(),
             Some(Tok::Word(_)) | None => {
-                return Err("':' must be followed by a function name".into())
+                return Err("':' must be followed by a function name".into());
             }
             Some(Tok::Text(_)) => {
-                return Err("a function name must be a plain word, not a text literal".into())
+                return Err("a function name must be a plain word, not a text literal".into());
             }
         };
         self.pos += 1;
@@ -1168,10 +1168,10 @@ impl Compiler<'_, '_> {
                     break;
                 }
                 Some(Tok::Word("[")) => {
-                    return Err("match arm is missing a pattern before `[`".into())
+                    return Err("match arm is missing a pattern before `[`".into());
                 }
                 Some(Tok::Word(";")) | Some(Tok::Word("]")) | None => {
-                    return Err("`match` has no matching `end`".into())
+                    return Err("`match` has no matching `end`".into());
                 }
                 Some(Tok::Word(w)) => {
                     self.pos += 1;
@@ -1188,7 +1188,7 @@ impl Compiler<'_, '_> {
                 _ => {
                     return Err(
                         "match arm pattern must be followed by `[` to open the arm body".into(),
-                    )
+                    );
                 }
             }
             // Body, up to the matching `]`. `compile_seq` consumes the `]`.
@@ -1218,7 +1218,7 @@ impl Compiler<'_, '_> {
                     "function `{fn_name}` is missing a type header \
                      (expected `{{ ... -> ... }}` after the name)"
                 )
-                .into())
+                .into());
             }
         }
 
@@ -1234,14 +1234,14 @@ impl Compiler<'_, '_> {
                         "function `{fn_name}` type header is missing `->` \
                          (write `{{ -> ... }}` for a function with no inputs)"
                     )
-                    .into())
+                    .into());
                 }
                 Some(Tok::Word(w)) if parse_type(w).is_some() => {
                     return Err(format!(
                         "function `{fn_name}` type header: input requires a name \
                          before the type `{w}` (write `{{ x {w} -> ... }}`)"
                     )
-                    .into())
+                    .into());
                 }
                 Some(Tok::Word(w)) if !w.is_empty() => {
                     if !is_valid_input_name(w) {
@@ -1259,7 +1259,7 @@ impl Compiler<'_, '_> {
                         "function `{fn_name}` type header: unexpected token \
                          while reading inputs"
                     )
-                    .into())
+                    .into());
                 }
             }
         }
@@ -1286,7 +1286,7 @@ impl Compiler<'_, '_> {
                         "function `{fn_name}` type header: unexpected token \
                          while reading outputs (or missing `}}`)"
                     )
-                    .into())
+                    .into());
                 }
             }
         }
@@ -2076,7 +2076,7 @@ fn step(
                     return Err(format!(
                         "`+` requires same-typed numbers or (Str Str), got ({a} {b})"
                     )
-                    .into())
+                    .into());
                 }
             };
             stack.push(out);
@@ -2303,7 +2303,7 @@ fn step(
             return Ok(Flow::Exits);
         }
         Op::Match(arms) => {
-            return check_match(arms, stack, locals, sigs, returns, loop_stack, yield_ty)
+            return check_match(arms, stack, locals, sigs, returns, loop_stack, yield_ty);
         }
         Op::If {
             then,

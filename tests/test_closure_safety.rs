@@ -42,7 +42,10 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n7\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n7\n"
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -93,7 +96,10 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\n17\n19\n6\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\n17\n19\n6\n"
+    );
 }
 
 #[test]
@@ -104,7 +110,9 @@ fn captures_cannot_be_shadowed_by_loop_pattern_or_unpack_bindings() {
         "match Some(2):\n            case Some(value):\n                pass\n            case Nothing:\n                pass",
         "items = [value for value in range(2)]?",
     ] {
-        let source = format!("def main() -> ():\n    value = 1\n    f = def [value]() -> Result[(), AllocError]:\n        {statement}\n        Ok(())\n    pass\n");
+        let source = format!(
+            "def main() -> ():\n    value = 1\n    f = def [value]() -> Result[(), AllocError]:\n        {statement}\n        Ok(())\n    pass\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("cannot shadow closure capture"), "{error}");
     }

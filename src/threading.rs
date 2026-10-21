@@ -70,17 +70,17 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
             types.push(output);
             roots.push(("channel message", vec![], types));
         }
-        if let Op::Executor(operation) = op {
-            if let Some(job) = operation.job() {
-                roots.push((
-                    "executor worker",
-                    vec![job.worker.clone()],
-                    std::iter::once(job.input.clone())
-                        .chain(std::iter::once(job.output.clone()))
-                        .chain(job.shared.iter().map(|t| Ty::Closure(t.clone())))
-                        .collect(),
-                ));
-            }
+        if let Op::Executor(operation) = op
+            && let Some(job) = operation.job()
+        {
+            roots.push((
+                "executor worker",
+                vec![job.worker.clone()],
+                std::iter::once(job.input.clone())
+                    .chain(std::iter::once(job.output.clone()))
+                    .chain(job.shared.iter().map(|t| Ty::Closure(t.clone())))
+                    .collect(),
+            ));
         }
     });
     // Only a value crossing a thread boundary starts an inspection. A program
@@ -328,10 +328,11 @@ pub fn endpoints(roots: impl IntoIterator<Item = Ty>, sender: bool, borrowed: bo
         if matches!(ty, Ty::Ref(..)) && !borrowed || !seen.insert(ty.clone()) {
             continue;
         }
-        if let Ty::Channel(message, side) = &ty {
-            if *side == sender && !found.contains(&**message) {
-                found.push((**message).clone());
-            }
+        if let Ty::Channel(message, side) = &ty
+            && *side == sender
+            && !found.contains(&**message)
+        {
+            found.push((**message).clone());
         }
         contained(&ty, &mut pending);
     }

@@ -221,7 +221,7 @@ impl Lexer<'_> {
                 '}' => {
                     return Err(
                         at.error("single `}` in an f-string; write `}}` for a literal brace")
-                    )
+                    );
                 }
                 '{' => {
                     if !text.is_empty() {
@@ -485,11 +485,11 @@ fn parse_spec(text: &str, at: &Token, kinds: &[Nested]) -> Result<Spec> {
         i += 1;
     }
     let number = |i: &mut usize| -> Result<Option<Opt<usize>>> {
-        if let Some(Item::Nested(n)) = items.get(*i) {
-            if kinds[*n] == Nested::Count {
-                *i += 1;
-                return Ok(Some(Opt::Nested(*n)));
-            }
+        if let Some(Item::Nested(n)) = items.get(*i)
+            && kinds[*n] == Nested::Count
+        {
+            *i += 1;
+            return Ok(Some(Opt::Nested(*n)));
         }
         let start = *i;
         while char_at(*i).is_some_and(|c| c.is_ascii_digit()) {
@@ -524,17 +524,17 @@ fn parse_spec(text: &str, at: &Token, kinds: &[Nested]) -> Result<Spec> {
         Some(Item::Nested(n)) if kinds[*n] == Nested::Text => {
             return Err(invalid(
                 "a nested `str` field is the fill or the alignment, at the start of the spec",
-            ))
+            ));
         }
         Some(Item::Nested(_)) => {
             return Err(invalid(
                 "a nested integer field is the width or, after `.`, the precision",
-            ))
+            ));
         }
         Some(Item::Char(c)) => {
             return Err(invalid(&format!(
                 "unexpected `{c}`; the form is [[fill]align][sign][z][#][0][width][grouping][.precision][type]"
-            )))
+            )));
         }
     }
     if spec.zero {
@@ -546,7 +546,7 @@ fn parse_spec(text: &str, at: &Token, kinds: &[Nested]) -> Result<Spec> {
             Some(Opt::Nested(_)) => {
                 return Err(invalid(
                     "`0` cannot follow a nested alignment field; write the fill instead",
-                ))
+                ));
             }
             None => {}
         }
@@ -818,12 +818,12 @@ impl Spec {
                     Some('s') => {
                         return Err(invalid(
                             "type `s` formats text; use `!s` to format the value's text".into(),
-                        ))
+                        ));
                     }
                     Some(k) => {
                         return Err(invalid(format!(
                             "type `{k}` formats floats; convert with f64(...)"
-                        )))
+                        )));
                     }
                 }
                 if self.grouping == Some(',') && !matches!(kind, None | Some('d')) {
@@ -838,12 +838,12 @@ impl Spec {
                 Some('s') => {
                     return Err(invalid(
                         "type `s` formats text; use `!s` to format the value's text".into(),
-                    ))
+                    ));
                 }
                 Some(k) => {
                     return Err(invalid(format!(
                         "type `{k}` formats integers; convert with i64(...)"
-                    )))
+                    )));
                 }
             },
             _ => {
@@ -931,10 +931,12 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Option<Result<Type>> {
         let reference = formatter(self.expression_type_hint(base).as_ref()?)?;
-        let [Expr {
-            kind: Expression::Format(format),
-            at: literal_at,
-        }] = args
+        let [
+            Expr {
+                kind: Expression::Format(format),
+                at: literal_at,
+            },
+        ] = args
         else {
             return Some(Err(at.error(
                 "`Formatter.format` takes one f-string literal, as in `out.format(f\"{x}\")`",

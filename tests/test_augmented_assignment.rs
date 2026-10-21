@@ -174,14 +174,19 @@ fn missing_target_slots_trap_before_evaluating_the_rhs() {
     ] {
         let output = support::run(source);
         assert!(!output.status.success());
-        assert!(output.stdout.is_empty(), "{}", String::from_utf8_lossy(&output.stdout));
+        assert!(
+            output.stdout.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
     }
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn numeric_updates_allocate_nothing() {
-    expect(r#"
+    expect(
+        r#"
 key = str.repr(123456789).unwrap()
 mut table = {key: [4].unwrap()}.unwrap()
 print("__test_begin_no_allocations__").unwrap()
@@ -190,5 +195,7 @@ table[key][0] += 3
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(table).unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n{\"123456789\": [7]}\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n{\"123456789\": [7]}\n",
+    );
 }

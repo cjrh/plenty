@@ -237,11 +237,13 @@ fn permissions_special_files_and_final_symlinks_are_rejected() {
     .unwrap();
     std::os::unix::fs::symlink("private", fixture.path().join("link")).unwrap();
     std::os::unix::fs::symlink("denied", fixture.path().join("filelink")).unwrap();
-    assert!(Command::new("mkfifo")
-        .arg(fixture.path().join("fifo"))
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new("mkfifo")
+            .arg(fixture.path().join("fifo"))
+            .status()
+            .unwrap()
+            .success()
+    );
     let program = Program::new(
         "",
         r#"
@@ -274,8 +276,8 @@ fn permissions_special_files_and_final_symlinks_are_rejected() {
 #[test]
 fn nofollow_file_open_resists_concurrent_symlink_replacement() {
     use std::sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     };
     let fixture = tempfile::tempdir().unwrap();
     let outside = tempfile::NamedTempFile::new().unwrap();
@@ -450,7 +452,9 @@ fn filesystem_owners_keep_normal_move_and_worker_checks() {
     ] {
         let directory = tempfile::tempdir().unwrap();
         let entry = directory.path().join("main.plenty");
-        let source = format!("from std.fs import Root, root\nfrom std.path import from_text\nfrom std.thread import spawn\ndef worker(owner: Root) -> i64:\n    0\ndef main() -> Result[(), AllocError | IoError | ThreadError]:\n    location = from_text(\".\")?\n    owner = root(&location)?\n{body}    Ok(())\n");
+        let source = format!(
+            "from std.fs import Root, root\nfrom std.path import from_text\nfrom std.thread import spawn\ndef worker(owner: Root) -> i64:\n    0\ndef main() -> Result[(), AllocError | IoError | ThreadError]:\n    location = from_text(\".\")?\n    owner = root(&location)?\n{body}    Ok(())\n"
+        );
         std::fs::write(&entry, source).unwrap();
         let checked = plenty::check_file(&entry, None);
         match expected {

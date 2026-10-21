@@ -97,7 +97,10 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n4\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n4\n"
+    );
 }
 
 fn format_error(body: &str) -> String {

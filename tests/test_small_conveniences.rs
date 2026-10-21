@@ -67,7 +67,8 @@ print(data().get(key(), fallback())).unwrap()
 
 #[test]
 fn ok_or_preserves_typed_errors_and_composes_with_propagation() {
-    native(r#"
+    native(
+        r#"
 enum Missing:
     Key(str)
 def find(data: &dict[str, i64]) -> Result[i64, Missing]:
@@ -78,7 +79,9 @@ print(str.repr(find(&dict[str, i64]().unwrap())).unwrap()).unwrap()
 result: Result[u8, str] = Nothing.ok_or("absent")
 print(str.repr(result).unwrap()).unwrap()
 print(str.repr(Some(()).ok_or(())).unwrap()).unwrap()
-"#, "Result[i64, Missing].Ok(42)\nResult[i64, Missing].Err(Missing.Key(\"answer\"))\nResult[u8, str].Err(\"absent\")\nResult[(), ()].Ok(())");
+"#,
+        "Result[i64, Missing].Ok(42)\nResult[i64, Missing].Err(Missing.Key(\"answer\"))\nResult[u8, str].Err(\"absent\")\nResult[(), ()].Ok(())",
+    );
 }
 
 #[test]
@@ -105,7 +108,8 @@ drop(failed)
 
 #[test]
 fn enumeration_and_zip_work_in_loops_and_comprehensions() {
-    native(r#"
+    native(
+        r#"
 for index, value in enumerate("é🙂", -2):
     print((index, value)).unwrap()
 for pair in zip(range(3), "ab"):
@@ -116,7 +120,9 @@ for index, pair in enumerate(zip(range(2), "ab")):
     print((index, pair)).unwrap()
 for pair in zip(enumerate("ab"), range(2)):
     print(pair).unwrap()
-"#, "(-2, \"é\")\n(-1, \"🙂\")\n(0, \"a\")\n(1, \"b\")\n[10, 12, 14]\n[10, 12]\n(0, (0, \"a\"))\n(1, (1, \"b\"))\n((0, \"a\"), 0)\n((1, \"b\"), 1)");
+"#,
+        "(-2, \"é\")\n(-1, \"🙂\")\n(0, \"a\")\n(1, \"b\")\n[10, 12, 14]\n[10, 12]\n(0, (0, \"a\"))\n(1, (1, \"b\"))\n((0, \"a\"), 0)\n((1, \"b\"), 1)",
+    );
 }
 
 #[test]
@@ -229,7 +235,8 @@ for value in zip(1):
 
 #[test]
 fn propagation_in_defaults_and_adapter_inputs_drops_pending_owners() {
-    native(r#"
+    native(
+        r#"
 class Guard:
     label: str
     def __del__(self) -> ():
@@ -246,7 +253,9 @@ def paired() -> Result[(), str]:
     Ok(())
 print(str.repr(choose()).unwrap()).unwrap()
 print(str.repr(paired()).unwrap()).unwrap()
-"#, "receiver\nResult[Guard, str].Err(\"missing\")\nleft source\nResult[(), str].Err(\"input\")");
+"#,
+        "receiver\nResult[Guard, str].Err(\"missing\")\nleft source\nResult[(), str].Err(\"input\")",
+    );
 }
 
 #[test]
@@ -363,12 +372,18 @@ def main() -> ():
     "items = [1].unwrap()\nfor pair in enumerate(&items):\n    pass",
     "requires two unpacked"
 )]
-#[case("mut items = [1].unwrap()\nfor index, value in enumerate(&items):\n    items.append(2).unwrap()\n    print(value).unwrap()", "borrow")]
+#[case(
+    "mut items = [1].unwrap()\nfor index, value in enumerate(&items):\n    items.append(2).unwrap()\n    print(value).unwrap()",
+    "borrow"
+)]
 #[case(
     "mut items = [1].unwrap()\nfor a, b in zip(&mut items, &mut items):\n    *a = *b",
     "borrow"
 )]
-#[case("class Item:\n    value: i64\noption = Some(Item(1))\nvalue = option.unwrap_or(Item(2))\nprint(option).unwrap()", "moved")]
+#[case(
+    "class Item:\n    value: i64\noption = Some(Item(1))\nvalue = option.unwrap_or(Item(2))\nprint(option).unwrap()",
+    "moved"
+)]
 fn rejects_invalid_conveniences(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");

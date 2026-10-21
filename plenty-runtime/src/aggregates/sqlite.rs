@@ -15,19 +15,19 @@
 //!
 //! Values are copied out; no pointer into SQLite's row buffers crosses the
 //! ABI, so a later step or reset cannot invalidate anything Plenty holds.
-use super::byte_storage::{from_slice, result, Storage};
+use super::byte_storage::{Storage, from_slice, result};
 use super::wrap;
-use crate::memory::{self, plenty_release, plenty_retain, AllocError, Header};
+use crate::memory::{self, AllocError, Header, plenty_release, plenty_retain};
 use crate::strings::{self, Text};
 use std::cell::RefCell;
-use std::ffi::{c_char, c_int, c_void, CStr};
+use std::ffi::{CStr, c_char, c_int, c_void};
 use std::ptr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 type Db = c_void;
 type Stmt = c_void;
 
-extern "C" {
+unsafe extern "C" {
     fn sqlite3_open_v2(
         name: *const c_char,
         db: *mut *mut Db,
@@ -371,25 +371,27 @@ unsafe fn execute(handle: u128, sql: u128) -> i64 {
     // SAFETY: the compiler lends a live text for the call.
     let mut sql = unsafe { strings::bytes(&text) };
     unsafe {
-        locked(db, || loop {
-            let (stmt, used) = match compile(db, sql) {
-                Ok(Some(compiled)) => compiled,
-                Ok(None) => return OK as i64,
-                Err(code) => return code,
-            };
-            sql = &sql[used..];
-            let mut code = sqlite3_step(stmt);
-            while code == ROW {
-                code = sqlite3_step(stmt);
-            }
-            let code = if code == DONE {
-                OK as i64
-            } else {
-                checked(db, code)
-            };
-            sqlite3_finalize(stmt);
-            if code != OK as i64 {
-                return code;
+        locked(db, || {
+            loop {
+                let (stmt, used) = match compile(db, sql) {
+                    Ok(Some(compiled)) => compiled,
+                    Ok(None) => return OK as i64,
+                    Err(code) => return code,
+                };
+                sql = &sql[used..];
+                let mut code = sqlite3_step(stmt);
+                while code == ROW {
+                    code = sqlite3_step(stmt);
+                }
+                let code = if code == DONE {
+                    OK as i64
+                } else {
+                    checked(db, code)
+                };
+                sqlite3_finalize(stmt);
+                if code != OK as i64 {
+                    return code;
+                }
             }
         })
     }

@@ -182,12 +182,12 @@ impl Lower<'_> {
         while let Some(Ty::Ref(inner, _)) = list {
             list = Some((*inner).clone());
         }
-        if let Some(Ty::List(element)) = list.map(classes::unbox) {
-            if !element.is_orderable() {
-                return Err(at.error(format!(
+        if let Some(Ty::List(element)) = list.map(classes::unbox)
+            && !element.is_orderable()
+        {
+            return Err(at.error(format!(
                     "sorted does not order {element} elements; it orders integers, floats, str, and tuples of those"
                 )));
-            }
         }
         self.sorting_helper("__plenty_sorted", "def sorteditems[T](items: &list[T], descending: bool) -> Result[list[T], AllocError]:\n    mut result = copy(items)?\n    result.sort(descending)\n    Ok(result)\n")?;
         let descending = Self::reverse_argument(&args[1..], at);

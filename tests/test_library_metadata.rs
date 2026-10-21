@@ -2,7 +2,10 @@ use plenty::{LibraryKind, LibraryOptions};
 use std::process::Command;
 
 fn contract(name: &str) -> String {
-    format!("# plenty-interface-format: 1\n# library: {name}\n# target: {}\n# abi: C\n\npub extern def answer() -> i32 = \"{name}_answer\"\n", plenty::native_target())
+    format!(
+        "# plenty-interface-format: 1\n# library: {name}\n# target: {}\n# abi: C\n\npub extern def answer() -> i32 = \"{name}_answer\"\n",
+        plenty::native_target()
+    )
 }
 
 fn object(sections: &[(&str, &[u8])]) -> Vec<u8> {
@@ -41,12 +44,14 @@ fn extracts_exact_contract_from_static_shared_and_stripped_artifacts() {
         )
         .unwrap();
         if kind == LibraryKind::Shared {
-            assert!(Command::new("strip")
-                .arg("--strip-all")
-                .arg(&library)
-                .status()
-                .unwrap()
-                .success());
+            assert!(
+                Command::new("strip")
+                    .arg("--strip-all")
+                    .arg(&library)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
         }
         plenty::verify_library_interface(&library, &artifacts.interface).unwrap();
         let verification = Command::new(env!("CARGO_BIN_EXE_plenty"))
@@ -160,17 +165,21 @@ fn rejects_malformed_ambiguous_and_oversized_metadata() {
         ["calc", "other"]
     );
     let thin = temp.path().join("thin.a");
-    assert!(Command::new("ar")
-        .arg("crsT")
-        .arg(&thin)
-        .arg(&path)
-        .status()
-        .unwrap()
-        .success());
-    assert!(plenty::read_library_interfaces(&thin)
-        .unwrap_err()
-        .to_string()
-        .contains("thin"));
+    assert!(
+        Command::new("ar")
+            .arg("crsT")
+            .arg(&thin)
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        plenty::read_library_interfaces(&thin)
+            .unwrap_err()
+            .to_string()
+            .contains("thin")
+    );
 }
 
 #[test]
@@ -187,7 +196,9 @@ fn fingerprints_are_deterministic_and_stale_interfaces_fail_to_link() {
         };
         let original =
             build("export def answer(value: i32) -> i32 = \"calc_answer\":\n    value + 1\n");
-        let changed_body = build("export def answer(renamed: i32) -> i32 = \"calc_answer\":\n    \"New author documentation.\"\n    renamed + 2\n");
+        let changed_body = build(
+            "export def answer(renamed: i32) -> i32 = \"calc_answer\":\n    \"New author documentation.\"\n    renamed + 2\n",
+        );
         assert_eq!(original.fingerprint, changed_body.fingerprint);
         assert_eq!(original.fingerprint.as_ref().unwrap().len(), 64);
         let changed_type =

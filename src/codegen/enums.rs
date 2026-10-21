@@ -329,24 +329,24 @@ impl Lowerer<'_, '_> {
         let Ty::Enum(to) = target else { unreachable!() };
         if to.anonymous() {
             let targets = crate::sum::members(target);
-            if let Ty::Enum(from) = source {
-                if from.anonymous() {
-                    let tags = self.high_word(value);
-                    let mask = (from.get().variants.len().next_power_of_two() - 1).max(1);
-                    let old_tag = self.bcx.ins().band_imm(tags, mask as i64);
-                    let mut tag = self.bcx.ins().iconst(types::I64, 0);
-                    for (index, member) in crate::sum::members(source).iter().enumerate() {
-                        let destination = targets.iter().position(|t| t == member).unwrap();
-                        let selected = self.bcx.ins().icmp_imm(IntCC::Equal, old_tag, index as i64);
-                        let new_tag = self.bcx.ins().iconst(types::I64, destination as i64);
-                        tag = self.bcx.ins().select(selected, new_tag, tag);
-                    }
-                    let payload = self.tagged_payload(value, from.tag_bits());
-                    let wrapped = self.wrap_tagged(payload, 0, to.tag_bits());
-                    let (word, tags) = self.bcx.ins().isplit(wrapped);
-                    let tags = self.bcx.ins().bor(tags, tag);
-                    return self.bcx.ins().iconcat(word, tags);
+            if let Ty::Enum(from) = source
+                && from.anonymous()
+            {
+                let tags = self.high_word(value);
+                let mask = (from.get().variants.len().next_power_of_two() - 1).max(1);
+                let old_tag = self.bcx.ins().band_imm(tags, mask as i64);
+                let mut tag = self.bcx.ins().iconst(types::I64, 0);
+                for (index, member) in crate::sum::members(source).iter().enumerate() {
+                    let destination = targets.iter().position(|t| t == member).unwrap();
+                    let selected = self.bcx.ins().icmp_imm(IntCC::Equal, old_tag, index as i64);
+                    let new_tag = self.bcx.ins().iconst(types::I64, destination as i64);
+                    tag = self.bcx.ins().select(selected, new_tag, tag);
                 }
+                let payload = self.tagged_payload(value, from.tag_bits());
+                let wrapped = self.wrap_tagged(payload, 0, to.tag_bits());
+                let (word, tags) = self.bcx.ins().isplit(wrapped);
+                let tags = self.bcx.ins().bor(tags, tag);
+                return self.bcx.ins().iconcat(word, tags);
             }
             return self.wrap_tagged(
                 value,

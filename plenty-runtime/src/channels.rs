@@ -6,8 +6,8 @@ use crate::deadline::Deadline;
 use crate::memory::{self, AllocError, Header};
 use crate::ranges;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Condvar, Mutex, MutexGuard,
+    atomic::{AtomicUsize, Ordering},
 };
 
 mod select;
@@ -237,7 +237,7 @@ unsafe fn recv_wait(endpoint: u128, nowait: bool, deadline: Option<&Deadline>, o
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_channel(
     op: i64,
     args: *const u128,

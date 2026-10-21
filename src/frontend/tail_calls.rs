@@ -250,14 +250,14 @@ pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
     while graph.len() < nodes.len() {
         let mut edges = Vec::new();
         crate::threading::walk(&function_at(nodes[graph.len()]).1.body, &mut |op| {
-            if let Op::Call(name) | Op::TailCall(name) = op {
-                if let Some(index) = node(name) {
-                    let next = nodes.len();
-                    edges.push(*local.entry(index).or_insert_with(|| {
-                        nodes.push(index);
-                        next
-                    }));
-                }
+            if let Op::Call(name) | Op::TailCall(name) = op
+                && let Some(index) = node(name)
+            {
+                let next = nodes.len();
+                edges.push(*local.entry(index).or_insert_with(|| {
+                    nodes.push(index);
+                    next
+                }));
             }
         });
         edges.sort_unstable();
@@ -313,7 +313,10 @@ pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
                         generics.diagnostic_name(name)
                     )
                 };
-                let message = format!("recursive call to `{}`{cycle} is in tail position but cannot be a tail call: {reason}", generics.diagnostic_name(&candidate.callee));
+                let message = format!(
+                    "recursive call to `{}`{cycle} is in tail position but cannot be a tail call: {reason}",
+                    generics.diagnostic_name(&candidate.callee)
+                );
                 return Err(match generics.required.get(name) {
                     Some(required) => required
                         .report(&format!("{}: ", candidate.at.location()), &message)

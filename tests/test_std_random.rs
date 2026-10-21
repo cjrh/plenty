@@ -3,8 +3,7 @@
 mod support;
 use support::check_file_error as rejected;
 
-const HEADER: &str =
-    "import std.bytes\nimport std.random\nfrom std.bytes import Bytes\nfrom std.random import Rng, RandomError\n";
+const HEADER: &str = "import std.bytes\nimport std.random\nfrom std.bytes import Bytes\nfrom std.random import Rng, RandomError\n";
 
 fn program(body: &str) -> String {
     let body = body
@@ -12,7 +11,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}def main() -> Result[(), AllocError | IoError | std.random.RandomError | std.bytes.BytesError]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.random.RandomError | std.bytes.BytesError]:\n{body}    Ok(())\n"
+    )
 }
 
 fn output(source: &str) -> String {

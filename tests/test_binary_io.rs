@@ -220,16 +220,18 @@ def main() -> i32:
         &binary,
     )
     .unwrap();
-    assert!(Command::new(binary)
-        .stdout(
-            std::fs::OpenOptions::new()
-                .write(true)
-                .open("/dev/full")
-                .unwrap()
-        )
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new(binary)
+            .stdout(
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open("/dev/full")
+                    .unwrap()
+            )
+            .status()
+            .unwrap()
+            .success()
+    );
 }
 
 #[cfg(all(target_os = "linux", feature = "runtime-checks"))]

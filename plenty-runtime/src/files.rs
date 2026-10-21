@@ -29,7 +29,7 @@ pub(crate) fn without_sigpipe<T>(write: impl FnOnce() -> std::io::Result<T>) -> 
         seconds: i64,
         nanoseconds: i64,
     }
-    extern "C" {
+    unsafe extern "C" {
         fn pthread_sigmask(how: i32, set: *const Set, previous: *mut Set) -> i32;
         fn sigpending(set: *mut Set) -> i32;
         fn sigtimedwait(
@@ -199,7 +199,7 @@ pub(crate) unsafe fn wait_ready(
         seconds: i64,
         nanoseconds: i64,
     }
-    extern "C" {
+    unsafe extern "C" {
         fn ppoll(
             fds: *mut PollFd,
             count: u64,

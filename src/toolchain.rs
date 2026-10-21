@@ -30,7 +30,9 @@ fn validate_target_pair(requested: &str, packaged: &str) -> Result<(), Box<dyn s
 pub fn find_libfuzzer() -> Result<PathBuf, Box<dyn std::error::Error>> {
     const ARCHIVE: &str = "libclang_rt.fuzzer_no_main.a";
     let missing = || {
-        format!("libFuzzer not found: `clang -print-file-name={ARCHIVE}` names no file; install clang's compiler-rt or pass --libfuzzer PATH")
+        format!(
+            "libFuzzer not found: `clang -print-file-name={ARCHIVE}` names no file; install clang's compiler-rt or pass --libfuzzer PATH"
+        )
     };
     let output = Command::new("clang")
         .arg(format!("-print-file-name={ARCHIVE}"))
@@ -241,10 +243,12 @@ mod tests {
     fn rejects_runtime_mismatch_and_unsupported_layouts() {
         let native = "x86_64-unknown-linux-gnu";
         assert!(validate_target_pair(native, native).is_ok());
-        assert!(validate_target_pair(native, "aarch64-unknown-linux-gnu")
-            .unwrap_err()
-            .to_string()
-            .contains("does not match"));
+        assert!(
+            validate_target_pair(native, "aarch64-unknown-linux-gnu")
+                .unwrap_err()
+                .to_string()
+                .contains("does not match")
+        );
         for target in [
             "i686-unknown-linux-gnu",
             "aarch64-unknown-linux-gnu",
@@ -252,10 +256,12 @@ mod tests {
             "not-a-target",
             "x86_64-unknown-linux-musl",
         ] {
-            assert!(validate_target_pair(target, target)
-                .unwrap_err()
-                .to_string()
-                .contains("unsupported native target"));
+            assert!(
+                validate_target_pair(target, target)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("unsupported native target")
+            );
         }
     }
 }

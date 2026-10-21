@@ -58,7 +58,8 @@ with spawn(worker, [1].unwrap(), &mut output).unwrap():
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_named_start_drops_each_moved_argument_once_without_running_worker() {
-    runs(r#"
+    runs(
+        r#"
 class Item:
     label: str
     def __del__(self) -> ():
@@ -87,7 +88,9 @@ def main() -> Result[(), AllocError | IoError]:
     print("__test_restore_thread_starts__")?
     print(count)?
     Ok(())
-"#, "__test_fail_thread_starts__\nnested\nitem\nResult[(), ThreadError].Err(ThreadError.System(11))\ncapture\nResult[(), ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\n0\n");
+"#,
+        "__test_fail_thread_starts__\nnested\nitem\nResult[(), ThreadError].Err(ThreadError.System(11))\ncapture\nResult[(), ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\n0\n",
+    );
 }
 
 #[test]
@@ -156,23 +159,39 @@ fn race_diagnostics_point_at_the_use_and_the_spawn_scope() {
     // explicit join, so every note names the `with` block and not the join.
     let scoped = "\n  6:29: note: the exclusive borrow of `value` starts here\n  6:10: note: the borrow is held until the end of this `with` block";
     for (body, primary) in [
-        ("with spawn(worker, &mut value)? as task:\n        print(value)?", "7:15: conflicting borrow: cannot read `value` while it is exclusively borrowed"),
-        ("with spawn(worker, &mut value)? as task:\n        value = 3", "7:9: conflicting borrow: cannot assign to `value` while it is exclusively borrowed"),
-        ("with spawn(worker, &mut value)? as task:\n        print(task.join())?\n        print(value)?", "8:15: conflicting borrow: cannot read `value` while it is exclusively borrowed"),
-        ("with spawn(worker, &mut value)? as task:\n        with spawn(worker, &mut value)? as other:\n            pass", "7:33: conflicting borrow: cannot modify or exclusively borrow `value` while it is exclusively borrowed"),
+        (
+            "with spawn(worker, &mut value)? as task:\n        print(value)?",
+            "7:15: conflicting borrow: cannot read `value` while it is exclusively borrowed",
+        ),
+        (
+            "with spawn(worker, &mut value)? as task:\n        value = 3",
+            "7:9: conflicting borrow: cannot assign to `value` while it is exclusively borrowed",
+        ),
+        (
+            "with spawn(worker, &mut value)? as task:\n        print(task.join())?\n        print(value)?",
+            "8:15: conflicting borrow: cannot read `value` while it is exclusively borrowed",
+        ),
+        (
+            "with spawn(worker, &mut value)? as task:\n        with spawn(worker, &mut value)? as other:\n            pass",
+            "7:33: conflicting borrow: cannot modify or exclusively borrow `value` while it is exclusively borrowed",
+        ),
     ] {
         let source = format!("{header}    {body}\n    Ok(())\n");
         let error = plenty::check_source(&source).unwrap_err().to_string();
         assert_eq!(error, format!("{primary}{scoped}"), "{source}");
     }
-    let source = format!("{header}    with spawn(worker, &mut value)? as task:\n        print(task.join())?\n        print(task.join())?\n    Ok(())\n");
+    let source = format!(
+        "{header}    with spawn(worker, &mut value)? as task:\n        print(task.join())?\n        print(task.join())?\n    Ok(())\n"
+    );
     let error = plenty::check_source(&source).unwrap_err().to_string();
     assert_eq!(
         error,
         "8:15: use of moved binding `task`\n  7:15: note: `task` is moved here"
     );
     // The borrow ends with the block, not with the enclosing function.
-    let source = format!("{header}    with spawn(worker, &mut value)? as task:\n        pass\n    value = 3\n    print(value)?\n    Ok(())\n");
+    let source = format!(
+        "{header}    with spawn(worker, &mut value)? as task:\n        pass\n    value = 3\n    print(value)?\n    Ok(())\n"
+    );
     if let Err(error) = plenty::check_source(&source) {
         panic!("{source}\n{error}");
     }
@@ -182,13 +201,34 @@ fn race_diagnostics_point_at_the_use_and_the_spawn_scope() {
 fn rejects_races_escaping_handles_and_double_joins() {
     let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), IoError | ThreadError]:\n    mut value = 1\n";
     for (body, expected) in [
-        ("with spawn(worker, &mut value)? as task:\n        print(value)?", "conflicting borrow"),
-        ("with spawn(worker, &mut value)? as task:\n        value = 3", "conflicting borrow"),
-        ("with spawn(worker, &mut value)? as task:\n        with spawn(worker, &mut value)? as other:\n            pass", "conflicting borrow"),
-        ("with spawn(worker, &mut value)? as task:\n        print(task.join())?\n        print(task.join())?", "moved"),
-        ("with spawn(worker, &mut value)? as task:\n        escaped = task", "cannot escape"),
-        ("with spawn(worker, &mut value)? as task:\n        escaped = &task", "cannot be borrowed"),
-        ("with spawn(worker, &mut value)? as task:\n        print(task)?", "cannot be borrowed"),
+        (
+            "with spawn(worker, &mut value)? as task:\n        print(value)?",
+            "conflicting borrow",
+        ),
+        (
+            "with spawn(worker, &mut value)? as task:\n        value = 3",
+            "conflicting borrow",
+        ),
+        (
+            "with spawn(worker, &mut value)? as task:\n        with spawn(worker, &mut value)? as other:\n            pass",
+            "conflicting borrow",
+        ),
+        (
+            "with spawn(worker, &mut value)? as task:\n        print(task.join())?\n        print(task.join())?",
+            "moved",
+        ),
+        (
+            "with spawn(worker, &mut value)? as task:\n        escaped = task",
+            "cannot escape",
+        ),
+        (
+            "with spawn(worker, &mut value)? as task:\n        escaped = &task",
+            "cannot be borrowed",
+        ),
+        (
+            "with spawn(worker, &mut value)? as task:\n        print(task)?",
+            "cannot be borrowed",
+        ),
     ] {
         let source = format!("{header}    {body}\n    Ok(())\n");
         let error = plenty::check_source(&source).unwrap_err().to_string();
@@ -433,7 +473,8 @@ def main() -> Result[(), ThreadError]:
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_start_preserves_borrowed_job_and_joins_prior_tasks() {
-    runs(r#"
+    runs(
+        r#"
 def update(n: &mut i64) -> ():
     *n = *n + 10
 def attempt(a: &mut i64, b: &mut i64) -> Result[(), ThreadError]:
@@ -452,7 +493,9 @@ def main() -> Result[(), IoError]:
     print(a)?
     print(b)?
     Ok(())
-"#, "__test_one_thread_start__\nResult[(), ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\n11\n2\nResult[(), ThreadError].Ok(())\n21\n12\n");
+"#,
+        "__test_one_thread_start__\nResult[(), ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\n11\n2\nResult[(), ThreadError].Ok(())\n21\n12\n",
+    );
 }
 
 #[test]
@@ -508,7 +551,8 @@ def main() -> Result[(), AllocError | IoError | ThreadError]:
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn task_bookkeeping_does_not_allocate_and_failed_closure_is_reusable() {
-    runs(r#"
+    runs(
+        r#"
 def attempt(job: &mut Closure[[], i64]) -> Result[i64, ThreadError]:
     with spawn(&mut job)? as task:
         return Ok(task.join())
@@ -532,7 +576,9 @@ def main() -> Result[(), IoError | ThreadError]:
     print(str.repr(attempt(&mut job)).unwrap())?
     print(value)?
     Ok(())
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n1\n__test_fail_thread_starts__\nResult[i64, ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\nResult[i64, ThreadError].Ok(11)\n11\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n1\n__test_fail_thread_starts__\nResult[i64, ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\nResult[i64, ThreadError].Ok(11)\n11\n",
+    );
 }
 
 #[test]
@@ -596,7 +642,8 @@ pass
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn worker_allocation_failure_is_local_and_preserves_parent_owners() {
-    runs(r#"
+    runs(
+        r#"
 def work() -> Result[list[i64], AllocError]:
     print("__test_fail_allocations_after_0__").unwrap()
     [1, 2, 3]
@@ -607,7 +654,9 @@ def main() -> Result[(), AllocError | IoError | ThreadError]:
     print(values)?
     print([4, 5]?)?
     Ok(())
-"#, "__test_fail_allocations_after_0__\nResult[list[i64], AllocError].Err(AllocError.OutOfMemory)\n[7]\n[4, 5]\n");
+"#,
+        "__test_fail_allocations_after_0__\nResult[list[i64], AllocError].Err(AllocError.OutOfMemory)\n[7]\n[4, 5]\n",
+    );
 }
 
 #[test]
@@ -751,7 +800,8 @@ def main() -> Result[(), ThreadError | IoError]:
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_start_in_error_sum_drops_arguments_and_joins_prior_tasks() {
-    runs(r#"
+    runs(
+        r#"
 class Item:
     label: str
     def __del__(self) -> ():
@@ -781,5 +831,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(a)?
     print(b)?
     Ok(())
-"#, "__test_one_thread_start__\nnested\nitem\nThreadError.System(11)\n__test_restore_thread_starts__\n11\n2\n");
+"#,
+        "__test_one_thread_start__\nnested\nitem\nThreadError.System(11)\n__test_restore_thread_starts__\n11\n2\n",
+    );
 }

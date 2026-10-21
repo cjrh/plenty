@@ -9,14 +9,30 @@ fn rejects(source: &str, expected: &[&str]) {
 
 #[test]
 fn local_reference_recursion_reports_call_and_binding() {
-    rejects("def walk(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    child = n - 1\n    return walk(child, n - 1)\n", &["5:12:", "recursive call to `walk`", "local `child`"]);
-    rejects("def walk(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    walk(n - 1, n - 1)\n", &["recursive call to `walk`", "temporary"]);
+    rejects(
+        "def walk(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    child = n - 1\n    return walk(child, n - 1)\n",
+        &["5:12:", "recursive call to `walk`", "local `child`"],
+    );
+    rejects(
+        "def walk(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    walk(n - 1, n - 1)\n",
+        &["recursive call to `walk`", "temporary"],
+    );
 }
 
 #[test]
 fn mutual_cycles_include_non_tail_back_edges() {
-    rejects("def first(value: &i64, n: i64) -> i64:\n    child = n\n    second(child, n)\ndef second(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    1 + first(value, n - 1)\n", &["recursive call to `second`", "cycle as `first`", "local `child`"]);
-    rejects("def first(value: &i64) -> i64:\n    child = 1\n    second(child)\ndef second(value: &i64) -> i64:\n    third(value)\ndef third(value: &i64) -> i64:\n    first(value)\n", &["recursive call to `second`", "local `child`"]);
+    rejects(
+        "def first(value: &i64, n: i64) -> i64:\n    child = n\n    second(child, n)\ndef second(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    1 + first(value, n - 1)\n",
+        &[
+            "recursive call to `second`",
+            "cycle as `first`",
+            "local `child`",
+        ],
+    );
+    rejects(
+        "def first(value: &i64) -> i64:\n    child = 1\n    second(child)\ndef second(value: &i64) -> i64:\n    third(value)\ndef third(value: &i64) -> i64:\n    first(value)\n",
+        &["recursive call to `second`", "local `child`"],
+    );
 }
 
 #[test]
@@ -24,7 +40,9 @@ fn candidates_are_validated_among_functions_without_any() {
     // Only a function with a call in source tail position records candidates
     // (issue #57). The first offender in source order is still the one reported.
     let walk = |name: &str| {
-        format!("def {name}(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    child = n - 1\n    return {name}(child, n - 1)\n")
+        format!(
+            "def {name}(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    child = n - 1\n    return {name}(child, n - 1)\n"
+        )
     };
     let quiet = "def quiet(n: i64) -> i64:\n    n + 1\n";
     let source = format!(
@@ -37,7 +55,16 @@ fn candidates_are_validated_among_functions_without_any() {
         &["7:12:", "recursive call to `early`", "local `child`"],
     );
     // A cycle closed only through a call outside tail position still counts.
-    rejects(&format!("{quiet}def first(value: &i64, n: i64) -> i64:\n    child = n\n    second(child, n)\ndef second(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    1 + first(value, n - 1)\n"), &["recursive call to `second`", "cycle as `first`", "local `child`"]);
+    rejects(
+        &format!(
+            "{quiet}def first(value: &i64, n: i64) -> i64:\n    child = n\n    second(child, n)\ndef second(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    1 + first(value, n - 1)\n"
+        ),
+        &[
+            "recursive call to `second`",
+            "cycle as `first`",
+            "local `child`",
+        ],
+    );
     support::check_source(&format!(
         "{quiet}def other(n: i64) -> i64:\n    1 + quiet(n)\n"
     ))
@@ -51,7 +78,10 @@ fn nested_branches_and_conditional_expressions_retain_candidates() {
         "match Some(n):\n        case Some(_):\n            walk(child, n - 1)\n        case Nothing:\n            0",
         "walk(child, n - 1) if n > 0 else 0",
     ] {
-        rejects(&format!("def walk(value: &i64, n: i64) -> i64:\n    child = n\n    {tail}\n"), &["recursive call to `walk`", "local `child`"]);
+        rejects(
+            &format!("def walk(value: &i64, n: i64) -> i64:\n    child = n\n    {tail}\n"),
+            &["recursive call to `walk`", "local `child`"],
+        );
     }
 }
 
@@ -80,7 +110,10 @@ def walk(n: i64) -> i64:
 
 #[test]
 fn owned_inline_argument_has_an_abi_reason() {
-    rejects("def walk(values: range, n: i64) -> i64:\n    if n == 0:\n        return 0\n    walk(values, n - 1)\n", &["recursive call to `walk`", "inline"]);
+    rejects(
+        "def walk(values: range, n: i64) -> i64:\n    if n == 0:\n        return 0\n    walk(values, n - 1)\n",
+        &["recursive call to `walk`", "inline"],
+    );
 }
 
 #[test]
@@ -98,7 +131,10 @@ fn ordinary_nonrecursive_and_non_tail_calls_remain_legal() {
 #[test]
 fn distinct_generic_instances_are_not_a_recursion_cycle() {
     support::check_source("def choose[T](value: T) -> i64:\n    child = 1\n    choose_ref[i64](child)\ndef choose_ref[T](value: &T) -> i64:\n    0\nchoose[bool](True)\nchoose[i64](1)\n").unwrap();
-    rejects("def walk[T](value: &T, n: i64) -> i64:\n    if n == 0:\n        return 0\n    child = n\n    walk[i64](child, n - 1)\nwalk[bool](True, 2)\n", &["recursive call to", "local `child`"]);
+    rejects(
+        "def walk[T](value: &T, n: i64) -> i64:\n    if n == 0:\n        return 0\n    child = n\n    walk[i64](child, n - 1)\nwalk[bool](True, 2)\n",
+        &["recursive call to", "local `child`"],
+    );
     support::check_source(
         r#"
 class End:

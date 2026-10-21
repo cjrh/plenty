@@ -42,7 +42,9 @@ def main() -> ():
         ("-1", "unary minus is not defined for unsigned type u64"),
         ("18446744073709551616", "out of range"),
     ] {
-        let source = format!("def main() -> ():\n    mut f = open(\"unused\").unwrap()\n    n = 0\n    f.seek({argument}).unwrap()\n    pass\n");
+        let source = format!(
+            "def main() -> ():\n    mut f = open(\"unused\").unwrap()\n    n = 0\n    f.seek({argument}).unwrap()\n    pass\n"
+        );
         let error = plenty::check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "{argument}: {error}");
     }

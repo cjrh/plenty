@@ -211,7 +211,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let options = Options::parse(args)?;
     #[cfg(feature = "profile")]
-    let _profile = plenty::profile::start();
+    // SAFETY: argument parsing above has not spawned any threads.
+    let _profile = unsafe { plenty::profile::start() };
     let count = if options.workload == Workload::Scale {
         options.units * 4
     } else {
@@ -370,15 +371,17 @@ mod tests {
     fn action_failure_is_propagated() {
         for warmup in [false, true] {
             let mut calls = 0;
-            assert!(measure(
-                || {
-                    calls += 1;
-                    Err("failed".into())
-                },
-                3,
-                warmup
-            )
-            .is_err());
+            assert!(
+                measure(
+                    || {
+                        calls += 1;
+                        Err("failed".into())
+                    },
+                    3,
+                    warmup
+                )
+                .is_err()
+            );
             assert_eq!(calls, 1);
         }
     }

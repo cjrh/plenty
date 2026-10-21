@@ -5,12 +5,12 @@
 //! in the arguments of `spawn` or `submit`, from `Op::Tokens` markers. See
 //! `book/src/design/facilities/03-concurrency/cancellation.md`.
 
-use super::{early_exit, Checker, Error, Hazard, Kind, Result, Site};
+use super::{Checker, Error, Hazard, Kind, Result, Site, early_exit};
 use crate::control::ControlOp;
 use crate::executor::ExecutorOp;
 use crate::hash::HashMap;
 use crate::op::{Op, TokenMark, Ty};
-use crate::threading::{owns_executor, ThreadOp};
+use crate::threading::{ThreadOp, owns_executor};
 
 fn token(ty: &Ty) -> bool {
     match ty {
@@ -207,16 +207,15 @@ pub(super) fn check<'a>(checker: &Checker<'a, '_>) -> Result<()> {
         &mut counter,
         &mut |op, ops, index, site, position| {
             positions.insert(op as *const Op, position);
-            if matches!(op, Op::Control(ControlOp::Cancel)) {
-                if let Some(slot) = local(operand(ops, index)) {
-                    if token(&locals[slot as usize]) {
-                        last[roots[slot as usize] as usize] = Some(Cancel {
-                            position,
-                            site,
-                            guard: guards[slot as usize],
-                        });
-                    }
-                }
+            if matches!(op, Op::Control(ControlOp::Cancel))
+                && let Some(slot) = local(operand(ops, index))
+                && token(&locals[slot as usize])
+            {
+                last[roots[slot as usize] as usize] = Some(Cancel {
+                    position,
+                    site,
+                    guard: guards[slot as usize],
+                });
             }
         },
     );
@@ -479,10 +478,10 @@ impl Walk<'_, '_, '_> {
                     }
                 }
                 Op::Control(ControlOp::Cancel) => {
-                    if let Some(slot) = local(operand(ops, index)) {
-                        if token(&self.checker.locals[slot as usize]) {
-                            path.cancelled[self.roots[slot as usize] as usize] = true;
-                        }
+                    if let Some(slot) = local(operand(ops, index))
+                        && token(&self.checker.locals[slot as usize])
+                    {
+                        path.cancelled[self.roots[slot as usize] as usize] = true;
                     }
                 }
                 Op::StoreLocal(slot) => {
@@ -608,10 +607,10 @@ impl Walk<'_, '_, '_> {
                             continuing.push(end);
                         }
                     }
-                    if reached {
-                        if let Some(end) = self.sequence(otherwise, path, loops, site, None)? {
-                            continuing.push(end);
-                        }
+                    if reached
+                        && let Some(end) = self.sequence(otherwise, path, loops, site, None)?
+                    {
+                        continuing.push(end);
                     }
                     let Some(merged) = Path::merge(&continuing) else {
                         return Ok(None);
@@ -681,13 +680,13 @@ impl Walk<'_, '_, '_> {
         site: Option<Site>,
         what: &'static str,
     ) -> Result<()> {
-        if !path.pending.is_empty() {
-            if let Some(pool) = self.pool {
-                let exit = (what != "the function's end").then_some((site, what));
-                // An automatic shutdown is reported where its pool starts.
-                let at = self.checker.bound(pool).or(site);
-                self.shutdown(op, &mut path, at, true, exit)?;
-            }
+        if !path.pending.is_empty()
+            && let Some(pool) = self.pool
+        {
+            let exit = (what != "the function's end").then_some((site, what));
+            // An automatic shutdown is reported where its pool starts.
+            let at = self.checker.bound(pool).or(site);
+            self.shutdown(op, &mut path, at, true, exit)?;
         }
         self.exits.push(Exit { path, site, what });
         Ok(())
@@ -730,10 +729,10 @@ impl Walk<'_, '_, '_> {
             let mut error = self
                 .checker
                 .error(Kind::Uncancelled { message }, None, exit.site);
-            if let Some(cancel) = self.last[parameter] {
-                if let Some(at) = cancel.site {
-                    error.notes.push((at, format!("{name} is cancelled here")));
-                }
+            if let Some(cancel) = self.last[parameter]
+                && let Some(at) = cancel.site
+            {
+                error.notes.push((at, format!("{name} is cancelled here")));
             }
             return Err(error);
         }

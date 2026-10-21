@@ -69,7 +69,8 @@ print(rows).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn existing_nested_slots_need_no_allocation_including_inline_payloads() {
-    expect(r#"
+    expect(
+        r#"
 class Row:
     values: list[Option[range[i64]]]
 mut rows = [Row([Some(range(3))].unwrap())].unwrap()
@@ -82,7 +83,9 @@ print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(rows[0].values[0]).unwrap()
 print(table).unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\nOption[range].Some(range(5, 8, 1))\n{\"row\": [1, 9]}\n");
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\nOption[range].Some(range(5, 8, 1))\n{\"row\": [1, 9]}\n",
+    );
 }
 
 #[test]

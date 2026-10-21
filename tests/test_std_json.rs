@@ -119,7 +119,9 @@ fn program(body: &str) -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{HEADER}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | std.json.JsonError | ParseError | std.io.StreamError]:\n{body}    Ok(())\n")
+    format!(
+        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | std.json.JsonError | ParseError | std.io.StreamError]:\n{body}    Ok(())\n"
+    )
 }
 
 /// Runs a program and shortens the qualified names in rendered values.
@@ -584,8 +586,7 @@ fn long_string_runs_keep_content_and_positions() {
 
 #[test]
 fn every_truncation_is_an_unexpected_end_at_its_length() {
-    let document =
-        "{\"key\":[1,-2.5e+3,true,false,null,\"s\\u00e9\\ud83d\\ude00\\n\u{e9}\",{\"n\":{}}],\"\u{20ac}\":[]}";
+    let document = "{\"key\":[1,-2.5e+3,true,false,null,\"s\\u00e9\\ud83d\\ude00\\n\u{e9}\",{\"n\":{}}],\"\u{20ac}\":[]}";
     native(
         &format!(
             r#"
@@ -871,8 +872,7 @@ true True
 
 #[test]
 fn input_may_be_split_between_any_two_bytes() {
-    let document =
-        " {\"k\\u00e9\\ud83d\\ude00\\\\\":[-1.25e+10,0,true,false,null,\"\u{e9}\u{20ac}\u{1f600}\\n\",{}],\"\":[[]]} ";
+    let document = " {\"k\\u00e9\\ud83d\\ude00\\\\\":[-1.25e+10,0,true,false,null,\"\u{e9}\u{20ac}\u{1f600}\\n\",{}],\"\":[[]]} ";
     native(
         &format!(
             r#"

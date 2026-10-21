@@ -46,7 +46,9 @@ fn one_shot_constraints_do_not_silence_move_checking() {
 
 #[test]
 fn consuming_constraint_contextualizes_generic_function_values() {
-    let output = run("def identity[T](value: T) -> T:\n    value\ndef run[F: OnceCallable[[u8], u8]](f: F) -> u8:\n    f(9)\ndef main() -> ():\n    print(run(identity)).unwrap()\n");
+    let output = run(
+        "def identity[T](value: T) -> T:\n    value\ndef run[F: OnceCallable[[u8], u8]](f: F) -> u8:\n    f(9)\ndef main() -> ():\n    print(run(identity)).unwrap()\n",
+    );
     assert!(
         output.status.success(),
         "{}",

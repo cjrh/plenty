@@ -243,11 +243,9 @@ pub(crate) fn read_remaining(
     reader: &mut impl Read,
     skip_lf: &mut bool,
 ) -> Result<*mut strings::Text, Error> {
-    if *skip_lf {
-        if let Some(first) = next_byte(reader, skip_lf)? {
-            // The one-byte prefix lives on the stack; the rest still uses bulk reads.
-            return read_all(&mut std::io::Cursor::new([first]).chain(reader));
-        }
+    if *skip_lf && let Some(first) = next_byte(reader, skip_lf)? {
+        // The one-byte prefix lives on the stack; the rest still uses bulk reads.
+        return read_all(&mut std::io::Cursor::new([first]).chain(reader));
     }
     read_all(reader)
 }
@@ -386,7 +384,7 @@ pub(crate) fn input() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{plenty_release, Header};
+    use crate::memory::{Header, plenty_release};
     #[test]
     fn bounded_reads_validate_scalars_and_preserve_exact_cursor_positions() {
         let mut reader = std::io::Cursor::new("é🦀\r\nz".as_bytes());

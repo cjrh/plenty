@@ -36,7 +36,8 @@ print(str.repr(build()).unwrap()).unwrap()
 
 #[test]
 fn invalid_capacities_are_recoverable_and_errors_are_nominal() {
-    native(r#"
+    native(
+        r#"
 type MemoryError = AllocError
 def reserve(values: &mut list[i64], count: i64) -> Result[(), MemoryError]:
     values.reserve(count)?
@@ -52,7 +53,9 @@ match error:
         print("oom").unwrap()
     case AllocError.CapacityOverflow:
         print("capacity").unwrap()
-"#, "Result[(), AllocError].Err(AllocError.CapacityOverflow)\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\n[1, 2]\nTrue\ncapacity");
+"#,
+        "Result[(), AllocError].Err(AllocError.CapacityOverflow)\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\n[1, 2]\nTrue\ncapacity",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -94,7 +97,14 @@ print(len(values)).unwrap()
             "Err(AllocError.OutOfMemory)"
         };
         let final_len = if success && kind == "list" { 10 } else { 9 };
-        native(&source, &format!("Result[(), AllocError].{result}\n{}\nTrue\nTrue\n{}\nResult[(), AllocError].Ok(())\n{final_len}", if success {9} else {8}, if success {"True"} else {"False"}));
+        native(
+            &source,
+            &format!(
+                "Result[(), AllocError].{result}\n{}\nTrue\nTrue\n{}\nResult[(), AllocError].Ok(())\n{final_len}",
+                if success { 9 } else { 8 },
+                if success { "True" } else { "False" }
+            ),
+        );
     }
 }
 
@@ -133,7 +143,8 @@ print(str.repr(values.reserve(100)).unwrap()).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn reserved_storage_duplicate_keys_and_error_values_need_no_allocation() {
-    native(r#"
+    native(
+        r#"
 def work(values: &mut list[i64], seen: &mut set[str], mapping: &mut dict[str, i64], numbers: &mut set[i64], counts: &mut dict[i64, i64]) -> Result[(), AllocError]:
     values.reserve(0)?
     seen.add("existing")?
@@ -166,7 +177,9 @@ print(len(values)).unwrap()
 print(mapping["existing"]).unwrap()
 print(len(numbers)).unwrap()
 print(counts[31]).unwrap()
-"#, "Result[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nTrue\n32\n99\n32\n31");
+"#,
+        "Result[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nTrue\n32\n99\n32\n31",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

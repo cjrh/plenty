@@ -15,20 +15,20 @@
 //! rustls allocates through Rust's global allocator, which stops the process
 //! when memory runs out; only this module's own objects report allocation
 //! failure as a value.
-use super::byte_storage::{range, Storage};
+use super::byte_storage::{Storage, range};
 use super::wrap;
 use crate::memory::{self, AllocError, Header};
 use crate::strings::{self, Text};
-use rustls::client::{verify_server_name, WebPkiServerVerifier};
-use rustls::crypto::ring::ALL_CIPHER_SUITES;
+use rustls::client::{WebPkiServerVerifier, verify_server_name};
 use rustls::crypto::CryptoProvider;
+use rustls::crypto::ring::ALL_CIPHER_SUITES;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName};
 use rustls::server::{ClientHello, ParsedCertificate, ResolvesServerCert, WebPkiClientVerifier};
 use rustls::sign::{CertifiedKey, SingleCertAndKey};
 use rustls::{
-    version, CertificateError, ClientConfig, Connection, Error, ProtocolVersion, RootCertStore,
-    ServerConfig, SupportedCipherSuite, SupportedProtocolVersion,
+    CertificateError, ClientConfig, Connection, Error, ProtocolVersion, RootCertStore,
+    ServerConfig, SupportedCipherSuite, SupportedProtocolVersion, version,
 };
 use std::io::{ErrorKind, Read, Write};
 use std::ptr;

@@ -7,13 +7,18 @@
 
 /// Start recording when `PLENTY_PROFILE` is set. The report is written when
 /// the returned guard is dropped: to stdout, or to `HOTPATH_OUTPUT_PATH`.
-pub fn start() -> Option<hotpath::HotpathGuard> {
+///
+/// # Safety
+/// Call before starting threads: enabling profiling may set an environment
+/// variable, which must not race with other threads reading the environment.
+pub unsafe fn start() -> Option<hotpath::HotpathGuard> {
     std::env::var_os("PLENTY_PROFILE")?;
     // hotpath serves live metrics over HTTP on port 6770 by default; a
     // compiler run has no use for a listening socket. Called before any
     // thread starts, so setting the variable races nothing.
     if std::env::var_os("HOTPATH_METRICS_SERVER_OFF").is_none() {
-        std::env::set_var("HOTPATH_METRICS_SERVER_OFF", "true");
+        // SAFETY: the caller guarantees single-threaded startup.
+        unsafe { std::env::set_var("HOTPATH_METRICS_SERVER_OFF", "true") };
     }
     Some(
         hotpath::HotpathGuardBuilder::new("main")

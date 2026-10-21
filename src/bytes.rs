@@ -135,32 +135,32 @@ impl BytesOp {
             Self::Fill => return (vec![storage(), Ty::I64, Ty::I64, Ty::U8], Ty::Unit),
             Self::WriteFloat => return (vec![storage(), Ty::F64], Ty::I64),
             Self::WriteFloatSpec => {
-                return (vec![storage(), Ty::F64, Ty::I64, Ty::I64, Ty::I64], Ty::I64)
+                return (vec![storage(), Ty::F64, Ty::I64, Ty::I64, Ty::I64], Ty::I64);
             }
             Self::Overwrite => {
                 return (
                     vec![storage(), Ty::I64, storage(), Ty::I64, Ty::I64],
                     Ty::Unit,
-                )
+                );
             }
             // Find returns a found index, or -1 for none; Count returns the number of
             // matching bytes.
             Self::Find | Self::Count => {
-                return (vec![storage(), Ty::U8, Ty::I64, Ty::I64], Ty::I64)
+                return (vec![storage(), Ty::U8, Ty::I64, Ty::I64], Ty::I64);
             }
             // The last operand selects members (1) or non-members (0).
             Self::FindIn => {
                 return (
                     vec![storage(), storage(), Ty::I64, Ty::I64, Ty::U8],
                     Ty::I64,
-                )
+                );
             }
             Self::FindBytes => return (vec![storage(), storage(), Ty::I64, Ty::I64], Ty::I64),
             Self::Matches => {
                 return (
                     vec![storage(), Ty::I64, storage(), Ty::I64, Ty::I64],
                     Ty::Bool,
-                )
+                );
             }
             Self::MatchesText => return (vec![storage(), Ty::I64, Ty::Str], Ty::Bool),
             // The last operand selects ASCII (0) or valid UTF-8 (1).

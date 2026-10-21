@@ -151,8 +151,9 @@ fn list_repetition_names_the_comprehension() {
         ("xs = ys * n", 10),
         ("xs = ys * 3", 10),
     ] {
-        let source =
-            format!("def main() -> Result[(), AllocError | IoError]:\n    n = 3\n    ys = [1, 2]?\n    {body}\n    Ok(())\n");
+        let source = format!(
+            "def main() -> Result[(), AllocError | IoError]:\n    n = 3\n    ys = [1, 2]?\n    {body}\n    Ok(())\n"
+        );
         assert_eq!(
             diagnostic(&source),
             format!("4:{column}: {REPETITION}"),
@@ -193,7 +194,9 @@ fn str_cast_names_str_from() {
         "2:9: only numeric types support cast syntax"
     );
     assert_eq!(
-        output("def main() -> Result[(), AllocError | IoError]:\n    print(str.from(42)?)?\n    Ok(())\n"),
+        output(
+            "def main() -> Result[(), AllocError | IoError]:\n    print(str.from(42)?)?\n    Ok(())\n"
+        ),
         "42\n"
     );
 }
@@ -273,7 +276,9 @@ fn mut_payload_binding_names_the_working_spellings() {
 #[test]
 fn a_binding_that_left_scope_explains_block_scope() {
     let hint = |name: &str| {
-        format!("unknown binding `{name}`; a binding declared inside a block ends with that block; bind `mut {name}` to a value before the block and assign it inside")
+        format!(
+            "unknown binding `{name}`; a binding declared inside a block ends with that block; bind `mut {name}` to a value before the block and assign it inside"
+        )
     };
     for (body, position, name) in [
         (
@@ -281,16 +286,8 @@ fn a_binding_that_left_scope_explains_block_scope() {
             "7:9",
             "y",
         ),
-        (
-            "for i in range(3):\n        y = i\n    z = y",
-            "5:9",
-            "y",
-        ),
-        (
-            "for i in range(3):\n        pass\n    z = i",
-            "5:9",
-            "i",
-        ),
+        ("for i in range(3):\n        y = i\n    z = y", "5:9", "y"),
+        ("for i in range(3):\n        pass\n    z = i", "5:9", "i"),
         (
             "while c:\n        y = 1\n        break\n    z = &y",
             "6:10",

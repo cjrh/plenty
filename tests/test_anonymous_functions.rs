@@ -54,10 +54,22 @@ def main() -> Result[(), IoError]:
 #[test]
 fn anonymous_functions_reject_implicit_capture_and_missing_types() {
     for (source, diagnostic) in [
-        ("def main() -> ():\n    value = 1\n    f = def() -> i64:\n        value\n    pass", "cannot capture `value`"),
-        ("def top(x: i64) -> i64:\n    x\ndef main() -> ():\n    top = 1\n    f = def(x: i64) -> i64:\n        top(x)\n    pass", "cannot capture `top`"),
-        ("def main() -> ():\n    f = def(value) -> i64:\n        value\n    pass", "expected `:`"),
-        ("def main() -> ():\n    f = def(value: i64):\n        value\n    pass", "expected `->`"),
+        (
+            "def main() -> ():\n    value = 1\n    f = def() -> i64:\n        value\n    pass",
+            "cannot capture `value`",
+        ),
+        (
+            "def top(x: i64) -> i64:\n    x\ndef main() -> ():\n    top = 1\n    f = def(x: i64) -> i64:\n        top(x)\n    pass",
+            "cannot capture `top`",
+        ),
+        (
+            "def main() -> ():\n    f = def(value) -> i64:\n        value\n    pass",
+            "expected `:`",
+        ),
+        (
+            "def main() -> ():\n    f = def(value: i64):\n        value\n    pass",
+            "expected `->`",
+        ),
     ] {
         let error = check_source(source).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "{error}");
@@ -347,7 +359,9 @@ fn the_body_form_follows_the_position() {
     assert!(error.contains("expected a newline after `:`"), "{error}");
     // Parentheses are brackets: the one-expression form can be bound.
     assert_eq!(
-        output("def main() -> Result[(), IoError]:\n    f = (def(x: i64) -> i64: x * 2)\n    print(f(4))?\n    Ok(())\n"),
+        output(
+            "def main() -> Result[(), IoError]:\n    f = (def(x: i64) -> i64: x * 2)\n    print(f(4))?\n    Ok(())\n"
+        ),
         "8\n"
     );
 }

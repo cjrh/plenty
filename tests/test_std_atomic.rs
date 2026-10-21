@@ -179,8 +179,14 @@ print(a.into_inner())?
 #[test]
 fn fetch_add_and_fetch_sub_trap_on_overflow() {
     for (body, line) in [
-        ("a = Atomic[u8](250)\nprint(a.fetch_add(5, Ordering.Relaxed))?\nprint(a.fetch_add(1, Ordering.Relaxed))?", 6),
-        ("a = Atomic[i16](-32767)\nprint(a.fetch_sub(1, Ordering.Relaxed))?\nprint(a.fetch_sub(1, Ordering.Relaxed))?", 6),
+        (
+            "a = Atomic[u8](250)\nprint(a.fetch_add(5, Ordering.Relaxed))?\nprint(a.fetch_add(1, Ordering.Relaxed))?",
+            6,
+        ),
+        (
+            "a = Atomic[i16](-32767)\nprint(a.fetch_sub(1, Ordering.Relaxed))?\nprint(a.fetch_sub(1, Ordering.Relaxed))?",
+            6,
+        ),
         ("a = Atomic[u64](0)\na.fetch_sub(1, Ordering.SeqCst)", 5),
     ] {
         let source = program(body);
@@ -461,18 +467,51 @@ fn names_resolve_only_through_an_import() {
 #[test]
 fn invalid_orderings_are_compile_errors() {
     for (call, message) in [
-        ("a.load(Ordering.Release)", "load does not accept Ordering.Release; use Ordering.Relaxed, Ordering.Acquire, or Ordering.SeqCst"),
-        ("a.load(Ordering.AcqRel)", "load does not accept Ordering.AcqRel"),
-        ("a.store(1, Ordering.Acquire)", "store does not accept Ordering.Acquire; use Ordering.Relaxed, Ordering.Release, or Ordering.SeqCst"),
-        ("a.store(1, Ordering.AcqRel)", "store does not accept Ordering.AcqRel"),
-        ("a.compare_exchange(0, 1, Ordering.SeqCst, Ordering.Release)", "compare_exchange failure ordering does not accept Ordering.Release"),
-        ("a.compare_exchange(0, 1, Ordering.Relaxed, Ordering.AcqRel)", "compare_exchange failure ordering does not accept Ordering.AcqRel"),
-        ("fence(Ordering.Relaxed)", "fence does not accept Ordering.Relaxed; use Ordering.Release, Ordering.Acquire, Ordering.AcqRel, or Ordering.SeqCst"),
-        ("a.load(Ordering.Strict)", "Ordering has no variant `Strict`"),
-        ("order = Ordering.Relaxed\na.load(order)", "load requires its ordering written as `Ordering.<variant>`"),
-        ("a.fetch_add(1, (Ordering.Relaxed if True else Ordering.SeqCst))", "fetch_add requires its ordering written"),
+        (
+            "a.load(Ordering.Release)",
+            "load does not accept Ordering.Release; use Ordering.Relaxed, Ordering.Acquire, or Ordering.SeqCst",
+        ),
+        (
+            "a.load(Ordering.AcqRel)",
+            "load does not accept Ordering.AcqRel",
+        ),
+        (
+            "a.store(1, Ordering.Acquire)",
+            "store does not accept Ordering.Acquire; use Ordering.Relaxed, Ordering.Release, or Ordering.SeqCst",
+        ),
+        (
+            "a.store(1, Ordering.AcqRel)",
+            "store does not accept Ordering.AcqRel",
+        ),
+        (
+            "a.compare_exchange(0, 1, Ordering.SeqCst, Ordering.Release)",
+            "compare_exchange failure ordering does not accept Ordering.Release",
+        ),
+        (
+            "a.compare_exchange(0, 1, Ordering.Relaxed, Ordering.AcqRel)",
+            "compare_exchange failure ordering does not accept Ordering.AcqRel",
+        ),
+        (
+            "fence(Ordering.Relaxed)",
+            "fence does not accept Ordering.Relaxed; use Ordering.Release, Ordering.Acquire, Ordering.AcqRel, or Ordering.SeqCst",
+        ),
+        (
+            "a.load(Ordering.Strict)",
+            "Ordering has no variant `Strict`",
+        ),
+        (
+            "order = Ordering.Relaxed\na.load(order)",
+            "load requires its ordering written as `Ordering.<variant>`",
+        ),
+        (
+            "a.fetch_add(1, (Ordering.Relaxed if True else Ordering.SeqCst))",
+            "fetch_add requires its ordering written",
+        ),
         ("a.load()", "load takes an Ordering"),
-        ("a.compare_exchange(0, 1, Ordering.SeqCst)", "compare_exchange takes current and new values and success and failure Orderings"),
+        (
+            "a.compare_exchange(0, 1, Ordering.SeqCst)",
+            "compare_exchange takes current and new values and success and failure Orderings",
+        ),
     ] {
         rejects(&format!("a = Atomic[u64](0)\n{call}"), message);
     }

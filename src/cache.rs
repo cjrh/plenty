@@ -26,8 +26,8 @@ use std::cell::Cell;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use cranelift_codegen::incremental_cache::CacheKvStore;
@@ -36,7 +36,7 @@ use sha2::{Digest, Sha256};
 mod compiled;
 mod program;
 pub(crate) use compiled::MachineCode;
-pub(crate) use program::{compiler_identity, Lookup, ProgramKey};
+pub(crate) use program::{Lookup, ProgramKey, compiler_identity};
 
 /// Where the compiled-function cache lives, if anywhere.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

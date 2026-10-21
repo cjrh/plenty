@@ -18,7 +18,8 @@ fn native(source: &str, expected: &str) {
 
 #[test]
 fn integer_parsing_is_typed_and_propagates() {
-    native(r#"
+    native(
+        r#"
 type Count = u8
 def number(text: &str) -> Result[u8, ParseError]:
     Ok(Count.parse(text)?)
@@ -32,13 +33,16 @@ print(str.repr(i16.parse("+42")).unwrap()).unwrap()
 print(str.repr(i32.parse("-42")).unwrap()).unwrap()
 print(str.repr(u16.parse("65535")).unwrap()).unwrap()
 print(str.repr(u32.parse("4294967295")).unwrap()).unwrap()
-"#, "Result[u8, ParseError].Ok(255)\nResult[i8, ParseError].Ok(-128)\nResult[u64, ParseError].Ok(18446744073709551615)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[i64, ParseError].Err(ParseError.Invalid)\nResult[i16, ParseError].Ok(42)\nResult[i32, ParseError].Ok(-42)\nResult[u16, ParseError].Ok(65535)\nResult[u32, ParseError].Ok(4294967295)");
+"#,
+        "Result[u8, ParseError].Ok(255)\nResult[i8, ParseError].Ok(-128)\nResult[u64, ParseError].Ok(18446744073709551615)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[i64, ParseError].Err(ParseError.Invalid)\nResult[i16, ParseError].Ok(42)\nResult[i32, ParseError].Ok(-42)\nResult[u16, ParseError].Ok(65535)\nResult[u32, ParseError].Ok(4294967295)",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn parsing_and_errors_allocate_nothing() {
-    native(r#"
+    native(
+        r#"
 print("__test_fail_allocations_after_0__").unwrap()
 a = i64.parse("42")
 b = u8.parse("999")
@@ -47,13 +51,16 @@ print("__test_restore_allocations__").unwrap()
 print(str.repr(a).unwrap()).unwrap()
 print(str.repr(b).unwrap()).unwrap()
 print(str.repr(c).unwrap()).unwrap()
-"#, "Result[i64, ParseError].Ok(42)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[i32, ParseError].Err(ParseError.Invalid)");
+"#,
+        "Result[i64, ParseError].Ok(42)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[i32, ParseError].Err(ParseError.Invalid)",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn checked_conversions_allocate_nothing() {
-    native(r#"
+    native(
+        r#"
 wide = 300
 print("__test_fail_allocations_after_0__").unwrap()
 a = u8.try_from(wide)
@@ -63,7 +70,9 @@ print("__test_restore_allocations__").unwrap()
 print(str.repr(a).unwrap()).unwrap()
 print(str.repr(b).unwrap()).unwrap()
 print(str.repr(c).unwrap()).unwrap()
-"#, "Result[u8, RangeError].Err(RangeError.OutOfRange)\nResult[i16, RangeError].Ok(300)\nResult[i64, RangeError].Err(RangeError.OutOfRange)");
+"#,
+        "Result[u8, RangeError].Err(RangeError.OutOfRange)\nResult[i16, RangeError].Ok(300)\nResult[i64, RangeError].Err(RangeError.OutOfRange)",
+    );
 }
 
 #[test]
@@ -75,7 +84,8 @@ fn parsing_checks_arity_and_type() {
 
 #[test]
 fn scalar_formatting_and_round_trip() {
-    native(r#"
+    native(
+        r#"
 def render(n: f32) -> Result[str, AllocError]:
     str.from(n)
 print(str.repr(str.from(-128i8)).unwrap()).unwrap()
@@ -83,7 +93,9 @@ print(str.repr(str.from(18446744073709551615u64)).unwrap()).unwrap()
 print(str.repr(render(-0.0f32)).unwrap()).unwrap()
 print(str.repr(str.from(True)).unwrap()).unwrap()
 print(str.repr(str.from(False)).unwrap()).unwrap()
-"#, "Result[str, AllocError].Ok(\"-128\")\nResult[str, AllocError].Ok(\"18446744073709551615\")\nResult[str, AllocError].Ok(\"-0.0\")\nResult[str, AllocError].Ok(\"True\")\nResult[str, AllocError].Ok(\"False\")");
+"#,
+        "Result[str, AllocError].Ok(\"-128\")\nResult[str, AllocError].Ok(\"18446744073709551615\")\nResult[str, AllocError].Ok(\"-0.0\")\nResult[str, AllocError].Ok(\"True\")\nResult[str, AllocError].Ok(\"False\")",
+    );
     for source in ["str.from()", "str.from([].unwrap())", "str.from(\"x\")"] {
         assert!(support::check_source(source).is_err());
     }
@@ -113,20 +125,24 @@ print(str.repr(a).unwrap()).unwrap()
 
 #[test]
 fn float_parsing_preserves_width_and_reports_overflow() {
-    native(r#"
+    native(
+        r#"
 print(str.repr(f32.parse(" .125 ")).unwrap()).unwrap()
 print(str.repr(f64.parse("-0.0")).unwrap()).unwrap()
 print(str.repr(f32.parse("1e100")).unwrap()).unwrap()
 print(str.repr(f64.parse("1e-1000")).unwrap()).unwrap()
 print(str.repr(f64.parse("inf")).unwrap()).unwrap()
 print(str.repr(f32.parse("bad")).unwrap()).unwrap()
-"#, "Result[f32, ParseError].Ok(0.125)\nResult[f64, ParseError].Ok(-0.0)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\nResult[f64, ParseError].Ok(0.0)\nResult[f64, ParseError].Ok(inf)\nResult[f32, ParseError].Err(ParseError.Invalid)");
+"#,
+        "Result[f32, ParseError].Ok(0.125)\nResult[f64, ParseError].Ok(-0.0)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\nResult[f64, ParseError].Ok(0.0)\nResult[f64, ParseError].Ok(inf)\nResult[f32, ParseError].Err(ParseError.Invalid)",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn float_parsing_is_allocation_free() {
-    native(r#"
+    native(
+        r#"
 print("__test_fail_allocations_after_0__").unwrap()
 a = f64.parse("3.14159265358979323846264338327950288419716939937510")
 b = f32.parse("1e100")
@@ -135,5 +151,7 @@ print("__test_restore_allocations__").unwrap()
 print(str.repr(a).unwrap()).unwrap()
 print(str.repr(b).unwrap()).unwrap()
 print(str.repr(c).unwrap()).unwrap()
-"#, "Result[f64, ParseError].Ok(3.141592653589793)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\nResult[f64, ParseError].Err(ParseError.Invalid)");
+"#,
+        "Result[f64, ParseError].Ok(3.141592653589793)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\nResult[f64, ParseError].Err(ParseError.Invalid)",
+    );
 }

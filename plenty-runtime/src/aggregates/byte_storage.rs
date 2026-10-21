@@ -2,7 +2,7 @@
 //! buffer acquisition fallible. `std.bytes` validates ranges and reports them as
 //! values; a violated precondition here is a library bug and stops the process.
 //! No pointer into the buffer crosses the ABI, so growth can relocate freely.
-use super::{byte_scan, wrap, Collection, OwnedValue, Type};
+use super::{Collection, OwnedValue, Type, byte_scan, wrap};
 use crate::memory::{self, AllocError, Header};
 use crate::strings;
 use crate::text_io;

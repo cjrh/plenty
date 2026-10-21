@@ -1101,12 +1101,12 @@ impl Scope {
         if let Some(symbol) = self.imported.get(path) {
             return Ok(Some(symbol.clone()));
         }
-        if let Some((prefix, member)) = path.rsplit_once('.') {
-            if let Some(exports) = self.namespaces.get(prefix) {
-                return exports.get(member).cloned().map(Some).ok_or_else(|| {
-                    at.error(format!("`{path}` is private or is not a declared export"))
-                });
-            }
+        if let Some((prefix, member)) = path.rsplit_once('.')
+            && let Some(exports) = self.namespaces.get(prefix)
+        {
+            return exports.get(member).cloned().map(Some).ok_or_else(|| {
+                at.error(format!("`{path}` is private or is not a declared export"))
+            });
         }
         Ok(None)
     }
@@ -1381,12 +1381,13 @@ impl Scope {
                 "anonymous functions cannot capture `{name}`; pass it as a parameter"
             )));
         }
-        if let Expression::Name(name) | Expression::Call(name, _) = &e.kind {
-            if self.type_params.contains(name) && locals.contains_key(name) {
-                return Err(e
-                    .at
-                    .error("a type parameter name cannot also name a value binding"));
-            }
+        if let Expression::Name(name) | Expression::Call(name, _) = &e.kind
+            && self.type_params.contains(name)
+            && locals.contains_key(name)
+        {
+            return Err(e
+                .at
+                .error("a type parameter name cannot also name a value binding"));
         }
         // Brackets on a local always index it. These had no index reading.
         if let Expression::GenericCall(name, types, _) | Expression::GenericValue(name, types) =
@@ -1419,50 +1420,46 @@ impl Scope {
         };
         if let Some(candidate) =
             candidate.filter(|p| !locals.contains_key(p.split('.').next().unwrap()))
+            && let Some(symbol) = self.symbol(&candidate, &e.at)?
         {
-            if let Some(symbol) = self.symbol(&candidate, &e.at)? {
-                let member = match &e.kind {
-                    Expression::Member(_, name, pos) | Expression::Method(_, name, _, pos) => {
-                        Some((name.as_str(), *pos))
-                    }
-                    Expression::GenericMethod(_, name, _, _, pos) => Some((&**name, *pos)),
-                    _ => None,
-                };
-                if let Some((name, pos)) = member.filter(|_| super::ide::active()) {
-                    let target = self.constants.get(&symbol).unwrap_or(&symbol);
-                    super::ide::refer_member(&e.at, pos, name, super::ide::global(target));
+            let member = match &e.kind {
+                Expression::Member(_, name, pos) | Expression::Method(_, name, _, pos) => {
+                    Some((name.as_str(), *pos))
                 }
-                if let Some(getter) = self.constants.get(&symbol) {
-                    if !matches!(e.kind, Expression::Member(..)) {
-                        return Err(e.at.error("a module constant is a value, not a callable"));
-                    }
-                    e.kind = Expression::Call(getter.clone(), vec![]);
-                    return Ok(());
+                Expression::GenericMethod(_, name, _, _, pos) => Some((&**name, *pos)),
+                _ => None,
+            };
+            if let Some((name, pos)) = member.filter(|_| super::ide::active()) {
+                let target = self.constants.get(&symbol).unwrap_or(&symbol);
+                super::ide::refer_member(&e.at, pos, name, super::ide::global(target));
+            }
+            if let Some(getter) = self.constants.get(&symbol) {
+                if !matches!(e.kind, Expression::Member(..)) {
+                    return Err(e.at.error("a module constant is a value, not a callable"));
                 }
-                e.kind = match &mut e.kind {
-                    Expression::Method(_, _, args, _) => {
-                        Expression::Call(symbol, std::mem::take(args))
-                    }
-                    Expression::GenericMethod(_, _, types, args, _) => {
-                        Expression::GenericCall(symbol, std::mem::take(types), std::mem::take(args))
-                    }
-                    _ => Expression::Name(symbol),
-                };
-                // The resolved name must not pass through local resolution a second time.
-                if let Expression::GenericCall(_, types, _) = &mut e.kind {
-                    for ty in types {
-                        self.ty(ty)?;
-                    }
-                }
-                if let Expression::Call(_, args) | Expression::GenericCall(_, _, args) = &mut e.kind
-                {
-                    for arg in args {
-                        self.expr(arg, locals)?;
-                    }
-                }
-                canonical_facility_expression(e);
+                e.kind = Expression::Call(getter.clone(), vec![]);
                 return Ok(());
             }
+            e.kind = match &mut e.kind {
+                Expression::Method(_, _, args, _) => Expression::Call(symbol, std::mem::take(args)),
+                Expression::GenericMethod(_, _, types, args, _) => {
+                    Expression::GenericCall(symbol, std::mem::take(types), std::mem::take(args))
+                }
+                _ => Expression::Name(symbol),
+            };
+            // The resolved name must not pass through local resolution a second time.
+            if let Expression::GenericCall(_, types, _) = &mut e.kind {
+                for ty in types {
+                    self.ty(ty)?;
+                }
+            }
+            if let Expression::Call(_, args) | Expression::GenericCall(_, _, args) = &mut e.kind {
+                for arg in args {
+                    self.expr(arg, locals)?;
+                }
+            }
+            canonical_facility_expression(e);
+            return Ok(());
         }
         match &mut e.kind {
             Expression::Name(n)
@@ -1502,16 +1499,15 @@ impl Scope {
         | Expression::Call(n, _)
         | Expression::GenericCall(n, _, _)
         | Expression::GenericValue(n, _) = &e.kind
+            && !locals.contains_key(n)
+            && !self.type_params.contains(n)
+            && let Some(getter) = self.constants.get(n)
         {
-            if !locals.contains_key(n) && !self.type_params.contains(n) {
-                if let Some(getter) = self.constants.get(n) {
-                    if !matches!(e.kind, Expression::Name(_)) {
-                        return Err(e.at.error("a module constant is a value, not a callable"));
-                    }
-                    e.kind = Expression::Call(getter.clone(), vec![]);
-                    return Ok(());
-                }
+            if !matches!(e.kind, Expression::Name(_)) {
+                return Err(e.at.error("a module constant is a value, not a callable"));
             }
+            e.kind = Expression::Call(getter.clone(), vec![]);
+            return Ok(());
         }
         match &mut e.kind {
             Expression::GenericMethod(base, _, types, args, _) => {
@@ -1639,21 +1635,21 @@ impl Scope {
 fn canonical_facility_expression(e: &mut Expr) {
     // The parser recognizes the unqualified `channel[T](...)` spelling before
     // imports are known. Give imported spellings the exact same AST afterwards.
-    if let Expression::GenericCall(name, types, args) = &mut e.kind {
-        if name == "channel" {
-            e.kind = Expression::Constructor(
-                Box::new(TypeRef {
-                    at: e.at.clone(),
-                    concrete: None,
-                    name: Some(name.clone()),
-                    args: std::mem::take(types),
-                }),
-                std::mem::take(args),
-            );
-        }
+    if let Expression::GenericCall(name, types, args) = &mut e.kind
+        && name == "channel"
+    {
+        e.kind = Expression::Constructor(
+            Box::new(TypeRef {
+                at: e.at.clone(),
+                concrete: None,
+                name: Some(name.clone()),
+                args: std::mem::take(types),
+            }),
+            std::mem::take(args),
+        );
     }
-    if let Expression::GenericValue(name, types) = &mut e.kind {
-        if matches!(
+    if let Expression::GenericValue(name, types) = &mut e.kind
+        && matches!(
             name.as_str(),
             "SpawnError"
                 | "SendError"
@@ -1664,14 +1660,14 @@ fn canonical_facility_expression(e: &mut Expr) {
                 | "Sender"
                 | "Receiver"
                 | "Future"
-        ) {
-            e.kind = Expression::Type(Box::new(TypeRef {
-                at: e.at.clone(),
-                concrete: None,
-                name: Some(name.clone()),
-                args: std::mem::take(types),
-            }));
-        }
+        )
+    {
+        e.kind = Expression::Type(Box::new(TypeRef {
+            at: e.at.clone(),
+            concrete: None,
+            name: Some(name.clone()),
+            args: std::mem::take(types),
+        }));
     }
 }
 
@@ -2020,27 +2016,28 @@ pub(super) fn check_member_at(
     diagnostic: &Token,
 ) -> Result<()> {
     let class = class.split('[').next().unwrap();
-    if let Some(rule) = access.members.get(&(class.into(), member.into())) {
-        if !rule.public && rule.owner != context.source {
-            if access.types.get(class).is_some_and(|ty| !ty.public) {
-                let kind = if access.enums.contains(class) {
-                    "enum"
-                } else {
-                    "class"
-                };
-                return Err(diagnostic.error(format!(
+    if let Some(rule) = access.members.get(&(class.into(), member.into()))
+        && !rule.public
+        && rule.owner != context.source
+    {
+        if access.types.get(class).is_some_and(|ty| !ty.public) {
+            let kind = if access.enums.contains(class) {
+                "enum"
+            } else {
+                "class"
+            };
+            return Err(diagnostic.error(format!(
                     "{kind} `{class}` is private to its defining module; declare it `pub {kind}` to allow access to its public members from another module, including a generic function defined there"
                 )));
-            }
-            if class == crate::mutex::CLASS {
-                return Err(diagnostic.error(
-                    "a Mutex's fields are private; reach its value with `with mutex.lock() as value:`",
-                ));
-            }
-            return Err(diagnostic.error(format!(
+        }
+        if class == crate::mutex::CLASS {
+            return Err(diagnostic.error(
+                "a Mutex's fields are private; reach its value with `with mutex.lock() as value:`",
+            ));
+        }
+        return Err(diagnostic.error(format!(
                 "`{class}.{member}` is private to its defining module; declare the member public to allow access from another module"
             )));
-        }
     }
     Ok(())
 }
@@ -2118,13 +2115,13 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             Ty::ForeignPtr(name) => Some(name.as_ref()),
             _ => None,
         };
-        if let Some(name) = nominal {
-            if let Some(rule) = access.types.get(name) {
-                if !rule.public {
-                    return Err(at.error(format!("public signature exposes private type `{name}`")));
-                }
-                return Ok(());
+        if let Some(name) = nominal
+            && let Some(rule) = access.types.get(name)
+        {
+            if !rule.public {
+                return Err(at.error(format!("public signature exposes private type `{name}`")));
             }
+            return Ok(());
         }
         match ty {
             Ty::Closure(t) => {

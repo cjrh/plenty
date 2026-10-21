@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::incremental_cache::{
-    serialize_compiled, try_finish_recompile, CacheKvStore,
+    CacheKvStore, serialize_compiled, try_finish_recompile,
 };
 use cranelift_codegen::ir::Function;
 use cranelift_codegen::isa::TargetIsa;
@@ -109,13 +109,13 @@ impl Cache {
         let entry = slot.get_or_init(|| {
             initialized = true;
             let mut store = self.store();
-            if let Some(blob) = store.get(&key) {
-                if let Ok(compiled) = try_finish_recompile(&context.func, &blob) {
-                    let compile_time = store.read.get().unwrap_or_default();
-                    let code = Arc::new(MachineCode::from(&compiled));
-                    store.finish(true);
-                    return Ok(Entry { code, compile_time });
-                }
+            if let Some(blob) = store.get(&key)
+                && let Ok(compiled) = try_finish_recompile(&context.func, &blob)
+            {
+                let compile_time = store.read.get().unwrap_or_default();
+                let code = Arc::new(MachineCode::from(&compiled));
+                store.finish(true);
+                return Ok(Entry { code, compile_time });
             }
             let stencil = context
                 .compile_stencil(isa, &mut ControlPlane::default())
@@ -149,7 +149,7 @@ impl Cache {
 mod tests {
     use super::*;
     use crate::cache::CacheMode;
-    use cranelift_codegen::ir::{types, AbiParam, InstBuilder};
+    use cranelift_codegen::ir::{AbiParam, InstBuilder, types};
     use cranelift_codegen::settings::Configurable;
     use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 

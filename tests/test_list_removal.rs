@@ -22,7 +22,8 @@ fn native(source: &str, expected: &str) {
 
 #[test]
 fn pop_supports_default_positive_negative_and_extreme_indices() {
-    native(r#"
+    native(
+        r#"
 mut items = [10, 20, 30, 40, 50].unwrap()
 print(items.pop()).unwrap()
 print(items.pop(1)).unwrap()
@@ -38,12 +39,15 @@ print(items.pop(0)).unwrap()
 print(items.pop()).unwrap()
 print(items.pop(0)).unwrap()
 print(items).unwrap()
-"#, "Option[i64].Some(50)\nOption[i64].Some(20)\nOption[i64].Some(30)\n[10, 40]\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\n[10, 40]\nOption[i64].Some(10)\nOption[i64].Some(40)\nOption[i64].Nothing\nOption[i64].Nothing\n[]");
+"#,
+        "Option[i64].Some(50)\nOption[i64].Some(20)\nOption[i64].Some(30)\n[10, 40]\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\n[10, 40]\nOption[i64].Some(10)\nOption[i64].Some(40)\nOption[i64].Nothing\nOption[i64].Nothing\n[]",
+    );
 }
 
 #[test]
 fn pop_transfers_nested_values_and_preserves_inline_payloads() {
-    native(r#"
+    native(
+        r#"
 mut rows = [[1].unwrap(), [2].unwrap(), [3].unwrap()].unwrap()
 match rows.pop(1):
     case Some(row):
@@ -63,7 +67,9 @@ mut words = [("é" + "🙂").unwrap()].unwrap()
 word = words.pop()
 drop(words)
 print(word).unwrap()
-"#, "[[1], [3], [2, 4]]\nOption[Option[list[i64]]].Some(Option[list[i64]].Some([42]))\nOption[Option[list[i64]]].Some(Option[list[i64]].Nothing)\nOption[Option[list[i64]]].Nothing\nOption[f32].Some(2.5)\nOption[str].Some(\"é🙂\")");
+"#,
+        "[[1], [3], [2, 4]]\nOption[Option[list[i64]]].Some(Option[list[i64]].Some([42]))\nOption[Option[list[i64]]].Some(Option[list[i64]].Nothing)\nOption[Option[list[i64]]].Nothing\nOption[f32].Some(2.5)\nOption[str].Some(\"é🙂\")",
+    );
 }
 
 #[test]

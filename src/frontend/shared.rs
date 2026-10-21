@@ -6,8 +6,7 @@ use super::*;
 use crate::boxed::BoxOp;
 use crate::hash::HashSet;
 
-pub(super) const EQUALITY: &str =
-    "values containing Shared owners do not support equality; compare values read through the handles";
+pub(super) const EQUALITY: &str = "values containing Shared owners do not support equality; compare values read through the handles";
 pub(super) const FORMAT: &str =
     "Shared owners cannot be formatted; format values read through the handle";
 pub(super) const MUTATION: &str = "a Shared owner gives shared access only; mutate its content through an Atomic or a Mutex inside it";
