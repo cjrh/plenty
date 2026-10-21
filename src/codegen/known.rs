@@ -12,7 +12,7 @@
 //! Only guards proven false disappear; a guard that is possibly or always true
 //! keeps its trap and diagnostic.
 use cranelift_codegen::ir::{
-    DataFlowGraph, Function, InstructionData, Opcode, Value, ValueDef, condcodes::IntCC,
+    DataFlowGraph, Function, InstructionData, Opcode, Value, ValueDef, condcodes::IntCC, types,
 };
 
 /// Replaces each `brif` whose condition is known with a `jump` to the target
@@ -56,6 +56,17 @@ pub(super) fn known_int_given(
 
 /// The value of an `f32const` or `f64const`, widened to `f64` (exactly).
 pub(super) fn known_float(dfg: &DataFlowGraph, value: Value) -> Option<f64> {
+    let bits = known_float_bits(dfg, value)?;
+    Some(if dfg.value_type(value) == types::F32 {
+        f64::from(f32::from_bits(bits as u32))
+    } else {
+        f64::from_bits(bits)
+    })
+}
+
+/// The bits of an `f32const` or `f64const`, zero-extended to 64. Unlike
+/// [`known_float`], an `f32` NaN keeps its exact payload.
+pub(super) fn known_float_bits(dfg: &DataFlowGraph, value: Value) -> Option<u64> {
     let ValueDef::Result(inst, _) = dfg.value_def(dfg.resolve_aliases(value)) else {
         return None;
     };
@@ -63,11 +74,11 @@ pub(super) fn known_float(dfg: &DataFlowGraph, value: Value) -> Option<f64> {
         InstructionData::UnaryIeee64 {
             opcode: Opcode::F64const,
             imm,
-        } => Some(f64::from_bits(imm.bits())),
+        } => Some(imm.bits()),
         InstructionData::UnaryIeee32 {
             opcode: Opcode::F32const,
             imm,
-        } => Some(f64::from(f32::from_bits(imm.bits()))),
+        } => Some(u64::from(imm.bits())),
         _ => None,
     }
 }
@@ -216,6 +227,27 @@ mod tests {
         let unknown = builder.block_params(block)[0];
         let value = body(&mut builder, unknown);
         known_int(&builder.func.dfg, value)
+    }
+
+    /// A signaling `f32` NaN with a payload keeps its exact bits, which
+    /// widening to `f64` does not promise.
+    #[test]
+    fn float_constant_bits_are_exact() {
+        use cranelift_codegen::ir::immediates::{Ieee32, Ieee64};
+        let mut func = Function::new();
+        let mut context = FunctionBuilderContext::new();
+        let mut b = FunctionBuilder::new(&mut func, &mut context);
+        let block = b.create_block();
+        b.append_block_param(block, types::F64);
+        b.switch_to_block(block);
+        let narrow = b.ins().f32const(Ieee32::with_bits(0xff80_0001));
+        let wide = b.ins().f64const(Ieee64::with_bits(0x8000_0000_0000_0001));
+        let unknown = b.block_params(block)[0];
+        let dfg = &b.func.dfg;
+        assert_eq!(known_float_bits(dfg, narrow), Some(0xff80_0001));
+        assert_eq!(known_float_bits(dfg, wide), Some(0x8000_0000_0000_0001));
+        assert_eq!(known_float_bits(dfg, unknown), None);
+        assert_eq!(known_float(dfg, wide), Some(-5e-324));
     }
 
     #[test]
