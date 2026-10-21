@@ -3924,7 +3924,13 @@ impl Lower<'_> {
                         }
                         let source = self.value(&args[0], ops)?;
                         if !source.is_numeric() {
-                            return Err(e.at.error("numeric casts require a number"));
+                            return Err(casts::operand_error(
+                                "numeric casts require a number",
+                                &source,
+                                Ty::is_numeric,
+                                &args[0],
+                                &e.at,
+                            ));
                         }
                         self.checked_cast(&source, &target, &args[0], &e.at, ops)?;
                         Some(target)

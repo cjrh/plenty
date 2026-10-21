@@ -41,6 +41,12 @@ returns a `Result` instead of stopping the program.
 [`T.wrapping_from(value)`](../../facilities/01-builtins/numbers.md#wrapping-conversion)
 keeps the low bits and never fails.
 
+All three conversions take a number, not a reference. Borrowed iteration such
+as `for b in &buffer` yields `&u8`, so `i64(b)` is a compile-time error that
+names the fix: ``numeric casts require a number, not a reference; read it with
+`*b` ``. A borrow written in the operand, as in `i64(&n)`, is reported with
+``remove the `&` `` instead.
+
 Unary minus requires a signed integer or a float; an unsigned operand is a
 compile-time error, including a sign directly before a literal. Both `-3u8`
 and `-0u8` report unsigned negation, as does `value: u8 = -0` when the literal

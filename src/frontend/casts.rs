@@ -90,9 +90,44 @@ impl Lower<'_> {
         }
         let source = self.value(&args[0], ops)?;
         if !source.is_int() {
-            return Err(args[0].at.error("wrapping_from requires an integer value"));
+            return Err(operand_error(
+                "wrapping_from requires an integer value",
+                &source,
+                Ty::is_int,
+                &args[0],
+                &args[0].at,
+            ));
         }
         ops.push(Op::Cast(ty.clone()));
         Ok(ty)
+    }
+}
+
+/// The diagnostic for a conversion operand that `accepts` rejects. Borrowed
+/// iteration yields references (`for byte in &buffer` gives `&u8`), so a
+/// reference to an accepted value names the missing `*`.
+pub(super) fn operand_error(
+    message: &str,
+    source: &Ty,
+    accepts: fn(&Ty) -> bool,
+    operand: &Expr,
+    at: &Token,
+) -> Box<dyn Error> {
+    match source {
+        Ty::Ref(target, _) if accepts(target) => {
+            let mut operand = operand;
+            while let Expression::Group(inner) = &operand.kind {
+                operand = inner;
+            }
+            let read = match &operand.kind {
+                Expression::Name(name) => format!("read it with `*{name}`"),
+                Expression::Unary(op, _) if op == "&" || op == "&mut" => {
+                    format!("remove the `{op}`")
+                }
+                _ => "read the value with `*`".to_string(),
+            };
+            at.error(format!("{message}, not a reference; {read}"))
+        }
+        _ => at.error(message),
     }
 }

@@ -386,3 +386,90 @@ fn wrapping_conversions_cover_every_width_and_signedness() {
 fn wrapping_conversions_reject_other_types(#[case] source: &str, #[case] expected: &str) {
     assert_rejected(source, expected);
 }
+
+/// A reference to a number is the usual non-number operand: borrowed
+/// iteration yields `&u8`. The diagnostic names the missing `*`.
+#[rstest]
+#[case("i8", "-5i8")]
+#[case("i16", "5i16")]
+#[case("i32", "5i32")]
+#[case("i64", "5")]
+#[case("u8", "5u8")]
+#[case("u16", "5u16")]
+#[case("u32", "5u32")]
+#[case("u64", "5u64")]
+#[case("f32", "5.0f32")]
+#[case("f64", "5.0")]
+fn casting_a_numeric_reference_suggests_reading_it(#[case] ty: &str, #[case] value: &str) {
+    let expected = "numeric casts require a number, not a reference; read it with `*r`";
+    assert_rejected(&format!("x: {ty} = {value}\nr = &x\ny = i64(r)"), expected);
+    assert_rejected(
+        &format!("mut x: {ty} = {value}\nr = &mut x\ny = f64(r)"),
+        expected,
+    );
+}
+
+#[rstest]
+#[case(
+    "x = 5u8\ny = i64(&x)",
+    "numeric casts require a number, not a reference; remove the `&`"
+)]
+#[case(
+    "mut x = 5u8\ny = i64(&mut x)",
+    "numeric casts require a number, not a reference; remove the `&mut`"
+)]
+#[case(
+    "x = 5u8\nr = &x\ny = i64(r if True else r)",
+    "numeric casts require a number, not a reference; read the value with `*`"
+)]
+#[case(
+    "x = 5u8\nr = &x\ny = u16.try_from(r)",
+    "try_from requires an integer value, not a reference; read it with `*r`"
+)]
+#[case(
+    "x = 5u8\nr = &x\ny = u16.wrapping_from(r)",
+    "wrapping_from requires an integer value, not a reference; read it with `*r`"
+)]
+#[case(
+    "x = 5u8\nr = &x\ny = i64((r))",
+    "numeric casts require a number, not a reference; read it with `*r`"
+)]
+#[case("x = 5u8\nr = &x\ny = i64(*r)", "")]
+fn reference_operands_name_the_fix(#[case] source: &str, #[case] expected: &str) {
+    if expected.is_empty() {
+        support::check_source(source).unwrap();
+    } else {
+        assert_rejected(source, expected);
+    }
+}
+
+/// Without a numeric referent the operand is simply not a number.
+#[rstest]
+#[case("s = \"a\"\nr = &s\ny = i64(r)", "numeric casts require a number")]
+#[case("b = True\nr = &b\ny = i64(r)", "numeric casts require a number")]
+#[case(
+    "x = 1.5\nr = &x\ny = u8.try_from(r)",
+    "try_from requires an integer value"
+)]
+#[case(
+    "x = 1.5\nr = &x\ny = u8.wrapping_from(r)",
+    "wrapping_from requires an integer value"
+)]
+fn non_numeric_reference_operands_keep_the_plain_message(
+    #[case] source: &str,
+    #[case] expected: &str,
+) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.ends_with(expected), "{source}\n{error}");
+}
+
+#[test]
+fn casting_a_borrowed_byte_suggests_reading_it() {
+    let error = support::check_file_error(
+        "import std.bytes\n\ndef main() -> Result[(), AllocError | std.bytes.BytesError]:\n    buffer = std.bytes.from_text(\"ab\")?\n    for b in &buffer:\n        n = i64(b)\n    Ok(())\n",
+    );
+    assert!(
+        error.ends_with("6:13: numeric casts require a number, not a reference; read it with `*b`"),
+        "{error}"
+    );
+}
