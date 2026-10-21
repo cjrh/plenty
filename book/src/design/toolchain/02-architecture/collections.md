@@ -73,6 +73,18 @@ the reference. A query of an owned local or full-expression temporary reads the
 value in its slot: codegen removes the retain the load added and skips the
 matching release, since nothing runs between the load and the helper call.
 
+`startswith`, `endswith`, `find`, `rfind`, and `count` call
+`plenty_text_starts_with` and its siblings with both texts in registers;
+`plenty_text_find` and `plenty_text_rfind` return `u64::MAX` for no match, and
+codegen builds the `Option` inline. These searches, `in`, `==`, `<`, and the
+dispatcher operations whose operands are all texts or scalars (`replace`,
+`upper`, string concatenation, and so on) read in place each text operand that
+its source still holds: a copy loaded from a local or read through a
+reference, or a string literal. Codegen tracks these copies across the
+operand pushes that run no code and write no slot (loads, literals,
+references); it removes each copy's retain and skips its release. Any other op,
+including a conditional or call that computes an operand, ends the tracking.
+
 An explicit element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`) of any
 element type calls `plenty_list_row(list, index, site)`, which checks the index
 like the scalar helpers and returns the row's address. That address is the

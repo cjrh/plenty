@@ -88,6 +88,68 @@ impl Lowerer<'_, '_> {
         }
     }
 
+    /// Whether `value` is one of the [`slot_copies`](super::Lowerer::slot_copies);
+    /// if so, its retain is removed, and the caller reads it as borrowed and
+    /// does not release it. Each entry answers one operand.
+    pub(super) fn forget_slot_copy(&mut self, value: cranelift_codegen::ir::Value) -> bool {
+        let Some(i) = self
+            .slot_copies
+            .iter()
+            .rposition(|(copy, _)| *copy == value)
+        else {
+            return false;
+        };
+        if let (_, Some(retain)) = self.slot_copies.remove(i) {
+            self.bcx.func.layout.remove_inst(retain);
+        }
+        true
+    }
+
+    /// `startswith`, `endswith`, `find`, `rfind`, and `count` over two
+    /// texts call one narrow helper each (issue #387). `find` and `rfind`
+    /// return `u64::MAX` for no match, and the `Option` is built here with
+    /// the dispatcher's encoding: the index in the low word, tag 1 for
+    /// `Some` in the high word.
+    fn lower_text_search(&mut self, operation: &CollectionOp) -> Result<()> {
+        let helper = match operation {
+            CollectionOp::TextStartsWith => self.runtime.text_starts_with,
+            CollectionOp::TextEndsWith => self.runtime.text_ends_with,
+            CollectionOp::TextFind => self.runtime.text_find,
+            CollectionOp::TextRFind => self.runtime.text_rfind,
+            CollectionOp::TextCount => self.runtime.text_count,
+            _ => unreachable!("not a text search"),
+        };
+        let (_, output) = operation.signature();
+        let (needle, _) = self.pop_typed(Ty::Str)?;
+        let (text, _) = self.pop_typed(Ty::Str)?;
+        let needle_held = self.forget_slot_copy(needle);
+        let text_held = self.forget_slot_copy(text);
+        let function = self.module.declare_func_in_func(helper, self.bcx.func);
+        let call = self.bcx.ins().call(function, &[text, needle]);
+        let found = self.bcx.inst_results(call)[0];
+        if !text_held {
+            self.release(text, &Ty::Str);
+        }
+        if !needle_held {
+            self.release(needle, &Ty::Str);
+        }
+        let result = match operation {
+            CollectionOp::TextFind | CollectionOp::TextRFind => {
+                let b = &mut self.bcx;
+                let missing = b.ins().icmp_imm(IntCC::Equal, found, -1);
+                let zero = b.ins().iconst(types::I64, 0);
+                let low = b.ins().select(missing, zero, found);
+                let some = b.ins().icmp_imm(IntCC::NotEqual, found, -1);
+                let high = b.ins().uextend(types::I64, some);
+                let result = b.ins().iconcat(low, high);
+                self.unpack(result, &output)
+            }
+            _ => self.unpack(found, &output),
+        };
+        self.stack.push((result, output));
+        Ok(())
+    }
+
     /// `ord(text)` (issue #379): the helper returns the code point, or
     /// `u64::MAX` when the text is not one scalar, and the `Result` is built
     /// here with the dispatcher's encoding: `Ok(code)` in the low word, or
@@ -463,6 +525,14 @@ impl Lowerer<'_, '_> {
         if let CollectionOp::TextOrd | CollectionOp::QueryRef(Query::TextOrd) = operation {
             return self.lower_text_ord(operation);
         }
+        if let CollectionOp::TextStartsWith
+        | CollectionOp::TextEndsWith
+        | CollectionOp::TextFind
+        | CollectionOp::TextRFind
+        | CollectionOp::TextCount = operation
+        {
+            return self.lower_text_search(operation);
+        }
         if let Some((helper, borrowed, site)) = self.narrow_helper(operation) {
             let (inputs, output) = operation.signature();
             let mut trailing = Vec::new();
@@ -511,12 +581,21 @@ impl Lowerer<'_, '_> {
             return Ok(());
         }
         let (inputs, output) = operation.signature();
+        // With only text and scalar operands, the dispatcher runs no Plenty
+        // code and reads the texts without keeping them, so a text copy that
+        // is still held by its source is read in place (issue #387).
+        let reads_in_place = inputs
+            .iter()
+            .all(|input| *input == Ty::Str || input.is_numeric() || *input == Ty::Bool);
         let mut values = Vec::new();
+        let mut held = Vec::new();
         for input in inputs.iter().rev() {
             let (value, _) = self.pop_typed(input.clone())?;
+            held.push(reads_in_place && *input == Ty::Str && self.forget_slot_copy(value));
             values.push(self.pack(value, input));
         }
         values.reverse();
+        held.reverse();
         if let CollectionOp::TryPrintMany(types) = operation {
             let slot = self
                 .bcx
@@ -537,8 +616,10 @@ impl Lowerer<'_, '_> {
             let metadata = crate::sum::tuple(types.clone());
             let result = self.collection_call(operation.opcode(), &[address], Some(&metadata))?;
             let result = self.unpack(result, &output);
-            for (value, ty) in values.iter().zip(&inputs) {
-                self.release(*value, ty);
+            for ((value, ty), held) in values.iter().zip(&inputs).zip(held) {
+                if !held {
+                    self.release(*value, ty);
+                }
             }
             self.stack.push((result, output));
             return Ok(());
@@ -631,7 +712,7 @@ impl Lowerer<'_, '_> {
             CollectionOp::Insert(_) | CollectionOp::TryInsert(_)
         );
         for (i, (value, ty)) in values.iter().zip(&inputs).enumerate() {
-            if !(inserts && i > 0 && ty.affine()) {
+            if !(held[i] || inserts && i > 0 && ty.affine()) {
                 self.release(*value, ty);
             }
         }
