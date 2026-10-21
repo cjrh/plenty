@@ -160,16 +160,11 @@ for documentation checks.
 
 ## Finding related concepts
 
-When `.search/search.db` is available in the primary checkout, use
-`bash scripts/search.sh find 'concept or question'` to discover related docs,
-source documentation, and local issue/PR descriptions. Use `rg` for exact text
-and implementation code, which the semantic index does not cover. Read the
-original source before relying on a result; embeddings can be stale.
-`bash scripts/search.sh check` deterministically compares source hashes without
-inference or index writes, reporting added/changed/deleted IDs and a nonzero
-exit status when stale.
-`bash scripts/search.sh sync` updates changed documents and removes deleted
-ones; run one sync at a time. Setup, coverage and freshness details are in
+Use the repository-local [plenty-search skill](.agents/skills/plenty-search/SKILL.md)
+for conceptual discovery across docs, source documentation and local issue/PR
+descriptions. Read it for search commands, deterministic freshness checks,
+synchronization, source verification and missing-setup handling. Use `rg` for
+exact symbols and implementation code. Setup and coverage details remain in
 [repository search](book/src/development/semantic-search-corpus.md).
 
 ## Keeping things aligned
