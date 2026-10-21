@@ -201,8 +201,15 @@ with the magnitude mask, and `bor` of that with `band(y, sign mask)`. Every
 mask and constant is a right operand, which x86-64 reads from the constant
 pool; Cranelift's own `fabs` and `fcopysign` build their masks with `movabs`.
 Like Rust's `abs` and `copysign`, they keep a NaN payload. A constant receiver
-or sign argument is folded into the masks while lowering. Float negation `-x`
-still uses Cranelift's `fneg`, which builds its mask with `movabs` (issue #385).
+or sign argument is folded into the masks while lowering.
+
+Float negation `-x` is `bxor` with the sign mask rather than Cranelift's
+`fneg`, whose x86-64 lowering builds the mask with `movabs` + `movq` at each
+use (issue #385). Both flip only the sign bit, NaN payload included. Lowering
+folds a constant operand and `-(-x)`; Cranelift's other `fneg` rewrites, such
+as `(-x) * (-y)` to `x * y`, no longer apply. In a throughput-bound loop with
+four `s + -(x * a)` terms the change lowers cycles from 7.7 to 4.4 billion and
+instructions per iteration from 30 to 22.
 
 Integer constants are left as Cranelift places them. In the
 `examples/cpu_codegen_audit` `mix` kernel the per-iteration `movabs` is off the
