@@ -1399,32 +1399,59 @@ fn collect_user_fns(
     Ok(())
 }
 
-/// Whether the body takes a local's address (`BorrowLocal`) or has an
-/// `Op::Thread`, so the function needs a stack frame mirroring its locals.
-/// Recurses into nested `Match`, `Loop`, and `If` bodies, since a borrow
-/// anywhere in the function needs the frame. `Op::Try` cleanup is not
-/// scanned: its only `BorrowLocal` is a `with` exit receiver, and the
-/// matching entry already borrows that local outside the cleanup.
-fn needs_local_addresses(ops: &[Op]) -> bool {
-    ops.iter().any(|op| match op {
-        Op::BorrowLocal(..) | Op::Thread(_) => true,
-        Op::Match(arms) => arms.iter().any(|a| needs_local_addresses(&a.body)),
-        Op::Loop { condition, body } => {
-            needs_local_addresses(condition) || needs_local_addresses(body)
-        }
-        Op::If {
-            then,
-            elifs,
-            otherwise,
-        } => {
-            needs_local_addresses(then)
-                || needs_local_addresses(otherwise)
-                || elifs.iter().any(|arm| {
-                    needs_local_addresses(&arm.condition) || needs_local_addresses(&arm.body)
-                })
-        }
-        _ => false,
-    })
+/// Which locals need stack storage: those with inline storage and those whose
+/// address the body takes with `BorrowLocal`. Any `Op::Thread` keeps every
+/// local in memory. The rest stay in CLIF variables, so taking one local's
+/// address does not move unrelated locals into memory (issue #361).
+fn addressed_locals(ops: &[Op], locals: &[(Variable, Ty)]) -> Vec<bool> {
+    let mut addressed: Vec<bool> = locals.iter().map(|(_, t)| t.has_inline_storage()).collect();
+    if mark_borrowed_locals(ops, &mut addressed) {
+        addressed.fill(true);
+    }
+    addressed
+}
+
+/// Mark each local borrowed anywhere in `ops`, including nested bodies;
+/// return whether `ops` contains an `Op::Thread`.
+fn mark_borrowed_locals(ops: &[Op], addressed: &mut [bool]) -> bool {
+    let mut thread = false;
+    for op in ops {
+        thread |= match op {
+            Op::BorrowLocal(i, _) => {
+                addressed[*i as usize] = true;
+                false
+            }
+            Op::Thread(_) => true,
+            Op::Match(arms) => arms.iter().fold(false, |found, arm| {
+                mark_borrowed_locals(&arm.body, addressed) | found
+            }),
+            Op::Loop { condition, body } => {
+                mark_borrowed_locals(condition, addressed) | mark_borrowed_locals(body, addressed)
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => elifs.iter().fold(
+                mark_borrowed_locals(then, addressed) | mark_borrowed_locals(otherwise, addressed),
+                |found, arm| {
+                    mark_borrowed_locals(&arm.condition, addressed)
+                        | mark_borrowed_locals(&arm.body, addressed)
+                        | found
+                },
+            ),
+            Op::Try { cleanup, .. } => mark_borrowed_locals(cleanup, addressed),
+            _ => false,
+        };
+    }
+    thread
+}
+
+/// Stack storage for the locals [`addressed_locals`] selects.
+struct LocalFrame {
+    base: cranelift_codegen::ir::Value,
+    /// Byte offset from `base` of each local kept in memory.
+    offsets: Vec<Option<i32>>,
 }
 
 /// Emit the body of one user function. Each input becomes a CLIF
@@ -1485,36 +1512,44 @@ fn build_user_function(
             locals.push((var, ty.clone()));
         }
 
-        let local_frame =
-            if needs_local_addresses(body) || locals.iter().any(|(_, t)| t.has_inline_storage()) {
-                let slot = bcx.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    locals.iter().map(|(_, t)| t.slot_bytes() as u32).sum(),
-                    4,
-                ));
-                let frame = bcx.ins().stack_addr(PTR_TY, slot, 0);
-                for (i, (var, ty)) in locals.iter().enumerate() {
-                    let packed = if i < decl.sig.inputs.len() || ty.managed() {
-                        let value = bcx.use_var(*var);
-                        enums::pack_value(&mut bcx, value, ty)
-                    } else {
-                        let zero = bcx.ins().iconst(types::I64, 0);
-                        bcx.ins().uextend(types::I128, zero)
-                    };
-                    bcx.ins().store(
-                        cranelift_codegen::ir::MemFlags::trusted(),
-                        packed,
-                        frame,
-                        locals[..i]
-                            .iter()
-                            .map(|(_, t)| t.slot_bytes() as i32)
-                            .sum::<i32>(),
-                    );
-                }
-                Some(frame)
-            } else {
-                None
-            };
+        let addressed = addressed_locals(body, &locals);
+        let local_frame = addressed.contains(&true).then(|| {
+            let mut size = 0;
+            let offsets: Vec<Option<i32>> = locals
+                .iter()
+                .zip(&addressed)
+                .map(|((_, ty), &addressed)| {
+                    addressed.then(|| {
+                        let offset = size;
+                        size += ty.slot_bytes() as i32;
+                        offset
+                    })
+                })
+                .collect();
+            let slot = bcx.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                size as u32,
+                4,
+            ));
+            let base = bcx.ins().stack_addr(PTR_TY, slot, 0);
+            for (i, ((var, ty), offset)) in locals.iter().zip(&offsets).enumerate() {
+                let Some(offset) = offset else { continue };
+                let packed = if i < decl.sig.inputs.len() || ty.managed() {
+                    let value = bcx.use_var(*var);
+                    enums::pack_value(&mut bcx, value, ty)
+                } else {
+                    let zero = bcx.ins().iconst(types::I64, 0);
+                    bcx.ins().uextend(types::I128, zero)
+                };
+                bcx.ins().store(
+                    cranelift_codegen::ir::MemFlags::trusted(),
+                    packed,
+                    base,
+                    *offset,
+                );
+            }
+            LocalFrame { base, offsets }
+        });
         let return_storage = decl
             .sig
             .outputs
@@ -1755,7 +1790,7 @@ struct Lowerer<'a, 'b> {
     /// The last entry is the innermost loop: (continue target, break target).
     loop_targets: Vec<(Block, Block)>,
     generator: Option<GeneratorContext>,
-    local_frame: Option<cranelift_codegen::ir::Value>,
+    local_frame: Option<LocalFrame>,
     return_storage: Option<cranelift_codegen::ir::Value>,
     return_types: &'a [Ty],
     /// Reused across non-overlapping runtime calls; callbacks have their own frame.
@@ -1803,16 +1838,17 @@ impl Lowerer<'_, '_> {
             self.drop_local(i as u8);
         }
     }
+    /// Where local `i` lives in memory, or `None` if it is a CLIF variable.
+    fn local_address(&self, i: u8) -> Option<(cranelift_codegen::ir::Value, i64)> {
+        if let Some(g) = &self.generator {
+            return Some((g.frame, 64 + self.local_offset(i as usize)));
+        }
+        let frame = self.local_frame.as_ref()?;
+        frame.offsets[i as usize].map(|offset| (frame.base, offset as i64))
+    }
     fn read_local(&mut self, i: u8) -> cranelift_codegen::ir::Value {
         let (var, ty) = self.locals[i as usize].clone();
-        let frame = self
-            .generator
-            .as_ref()
-            .map(|g| (g.frame, 64))
-            .or(self.local_frame.map(|p| (p, 0)));
-
-        if let Some((frame, base)) = frame {
-            let offset = base + self.local_offset(i as usize);
+        if let Some((frame, offset)) = self.local_address(i) {
             let value = self.bcx.ins().load(
                 types::I128,
                 cranelift_codegen::ir::MemFlags::trusted(),
@@ -1826,13 +1862,7 @@ impl Lowerer<'_, '_> {
     }
     fn write_local(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
         let (var, ty) = self.locals[i as usize].clone();
-        let frame = self
-            .generator
-            .as_ref()
-            .map(|g| (g.frame, 64))
-            .or(self.local_frame.map(|p| (p, 0)));
-        if let Some((frame, base)) = frame {
-            let offset = base + self.local_offset(i as usize);
+        if let Some((frame, offset)) = self.local_address(i) {
             let slot = self.bcx.ins().iadd_imm(frame, offset);
             self.store_slot(slot, value, &ty);
         } else {
@@ -1885,12 +1915,7 @@ impl Lowerer<'_, '_> {
             // after it keeps this frame.
             Op::ForwardsReferences => {}
             Op::BorrowLocal(i, mutable) => {
-                let (frame, offset) = if let Some(g) = &self.generator {
-                    (g.frame, 64)
-                } else {
-                    (self.local_frame.expect("addressable locals"), 0)
-                };
-                let offset = offset + self.local_offset(*i as usize);
+                let (frame, offset) = self.local_address(*i).expect("addressable local");
                 let ptr = self.bcx.ins().iadd_imm(frame, offset);
                 let ptr = self.bcx.ins().uextend(types::I128, ptr);
                 self.stack.push((
