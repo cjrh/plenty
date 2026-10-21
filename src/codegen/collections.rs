@@ -362,6 +362,22 @@ impl Lowerer<'_, '_> {
                 .push((reference, Ty::Ref(Arc::new(element), *mutable)));
             return Ok(());
         }
+        if let CollectionOp::ElementRef(ty @ Ty::List(element), mutable) = operation {
+            let (index, _) = self.pop_typed(Ty::I64)?;
+            let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), *mutable))?;
+            let owner = self.reference_word(receiver);
+            let site = self.trap_site()?;
+            let function = self
+                .module
+                .declare_func_in_func(self.runtime.list_row, self.bcx.func);
+            let call = self.bcx.ins().call(function, &[owner, index, site]);
+            let address = self.bcx.inst_results(call)[0];
+            // As for `ListRowRef`: a row is a top-level slot with no tag.
+            let reference = self.bcx.ins().uextend(types::I128, address);
+            self.stack
+                .push((reference, Ty::Ref(element.clone(), *mutable)));
+            return Ok(());
+        }
         if let Some((helper, borrowed, site)) = self.narrow_helper(operation) {
             let (inputs, output) = operation.signature();
             let mut trailing = Vec::new();

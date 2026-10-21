@@ -19,7 +19,9 @@ A pair whose name is not a token or whose value has a byte outside RFC
 as is a piece without `=`. The field carries cookies set by every
 application on the host, and one malformed cookie must not make every
 request fail. A value wrapped in double quotes loses them. More than `limit`
-valid cookies is `TooManyCookies`.
+valid cookies is `TooManyCookies`. Each field is copied once into a byte
+buffer and checked with bulk scans; only valid cookies are copied out as
+text, so a skipped pair allocates nothing.
 
 Values are not decoded. A cookie's value is whatever the client sends; check
 it, or [sign](#signing) it, before trusting it.
