@@ -174,8 +174,7 @@ Python/FastEmbed subprocess used only for inference. Follow-on work: extract
 the corpus, improve chunk boundaries, automate incremental sync and deletion
 discovery, and measure retrieval quality and compact snapshot size
 before deciding whether to commit the index. Prefer Plenty for the interface;
-record encountered language gaps in the issues register. The SQLite shutdown
-prerequisite is tracked as issue #393.
+record encountered language gaps in the issues register.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
