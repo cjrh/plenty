@@ -835,3 +835,119 @@ def main() -> Result[(), AllocError | IoError]:
         "__test_one_thread_start__\nnested\nitem\nThreadError.System(11)\n__test_restore_thread_starts__\n11\n2\n",
     );
 }
+
+/// Issue #373: functions that start threads used to keep every local in stack
+/// memory. Only borrowed locals and locals with inline storage belong in the
+/// frame; loop counters around and inside thread scopes stay in registers.
+#[test]
+fn thread_scopes_keep_unborrowed_locals_out_of_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("threads.plenty"),
+        r#"def worker(values: &list[i64], output: &mut i64) -> i64:
+    *output = *output + len(values)
+    len(values) * 2
+
+def square(n: i64) -> i64:
+    n * n
+
+def apply[F: Callable[[], i64]](job: F) -> i64:
+    job()
+
+def scoped(stop: i64) -> Result[i64, AllocError | ThreadError]:
+    values = [1, 2, 3]?
+    mut output = 0
+    mut total = 0
+    mut round = 0
+    while round < 3:
+        with spawn(worker, &values, &mut output)? as task, spawn(square, round)? as other:
+            mut index = 0
+            while index < stop:
+                total += index
+                index += 1
+            total += task.join() + other.join()
+        round += 1
+    Ok(total * 1000 + output)
+
+def early(limit: i64) -> Result[i64, ThreadError]:
+    mut count = 0
+    mut seen = 0
+    while count < 10:
+        with spawn(square, count)? as task:
+            count += 1
+            if count > limit:
+                break
+            seen += task.join()
+    Ok(seen * 100 + count)
+
+def closures() -> Result[i64, ThreadError]:
+    mut calls = 0
+    mut base = 5
+    mut job = def [mut base]() -> i64:
+        base += 1
+        base
+    mut sum = 0
+    while calls < 3:
+        with spawn(&mut job)? as task:
+            calls += 1
+            sum += task.join()
+    reader = def [sum]() -> i64:
+        sum + 1
+    with spawn(apply, reader)? as task:
+        sum += task.join()
+    Ok(sum * 10 + calls + base)
+
+def owned() -> Result[i64, AllocError | ThreadError]:
+    values = [4, 5, 6]?
+    mut index = 0
+    mut total = 0
+    job = def once [values]() -> i64:
+        len(values)
+    with spawn(job).unwrap() as task:
+        while index < 4:
+            total += index
+            index += 1
+        total += task.join()
+    Ok(total)
+
+def main() -> Result[(), AllocError | IoError | ThreadError]:
+    print(scoped(5)?)?
+    print(early(3)?)?
+    print(closures()?)?
+    print(owned()?)?
+    Ok(())
+"#,
+    )
+    .unwrap();
+    let plenty = |args: &[&str]| {
+        let output = std::process::Command::new(support::plenty_bin())
+            .current_dir(dir.path())
+            .env("PLENTY_CACHE", "off")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+    for mode in [&[][..], &["--release"]] {
+        let args = [mode, &["threads.plenty"]].concat();
+        assert_eq!(plenty(&args), "53009\n504\n438\n9\n", "{mode:?}");
+    }
+    plenty(&["--dump", "clif", "threads.plenty", "-o", "out"]);
+    let text = std::fs::read_to_string(dir.path().join("out/clif.txt")).unwrap();
+    let start = text.find("==== scoped ").expect("no `scoped` in clif.txt");
+    let rest = &text[start + 5..];
+    let scoped = &rest[..rest.find("\n==== ").unwrap_or(rest.len())];
+    // The local frame is the entry block's first slot: 16 bytes each for the
+    // borrowed `values` and `output`, none for `total`, `round`, `index`, or
+    // the task tokens. Each task's storage is a separate slot.
+    let first = scoped
+        .lines()
+        .find(|line| line.contains("explicit_slot"))
+        .unwrap_or_else(|| panic!("{scoped}"));
+    assert!(first.contains("ss0 = explicit_slot 32,"), "{scoped}");
+}
