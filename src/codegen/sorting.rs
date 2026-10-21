@@ -83,6 +83,7 @@ pub(super) fn build_adapter(
         return_storage: None,
         return_types: &[],
         collection_scratch: None,
+        fresh_load: None,
         counters: Default::default(),
         position: Default::default(),
     };

@@ -63,6 +63,16 @@ would. Bounds traps report the same site and message as the generic path. Codege
 on `Vec` layout. Named receivers are borrowed without
 temporary retain/release; temporary owners are released after obtaining the result.
 
+Text and `bytes` queries that return a scalar (`len`, `byte_len`, `isascii`,
+indexing, `ord`) call one narrow helper each, such as `plenty_text_len` or
+`plenty_bytes_item`; a `bytes` literal index calls `plenty_byte_str_item`.
+`plenty_text_ord` returns the code point, or `u64::MAX` when the text is not
+one scalar, and codegen builds the `Result` inline. Results, bounds traps, and
+sites match the generic dispatcher's. A query of a borrowed place reads through
+the reference. A query of an owned local or full-expression temporary reads the
+value in its slot: codegen removes the retain the load added and skips the
+matching release, since nothing runs between the load and the helper call.
+
 An explicit element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`) of any
 element type calls `plenty_list_row(list, index, site)`, which checks the index
 like the scalar helpers and returns the row's address. That address is the
