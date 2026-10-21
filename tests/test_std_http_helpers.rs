@@ -764,3 +764,310 @@ def main() -> Result[(), std.http.cookie.CookieError | AllocError | IoError]:
         "a-cookie-name-too-long-for-inline-storage a-cookie-value-too-long-for-inline-storage\nTrue",
     );
 }
+
+/// A transport that plays its input at once and discards what is written,
+/// and a handler that prints one line per request: `.` and the first field
+/// name or nothing on success, else the `BodyError` variant's initial.
+const PROBE: &str = r##"
+pub class Quiet:
+    pub input: Bytes
+    pub at: i64
+
+    pub def read_before(self: &mut Quiet, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        mut count = stop - start
+        if count > self.input.len() - self.at:
+            count = self.input.len() - self.at
+        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        self.at += count
+        Ok(count)
+
+    pub def shutdown(self: &mut Quiet, direction: Shutdown) -> Result[(), NetError]:
+        Ok(())
+
+    pub def write_before[S: ByteSource](self: &mut Quiet, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        Ok(stop - start)
+
+def tag(error: &std.http.body.BodyError) -> str:
+    match error:
+        case std.http.body.BodyError.Malformed:
+            "M"
+        case std.http.body.BodyError.InvalidUtf8:
+            "I"
+        case std.http.body.BodyError.UnsupportedMediaType:
+            "U"
+        case _:
+            "?"
+
+pub class Probe:
+    pub app: App
+
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Quiet]) -> Result[(), std.http.HttpError | AllocError | IoError]:
+        match route:
+            case Route.Form:
+                match std.http.body.read_form(exchange, &self.app.form):
+                    case Ok(_):
+                        print(".")?
+                    case Err(error):
+                        print(tag(&error))?
+            case _:
+                match std.http.body.read_multipart(exchange, &self.app.multipart, &self.app.storage):
+                    case Ok(parts):
+                        print(".".concat(&parts[0].name)?)?
+                    case Err(error):
+                        print(tag(&error))?
+        exchange.send_text(200, "")
+
+# `prefix`, the byte `code`, then `suffix`, as one request; then `/`.
+def probe(handler: &Probe, prefix: &str, code: i64, suffix: &str) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
+    mut data = std.bytes.from_text(prefix)?
+    data.push(u8(code))?
+    data.extend(&std.bytes.from_text(suffix)?)?
+    table = routes()?
+    stop = CancellationToken()?
+    cancel = CancellationToken()?
+    report = std.http.server.serve_connection_from(Quiet(data, 0), Nothing, &table, handler, &std.http.server.config(), &stop, &cancel)
+    print("/")?
+    Ok(())
+
+def form_sweep(handler: &Probe, before: &str, after: &str) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
+    for code in range(256):
+        probe(handler, &"POST /form HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\nContent-Type: ".concat(before)?, code, &after.concat("\r\n\r\n")?)?
+    Ok(())
+
+def part_sweep(handler: &Probe, before: &str, after: &str) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
+    for code in range(256):
+        body_size = 21 + before.byte_len() + after.byte_len() + 1
+        mut head = "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=XyZ\r\nContent-Length: "
+        head = head.concat(str.from(body_size)?)?.concat("\r\n\r\n--XyZ\r\n")?.concat(before)?
+        probe(handler, &head, code, &after.concat("\r\n\r\nv\r\n--XyZ--")?)?
+    Ok(())
+
+def cookie_sweep(before: &str, after: &str) -> Result[(), std.http.cookie.CookieError | AllocError | IoError]:
+    for code in range(128):
+        field = before.concat(&chr(u32(code)).unwrap())?.concat(after)?
+        cookie_line(&field)?
+    Ok(())
+
+def cookie_line(field: &str) -> Result[(), std.http.cookie.CookieError | AllocError | IoError]:
+    mut headers = list[std.http.Header].new()?
+    headers.append(std.http.Header("Cookie", field.concat("")?))?
+    mut text = "cookies "
+    for cookie in std.http.cookie.cookies(&headers, 8)?:
+        text = text.concat("[")?.concat(&cookie.name)?.concat("=")?.concat(&cookie.value)?.concat("]")?
+    print(text)?
+    Ok(())
+"##;
+
+fn tchar(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
+}
+
+/// RFC 6265 cookie-octet.
+fn cookie_octet(byte: u8) -> bool {
+    (b'!'..=b'~').contains(&byte) && !b"\",;\\".contains(&byte)
+}
+
+/// A byte an HTTP field value may hold on its own: tab and printable ASCII.
+fn field_byte(byte: u8) -> bool {
+    byte == b'\t' || (b' '..=b'~').contains(&byte)
+}
+
+/// Issue #376: the bulk scans behind media-type parameters, multipart part
+/// heads and Cookie fields accept exactly the RFC token, qdtext and
+/// cookie-octet sets for every byte value, and report the same error variant
+/// as the per-byte loops they replace. `H` marks a request that `std.http`
+/// rejects before the body helpers see it.
+#[test]
+fn body_and_cookie_tokens_accept_exactly_the_rfc_sets() {
+    let main = format!(
+        r##"{PROBE}
+def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+    handler = Probe(app()?)
+    form_sweep(&handler, "application/x-www-form-urlencoded; a", "b=c")?
+    form_sweep(&handler, "application/x-www-form-urlencoded; a=b", "c")?
+    form_sweep(&handler, "application/x-www-form-urlencoded", "; a=b")?
+    part_sweep(&handler, "X-", "a: v\r\nContent-Disposition: form-data; name=f")?
+    part_sweep(&handler, "X-a: v", "w\r\nContent-Disposition: form-data; name=f")?
+    part_sweep(&handler, "Content-Disposition: form-data; name=f; x", "y=z")?
+    part_sweep(&handler, "Content-Disposition: form-data; name=f", "g")?
+    part_sweep(&handler, "Content-Disposition: form-data; name=\"f", "g\"")?
+    part_sweep(&handler, "Content-Disposition: form-data; name=\"f\\", "g\"")?
+    cookie_sweep("a", "b=1; k=v")?
+    cookie_sweep("k=v; a=b", "c")?
+    cookie_sweep("k=v; a=\"b", "c\"")?
+    cookie_line("aéb=1; k=v")?
+    cookie_line("k=v; a=béc")?
+    Ok(())
+"##
+    );
+    let output = run(&main);
+    let mut lines = output.lines().peekable();
+    let mut requests = Vec::new();
+    let mut cookies = Vec::new();
+    while let Some(line) = lines.next() {
+        if let Some(found) = line.strip_prefix("cookies ") {
+            cookies.push(found.to_string());
+        } else if line == "/" {
+            requests.push("H".to_string());
+        } else {
+            assert_eq!(lines.next(), Some("/"), "{line}");
+            requests.push(line.to_string());
+        }
+    }
+    let byte = |code: u8| char::from(code).to_string();
+    let sweep = |tag: &dyn Fn(u8) -> String| (0..=255u8).map(tag).collect::<Vec<_>>();
+    // Form Content-Type values pass `std.http` only as field content.
+    let form = |accepted: &dyn Fn(u8) -> bool| {
+        sweep(&|code| {
+            if !field_byte(code) {
+                "H".into()
+            } else if accepted(code) {
+                ".".into()
+            } else {
+                "U".into()
+            }
+        })
+    };
+    // Part heads are raw bytes: a lone byte above 127 is valid until the
+    // value is converted to text.
+    let part = |accepted: &dyn Fn(u8) -> bool, name: &dyn Fn(u8) -> String| {
+        sweep(&|code| {
+            if accepted(code) {
+                format!(".{}", name(code))
+            } else if code >= 128 {
+                "I".into()
+            } else {
+                "M".into()
+            }
+        })
+    };
+    let fixed = |_| "f".to_string();
+    let joined = |code| format!("f{}g", byte(code));
+    let expected = [
+        form(&tchar),
+        form(&tchar),
+        form(&|code| b"; \t".contains(&code)),
+        sweep(&|code| {
+            if tchar(code) || code == b':' {
+                ".f".into()
+            } else {
+                "M".into()
+            }
+        }),
+        part(&field_byte, &fixed),
+        part(&tchar, &fixed),
+        part(&tchar, &joined),
+        // A backslash escapes the `g` after it.
+        part(&|code| field_byte(code) && code != b'"', &|code| {
+            if code == b'\\' {
+                "fg".into()
+            } else {
+                joined(code)
+            }
+        }),
+        part(&field_byte, &joined),
+    ]
+    .concat();
+    assert_eq!(requests.len(), expected.len());
+    for (index, (found, wanted)) in requests.iter().zip(&expected).enumerate() {
+        assert_eq!(found, wanted, "sweep {} byte {}", index / 256, index % 256);
+    }
+    let cookie_sweep = |tag: &dyn Fn(u8) -> String| (0..128u8).map(tag).collect::<Vec<_>>();
+    let expected = [
+        cookie_sweep(&|code| match code {
+            _ if tchar(code) => format!("[a{}b=1][k=v]", byte(code)),
+            b'=' => "[a=b=1][k=v]".into(),
+            b';' => "[b=1][k=v]".into(),
+            _ => "[k=v]".into(),
+        }),
+        cookie_sweep(&|code| match code {
+            _ if cookie_octet(code) => format!("[k=v][a=b{}c]", byte(code)),
+            b';' => "[k=v][a=b]".into(),
+            _ => "[k=v]".into(),
+        }),
+        cookie_sweep(&|code| {
+            if cookie_octet(code) {
+                format!("[k=v][a=b{}c]", byte(code))
+            } else {
+                "[k=v]".into()
+            }
+        }),
+        vec!["[k=v]".into(), "[k=v]".into()],
+    ]
+    .concat();
+    assert_eq!(cookies.len(), expected.len());
+    for (index, (found, wanted)) in cookies.iter().zip(&expected).enumerate() {
+        assert_eq!(
+            found,
+            wanted,
+            "cookie sweep {} byte {}",
+            index / 128,
+            index % 128
+        );
+    }
+}
+
+/// Issue #376: the token, qdtext, control and cookie-octet checks are bulk
+/// scans, not a classifier call per byte.
+#[test]
+fn body_and_cookie_classes_are_bulk_scans() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = format!(
+        "{}def main() -> Result[(), std.http.proxy.ProxyError | IoError]:\n    app()?\n    Ok(())\n",
+        PRELUDE.replace("$STORAGE", "/tmp")
+    );
+    std::fs::write(dir.path().join("main.plenty"), source).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .current_dir(dir.path())
+        .env("PLENTY_CACHE", "off")
+        .args([
+            "--release",
+            "--dump",
+            "clif",
+            "--dump-std",
+            "--dump-filter",
+            "std.http.",
+            "main.plenty",
+            "-o",
+            "-",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let clif = String::from_utf8(output.stdout).unwrap();
+    let function = |name: &str| {
+        let start = clif
+            .find(&format!("==== {name} "))
+            .unwrap_or_else(|| panic!("{name} missing"));
+        let rest = &clif[start + 5..];
+        rest[..rest.find("\n==== ").unwrap_or(rest.len())].to_string()
+    };
+    for (name, present, absent) in [
+        (
+            "std.http.body.parameters",
+            &["body.token_end", "body.quoted_end"][..],
+            &["token_byte"][..],
+        ),
+        (
+            "std.http.body.part_head",
+            &["body.token_end", "body.has_control"],
+            &["token_byte"],
+        ),
+        (
+            "std.http.cookie.split_pairs",
+            &["cookie.all_in"],
+            &["valid_name", "valid_value", "token_byte"],
+        ),
+    ] {
+        let body = function(name);
+        for call in present {
+            assert!(
+                body.contains(&format!("; __plenty_fn_std.http.{call}\n")),
+                "{name} lacks {call}:\n{body}"
+            );
+        }
+        for call in absent {
+            assert!(!body.contains(call), "{name} calls {call}:\n{body}");
+        }
+    }
+}
