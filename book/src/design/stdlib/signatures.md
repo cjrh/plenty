@@ -382,7 +382,7 @@ class SqliteError
     message: str
     def primary(self) -> i64
 enum DbError
-    Sqlite(SqliteError) | Closed | InUse | EmptySql | TrailingSql | TransactionActive | TransactionFinished | InvalidPath | OutOfRange | NoRow | TypeMismatch(ValueType) | TooLarge | InvalidUtf8 | Allocation(AllocError)
+    Sqlite(SqliteError) | Closed | InUse | EmptySql | TrailingSql | TransactionActive | TransactionFinished | InvalidPath | InvalidExtensionEntry | OutOfRange | NoRow | TypeMismatch(ValueType) | TooLarge | InvalidUtf8 | Allocation(AllocError)
 const error: i64 = 1
 const busy: i64 = 5
 const locked: i64 = 6
@@ -399,6 +399,7 @@ class Connection
     def changes(self) -> i64
     def last_insert_rowid(self) -> i64
     def set_busy_timeout(self: &mut Connection, milliseconds: i64) -> Result[(), DbError]
+    def load_extension(self: &mut Connection, path: &str, entrypoint: &str = "") -> Result[(), DbError]
     def close(self: &mut Connection) -> Result[(), DbError]
 def connect(path: &str, mode: Mode, max_length: i64) -> Result[Connection, DbError]
 def memory(max_length: i64) -> Result[Connection, DbError]

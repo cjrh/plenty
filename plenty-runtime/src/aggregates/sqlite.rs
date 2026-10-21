@@ -43,6 +43,14 @@ unsafe extern "C" {
     fn sqlite3_mutex_leave(mutex: *mut c_void);
     fn sqlite3_limit(db: *mut Db, id: c_int, value: c_int) -> c_int;
     fn sqlite3_busy_timeout(db: *mut Db, ms: c_int) -> c_int;
+    fn sqlite3_db_config(db: *mut Db, option: c_int, ...) -> c_int;
+    fn sqlite3_load_extension(
+        db: *mut Db,
+        path: *const c_char,
+        entry: *const c_char,
+        error: *mut *mut c_char,
+    ) -> c_int;
+    fn sqlite3_free(pointer: *mut c_void);
     fn sqlite3_changes64(db: *mut Db) -> i64;
     fn sqlite3_last_insert_rowid(db: *mut Db) -> i64;
     fn sqlite3_get_autocommit(db: *mut Db) -> c_int;
@@ -98,6 +106,7 @@ const OPEN_FULLMUTEX: c_int = 0x0001_0000;
 const OPEN_EXRESCODE: c_int = 0x0200_0000;
 const OPEN_ACCESS: c_int = 0x1 | 0x2 | 0x4;
 const LIMIT_LENGTH: c_int = 0;
+const DBCONFIG_ENABLE_LOAD_EXTENSION: c_int = 1005;
 /// SQLite copies bound values before the bind call returns.
 const TRANSIENT: isize = -1;
 const UTF8: u8 = 1;
@@ -111,6 +120,7 @@ const IN_USE: i64 = -5;
 const CLOSED: i64 = -6;
 const TRANSACTION_FINISHED: i64 = -7;
 const INVALID_PATH: i64 = -8;
+const INVALID_EXTENSION_ENTRY: i64 = -9;
 
 const MESSAGE_CAPACITY: usize = 512;
 
@@ -339,6 +349,66 @@ unsafe fn database(value: u128) -> Result<*mut Db, i64> {
     Ok(db)
 }
 
+unsafe fn load_extension(handle: u128, path: u128, entry: u128) -> i64 {
+    // SAFETY: the compiler lends live operands; database validates the owner.
+    unsafe {
+        let db = match database(handle) {
+            Ok(db) => db,
+            Err(code) => return code,
+        };
+        let path = match c_text(path) {
+            Ok(Some(path)) if path.len() > 1 => path,
+            Ok(_) => return INVALID_PATH,
+            Err(error) => return allocation(error),
+        };
+        let entry = match c_text(entry) {
+            Ok(Some(entry)) => entry,
+            Ok(None) => return INVALID_EXTENSION_ENTRY,
+            Err(error) => return allocation(error),
+        };
+        let entry_pointer = if entry.len() == 1 {
+            ptr::null()
+        } else {
+            entry.as_ptr().cast()
+        };
+        locked(db, || {
+            // Enable only the C API, never the SQL load_extension function.
+            let code = sqlite3_db_config(
+                db,
+                DBCONFIG_ENABLE_LOAD_EXTENSION,
+                1,
+                ptr::null_mut::<c_int>(),
+            );
+            if code != OK {
+                return checked(db, code);
+            }
+            let mut error = ptr::null_mut();
+            let code = sqlite3_load_extension(db, path.as_ptr().cast(), entry_pointer, &mut error);
+            if code != OK {
+                if error.is_null() {
+                    checked(ptr::null_mut(), code);
+                } else {
+                    remember(CStr::from_ptr(error).to_bytes());
+                }
+            }
+            sqlite3_free(error.cast());
+            // Revoke loading on both success and failure before releasing the
+            // mutex. Preserve the loader's error if revocation also fails.
+            let reset = sqlite3_db_config(
+                db,
+                DBCONFIG_ENABLE_LOAD_EXTENSION,
+                0,
+                ptr::null_mut::<c_int>(),
+            );
+            if code != OK {
+                code as i64
+            } else {
+                checked(db, reset)
+            }
+        })
+    }
+}
+
 /// Compiles the first statement of `sql`. `Ok(None)` means it held only
 /// whitespace and comments.
 unsafe fn compile(db: *mut Db, sql: &[u8]) -> Result<Option<(*mut Stmt, usize)>, i64> {
@@ -457,10 +527,12 @@ unsafe fn close(handle: u128) -> i64 {
             remember(b"connection has live statements or transactions");
             return IN_USE;
         }
-        let code = locked(db, || match sqlite3_close(db) {
+        // A successful close frees the connection mutex too. Do not use
+        // locked here: its trailing unlock would touch freed memory (#393).
+        let code = match sqlite3_close(db) {
             OK => OK as i64,
             code => checked(db, code),
-        });
+        };
         if code == OK as i64 {
             (*connection).db = ptr::null_mut();
         }
@@ -669,6 +741,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                 Err(code) => code as u128,
             },
             447 => close(a) as u128,
+            469 => load_extension(a, b, c) as u128,
             448 => opened(begin(a, b as i64)),
             449 | 450 => {
                 let transaction = transaction(a);

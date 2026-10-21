@@ -166,6 +166,16 @@ proposal. Defer implementation until a concrete incompatible change justifies
 it; first prove mixed-edition compilation with a shared type and runtime model.
 No edition or migration tooling is scheduled.
 
+B17 also tracks local semantic search over documentation, source docstrings,
+and issue/PR descriptions, using a separate SQLite index. The
+[Plenty search trial](development/semantic-search.md) exercises document-owned
+embeddings, incremental document replacement and hybrid queries, with a pinned
+Python/FastEmbed subprocess used only for inference. Follow-on work: extract
+the corpus, improve chunk boundaries, automate incremental sync and deletion
+discovery, and measure retrieval quality and compact snapshot size
+before deciding whether to commit the index. Prefer Plenty for the interface;
+record encountered language gaps in the issues register.
+
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
 | B11 | Broader borrowing | Borrowed enum matching and payload loans complete. A `mut` reference binding is reassigned only through itself (issue #1). Remaining: stored references, relationships among multiple reference parameters, more precise collection loans, retargeting a reference binding to another borrow of the same owner, and field-precise loans through `mut` reference bindings. Borrowed iteration now consistently yields references (issue #30, also B12). Mutable matching of copyable enum payloads (issue #41) is complete through B35. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/language/05-ownership/04-returned-references.md). |

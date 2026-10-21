@@ -1,0 +1,236 @@
+# A Plenty-only search/database trial. Embeddings arrive as JSON so the
+# inference engine is independent of the CLI and document lifecycle.
+import std.db.sqlite as sqlite
+import std.json as json
+import std.crypto as crypto
+import std.encoding as encoding
+from std.db.sqlite import Connection, DbError, Begin, Mode
+from std.json import Json, JsonError
+from std.crypto import CryptoError
+from std.encoding import EncodingError
+from std.fmt import FormatError
+import std.process as process
+from std.process import Stdio
+from std.bytes import BytesError
+from std.io import StreamError
+
+enum SearchError:
+    Usage
+    InvalidDocument
+    InvalidDimensions
+    ModelMismatch
+    Inference(str)
+
+type SearchFailure = SearchError | DbError | JsonError | AllocError | IoError | ParseError | CryptoError | EncodingError | FormatError | BytesError | StreamError
+
+class Chunk:
+    text: str
+    vector: str
+
+def chunks_from_file(path: &str) -> Result[list[Chunk], SearchFailure]:
+    value = json.parse_text(read_text(path)?, &json.limits())?
+    mut chunks: list[Chunk] = []?
+    match value:
+        case Json.Array(items):
+            for item in items:
+                match item:
+                    case Json.Object(members):
+                        text_index = json.find(&members, "text").ok_or(SearchError.InvalidDocument)?
+                        vector_index = json.find(&members, "embedding").ok_or(SearchError.InvalidDocument)?
+                        text = match &members[text_index].value:
+                            case Json.Text(text):
+                                *text
+                            case _:
+                                return Err(SearchError.InvalidDocument)
+                        vector = json.encode_text(&members[vector_index].value, &json.limits())?
+                        chunks.append(Chunk(text, vector))?
+                    case _:
+                        return Err(SearchError.InvalidDocument)
+        case _:
+            return Err(SearchError.InvalidDocument)
+    Ok(chunks)
+
+def configure(db: &mut Connection, model: &str, dimensions: i64) -> Result[(), SearchFailure]:
+    if dimensions < 1 or dimensions > 4096:
+        return Err(SearchError.InvalidDimensions)
+    mut tx = db.begin(Begin.Immediate)?
+    db.execute("CREATE TABLE IF NOT EXISTS config(id INTEGER PRIMARY KEY CHECK(id=1), model TEXT NOT NULL, dimensions INTEGER NOT NULL)")?
+    mut config = db.prepare("INSERT OR IGNORE INTO config VALUES(1, ?, ?)")?
+    config.bind_text(1, model)?
+    config.bind_integer(2, dimensions)?
+    config.run()?
+    mut check = db.prepare("SELECT model, dimensions FROM config WHERE id=1")?
+    check.step()?
+    if check.text(0)? != model or check.integer(1)? != dimensions:
+        return Err(SearchError.ModelMismatch)
+    db.execute("CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, title TEXT NOT NULL, hash TEXT NOT NULL)")?
+    schema = f"CREATE TABLE IF NOT EXISTS chunks(id INTEGER PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, seq INTEGER NOT NULL, body TEXT NOT NULL, embedding BLOB NOT NULL CHECK(length(embedding)={dimensions * 4}), UNIQUE(document_id, seq))"?
+    db.execute(schema)?
+    db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(body, content='chunks', content_rowid='id'); CREATE TRIGGER IF NOT EXISTS chunks_insert AFTER INSERT ON chunks BEGIN INSERT INTO chunks_fts(rowid, body) VALUES(new.id, new.body); END; CREATE TRIGGER IF NOT EXISTS chunks_delete AFTER DELETE ON chunks BEGIN INSERT INTO chunks_fts(chunks_fts, rowid, body) VALUES('delete', old.id, old.body); END")?
+    tx.commit()?
+    Ok(())
+
+def check_model(db: &mut Connection, model: &str) -> Result[(), SearchFailure]:
+    mut query = db.prepare("SELECT model FROM config WHERE id=1")?
+    if not query.step()? or query.text(0)? != model:
+        return Err(SearchError.ModelMismatch)
+    Ok(())
+
+def replace_document(db: &mut Connection, id: &str, title: &str, chunks: &list[Chunk], source_hash: &str = "") -> Result[bool, SearchFailure]:
+    # Hash the text and vectors with unambiguous JSON framing. Including vectors
+    # permits corrected inference output to replace a document with equal text.
+    mut encoded = json.encoder(&json.limits())?
+    encoded.start_array()?
+    encoded.text(title)?
+    for chunk in chunks:
+        encoded.text(chunk.text)?
+        encoded.text(chunk.vector)?
+    encoded.end_array()?
+    digest = crypto.sha256(&encoded.take()?)?
+    hash = encoding.hex_text(&digest, 0, digest.len())? if source_hash == "" else *source_hash
+    mut tx = db.begin(Begin.Immediate)?
+    mut old = db.prepare("SELECT hash FROM documents WHERE id=?")?
+    old.bind_text(1, id)?
+    if old.step()? and old.text(0)? == hash:
+        tx.commit()?
+        return Ok(False)
+    old.reset()
+    mut delete = db.prepare("DELETE FROM documents WHERE id=?")?
+    delete.bind_text(1, id)?
+    delete.run()?
+    mut document = db.prepare("INSERT INTO documents VALUES(?, ?, ?)")?
+    document.bind_text(1, id)?
+    document.bind_text(2, title)?
+    document.bind_text(3, hash)?
+    document.run()?
+    mut insert = db.prepare("INSERT INTO chunks(document_id, seq, body, embedding) VALUES(?, ?, ?, vec_f32(?))")?
+    for seq, chunk in enumerate(chunks):
+        insert.bind_text(1, id)?
+        insert.bind_integer(2, seq)?
+        insert.bind_text(3, chunk.text)?
+        insert.bind_text(4, chunk.vector)?
+        insert.run()?
+    tx.commit()?
+    Ok(True)
+
+def infer(texts: &list[str], model: &str, kind: &str, python: &str, script: &str, cache: &str) -> Result[list[str], SearchFailure]:
+    mut input = json.encoder(&json.limits())?
+    input.start_array()?
+    for text in texts:
+        input.text(text)?
+    input.end_array()?
+    mut command = process.command(python)?
+    command.arg(script)?
+    command.arg(model)?
+    command.arg(kind)?
+    command.arg(cache)?
+    command.stdin(Stdio.Piped)
+    command.stdout(Stdio.Piped)
+    command.stderr(Stdio.Piped)
+    mut child = command.spawn()?
+    output = child.communicate(&input.take()?, 16777216)?
+    if not output.status.success():
+        return Err(SearchError.Inference(output.stderr.to_text()?))
+    mut vectors: list[str] = []?
+    match json.parse_text(output.stdout.to_text()?, &json.limits())?:
+        case Json.Array(items):
+            if len(items) != len(texts):
+                return Err(SearchError.InvalidDocument)
+            for item in items:
+                vectors.append(json.encode_text(&item, &json.limits())?)?
+        case _:
+            return Err(SearchError.InvalidDocument)
+    Ok(vectors)
+
+def index_text(db: &mut Connection, id: &str, title: &str, text: &str, model: &str, python: &str, script: &str, cache: &str) -> Result[bool, SearchFailure]:
+    mut input = json.encoder(&json.limits())?
+    input.start_array()?
+    input.text("source-v1")?
+    input.text(title)?
+    input.text(text)?
+    input.end_array()?
+    digest = crypto.sha256(&input.take()?)?
+    hash = encoding.hex_text(&digest, 0, digest.len())?
+    mut old = db.prepare("SELECT hash FROM documents WHERE id=?")?
+    old.bind_text(1, id)?
+    if old.step()? and old.text(0)? == hash:
+        return Ok(False)
+    old.reset()
+    mut texts: list[str] = []?
+    mut start = 0
+    while start < len(text):
+        stop = start + 400 if start + 400 < len(text) else len(text)
+        texts.append(text.slice(start, stop)?)?
+        if stop == len(text):
+            break
+        start = stop - 64
+    vectors = infer(&texts, model, "document", python, script, cache)?
+    mut chunks: list[Chunk] = []?
+    for i, body in enumerate(&texts):
+        chunks.append(Chunk(*body, vectors[i]))?
+    replace_document(db, id, title, &chunks, hash)
+
+def remove_document(db: &mut Connection, id: &str) -> Result[(), DbError]:
+    mut delete = db.prepare("DELETE FROM documents WHERE id=?")?
+    delete.bind_text(1, id)?
+    delete.run()
+
+def search(db: &mut Connection, vector: &str, words: &str) -> Result[(), SearchFailure]:
+    mut terms: list[str] = []?
+    for word in words.split()?:
+        escaped = word.replace("\"", "\"\"")?
+        terms.append(f"\"{escaped}\""?)?
+    # Empty FTS input is invalid. An empty quoted token is a valid no-match query.
+    keywords = "\"\"" if len(terms) == 0 else " OR ".join(&terms)?
+    mut query = db.prepare("WITH nearest AS (SELECT id, vec_distance_cosine(embedding, vec_f32(?1)) AS distance FROM chunks ORDER BY distance, id LIMIT 30), semantic AS (SELECT id, row_number() OVER (ORDER BY distance, id) AS rank FROM nearest), lexical AS (SELECT rowid AS id, row_number() OVER (ORDER BY bm25(chunks_fts), rowid) AS rank FROM chunks_fts WHERE chunks_fts MATCH ?2 LIMIT 30), scores AS (SELECT id, 1.0/(60+rank) AS score FROM semantic UNION ALL SELECT id, 1.0/(60+rank) AS score FROM lexical), ranked AS (SELECT id, sum(score) AS score FROM scores GROUP BY id) SELECT d.id, d.title, c.seq, c.body, r.score FROM ranked r JOIN chunks c ON c.id=r.id JOIN documents d ON d.id=c.document_id ORDER BY r.score DESC, d.id, c.seq LIMIT 10")?
+    query.bind_text(1, vector)?
+    query.bind_text(2, keywords)?
+    while query.step()?:
+        print(query.text(0)?, query.text(1)?, query.integer(2)?, query.real(4)?)?
+        print(query.text(3)?)?
+    Ok(())
+
+def main() -> Result[(), SearchFailure]:
+    arguments = args()?
+    if len(arguments) < 5:
+        print("usage: semantic_search EXTENSION DB MODEL init DIMENSIONS | index ID TITLE TEXT_FILE PYTHON SCRIPT CACHE | find QUERY PYTHON SCRIPT CACHE | put ID TITLE CHUNKS_JSON | query VECTOR_JSON WORDS | delete ID | show ID | status")?
+        return Err(SearchError.Usage)
+    command = arguments[4]
+    mode = Mode.Create if command == "init" else Mode.ReadWrite
+    mut db = sqlite.connect(arguments[2], mode, 16777216)?
+    db.load_extension(arguments[1], "sqlite3_vec_init")?
+    db.set_busy_timeout(5000)?
+    db.execute("PRAGMA foreign_keys=ON")?
+    if command == "init" and len(arguments) == 6:
+        configure(&mut db, arguments[3], i64.parse(arguments[5])?)?
+        print("initialized")?
+        return Ok(())
+    check_model(&mut db, arguments[3])?
+    if command == "put" and len(arguments) == 8:
+        chunks = chunks_from_file(arguments[7])?
+        changed = replace_document(&mut db, arguments[5], arguments[6], &chunks)?
+        print("updated" if changed else "unchanged")?
+    elif command == "index" and len(arguments) == 11:
+        changed = index_text(&mut db, arguments[5], arguments[6], read_text(arguments[7])?, arguments[3], arguments[8], arguments[9], arguments[10])?
+        print("updated" if changed else "unchanged")?
+    elif command == "find" and len(arguments) == 9:
+        texts = [arguments[5]]?
+        vectors = infer(&texts, arguments[3], "query", arguments[6], arguments[7], arguments[8])?
+        search(&mut db, vectors[0], arguments[5])?
+    elif command == "query" and len(arguments) == 7:
+        search(&mut db, read_text(arguments[5])?, arguments[6])?
+    elif command == "delete" and len(arguments) == 6:
+        remove_document(&mut db, arguments[5])?
+        print("deleted")?
+    elif command == "show" and len(arguments) == 6:
+        mut query = db.prepare("SELECT d.title, c.seq, c.body FROM documents d LEFT JOIN chunks c ON c.document_id=d.id WHERE d.id=? ORDER BY c.seq")?
+        query.bind_text(1, arguments[5])?
+        while query.step()?:
+            print(query.text(0)?, query.optional_integer(1)?, query.optional_text(2)?)?
+    elif command == "status" and len(arguments) == 5:
+        mut query = db.prepare("SELECT (SELECT count(*) FROM documents), (SELECT count(*) FROM chunks), model, dimensions FROM config")?
+        query.step()?
+        print("documents", query.integer(0)?, "chunks", query.integer(1)?, "model", query.text(2)?, "dimensions", query.integer(3)?)?
+    else:
+        return Err(SearchError.Usage)
+    Ok(())

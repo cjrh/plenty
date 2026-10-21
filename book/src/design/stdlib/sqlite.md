@@ -39,6 +39,7 @@ copied into a new `str` or `Bytes`.
 | `changes()` | `i64` | Rows changed by the most recent INSERT, UPDATE, or DELETE |
 | `last_insert_rowid()` | `i64` | The rowid of the most recent successful INSERT |
 | `set_busy_timeout(milliseconds: i64)` | `Result[(), DbError]` | How long to retry a locked database; see [Busy databases](#busy-databases) |
+| `load_extension(path: &str, entrypoint: &str = "")` | `Result[(), DbError]` | Load a trusted native SQLite extension into this connection |
 | `close()` | `Result[(), DbError]` | Close now |
 
 `execute` takes no parameters and is meant for schema and fixed SQL.
@@ -50,6 +51,30 @@ connection is alive, and leaves it open. After a successful `close`, every
 method that reaches SQLite is `Closed`, `changes` and `last_insert_rowid`
 return 0, and a second `close` succeeds. Dropping a connection without
 `close` closes it once its last statement and transaction are gone.
+
+## Native extensions and full-text search
+
+`load_extension` loads a native shared library for the supported target. Only
+load libraries you trust: their initialization and SQL functions execute native
+code in your process. The extension must use SQLite's extension API table;
+it does not need a separately linked SQLite library. Use an explicit filesystem
+path to select the library. SQLite may try platform suffixes if it cannot open
+that path directly.
+
+An empty `entrypoint` asks SQLite to discover the initialization symbol;
+otherwise it names the exact exported symbol (for example, `sqlite3_vec_init`).
+Empty or NUL-containing paths are `InvalidPath`; a NUL in the entrypoint is
+`InvalidExtensionEntry`. Loader failures return `Sqlite` with SQLite's loader
+message. `Closed` is returned if the connection has been closed.
+
+The native loading API is enabled only during the call, under the connection
+mutex, and disabled again on success or failure. SQL's `load_extension()` stays
+disabled. Extensions belong to the connection and must be loaded again when
+reopening a database that uses them. There is no public enable/disable toggle.
+
+FTS5 is built in: `CREATE VIRTUAL TABLE ... USING fts5(...)`, `MATCH`, and
+`bm25(...)` work without loading an extension. Vector extensions such as
+`sqlite-vec` are installed separately; Plenty does not download them.
 
 ## Statement
 
@@ -137,6 +162,7 @@ pub enum DbError:
     TransactionActive
     TransactionFinished
     InvalidPath
+    InvalidExtensionEntry
     OutOfRange
     NoRow
     TypeMismatch(ValueType)
@@ -154,6 +180,7 @@ pub enum DbError:
 | `TransactionActive` | `begin` with a transaction already open |
 | `TransactionFinished` | `commit` or `rollback` on a finished transaction |
 | `InvalidPath` | An empty, `":memory:"`, or NUL-containing path |
+| `InvalidExtensionEntry` | An extension entrypoint containing NUL |
 | `OutOfRange` | A parameter, column, limit, or timeout out of range, a NaN, or an unknown parameter name |
 | `NoRow` | A read with no current row |
 | `TypeMismatch(found)` | A read of the wrong storage class |
@@ -177,8 +204,9 @@ Dropping a statement finalizes it.
 
 SQLite is compiled thread-safe and every connection is opened in serialized
 mode, so a connection, statement, or transaction may be moved to a worker
-thread and used there. Opening is a path effect; every other operation acts
-on a handle the caller owns. SQLite's messages are copied per thread, so
+thread and used there. Opening and loading an extension are path effects;
+other operations act on a handle the caller owns. Extension code must itself
+support the threads on which its functions are used. SQLite's messages are copied per thread, so
 concurrent errors on different threads do not overwrite each other.
 
 The handles are `ByteStorage` values. The `__sqlite_*` primitives and the
@@ -192,6 +220,7 @@ module. Given a handle not made by it, they stop the program with
 | Operation | Allocates |
 |---|---|
 | `connect`, `memory` | A copy of the path, the connection owner, and SQLite's connection state and page cache |
+| `load_extension` | Copies of the path and entrypoint, plus loader and extension allocations |
 | `prepare`, `begin` | The statement or transaction owner and SQLite's compiled program |
 | `bind_*`, `step`, `reset`, `kind`, `integer`, `real` | Nothing in the runtime; SQLite copies bound text and blobs |
 | `text`, `blob`, `column_name` | The returned value |
@@ -214,8 +243,8 @@ neither the sources nor a system SQLite:
 It is built with `SQLITE_THREADSAFE=1`, `SQLITE_DEFAULT_MEMSTATUS=0`,
 `SQLITE_DQS=0` (double-quoted strings are identifiers only),
 `SQLITE_LIKE_DOESNT_MATCH_BLOBS`, `SQLITE_OMIT_DEPRECATED`,
-`SQLITE_OMIT_LOAD_EXTENSION`, and `SQLITE_OMIT_SHARED_CACHE`. Extension
-loading is unavailable.
+`SQLITE_ENABLE_FTS5`, and `SQLITE_OMIT_SHARED_CACHE`. Native extension loading
+is available through `Connection.load_extension`; SQL loading stays disabled.
 
 Updating it is the runtime maintainers' job, with each SQLite release that
 fixes a defect: replace the directory with the new amalgamation, verify its
@@ -226,7 +255,7 @@ header, this page, and `sqlite_version()` agree.
 Executables are linked with `--gc-sections`, SQLite is compiled with
 function and data sections, and it is reached only through its own runtime
 entry, so a program that does not use `std.db.sqlite` contains none of it.
-A program that does grows by about 1.6 MB.
+A program that uses SQLite includes the database engine and its enabled features.
 
 ## Limits
 

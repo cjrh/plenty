@@ -40,6 +40,7 @@ pub enum DbError:
     TransactionActive
     TransactionFinished
     InvalidPath
+    InvalidExtensionEntry
     OutOfRange
     NoRow
     TypeMismatch(ValueType)
@@ -89,6 +90,8 @@ def failure(code: i64) -> DbError:
             DbError.TransactionFinished
         case -8:
             DbError.InvalidPath
+        case -9:
+            DbError.InvalidExtensionEntry
         case _:
             match code % 256:
                 case 7:
@@ -177,6 +180,11 @@ pub class Connection:
         if milliseconds < 0 or milliseconds > 2147483647:
             return Err(DbError.OutOfRange)
         status(__sqlite_busy_timeout(self._handle, milliseconds))
+
+    # Loads trusted native code into this connection. Empty entrypoint asks
+    # SQLite to discover the initialization symbol. SQL loading stays disabled.
+    pub def load_extension(self: &mut Connection, path: &str, entrypoint: &str = "") -> Result[(), DbError]:
+        status(__sqlite_load_extension(self._handle, path, entrypoint))
 
     # Closes now, reporting failure. Later operations report Closed.
     pub def close(self: &mut Connection) -> Result[(), DbError]:

@@ -497,6 +497,208 @@ print(query.text(0)?)?
     );
 }
 
+#[test]
+fn native_extensions_load_explicitly_and_sql_loading_stays_disabled() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("extension.c");
+    let library = dir.path().join("fixture.so");
+    // No system SQLite headers/library: SQLite supplies its API table to
+    // the extension. This fixture checks the handshake and failure path.
+    std::fs::write(
+        &source,
+        r#"
+int sqlite3_extension_init(void *db, char **error, const void *api) {
+    return db && error && api ? 0 : 1;
+}
+int plenty_alternate_init(void *db, char **error, const void *api) {
+    return db && error && api ? 0 : 1;
+}
+int plenty_failed_init(void *db, char **error, const void *api) {
+    return 1;
+}
+"#,
+    )
+    .unwrap();
+    let compiled = std::process::Command::new("cc")
+        .args(["-shared", "-fPIC"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&library)
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let path = format!("{:?}", library.to_str().unwrap());
+    let body = format!(
+        r#"
+mut db = std.db.sqlite.memory(65536)?
+report(db.execute("SELECT load_extension('missing')"))?
+db.load_extension({path})?
+db.load_extension({path}, entrypoint="plenty_alternate_init")?
+print("loaded")?
+report(db.execute("SELECT load_extension('missing')"))?
+match db.load_extension({path}, "plenty_failed_init"):
+    case Err(DbError.Sqlite(error)):
+        print(error.primary(), "initialization" in error.message)?
+    case _:
+        print("unexpected")?
+match db.load_extension({path}, "missing_init"):
+    case Err(DbError.Sqlite(error)):
+        print(error.primary(), "missing_init" in error.message)?
+    case _:
+        print("unexpected")?
+report(db.execute("SELECT load_extension('missing')"))?
+db.load_extension({path})?
+print(count(&mut db, "SELECT 42")?)?
+db.close()?
+report(db.load_extension({path}))?
+"#
+    );
+    native(
+        &body,
+        "Sqlite 1 1 not authorized\nloaded\nSqlite 1 1 not authorized\n1 True\n1 True\nSqlite 1 1 not authorized\n42\nClosed",
+    );
+}
+
+#[test]
+fn extension_paths_and_entrypoints_are_checked() {
+    native(
+        r#"
+mut db = std.db.sqlite.memory(65536)?
+report(db.load_extension(""))?
+report(db.load_extension("bad\0path"))?
+report(db.load_extension("missing", "bad\0entry"))?
+match db.load_extension("/definitely-missing-plenty-extension.so"):
+    case Err(DbError.Sqlite(error)):
+        print(error.primary(), "definitely-missing-plenty-extension" in error.message)?
+    case _:
+        print("unexpected")?
+"#,
+        "InvalidPath\nInvalidPath\nInvalidExtensionEntry\n1 True",
+    );
+}
+
+#[test]
+fn fts5_supports_search_and_document_deletion() {
+    native(
+        r#"
+mut db = std.db.sqlite.memory(65536)?
+db.execute("CREATE VIRTUAL TABLE docs USING fts5(body); INSERT INTO docs(rowid, body) VALUES (1, 'owned resources'), (2, 'fallible allocation')")?
+print(count(&mut db, "SELECT count(*) FROM docs WHERE docs MATCH 'resources'")?)?
+db.execute("UPDATE docs SET body = 'borrowed values' WHERE rowid = 1")?
+print(count(&mut db, "SELECT count(*) FROM docs WHERE docs MATCH 'resources'")?)?
+db.execute("DELETE FROM docs WHERE rowid = 2")?
+print(count(&mut db, "SELECT count(*) FROM docs WHERE docs MATCH 'allocation'")?)?
+"#,
+        "1\n0\n0",
+    );
+}
+
+#[test]
+#[ignore = "requires sqlite-vec 0.1.9 shared library in PLENTY_SQLITE_VEC"]
+fn sqlite_vec_search_trial() {
+    let extension = std::env::var("PLENTY_SQLITE_VEC").expect("PLENTY_SQLITE_VEC");
+    let (dir, executable) = build(include_str!("../examples/semantic_search.plenty"));
+    let database = dir.path().join("search.db");
+    let chunks = dir.path().join("chunks.json");
+    let vector = dir.path().join("query.json");
+    std::fs::write(&vector, "[1.0, 0.0]").unwrap();
+    let invoke = |args: &[&str]| {
+        std::process::Command::new(&executable)
+            .args([
+                extension.as_str(),
+                database.to_str().unwrap(),
+                "fixture-model-v1",
+            ])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let success = |args: &[&str]| {
+        let out = invoke(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    };
+    assert!(success(&["init", "2"]).contains("initialized"));
+    std::fs::write(&chunks, r#"[{"text":"resource cleanup", "embedding":[1,0]}, {"text":"owned handles", "embedding":[0.9,0.1]}]"#).unwrap();
+    let input = chunks.to_str().unwrap();
+    assert!(success(&["put", "doc:a", "Ownership", input]).contains("updated"));
+    assert!(success(&["put", "doc:a", "Ownership", input]).contains("unchanged"));
+    assert!(success(&["status"]).contains("documents 1 chunks 2"));
+    let query = vector.to_str().unwrap();
+    assert!(success(&["query", query, "cleanup"]).contains("resource cleanup"));
+    assert!(success(&["query", query, ""]).contains("doc:a"));
+    std::fs::write(
+        &chunks,
+        r#"[{"text":"bad dimension", "embedding":[1,0,0]}]"#,
+    )
+    .unwrap();
+    assert!(
+        !invoke(&["put", "doc:a", "Ownership", input])
+            .status
+            .success()
+    );
+    assert!(success(&["show", "doc:a"]).contains("resource cleanup"));
+    assert!(!invoke(&["init", "3"]).status.success());
+    std::fs::write(
+        &chunks,
+        r#"[{"text":"borrowed values", "embedding":[0,1]}]"#,
+    )
+    .unwrap();
+    success(&["put", "doc:a", "Borrowing", input]);
+    assert!(success(&["status"]).contains("documents 1 chunks 1"));
+    let results = success(&["query", query, "cleanup"]);
+    assert!(!results.contains("resource cleanup"));
+    assert!(results.contains("borrowed values"));
+    success(&["delete", "doc:a"]);
+    assert!(success(&["status"]).contains("documents 0 chunks 0"));
+    assert!(success(&["query", query, "values"]).trim().is_empty());
+
+    // The inference process sees text only. Verify Unicode chunking, unchanged
+    // input bypassing inference, and failure preserving the previous document.
+    let helper = dir.path().join("inference.py");
+    std::fs::write(&helper, "import json, sys\ntexts = json.load(sys.stdin)\nassert all(len(t) <= 400 for t in texts)\njson.dump([[1.0, 0.0] for t in texts], sys.stdout)\n").unwrap();
+    let source = dir.path().join("document.md");
+    std::fs::write(&source, "é".repeat(450)).unwrap();
+    let index = [
+        "index",
+        "doc:b",
+        "Unicode",
+        source.to_str().unwrap(),
+        "python3",
+        helper.to_str().unwrap(),
+        "unused-cache",
+    ];
+    assert!(success(&index).contains("updated"));
+    assert!(success(&["status"]).contains("documents 1 chunks 2"));
+    assert!(
+        success(&[
+            "find",
+            "related concepts",
+            "python3",
+            helper.to_str().unwrap(),
+            "unused-cache"
+        ])
+        .contains("doc:b")
+    );
+    std::fs::write(&helper, "import sys\nsys.exit('inference unavailable')\n").unwrap();
+    assert!(success(&index).contains("unchanged"));
+    std::fs::write(&source, "changed text").unwrap();
+    let failure = invoke(&index);
+    assert!(!failure.status.success());
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("inference unavailable"));
+    assert!(success(&["status"]).contains("documents 1 chunks 2"));
+    success(&["delete", "doc:b"]);
+    assert!(success(&["status"]).contains("documents 0 chunks 0"));
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn allocation_failure_is_reported_without_leaks() {
