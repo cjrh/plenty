@@ -184,4 +184,10 @@ embedded runtime (normal dependencies only; build scripts and procedural macros
 do not ship) with each crate's own license files, plus the vendored SQLite
 amalgamation. The Rust standard library's notices come from the build
 toolchain's `share/doc/rust`. The script fails when a shipped crate has no
-license file, so a new dependency's license is reviewed before it ships.
+license file or reviewed fallback, so a new dependency's license is reviewed
+before it ships. For `iced-x86 1.21.0`, whose published crate omits its license
+file, the generator uses a bundled copy from the upstream commit recorded in
+the crate's `.cargo_vcs_info.json`. The fallback matches the package name,
+version, and declared license and includes the source URL in the notices.
+Dependency upgrades require a fresh review if they still omit the license file;
+notice generation does not download fallback text during the release build.

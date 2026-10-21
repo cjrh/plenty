@@ -7,6 +7,7 @@ book/src/development/releasing.md.
 """
 
 import os
+import importlib.util
 import re
 import shutil
 import subprocess
@@ -35,6 +36,44 @@ esac
 
 def run(args, **kwargs):
     return subprocess.run(args, capture_output=True, text=True, **kwargs)
+
+
+class ThirdPartyNotices(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location(
+            "third_party_notices", RELEASE / "third_party_notices.py"
+        )
+        self.notices = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.notices)
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.package = {
+            "name": "iced-x86", "version": "1.21.0", "license": "MIT",
+            "manifest_path": str(self.root / "Cargo.toml"),
+        }
+
+    def test_omitted_license_uses_complete_pinned_upstream_text(self):
+        output = self.notices.render([self.package])
+        license_text = (RELEASE / "licenses" / "iced-x86-1.21.0-LICENSE.txt").read_text()
+        self.assertIn(license_text.rstrip(), output)
+        self.assertIn("Copyright (C) 2018-present iced project and contributors", output)
+        self.assertIn("c50f29b7bc305696895c075f3fc7719751426b12/LICENSE.txt", output)
+
+    def test_unreviewed_package_version_or_license_still_fails(self):
+        for change in [{"name": "other"}, {"version": "1.22.0"}, {"license": "Apache-2.0"}]:
+            with self.subTest(change=change):
+                with self.assertRaisesRegex(SystemExit, "no license file in shipped packages"):
+                    self.notices.render([{**self.package, **change}])
+
+    def test_packaged_license_takes_precedence(self):
+        (self.root / "LICENSE").write_text("Packaged license text")
+        output = self.notices.render([self.package])
+        self.assertIn("Packaged license text", output)
+        self.assertNotIn("License text source:", output)
+
+    def test_missing_bundled_license_fails(self):
+        self.notices.LICENSE_DIR = self.root / "missing"
+        with self.assertRaises(FileNotFoundError):
+            self.notices.render([self.package])
 
 
 class CheckVersion(unittest.TestCase):
