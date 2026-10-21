@@ -2434,7 +2434,13 @@ impl Lower<'_> {
                 }
                 let source = self.value(&args[0], ops)?;
                 if !source.is_int() {
-                    return Err(args[0].at.error("try_from requires an integer value"));
+                    return Err(casts::operand_error(
+                        "try_from requires an integer value",
+                        &source,
+                        Ty::is_int,
+                        &args[0],
+                        &args[0].at,
+                    ));
                 }
                 ops.push(Op::TryCast(ty.clone()));
                 return Ok(Some(crate::sum::result(ty, crate::sum::range_error())));
@@ -3441,7 +3447,13 @@ impl Lower<'_> {
             }
             let source = self.value(&args[0], ops)?;
             if !source.is_numeric() {
-                return Err(at.error("numeric casts require a number"));
+                return Err(casts::operand_error(
+                    "numeric casts require a number",
+                    &source,
+                    Ty::is_numeric,
+                    &args[0],
+                    at,
+                ));
             }
             self.checked_cast(&source, &ty, &args[0], at, ops)?;
             return Ok(ty);
