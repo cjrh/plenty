@@ -48,6 +48,9 @@ impl Lowerer<'_, '_> {
             CollectionOp::Get(Ty::ByteStr) => (runtime.byte_str_item, false, Site::Trap),
             CollectionOp::IterGet(Ty::ByteStr) => (runtime.byte_str_item, false, Site::Null),
             CollectionOp::Len(Ty::ByteStr) => (runtime.text_byte_len, false, Site::None),
+            CollectionOp::Text(
+                crate::text::TextOp::FindIn | crate::text::TextOp::FindInLiteral,
+            ) => (runtime.text_find_in, true, Site::None),
             CollectionOp::QueryRef(query) => {
                 let helper = match query {
                     Query::BytesLen => runtime.bytes_len,

@@ -361,6 +361,27 @@ pub(crate) unsafe extern "C" fn plenty_bytes_len(owner: *const u8) -> u64 {
     unsafe { (*owner.cast::<Storage>()).bytes.len() as u64 }
 }
 
+/// `std.text.find_in`/`find_not_in`: the scalar position of the first scalar
+/// of `text` that is (`member` 1) or is not (0) an ASCII byte of `set`, or
+/// -1. `set` is a buffer's storage or a `bytes` literal (issue #383).
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_find_in(
+    text: *const strings::Text,
+    set: *const u8,
+    member: u64,
+) -> i64 {
+    // SAFETY: the compiler passes both operands through shared loans that
+    // outlive the call; an inline text view borrows the parameter.
+    let found = unsafe {
+        byte_scan::text_find_in(
+            strings::bytes(&text),
+            source(set as usize as u128),
+            member != 0,
+        )
+    };
+    found.map_or(-1, |index| index as i64)
+}
+
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_bytes_item(
     owner: *const u8,
