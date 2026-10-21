@@ -121,6 +121,27 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// `Bytes.push` (issue #389): the helper appends through the exclusive
+    /// field reference and returns the high word of the dispatcher's
+    /// `Result[(), AllocError]`; the low word is always zero.
+    fn lower_bytes_push(&mut self, operation: &CollectionOp) -> Result<()> {
+        let (inputs, output) = operation.signature();
+        let (value, _) = self.pop_typed(Ty::U8)?;
+        let (receiver, _) = self.pop_typed(inputs[0].clone())?;
+        let owner = self.reference_word(receiver);
+        let value = self.bcx.ins().uextend(types::I64, value);
+        let function = self
+            .module
+            .declare_func_in_func(self.runtime.bytes_push, self.bcx.func);
+        let call = self.bcx.ins().call(function, &[owner, value]);
+        let high = self.bcx.inst_results(call)[0];
+        let low = self.bcx.ins().iconst(types::I64, 0);
+        let result = self.bcx.ins().iconcat(low, high);
+        let result = self.unpack(result, &output);
+        self.stack.push((result, output));
+        Ok(())
+    }
+
     pub(super) fn collection_call(
         &mut self,
         opcode: i64,
@@ -435,6 +456,9 @@ impl Lowerer<'_, '_> {
             self.stack
                 .push((reference, Ty::Ref(element.clone(), *mutable)));
             return Ok(());
+        }
+        if let CollectionOp::Bytes(crate::bytes::BytesOp::Push) = operation {
+            return self.lower_bytes_push(operation);
         }
         if let CollectionOp::TextOrd | CollectionOp::QueryRef(Query::TextOrd) = operation {
             return self.lower_text_ord(operation);

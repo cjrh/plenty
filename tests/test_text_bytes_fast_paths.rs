@@ -294,6 +294,86 @@ fn ord_literals_and_owned_receivers_skip_the_dispatcher_and_retain() {
     }
 }
 
+const PUSHES: &str = r#"
+import std.bytes as by
+from std.bytes import Bytes, BytesError
+
+class Holder:
+    data: Bytes
+
+def fill(data: &mut Bytes, count: i64) -> Result[(), BytesError]:
+    for i in range(count):
+        data.push(u8.try_from(i % 256).unwrap())?
+    Ok(())
+
+def total(data: &Bytes) -> i64:
+    mut sum = 0
+    for i in range(data.len()):
+        sum += i64(data[i])
+    sum
+
+def main() -> Result[(), AllocError | IoError | BytesError]:
+    mut local = by.empty()?
+    fill(&mut local, 1000)?
+    mut held = Holder(by.with_capacity(2)?)
+    held.data.push(7u8)?
+    held.data.push(8u8)?
+    held.data.push(9u8)?
+    mut items = [by.from_text("ab")?]?
+    items[0].push(99u8)?
+    print(local.len(), total(&local), local[255], local[256], local[-1], local.capacity() >= 1000)?
+    print(held.data.len(), held.data[2], items[0].len(), items[0][2])?
+    Ok(())
+"#;
+
+// Issue #389: `Bytes.push` appended through a retained copy of the storage
+// owner and the dispatcher; it now calls one helper on the borrowed field.
+#[test]
+fn push_grows_buffers_in_every_place() {
+    expect(PUSHES, "1000 124716 255 0 231 True\n3 9 3 99\n");
+}
+
+#[test]
+fn push_calls_only_its_narrow_helper() {
+    assert_eq!(
+        runtime_calls(PUSHES, "__plenty_class_std.bytes.Bytes.push"),
+        ["plenty_bytes_push"]
+    );
+}
+
+// Failure leaves the buffer unchanged and retrying succeeds; exit reports a
+// leaked or doubly released owner.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn push_growth_failure_is_reported_and_retried() {
+    support::assert_visible_stdout(
+        r#"
+import std.bytes as by
+from std.bytes import Bytes, BytesError
+
+class Holder:
+    data: Bytes
+
+def main() -> Result[(), AllocError | IoError | BytesError]:
+    mut held = Holder(by.with_capacity(2)?)
+    held.data.push(1u8)?
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    within = held.data.push(2u8)
+    print("__test_end_no_allocations__")?
+    grown = held.data.push(3u8)
+    print("__test_restore_allocations__")?
+    print(str.repr(within)?, str.repr(grown)?, held.data.len(), held.data.capacity())?
+    held.data.push(3u8)?
+    print(held.data.len(), held.data[0], held.data[1], held.data[2])?
+    Ok(())
+"#,
+        "Result[(), std.bytes.BytesError].Ok(()) \
+         Result[(), std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError.OutOfMemory)) 2 2\n\
+         3 1 2 3\n",
+    );
+}
+
 fn trap(body: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
     let source = format!(

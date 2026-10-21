@@ -175,13 +175,6 @@ pub(super) unsafe fn call(
                     0
                 }))
             }
-            177 => {
-                let bytes = storage(a);
-                result(memory::try_reserve_amortized(bytes, 1).map(|()| {
-                    bytes.push(b as u8);
-                    0
-                }))
-            }
             178 => {
                 let source = source(b);
                 let source = &source[range(c, d, source.len())];
@@ -408,6 +401,19 @@ pub(crate) unsafe extern "C" fn plenty_bytes_set_item(
         let index = super::index(i, bytes.len(), site);
         bytes[index] = value as u8;
     }
+}
+
+/// `Bytes.push` (issue #389): the high word of the dispatcher's
+/// `Result[(), AllocError]`, whose low word is zero in both cases.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_bytes_push(owner: *mut u8, value: u64) -> u64 {
+    // SAFETY: the caller holds an exclusive loan of a live storage owner.
+    let bytes = unsafe { &mut (*owner.cast::<Storage>()).bytes };
+    let pushed = memory::try_reserve_amortized(bytes, 1).map(|()| {
+        bytes.push(value as u8);
+        0
+    });
+    (result(pushed) >> 64) as u64
 }
 
 #[cfg(test)]

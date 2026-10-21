@@ -168,7 +168,9 @@ impl BytesOp {
             Self::New => (vec![Ty::I64], storage()),
             Self::Reserve => (vec![storage(), Ty::I64], Ty::Unit),
             Self::Resize => (vec![storage(), Ty::I64, Ty::U8], Ty::Unit),
-            Self::Push => (vec![storage(), Ty::U8], Ty::Unit),
+            // Appending writes through the exclusively borrowed field, so the
+            // owner is neither retained nor released (issue #389).
+            Self::Push => (vec![storage_ref(true), Ty::U8], Ty::Unit),
             Self::Append => (vec![storage(), storage(), Ty::I64, Ty::I64], Ty::Unit),
             Self::FromList => (vec![list()], storage()),
             Self::ToList => (vec![storage()], list()),
