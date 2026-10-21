@@ -57,6 +57,8 @@ mod test_byte_literals;
 mod test_byte_sources;
 #[path = "test_call_borrowing.rs"]
 mod test_call_borrowing;
+#[path = "test_call_substitution.rs"]
+mod test_call_substitution;
 #[path = "test_callable_bounds.rs"]
 mod test_callable_bounds;
 #[path = "test_callable_diagnostics.rs"]

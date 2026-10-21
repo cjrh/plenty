@@ -141,6 +141,33 @@ other function uses it. The choice depends on the function alone, so it is the
 same for every core count. `tests/test_large_functions.rs` runs functions over
 the limit.
 
+## Call-site substitution
+
+Before any body is lowered, `src/codegen/small_calls.rs` replaces two kinds of
+call with the callee's operations (issue #363):
+
+- **Constants.** A read of a module `const` becomes a literal of the
+  constant's declared type, so width, sign and float bits are those of the
+  declaration. This happens in every build, and the constant has no function
+  in the object.
+- **Leaf predicates**, in release builds only. A function whose parameters
+  and result are numbers or `bool`, with no locals, and whose body is at most
+  12 operations drawn from parameter reads, literals, constants, comparisons,
+  `not`, `and`, `or`, and matches on `bool` or integer literals. Nothing in
+  such a body can trap, call, allocate, or touch memory. The caller stores
+  the arguments in new local slots and runs the body; calls to one predicate
+  in a body share its slots. The definition is still emitted, since a
+  function value may name it.
+
+Arithmetic, which can overflow, any call, and recursion keep the call.
+Generator bodies keep predicate calls, since their frame layout is fixed by
+then, as does `plenty_main`.
+
+The substituted operations report no source position, so a later trap or
+call in the caller reports the same position and call chain as before. They
+become part of the caller's IR, so the [compiled-function cache](cache.md)
+key changes when a constant's value or a predicate's body does.
+
 ## Constants in loops
 
 In release builds Cranelift rematerializes an integer or float constant in each

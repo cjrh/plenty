@@ -24,7 +24,7 @@ plenty --dump asm --dump-std app.plenty -o - | less
 
 | Stage | Contents |
 |---|---|
-| `ops` | The typed operation IR the [frontend](frontend.md) hands to code generation: each local slot's type, then one operation per line, with nested bodies indented |
+| `ops` | The typed operation IR the [frontend](frontend.md) hands to code generation, after [call-site substitution](emission.md#call-site-substitution): each local slot's type, then one operation per line, with nested bodies indented |
 | `clif` | Cranelift IR as lowered from the operations, before Cranelift's passes |
 | `clif-opt` | Cranelift IR after its passes, as compiled to machine code |
 | `asm` | x86-64 machine code in AT&T syntax, with byte offsets |

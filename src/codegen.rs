@@ -90,6 +90,7 @@ mod references;
 mod relax;
 pub(crate) use relax::relax_local_addresses;
 mod sites;
+mod small_calls;
 mod sorting;
 mod symbols;
 #[cfg(test)]
@@ -650,6 +651,7 @@ fn object_module(
     workers: usize,
     build: Build,
 ) -> Result<Output> {
+    small_calls::substitute(&mut ops, build.optimize, workers);
     crate::tail_abi::prepare(&mut ops, workers);
     let opt_level = if build.optimize { "speed" } else { "none" };
     let targets = output::Targets {
