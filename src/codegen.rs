@@ -1666,6 +1666,8 @@ fn build_user_function(
         // block-param value makes c.3 cleaner — match arms become new
         // blocks, and a `Variable` is visible across blocks where a
         // raw block-param value would have to be threaded explicitly.
+        let empty_word = bcx.ins().iconst(types::I64, 0);
+        let empty_double = bcx.ins().uextend(types::I128, empty_word);
         let mut locals: Vec<(Variable, Ty)> = Vec::with_capacity(decl.sig.inputs.len());
         for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
             let var = bcx.declare_var(clif_type(ty.clone()));
@@ -1677,13 +1679,7 @@ fn build_user_function(
             let var = bcx.declare_var(clif_type(ty.clone()));
             // Null denotes an uninitialized ownership slot, never a source value.
             if ty.managed() {
-                let zero = bcx.ins().iconst(types::I64, 0);
-                let zero = if ty.wide() {
-                    bcx.ins().uextend(types::I128, zero)
-                } else {
-                    zero
-                };
-                bcx.def_var(var, zero);
+                bcx.def_var(var, if ty.wide() { empty_double } else { empty_word });
             }
             locals.push((var, ty.clone()));
         }
@@ -1750,6 +1746,7 @@ fn build_user_function(
             collection_scratch: None,
             fresh_load: None,
             slot_copies: Vec::new(),
+            empty_slot: Some((empty_word, empty_double)),
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
         };
@@ -1856,6 +1853,7 @@ fn build_main(
             collection_scratch: None,
             fresh_load: None,
             slot_copies: Vec::new(),
+            empty_slot: None,
             counters: Default::default(),
             position: Default::default(),
         };
@@ -2025,6 +2023,11 @@ struct Lowerer<'a, 'b> {
         cranelift_codegen::ir::Value,
         Option<cranelift_codegen::ir::Inst>,
     )>,
+    /// One-word and two-word zeros defined in a user function's entry block.
+    /// Every write of an empty slot uses them, so where all paths into a join
+    /// leave a slot empty, SSA construction resolves its value to the same
+    /// constant and [`Lowerer::release`] emits nothing (issue #391).
+    empty_slot: Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)>,
 }
 
 impl Lowerer<'_, '_> {
@@ -2051,7 +2054,24 @@ impl Lowerer<'_, '_> {
             .declare_func_in_func(self.runtime.retain, self.bcx.func);
         Some(self.bcx.ins().call(f, &[value]))
     }
+    /// The value of an empty ownership slot of type `ty`.
+    fn empty_slot(&mut self, ty: &Ty) -> cranelift_codegen::ir::Value {
+        let Some((word, double)) = self.empty_slot else {
+            let zero = self.bcx.ins().iconst(types::I64, 0);
+            return self.unpack(zero, ty);
+        };
+        if clif_type(ty.clone()) == types::I128 {
+            double
+        } else {
+            self.unpack(word, ty)
+        }
+    }
     fn release(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
+        // A known zero is an empty slot, such as one a last-use move left
+        // behind (issue #391); it owns nothing.
+        if ty.managed() && known::known_zero(&self.bcx.func.dfg, value) {
+            return;
+        }
         if ty.wide() || matches!(ty, Ty::Generator(_) | Ty::Closure(_)) {
             if ty.managed() {
                 // A zero value is an empty ownership slot, such as a local
@@ -2134,8 +2154,7 @@ impl Lowerer<'_, '_> {
         if ty.managed() {
             let value = self.read_local(i);
             self.release(value, &ty);
-            let zero = self.bcx.ins().iconst(types::I64, 0);
-            let zero = self.unpack(zero, &ty);
+            let zero = self.empty_slot(&ty);
             self.write_local(i, zero);
         }
     }
@@ -2272,8 +2291,7 @@ impl Lowerer<'_, '_> {
                 let value = self.read_local(*i);
                 let ty = self.locals[*i as usize].1.clone();
                 let value = self.snapshot_inline(value, &ty);
-                let zero = self.bcx.ins().iconst(types::I64, 0);
-                let zero = self.unpack(zero, &ty);
+                let zero = self.empty_slot(&ty);
                 self.write_local(*i, zero);
                 self.stack.push((value, ty));
             }
