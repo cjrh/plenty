@@ -400,6 +400,8 @@ mod test_std_tls;
 mod test_std_toml;
 #[path = "test_std_url.rs"]
 mod test_std_url;
+#[path = "test_stdlib_index.rs"]
+mod test_stdlib_index;
 #[path = "test_storage_diagnostics.rs"]
 mod test_storage_diagnostics;
 #[path = "test_stored_closures.rs"]

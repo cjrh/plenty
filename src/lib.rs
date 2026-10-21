@@ -95,7 +95,8 @@ mod value;
 /// Editor queries over a checked file, for the language server (issue #155).
 pub mod ide {
     pub use crate::frontend::ide::{
-        analyze, Analysis, Diagnostic, File, Location, Reference, Symbol, SymbolKind,
+        analyze, standard_modules, Analysis, Diagnostic, File, Location, Reference, Symbol,
+        SymbolKind,
     };
 }
 

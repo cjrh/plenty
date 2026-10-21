@@ -410,6 +410,12 @@ pub(super) fn recover(error: &dyn Error) -> bool {
     })
 }
 
+/// Every standard module, with the names the compiler provides for it
+/// rather than declaring in its source.
+pub fn standard_modules() -> Vec<(&'static str, Vec<&'static str>)> {
+    modules::standard_modules()
+}
+
 /// Check `path` as an editor does: record what names refer to, recover from
 /// an error in one function to check the next, and read unsaved text from
 /// `overlay` in place of the files it names. A file that defines `main` is

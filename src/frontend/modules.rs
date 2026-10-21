@@ -159,6 +159,21 @@ impl ModuleSource {
     }
 }
 
+/// Every standard module's name, in diagnostic order, with the unqualified
+/// names the compiler provides for it beside its Plenty source.
+pub(super) fn standard_modules() -> Vec<(&'static str, Vec<&'static str>)> {
+    STANDARD_MODULES
+        .iter()
+        .map(|&(name, _)| {
+            let provided = facility_exports(name)
+                .iter()
+                .map(|export| export.rsplit('.').next().unwrap_or(export))
+                .collect();
+            (name, provided)
+        })
+        .collect()
+}
+
 /// These exports are identities, not wrapper functions: lexical task scopes,
 /// owned jobs, and wait diagnostics must reach the existing builtin lowering.
 fn facility_exports(module: &str) -> &'static [&'static str] {

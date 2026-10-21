@@ -17,6 +17,7 @@
 
 - Docs are an mdBook in `book/src/`. `SUMMARY.md` lists every page in reading order.
 - Before writing Plenty code, read the executable syntax cheat sheet, `book/src/design/examples/cheatsheet.md`. Keep it current when syntax changes.
+- Look up standard library APIs in the generated signature index, `book/src/design/stdlib/signatures.md`. After changing a public `std` declaration or the module table in `book/src/design/stdlib/index.md`, regenerate it with `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.
 - Shared development commands and probe guidance are in `CLAUDE.md` and `book/src/development/workflow.md`, for both Codex and Claude. After doc edits, run `python3 -B scripts/check_links.py book/src [SUBDIR_OR_FILE]` to check local Markdown link targets.
 - Track future work and priorities only in `book/src/backlog.md`. Root `BACKLOG.md` is a link to that page. Issue ownership, comments, and PR review status belong in the shared `issues.db`. Reference pages describe implemented behavior and limits; proposals record rationale and alternatives, not competing work queues.
 - Always aim to keep the reference (`book/src/design/`) up to date with the latest design decisions and architectural changes.
