@@ -1,12 +1,15 @@
 # Fluent iterator pipelines
 
-**Status: Not implemented.** Current iteration is defined by
+**Status: Initial serial core implemented; later serial operations and stages
+remain proposed.** The [pipeline reference](../design/language/09-iteration/06-pipelines.md)
+lists the supported adapters, terminals, ownership rules and current limits.
+Current iteration is defined by
 [iteration and generators](../design/language/09-iteration/index.md),
 [`std.iter`](../design/stdlib/iter.md), [closures](../design/language/06-functions/03-closures.md)
 and [ordered parallel mapping](../design/facilities/03-concurrency/parallel-map.md).
 Related backlog entries are B12 (iterator/view protocols, borrowed adapters),
 B49 (`std.iter`), B22 (broader parallel mapping) and B24 (automatic
-parallelization). No backlog item schedules this design yet. Code blocks on this
+parallelization). B75 schedules this design. Code blocks on this
 page are proposed syntax unless they are labelled as current.
 
 ## Summary

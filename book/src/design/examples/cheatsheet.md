@@ -373,6 +373,27 @@ def main() -> Result[(), AllocError | IoError]:
 A function containing `yield` returns `Generator[T]`; its body cannot use `?`.
 See [generators](../language/09-iteration/03-generators.md).
 
+## Local pipelines
+
+Local transformations can use `iter(source).map(callback).filter(predicate)`
+with a loop or a terminal such as `fold(initial, callback)` or `count()`.
+Borrowed sources and callback captures stay borrowed until the pipeline is
+consumed. Pipelines cannot leave their creating scope. See
+[local iterator pipelines](../language/09-iteration/06-pipelines.md).
+
+```plenty
+def add(total: i64, value: i64) -> i64:
+    total + value
+
+def main() -> Result[(), IoError]:
+    values = iter(range(5)).map(def(n: i64) -> i64: n * n)
+    print(values.fold(0, add))?
+    Ok(())
+```
+```output
+30
+```
+
 ## Python habits that Plenty rejects
 
 | Python | Plenty |
