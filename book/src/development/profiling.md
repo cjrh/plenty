@@ -41,6 +41,9 @@ assembly, with an index sorted by code size.
 
 ## Selecting a benchmark workload
 
+For generated-program dispatch rather than compiler phase attribution, see
+[dense-match dispatch](#dense-match-dispatch).
+
 The first two `compile_bench` arguments are generated units (not lines) and
 repetitions. A unit contains a protocol, class, enum and functions. Choose one
 workload per invocation to avoid mixing source sizes and checking with AOT:
@@ -203,3 +206,52 @@ one core (`taskset -c 0`, 1,000 units, three repetitions plus warm-up) counted
 11.811 billion user-space instructions before and 11.532 billion after
 (-2.4%); cycles were 9.190 and 9.151 billion. This single pair supports lower
 compiler work, while adding no reliable latency claim.
+
+## Dense-match dispatch
+
+The 2026-10-22 B19 experiment at `9c994af0` measures dense integer and enum
+dispatch with 4, 16, 64 and 256 arms. Production still emits comparison chains.
+A temporary Cranelift `Switch` patch produces `br_table`; the patch is preserved
+as an experiment, not enabled in the compiler. Local issue #395 tracks the
+production follow-up. Reproduction, samples and generated-fixture methodology
+are in [`examples/dense_match/`](../../../examples/dense_match/README.md).
+
+On a Ryzen 7 7840HS, x86-64 Linux, Cranelift 0.131.1, pinned to one CPU, median
+wall times over seven shuffled rounds for two million dispatches were:
+
+| Arms | Integer uniform: chain / switch | Enum uniform: chain / switch | Integer 90%-last: chain / switch |
+|---|---:|---:|---:|
+| 4 | 13.1 / 15.7 ms | 23.0 / 26.9 ms | 8.5 / 9.9 ms |
+| 16 | 16.7 / 18.4 ms | 27.2 / 29.2 ms | 11.3 / 10.5 ms |
+| 64 | 23.1 / 18.7 ms | 33.9 / 30.8 ms | 22.6 / 10.0 ms |
+| 256 | 48.1 / 19.4 ms | 84.0 / 31.2 ms | 68.0 / 11.0 ms |
+
+The same-session baseline and prototype runs interleave. Times include process
+startup, all-arm correctness checks, the loop and output; enums also include
+borrowed list indexing. They are not pure dispatch latency or integer-versus-enum
+ABI comparisons. A Python oracle checks every sequence's checksum; integer
+fallbacks include the first out-of-range value and `u64.MAX`.
+
+The 256-arm enum 90%-last case fell from 111.4 to 14.6 ms. First-arm-heavy cases
+show why distribution matters: switches regressed at 4/16/64 arms for both
+integers and enums; at 256 they improved from 11.7 to 9.2 ms and 18.2 to 14.6 ms.
+A balanced Plenty integer decision tree was slower than chains for uniform
+4/16/64-arm inputs (14.7/22.9/30.2 ms), and slower than the switch at 256
+(37.9 ms). Neither balanced trees nor switches should replace every chain.
+
+At 256 arms, isolated dispatch size fell from 5,515 to 3,656 bytes for integers
+and 7,763 to 3,688 for enums, including table data/padding. At four arms it grew
+from 91 to 128 and 131 to 152 bytes. Optimized CLIF instruction counts at 256
+fell from 1,284 to 521 and 1,549 to 534. Cold compile/link medians for the full
+uniform fixtures were 69/65 ms (integer chain/switch) and 95/99 ms (enum);
+these include validation/setup code and linking, with only three samples in
+separate batches. They establish no reliable compile-time gain.
+
+The next bounded task is a large-dense-match selection policy with semantic
+coverage, not another baseline audit. The evidence supports exploring 64+ arms
+but does not establish a universal threshold. Cover signed/narrow integers,
+offset and sparse keys, alternatives, nested payload matches, fallback ordering
+and invalid-tag traps before production adoption. Measure real arm bodies and
+application distributions too: these constant-return microbenchmarks could
+also benefit from data lookup tables. No learner-facing syntax or tutorial
+idiom changes follow from this experiment.
