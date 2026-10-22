@@ -1066,14 +1066,20 @@ def serve[R, E, H: Handler[TlsTransport, R, E]](listener: TcpListener, tls: Serv
 
 ## `std.http.typed`
 
-Fixed-length and close-delimited body readers over `std.io.typed` streams that keep the transport cause. Errors: `FramingError[E]`. [Reference](http-typed.md).
+Fixed-length, chunked and close-delimited body readers over `std.io.typed` streams that keep the transport cause. Errors: `FramingError[E]`. [Reference](http-typed.md).
 
 ```text
 enum FramingError[E]
-    Transport(E) | Truncated | InvalidProgress | OutOfRange | Broken
+    Transport(E) | Truncated | InvalidProgress | OutOfRange | Broken | Protocol(HttpError)
 def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]
 class FixedBody[E, R]
     def read(self: &mut FixedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
+def chunked_body[E, R: Reader[E]](inner: R, limits: &Limits) -> Result[ChunkedBody[E, R], FramingError[E]]
+class ChunkedBody[E, R]
+    trailers: list[Header]
+    def total(self) -> i64
+    def is_done(self) -> bool
+    def read(self: &mut ChunkedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
 def close_body[E, R: Reader[E]](inner: R) -> CloseBody[E, R]
 class CloseBody[E, R]
     def read(self: &mut CloseBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]

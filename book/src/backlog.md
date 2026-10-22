@@ -12,7 +12,7 @@ stages describe technical dependencies, not a second priority list.
 
 ## Current position
 
-Reconciled against local `main` at `6c23c08` on 2026-10-18, merged local PRs,
+Reconciled against local `main` at `9c994af0` on 2026-10-22, merged local PRs,
 the reference and tutorial, and the shared issues register. **B34's bounded
 cleanup and review batch is complete.** Its ownership, diagnostics, compiler
 performance, collection conveniences, and documentation fixes have landed.
@@ -21,56 +21,35 @@ not mean all candidates or every concurrency diagnostic are implemented.
 
 ### Next batches
 
-1. **Error composition and presentation (B14/B71).** General sums now provide
-   `case value: Type:` member patterns, normalization, lossless injection/widening
-   and exhaustive matching. Enums now support ordinary methods, structural
-   protocols, and explicit `std.fmt` display/debug formatting. The concrete
-   [`std.report`](design/stdlib/report.md) formatter and `Formattable` protocol
-   provide allocation-free stderr text/integer/boolean formatting and fallible
-   string collection. Sums forward `Formattable` when every normalized member
-   satisfies it, borrowing the active payload without allocation. Entrypoint
-   reports now select this protocol, and typed contexts format eligible causes.
-   Tutorial examples now propagate incidental failures instead of unwrapping;
-   most tutorial signatures now preserve concrete errors or sums. Scoped spawn
-   propagation widens start errors into declared sums (issue #323); HTTP
-   handlers return their own errors through `Handler[T, R, E]` (issue #325). Owned closure
-   starts and executor submissions propagate losslessly from nongeneric
-   signatures as `SpawnError[OnceClosure[...]]`/`SubmitError[...]` (issue #336).
-   Executable `.plenty` examples, collection/text example pages, installed
-   CLI/data and JSON-service fixtures, and selected assertion/error-composition
-   fixtures now preserve concrete errors. Core borrowing, indexing, generic-data
-   and pattern/match fixtures and their reference examples also use concrete
-   errors or sums. The standard-library APIs already avoid `Failure`.
-   Reference and tutorial snippets no longer offer `Failure` as an ordinary
-   choice (issue #341); concurrency and core-language tests declare precise
-   errors (issues #338, #340), as do HTTP, TLS and networking tests (issue
-   #337) and standard-library module tests (issue #339). Builtin `Failure`
-   stays as a last resort, for when no precise error can be written (issue
-   #342): C exports accept payload-free user error enums, source-only
-   compilation imports `std` modules, and `drop_job()` gives job-free
-   `SpawnError[()]`/`SubmitError[()]` errors that cover several jobs. The
-   remaining uses test `Failure` itself. Defer the `compile_bench` template migration until active
-   performance comparisons finish, so their workload stays comparable. Use
-   non-error sums and the mutual-TLS lesson as acceptance cases. This is the
-   agreed next language batch; B71 records its boundaries.
-2. **Complete typed HTTP composition.** The installed CLI/data and JSON-service
+1. **Complete typed HTTP composition (B71).** The B14/B71 language/reporting
+   foundation and precise-error migration are complete: general sums, enum
+   methods, protocol-based reports and typed contexts are implemented. Keep
+   their existing non-error-sum and mutual-TLS acceptance checks. The installed
+   CLI/data and JSON-service
    workflows now [validate error composition](design/stdlib/http-qualification.md#application-error-composition)
    through real CSV/HTTP calls: precise data/open causes, operation/path reports,
    exit statuses, repeated handler failures followed by success, and descriptor
    cleanup. These extend the existing B66 acceptance checks.
    The additive B71 [typed-stream API](design/stdlib/io-typed.md), legacy stream
-   bridges, and [fixed/close-delimited HTTP bodies](design/stdlib/http-typed.md)
-   preserve operation, cause and partial-progress information. Chunked framing,
-   validated-head integration and complete HTTP client adoption remain; retain
-   existing side channels until those paths preserve their full causes.
+   bridges, and [fixed/chunked/close-delimited HTTP bodies](design/stdlib/http-typed.md)
+   preserve operation, cause and partial-progress information. Chunked decoding
+   includes bounded metadata, trailers and resumable interruptions. Next:
+   validated-head integration, connection recovery and complete HTTP client
+   adoption; retain existing side channels until those paths preserve their
+   full causes.
    These workflows supply acceptance checks, not another library foundation
    project.
-3. **Measured compiler follow-up (B19/B17).** Use the phase profiler to choose
+2. **Measured compiler follow-up (B19/B17).** Use the phase profiler to choose
    bounded improvements and verify cold/warm build time, allocation and memory
    costs. Per-module caching is the next cache-design candidate; remote caching
    follows a useful local contract. Broader architecture changes need measured
    benefit before scheduling. Independent performance work need not wait for
    the error-composition batch.
+
+Keep the `compile_bench` precise-error template migration deferred while active
+performance comparisons rely on the unchanged workload. Floating-point report
+formatting and other additive error conveniences remain separate candidates,
+not prerequisites for typed HTTP composition.
 
 The initial B39–B70 library slices, B17 package tooling, installed CLI/data
 workflow and B66 HTTP qualification have landed. Preserve those checks during
@@ -206,7 +185,7 @@ record encountered language gaps in the issues register.
 
 | ID | Work item | Scope |
 | --- | --- | --- |
-| B71 | Error composition and presentation | `std.error.map_error` and eleven HTTP/JSON adopters are implemented; issue #141 separates specialization depth and total budgets. [General sums](design/language/03-types/anonymous-sums.md) now implement normalization, injection/Result widening, ownership and exhaustive typed-member matching, including non-error values. [Enum methods](design/language/03-types/enums.md#methods), structural protocol satisfaction, and explicit `std.fmt` display/debug formatting are implemented. [`std.report`](design/stdlib/report.md) supplies a concrete `Formattable` protocol, allocation-free stderr text/integer/boolean formatting, and fallible string collection. Sums forward this protocol when every normalized member satisfies it, borrowing the active payload without allocation. [Entry reports and typed context formatting](proposals/completed/error-formatting.md) select it when the concrete cause supports it, with bounded best-effort fallback. Migration covers executable examples, collection/text lessons, probe guidance, installed application fixtures, and core borrowing/indexing/generic-data/pattern fixtures with corresponding reference examples. Nongeneric signatures name retained closure jobs as `SpawnError[OnceClosure[...]]`/`SubmitError[...]`; `?` resolves the concrete job (issue #336, local PR #394). Reference and tutorial snippets (issue #341), concurrency tests (issue #338) and core language/toolchain tests (issue #340) are migrated; kept uses carry `B71` comments, several because one declared `SpawnError`/`SubmitError` cannot cover distinct job closures, and one blocked by issue #344, which now rejects such joins at compile time (local PR #404; returned values that hold an endpoint are rejected too (issue #346, local PR #410); a value under construction across a wait in the same expression is rejected too (issue #347, local PR #411); `drop_job()` futures (issue #348, local PR #415), waits and pool shutdowns inside called functions (issue #349, local PR #416), and `with` lock places (issue #350, local PR #414) are checked too; futures returned from helpers keep their jobs too (issue #352, local PR #420); the [wait habits lesson](tutorial/11-concurrency/wait-habits.md) and the channel reference's recommended patterns teach how to avoid these waits (issue #351, local PR #422); `with token.cancel_on_exit():` cancels a token on every exit, and an exit, join or shutdown that skips a later cancel of a token a worker holds is rejected (issue #355, local PR #424); tokens reached through fields, captures and called functions are not checked). HTTP, TLS, networking and URL tests are migrated with no kept uses (issue #337). Standard-library module tests are migrated (issue #339). Builtin `Failure` stays as a last resort for when no precise error can be written; issue #342 removed the cases that forced it (local PRs #405–#407): payload-free user error enums cross C exports, source-only compilation imports `std` modules, and `drop_job()` gives job-free start and submission errors. Diagnostics suggest precise errors or sums before `Failure`. `drop_job()` applies to a start or submission Result or a bare job error, not to a sum containing one. The mutual-TLS lesson remains a migration acceptance case. Floating-point report formatting remains an additive core extension. Independently extend the [typed-stream prototype](proposals/error-composition.md#prototype-findings) to production stream/HTTP composition and other framing modes. Case guards, residual-set inference, empty sums, arbitrary protocol forwarding and dynamic error objects are deferred. `std.http.server.Handler[T, R, E]` takes the handler's own error type, inferred from `handle`; HTTP lessons return precise errors (issue #325, local PR #379). F-strings keep `std.fmt.FormatError` for every field type (issue #334); revisit with a lossless way for `AllocError` functions to admit `FormatError`. |
+| B71 | Error composition and presentation | The language/reporting foundation and precise-error migration are complete: `std.error.map_error`, general sums (including non-error values), enum methods, structural protocol satisfaction, `std.report.Formattable`, typed context and entrypoint reports, and typed HTTP handlers. `Failure` remains a last resort; explicit retained-job errors and `drop_job()` avoid erasing start/submission causes. Installed CLI/data and JSON-service workflows validate causes, reports, exit status, recovery and cleanup (local PR #472). [`std.io.typed`](design/stdlib/io-typed.md) supplies typed stream helpers and legacy bridges; [`std.http.typed`](design/stdlib/http-typed.md) supplies fixed-length, chunked and close-delimited body readers with concrete causes and partial progress. Next: validated-head integration, connection recovery and full HTTP client adoption before removing legacy error side channels. Keep the benchmark template migration deferred during active performance comparisons. Floating-point report formatting remains an additive extension; f-strings retain `std.fmt.FormatError` (issue #334). Case guards, residual-set inference, empty sums, arbitrary protocol forwarding and dynamic error objects remain deferred. See the [composition evidence](proposals/error-composition/streams-and-evidence.md) for the original prototype and production boundaries. |
 | B72 | State and ownership ergonomics | Explore [typestate at owned boundaries](proposals/typestate-and-owned-transitions.md) and payload enums for runtime state machines. Proposal assessment recorded for [linear obligations](proposals/linear-obligations.md), separate [resolution scopes](proposals/linear-scope-resolution.md), and their [effects/typestate boundaries](proposals/linear-integration.md) (issue #149); implementation and stdlib conversion remain unapproved. Completed cleanups: tuple-based HTTP response assembly removes placeholder heads (issue #134); ordinary string sharing replaces empty-string copies (issue #135); match-valued bindings replace dummy HTTP Results (issue #136). These use existing language facilities. Typestate experiments and runtime-state enum refactors remain; no blanket conversion or general partial-move feature approved. |
 | B73 | Checked arenas and linked-data ergonomics | [Assessment and prototype](proposals/arenas.md) exercise generation-checked slots, typed keys, scoped access, and failure-preserving insertion in ordinary Plenty. Before shipping `std.arena`, replace caller-supplied namespaces with an automatically safe arena-identity contract (including copying, concurrency and exhaustion), review callback ergonomics and movement costs, and qualify deletion/reuse, invalid handles, affine cleanup, OOM preservation and node lookup through tree/graph consumers. Keep general linked lists/trees as examples until a concrete collection workload justifies an API. Coordinate direct disjoint loans and borrowed worklists with B11; no stored-reference or pointer-intrusive extension is implied. |
 | B74 | User-defined dictionary keys and set members | [Proposal](proposals/user-type-hashing.md): admit tuples, classes and enums whose fields are all key types, using structural hashing and equality; add a built-in `KeyType` generic constraint; no user `__hash__`/`__eq__`. Stages: copyable enums, `KeyType`, classes. Collections use SipHash-2-4 with a per-process OS key (issue #329); record traversal uses linear field-offset work per pass (issue #330). |
@@ -252,7 +231,7 @@ boundaries remain narrow.
 | B63 | HTTP client — issue #100 | Done: [std.http.client](design/stdlib/http-client.md) (HTTP/1.1) with pooling, per-phase and caller deadlines, cancellation, bounded redirects with cross-origin credential stripping, an explicit forward proxy, and replay of idempotent requests only (local PR #146); `https` through `std.http.https` with mandatory verification, proxy `CONNECT` tunnels, and streamed request bodies with `Expect: 100-continue` (local PR #154). One client serves many threads through `Shared`: the pool sits behind a mutex held only for checkout and return, counters are atomics, and `Connector.open` borrows the connector shared (issue #326, local PR #369). Review fixes (issue #333, local PR #378): a cancelled or expired request leaves the pool alone, and `discarded` counts every closed connection, so `opened == idle() + discarded` once nothing holds one. Declined: a client cookie jar and content decoding (callers handle `Set-Cookie` and decode with std.compress under their own limit). |
 | B64 | HTTP server — issue #101 | Done: [std.http.server](design/stdlib/http-server.md) with ordered method/path routing, a fixed worker pool behind a bounded admission queue (503 when full), per-phase deadlines, `std.log` events and counters, a `Transport` protocol, and graceful shutdown (local PR #143); idle keep-alive connections parked on a `std.ready` selector (`idle_connections`) and HTTPS through `std.http.tls` with handshake deadlines counted from the accept (local PR #148). |
 | B65 | HTTP/deployment helpers — issue #102 | Done: [std.http.body](design/stdlib/http-body.md) (bounded forms, JSON, multipart uploads to unnamed temporary files), [std.http.cookie](design/stdlib/http-cookie.md) (validated `Set-Cookie`, signed cookies with key rotation), [std.http.proxy](design/stdlib/http-proxy.md) (trusted reverse proxies, reverse-proxy and direct-TLS deployment guidance) and [std.http.files](design/stdlib/http-files.md) (static files confined to a `Root`, conditional requests) (local PRs #144, #152). Later: `Range` requests and directory indexes for `std.http.files`. |
-| B66 | HTTP production qualification — issue #103 | Done: [qualification](design/stdlib/http-qualification.md) suites (corpus and mutations, curl/TLS/client interop, slow clients, shutdown under load, allocation failure, descriptor/heap leaks, relocated compiler, backend linkage) and published baselines (local PR #157). Done since: RFC 9112 `Host` and absolute-form rules (issue #131), request heads and TLS handshakes parked instead of holding workers (issue #132), `std.signal` drain on `SIGTERM`/`SIGINT` (issue #133), lingering close after refusals (issue #138); no qualification gate fails. Reverse-proxy deployment qualified behind nginx 1.30.6 and Caddy 2.11.7 (opt-in Docker tests, `PLENTY_DOCKER_TESTS=1`; local PR #171); the lingering-close budget is 16 MiB so proxied refusals are not turned into 502 (issue #142). Installed-toolchain package workflows qualified: a CLI/data tool and a JSON service built with `plenty build --offline` from an installed compiler (local PR #180). HTTPS baselines published and the proxy tests run in CI (`proxy_tests` job; local PR #183). Server TLS streams acknowledge the client's `Finished` at once, so Nagle-enabled HTTPS clients no longer wait a delayed ACK (issue #148). Coverage-guided fuzzing: `plenty --fuzz` builds libFuzzer targets with block counters; `fuzz/http_server` fuzzes the whole connection loop, with a short run in the test suite (local PR #186). Every qualification gate passes; the server is labelled production-ready (2026-10-18). Depends on B63/B65/B57. Typed routes (issue #159, local PR #199): routes carry a value of an application route type, normally an enum, and `Handler[T, R].handle(self, route: &R, exchange)` dispatches with an exhaustive `match`; variants can hold per-route handlers. Generated dispatch (no user `match`) waits on enum methods or existential protocol values. |
+| B66 | HTTP production qualification — issue #103 | Done: [qualification](design/stdlib/http-qualification.md) suites (corpus and mutations, curl/TLS/client interop, slow clients, shutdown under load, allocation failure, descriptor/heap leaks, relocated compiler, backend linkage) and published baselines (local PR #157). Done since: RFC 9112 `Host` and absolute-form rules (issue #131), request heads and TLS handshakes parked instead of holding workers (issue #132), `std.signal` drain on `SIGTERM`/`SIGINT` (issue #133), lingering close after refusals (issue #138); no qualification gate fails. Reverse-proxy deployment qualified behind nginx 1.30.6 and Caddy 2.11.7 (opt-in Docker tests, `PLENTY_DOCKER_TESTS=1`; local PR #171); the lingering-close budget is 16 MiB so proxied refusals are not turned into 502 (issue #142). Installed-toolchain package workflows qualified: a CLI/data tool and a JSON service built with `plenty build --offline` from an installed compiler (local PR #180). HTTPS baselines published and the proxy tests run in CI (`proxy_tests` job; local PR #183). Server TLS streams acknowledge the client's `Finished` at once, so Nagle-enabled HTTPS clients no longer wait a delayed ACK (issue #148). Coverage-guided fuzzing: `plenty --fuzz` builds libFuzzer targets with block counters; `fuzz/http_server` fuzzes the whole connection loop, with a short run in the test suite (local PR #186). Every qualification gate passes; the server is labelled production-ready (2026-10-18). Depends on B63/B65/B57. Typed routes (issue #159, local PR #199): routes carry a value of an application route type, normally an enum, and `Handler[T, R, E].handle(self, route: &R, exchange)` dispatches with an exhaustive `match`; variants can hold per-route handlers. Generated dispatch (no user `match`) waits on enum methods or existential protocol values. |
 | B67 | Curated crypto — issue #104 | Done: `std.crypto` SHA-256/SHA-512 digests, HMAC, and constant-time `equal`/`verify` over vendored RustCrypto crates. Remaining: key derivation (HKDF/PBKDF2) and encryption need separate API/use-case review. |
 | B68 | Compression — issue #105 | Done: `std.compress` gzip/zlib/DEFLATE buffers and `std.io` streams over vendored zlib-rs, with output limits, gzip member/trailing-data policy, checksum errors, fixed per-stream memory and no linkage when unused. Candidates: gzip header access, zstd, tolerance of trailing zero padding; ZIP/TAR stay B69. |
 | B69 | Archives — issue #106 | Done: `std.archive` TAR (ustar/pax/GNU) and ZIP (ZIP64, stored/DEFLATE) streaming readers and writers, and confined extraction through a staging directory under an explicit `Policy`. Candidates: link creation under an explicit policy, mode/time restoration, streaming ZIP entry writes with data descriptors. |

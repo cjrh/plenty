@@ -39,7 +39,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.http.proxy`](http-proxy.md) | The client address and scheme behind explicitly trusted reverse proxies; deployment guidance | `ProxyError` |
 | [`std.http.server`](http-server.md) | HTTP/1.1 server: routing, a bounded worker pool and admission queue, idle connections parked off the workers, per-phase deadlines, and graceful shutdown | `ServerError` |
 | [`std.http.tls`](http-server.md#https) | `std.http.server` over [`std.tls`](tls.md), with handshake deadlines | `ServerError` |
-| [`std.http.typed`](http-typed.md) | Fixed-length and close-delimited body readers over `std.io.typed` streams that keep the transport cause | `FramingError[E]` |
+| [`std.http.typed`](http-typed.md) | Fixed-length, chunked and close-delimited body readers over `std.io.typed` streams that keep the transport cause | `FramingError[E]` |
 | [`std.io`](io.md) | Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters | `StreamError`, `Partial`, `CopyError`, `CloseError` |
 | [`std.io.typed`](io-typed.md) | Byte stream protocols that carry a caller-chosen error type, adapters for `std.io` streams, and exact read, write, and copy helpers | `StepError[E]`, `Partial[E]`, `CopyFailure[R, W]` |
 | [`std.iter`](iter.md) | Allocation-free `map`, `filter`, `take`, `fold`, and `try_fold` over generators | None |

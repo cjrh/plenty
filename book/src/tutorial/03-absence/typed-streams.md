@@ -47,6 +47,41 @@ never be reused. The copy helper retries explicit interruption and preserves
 other transport causes. A write failure can leave unwritten data from the last
 chunk in scratch; the delivered count alone is not a resume token.
 
+For an already validated head with chunked transfer coding, use `chunked_body`
+with explicit limits. Its typed errors include framing failures as well as the
+transport cause. This small in-memory example propagates either kind of failure:
+
+```plenty
+import std.bytes
+import std.http
+import std.io
+import std.io.typed
+from std.http.typed import FramingError, chunked_body
+from std.io.typed import CopyFailure, copy_all
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[std.io.StreamError] | CopyFailure[FramingError[std.io.StreamError], std.io.StreamError]]:
+    wire = std.bytes.from_text("3\r\nABC\r\n0\r\nX-Tag: sample\r\n\r\n")?
+    limits = std.http.Limits(64, 128, 4, 1024)
+    mut body = chunked_body(std.io.typed.reader(std.io.cursor(wire)), &limits)?
+    mut output = std.io.typed.writer(std.io.cursor(std.bytes.with_capacity(3)?))
+    mut scratch = std.bytes.with_capacity(2)?
+    scratch.resize(2, 0u8)?
+    print(copy_all(&mut body, &mut output, &mut scratch)?)?
+    print(body.is_done(), body.trailers[0].value)?
+    Ok(())
+```
+
+```output
+3
+True sample
+```
+
+Only decoded payload contributes to the copy count. The decoder keeps partial
+framing state across interruption and stops after the trailers; it does not
+parse or validate an HTTP head. Real clients should continue using
+[`std.http.client`](../../design/stdlib/http-client.md), which also handles
+head validation, connection ownership and reuse.
+
 See the [typed streams reference](../../design/stdlib/io-typed.md) for nested
 error payloads and the [framing reference](../../design/stdlib/http-typed.md)
 for terminal-state rules.
