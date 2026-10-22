@@ -24,7 +24,8 @@
 > [human-readable reports](error-formatting.md), and
 > [general anonymous sums](../error-sets.md).
 >
-> **Remaining:** jump-table dispatch (B19); deep operations on recursive enums
+> **Remaining:** measured large-dense-match dispatch policy (B19, issue #395;
+> [benchmark results](../../development/profiling.md#dense-match-dispatch)); deep operations on recursive enums
 > (B33). Guards, enums as dictionary keys or set elements, and `match` as an
 > expression are unscheduled.
 
@@ -221,7 +222,9 @@ Native dispatch loads the tag once, branches using the existing match chain, and
 only loads payload fields inside the selected case. A verified exhaustive match
 still traps on an invalid runtime tag to expose compiler/runtime bugs. Keep a
 compare chain initially; choosing a Cranelift switch/jump table is an isolated
-later optimization.
+later optimization. The [B19 measurement](../../development/profiling.md#dense-match-dispatch)
+now supports a follow-up for large dense matches; small matches can regress,
+so the production implementation still uses comparison chains.
 
 Allocation and enum type metadata should live behind a small runtime interface.
 An implementation can use generated read-only metadata or per-type compiler

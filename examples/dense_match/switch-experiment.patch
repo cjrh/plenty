@@ -1,0 +1,39 @@
+diff --git i/src/codegen.rs w/src/codegen.rs
+index 8e4de4ec..547205c3 100644
+--- i/src/codegen.rs
++++ w/src/codegen.rs
+@@ -3484,6 +3484,34 @@ impl Lowerer<'_, '_> {
+         let mut chain_terminated = false;
+         // Indexed by `bool as usize`: the values earlier `Bool` arms tested.
+         let mut bool_covered = [false; 2];
++        // Measurement-only prototype: zero-based dense i64/u64 cases. This
++        // environment switch is intentionally not a production/cache contract.
++        let dense_switch = std::env::var_os("PLENTY_DENSE_SWITCH").is_some()
++            && clif_type(scrut_ty.clone()) == types::I64
++            && arms.len() >= 4
++            && arms.iter().enumerate().all(|(i, arm)| match arm.pattern {
++                Pattern::Int { value, .. } => int_value_bits(value) == i as i64,
++                Pattern::Wildcard => i + 1 == arms.len(),
++                _ => false,
++            });
++        if dense_switch {
++            let fallback = self.bcx.create_block();
++            let mut switch = cranelift_frontend::Switch::new();
++            for (i, arm) in arms.iter().enumerate() {
++                if matches!(arm.pattern, Pattern::Int { .. }) {
++                    switch.set_entry(i as u128, arm_blocks[i]);
++                }
++            }
++            switch.emit(self.bcx, scrut, fallback);
++            self.bcx.switch_to_block(fallback);
++            self.bcx.seal_block(fallback);
++            if matches!(arms.last().unwrap().pattern, Pattern::Wildcard) {
++                self.bcx.ins().jump(*arm_blocks.last().unwrap(), &[]);
++            } else {
++                self.bcx.ins().trap(TrapCode::unwrap_user(1));
++            }
++            chain_terminated = true;
++        }
+         for (i, arm) in arms.iter().enumerate() {
+             if chain_terminated {
+                 break;

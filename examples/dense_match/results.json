@@ -1,0 +1,2487 @@
+{
+  "revision": "9c994af0a6476a945e3ac01e6c921dd12916bce5",
+  "compiler": "/tmp/plenty-b19-dense-match/target/release/plenty",
+  "measured_at": "2026-10-22T01:35:36.317552+00:00",
+  "switch_experiment": true,
+  "compiler_sha256": "eef9b2dad22cf3bf06c6f9773bc19b15dcccecb3a80775059c6e5b4a200f08a0",
+  "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "cpu": 2,
+  "iterations": 2000000,
+  "repeats": 7,
+  "compile_repeats": 3,
+  "rows": [
+    {
+      "name": "integer-4-uniform",
+      "arms": 4,
+      "kind": "integer",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "c642f2469ebc759073c235acef6e0558edab952e9f85c79a39650dd1bfe0025f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-4-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-4-uniform"
+      ],
+      "compile_seconds": [
+        0.07950224999513011,
+        0.06187033699825406,
+        0.05524877499556169
+      ],
+      "run_seconds": [
+        0.01573929699952714,
+        0.016190570997423492,
+        0.016100141001516022,
+        0.015535084996372461,
+        0.015581382001983002,
+        0.016073130987933837,
+        0.015654047994758002
+      ],
+      "checksum": "80684476293",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     128     16     18     17 function user integer-4-uniform.plenty:1       __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06187033699825406,
+      "run_median_seconds": 0.01573929699952714
+    },
+    {
+      "name": "tree-4-uniform",
+      "arms": 4,
+      "kind": "tree",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "9c7e994a03077328b510f2bc0658bfcd45532f898497237db42a5e98895da8a9",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-4-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-4-uniform"
+      ],
+      "compile_seconds": [
+        0.058000536999315955,
+        0.06002401800651569,
+        0.06374906700511929
+      ],
+      "run_seconds": [
+        0.014890491002006456,
+        0.014918453001882881,
+        0.014728237991221249,
+        0.014311089005786926,
+        0.014665349997812882,
+        0.014856067005894147,
+        0.015081777994055301
+      ],
+      "checksum": "80684476293",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n      91     35     28     26 function user tree-4-uniform.plenty:1          __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06002401800651569,
+      "run_median_seconds": 0.014856067005894147
+    },
+    {
+      "name": "enum-4-uniform",
+      "arms": 4,
+      "kind": "enum",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "547d476a5a2045f4e8146536ac2e3dbf5c5b6482200932459569527d1327f20f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-4-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-4-uniform"
+      ],
+      "compile_seconds": [
+        0.07962850699550472,
+        0.06363810999027919,
+        0.06164288199215662
+      ],
+      "run_seconds": [
+        0.026915488007944077,
+        0.029038874999969266,
+        0.026185024005826563,
+        0.027165015009813942,
+        0.026268209010595456,
+        0.02693527500377968,
+        0.026609316002577543
+      ],
+      "checksum": "80684476293",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     152     20     29     30 function user enum-4-uniform.plenty:7          __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06363810999027919,
+      "run_median_seconds": 0.026915488007944077
+    },
+    {
+      "name": "integer-4-first",
+      "arms": 4,
+      "kind": "integer",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "e3e995548688798bf89ebde664388374e48cc4a837eb27dabaa8bc1805e6bd57",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-4-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-4-first"
+      ],
+      "compile_seconds": [
+        0.05956881699967198,
+        0.05600979700102471,
+        0.06311978200392332
+      ],
+      "run_seconds": [
+        0.008805821998976171,
+        0.008761539997067302,
+        0.008760619006352499,
+        0.00845501699950546,
+        0.008827252997434698,
+        0.009260493010515347,
+        0.009146217998932116
+      ],
+      "checksum": "109111735875",
+      "compile_median_seconds": 0.05956881699967198,
+      "run_median_seconds": 0.008805821998976171
+    },
+    {
+      "name": "tree-4-first",
+      "arms": 4,
+      "kind": "tree",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "014e024523496c41725df9ca12ef427259b7612a5634ea9b74f90052ca304a9e",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-4-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-4-first"
+      ],
+      "compile_seconds": [
+        0.05984059399634134,
+        0.05991447299311403,
+        0.057256086001871154
+      ],
+      "run_seconds": [
+        0.008754656999371946,
+        0.008554503001505509,
+        0.009298924007453024,
+        0.00903482100693509,
+        0.00853154000651557,
+        0.008513346008840017,
+        0.008451831003185362
+      ],
+      "checksum": "109111735875",
+      "compile_median_seconds": 0.05984059399634134,
+      "run_median_seconds": 0.008554503001505509
+    },
+    {
+      "name": "enum-4-first",
+      "arms": 4,
+      "kind": "enum",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "ed20170e3a2f71330f947068ac0449176d77c275c534846df3ce9440d61110b4",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-4-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-4-first"
+      ],
+      "compile_seconds": [
+        0.06821888800186571,
+        0.06468184999539517,
+        0.061891646997537464
+      ],
+      "run_seconds": [
+        0.01361355499830097,
+        0.014196754011209123,
+        0.01350100499985274,
+        0.014109151001321152,
+        0.015432624000823125,
+        0.013815102007356472,
+        0.013728078993153758
+      ],
+      "checksum": "109111735875",
+      "compile_median_seconds": 0.06468184999539517,
+      "run_median_seconds": 0.013815102007356472
+    },
+    {
+      "name": "integer-4-last",
+      "arms": 4,
+      "kind": "integer",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "df4bdc993fe4b340a243318240571c662d54787925825fd599bd80dfc590a567",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-4-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-4-last"
+      ],
+      "compile_seconds": [
+        0.06054639299691189,
+        0.056926208999357186,
+        0.06503779499325901
+      ],
+      "run_seconds": [
+        0.00997060899680946,
+        0.009993050000048243,
+        0.009809648006921634,
+        0.009879438002826646,
+        0.009852578994468786,
+        0.0097827680001501,
+        0.01004785300756339
+      ],
+      "checksum": "52207287435",
+      "compile_median_seconds": 0.06054639299691189,
+      "run_median_seconds": 0.009879438002826646
+    },
+    {
+      "name": "tree-4-last",
+      "arms": 4,
+      "kind": "tree",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "eb87342694bb9ac151547d5e057429b1f0200e73ff1b890cb671d49695dba935",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-4-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-4-last"
+      ],
+      "compile_seconds": [
+        0.05789115199877415,
+        0.05993988999398425,
+        0.06269590900046751
+      ],
+      "run_seconds": [
+        0.008166687999619171,
+        0.008288587006973103,
+        0.008600378001574427,
+        0.008196183989639394,
+        0.00838222099991981,
+        0.008151018992066383,
+        0.008362805005162954
+      ],
+      "checksum": "52207287435",
+      "compile_median_seconds": 0.05993988999398425,
+      "run_median_seconds": 0.008288587006973103
+    },
+    {
+      "name": "enum-4-last",
+      "arms": 4,
+      "kind": "enum",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "c8446dbdee72dff64a04b3791a3e19261a460d08a1086fb17b3fb68cac3f8924",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-4-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-4-last"
+      ],
+      "compile_seconds": [
+        0.0606322630046634,
+        0.06066251099400688,
+        0.0591443939920282
+      ],
+      "run_seconds": [
+        0.014301050003268756,
+        0.014184473009663634,
+        0.01403493199904915,
+        0.014091057004407048,
+        0.014368877004017122,
+        0.014338989989482798,
+        0.013913695991504937
+      ],
+      "checksum": "52207287435",
+      "compile_median_seconds": 0.0606322630046634,
+      "run_median_seconds": 0.014184473009663634
+    },
+    {
+      "name": "integer-16-uniform",
+      "arms": 16,
+      "kind": "integer",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "7ebcba8dc35e92803abc2bff59e692b0ea799bfdd00ab3114e46947cdbe06312",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-16-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-16-uniform"
+      ],
+      "compile_seconds": [
+        0.05827805599255953,
+        0.05751441900792997,
+        0.06087513700185809
+      ],
+      "run_seconds": [
+        0.018382135007414035,
+        0.018713583005592227,
+        0.01861640199786052,
+        0.01798865999444388,
+        0.018586416001198813,
+        0.018184034997830167,
+        0.018278211005963385
+      ],
+      "checksum": "104224777632",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     296     40     42     41 function user integer-16-uniform.plenty:1      __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.05827805599255953,
+      "run_median_seconds": 0.018382135007414035
+    },
+    {
+      "name": "tree-16-uniform",
+      "arms": 16,
+      "kind": "tree",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "2ec5df6f3b0d5c615f9373b8ad2fac244dcb030b404dcc39a09d7d30a11774ad",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-16-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-16-uniform"
+      ],
+      "compile_seconds": [
+        0.05759012998896651,
+        0.05744041000434663,
+        0.05939708599180449
+      ],
+      "run_seconds": [
+        0.022788547008531168,
+        0.023141927988035604,
+        0.022796413002652116,
+        0.02224204699450638,
+        0.0228979820094537,
+        0.022879247000673786,
+        0.0227271629992174
+      ],
+      "checksum": "104224777632",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     331    131    100     98 function user tree-16-uniform.plenty:1         __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.05759012998896651,
+      "run_median_seconds": 0.022796413002652116
+    },
+    {
+      "name": "enum-16-uniform",
+      "arms": 16,
+      "kind": "enum",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "245303b3c46f936c69861902c91666360f771ec7fba865fd7782d27d74cdd97c",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-16-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-16-uniform"
+      ],
+      "compile_seconds": [
+        0.06253884600300808,
+        0.07030945499718655,
+        0.0641406700015068
+      ],
+      "run_seconds": [
+        0.029235752997919917,
+        0.029043153001111932,
+        0.02976073398895096,
+        0.028960149007616565,
+        0.02922982299060095,
+        0.028901309007778764,
+        0.02922039499389939
+      ],
+      "checksum": "104224777632",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     320     44     53     54 function user enum-16-uniform.plenty:19        __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.0641406700015068,
+      "run_median_seconds": 0.02922039499389939
+    },
+    {
+      "name": "integer-16-first",
+      "arms": 16,
+      "kind": "integer",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "27b76767ee8479411d350787927bc45e26f99251eb0017c5bdf4ed75a1ac5e55",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-16-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-16-first"
+      ],
+      "compile_seconds": [
+        0.07017079599609133,
+        0.0654843390075257,
+        0.060637463990133256
+      ],
+      "run_seconds": [
+        0.009166186006041244,
+        0.008983774998341687,
+        0.00971119399764575,
+        0.008991238995804451,
+        0.009185552000417374,
+        0.009048456005984917,
+        0.008962735999375582
+      ],
+      "checksum": "111470309341",
+      "compile_median_seconds": 0.0654843390075257,
+      "run_median_seconds": 0.009048456005984917
+    },
+    {
+      "name": "tree-16-first",
+      "arms": 16,
+      "kind": "tree",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "b6fa81871060d64e4363bba065299af7c6807a2b03b5bc9dbdb23a8273ec3ea9",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-16-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-16-first"
+      ],
+      "compile_seconds": [
+        0.06559408399334643,
+        0.05957479801145382,
+        0.07020873599685729
+      ],
+      "run_seconds": [
+        0.009370027008117177,
+        0.009722996997879818,
+        0.009324502010713331,
+        0.009467059004236944,
+        0.00983506599732209,
+        0.00924846000270918,
+        0.009260782011551782
+      ],
+      "checksum": "111470309341",
+      "compile_median_seconds": 0.06559408399334643,
+      "run_median_seconds": 0.009370027008117177
+    },
+    {
+      "name": "enum-16-first",
+      "arms": 16,
+      "kind": "enum",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "7f9fcf177235d209ed50d1a9a32a3a8ceaf4b16e2434ff1da86c172975c1382f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-16-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-16-first"
+      ],
+      "compile_seconds": [
+        0.060745766008039936,
+        0.06260258599650115,
+        0.06684903999848757
+      ],
+      "run_seconds": [
+        0.014353378006489947,
+        0.014341525005875155,
+        0.014169002999551594,
+        0.014007972000399604,
+        0.014247500002966262,
+        0.014600117996451445,
+        0.014553030996466987
+      ],
+      "checksum": "111470309341",
+      "compile_median_seconds": 0.06260258599650115,
+      "run_median_seconds": 0.014341525005875155
+    },
+    {
+      "name": "integer-16-last",
+      "arms": 16,
+      "kind": "integer",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "02c76a4710d77df44d439c9aef50aa78e458c78aa10816bce6086f23f4a3b830",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-16-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-16-last"
+      ],
+      "compile_seconds": [
+        0.07003476099635009,
+        0.05763092699635308,
+        0.05997935400228016
+      ],
+      "run_seconds": [
+        0.011052670000935905,
+        0.01049137199879624,
+        0.0103260630130535,
+        0.010363642999436706,
+        0.010425008003949188,
+        0.010469461005413905,
+        0.010510366992093623
+      ],
+      "checksum": "186999668365",
+      "compile_median_seconds": 0.05997935400228016,
+      "run_median_seconds": 0.010469461005413905
+    },
+    {
+      "name": "tree-16-last",
+      "arms": 16,
+      "kind": "tree",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "1a08d93bf75521dc1b39a599a5c8226bafa88ef185f5dc07819006233a87342f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-16-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-16-last"
+      ],
+      "compile_seconds": [
+        0.06073372300306801,
+        0.06327229599992279,
+        0.061729583991109394
+      ],
+      "run_seconds": [
+        0.009340390999568626,
+        0.009163239999907091,
+        0.008971592993475497,
+        0.008969108006567694,
+        0.009352683991892263,
+        0.009368743994855322,
+        0.008979516991530545
+      ],
+      "checksum": "186999668365",
+      "compile_median_seconds": 0.061729583991109394,
+      "run_median_seconds": 0.009163239999907091
+    },
+    {
+      "name": "enum-16-last",
+      "arms": 16,
+      "kind": "enum",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "e14eec1c263485a1a487938ebd0bd71a8981486e092c18025906d17e515550b4",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-16-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-16-last"
+      ],
+      "compile_seconds": [
+        0.061814864006009884,
+        0.06637679800041951,
+        0.06090639600006398
+      ],
+      "run_seconds": [
+        0.014657865991466679,
+        0.015272403994458728,
+        0.014847030004602857,
+        0.014357806008774787,
+        0.014698803002829663,
+        0.015032526003778912,
+        0.014558141003362834
+      ],
+      "checksum": "186999668365",
+      "compile_median_seconds": 0.061814864006009884,
+      "run_median_seconds": 0.014698803002829663
+    },
+    {
+      "name": "integer-64-uniform",
+      "arms": 64,
+      "kind": "integer",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "d2b0ffb8dd040d85cb2e2f22bca7409e7c27f2f17a99ca3239f1dd13018c39ac",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-64-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-64-uniform"
+      ],
+      "compile_seconds": [
+        0.05827278600190766,
+        0.05896068099536933,
+        0.05911366600776091
+      ],
+      "run_seconds": [
+        0.01869573100702837,
+        0.01850315100455191,
+        0.018339074013056234,
+        0.018774787997244857,
+        0.018924258009064943,
+        0.019936759999836795,
+        0.018462103995261714
+      ],
+      "checksum": "101629314775",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     976    136    138    137 function user integer-64-uniform.plenty:1      __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.05896068099536933,
+      "run_median_seconds": 0.01869573100702837
+    },
+    {
+      "name": "tree-64-uniform",
+      "arms": 64,
+      "kind": "tree",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "e5b95bf9cee09432c1be403e8a47ea424a91cfab700ed46a925777846cc3b31f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-64-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-64-uniform"
+      ],
+      "compile_seconds": [
+        0.06337388600513805,
+        0.05924621399026364,
+        0.06054096300795209
+      ],
+      "run_seconds": [
+        0.030808572002570145,
+        0.030923967002308927,
+        0.030390329993679188,
+        0.031054621998919174,
+        0.029792543005896732,
+        0.030245729998569004,
+        0.02986811399750877
+      ],
+      "checksum": "101629314775",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n    1291    515    388    386 function user tree-64-uniform.plenty:1         __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06054096300795209,
+      "run_median_seconds": 0.030390329993679188
+    },
+    {
+      "name": "enum-64-uniform",
+      "arms": 64,
+      "kind": "enum",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "1af1a656b8884271c4ecdb27aa88933083078f9978b5db8e3c88bccac3001bd0",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-64-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-64-uniform"
+      ],
+      "compile_seconds": [
+        0.06540707500244025,
+        0.06944047099386808,
+        0.06710234199999832
+      ],
+      "run_seconds": [
+        0.03083613299531862,
+        0.031670552998548374,
+        0.030691984997247346,
+        0.030392745000426657,
+        0.03055855601269286,
+        0.03137344800052233,
+        0.03079907500068657
+      ],
+      "checksum": "101629314775",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     992    140    149    150 function user enum-64-uniform.plenty:67        __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06710234199999832,
+      "run_median_seconds": 0.03079907500068657
+    },
+    {
+      "name": "integer-64-first",
+      "arms": 64,
+      "kind": "integer",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "fb6eb526591a45dc67551f34d0e07417c4906bd337217bfc3effc9c5372f068e",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-64-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-64-first"
+      ],
+      "compile_seconds": [
+        0.061368058988591656,
+        0.06421649099502247,
+        0.06434513200656511
+      ],
+      "run_seconds": [
+        0.009542289000819437,
+        0.009580940997693688,
+        0.009247829002561048,
+        0.009176045001368038,
+        0.009195311009534635,
+        0.009351792992674746,
+        0.00986499099235516
+      ],
+      "checksum": "111212081176",
+      "compile_median_seconds": 0.06421649099502247,
+      "run_median_seconds": 0.009351792992674746
+    },
+    {
+      "name": "tree-64-first",
+      "arms": 64,
+      "kind": "tree",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "0d2d0f6f5a02e02bfb78ed4aa8bf676a82272a5390e7a98eaeb8ad0c7b8bc12f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-64-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-64-first"
+      ],
+      "compile_seconds": [
+        0.06426961999386549,
+        0.06218649800575804,
+        0.0593744530051481
+      ],
+      "run_seconds": [
+        0.012023093993775547,
+        0.011598821001825854,
+        0.01170220400672406,
+        0.011234108998905867,
+        0.011449281999375671,
+        0.011629458997049369,
+        0.011685333010973409
+      ],
+      "checksum": "111212081176",
+      "compile_median_seconds": 0.06218649800575804,
+      "run_median_seconds": 0.011629458997049369
+    },
+    {
+      "name": "enum-64-first",
+      "arms": 64,
+      "kind": "enum",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "33f149d37f9d46dfb3884c4ea1d95c4d41077b20fe19776c46d75dfcaf5f67d4",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-64-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-64-first"
+      ],
+      "compile_seconds": [
+        0.06876553999609314,
+        0.07134067099832464,
+        0.06915050899260677
+      ],
+      "run_seconds": [
+        0.014641996996942908,
+        0.01449297800718341,
+        0.01481617201352492,
+        0.014316608998342417,
+        0.014709402996231802,
+        0.014736593991983682,
+        0.014513696005451493
+      ],
+      "checksum": "111212081176",
+      "compile_median_seconds": 0.06915050899260677,
+      "run_median_seconds": 0.014641996996942908
+    },
+    {
+      "name": "integer-64-last",
+      "arms": 64,
+      "kind": "integer",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "2628ff8d3bf401e71fb5a47c4995ec3a36784e33fc71a629d5ef33dc9fa8d1d9",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-64-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-64-last"
+      ],
+      "compile_seconds": [
+        0.06146058099693619,
+        0.05935804400360212,
+        0.06092588300816715
+      ],
+      "run_seconds": [
+        0.009882454003673047,
+        0.009929812003974803,
+        0.010235574998660013,
+        0.009964937999029644,
+        0.009954249006113969,
+        0.010030499994172715,
+        0.009916928000166081
+      ],
+      "checksum": "176399268220",
+      "compile_median_seconds": 0.06092588300816715,
+      "run_median_seconds": 0.009954249006113969
+    },
+    {
+      "name": "tree-64-last",
+      "arms": 64,
+      "kind": "tree",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "5cfa701a6a5929e52ad6fc8e344d7a4e1acab01603812556d6ad13f152bf1cea",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-64-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-64-last"
+      ],
+      "compile_seconds": [
+        0.06248779100133106,
+        0.0631159740005387,
+        0.061203541001304984
+      ],
+      "run_seconds": [
+        0.010959275998175144,
+        0.010912829005974345,
+        0.010838791000423953,
+        0.011208441006601788,
+        0.010878464992856607,
+        0.01084096499835141,
+        0.01106013500248082
+      ],
+      "checksum": "176399268220",
+      "compile_median_seconds": 0.06248779100133106,
+      "run_median_seconds": 0.010912829005974345
+    },
+    {
+      "name": "enum-64-last",
+      "arms": 64,
+      "kind": "enum",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "e11fd8f5dcb13f99de98c352c36143e1045b3b3089ab0b45fc6ebee3a0512af3",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-64-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-64-last"
+      ],
+      "compile_seconds": [
+        0.06815964799898211,
+        0.06843180599389598,
+        0.06913301699387375
+      ],
+      "run_seconds": [
+        0.015361220997874625,
+        0.014448775997152552,
+        0.014717618003487587,
+        0.014197655997122638,
+        0.014547320010024123,
+        0.014622871007304639,
+        0.014777139003854245
+      ],
+      "checksum": "176399268220",
+      "compile_median_seconds": 0.06843180599389598,
+      "run_median_seconds": 0.014622871007304639
+    },
+    {
+      "name": "integer-256-uniform",
+      "arms": 256,
+      "kind": "integer",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "d2d027fd125744d24dc406182545a6404c35b5af2fbc43a2dca027579f02e193",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-256-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-256-uniform"
+      ],
+      "compile_seconds": [
+        0.06619906499690842,
+        0.06521963499835692,
+        0.06523904101049993
+      ],
+      "run_seconds": [
+        0.019361614002264105,
+        0.021335533005185425,
+        0.02116772900626529,
+        0.019411116998526268,
+        0.01915531899430789,
+        0.01924662000965327,
+        0.019430664004175924
+      ],
+      "checksum": "99703952400",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n    3656    520    522    521 function user integer-256-uniform.plenty:1     __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06523904101049993,
+      "run_median_seconds": 0.019411116998526268
+    },
+    {
+      "name": "tree-256-uniform",
+      "arms": 256,
+      "kind": "tree",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "ed0143d4befd46e4f79853cc50af33a4a4ac183f75849d2d51c4a7151c9dd1e2",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-256-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-256-uniform"
+      ],
+      "compile_seconds": [
+        0.06719775999954436,
+        0.070650662004482,
+        0.06635003699921072
+      ],
+      "run_seconds": [
+        0.03826249898702372,
+        0.037637631001416594,
+        0.03763546800473705,
+        0.03788921200612094,
+        0.037538044998655096,
+        0.03750196800683625,
+        0.037413492987980135
+      ],
+      "checksum": "99703952400",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n    5543   2051   1540   1538 function user tree-256-uniform.plenty:1        __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06719775999954436,
+      "run_median_seconds": 0.03763546800473705
+    },
+    {
+      "name": "enum-256-uniform",
+      "arms": 256,
+      "kind": "enum",
+      "distribution": "uniform",
+      "variant": "switch",
+      "source_sha256": "a492916783f495de0cf405f4bb0133cf8b7eea9a85bdce97f26f35c80ec11bc8",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-256-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-256-uniform"
+      ],
+      "compile_seconds": [
+        0.09919112699571997,
+        0.10270797800330911,
+        0.0983316899946658
+      ],
+      "run_seconds": [
+        0.030818680999800563,
+        0.03173502400750294,
+        0.030848085996694863,
+        0.032289638998918235,
+        0.031195324001600966,
+        0.033630143996560946,
+        0.030923236001399346
+      ],
+      "checksum": "99703952400",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n    3688    524    533    534 function user enum-256-uniform.plenty:259      __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.09919112699571997,
+      "run_median_seconds": 0.031195324001600966
+    },
+    {
+      "name": "integer-256-first",
+      "arms": 256,
+      "kind": "integer",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "4594ac0a0f895103290bed0afd25f63f5c7302b1b0bb8f5b9926bb3533684ece",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-256-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-256-first"
+      ],
+      "compile_seconds": [
+        0.06940934300655499,
+        0.07468022099055815,
+        0.07486794200667646
+      ],
+      "run_seconds": [
+        0.009136922002653591,
+        0.008849544989061542,
+        0.00919735399656929,
+        0.009319502001744695,
+        0.009014883005875163,
+        0.009176024002954364,
+        0.009340983000583947
+      ],
+      "checksum": "111035093862",
+      "compile_median_seconds": 0.07468022099055815,
+      "run_median_seconds": 0.009176024002954364
+    },
+    {
+      "name": "tree-256-first",
+      "arms": 256,
+      "kind": "tree",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "234acc27905de12a6284f37a255f822eeb500462c7aeed6297d0ae54c74899d3",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-256-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-256-first"
+      ],
+      "compile_seconds": [
+        0.07871709299797658,
+        0.07586829000501893,
+        0.07436563300143462
+      ],
+      "run_seconds": [
+        0.012472593996790238,
+        0.012848886006395333,
+        0.01231929699133616,
+        0.012244658006238751,
+        0.012475248004193418,
+        0.012935478996951133,
+        0.012272068997845054
+      ],
+      "checksum": "111035093862",
+      "compile_median_seconds": 0.07586829000501893,
+      "run_median_seconds": 0.012472593996790238
+    },
+    {
+      "name": "enum-256-first",
+      "arms": 256,
+      "kind": "enum",
+      "distribution": "first",
+      "variant": "switch",
+      "source_sha256": "014f55a6e3c20bfe31eee7f5e20755b746e5ffd8053c470e6ee737f42c471fc1",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-256-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-256-first"
+      ],
+      "compile_seconds": [
+        0.0993657329963753,
+        0.09590595800545998,
+        0.09942791900539305
+      ],
+      "run_seconds": [
+        0.014496714997221716,
+        0.014094735000981018,
+        0.015657092997571453,
+        0.013928564003435895,
+        0.01480528200045228,
+        0.014647848001914099,
+        0.014687140996102244
+      ],
+      "checksum": "111035093862",
+      "compile_median_seconds": 0.0993657329963753,
+      "run_median_seconds": 0.014647848001914099
+    },
+    {
+      "name": "integer-256-last",
+      "arms": 256,
+      "kind": "integer",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "a9c8a3df87315b3ec0a5c73411074cb3ef550744d8c56e8932cb7e4f6ea77efe",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/integer-256-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/integer-256-last"
+      ],
+      "compile_seconds": [
+        0.06725473700498696,
+        0.06606899198959582,
+        0.06497973699879367
+      ],
+      "run_seconds": [
+        0.011192671998287551,
+        0.010845683995285071,
+        0.011239971005124971,
+        0.011241834989050403,
+        0.010817962000146508,
+        0.010686065012123436,
+        0.010978742997394875
+      ],
+      "checksum": "134853592986",
+      "compile_median_seconds": 0.06606899198959582,
+      "run_median_seconds": 0.010978742997394875
+    },
+    {
+      "name": "tree-256-last",
+      "arms": 256,
+      "kind": "tree",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "9d4a9908c8f34eb3690c5536357ba3790cf169d55c592b6b6e2482bfdef8544c",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/tree-256-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/tree-256-last"
+      ],
+      "compile_seconds": [
+        0.07006430700130295,
+        0.0667440830002306,
+        0.06689004600048065
+      ],
+      "run_seconds": [
+        0.013865346001693979,
+        0.01150721000158228,
+        0.01178771400009282,
+        0.011174218001542613,
+        0.011438842004281469,
+        0.01181943400297314,
+        0.011348252010066062
+      ],
+      "checksum": "134853592986",
+      "compile_median_seconds": 0.06689004600048065,
+      "run_median_seconds": 0.01150721000158228
+    },
+    {
+      "name": "enum-256-last",
+      "arms": 256,
+      "kind": "enum",
+      "distribution": "last",
+      "variant": "switch",
+      "source_sha256": "856d4c5947a444b23fb387dea221a5f3f5c8a3259b1c1ba5bd86089bdfce1aaf",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-switch/enum-256-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-switch/enum-256-last"
+      ],
+      "compile_seconds": [
+        0.09418080501200166,
+        0.0978747960034525,
+        0.09432777999609243
+      ],
+      "run_seconds": [
+        0.0156233199959388,
+        0.014638870998169295,
+        0.0153037529962603,
+        0.014395385995157994,
+        0.014685348010971211,
+        0.014414081000722945,
+        0.014470526002696715
+      ],
+      "checksum": "134853592986",
+      "compile_median_seconds": 0.09432777999609243,
+      "run_median_seconds": 0.014638870998169295
+    },
+    {
+      "name": "integer-4-uniform",
+      "arms": 4,
+      "kind": "integer",
+      "distribution": "uniform",
+      "source_sha256": "c642f2469ebc759073c235acef6e0558edab952e9f85c79a39650dd1bfe0025f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-4-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-4-uniform"
+      ],
+      "compile_seconds": [
+        0.051618754005176015,
+        0.05273812399536837,
+        0.049645637001958676
+      ],
+      "run_seconds": [
+        0.01360925700282678,
+        0.01322735300345812,
+        0.013004426989937201,
+        0.012864165008068085,
+        0.013487600997905247,
+        0.013109994994010776,
+        0.01304039399838075
+      ],
+      "checksum": "80684476293",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n      91     16     26     24 function user integer-4-uniform.plenty:1       __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.051618754005176015,
+      "run_median_seconds": 0.013109994994010776,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-4-uniform",
+      "arms": 4,
+      "kind": "tree",
+      "distribution": "uniform",
+      "source_sha256": "9c7e994a03077328b510f2bc0658bfcd45532f898497237db42a5e98895da8a9",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-4-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-4-uniform"
+      ],
+      "compile_seconds": [
+        0.05420716899971012,
+        0.04947544800234027,
+        0.05162923299940303
+      ],
+      "run_seconds": [
+        0.016298741989885457,
+        0.014763003011466935,
+        0.014700275991344824,
+        0.0146989930071868,
+        0.015198506007436663,
+        0.014726313995197415,
+        0.014673635989311151
+      ],
+      "checksum": "80684476293",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n      91     35     28     26 function user tree-4-uniform.plenty:1          __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.05162923299940303,
+      "run_median_seconds": 0.014726313995197415,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-4-uniform",
+      "arms": 4,
+      "kind": "enum",
+      "distribution": "uniform",
+      "source_sha256": "547d476a5a2045f4e8146536ac2e3dbf5c5b6482200932459569527d1327f20f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-4-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-4-uniform"
+      ],
+      "compile_seconds": [
+        0.05346293900220189,
+        0.053641492006136104,
+        0.06563079300394747
+      ],
+      "run_seconds": [
+        0.023471292995964177,
+        0.023007437004707754,
+        0.022901447999174707,
+        0.022743773995898664,
+        0.023500779003370553,
+        0.023301705994526856,
+        0.022792174000642262
+      ],
+      "checksum": "80684476293",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     131     20     37     37 function user enum-4-uniform.plenty:7          __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.053641492006136104,
+      "run_median_seconds": 0.023007437004707754,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-4-first",
+      "arms": 4,
+      "kind": "integer",
+      "distribution": "first",
+      "source_sha256": "e3e995548688798bf89ebde664388374e48cc4a837eb27dabaa8bc1805e6bd57",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-4-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-4-first"
+      ],
+      "compile_seconds": [
+        0.06108467899321113,
+        0.056555727001978084,
+        0.061667968999245204
+      ],
+      "run_seconds": [
+        0.007703121998929419,
+        0.007671762999962084,
+        0.007693153995205648,
+        0.007579852011986077,
+        0.008090497009106912,
+        0.007617643001140095,
+        0.00772279899683781
+      ],
+      "checksum": "109111735875",
+      "compile_median_seconds": 0.06108467899321113,
+      "run_median_seconds": 0.007693153995205648,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-4-first",
+      "arms": 4,
+      "kind": "tree",
+      "distribution": "first",
+      "source_sha256": "014e024523496c41725df9ca12ef427259b7612a5634ea9b74f90052ca304a9e",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-4-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-4-first"
+      ],
+      "compile_seconds": [
+        0.060999199995421804,
+        0.06078967799840029,
+        0.06089626699395012
+      ],
+      "run_seconds": [
+        0.008612320991232991,
+        0.008927310002036393,
+        0.008600768996984698,
+        0.00858159399649594,
+        0.00854856199293863,
+        0.008550576007110067,
+        0.008586060997913592
+      ],
+      "checksum": "109111735875",
+      "compile_median_seconds": 0.06089626699395012,
+      "run_median_seconds": 0.008586060997913592,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-4-first",
+      "arms": 4,
+      "kind": "enum",
+      "distribution": "first",
+      "source_sha256": "ed20170e3a2f71330f947068ac0449176d77c275c534846df3ce9440d61110b4",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-4-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-4-first"
+      ],
+      "compile_seconds": [
+        0.06360433799272869,
+        0.06348132599669043,
+        0.062088805992971174
+      ],
+      "run_seconds": [
+        0.01306086299882736,
+        0.012509462001617067,
+        0.012363349000224844,
+        0.01240619900636375,
+        0.012561049006762914,
+        0.012551191000966355,
+        0.012211886991281062
+      ],
+      "checksum": "109111735875",
+      "compile_median_seconds": 0.06348132599669043,
+      "run_median_seconds": 0.012509462001617067,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-4-last",
+      "arms": 4,
+      "kind": "integer",
+      "distribution": "last",
+      "source_sha256": "df4bdc993fe4b340a243318240571c662d54787925825fd599bd80dfc590a567",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-4-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-4-last"
+      ],
+      "compile_seconds": [
+        0.05889430799288675,
+        0.060840382997412235,
+        0.06086076000065077
+      ],
+      "run_seconds": [
+        0.008513776992913336,
+        0.008591651989263482,
+        0.00851658200554084,
+        0.008356452992302366,
+        0.00850874801108148,
+        0.008444438004516996,
+        0.00833984099153895
+      ],
+      "checksum": "52207287435",
+      "compile_median_seconds": 0.060840382997412235,
+      "run_median_seconds": 0.00850874801108148,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-4-last",
+      "arms": 4,
+      "kind": "tree",
+      "distribution": "last",
+      "source_sha256": "eb87342694bb9ac151547d5e057429b1f0200e73ff1b890cb671d49695dba935",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-4-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-4-last"
+      ],
+      "compile_seconds": [
+        0.060042822995455936,
+        0.060891729008289985,
+        0.06083684699842706
+      ],
+      "run_seconds": [
+        0.010037974992883392,
+        0.008180826000170782,
+        0.00808902298740577,
+        0.008021917994483374,
+        0.008220889998483472,
+        0.008130931004416198,
+        0.008411305010668002
+      ],
+      "checksum": "52207287435",
+      "compile_median_seconds": 0.06083684699842706,
+      "run_median_seconds": 0.008180826000170782,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-4-last",
+      "arms": 4,
+      "kind": "enum",
+      "distribution": "last",
+      "source_sha256": "c8446dbdee72dff64a04b3791a3e19261a460d08a1086fb17b3fb68cac3f8924",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-4-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-4-last"
+      ],
+      "compile_seconds": [
+        0.06585736600391101,
+        0.0623606830049539,
+        0.060721350004314445
+      ],
+      "run_seconds": [
+        0.012998054997297004,
+        0.012852643005317077,
+        0.012784356003976427,
+        0.012904250004794449,
+        0.013168222998501733,
+        0.012764158003847115,
+        0.01280700800998602
+      ],
+      "checksum": "52207287435",
+      "compile_median_seconds": 0.0623606830049539,
+      "run_median_seconds": 0.012852643005317077,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-16-uniform",
+      "arms": 16,
+      "kind": "integer",
+      "distribution": "uniform",
+      "source_sha256": "7ebcba8dc35e92803abc2bff59e692b0ea799bfdd00ab3114e46947cdbe06312",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-16-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-16-uniform"
+      ],
+      "compile_seconds": [
+        0.0605982309934916,
+        0.061133139999583364,
+        0.061774367990437895
+      ],
+      "run_seconds": [
+        0.01673764300358016,
+        0.016847837992827408,
+        0.01673775300150737,
+        0.01650719199096784,
+        0.01648856700921897,
+        0.016947834999882616,
+        0.016472207003971562
+      ],
+      "checksum": "104224777632",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     331     40     86     84 function user integer-16-uniform.plenty:1      __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.061133139999583364,
+      "run_median_seconds": 0.01673764300358016,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-16-uniform",
+      "arms": 16,
+      "kind": "tree",
+      "distribution": "uniform",
+      "source_sha256": "2ec5df6f3b0d5c615f9373b8ad2fac244dcb030b404dcc39a09d7d30a11774ad",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-16-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-16-uniform"
+      ],
+      "compile_seconds": [
+        0.05966626899316907,
+        0.06117868499131873,
+        0.06295657699229196
+      ],
+      "run_seconds": [
+        0.022528902991325594,
+        0.02291812899056822,
+        0.02276792899647262,
+        0.02287687300122343,
+        0.022894084992003627,
+        0.022873005000292324,
+        0.02332817600108683
+      ],
+      "checksum": "104224777632",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     331    131    100     98 function user tree-16-uniform.plenty:1         __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06117868499131873,
+      "run_median_seconds": 0.02287687300122343,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-16-uniform",
+      "arms": 16,
+      "kind": "enum",
+      "distribution": "uniform",
+      "source_sha256": "245303b3c46f936c69861902c91666360f771ec7fba865fd7782d27d74cdd97c",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-16-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-16-uniform"
+      ],
+      "compile_seconds": [
+        0.06271325200214051,
+        0.06229663400154095,
+        0.06386463300441392
+      ],
+      "run_seconds": [
+        0.027556275003007613,
+        0.02715689901378937,
+        0.027070848998846486,
+        0.02717005398881156,
+        0.02732719799678307,
+        0.027180141987628303,
+        0.02737817299203016
+      ],
+      "checksum": "104224777632",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n     454     44     97    109 function user enum-16-uniform.plenty:19        __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06271325200214051,
+      "run_median_seconds": 0.027180141987628303,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-16-first",
+      "arms": 16,
+      "kind": "integer",
+      "distribution": "first",
+      "source_sha256": "27b76767ee8479411d350787927bc45e26f99251eb0017c5bdf4ed75a1ac5e55",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-16-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-16-first"
+      ],
+      "compile_seconds": [
+        0.061256660002982244,
+        0.06044488400220871,
+        0.06085977901238948
+      ],
+      "run_seconds": [
+        0.007520881001255475,
+        0.007729352000751533,
+        0.007539867001469247,
+        0.007393154010060243,
+        0.0076072140072938055,
+        0.007915660011349246,
+        0.007808459005900659
+      ],
+      "checksum": "111470309341",
+      "compile_median_seconds": 0.06085977901238948,
+      "run_median_seconds": 0.0076072140072938055,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-16-first",
+      "arms": 16,
+      "kind": "tree",
+      "distribution": "first",
+      "source_sha256": "b6fa81871060d64e4363bba065299af7c6807a2b03b5bc9dbdb23a8273ec3ea9",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-16-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-16-first"
+      ],
+      "compile_seconds": [
+        0.06588275299873203,
+        0.06182043500302825,
+        0.060393006991944276
+      ],
+      "run_seconds": [
+        0.009287581997341476,
+        0.009310706009273417,
+        0.009220968000590801,
+        0.009717074994114228,
+        0.009405161996255629,
+        0.009327006002422422,
+        0.009322198005975224
+      ],
+      "checksum": "111470309341",
+      "compile_median_seconds": 0.06182043500302825,
+      "run_median_seconds": 0.009322198005975224,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-16-first",
+      "arms": 16,
+      "kind": "enum",
+      "distribution": "first",
+      "source_sha256": "7f9fcf177235d209ed50d1a9a32a3a8ceaf4b16e2434ff1da86c172975c1382f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-16-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-16-first"
+      ],
+      "compile_seconds": [
+        0.06325372199353296,
+        0.06709114200202748,
+        0.06286938399716746
+      ],
+      "run_seconds": [
+        0.01334079600928817,
+        0.01288749800005462,
+        0.01308136100124102,
+        0.01270977700187359,
+        0.012749000001349486,
+        0.012515975002315827,
+        0.012944585003424436
+      ],
+      "checksum": "111470309341",
+      "compile_median_seconds": 0.06325372199353296,
+      "run_median_seconds": 0.01288749800005462,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-16-last",
+      "arms": 16,
+      "kind": "integer",
+      "distribution": "last",
+      "source_sha256": "02c76a4710d77df44d439c9aef50aa78e458c78aa10816bce6086f23f4a3b830",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-16-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-16-last"
+      ],
+      "compile_seconds": [
+        0.06173609600227792,
+        0.06127584699424915,
+        0.06521188000624534
+      ],
+      "run_seconds": [
+        0.011281387996859848,
+        0.011282891005976126,
+        0.011824321991298348,
+        0.011144100993988104,
+        0.011005783002474345,
+        0.011363170997356065,
+        0.01111456600483507
+      ],
+      "checksum": "186999668365",
+      "compile_median_seconds": 0.06173609600227792,
+      "run_median_seconds": 0.011281387996859848,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-16-last",
+      "arms": 16,
+      "kind": "tree",
+      "distribution": "last",
+      "source_sha256": "1a08d93bf75521dc1b39a599a5c8226bafa88ef185f5dc07819006233a87342f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-16-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-16-last"
+      ],
+      "compile_seconds": [
+        0.06400851299986243,
+        0.060413915998651646,
+        0.06211861998599488
+      ],
+      "run_seconds": [
+        0.009012358001200482,
+        0.009346071994514205,
+        0.00901244800479617,
+        0.008914175996324047,
+        0.008968155001639389,
+        0.00938188900181558,
+        0.008920968000893481
+      ],
+      "checksum": "186999668365",
+      "compile_median_seconds": 0.06211861998599488,
+      "run_median_seconds": 0.009012358001200482,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-16-last",
+      "arms": 16,
+      "kind": "enum",
+      "distribution": "last",
+      "source_sha256": "e14eec1c263485a1a487938ebd0bd71a8981486e092c18025906d17e515550b4",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-16-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-16-last"
+      ],
+      "compile_seconds": [
+        0.06434728500607889,
+        0.06195878300059121,
+        0.06410259800031781
+      ],
+      "run_seconds": [
+        0.017237585998373106,
+        0.0166767990012886,
+        0.01659388400730677,
+        0.016630682002869435,
+        0.016619151007034816,
+        0.01879205099248793,
+        0.016647944998112507
+      ],
+      "checksum": "186999668365",
+      "compile_median_seconds": 0.06410259800031781,
+      "run_median_seconds": 0.016647944998112507,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-64-uniform",
+      "arms": 64,
+      "kind": "integer",
+      "distribution": "uniform",
+      "source_sha256": "d2b0ffb8dd040d85cb2e2f22bca7409e7c27f2f17a99ca3239f1dd13018c39ac",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-64-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-64-uniform"
+      ],
+      "compile_seconds": [
+        0.06171621900284663,
+        0.06144957100332249,
+        0.06619229199714027
+      ],
+      "run_seconds": [
+        0.025310340002761222,
+        0.02350701901013963,
+        0.023048192000715062,
+        0.022994843006017618,
+        0.02311229199403897,
+        0.02291390199388843,
+        0.023162576006143354
+      ],
+      "checksum": "101629314775",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n    1291    136    326    324 function user integer-64-uniform.plenty:1      __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06171621900284663,
+      "run_median_seconds": 0.02311229199403897,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-64-uniform",
+      "arms": 64,
+      "kind": "tree",
+      "distribution": "uniform",
+      "source_sha256": "e5b95bf9cee09432c1be403e8a47ea424a91cfab700ed46a925777846cc3b31f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-64-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-64-uniform"
+      ],
+      "compile_seconds": [
+        0.06456134500331245,
+        0.06225359199743252,
+        0.06788630699156784
+      ],
+      "run_seconds": [
+        0.030171110993251204,
+        0.02999679600179661,
+        0.03228233600384556,
+        0.029077116996631958,
+        0.03241518400318455,
+        0.029838219008524902,
+        0.03077957799541764
+      ],
+      "checksum": "101629314775",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n    1291    515    388    386 function user tree-64-uniform.plenty:1         __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06456134500331245,
+      "run_median_seconds": 0.030171110993251204,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-64-uniform",
+      "arms": 64,
+      "kind": "enum",
+      "distribution": "uniform",
+      "source_sha256": "1af1a656b8884271c4ecdb27aa88933083078f9978b5db8e3c88bccac3001bd0",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-64-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-64-uniform"
+      ],
+      "compile_seconds": [
+        0.07462924599531107,
+        0.07362342601118144,
+        0.07197150999854784
+      ],
+      "run_seconds": [
+        0.03394163600751199,
+        0.035022605006815866,
+        0.03590571600943804,
+        0.03352911499678157,
+        0.03361595699971076,
+        0.0336544300080277,
+        0.03441049199318513
+      ],
+      "checksum": "101629314775",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n    1751    140    337    397 function user enum-64-uniform.plenty:67        __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.07362342601118144,
+      "run_median_seconds": 0.03394163600751199,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-64-first",
+      "arms": 64,
+      "kind": "integer",
+      "distribution": "first",
+      "source_sha256": "fb6eb526591a45dc67551f34d0e07417c4906bd337217bfc3effc9c5372f068e",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-64-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-64-first"
+      ],
+      "compile_seconds": [
+        0.0643833030044334,
+        0.06529732000490185,
+        0.06502524099778384
+      ],
+      "run_seconds": [
+        0.009027978012454696,
+        0.009088620994589292,
+        0.008977142002549954,
+        0.00906090899661649,
+        0.009199337990139611,
+        0.008999643992865458,
+        0.008870764999301173
+      ],
+      "checksum": "111212081176",
+      "compile_median_seconds": 0.06502524099778384,
+      "run_median_seconds": 0.009027978012454696,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-64-first",
+      "arms": 64,
+      "kind": "tree",
+      "distribution": "first",
+      "source_sha256": "0d2d0f6f5a02e02bfb78ed4aa8bf676a82272a5390e7a98eaeb8ad0c7b8bc12f",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-64-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-64-first"
+      ],
+      "compile_seconds": [
+        0.06607297899608966,
+        0.06361505801032763,
+        0.06397259399818722
+      ],
+      "run_seconds": [
+        0.011897128002601676,
+        0.01195241100504063,
+        0.012087733994121663,
+        0.012256039000931196,
+        0.011629226995864883,
+        0.011661719006951898,
+        0.01152137600001879
+      ],
+      "checksum": "111212081176",
+      "compile_median_seconds": 0.06397259399818722,
+      "run_median_seconds": 0.011897128002601676,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-64-first",
+      "arms": 64,
+      "kind": "enum",
+      "distribution": "first",
+      "source_sha256": "33f149d37f9d46dfb3884c4ea1d95c4d41077b20fe19776c46d75dfcaf5f67d4",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-64-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-64-first"
+      ],
+      "compile_seconds": [
+        0.07219940499635413,
+        0.06964232800237369,
+        0.0699719330004882
+      ],
+      "run_seconds": [
+        0.013106538011925295,
+        0.013351985995541327,
+        0.013063748003332876,
+        0.013368797997827642,
+        0.012998496007639915,
+        0.013333101000171155,
+        0.01330856500135269
+      ],
+      "checksum": "111212081176",
+      "compile_median_seconds": 0.0699719330004882,
+      "run_median_seconds": 0.01330856500135269,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-64-last",
+      "arms": 64,
+      "kind": "integer",
+      "distribution": "last",
+      "source_sha256": "2628ff8d3bf401e71fb5a47c4995ec3a36784e33fc71a629d5ef33dc9fa8d1d9",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-64-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-64-last"
+      ],
+      "compile_seconds": [
+        0.06366263600648381,
+        0.06258748700201977,
+        0.06327891899854876
+      ],
+      "run_seconds": [
+        0.02301812700170558,
+        0.022609752995776944,
+        0.022282441990682855,
+        0.022651753009995446,
+        0.022451857992564328,
+        0.022544331004610285,
+        0.0230849809886422
+      ],
+      "checksum": "176399268220",
+      "compile_median_seconds": 0.06327891899854876,
+      "run_median_seconds": 0.022609752995776944,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-64-last",
+      "arms": 64,
+      "kind": "tree",
+      "distribution": "last",
+      "source_sha256": "5cfa701a6a5929e52ad6fc8e344d7a4e1acab01603812556d6ad13f152bf1cea",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-64-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-64-last"
+      ],
+      "compile_seconds": [
+        0.0625932679977268,
+        0.06519938599376474,
+        0.0638158410001779
+      ],
+      "run_seconds": [
+        0.011548727008630522,
+        0.011234158999286592,
+        0.01088813299429603,
+        0.011236302991164848,
+        0.010786712999106385,
+        0.01083826000103727,
+        0.010842128001968376
+      ],
+      "checksum": "176399268220",
+      "compile_median_seconds": 0.0638158410001779,
+      "run_median_seconds": 0.01088813299429603,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-64-last",
+      "arms": 64,
+      "kind": "enum",
+      "distribution": "last",
+      "source_sha256": "e11fd8f5dcb13f99de98c352c36143e1045b3b3089ab0b45fc6ebee3a0512af3",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-64-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-64-last"
+      ],
+      "compile_seconds": [
+        0.06940238999959547,
+        0.06864420299825724,
+        0.06792211398715153
+      ],
+      "run_seconds": [
+        0.032004206004785374,
+        0.031147054993198253,
+        0.03138621100515593,
+        0.03146503800235223,
+        0.03202178899664432,
+        0.03121072299836669,
+        0.031089377007447183
+      ],
+      "checksum": "176399268220",
+      "compile_median_seconds": 0.06864420299825724,
+      "run_median_seconds": 0.03138621100515593,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-256-uniform",
+      "arms": 256,
+      "kind": "integer",
+      "distribution": "uniform",
+      "source_sha256": "d2d027fd125744d24dc406182545a6404c35b5af2fbc43a2dca027579f02e193",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-256-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-256-uniform"
+      ],
+      "compile_seconds": [
+        0.07074060999730136,
+        0.06832494698755909,
+        0.06899922600132413
+      ],
+      "run_seconds": [
+        0.048148689995286986,
+        0.04860702699807007,
+        0.04779076098930091,
+        0.047205348004354164,
+        0.049167834004038014,
+        0.05395962699549273,
+        0.047697096000774764
+      ],
+      "checksum": "99703952400",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n    5515    520   1286   1284 function user integer-256-uniform.plenty:1     __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06899922600132413,
+      "run_median_seconds": 0.048148689995286986,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-256-uniform",
+      "arms": 256,
+      "kind": "tree",
+      "distribution": "uniform",
+      "source_sha256": "ed0143d4befd46e4f79853cc50af33a4a4ac183f75849d2d51c4a7151c9dd1e2",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-256-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-256-uniform"
+      ],
+      "compile_seconds": [
+        0.06810800099628977,
+        0.06846285500796512,
+        0.07139707601163536
+      ],
+      "run_seconds": [
+        0.03793957599555142,
+        0.03847653900447767,
+        0.03768018100527115,
+        0.0373002800042741,
+        0.03794562599796336,
+        0.03753616199537646,
+        0.04004415801318828
+      ],
+      "checksum": "99703952400",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n    5543   2051   1540   1538 function user tree-256-uniform.plenty:1        __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.06846285500796512,
+      "run_median_seconds": 0.03793957599555142,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-256-uniform",
+      "arms": 256,
+      "kind": "enum",
+      "distribution": "uniform",
+      "source_sha256": "a492916783f495de0cf405f4bb0133cf8b7eea9a85bdce97f26f35c80ec11bc8",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-256-uniform.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-256-uniform"
+      ],
+      "compile_seconds": [
+        0.09495161499944516,
+        0.09409945399966091,
+        0.09694392699748278
+      ],
+      "run_seconds": [
+        0.08746893600618932,
+        0.08531523200508673,
+        0.08371132500178646,
+        0.08380968798883259,
+        0.08361284001148306,
+        0.08767099300166592,
+        0.08403469900076743
+      ],
+      "checksum": "99703952400",
+      "dump_index": "# plenty 0.2.3 --dump\n# target x86_64-unknown-linux-gnu\n# optimize speed\n# stages clif-opt,asm\n# scope user\n# filter \"dispatch\"\n# functions 1\n# sorted by machine-code bytes, largest first\n#  bytes    ops   clif    opt kind     lib  source                           symbol key\n    7763    524   1297   1549 function user enum-256-uniform.plenty:259      __plenty_fn_dispatch dispatch\n",
+      "compile_median_seconds": 0.09495161499944516,
+      "run_median_seconds": 0.08403469900076743,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-256-first",
+      "arms": 256,
+      "kind": "integer",
+      "distribution": "first",
+      "source_sha256": "4594ac0a0f895103290bed0afd25f63f5c7302b1b0bb8f5b9926bb3533684ece",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-256-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-256-first"
+      ],
+      "compile_seconds": [
+        0.06674990300962236,
+        0.0683493719989201,
+        0.06745784700615332
+      ],
+      "run_seconds": [
+        0.012029104997054674,
+        0.011418184003559873,
+        0.011659664000035264,
+        0.012246010010130703,
+        0.01168302800215315,
+        0.011521145002916455,
+        0.011461554007837549
+      ],
+      "checksum": "111035093862",
+      "compile_median_seconds": 0.06745784700615332,
+      "run_median_seconds": 0.011659664000035264,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-256-first",
+      "arms": 256,
+      "kind": "tree",
+      "distribution": "first",
+      "source_sha256": "234acc27905de12a6284f37a255f822eeb500462c7aeed6297d0ae54c74899d3",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-256-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-256-first"
+      ],
+      "compile_seconds": [
+        0.07168212901160587,
+        0.06814164400566369,
+        0.07009285000094678
+      ],
+      "run_seconds": [
+        0.012669622010434978,
+        0.012797571005648933,
+        0.013121916999807581,
+        0.012827216007281095,
+        0.012630969009478576,
+        0.012700398001470603,
+        0.012402833002852276
+      ],
+      "checksum": "111035093862",
+      "compile_median_seconds": 0.07009285000094678,
+      "run_median_seconds": 0.012700398001470603,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-256-first",
+      "arms": 256,
+      "kind": "enum",
+      "distribution": "first",
+      "source_sha256": "014f55a6e3c20bfe31eee7f5e20755b746e5ffd8053c470e6ee737f42c471fc1",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-256-first.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-256-first"
+      ],
+      "compile_seconds": [
+        0.10085479500412475,
+        0.10464594799850602,
+        0.10168028699990828
+      ],
+      "run_seconds": [
+        0.017941762998816557,
+        0.018776861994410865,
+        0.018535080991568975,
+        0.019042547995923087,
+        0.0181631860032212,
+        0.017959313991013914,
+        0.018076724009006284
+      ],
+      "checksum": "111035093862",
+      "compile_median_seconds": 0.10168028699990828,
+      "run_median_seconds": 0.0181631860032212,
+      "variant": "baseline"
+    },
+    {
+      "name": "integer-256-last",
+      "arms": 256,
+      "kind": "integer",
+      "distribution": "last",
+      "source_sha256": "a9c8a3df87315b3ec0a5c73411074cb3ef550744d8c56e8932cb7e4f6ea77efe",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/integer-256-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/integer-256-last"
+      ],
+      "compile_seconds": [
+        0.07038607800495811,
+        0.06730056299420539,
+        0.0673849099985091
+      ],
+      "run_seconds": [
+        0.06885692999640014,
+        0.06883508000464644,
+        0.06687218199658673,
+        0.06742402300005779,
+        0.06804381099937018,
+        0.06739270499383565,
+        0.0703070099989418
+      ],
+      "checksum": "134853592986",
+      "compile_median_seconds": 0.0673849099985091,
+      "run_median_seconds": 0.06804381099937018,
+      "variant": "baseline"
+    },
+    {
+      "name": "tree-256-last",
+      "arms": 256,
+      "kind": "tree",
+      "distribution": "last",
+      "source_sha256": "9d4a9908c8f34eb3690c5536357ba3790cf169d55c592b6b6e2482bfdef8544c",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/tree-256-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/tree-256-last"
+      ],
+      "compile_seconds": [
+        0.07543667500431184,
+        0.07533539499854669,
+        0.06957864899595734
+      ],
+      "run_seconds": [
+        0.011406551013351418,
+        0.011714467007550411,
+        0.011387056001694873,
+        0.011814883997431025,
+        0.01330846500059124,
+        0.011430336002376862,
+        0.011394058004952967
+      ],
+      "checksum": "134853592986",
+      "compile_median_seconds": 0.07533539499854669,
+      "run_median_seconds": 0.011430336002376862,
+      "variant": "baseline"
+    },
+    {
+      "name": "enum-256-last",
+      "arms": 256,
+      "kind": "enum",
+      "distribution": "last",
+      "source_sha256": "856d4c5947a444b23fb387dea221a5f3f5c8a3259b1c1ba5bd86089bdfce1aaf",
+      "compile_command": [
+        "/tmp/plenty-b19-dense-match/target/release/plenty",
+        "--release",
+        "--no-cache",
+        "--compile",
+        "/tmp/plenty-b19-measure/enum-256-last.plenty",
+        "-o",
+        "/tmp/plenty-b19-measure/enum-256-last"
+      ],
+      "compile_seconds": [
+        0.09655557200312614,
+        0.09180714000831358,
+        0.09755456900165882
+      ],
+      "run_seconds": [
+        0.11549417600326706,
+        0.11138555999787059,
+        0.11487398800090887,
+        0.11040293399128132,
+        0.1318610960006481,
+        0.11077367700636387,
+        0.11111275099392515
+      ],
+      "checksum": "134853592986",
+      "compile_median_seconds": 0.09655557200312614,
+      "run_median_seconds": 0.11138555999787059,
+      "variant": "baseline"
+    }
+  ],
+  "baseline_compiler_sha256": "2a4eee8047b8a475ffa1e22dc8bb7922443765770718bbbfdb3772994428c9ba"
+}
