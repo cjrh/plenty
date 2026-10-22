@@ -32,6 +32,23 @@ fn plenty(args: &[&str]) -> Output {
         .unwrap()
 }
 
+/// Exec a small interpreter, then spawn the target from its small address
+/// space. On Linux, exec preserves peak RSS: directly launching libFuzzer
+/// from the integration harness can charge it for other tests' memory.
+/// Python is already required by the HTTP fuzz test. Do not replace the
+/// subprocess call with exec, which would preserve the inherited peak again.
+fn isolated_target(target: &Path) -> Command {
+    let mut command = Command::new("python3");
+    command.args([
+        "-B",
+        "-c",
+        "import subprocess, sys; code = subprocess.call(sys.argv[1:]); \
+         sys.exit(code if code >= 0 else 128 - code)",
+    ]);
+    command.arg(target);
+    command
+}
+
 /// `source` as `main.plenty` beside the input module, built with `--fuzz`
 /// and `libfuzzer` into `dir/target`.
 fn build(dir: &Path, source: &str, libfuzzer: &Path) -> PathBuf {
@@ -61,29 +78,146 @@ fn fuzz(dir: &Path, target: &Path, runs: u32) -> Option<Vec<u8>> {
     std::fs::create_dir_all(&findings).unwrap();
     let corpus = dir.join("corpus");
     std::fs::create_dir_all(&corpus).unwrap();
-    let output = Command::new(target)
+    let output = isolated_target(target)
         .arg("-seed=1")
+        .arg("-rss_limit_mb=2048")
         .arg(format!("-runs={runs}"))
         .arg(format!("-artifact_prefix={}/", findings.display()))
         .arg(&corpus)
         .output()
         .unwrap();
-    let log = String::from_utf8_lossy(&output.stderr);
     let found: Vec<_> = std::fs::read_dir(&findings)
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .collect();
-    match found.as_slice() {
-        [] => {
-            assert!(output.status.success(), "{log}");
-            None
-        }
-        [crash] => {
-            assert_eq!(output.status.code(), Some(77), "{log}");
-            Some(std::fs::read(crash).unwrap())
-        }
-        _ => panic!("several findings: {found:?}\n{log}"),
+    crash_input(&output, &found).unwrap_or_else(|error| panic!("{error}"))
+}
+
+/// Resource limits and unexpected exits must fail the test, even if they
+/// saved an input. Only a crash artifact with the semantic exit code counts.
+fn crash_input(output: &Output, found: &[PathBuf]) -> Result<Option<Vec<u8>>, String> {
+    let log = String::from_utf8_lossy(&output.stderr);
+    let resource_limit = matches!(output.status.code(), Some(70 | 71))
+        || found.iter().any(|path| {
+            let name = path.file_name().unwrap().to_string_lossy();
+            name.starts_with("oom-") || name.starts_with("timeout-")
+        });
+    if resource_limit {
+        return Err(format!(
+            "libFuzzer resource-limit failure: {}; artifacts: {found:?}\n{log}",
+            output.status
+        ));
     }
+    match found {
+        [] if output.status.success() => Ok(None),
+        [crash]
+            if output.status.code() == Some(77)
+                && crash
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("crash-") =>
+        {
+            Ok(Some(std::fs::read(crash).unwrap()))
+        }
+        _ => Err(format!(
+            "unexpected libFuzzer result: {}; artifacts: {found:?}\n{log}",
+            output.status
+        )),
+    }
+}
+
+/// Reproduce the high peak in a separate process, keeping the concurrent
+/// integration harness small. Exec leaves the peak behind after freeing.
+#[cfg(target_os = "linux")]
+fn after_high_peak(command: &Command) -> Output {
+    Command::new("python3")
+        .args([
+            "-B",
+            "-c",
+            "import os, sys; data = bytearray(96 * 1024 * 1024); del data; \
+             os.execvp(sys.argv[1], sys.argv[1:])",
+        ])
+        .arg(command.get_program())
+        .args(command.get_args())
+        .output()
+        .unwrap()
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn launcher_resets_peak_rss_and_forwards_arguments_output_and_status() {
+    let probe = "import resource, sys; \
+                 print(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss); \
+                 print(sys.argv[1], file=sys.stderr); sys.exit(77)";
+    let mut direct = Command::new("python3");
+    direct.args(["-B", "-c", probe, "one argument with spaces"]);
+    let inherited = after_high_peak(&direct);
+    let peak = |output: &Output| {
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<u64>()
+            .unwrap()
+    };
+    assert_eq!(inherited.status.code(), Some(77), "{inherited:?}");
+    assert!(peak(&inherited) >= 96 * 1024, "{inherited:?}");
+
+    let mut isolated = isolated_target(Path::new("python3"));
+    isolated.args(direct.get_args());
+    let fresh = after_high_peak(&isolated);
+    assert_eq!(fresh.status.code(), Some(77), "{fresh:?}");
+    assert!(peak(&fresh) < 64 * 1024, "{fresh:?}");
+    assert_eq!(fresh.stderr, b"one argument with spaces\n");
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn libfuzzer_starts_below_launcher_peak_and_still_reports_oom() {
+    let Some(libfuzzer) = libfuzzer() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let target = build(dir.path(), "def main() -> ():\n    pass\n", &libfuzzer);
+    let mut command = isolated_target(&target);
+    command.args(["-runs=2", "-rss_limit_mb=64", "-print_final_stats=1"]);
+    let output = after_high_peak(&command);
+    let log = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{log}");
+    let peak = log
+        .lines()
+        .find_map(|line| line.strip_prefix("stat::peak_rss_mb:").map(str::trim))
+        .unwrap_or_else(|| panic!("no peak RSS statistic\n{log}"))
+        .parse::<u64>()
+        .unwrap();
+    assert!(peak < 64, "{log}");
+
+    // The target's own footprint exceeds 1 MiB. Run long enough for the
+    // libFuzzer RSS monitor to fire; do not disable limits or retry failures.
+    let findings = dir.path().join("findings");
+    std::fs::create_dir(&findings).unwrap();
+    let output = isolated_target(&target)
+        .args(["-rss_limit_mb=1", "-runs=1000000000", "-max_total_time=5"])
+        .arg(format!("-artifact_prefix={}/", findings.display()))
+        .output()
+        .unwrap();
+    let log = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(71), "{log}");
+    let found: Vec<_> = std::fs::read_dir(&findings)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert!(
+        found.iter().any(|path| path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("oom-")),
+        "{found:?}\n{log}"
+    );
+    let error = crash_input(&output, &found).unwrap_err();
+    assert!(error.contains("resource-limit failure"), "{error}");
+    assert!(error.contains("oom-"), "{error}");
+    assert!(error.contains("out-of-memory"), "{error}");
 }
 
 /// Six nested byte tests guard a trap. Random inputs would need about 2^48
