@@ -90,6 +90,28 @@ namespace, and the main thread declares them in declaration order as it places
 the function, then points the function's relocations at them. If any function
 fails, emission reports the error of the first failing function in that order.
 
+## Match dispatch
+
+Integer literal and lowered enum-tag dispatch uses a jump table when at least
+256 distinct keys form one contiguous range (issue #395). Other sets retain
+source-order comparison chains. This conservative threshold follows the
+[dense-match measurements](../../../development/profiling.md#dense-match-dispatch);
+small tables regressed for some input distributions.
+
+The lowerer sorts keys with their original arm blocks, checks contiguity and
+rejects duplicates or an early wildcard before selecting a table. It subtracts
+the minimum key with wrapping arithmetic at the scrutinee's width, then checks
+the unsigned index against the last valid entry **before** reducing to the
+32-bit index Cranelift's `br_table` takes. This preserves negative ranges,
+ranges crossing zero, unsigned maxima, and full 256-value byte ranges without
+letting distant 64-bit values alias an entry. Storage is proportional to the
+number of cases, never an unbounded sparse key span.
+
+The default edge remains the wildcard or the defensive invalid-tag trap. Only
+dispatch changes: arm bodies, payload loads, ownership cleanup, source-order
+payload subpatterns, joins and tail exits use their existing lowering paths.
+No source syntax, allocation behavior or target CPU requirement changes.
+
 ## Symbol references
 
 Code is compiled position-independent (Cranelift's `is_pic`), so the object

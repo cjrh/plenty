@@ -3,11 +3,12 @@
 This B19 experiment measures 4, 16, 64 and 256 dense integer/enum cases with
 uniform, 90%-first and 90%-last input distributions. It compares production
 comparison chains with a same-language balanced integer decision tree and a
-temporary Cranelift `Switch` prototype. Production lowering is unchanged.
+temporary Cranelift `Switch` prototype. Production now uses tables only for
+at least 256 distinct contiguous integer/tag keys (issue #395).
 
 The measured results support optimizing large dense matches, but not replacing
 all chains: four- and sixteen-arm uniform cases became slower with the switch.
-The production follow-up is local issue #395. See the
+The bounded production policy is documented in the
 [profiling report](../../book/src/development/profiling.md#dense-match-dispatch).
 
 ## Reproduce
@@ -77,15 +78,44 @@ compiler hashes, and dispatch indexes. Its baseline runtime samples were rerun
 in the switch session; baseline compile samples remain from the first session.
 The unchanged tree controls stayed close across the two compiler binaries.
 
-## Limits and next step
+## Production comparison
+
+For a production-versus-chain run, build a baseline compiler at local commit
+`70aa0a3ef5ac26641a7b5a866f40478f141c2618` in a separate worktree and retain
+that binary. Build the current compiler, then run this checkout's harness:
+
+```sh
+python3 examples/dense_match/measure.py --compiler /path/to/chain/plenty \
+    --output /tmp/dense-chain --cpu 2 --kinds integer tree enum work
+python3 examples/dense_match/measure.py --compiler target/release/plenty \
+    --output /tmp/dense-production --cpu 2 --kinds integer tree enum work \
+    --label production --baseline-output /tmp/dense-chain
+```
+
+`--label` only names results; it never changes compiler behavior or cache keys.
+The `work` fixture passes the LCG state to `dispatch`, whose arms perform
+different wrapping multiply/add computations. Its Python checksum oracle and
+all-arm/fallback validation include those computations. It is a control for
+nonconstant arm bodies, not an existing application benchmark. The default
+three kinds reproduce the original experiment unchanged.
+
+[`production-results.json`](production-results.json) retains the production
+comparison's 672 successful checked timings, compiler/source hashes, cold build
+samples and dump indexes. The [profiling report](../../book/src/development/profiling.md#production-policy)
+summarizes the results and the limits of the build samples.
+
+## Limits and further work
 
 This isolates a synthetic dispatch cost. Constant-return arms are cheap and
 could also suit a data-lookup-table optimization; useful application gains may
 be smaller when arm bodies dominate. No cache, allocation, peak-memory or
 hardware-counter benefit is claimed. Payload-bearing/nested enums, or-patterns,
 signed and narrow integers, sparse keys, representative application workloads
-and additional CPUs require follow-up coverage before choosing a production
-policy. Small-match regressions mean a single unconditional switch is unsuitable.
+and additional CPUs remain useful performance investigations. Semantic coverage
+for these cases lives in `tests/test_dense_match.rs`; sparse keys and smaller
+sets deliberately keep chains. Small-match regressions make an unconditional
+switch unsuitable.
 
-The benchmark and documentation are the deliverable. The patch remains a
-reproducible experiment, and issue #395 stays open for the production change.
+The original patch remains a historical reproducible experiment. The production
+policy uses explicit range normalization and a bounded table; it does not use
+the experiment's environment variable.

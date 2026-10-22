@@ -22,10 +22,10 @@
 >
 > **Shipped since this proposal:** enum methods and protocol satisfaction,
 > [human-readable reports](error-formatting.md), and
-> [general anonymous sums](../error-sets.md).
+> [general anonymous sums](../error-sets.md), and bounded large dense integer/tag
+> jump tables (issue #395; [measurements](../../development/profiling.md#dense-match-dispatch)).
 >
-> **Remaining:** measured large-dense-match dispatch policy (B19, issue #395;
-> [benchmark results](../../development/profiling.md#dense-match-dispatch)); deep operations on recursive enums
+> **Remaining:** deep operations on recursive enums
 > (B33). Guards, enums as dictionary keys or set elements, and `match` as an
 > expression are unscheduled.
 
@@ -218,13 +218,13 @@ rather than treating an arbitrary integer tag as the final enum variant. Documen
 the independent checker's boundary: it verifies projection identity/index/type,
 while the structured frontend guarantees the projection follows its variant test.
 
-Native dispatch loads the tag once, branches using the existing match chain, and
+Native dispatch loads the tag once, selects the arm, and
 only loads payload fields inside the selected case. A verified exhaustive match
 still traps on an invalid runtime tag to expose compiler/runtime bugs. Keep a
-compare chain initially; choosing a Cranelift switch/jump table is an isolated
-later optimization. The [B19 measurement](../../development/profiling.md#dense-match-dispatch)
-now supports a follow-up for large dense matches; small matches can regress,
-so the production implementation still uses comparison chains.
+compare chain for small or sparse sets. Sets of at least 256 distinct contiguous
+integer/tag values use a bounded jump table (issue #395). The
+[B19 measurements](../../development/profiling.md#dense-match-dispatch) support
+that conservative policy; smaller matches can regress with tables.
 
 Allocation and enum type metadata should live behind a small runtime interface.
 An implementation can use generated read-only metadata or per-type compiler

@@ -118,14 +118,16 @@ or `case _ as name:`. `True` and `False` together cover a `bool`, so a `_` after
 both is unreachable. A
 repeated literal is an unreachable case.
 
-Literal cases are tested in source order, one comparison each; a `str` case
-compares lengths and then bytes. No jump table or hash is built, so a match
-with many literal cases costs as much as the equivalent `if`/`elif` chain.
-Enum tags use the same comparison-chain dispatch. Large dense matches can
-therefore be sensitive to which cases occur most often; the
+Matching preserves source-order behavior, including overlapping payload patterns.
+Native dispatch uses a jump table for at least 256 distinct integer values or
+enum tags forming one contiguous range, in any source order. Signed values and
+all integer widths are supported; out-of-range values still take the wildcard
+or defensive invalid-tag trap. Table storage grows with the case count.
+Smaller or sparse sets use comparison chains; a `str` case compares lengths
+and then bytes. These chains can be sensitive to which cases occur most often; the
 [dispatch measurements](../../../development/profiling.md#dense-match-dispatch)
-describe the current cost and an experimental optimization. Keep using `match`
-for clear exhaustive branching; the experiment does not change its behavior.
+explain the conservative table threshold. Keep using `match` for clear
+exhaustive branching; dispatch selection does not change its behavior.
 
 Guards, tuple patterns, float patterns, range patterns, and `pattern as name`
 for any pattern other than the case's own `_` are unsupported. A scrutinee of any other type, such as a float or a
