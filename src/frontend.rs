@@ -3453,7 +3453,10 @@ impl Lower<'_> {
                 let mut rhs = Vec::new();
                 let (b, other_loans) = if a.is_numeric() {
                     self.observe_expected(right, Some(a.clone()), &mut rhs)?
-                } else if matches!(a, Ty::KeyView(_)) && matches!(op.as_str(), "==" | "!=") {
+                } else if matches!(a, Ty::KeyView(_))
+                    && matches!(op.as_str(), "==" | "!=")
+                    && list_display(right).is_none()
+                {
                     self.observe_expected(
                         right,
                         Some(Ty::Set(Arc::new(a.element().unwrap()))),
@@ -3479,12 +3482,19 @@ impl Lower<'_> {
                         ));
                     }
                     ops.extend(rhs);
-                    ops.push(Op::Collection(CollectionOp::key_set_relation(a, b, 584)));
+                    ops.push(Op::Collection(CollectionOp::key_set_relation(
+                        a,
+                        b,
+                        crate::collection_opcodes::KEY_VIEW_EQUAL,
+                    )));
                     Self::end_reads(loans, ops);
                     if op == "!=" {
                         ops.push(Op::Not);
                     }
                     return Ok(Some(Ty::Bool));
+                }
+                if matches!(a, Ty::KeyView(_)) || matches!(b, Ty::KeyView(_)) {
+                    return Err(e.at.error(format!("KeyView does not support binary operator `{op}`; use ==/!= for set equality or the set relationship/algebra methods")));
                 }
                 if a.restricted_storage() {
                     if matches!(a, Ty::Closure(_)) {

@@ -168,6 +168,7 @@ impl CollectionOp {
             | SetTryUpdate(_)
             | SetIsSubset(_)
             | KeyView(_)
+            | KeyViewToSet(_)
             | KeySetRelation(..)
             | KeySetAlgebra(..)
             | SetIsSuperset(_)

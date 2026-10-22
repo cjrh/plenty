@@ -1,5 +1,8 @@
 use super::*;
 use crate::collection::Query;
+use crate::collection_opcodes as opcode;
+
+const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowed KeyView values; use view.to_set(), dictionary.keys_snapshot(), or [*key for key in view]";
 
 pub(super) struct Iteration {
     pub(super) condition: Vec<Op>,
@@ -1030,6 +1033,7 @@ impl Lower<'_> {
         } else {
             self.shared_argument(base, None, ops)?
         };
+        let reference = self.unbox_reference(reference, ops);
         let Ty::Ref(owner, _) = reference else {
             unreachable!()
         };
@@ -2586,6 +2590,7 @@ impl Lower<'_> {
         }
         if name == "keys" {
             let (reference, loan) = self.shared_argument(base, None, ops)?;
+            let reference = self.unbox_reference(reference, ops);
             let Ty::Ref(owner, _) = reference else {
                 unreachable!()
             };
@@ -2629,6 +2634,21 @@ impl Lower<'_> {
         } else {
             self.observe_method_receiver(base, ops)?
         };
+        if matches!(ty, Ty::KeyView(_))
+            && !matches!(
+                name,
+                "to_set"
+                    | "issubset"
+                    | "issuperset"
+                    | "isdisjoint"
+                    | "union"
+                    | "intersection"
+                    | "difference"
+                    | "symmetric_difference"
+            )
+        {
+            return Err(base.at.error(format!("KeyView does not support `{name}`; use keys_snapshot() for owned list methods, or to_set() for an owned set")));
+        }
         if ty.is_int() && matches!(name, "wrapping_add" | "wrapping_sub" | "wrapping_mul") {
             if args.len() != 1 {
                 return Err(base.at.error("wrapping arithmetic takes one argument"));
@@ -2955,13 +2975,7 @@ impl Lower<'_> {
             if !args.is_empty() {
                 return Err(base.at.error("to_set takes no arguments"));
             }
-            let source = self.slot(ty.clone(), &base.at)?;
-            ops.extend([
-                Op::StoreLocal(source),
-                Op::LoadLocal(source),
-                Op::LoadLocal(source),
-            ]);
-            let operation = CollectionOp::key_set_algebra(ty.clone(), ty, 580);
+            let operation = CollectionOp::KeyViewToSet(ty);
             let result = operation.signature().1;
             ops.push(Op::Collection(operation));
             Self::end_reads(loans, ops);
@@ -2999,13 +3013,25 @@ impl Lower<'_> {
                         .error("key view operations require &set[K] or &KeyView[K]"));
                 }
                 let operation = match name {
-                    "issubset" => CollectionOp::key_set_relation(ty, actual, 62),
-                    "issuperset" => CollectionOp::key_set_relation(ty, actual, 63),
-                    "isdisjoint" => CollectionOp::key_set_relation(ty, actual, 64),
-                    "union" => CollectionOp::key_set_algebra(ty, actual, 580),
-                    "intersection" => CollectionOp::key_set_algebra(ty, actual, 581),
-                    "difference" => CollectionOp::key_set_algebra(ty, actual, 582),
-                    _ => CollectionOp::key_set_algebra(ty, actual, 583),
+                    "issubset" => CollectionOp::key_set_relation(ty, actual, opcode::SET_IS_SUBSET),
+                    "issuperset" => {
+                        CollectionOp::key_set_relation(ty, actual, opcode::SET_IS_SUPERSET)
+                    }
+                    "isdisjoint" => {
+                        CollectionOp::key_set_relation(ty, actual, opcode::SET_IS_DISJOINT)
+                    }
+                    "union" => CollectionOp::key_set_algebra(ty, actual, opcode::KEY_VIEW_UNION),
+                    "intersection" => {
+                        CollectionOp::key_set_algebra(ty, actual, opcode::KEY_VIEW_INTERSECTION)
+                    }
+                    "difference" => {
+                        CollectionOp::key_set_algebra(ty, actual, opcode::KEY_VIEW_DIFFERENCE)
+                    }
+                    _ => CollectionOp::key_set_algebra(
+                        ty,
+                        actual,
+                        opcode::KEY_VIEW_SYMMETRIC_DIFFERENCE,
+                    ),
                 };
                 let result = operation.signature().1;
                 ops.push(Op::Collection(operation));
@@ -3541,6 +3567,9 @@ impl Lower<'_> {
             return Ok(Ty::I64);
         }
         let ty = self.value(&args[0], ops)?;
+        if ty.key_view() {
+            return Err(at.error(KEY_VIEW_COLLECTION));
+        }
         let element = ty
             .element()
             .ok_or_else(|| at.error("collection constructor requires an iterable"))?;
@@ -3608,6 +3637,9 @@ impl Lower<'_> {
             return Err(at.error("collection constructor takes at most one iterable"));
         }
         let source = self.value(&args[0], ops)?;
+        if source.key_view() {
+            return Err(at.error(KEY_VIEW_COLLECTION));
+        }
         if matches!(ty, Ty::Dict(..)) {
             self.same(Some(source), Some(ty.clone()), at)?;
             let Ty::Enum(result) = crate::sum::result(ty, crate::sum::alloc_error()) else {

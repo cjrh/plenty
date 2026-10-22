@@ -632,10 +632,11 @@ impl Lowerer<'_, '_> {
         }
         let key_set = match operation {
             CollectionOp::KeySetAlgebra(op) => Some(Ty::Set(Arc::new(op.left.element().unwrap()))),
+            CollectionOp::KeyViewToSet(t) => Some(Ty::Set(Arc::new(t.element().unwrap()))),
             _ => None,
         };
         let descriptor = match operation {
-            CollectionOp::KeySetAlgebra(..) => key_set.as_ref(),
+            CollectionOp::KeySetAlgebra(..) | CollectionOp::KeyViewToSet(_) => key_set.as_ref(),
             CollectionOp::Filesystem(_)
             | CollectionOp::Bytes(_)
             | CollectionOp::Crypto(_)

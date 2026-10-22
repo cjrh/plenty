@@ -52,7 +52,7 @@ def main() -> Result[(), AllocError | IoError]:
 
 Calling `make_dictionary().values_snapshot()` instead transfers owned values from
 that temporary into the list. If allocation fails, the temporary and its values
-are cleaned up. `keys()` never takes the dictionary's values, so it works on
+are cleaned up. `keys_snapshot()` never takes the dictionary's values, so it works on
 borrowed dictionaries regardless of their value type.
 
 Both operations reserve all list storage before retaining or transferring any

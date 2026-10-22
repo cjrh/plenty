@@ -52,6 +52,8 @@ mod channel;
 mod closure;
 mod codegen;
 mod collection;
+#[path = "../plenty-runtime/src/collection_opcodes.rs"]
+mod collection_opcodes;
 mod compress;
 mod control;
 mod crypto;

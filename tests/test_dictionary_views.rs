@@ -4,6 +4,122 @@ use rstest::rstest;
 use support::assert_visible_stdout as native;
 
 #[test]
+fn boxed_dictionary_projections_borrow_through_nested_boxes() {
+    native(
+        r#"
+def sum_values(data: &Box[Box[dict[str, list[i64]]]]) -> i64:
+    mut result = 0
+    for values in data.values():
+        result += len(values)
+    result
+mut data = Box(Box({"a": [1].unwrap(), "b": [2].unwrap()}.unwrap()).unwrap()).unwrap()
+keys = data.keys()
+print([*key for key in keys].unwrap()).unwrap()
+print(sum_values(&data)).unwrap()
+for values in (&mut data).values():
+    values.append(3).unwrap()
+for key, values in data.items():
+    print(*key, values).unwrap()
+for key, values in (&mut data).items():
+    values.append(4).unwrap()
+print(sum_values(&data)).unwrap()
+for key in Box({"temporary": 1}.unwrap()).unwrap().keys():
+    print(*key).unwrap()
+"#,
+        "[\"a\", \"b\"]\n2\na [1, 3]\nb [2, 3]\n6\ntemporary",
+    );
+}
+
+#[test]
+fn tuple_key_views_compare_and_materialise_keys_with_independent_value_types() {
+    native(
+        r#"
+data = {(1, "a"): [10].unwrap(), (2, "b"): [20].unwrap()}.unwrap()
+other = {(3, "c"): False, (2, "b"): True}.unwrap()
+keys = data.keys()
+same = {(2, "b"), (1, "a")}.unwrap()
+print(keys == same, same == keys, keys == data.keys()).unwrap()
+print(keys.intersection(&other.keys()).unwrap() == {(2, "b")}.unwrap()).unwrap()
+print(keys.union(&other.keys()).unwrap() == {(1, "a"), (2, "b"), (3, "c")}.unwrap()).unwrap()
+print(keys.difference(&other.keys()).unwrap() == {(1, "a")}.unwrap()).unwrap()
+print(keys.symmetric_difference(&other.keys()).unwrap() == {(1, "a"), (3, "c")}.unwrap()).unwrap()
+print(keys.to_set().unwrap() == same).unwrap()
+"#,
+        "True True True\nTrue\nTrue\nTrue\nTrue\nTrue",
+    );
+}
+
+#[rstest]
+#[case("set(keys).unwrap()", "to_set")]
+#[case("list(keys).unwrap()", "keys_snapshot")]
+#[case("set(&keys).unwrap()", "to_set")]
+#[case("list(&keys).unwrap()", "keys_snapshot")]
+#[case("set[i64](keys).unwrap()", "to_set")]
+#[case("list[i64](keys).unwrap()", "keys_snapshot")]
+#[case("set(data.keys()).unwrap()", "to_set")]
+#[case("keys < {1}.unwrap()", "binary operator `<`")]
+#[case("keys == [1, 2].unwrap()", "KeyView equality requires")]
+#[case("keys.count(1)", "keys_snapshot")]
+#[case("keys.find(1)", "keys_snapshot")]
+#[case("{1}.unwrap().union(&keys).unwrap()", "expected set")]
+fn unsupported_view_operations_have_frontend_guidance(
+    #[case] expression: &str,
+    #[case] expected: &str,
+) {
+    let source =
+        format!("data = {{1: 2}}.unwrap()\nkeys = data.keys()\nprint({expression}).unwrap()");
+    let error = support::check_source(&source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+    assert!(!error.contains("next requires a generator"), "{error}");
+}
+
+#[test]
+fn boxed_key_view_prevents_mutating_the_owner() {
+    let error = support::check_source("mut data = Box({1: 2}.unwrap()).unwrap()\nkeys = data.keys()\ndata.insert(3, 4).unwrap()\nprint(len(keys)).unwrap()").unwrap_err().to_string();
+    assert!(error.contains("conflicting borrow"), "{error}");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn into_keys_allocation_failure_consumes_and_drops_affine_values_once() {
+    for budget in 0..=2 {
+        native(
+            &format!(
+                r#"
+class Guard:
+    id: i64
+    def __del__(self) -> ():
+        print("__test_restore_allocations__").unwrap()
+        print(self.id).unwrap()
+def consume(data: dict[str, Guard]) -> Result[list[str], AllocError]:
+    print("__test_fail_allocations_after_{budget}__").unwrap()
+    keys = data.into_keys()
+    print("__test_restore_allocations__").unwrap()
+    print("returned").unwrap()
+    keys
+result = consume({{("a" + "1").unwrap(): Guard(10), ("b" + "2").unwrap(): Guard(20)}}.unwrap())
+print(str.repr(result).unwrap()).unwrap()
+"#
+            ),
+            &format!(
+                "10\n20\nreturned\nResult[list[str], AllocError].{}",
+                if budget < 2 {
+                    "Err(AllocError.OutOfMemory)"
+                } else {
+                    "Ok([\"a1\", \"b2\"])"
+                }
+            ),
+        );
+    }
+    let error = support::check_source(
+        "data = {1: [2].unwrap()}.unwrap()\nresult = data.into_keys()\nprint(data).unwrap()",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("moved"), "{error}");
+}
+
+#[test]
 fn set_like_operands_infer_empty_and_narrow_key_sets() {
     native(
         r#"
