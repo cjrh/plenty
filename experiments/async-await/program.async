@@ -1,0 +1,22 @@
+# Experimental syntax; this file is compiled by lower.py, not Plenty or Python.
+async def leaf(value: i64) -> i64:
+    resource = acquire()
+    result = await tick(value)
+    return result + 1
+
+async def parent(value: i64) -> i64:
+    resource = acquire()
+    first = await leaf(value)
+    second = await tick(first)
+    return second + 1
+
+async def failing(value: i64) -> i64:
+    resource = acquire()
+    ignored = await tick(value)
+    fail(71)
+    return 0
+
+async def propagate(value: i64) -> i64:
+    resource = acquire()
+    result = await failing(value)
+    return result

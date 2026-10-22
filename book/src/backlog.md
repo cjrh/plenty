@@ -302,5 +302,10 @@ active list.
 - Historical proposals may contain old syntax and dependency sketches. Their
   introductory notices must make that clear; current priorities belong here.
 
-Async/await, a JIT, and an interpreter remain out of scope, rather than waiting
-at the bottom of this backlog.
+Async/await implementation remains unadopted and unscheduled. The requested
+[design exploration and standalone spike](proposals/async-await.md) examine
+owned movable frames, fallible task admission and cleanup tradeoffs; they do
+not add async syntax to Plenty or commit to adding it. Any adoption decision
+needs realistic I/O/ownership evidence and comparison with existing workers
+and stackful alternatives. A JIT and an interpreter remain out of scope,
+rather than waiting at the bottom of this backlog.

@@ -51,6 +51,7 @@ coverage. This is a status review, not a fresh execution of every feature test.
 | Collections | [Ordering](user-type-ordering.md) | [Stable sorting algorithm](timsort.md), [hashing and equality](user-type-hashing.md) |
 | Native platforms and libraries | [Cross-platform assessment](cross-platform.md) | [FFI](ffi-and-dynamic-libraries.md), [export contracts](ffi-export-contracts.md), [GCC backend](codegen-gcc.md) |
 | Allocation and parallel execution | [Memory, parallelism, and SIMD](memory-parallelism-and-simd.md) | [Allocation audit](completed/allocation-audit.md), [shipped concurrency](completed/native-concurrency.md) |
+| Cooperative suspension and owned tasks | [Async/await exploration](async-await.md) | [Ownership and cleanup](async-await/ownership.md), [native spike evidence](async-await/evidence.md), [linear execution responsibility](linear-integration.md) |
 | Iteration and adapter chains | [Fluent iterator pipelines](fluent-iterators.md) | [Shipped generators](completed/generators.md), [parallel execution](memory-parallelism-and-simd.md) |
 
 These families keep distinct contracts separate: a sorting algorithm does not
@@ -84,6 +85,7 @@ reference pages. Further extensions remain tracked in the backlog.
 
 | Proposal | Backlog |
 | --- | --- |
+| [Async/await exploration](async-await.md) — owned movable frames, fallible admission and synchronous cancellation; isolated spike only | Unscheduled exploration; async implementation remains out of scope pending an adoption decision |
 | [Single-file scripts with embedded manifests](single-file-scripts.md) — `plenty script`, isolated resolution and cached builds | B17 |
 | [Package language editions](language-editions.md) — exploratory compatibility mechanism; no editions implemented | B17 |
 | [Linear obligations](linear-obligations.md), including [aggregate and error rules](linear-obligations/values-and-errors.md) — opt-in non-abandonment | B72 (issue #149) |

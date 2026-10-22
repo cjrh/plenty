@@ -1,5 +1,9 @@
 # Concurrency and parallelism
 
+There is no async/await or event loop in Plenty. The separate
+[async/await exploration](../../../proposals/async-await.md) includes a standalone
+spike, not an implemented language feature or an adoption decision.
+
 Concurrency is explicit. Native workers can overlap without an interpreter lock;
 ordinary loops and comprehensions remain serial. Ownership transfers and checked
 loans still apply across threads. Shared immutable storage does not permit
