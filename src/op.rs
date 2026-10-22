@@ -62,6 +62,9 @@ pub enum Ty {
     Bool,
     List(Arc<Ty>),
     Set(Arc<Ty>),
+    /// Local-only shared dictionary-key projection. The owner carries its
+    /// complete row descriptor; the view never owns or retains that owner.
+    KeyView(Arc<Ty>),
     Dict(Arc<Ty>, Arc<Ty>),
     /// One owned heap value; recursive types reach themselves through boxes.
     Box(Arc<Ty>),
@@ -79,6 +82,7 @@ pub enum Ty {
 /// Why a type cannot enter heap storage; see `Ty::storage_barrier`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StorageBarrier {
+    KeyView,
     Reference,
     Generator,
     ScopedTask,
@@ -92,6 +96,7 @@ impl StorageBarrier {
     /// The diagnostic for storing the rejected type in `place`, e.g. "collections".
     pub fn message(self, place: &str) -> String {
         let subject = match self {
+            Self::KeyView => "dictionary key views",
             Self::Reference => "references",
             Self::Generator => "generators",
             Self::ScopedTask => "scoped tasks",
@@ -188,7 +193,11 @@ impl Ty {
     }
     pub fn restricted_storage(&self) -> bool {
         match self {
-            Self::Task(_) | Self::Generator(_) | Self::Closure(_) | Self::Ref(..) => true,
+            Self::Task(_)
+            | Self::Generator(_)
+            | Self::Closure(_)
+            | Self::Ref(..)
+            | Self::KeyView(_) => true,
             Self::Enum(t) => t.try_get().is_some_and(|t| t.restricted_storage),
             _ => false,
         }
@@ -229,6 +238,7 @@ impl Ty {
     /// The first reason a heap owner cannot embed this type.
     pub fn storage_barrier(&self) -> Option<StorageBarrier> {
         match self {
+            Self::KeyView(_) => Some(StorageBarrier::KeyView),
             Self::Ref(..) => Some(StorageBarrier::Reference),
             Self::Generator(_) => Some(StorageBarrier::Generator),
             Self::Task(_) => Some(StorageBarrier::ScopedTask),
@@ -297,7 +307,15 @@ impl Ty {
     }
     pub fn contains_reference(&self) -> bool {
         // Composite references are rejected at their construction boundary.
-        matches!(self, Self::Ref(..)) || matches!(self, Self::Closure(t) if t.borrowed)
+        matches!(self, Self::Ref(..) | Self::KeyView(_))
+            || matches!(self, Self::Closure(t) if t.borrowed)
+    }
+    pub fn key_view(&self) -> bool {
+        match self {
+            Self::KeyView(_) => true,
+            Self::Ref(t, _) => t.key_view(),
+            _ => false,
+        }
     }
     pub fn can_copy(&self) -> bool {
         self.facts().copyable
@@ -557,6 +575,7 @@ impl fmt::Display for Ty {
             Ty::Bool => "bool",
             Ty::List(t) => return write!(f, "list[{t}]"),
             Ty::Set(t) => return write!(f, "set[{t}]"),
+            Ty::KeyView(t) => return write!(f, "KeyView[{t}]"),
             Ty::Dict(k, v) => return write!(f, "dict[{k}, {v}]"),
             Ty::Box(t) => return write!(f, "Box[{t}]"),
             Ty::Shared(t) => return write!(f, "Shared[{t}]"),

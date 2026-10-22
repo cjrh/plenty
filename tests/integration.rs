@@ -132,6 +132,8 @@ mod test_dictionary_lookup;
 mod test_dictionary_removal;
 #[path = "test_dictionary_snapshots.rs"]
 mod test_dictionary_snapshots;
+#[path = "test_dictionary_views.rs"]
+mod test_dictionary_views;
 #[path = "test_dump.rs"]
 mod test_dump;
 #[path = "test_element_references.rs"]

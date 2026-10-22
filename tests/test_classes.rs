@@ -656,7 +656,7 @@ def consume(items: list[Resource]) -> ():
     for item in items:
         drop(item)
         print("after item").unwrap()
-consume({{1: Resource("payload")}}.unwrap().values().unwrap())
+consume({{1: Resource("payload")}}.unwrap().values_snapshot().unwrap())
 print("after call").unwrap()
 "#
         ),

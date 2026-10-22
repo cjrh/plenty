@@ -2,6 +2,15 @@
 use crate::op::Ty;
 use std::sync::Arc;
 
+/// Keep two independently typed set-like owners out of the operation enum's
+/// inline payload so adding views does not enlarge every compiler operation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeySetOperation {
+    pub left: Ty,
+    pub right: Ty,
+    pub opcode: u16,
+}
+
 /// A key sort the runtime drives. It calls `adapter`, a generated native
 /// comparator, with the callback reference and two borrowed rows; the adapter
 /// calls `key_of` once per row and compares the keys in the total sort order.
@@ -164,6 +173,11 @@ pub enum CollectionOp {
     DictTryUpdate(Ty), // exclusive dictionary + consumed dictionary
     SetTryUpdate(Ty),  // exclusive set + consumed set
     SetIsSubset(Ty),
+    /// Borrowed set-like operands. Each retains its own owner descriptor,
+    /// allowing dictionary keys and sets to share the runtime hash algorithms.
+    KeySetRelation(Arc<KeySetOperation>),
+    KeySetAlgebra(Arc<KeySetOperation>),
+    KeyView(Ty),
     SetIsSuperset(Ty),
     SetIsDisjoint(Ty),
     SetTryUnion(Ty),
@@ -276,7 +290,9 @@ impl Ty {
     }
     pub fn element(&self) -> Option<Ty> {
         match self {
-            Self::List(t) | Self::Set(t) | Self::Dict(t, _) => Some((**t).clone()),
+            Self::List(t) | Self::Set(t) | Self::KeyView(t) | Self::Dict(t, _) => {
+                Some((**t).clone())
+            }
             Self::Range(t) => Some((**t).clone()),
             Self::Str => Some(Self::Str),
             Self::ByteStr => Some(Self::U8),
@@ -292,9 +308,38 @@ impl Ty {
 }
 
 impl CollectionOp {
+    pub fn key_set_relation(left: Ty, right: Ty, opcode: u16) -> Self {
+        Self::KeySetRelation(Arc::new(KeySetOperation {
+            left,
+            right,
+            opcode,
+        }))
+    }
+    pub fn key_set_algebra(left: Ty, right: Ty, opcode: u16) -> Self {
+        Self::KeySetAlgebra(Arc::new(KeySetOperation {
+            left,
+            right,
+            opcode,
+        }))
+    }
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         use CollectionOp::*;
         match self {
+            KeyView(t) => {
+                let Ty::Dict(key, _) = t else { unreachable!() };
+                (
+                    vec![Ty::Ref(Arc::new(t.clone()), false)],
+                    Ty::KeyView(key.clone()),
+                )
+            }
+            KeySetRelation(op) => (vec![op.left.clone(), op.right.clone()], Ty::Bool),
+            KeySetAlgebra(op) => (
+                vec![op.left.clone(), op.right.clone()],
+                crate::sum::result(
+                    Ty::Set(Arc::new(op.left.element().unwrap())),
+                    crate::sum::alloc_error(),
+                ),
+            ),
             Filesystem(op) => op.signature(),
             Bytes(op) => op.signature(),
             Stream(op) => op.signature(),
@@ -744,6 +789,8 @@ impl CollectionOp {
             Self::DictTryUpdate(_) => 60,
             Self::SetTryUpdate(_) => 61,
             Self::SetIsSubset(_) => 62,
+            Self::KeySetRelation(op) | Self::KeySetAlgebra(op) => i64::from(op.opcode),
+            Self::KeyView(_) => unreachable!("key views lower inline"),
             Self::SetIsSuperset(_) => 63,
             Self::SetIsDisjoint(_) => 64,
             Self::SetTryUnion(_) => 65,

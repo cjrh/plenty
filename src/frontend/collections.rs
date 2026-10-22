@@ -1006,22 +1006,40 @@ impl Lower<'_> {
         names: &[String],
         base: &Expr,
         mutable: bool,
+        values_only: bool,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
+        let value_names;
+        let names = if values_only {
+            if names.len() != 1 {
+                return Err(base.at.error("dictionary values loops require one binding"));
+            }
+            value_names = vec!["_".to_owned(), names[0].clone()];
+            &value_names
+        } else {
+            names
+        };
         if names.len() != 2 || names[0] != "_" && names[0] == names[1] {
             return Err(base
                 .at
                 .error("dictionary items loops require two distinct bindings"));
         }
-        let ty = self
-            .place_type(base)
-            .ok_or_else(|| base.at.error("items requires a named dictionary or field"))?;
+        let temporary_start = self.expression_temps.len();
+        let (reference, loan) = if mutable {
+            self.borrow(base, true, ops)?
+        } else {
+            self.shared_argument(base, None, ops)?
+        };
+        let Ty::Ref(owner, _) = reference else {
+            unreachable!()
+        };
+        let ty = (*owner).clone();
         let Ty::Dict(key, value) = &ty else {
             return Err(base.at.error("items requires a dictionary"));
         };
         let value_ty = Ty::Ref(value.clone(), mutable);
         let key_ty = Ty::Ref(key.clone(), false);
-        let (_, loan) = self.borrow(base, mutable, ops)?;
+        self.expression_temps.truncate(temporary_start);
         self.loans[loan].precise = false;
         for op in ops.iter_mut() {
             if let Op::Loan(fact) = op
@@ -1127,13 +1145,26 @@ impl Lower<'_> {
         reverse: bool,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
-        if let Some((base, mutable)) = dictionary_items(iterable) {
+        if let Some((base, mutable)) = dictionary_items(iterable)
+            && !self
+                .place_type(base)
+                .or_else(|| self.expression_type_hint(base))
+                .map(classes::unbox)
+                .as_ref()
+                .is_some_and(classes::inherent_receiver)
+        {
             if reverse {
                 return Err(iterable
                     .at
                     .error("reversed requires a list, str, range, or Bytes"));
             }
-            return self.dictionary_iteration(names, base, mutable, ops);
+            let mut source = ungroup(iterable);
+            if let Expression::Unary(_, inner) = &source.kind {
+                source = ungroup(inner);
+            }
+            let values_only =
+                matches!(&source.kind, Expression::Method(_, name, _, _) if name == "values");
+            return self.dictionary_iteration(names, base, mutable, values_only, ops);
         }
         let name = if names.len() == 1 {
             names[0].clone()
@@ -1145,7 +1176,7 @@ impl Lower<'_> {
         };
         let temporary_start = self.expression_temps.len();
         let iterable = ungroup(iterable);
-        let borrowed = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
+        let mut borrowed = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(..))));
         let mutable = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&mut")
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(_, true))));
@@ -1177,7 +1208,7 @@ impl Lower<'_> {
         let counted = range_args
             .zip(range_element.clone())
             .filter(|(_, element)| std::ptr::eq(range_expr, iterable) && element.is_int());
-        let (ty, loans) = if let Some((_, element)) = &counted {
+        let (ty, mut loans) = if let Some((_, element)) = &counted {
             (Ty::Range(Arc::new(element.clone())), vec![])
         } else if let Some(element) = range_element {
             (
@@ -1219,6 +1250,12 @@ impl Lower<'_> {
         } else {
             (self.value(iterable, ops)?, vec![])
         };
+        if matches!(ty, Ty::KeyView(_)) {
+            borrowed = true;
+            if loans.is_empty() {
+                loans.push(self.reference_origin(iterable, ops)?);
+            }
+        }
         let bytes = byte_buffers::byte_buffer(&ty).is_some();
         if reverse && !matches!(ty, Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_)) && !bytes {
             return Err(iterable
@@ -1236,7 +1273,8 @@ impl Lower<'_> {
         if borrowed && matches!(ty, Ty::Generator(_)) {
             return Err(iterable.at.error("borrowed generator iteration is not supported; use next with an exclusive reference"));
         }
-        let references = borrowed && matches!(ty, Ty::List(_) | Ty::Dict(..) | Ty::Set(_));
+        let references =
+            borrowed && matches!(ty, Ty::List(_) | Ty::Dict(..) | Ty::Set(_) | Ty::KeyView(_));
         if mutable && !matches!(ty, Ty::List(_)) {
             return Err(iterable.at.error(
                 "mutable iteration requires a list; use items for mutable dictionary values",
@@ -2054,6 +2092,9 @@ impl Lower<'_> {
     ) -> Result<Type> {
         let context = expected.map(|t| crate::sum::result(t, crate::sum::alloc_error()));
         let actual = self.expr_expected(base, context, ops)?;
+        if actual.as_ref().is_some_and(Ty::key_view) {
+            return Err(base.at.error("keys() returns a borrowed KeyView, not a Result; use keys_snapshot(), into_keys(), or to_set() for owned results"));
+        }
         if let Some(actual) = &actual {
             let receiver = classes::unbox(actual.clone());
             if classes::inherent_receiver(&receiver) {
@@ -2367,6 +2408,9 @@ impl Lower<'_> {
                     return Err(base.at.error("str.repr takes one value"));
                 }
                 let (source, loans) = self.observe(&args[0], ops)?;
+                if source.key_view() {
+                    return Err(args[0].at.error("dictionary key views cannot be formatted; materialise keys_snapshot(), into_keys(), or to_set()"));
+                }
                 if source.restricted_storage() {
                     let message = source
                         .format_blocker()
@@ -2483,7 +2527,7 @@ impl Lower<'_> {
             }
             return self.fallible_mutation(base, name, args, ops);
         }
-        if name == "into_values" {
+        if matches!(name, "into_values" | "into_keys") {
             let ty = self.value(base, ops)?;
             let class = classes::unbox(ty.clone());
             if classes::inherent_receiver(&class) {
@@ -2491,12 +2535,18 @@ impl Lower<'_> {
                 return self.temporary_class_method(base, name, None, args, (class, vec![]), ops);
             }
             if !args.is_empty() {
-                return Err(base.at.error("into_values takes no arguments"));
+                return Err(base.at.error(format!("{name} takes no arguments")));
             }
             if !matches!(ty, Ty::Dict(..)) {
-                return Err(base.at.error("into_values requires an owned dictionary"));
+                return Err(base
+                    .at
+                    .error(format!("{name} requires an owned dictionary")));
             }
-            let operation = CollectionOp::TryValues(ty);
+            let operation = if name == "into_keys" {
+                CollectionOp::TryKeys(ty)
+            } else {
+                CollectionOp::TryValues(ty)
+            };
             let output = operation.signature().1;
             ops.push(Op::Collection(operation));
             return Ok(Some(output));
@@ -2533,6 +2583,41 @@ impl Lower<'_> {
             && matches!(collection, Some(Ty::Set(_)))
         {
             return self.set_filter_mutation(base, name, args, ops);
+        }
+        if name == "keys" {
+            let (reference, loan) = self.shared_argument(base, None, ops)?;
+            let Ty::Ref(owner, _) = reference else {
+                unreachable!()
+            };
+            if classes::inherent_receiver(&owner) {
+                ops.push(Op::ReadRef((*owner).clone()));
+                return self.temporary_class_method(
+                    base,
+                    name,
+                    None,
+                    args,
+                    ((*owner).clone(), vec![loan]),
+                    ops,
+                );
+            }
+            if !args.is_empty() {
+                return Err(base.at.error("keys takes no arguments"));
+            }
+            let Ty::Dict(key, _) = &*owner else {
+                return Err(base.at.error("keys requires a dictionary"));
+            };
+            let key = key.clone();
+            self.loans[loan].precise = false;
+            for op in ops.iter_mut() {
+                if let Op::Loan(fact) = op
+                    && fact.id == loan
+                {
+                    fact.precise = false;
+                }
+            }
+            ops.push(Op::Collection(CollectionOp::KeyView((*owner).clone())));
+            ops.push(Op::UseLoan(loan));
+            return Ok(Some(Ty::KeyView(key)));
         }
         let (ty, loans) = if matches!(self.place_type(base), Some(Ty::Box(_))) {
             let (reference, loan) = self.borrow(base, false, ops)?;
@@ -2866,6 +2951,22 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
+        if matches!(ty, Ty::KeyView(_)) && name == "to_set" {
+            if !args.is_empty() {
+                return Err(base.at.error("to_set takes no arguments"));
+            }
+            let source = self.slot(ty.clone(), &base.at)?;
+            ops.extend([
+                Op::StoreLocal(source),
+                Op::LoadLocal(source),
+                Op::LoadLocal(source),
+            ]);
+            let operation = CollectionOp::key_set_algebra(ty.clone(), ty, 580);
+            let result = operation.signature().1;
+            ops.push(Op::Collection(operation));
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
+        }
         if matches!(
             name,
             "issubset"
@@ -2876,14 +2977,42 @@ impl Lower<'_> {
                 | "difference"
                 | "symmetric_difference"
         ) {
-            if !matches!(ty, Ty::Set(_)) {
+            if !matches!(ty, Ty::Set(_) | Ty::KeyView(_)) {
                 return Err(base.at.error(format!("{name} requires a set receiver")));
             }
             if args.len() != 1 {
                 return Err(base.at.error(format!("{name} requires one set argument")));
             }
             let argument = &args[0];
-            let (actual, reads) = self.observe_expected(argument, Some(ty.clone()), ops)?;
+            let expected = if matches!(ty, Ty::KeyView(_)) {
+                Ty::Set(Arc::new(ty.element().unwrap()))
+            } else {
+                ty.clone()
+            };
+            let (actual, reads) = self.observe_expected(argument, Some(expected), ops)?;
+            if matches!(ty, Ty::KeyView(_)) {
+                if !matches!(actual, Ty::Set(_) | Ty::KeyView(_))
+                    || actual.element() != ty.element()
+                {
+                    return Err(argument
+                        .at
+                        .error("key view operations require &set[K] or &KeyView[K]"));
+                }
+                let operation = match name {
+                    "issubset" => CollectionOp::key_set_relation(ty, actual, 62),
+                    "issuperset" => CollectionOp::key_set_relation(ty, actual, 63),
+                    "isdisjoint" => CollectionOp::key_set_relation(ty, actual, 64),
+                    "union" => CollectionOp::key_set_algebra(ty, actual, 580),
+                    "intersection" => CollectionOp::key_set_algebra(ty, actual, 581),
+                    "difference" => CollectionOp::key_set_algebra(ty, actual, 582),
+                    _ => CollectionOp::key_set_algebra(ty, actual, 583),
+                };
+                let result = operation.signature().1;
+                ops.push(Op::Collection(operation));
+                Self::end_reads(reads, ops);
+                Self::end_reads(loans, ops);
+                return Ok(Some(result));
+            }
             self.same(Some(actual), Some(ty.clone()), &argument.at)?;
             let operation = match name {
                 "issubset" => CollectionOp::SetIsSubset(ty),
@@ -2957,16 +3086,22 @@ impl Lower<'_> {
         let Ty::Dict(_, v) = &ty else {
             return Err(base.at.error(format!("unsupported method `{name}`")));
         };
-        if matches!(name, "keys" | "values") {
+        if name == "values" {
+            if !args.is_empty() {
+                return Err(base.at.error("values takes no arguments"));
+            }
+            return Err(base.at.error("values() is a borrowed loop/comprehension source; use values_snapshot() or into_values() for an owned list"));
+        }
+        if matches!(name, "keys_snapshot" | "values_snapshot") {
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
             }
-            if name == "values" && v.affine() && !loans.is_empty() {
+            if name == "values_snapshot" && v.affine() && !loans.is_empty() {
                 return Err(base.at.error(
-                    "values with owned payloads requires an owned temporary; use copy(dictionary)?.values() for fallible duplication",
+                    "values_snapshot with owned payloads requires an owned temporary; use copy(dictionary)?.values_snapshot() for fallible duplication",
                 ));
             }
-            let operation = if name == "keys" {
+            let operation = if name == "keys_snapshot" {
                 CollectionOp::TryKeys(ty)
             } else {
                 CollectionOp::TryValues(ty)
@@ -3398,7 +3533,7 @@ impl Lower<'_> {
                 return Ok(Ty::I64);
             }
             let (ty, loans) = self.observe(&args[0], ops)?;
-            if ty.element().is_none() || ty.restricted_storage() {
+            if ty.element().is_none() || ty.restricted_storage() && !matches!(ty, Ty::KeyView(_)) {
                 return Err(at.error("len requires an iterable"));
             }
             Self::push_query(CollectionOp::Len(ty), ops);
@@ -3600,7 +3735,7 @@ fn dictionary_items(iterable: &Expr) -> Option<(&Expr, bool)> {
     let Expression::Method(base, method, args, _) = &e.kind else {
         return None;
     };
-    if method != "items" || !args.is_empty() {
+    if !matches!(method.as_str(), "items" | "values") || !args.is_empty() {
         return None;
     }
     let mut base = ungroup(base);

@@ -1932,7 +1932,9 @@ pub(crate) unsafe fn collection_at(
                 plenty_retain(a as *mut Header);
                 a
             }
-            65..=68 => {
+            65..=68 | 580..=583 => {
+                let view = op >= 580;
+                let op = if view { op - 515 } else { op };
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
                 let left_entries = left.entries.iter().filter(|entry| match op {
                     65 => true,
@@ -1944,14 +1946,21 @@ pub(crate) unsafe fn collection_at(
                     .iter()
                     .filter(|entry| matches!(op, 65 | 68) && left.find(entry.key).is_none());
                 let entries = left_entries.chain(right_entries);
-                match try_set_from_entries(entries, &*left.ty) {
+                match try_set_from_entries(entries, if view { &*descriptor } else { &*left.ty }) {
                     Ok(set) => wrap(set, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
             }
-            62..=64 => {
+            62..=64 | 584 => {
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
                 let result = match op {
+                    584 => {
+                        left.entries.len() == right.entries.len()
+                            && left
+                                .entries
+                                .iter()
+                                .all(|entry| right.find(entry.key).is_some())
+                    }
                     62 => {
                         left.entries.len() <= right.entries.len()
                             && left

@@ -146,6 +146,11 @@ impl Lower<'_> {
         let ty = self
             .expr_expected(value, expected, ops)?
             .ok_or_else(|| value.at.error("expected a value, got ()"))?;
+        if let Ty::KeyView(_) = ty {
+            let parent = self.reference_origin(value, ops)?;
+            let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
+            return Ok((ty, Some(loan)));
+        }
         if !matches!(ty, Ty::Ref(..)) {
             return Ok((ty, None));
         }
@@ -584,6 +589,15 @@ impl Lower<'_> {
             self.named_place(e)?
         };
         self.mark(&e.at, ops);
+        if matches!(local.ty, Ty::KeyView(_)) {
+            if mutable {
+                return Err(e.at.error("dictionary key views are shared borrows"));
+            }
+            let parent = self.reference_locals[&local.slot];
+            let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
+            ops.push(Op::BorrowLocal(local.slot, false));
+            return Ok((Ty::Ref(Arc::new(local.ty), false), loan));
+        }
         let (ty, root, parent) = if let Ty::Ref(ty, writable) = &local.ty {
             if mutable && !writable {
                 if self.bare_self_receiver
@@ -739,6 +753,11 @@ impl Lower<'_> {
                 }
                 let local = self.named_place(e)?;
                 self.mark(&e.at, ops);
+                if matches!(local.ty, Ty::KeyView(_)) {
+                    let loan = self.reference_locals[&local.slot];
+                    ops.push(Op::LoadLocal(local.slot));
+                    return Ok((local.ty, vec![loan]));
+                }
                 if let Ty::Ref(ty, _) = &local.ty {
                     let parent = self.reference_locals[&local.slot];
                     if !ty.affine() {
@@ -746,7 +765,14 @@ impl Lower<'_> {
                         ops.push(Op::LoadLocal(local.slot));
                         ops.push(Op::ReadRef((**ty).clone()));
                         ops.push(Op::UseLoan(parent));
-                        return Ok(((**ty).clone(), vec![]));
+                        return Ok((
+                            (**ty).clone(),
+                            if matches!(**ty, Ty::KeyView(_)) {
+                                vec![parent]
+                            } else {
+                                vec![]
+                            },
+                        ));
                     }
                     let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
                     ops.push(Op::LoadLocal(local.slot));
@@ -856,7 +882,10 @@ impl Lower<'_> {
                 let ty = self
                     .expr_expected(e, expected, ops)?
                     .ok_or_else(|| e.at.error("expected a value, got ()"))?;
-                if let Ty::Ref(inner, _) = ty {
+                if matches!(ty, Ty::KeyView(_)) {
+                    let loan = self.reference_origin(e, ops)?;
+                    Ok((ty, vec![loan]))
+                } else if let Ty::Ref(inner, _) = ty {
                     let id = self.reference_origin(e, ops)?;
                     ops.push(Op::ReadRef((*inner).clone()));
                     Ok(((*inner).clone(), vec![id]))
@@ -880,13 +909,13 @@ impl Lower<'_> {
         if name == "drop" {
             if let Expression::Name(_) = &arg.kind {
                 let local = self.named_place(arg)?;
-                if matches!(local.ty, Ty::Ref(..)) {
+                if matches!(local.ty, Ty::Ref(..) | Ty::KeyView(_)) {
                     return Err(at.error("drop requires an owned value, not a reference"));
                 }
                 self.mark(&arg.at, ops);
                 ops.push(Op::MoveLocal(local.slot));
             } else {
-                if matches!(self.value(arg, ops)?, Ty::Ref(..)) {
+                if matches!(self.value(arg, ops)?, Ty::Ref(..) | Ty::KeyView(_)) {
                     return Err(at.error("drop requires an owned value, not a reference"));
                 }
             }

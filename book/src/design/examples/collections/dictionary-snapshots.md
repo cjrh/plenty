@@ -5,12 +5,12 @@ returning `Result[list[T], AllocError]`:
 
 ```plenty
 def names(scores: &dict[str, i64]) -> Result[list[str], AllocError]:
-    result = scores.keys()?
+    result = scores.keys_snapshot()?
     Ok(result)
 
 def main() -> Result[(), AllocError | IoError]:
     mut scores = {"Ada": 10, "Bea": 20}?
-    saved = scores.values()?
+    saved = scores.values_snapshot()?
     scores["Ada"] = 30
     print(names(&scores)?)?
     print(saved)?
@@ -36,7 +36,7 @@ original:
 
 ```plenty
 def rows(data: &dict[str, list[i64]]) -> Result[list[list[i64]], AllocError]:
-    copy(data)?.values()
+    copy(data)?.values_snapshot()
 
 def main() -> Result[(), AllocError | IoError]:
     data = {"first": [1, 2]?, "second": [3]?}?
@@ -50,7 +50,7 @@ def main() -> Result[(), AllocError | IoError]:
 {"first": [1, 2], "second": [3]}
 ```
 
-Calling `make_dictionary().values()` instead transfers owned values from
+Calling `make_dictionary().values_snapshot()` instead transfers owned values from
 that temporary into the list. If allocation fails, the temporary and its values
 are cleaned up. `keys()` never takes the dictionary's values, so it works on
 borrowed dictionaries regardless of their value type.
