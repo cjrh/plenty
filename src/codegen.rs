@@ -1653,7 +1653,7 @@ fn build_user_function(
     let mut module = out.symbols();
     let cl_sig = user_fn_signature(&decl.sig);
 
-    let mut func = Function::with_name_signature(UserFuncName::user(0, decl.id.as_u32()), cl_sig);
+    let mut func = out.take_function(decl.id, cl_sig);
     {
         let mut bcx = FunctionBuilder::new(&mut func, &mut out.builder);
         let entry = bcx.create_block();

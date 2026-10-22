@@ -147,3 +147,59 @@ Cranelift passes and hot leaf functions rather than adding per-operation rows.
 `cargo test --all-features` builds the feature too. The instrumented functions
 then record nothing, because no test sets `PLENTY_PROFILE` except
 `tests/test_profile.rs`, which checks the report.
+
+## Reusing function storage
+
+The B19 follow-up measured on 2026-10-22 reuses the cleared Cranelift `Function`
+already held by each emission worker. Ordinary user functions take its buffers
+before building IR and return them through the existing compilation path.
+Cache hits and misses both clear function state. Generated adapters and
+generator bodies still start with fresh IR; there is no additional pool or
+Cranelift patch. Larger buffers can remain until that worker finishes.
+
+On the AMD Ryzen 7 7840HS, pinned to eight physical cores
+(`taskset -c 0,2,4,6,8,10,12,14`), a release `profile-alloc` build running
+`compile_bench 1000 1 --workload aot --no-warmup` reported these exclusive
+allocations (the profiler's KB/MB units):
+
+| Allocation | Before | Reused storage |
+|---|---:|---:|
+| `build_user_function`, cache disabled, per call | 20.3 KB | 4.9 KB |
+| Same phase, all 7,001 calls | 138.5 MB | 33.4 MB |
+| Same phase, warm function cache | 138.5 MB | 33.5 MB |
+| Whole run, warm function cache | 642.4 MB | 535.5 MB |
+
+Function construction allocated about 76% less; total warm-cache allocation
+fell about 17%. These replace the older 34.7 KB/function observation in B19;
+other compiler improvements had already reduced that baseline. The whole-program
+cache is disabled by `compile_bench`, so a warm run still builds each function's
+IR. Baseline and changed 1,000-unit program objects were byte-identical.
+
+Feature-disabled release binaries were then run in three alternating pairs
+on the same cores, with no other agent builds or tests running. The default
+Plenty compilation mode was used; times include checking, emission, runtime
+extraction and linking. Disabled-cache and warm-cache processes used five
+timed repetitions after one warm-up; each cold-cache process used a new empty
+directory and one repetition without warm-up. Values below are medians of
+the three process results; RSS is peak resident memory from `/usr/bin/time`.
+
+| Units | Function cache | Before, ms | Reuse, ms | Before, MiB | Reuse, MiB |
+|---:|---|---:|---:|---:|---:|
+| 1,000 | Disabled | 438 | 402 | 116.3 | 117.1 |
+| 1,000 | Cold | 527 | 534 | 94.9 | 97.1 |
+| 1,000 | Warm | 307 | 313 | 120.1 | 120.0 |
+| 5,000 | Disabled | 2,317 | 2,261 | 404.1 | 405.8 |
+| 5,000 | Cold | 2,263 | 2,385 | 384.6 | 384.4 |
+| 5,000 | Warm | 1,620 | 1,799 | 402.5 | 402.6 |
+
+Latency differences changed sign between paired runs. For example, the three
+5,000-unit warm-cache pairs changed by +1.6%, +24.2% and -0.4%; these noisy
+runs establish no consistent speedup. Peak memory stayed similar on these
+many-function workloads. The reason to retain this small change is its
+allocation reduction without an extra pool or dependency.
+
+A separate warm-cache `perf stat -e instructions,cycles` comparison pinned to
+one core (`taskset -c 0`, 1,000 units, three repetitions plus warm-up) counted
+11.811 billion user-space instructions before and 11.532 billion after
+(-2.4%); cycles were 9.190 and 9.151 billion. This single pair supports lower
+compiler work, while adding no reliable latency claim.
