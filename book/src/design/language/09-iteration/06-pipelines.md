@@ -63,17 +63,36 @@ There is a 64-adapter limit, alongside the ordinary expression nesting limit.
 | `any(f)` / `all(f)` | Short-circuit shared-reference predicates; empty is false / true |
 | `find(f)` | First matching item in `Option[Item]`, then release the rest |
 | `for_each(f)` | Call `(Item) -> ()` for each item |
+| `try_fold(initial, f)` | Left fold with `(A, Item) -> Result[A, E]`, stopping at the callback's first error |
+| `try_for_each(f)` | Call `(Item) -> Result[(), E]`, stopping at the callback's first error |
+| `collect()` | Build an expected `list[T]` or `set[T]`; return `Result[Collection, AllocError]` |
+| `try_collect()` | Collect `Result[T, E]` items, returning `Result[Collection, E | AllocError]` |
 
 `find` and `reduce` need an item that can be stored in an `Option`; map a
-borrowed item to an owned value first. Collecting and fallible terminals are
-not implemented in this slice. Use comprehensions to collect, or a consuming
-`for` loop with `?` to propagate failures.
+borrowed item to an owned value first.
+
+Collecting needs an expected collection type, from a binding annotation,
+argument, or return type. There is no default collection:
+
+```text
+values: list[i64] = iter(range(10)).map(square).collect()?
+result: Result[list[i64], AllocError] = iter(range(10)).map(square).collect()
+```
+
+Borrowed items must be mapped to owned values before collection. Dictionary
+collection awaits pipeline pair items. A failed collection drops its partial
+output and the remaining owned source. `try_collect` stops at the first item
+error. `try_fold` and `try_for_each` instead stop on callback errors: their
+callbacks must explicitly handle any `Result` items. They add no allocation
+error of their own.
 
 ## Cost
 
 The pipeline itself adds no heap allocation or per-adapter generator frame.
 Source expressions, callbacks, and destructors retain their own costs. A
-generator source still pays its normal resume cost. Named callbacks and concrete
+generator source still pays its normal resume cost. Collecting reserves once
+for a known-length range or list pipeline containing only `map`, `take`, or
+`skip`; a filter or unknown-length source grows like a comprehension. Named callbacks and concrete
 closure callbacks are direct calls; closure bodies are not spliced into the
 loop yet. Therefore loop fusion does **not** promise the performance of a
 hand-written loop containing the callback expressions inline.

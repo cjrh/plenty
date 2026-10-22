@@ -43,6 +43,25 @@ def main() -> Result[(), IoError]:
 16
 ```
 
+Use `try_collect` when a transformation can fail and the desired result is an
+owned collection. The annotation chooses the collection, and `?` preserves the
+first parsing or allocation error:
+
+```plenty
+def main() -> Result[(), AllocError | ParseError | IoError]:
+    lines = ["10", "20", "30"]?
+    values: list[i64] = iter(&lines).map(def(line: &str) -> Result[i64, ParseError]: i64.parse(line)).try_collect()?
+    print(values, len(lines))?
+    Ok(())
+```
+```output
+[10, 20, 30] 3
+```
+
+For an infallible transformation, use `collect()` with the same annotation.
+`try_fold` and `try_for_each` propagate errors returned by their callbacks;
+they do not automatically unwrap `Result` items.
+
 Keep a plain loop for several statements or error propagation, and use a
 comprehension when building a list is the clearest form. Pipelines are local:
 return an owned collection or generator when values must cross a function

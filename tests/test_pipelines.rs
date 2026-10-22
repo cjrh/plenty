@@ -1,5 +1,166 @@
 mod support;
 
+#[test]
+fn collecting_uses_the_expected_collection_type() {
+    output(
+        r#"
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    xs: list[i64] = iter(range(5)).map(def(n: i64) -> i64: n * n).collect()?
+    seen: set[i64] = iter(range(5)).map(def(n: i64) -> i64: n % 2).collect()?
+    parsed: list[i64] = iter(["1", "2", "3"]?).map(def(s: str) -> Result[i64, ParseError]: i64.parse(s)).try_collect()?
+    print(xs, len(seen), parsed)?
+    Ok(())
+"#,
+        "[0, 1, 4, 9, 16] 2 [1, 2, 3]\n",
+    );
+}
+
+#[test]
+fn fallible_callback_terminals_stop_at_first_error() {
+    output(
+        r#"
+def add(a: i64, b: i64) -> Result[i64, str]:
+    if b == 3:
+        return Err("stop")
+    print("add", b).unwrap()
+    Ok(a + b)
+def visit(n: i64) -> Result[(), str]:
+    if n == 2:
+        return Err("stop")
+    print("visit", n).unwrap()
+    Ok(())
+def main() -> ():
+    a = iter(range(5)).try_fold(0, add)
+    print(str.repr(&a).unwrap()).unwrap()
+    b = iter(range(0)).try_fold(10, add)
+    print(str.repr(&b).unwrap()).unwrap()
+    c = iter(range(5)).try_for_each(visit)
+    print(str.repr(&c).unwrap()).unwrap()
+    d = iter(range(0)).try_for_each(visit)
+    print(str.repr(&d).unwrap()).unwrap()
+"#,
+        "add 0\nadd 1\nadd 2\nResult[i64, str].Err(\"stop\")\nResult[i64, str].Ok(10)\nvisit 0\nvisit 1\nResult[(), str].Err(\"stop\")\nResult[(), str].Ok(())\n",
+    );
+}
+
+#[test]
+fn collection_context_and_fallible_item_diagnostics_are_specific() {
+    for (source, message) in [
+        (
+            "xs = iter(range(3)).collect().unwrap()",
+            "expected list[T] or set[T]",
+        ),
+        (
+            "xs: list[i64] = iter(range(3)).try_collect().unwrap()",
+            "Result items",
+        ),
+        (
+            "xs: list[i64] = iter([1, 2].unwrap()).map(def(n: i64) -> bool: True).collect().unwrap()",
+            "expected i64",
+        ),
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(error.contains(message), "{error}");
+    }
+}
+
+#[test]
+fn try_collect_drops_partial_output_and_unvisited_owned_items() {
+    output(
+        r#"
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print("drop", self.n).unwrap()
+def checked(g: Guard) -> Result[Guard, str]:
+    if g.n == 2:
+        return Err("two")
+    Ok(g)
+def main() -> ():
+    values = [Guard(1), Guard(2), Guard(3)].unwrap()
+    result: Result[list[Guard], AllocError | str] = iter(values).map(checked).try_collect()
+    match result:
+        case Ok(_):
+            print("unexpected").unwrap()
+        case Err(_):
+            print("failed").unwrap()
+"#,
+        "drop 2\ndrop 1\ndrop 3\nfailed\n",
+    );
+}
+
+#[test]
+fn generator_collection_transfers_affine_items_into_the_owner() {
+    // Issue #398: a borrowed LoadLocal item leaked the destructor-bearing value.
+    output(
+        r#"
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print("drop", self.n).unwrap()
+def guards() -> Generator[Guard]:
+    yield Guard(1)
+    yield Guard(2)
+def main() -> ():
+    ordinary = list(guards()).unwrap()
+    drop(ordinary)
+    pipeline: list[Guard] = iter(guards()).collect().unwrap()
+    drop(pipeline)
+"#,
+        "drop 1\ndrop 2\ndrop 1\ndrop 2\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn known_length_collect_reserves_once_and_reports_each_allocation_failure() {
+    for budget in 0..=2 {
+        let source = format!(
+            r#"
+def build() -> Result[list[i64], AllocError]:
+    iter(range(100)).map(def(n: i64) -> i64: n * 2).skip(5).take(12).collect()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = build()
+print("__test_restore_allocations__").unwrap()
+match result:
+    case Ok(values):
+        print(len(values), values[0], values[11]).unwrap()
+    case Err(_):
+        print("allocation failed").unwrap()
+"#
+        );
+        support::assert_visible_stdout(
+            &source,
+            if budget == 2 {
+                "12 10 32"
+            } else {
+                "allocation failed"
+            },
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn fallible_non_collecting_terminals_add_no_allocation() {
+    support::assert_visible_stdout(
+        r#"
+def add(a: i64, b: i64) -> Result[i64, str]:
+    Ok(a + b)
+def visit(n: i64) -> Result[(), str]:
+    Ok(())
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+total = iter(range(10)).try_fold(0, add).unwrap()
+iter(range(10)).try_for_each(visit).unwrap()
+print("__test_end_no_allocations__").unwrap()
+print("__test_restore_allocations__").unwrap()
+print(total).unwrap()
+"#,
+        "45",
+    );
+}
+
 fn output(source: &str, expected: &str) {
     let result = support::run(source);
     assert!(
