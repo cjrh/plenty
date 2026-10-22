@@ -96,6 +96,18 @@ corpus directory. With the interceptors linked, libFuzzer's `-fork` mode
 crashes its own parent process within seconds (clang 22.1.8), reporting a
 "deadly signal" with an empty input; it is not a finding.
 
+On Linux, libFuzzer's RSS limit uses `getrusage(RUSAGE_SELF).ru_maxrss`,
+the process's peak resident memory. Linux preserves this peak across exec,
+so a target launched directly by a large process can report an OOM before
+doing meaningful work. The integration tests first exec a small Python
+interpreter, then spawn the target from that interpreter's small address
+space. An exec alone does not reset the peak. The tests retain a 2048 MiB
+per-target limit and report resource-limit failures (`oom-*` / `timeout-*`)
+separately from expected `crash-*` findings with exit status 77. The HTTP
+fuzz runner already spawns its target from Python.
+See LLVM's [peak RSS implementation](https://github.com/llvm/llvm-project/blob/llvmorg-22.1.8/compiler-rt/lib/fuzzer/FuzzerUtilPosix.cpp)
+and [resource-limit handling](https://github.com/llvm/llvm-project/blob/llvmorg-22.1.8/compiler-rt/lib/fuzzer/FuzzerLoop.cpp).
+
 libFuzzer's handlers for `SIGSEGV` and `SIGBUS`, which save the input, run
 on the faulting thread's stack. So that they still run when a program has
 exhausted its stack, the driver gives the thread running inputs a 256 KiB
