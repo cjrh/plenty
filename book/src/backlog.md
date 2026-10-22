@@ -12,7 +12,7 @@ stages describe technical dependencies, not a second priority list.
 
 ## Current position
 
-Reconciled against local `main` at `9c994af0` on 2026-10-22, merged local PRs,
+Reconciled on 2026-10-22 against local `main` and merged local PRs through #477,
 the reference and tutorial, and the shared issues register. **B34's bounded
 cleanup and review batch is complete.** Its ownership, diagnostics, compiler
 performance, collection conveniences, and documentation fixes have landed.
@@ -116,6 +116,19 @@ async/await. The initial explicit parallel operations are complete;
 automatic parallelization remains B24. Prefer library APIs over new syntax, with
 compiler support for ownership checks and runtime support for native threading.
 Scoped generic tasks need not wait for heterogeneous closure storage in B32.
+
+**Go-style task investigation (B22).** The requested
+[scoped stackful-task exploration](proposals/stackful-tasks.md) compares fixed
+stacks, native workers and full M:N goroutines. Its standalone C spike exercises
+real cooperative stack switching, task-local loans, bounded communication,
+fallible admission and synchronous cooperative cleanup; it does not implement
+Plenty tasks. Fixed stacks avoid exposed pinning/relocation at the cost of a
+per-task reservation and fatal unchecked exhaustion. Before adoption, compare
+the same bounded TCP/HTTP workload with the [async model](proposals/async-await.md),
+including real I/O cancellation/registration lifetimes, allocation/failed-start
+preservation, stack budgets, compiler suspension/loan checks, memory and latency.
+Neither lightweight tasks nor async implementation is committed by this
+investigation; retaining the existing native concurrency remains an option.
 
 **B32 — broader callback storage.** Owned concrete reusable/consuming environments
 work in classes, tuples, lists, dictionaries, and user enums; see the
@@ -307,5 +320,5 @@ Async/await implementation remains unadopted and unscheduled. The requested
 owned movable frames, fallible task admission and cleanup tradeoffs; they do
 not add async syntax to Plenty or commit to adding it. Any adoption decision
 needs realistic I/O/ownership evidence and comparison with existing workers
-and stackful alternatives. A JIT and an interpreter remain out of scope,
+and the [stackful alternative](proposals/stackful-tasks.md). A JIT and an interpreter remain out of scope,
 rather than waiting at the bottom of this backlog.

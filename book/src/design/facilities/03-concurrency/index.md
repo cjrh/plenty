@@ -13,6 +13,10 @@ updated through shared references with atomic instructions, and a
 A [`Shared[T]`](../01-builtins/shared.md) handle gives several owners, such as
 pool jobs, shared access to one value; the last owner, on any thread, drops it.
 
+The [Go-style scoped-task exploration](../../../proposals/stackful-tasks.md)
+assesses a possible lightweight alternative, including a fixed-stack native
+experiment. It introduces no implemented task API or change to these contracts.
+
 Worker eligibility is a closed-world compiler check, not a user-defined marker
 protocol. It examines concrete stored types, reachable helper and callback
 bodies, captures, results, and destructors, including finite recursive type

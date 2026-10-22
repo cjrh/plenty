@@ -125,9 +125,9 @@ define cancellation when the worker continues. No such adapter exists here.
 | Stackful tasks / goroutine-style syntax | Synchronous-looking call chains can suspend deeply | Fixed stacks consume reserved memory and can exhaust; growing/moving stacks must preserve pointers, FFI and allocation failures; blocking calls and task admission still need policies |
 | General Rust-like borrowed futures | Broad zero-copy composition and explicit low-level control | Address-sensitive frame projection and poll contracts recreate the complexity we want to avoid |
 
-Stackful tasks deserve independent investigation, including bounded fallible
-stack creation, guard pages and overflow behavior, cross-thread movement,
-foreign calls and cancellation. They are an alternative to syntax-directed
+The independent [stackful-task exploration](stackful-tasks.md) investigates
+bounded fallible stack creation, guard pages and overflow behavior, cross-thread
+movement, foreign calls and cancellation. Stackful tasks are an alternative to syntax-directed
 stackless transformation, not a consequence of it. Current OS workers already
 provide one stackful baseline. Neither syntax alone solves protocol cleanup.
 
