@@ -138,6 +138,19 @@ automatic parallelization remains B24. Prefer library APIs over new syntax, with
 compiler support for ownership checks and runtime support for native threading.
 Scoped generic tasks need not wait for heterogeneous closure storage in B32.
 
+**Go-style task investigation (B22).** The requested
+[scoped stackful-task exploration](proposals/stackful-tasks.md) compares fixed
+stacks, native workers and full M:N goroutines. Its standalone C spike exercises
+real cooperative stack switching, task-local loans, bounded communication,
+fallible admission and synchronous cooperative cleanup; it does not implement
+Plenty tasks. Fixed stacks avoid exposed pinning/relocation at the cost of a
+per-task reservation and fatal unchecked exhaustion. Before adoption, compare
+the same bounded TCP/HTTP workload with the independently proposed async model,
+including real I/O cancellation/registration lifetimes, allocation/failed-start
+preservation, stack budgets, compiler suspension/loan checks, memory and latency.
+Neither lightweight tasks nor async implementation is committed by this
+investigation; retaining the existing native concurrency remains an option.
+
 **B32 — broader callback storage.** Owned concrete reusable/consuming environments
 work in classes, tuples, lists, dictionaries, and user enums; see the
 [storage decision](proposals/completed/stored-closures.md). Explicit fallible

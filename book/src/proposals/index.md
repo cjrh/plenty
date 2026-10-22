@@ -94,6 +94,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Timsort for stable, adaptive sorting](timsort.md) — fallible workspace, stability, and compatibility choices | B37 (issue #331) |
 | [User-defined dictionary keys and set members](user-type-hashing.md) — derived structural hashing and a `KeyType` bound | None yet |
 | [Fluent iterator pipelines](fluent-iterators.md) — `iter(...)` chains fused into one loop, with an explicit `.par(&pool)` boundary | None yet (relates to B12, B22, B24, B49) |
+| [Go-style scoped tasks](stackful-tasks.md), with [runtime choices](stackful-tasks/runtime.md) and [native spike evidence](stackful-tasks/evidence.md) — exploratory fixed-stack alternative; no lightweight scheduler adopted | B22 investigation; implementation uncommitted |
 
 ## Completed investigations
 
