@@ -82,9 +82,9 @@ must not be retried by guessing their meaning.
 Focused tests live in `tests/test_error_composition.rs` and
 `tests/test_typed_stream_prototype.rs`. They cover mapper ownership, allocation
 failure, nested results, evaluation order, progress, retry, EOF, cancellation,
-failure-side attribution, and typed transport preservation. The next decision
-is whether the stream signature cost warrants a broader framing experiment;
-mapping is independently usable today.
+failure-side attribution, and typed transport preservation. These findings
+supported the additive production framing below; mapping remains independently
+usable.
 
 ## Additive production slice
 
@@ -96,7 +96,7 @@ recovers each bridge's stream for explicit flushing, closing or seeking.
 The private optional slot supports extraction under existing field-move rules;
 it allocates no storage.
 
-[`std.http.typed`](../../design/stdlib/http-typed.md) provides fixed-length and
+[`std.http.typed`](../../design/stdlib/http-typed.md) initially provided fixed-length and
 close-delimited body readers. Close-delimited EOF is sticky, empty reads do not
 consume input, and its connection is never reusable. Both return
 `FramingError[E]` through the typed protocol without error-storage fields or
@@ -105,7 +105,16 @@ cases against both implementations and exercise real `std.io.Cursor`
 bridges through both framing modes. The standalone `standard.plenty` example
 is the public-module counterpart to `main.plenty`.
 
-This is still a body-transfer slice: validated heads, chunked framing, TLS
+The subsequent chunked reader preserves typed transport errors and payload
+progress through size lines, data CRLF and bounded trailers. It retains parsing
+state across interruption and does not read into the next message. Framing and
+allocation failures use `FramingError.Protocol(HttpError)`; the concrete
+transport cause stays in `Transport(E)`. Its scripted regression tests inject
+interruptions and transport errors throughout metadata and payload, and check
+limits, malformed input and terminal-state behavior. The original isolated
+prototype remains a fixed-body experiment rather than a duplicate chunk parser.
+
+This is still a body-transfer slice: validated heads, TLS
 setup, deadlines, connection recovery and client migration remain outside its
 contract. Existing HTTP adapters retain all their side channels; bridging them
 does not reconstruct causes they already discarded. No builtin Failure,

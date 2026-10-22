@@ -1,6 +1,8 @@
 # Typed HTTP body framing after head validation.
-# Construct only after validating a Content-Length and the response semantics.
+# Construct only after validating the transfer coding and method/status semantics.
 from std.bytes import Bytes
+import std.bytes
+from std.http import Header, HttpError, Limits
 from std.io.typed import Reader, StepError, within
 
 pub enum FramingError[E]:
@@ -9,6 +11,7 @@ pub enum FramingError[E]:
     InvalidProgress
     OutOfRange
     Broken
+    Protocol(HttpError)
 
 pub def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]:
     if length < 0:
@@ -44,6 +47,202 @@ pub class FixedBody[E, R]:
             case Err(StepError.Source(cause)):
                 self.broken = True
                 Err(StepError[FramingError[E]].Source(FramingError[E].Transport(cause)))
+
+# Parsing state survives Interrupted, including a partially consumed CRLF.
+# Metadata is read one byte at a time so the next message is never prefetched.
+pub def chunked_body[E, R: Reader[E]](inner: R, limits: &Limits) -> Result[ChunkedBody[E, R], FramingError[E]]:
+    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+        return Err(FramingError[E].Protocol(HttpError.InvalidLimit))
+    line = chunk_bytes[E, Bytes](std.bytes.with_capacity(limits.max_line))?
+    trailers = chunk_alloc[E, list[Header]](list[Header].new())?
+    Ok(ChunkedBody[E, R](inner, trailers, line, 0, 0, 0, 0, 0, limits.max_line, limits.max_head, limits.max_headers, limits.max_body))
+
+def chunk_alloc[E, T](result: Result[T, AllocError]) -> Result[T, FramingError[E]]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(FramingError[E].Protocol(HttpError.Allocation(cause)))
+
+def chunk_bytes[E, T](result: Result[T, std.bytes.BytesError]) -> Result[T, FramingError[E]]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(std.bytes.BytesError.Allocation(cause)):
+            Err(FramingError[E].Protocol(HttpError.Allocation(cause)))
+        case Err(_):
+            Err(FramingError[E].Protocol(HttpError.InvalidHeader))
+
+def chunk_hex(code: u8) -> i64:
+    if code >= 48u8 and code <= 57u8:
+        return i64(code) - 48
+    if code >= 65u8 and code <= 70u8:
+        return i64(code) - 55
+    if code >= 97u8 and code <= 102u8:
+        return i64(code) - 87
+    -1
+
+def chunk_token(code: u8) -> bool:
+    if code >= 48u8 and code <= 57u8 or code >= 65u8 and code <= 90u8 or code >= 97u8 and code <= 122u8:
+        return True
+    code == 33u8 or code == 35u8 or code == 36u8 or code == 37u8 or code == 38u8 or code == 39u8 or code == 42u8 or code == 43u8 or code == 45u8 or code == 46u8 or code == 94u8 or code == 95u8 or code == 96u8 or code == 124u8 or code == 126u8
+
+const size_line: i64 = 0
+const chunk_data: i64 = 1
+const data_crlf: i64 = 2
+const trailer_lines: i64 = 3
+const done: i64 = 4
+const broken: i64 = 5
+
+pub class ChunkedBody[E, R]:
+    inner: R
+    pub trailers: list[Header]
+    line: Bytes
+    state: i64
+    remaining: i64
+    delivered: i64
+    trailer_bytes: i64
+    trailer_count: i64
+    max_line: i64
+    max_head: i64
+    max_headers: i64
+    max_body: i64
+
+    pub def total(self) -> i64:
+        self.delivered
+
+    pub def is_done(self) -> bool:
+        self.state == done
+
+    def pull(self: &mut ChunkedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+        match self.inner.read(buffer, start, stop):
+            case Ok(count):
+                if count == 0:
+                    return Err(StepError[FramingError[E]].Source(FramingError[E].Truncated))
+                if count < 0 or count > stop - start:
+                    return Err(StepError[FramingError[E]].Source(FramingError[E].InvalidProgress))
+                Ok(count)
+            case Err(StepError.Interrupted):
+                Err(StepError[FramingError[E]].Interrupted)
+            case Err(StepError.Source(cause)):
+                Err(StepError[FramingError[E]].Source(FramingError[E].Transport(cause)))
+
+    def parse_line(self: &mut ChunkedBody[E, R]) -> Result[(), FramingError[E]]:
+        size = self.line.len() - 2
+        if self.state == data_crlf:
+            if size != 0:
+                return Err(FramingError[E].Protocol(HttpError.InvalidChunk))
+            self.state = size_line
+        elif self.state == size_line:
+            mut index = 0
+            mut value = 0
+            while index < size:
+                code = chunk_hex(self.line[index])
+                if code < 0:
+                    break
+                if value > (i64.MAX - code) // 16:
+                    return Err(FramingError[E].Protocol(HttpError.InvalidChunk))
+                value = value * 16 + code
+                index += 1
+            if index == 0:
+                return Err(FramingError[E].Protocol(HttpError.InvalidChunk))
+            if index < size:
+                while index < size and (self.line[index] == 32u8 or self.line[index] == 9u8):
+                    index += 1
+                if index == size or self.line[index] != 59u8:
+                    return Err(FramingError[E].Protocol(HttpError.InvalidChunk))
+                while index < size:
+                    code = self.line[index]
+                    if code != 9u8 and (code < 32u8 or code == 127u8):
+                        return Err(FramingError[E].Protocol(HttpError.InvalidChunk))
+                    index += 1
+            if value > self.max_body - self.delivered:
+                return Err(FramingError[E].Protocol(HttpError.BodyTooLarge))
+            self.remaining = value
+            self.state = trailer_lines if value == 0 else chunk_data
+        else:
+            if size == 0:
+                self.state = done
+                return Ok(())
+            if self.trailer_count >= self.max_headers:
+                return Err(FramingError[E].Protocol(HttpError.TooManyHeaders))
+            mut colon = 0
+            while colon < size and chunk_token(self.line[colon]):
+                colon += 1
+            if colon == 0 or colon == size or self.line[colon] != 58u8:
+                return Err(FramingError[E].Protocol(HttpError.InvalidHeader))
+            mut start = colon + 1
+            while start < size and (self.line[start] == 32u8 or self.line[start] == 9u8):
+                start += 1
+            mut stop = size
+            while stop > start and (self.line[stop - 1] == 32u8 or self.line[stop - 1] == 9u8):
+                stop -= 1
+            for index in range(start, stop):
+                code = self.line[index]
+                if code != 9u8 and (code < 32u8 or code == 127u8):
+                    return Err(FramingError[E].Protocol(HttpError.InvalidHeader))
+            name = chunk_bytes[E, str](self.line.to_text_range(0, colon))?
+            value = chunk_bytes[E, str](self.line.to_text_range(start, stop))?
+            chunk_alloc[E, ()](self.trailers.append(Header(name, value)))?
+            self.trailer_count += 1
+        Ok(())
+
+    def step(self: &mut ChunkedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+        while self.state != done:
+            if self.state == chunk_data:
+                mut offered = stop - start
+                if offered > self.remaining:
+                    offered = self.remaining
+                count = self.pull(buffer, start, start + offered)?
+                self.remaining -= count
+                self.delivered += count
+                if self.remaining == 0:
+                    self.state = data_crlf
+                # Return payload progress before consuming any more framing.
+                return Ok(count)
+            mut limit = self.max_line
+            mut overflow = HttpError.LineTooLong
+            if self.state == data_crlf:
+                limit = 2
+                overflow = HttpError.InvalidChunk
+            elif self.state == trailer_lines and self.max_head - self.trailer_bytes < limit:
+                limit = self.max_head - self.trailer_bytes
+                overflow = HttpError.HeadTooLarge
+            if self.line.len() >= limit:
+                return Err(StepError[FramingError[E]].Source(FramingError[E].Protocol(overflow)))
+            drop(self.pull(buffer, start, start + 1)?)
+            code = buffer[start]
+            match chunk_bytes[E, ()](self.line.push(code)):
+                case Err(cause):
+                    return Err(StepError[FramingError[E]].Source(cause))
+                case Ok(_):
+                    pass
+            if code == 10u8:
+                size = self.line.len()
+                if size < 2 or self.line[size - 2] != 13u8:
+                    return Err(StepError[FramingError[E]].Source(FramingError[E].Protocol(HttpError.BareLineFeed)))
+                if self.state == trailer_lines:
+                    self.trailer_bytes += size
+                match self.parse_line():
+                    case Err(cause):
+                        return Err(StepError[FramingError[E]].Source(cause))
+                    case Ok(_):
+                        self.line.clear()
+        Ok(0)
+
+    pub def read(self: &mut ChunkedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+        if self.state == broken:
+            return Err(StepError[FramingError[E]].Source(FramingError[E].Broken))
+        if not within(start, stop, buffer.len()):
+            return Err(StepError[FramingError[E]].Source(FramingError[E].OutOfRange))
+        if start == stop:
+            return Ok(0)
+        match self.step(buffer, start, stop):
+            case Err(StepError.Source(cause)):
+                self.state = broken
+                Err(StepError[FramingError[E]].Source(cause))
+            case _ as result:
+                result
 # EOF completes this framing mode; its connection must never be reused.
 pub def close_body[E, R: Reader[E]](inner: R) -> CloseBody[E, R]:
     CloseBody[E, R](inner, False, False)

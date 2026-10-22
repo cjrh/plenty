@@ -4,8 +4,13 @@
 [`std.io`](io.md) streams: request and response heads, `Content-Length`,
 chunked and close-delimited bodies, and the connection reuse rules. It is the
 framing layer only. [`std.http.server`](http-server.md) builds a server on
-it and [`std.http.client`](http-client.md) a client; TLS belongs to later work
-in the [backlog](../../backlog.md).
+it and [`std.http.client`](http-client.md) a client; their HTTPS adapters use
+[`std.tls`](tls.md).
+
+For body transfers that must preserve a concrete transport error type, the
+additive [`std.http.typed`](http-typed.md) readers support fixed-length, chunked
+and close-delimited framing over `std.io.typed`. They assume validated heads;
+the clients and servers above continue to use this module's framing API.
 
 The module is checked Plenty in `stdlib/std/http.plenty`; it adds no runtime
 primitives. The same code runs over a [`std.net`](net.md) `TcpStream`, a

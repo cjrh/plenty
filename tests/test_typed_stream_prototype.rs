@@ -229,6 +229,260 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | StepError
     );
 }
 
+const CHUNK_SOURCE: &str = r#"
+from std.http.typed import chunked_body
+from std.http import Limits, HttpError
+pub class Wire:
+    data: Bytes
+    position: i64
+    interrupted: bool
+    fail_at: i64
+    mode: i64
+    pub def read(self: &mut Wire, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[Transport]]:
+        if not self.interrupted:
+            self.interrupted = True
+            return Err(StepError[Transport].Interrupted)
+        self.interrupted = False
+        if self.position == self.fail_at:
+            if self.mode == 1:
+                return Err(StepError[Transport].Source(Transport.Tls(47, "body")))
+            if self.mode == 2:
+                return Err(StepError[Transport].Source(Transport.Cancelled))
+            if self.mode == 3:
+                return Ok(-1)
+            if self.mode == 4:
+                return Ok(stop - start + 1)
+            return Err(StepError[Transport].Source(Transport.Allocation(AllocError.OutOfMemory)))
+        if self.position == self.data.len():
+            return Ok(0)
+        code = self.data[self.position]
+        if code == 64u8:
+            print("overread").unwrap()
+        buffer.set(start, code).unwrap()
+        self.position += 1
+        Ok(1)
+def wire(text: str) -> Result[Wire, std.bytes.BytesError]:
+    Ok(Wire(std.bytes.from_text(text)?, 0, False, -1, 0))
+def reason(error: FramingError[Transport]) -> str:
+    match error:
+        case FramingError.Truncated:
+            "truncated"
+        case FramingError.InvalidProgress:
+            "progress"
+        case FramingError.Protocol(HttpError.InvalidChunk):
+            "chunk"
+        case FramingError.Protocol(HttpError.BareLineFeed):
+            "lf"
+        case FramingError.Protocol(HttpError.InvalidHeader):
+            "header"
+        case FramingError.Protocol(HttpError.LineTooLong):
+            "line"
+        case FramingError.Protocol(HttpError.HeadTooLarge):
+            "head"
+        case FramingError.Protocol(HttpError.TooManyHeaders):
+            "headers"
+        case FramingError.Protocol(HttpError.BodyTooLarge):
+            "body"
+        case FramingError.Transport(Transport.Cancelled):
+            "cancelled"
+        case FramingError.Transport(Transport.Allocation(AllocError.OutOfMemory)):
+            "allocation"
+        case _:
+            "unexpected"
+"#;
+
+#[test]
+fn chunked_body_preserves_interruptions_trailers_and_message_boundary() {
+    execute_modules(
+        &format!(
+            r#"{CHUNK_SOURCE}
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[Transport] | CopyFailure[FramingError[Transport], Storage] | StepError[FramingError[Transport]]]:
+    mut body = chunked_body(wire("2; x=y\r\nAB\r\n1\r\nC\r\n0\r\nX-Tag: yes \t\r\n\r\n@")?, &Limits(32, 32, 1, 3))?
+    mut buffer = scratch()?
+    match body.read(&mut buffer, -1, 0):
+        case Err(StepError.Source(FramingError.OutOfRange)):
+            print("range")?
+        case _:
+            print("wrong")?
+    print(body.read(&mut buffer, 2, 2)?)?
+    print(body.is_done())?
+    mut sink = Sink(0, 0, 0)
+    print(copy_all(&mut body, &mut sink, &mut buffer)?)?
+    print(body.total(), body.is_done())?
+    print(len(body.trailers), body.trailers[0].name, body.trailers[0].value)?
+    print(body.read(&mut buffer, 0, 4)?)?
+    print(body.read(&mut buffer, 0, 4)?)?
+    Ok(())
+"#
+        ),
+        "range\n0\nFalse\n3\n3 True\n1 X-Tag yes\n0\n0\n",
+        true,
+    );
+}
+
+#[test]
+fn chunked_body_rejects_malformed_truncated_and_over_limit_framing() {
+    let cases = [
+        ("", "32, 32, 2, 8", 0, "truncated"),
+        ("1\r", "32, 32, 2, 8", 0, "truncated"),
+        ("1\nA", "32, 32, 2, 8", 0, "lf"),
+        ("z\r\n", "32, 32, 2, 8", 0, "chunk"),
+        ("\r\n", "32, 32, 2, 8", 0, "chunk"),
+        ("8000000000000000\r\n", "32, 32, 2, 8", 0, "chunk"),
+        ("1 \r\n", "32, 32, 2, 8", 0, "chunk"),
+        ("1;x\u{7f}\r\n", "32, 32, 2, 8", 0, "chunk"),
+        ("2\r\nA", "32, 32, 2, 8", 1, "truncated"),
+        ("1\r\nA", "32, 32, 2, 8", 1, "truncated"),
+        ("1\r\nAx\r\n", "32, 32, 2, 8", 1, "chunk"),
+        ("1\r\nA\r\n0\r\n", "32, 32, 2, 8", 1, "truncated"),
+        ("0\r\n Fold: x\r\n\r\n", "32, 32, 2, 8", 0, "header"),
+        ("0\r\nX : x\r\n\r\n", "32, 32, 2, 8", 0, "header"),
+        ("0\r\nX: \u{1}\r\n\r\n", "32, 32, 2, 8", 0, "header"),
+        ("0\r\nX: y\r\n\r\n", "32, 32, 0, 8", 0, "headers"),
+        ("0\r\nX: y\r\n\r\n", "32, 7, 2, 8", 0, "head"),
+        ("01\r\n", "3, 32, 2, 8", 0, "line"),
+        ("2\r\nAB\r\n1\r\n", "32, 32, 2, 2", 2, "body"),
+    ];
+    let mut body = format!(
+        "{CHUNK_SOURCE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[Transport]]:\n    mut buffer = scratch()?\n"
+    );
+    let mut expected = String::new();
+    for (index, (wire, limits, count, reason)) in cases.iter().enumerate() {
+        let literal = format!("{wire:?}")
+            .replace("\\u{7f}", "\u{7f}")
+            .replace("\\u{1}", "\u{1}");
+        body.push_str(&format!(
+            r#"    mut body{index} = chunked_body(wire({literal})?, &Limits({limits}))?
+    mut sink{index} = Sink(0, 0, 0)
+    match copy_all(&mut body{index}, &mut sink{index}, &mut buffer):
+        case Err(CopyFailure.Read(count, ReadFailure.Source(cause))):
+            print(count, reason(cause))?
+        case _:
+            print("wrong")?
+    match body{index}.read(&mut buffer, 0, 0):
+        case Err(StepError.Source(FramingError.Broken)):
+            print("broken")?
+        case _:
+            print("wrong")?
+"#
+        ));
+        expected.push_str(&format!("{count} {reason}\nbroken\n"));
+    }
+    body.push_str("    Ok(())\n");
+    execute_modules(&body, &expected, true);
+}
+
+#[test]
+fn chunked_body_retains_transport_cause_and_payload_progress_at_every_phase() {
+    execute_modules(
+        &format!(
+            r#"{CHUNK_SOURCE}
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[Transport]]:
+    mut buffer = scratch()?
+    for offset in range(16):
+        mut source = wire("1\r\nA\r\n0\r\nX:y\r\n\r\n")?
+        source.fail_at = offset
+        source.mode = 1
+        mut body = chunked_body(source, &Limits(32, 32, 2, 8))?
+        mut sink = Sink(0, 0, 0)
+        match copy_all(&mut body, &mut sink, &mut buffer):
+            case Err(CopyFailure.Read(count, ReadFailure.Source(FramingError.Transport(Transport.Tls(code, message))))):
+                print(count, code, message)?
+            case _:
+                print("wrong")?
+    for mode in range(2, 6):
+        mut source = wire("2\r\nAB\r\n0\r\n\r\n")?
+        source.fail_at = 4
+        source.mode = mode
+        mut body = chunked_body(source, &Limits(32, 32, 2, 8))?
+        mut sink = Sink(0, 0, 0)
+        match copy_all(&mut body, &mut sink, &mut buffer):
+            case Err(CopyFailure.Read(count, ReadFailure.Source(cause))):
+                print(count, reason(cause))?
+            case _:
+                print("wrong")?
+    Ok(())
+"#
+        ),
+        &format!(
+            "{}{}1 cancelled\n1 progress\n1 progress\n1 allocation\n",
+            "0 47 body\n".repeat(4),
+            "1 47 body\n".repeat(12)
+        ),
+        true,
+    );
+}
+
+#[test]
+fn chunked_body_checks_constructor_limits_and_eof_at_every_boundary() {
+    execute_modules(
+        &format!(
+            r#"{CHUNK_SOURCE}
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[Transport] | CopyFailure[FramingError[Transport], Storage]]:
+    mut buffer = scratch()?
+    for mode in range(4):
+        limits = Limits(1 if mode == 0 else 32, 1 if mode == 1 else 32, -1 if mode == 2 else 2, -1 if mode == 3 else 8)
+        match chunked_body(wire("")?, &limits):
+            case Err(FramingError.Protocol(HttpError.InvalidLimit)):
+                print("limit")?
+            case _:
+                print("wrong")?
+    for offset in range(16):
+        text = "1\r\nA\r\n0\r\nX:y\r\n\r\n"
+        mut body = chunked_body(wire(text.slice(0, offset)?)?, &Limits(32, 32, 2, 8))?
+        mut sink = Sink(0, 0, 0)
+        match copy_all(&mut body, &mut sink, &mut buffer):
+            case Err(CopyFailure.Read(count, ReadFailure.Source(FramingError.Truncated))):
+                print(count)?
+            case _:
+                print("wrong")?
+    mut empty = chunked_body(wire("0\r\n\r\n@")?, &Limits(3, 2, 0, 0))?
+    mut sink = Sink(0, 0, 0)
+    print(copy_all(&mut empty, &mut sink, &mut buffer)?, empty.is_done())?
+    Ok(())
+"#
+        ),
+        &format!(
+            "{}{}{}0 True\n",
+            "limit\n".repeat(4),
+            "0\n".repeat(4),
+            "1\n".repeat(12)
+        ),
+        true,
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn chunked_body_allocation_failure_is_typed_and_terminal() {
+    execute_modules(
+        &format!(
+            r#"{CHUNK_SOURCE}
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[Transport]]:
+    mut buffer = scratch()?
+    mut body = chunked_body(wire("1\r\nA\r\n0\r\nX:y\r\n\r\n")?, &Limits(32, 32, 2, 8))?
+    mut sink = Sink(0, 0, 0)
+    print("__test_fail_allocations_after_0__")?
+    result = copy_all(&mut body, &mut sink, &mut buffer)
+    print("__test_restore_allocations__")?
+    match result:
+        case Err(CopyFailure.Read(count, ReadFailure.Source(FramingError.Protocol(HttpError.Allocation(AllocError.OutOfMemory))))):
+            print(count)?
+        case _:
+            print("wrong")?
+    match body.read(&mut buffer, 0, 4):
+        case Err(StepError.Source(FramingError.Broken)):
+            print("broken")?
+        case _:
+            print("wrong")?
+    Ok(())
+"#
+        ),
+        "1\nbroken\n",
+        true,
+    );
+}
+
 #[test]
 fn legacy_bridges_retry_only_interruption_and_preserve_io_errors() {
     execute_modules(

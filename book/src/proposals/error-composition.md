@@ -196,6 +196,6 @@ It distinguishes the isolated examples from the public library APIs.
 ## Additive production slice
 
 The [production slice](error-composition/streams-and-evidence.md#additive-production-slice)
-provides typed I/O helpers and fixed-length/close-delimited HTTP body readers.
-Full client migration, chunked framing, and removal of legacy side channels
+provides typed I/O helpers and fixed-length/chunked/close-delimited HTTP body readers.
+Validated-head integration, full client migration, and removal of legacy side channels
 remain separate work; the evidence page records the measured scope and limits.
