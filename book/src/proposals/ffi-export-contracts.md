@@ -13,8 +13,9 @@
 > generated `.plentyi` interface, embedded in the binary and written beside
 > `NAME.h` and `NAME.link-args.txt`. The image API below is an illustrative
 > sketch: generated headers differ in naming and in how `Result` exports report
-> status. Exported error types are limited to numeric values, `AllocError`,
-> `ParseError`, and `Failure`.
+> status. Exported error types include numeric values, `AllocError`,
+> `ParseError`, `RangeError`, `Failure`, and nongeneric payload-free user enums;
+> payload-bearing enums and error sums remain unsupported.
 >
 > **Remaining:** text and byte buffers, returned views, and broader error types
 > (B27); callbacks, unloading, and loaders generated from extracted contracts
@@ -24,13 +25,13 @@
 
 A Plenty-produced static or shared library should expose an ordinary C ABI and
 carry a richer Plenty interface. Generate its C entry adapters, C header,
-machine-readable manifest, and header contract comments from the same checked
-export representation. Consumers using Plenty get ownership checking and
+machine-readable `.plentyi` contract, and header contract comments from the same
+checked export representation. Consumers using Plenty get ownership checking and
 automatic cleanup; other languages get explicit instructions for satisfying the
 same contract. They do not need a Plenty compiler to call the C exports.
 
-The manifest describes both the actual C signature and its Plenty interpretation.
-For example, a status code and output handle may represent a `Result` containing
+The generated contract describes both the actual C signature and its Plenty
+interpretation. For example, a status code and output handle may represent a `Result` containing
 an owned object; its release symbol supplies automatic destruction. This does not
 expose Plenty's private `Result`, class, or collection layouts as C layouts.
 Borrow checking uses the interface without reanalyzing the library implementation.
@@ -126,8 +127,9 @@ C pointer use; runtime detection, where provided, is a separate API guarantee.
 
 ## Packaging and compatibility
 
-Emit a versioned standalone manifest and embed the same contract in a dedicated
-binary section/resource or static-archive member. Include target/ABI information,
+Emit the versioned `.plentyi` interface beside the library and embed the same
+contract in a dedicated binary section/resource or static-archive member; no
+second manifest format is needed. Include target/ABI information,
 stable exported type identities, contract format version, and an interface
 fingerprint. Preserve discovery metadata through supported stripping, archive
 extraction, and linker garbage collection. Read metadata at compile time without
@@ -147,10 +149,53 @@ metadata does not solve allocator or runtime-state composition by itself.
 
 ## Validation requirements
 
-Compare generated header contracts with their manifest facts, including ownership
+Compare generated header contracts with their `.plentyi` facts, including ownership
 on failure and output initialization. Compile and run C callers against generated
 headers for static and shared libraries, and test the corresponding Plenty
 consumer's borrow and cleanup behavior. Cover unsupported contracts, incompatible
 metadata, allocation failures, matching destruction, and the supported strip/link
 settings. These checks belong with export and loader implementation, not solely
 with documentation snapshots.
+
+### Qualifying new boundary types
+
+The [CO3 assessment](ffi-and-dynamic-libraries.md#co3-assessment-2026-10-22)
+reinforces generating native representations and conversion code together. For
+Plenty, extend this to a reviewable contract for **each supported conversion**,
+rather than promising that every language type automatically has a public ABI.
+Before admitting a new B27 buffer, view or error representation, specify:
+
+- Its native declaration, target layout and valid values independently of the
+  private Plenty layout; include pointer/length relations and tag/payload rules.
+- Whether each direction borrows, copies or transfers, with allocator and library
+  provenance, invalidation, and cleanup on every conversion failure.
+- Which preconditions remain trusted and which the adapter checks; define the
+  error result or termination behavior before converting invalid input into a
+  language value. Validate readable storage only after its foreign validity
+  obligations are satisfied; generated checks cannot safely probe arbitrary
+  pointers.
+- The semantic facts included in compatibility checking. A borrow-to-transfer
+  change can break callers despite an identical C prototype. New lowering rules
+  must update the contract/fingerprint scheme as necessary, with explicit
+  treatment of old consumers; a stable-looking C layout alone is insufficient.
+
+Qualify the same representative API through a C caller, a Plenty consumer of the
+generated interface, and typed runtime loading where supported. Exercise static
+and shared linking, valid success and error paths, allocation failure, and exact
+destruction. For malformed-value tests, use valid backing storage with invalid
+tags or encoding, and check size overflow before dereferencing buffers. A plausible
+length exceeding the real allocation remains a foreign contract violation, not
+something the adapter can generally detect. Use compiler rejection tests for
+forbidden lifetime escapes. Test callbacks in both directions when
+that capability is added. Compare results and ownership effects, not only emitted
+header text or metadata. Existing C fixtures are the starting point, not a reason
+to defer B27 until all B28 facilities exist.
+
+CO3's finite specialization and tagged-dispatch examples are useful alternatives
+for a later concrete generic-export need. Plenty should initially require named,
+concrete wrappers. If specialization is added, record a finite exported set,
+stable symbol names and full lowered contracts. Shared machine representation
+does not imply interchangeable ownership or destructor semantics; tagged dispatch
+also needs validated tags and an explicit unknown-tag policy. Neither generic
+export syntax nor a universal companion-type framework is required for buffers,
+views, header verification, or the first callbacks.

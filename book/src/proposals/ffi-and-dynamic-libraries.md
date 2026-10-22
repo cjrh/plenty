@@ -64,6 +64,59 @@ process. Plenty should retain the convenience while resolving known signatures
 ahead of time and checking its side of each contract.
 [Python ctypes](https://docs.python.org/3/library/ctypes.html).
 
+### CO3 assessment (2026-10-22)
+
+[CO3: The Language of FFI](https://mversic.github.io/co3-the-language-of-ffi/)
+demonstrates native-facing declarations lowered to C companion types, conversion
+adapters, explicit ownership transfer, and finite generic dispatch. Its example
+switches a consumer between an ordinary dependency and C ABI bindings through
+build configuration. This supports Plenty's existing separation of the useful
+language API from its native calling representation; it is not evidence that
+arbitrary C libraries share one ownership convention.
+
+The article's ambition to represent every source type is broader than Plenty's
+near-term needs. It explicitly identifies missing captured-closure support,
+import/header verification, and C header generation. Treat these as design
+ideas, not demonstrated solutions. The [CO3 0.8.2 API](https://docs.rs/co3/0.8.2/co3/)
+documents generated companions, conversion checks, and configurable conversion
+failure handling; this assessment does not audit their implementation or establish
+cross-version ABI compatibility. Plenty already generates headers and embedded
+contracts for its supported subset.
+
+The useful extension is to make conversion policy as explicit as ownership:
+
+| Boundary operation | Proposed Plenty policy |
+| --- | --- |
+| Borrow | Keep the owner alive; specify extent, access and non-retention. No implicit copy. |
+| Copy into receiver storage | Opt into a conversion that leaves the original owned value with its sender; expose allocation/validation failure and release partially converted values. |
+| Transfer | Move the owner with its exact originating release operation; describe consumption on both success and failure. |
+
+CO3 defaults owned values such as vectors to borrowing at the boundary and
+cloning in the receiver. Plenty should borrow the *distinction*, not that implicit
+default: hidden allocation and copying would obscure fallibility and cost. B27
+buffer adapters should distinguish a borrowed byte view from an independently
+owned copy without exporting Plenty collection layouts. Copying may solve an
+allocator mismatch, but cannot manufacture validity for a dangling source or
+justify reading storage while foreign code mutates it.
+
+Header-assisted work in B28 should also offer **conformance checking**, not only
+binding generation: compare the declared native signature and record layout with
+the library's authoritative header under the exact target, defines, include paths,
+packing and compiler options. Expose the lowered C declaration and conversions
+for binding review. A mismatch must identify the native argument/layout at fault;
+a match establishes ABI agreement, not ownership, retention or error semantics.
+Keep this an optional tool using a mature C frontend, outside ordinary builds.
+
+For future callbacks, reuse ordinary import/export conversion and failure rules
+for arguments and results in both directions. A generated C entry thunk is
+distinct from an ordinary Plenty function pointer or a captured closure. Begin
+with the synchronous context-pointer model below; specify context ownership,
+cleanup and failure behavior before adding captured or retained callbacks. Do not
+adopt CO3's default conversion-failure panic as a recoverable Plenty `Result`:
+representation errors need an explicit status policy where supported, while traps
+still terminate. Checks of tags, lengths or encoding cannot establish pointer
+liveness, provenance or the absence of conflicting foreign aliases.
+
 ## Separate source visibility, binary linkage, and loading
 
 These are three independent decisions:
@@ -265,6 +318,13 @@ and do not depend on a bundled C frontend.
 4. Add explicit runtime loading of known interfaces, initially without unloading.
 5. Add record layout, retained callbacks, header-assisted binding generation, and
    more expressive borrowed results as independent extensions.
+
+These stages record the original progression; the status and reference links
+above identify what has shipped. Apply the CO3 lessons within the existing B27
+buffer/view work and B28 tooling/callback work, without making universal type
+lowering or generic dispatch prerequisites. The
+[export qualification strategy](ffi-export-contracts.md#qualifying-new-boundary-types)
+defines the evidence required for each additional boundary type.
 
 Every stage needs native integration tests built against a small C fixture:
 successful/error transfers, partial initialization, matching destruction,
