@@ -23,6 +23,7 @@
 //! defined once at function entry.
 //!
 //! Phase c.3 adds `Op::Match`: each arm becomes its own Cranelift block,
+//! large contiguous integer/tag sets use a bounded jump table; other
 //! patterns lower to a linear chain of `brif` compares (wildcards become
 //! unconditional jumps and short-circuit the chain; a `bool` scrutinee
 //! branches on itself and its second value is a jump), and a single join
@@ -83,6 +84,7 @@ mod induction;
 mod inline;
 mod known;
 mod last_use;
+mod matching;
 mod metadata;
 mod mutex;
 mod numeric;
@@ -3449,8 +3451,8 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Lower `Op::Match`: one CLIF block per arm, a linear `brif` chain
-    /// for dispatch, and a single join block whose params carry the
+    /// Lower `Op::Match`: one CLIF block per arm, a bounded jump table or
+    /// linear `brif` chain for dispatch, and a join block whose params carry the
     /// agreed stack shape every arm leaves (§11.8). The type checker
     /// has already enforced exhaustiveness and pointwise agreement, so
     /// the lowerer only has to mirror that structure — no runtime
@@ -3468,9 +3470,7 @@ impl Lowerer<'_, '_> {
         // point `match` consumes its scrutinee.
         let entry_stack = self.stack.clone();
 
-        // One block per arm body; arms are sealed once the dispatch
-        // chain finishes emitting (each arm has exactly one predecessor,
-        // the dispatch block that jumped to it).
+        // One block per arm body; seal only once every dispatch edge is known.
         let arm_blocks: Vec<Block> = arms.iter().map(|_| self.bcx.create_block()).collect();
         let join_block = self.bcx.create_block();
 
@@ -3481,7 +3481,7 @@ impl Lowerer<'_, '_> {
         // compare. A wildcard short-circuits with an unconditional jump
         // and renders any trailing arms unreachable (the checker would
         // already have noticed if a useful arm came after `_`).
-        let mut chain_terminated = false;
+        let mut chain_terminated = self.lower_dense_dispatch(scrut, &scrut_ty, arms, &arm_blocks);
         // Indexed by `bool as usize`: the values earlier `Bool` arms tested.
         let mut bool_covered = [false; 2];
         for (i, arm) in arms.iter().enumerate() {

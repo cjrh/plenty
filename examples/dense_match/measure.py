@@ -35,17 +35,20 @@ def tree(lo, hi, indent=4):
 
 def source(n, kind, distribution, iterations):
     enum = kind == "enum"
+    work = kind == "work"
     text = ""
     if enum:
         text += "enum Choice:\n" + "".join(f"    V{i}\n" for i in range(n)) + "\n"
-    text += f"def dispatch(x: {'&Choice' if enum else 'u64'}) -> u64:\n"
+    text += f"def dispatch(x: {'&Choice' if enum else 'u64'}{', state: u64' if work else ''}) -> u64:\n"
     if kind == "tree":
         text += f"    if x >= {n}u64:\n        return 0u64\n" + tree(0, n)
     else:
         text += "    match x:\n"
         for i in range(n):
             pat = f"Choice.V{i}" if enum else f"{i}u64"
-            text += f"        case {pat}:\n            {value(i)}u64\n"
+            body = (f"state.wrapping_mul({2 * i + 1}u64).wrapping_add({value(i)}u64)"
+                    if work else f"{value(i)}u64")
+            text += f"        case {pat}:\n            {body}\n"
         if not enum:
             text += "        case _:\n            0u64\n"
     text += "\ndef main() -> Result[i32, AllocError | IoError]:\n"
@@ -54,9 +57,11 @@ def source(n, kind, distribution, iterations):
     # Validate every arm independently of the timed pseudo-random sequence.
     for i in range(n):
         arg = f"&choices[{i}]" if enum else f"{i}u64"
-        text += f"    if dispatch({arg}) != {value(i)}u64:\n        return Ok(1i32)\n"
+        answer = (7 * (2 * i + 1) + value(i)) & MASK if work else value(i)
+        text += f"    if dispatch({arg}{', 7u64' if work else ''}) != {answer}u64:\n        return Ok(1i32)\n"
     if not enum:
-        text += f"    if dispatch({n}u64) != 0u64 or dispatch(u64.MAX) != 0u64:\n        return Ok(1i32)\n"
+        tail = ", 7u64" if work else ""
+        text += f"    if dispatch({n}u64{tail}) != 0u64 or dispatch(u64.MAX{tail}) != 0u64:\n        return Ok(1i32)\n"
     text += "    mut state = 42u64\n    mut total = 0u64\n    mut i = 0u64\n"
     text += f"    while i < {iterations}u64:\n"
     text += "        state = state.wrapping_mul(6364136223846793005u64).wrapping_add(1442695040888963407u64)\n"
@@ -65,12 +70,12 @@ def source(n, kind, distribution, iterations):
         hot = 0 if distribution == "first" else n - 1
         text += f"        if state % 10u64 != 0u64:\n            index = {hot}u64\n"
     arg = "&choices[i64(index)]" if enum else "index"
-    text += f"        total = total.wrapping_add(dispatch({arg}))\n"
+    text += f"        total = total.wrapping_add(dispatch({arg}{', state' if work else ''}))\n"
     text += "        i = i.wrapping_add(1u64)\n    print(total)?\n    Ok(0i32)\n"
     return text
 
 
-def expected(n, distribution, iterations):
+def expected(n, distribution, iterations, work=False):
     state = 42
     total = 0
     for _ in range(iterations):
@@ -78,7 +83,8 @@ def expected(n, distribution, iterations):
         index = (state >> 32) & (n - 1)
         if distribution != "uniform" and state % 10 != 0:
             index = 0 if distribution == "first" else n - 1
-        total = (total + value(index)) & MASK
+        result = state * (2 * index + 1) + value(index) if work else value(index)
+        total = (total + result) & MASK
     return str(total) + "\n"
 
 
@@ -97,6 +103,10 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cpu", type=int, required=True)
     parser.add_argument("--sizes", type=int, nargs="+", default=[4, 16, 64, 256])
+    parser.add_argument("--kinds", nargs="+", choices=["integer", "tree", "enum", "work"],
+                        default=["integer", "tree", "enum"])
+    parser.add_argument("--label", choices=["baseline", "switch", "production"],
+                        help="Label this compiler's measurements (does not alter code generation)")
     parser.add_argument("--iterations", type=int, default=2_000_000)
     parser.add_argument("--repeats", type=int, default=7)
     parser.add_argument("--compile-repeats", type=int, default=3)
@@ -123,15 +133,15 @@ def main():
     jobs = []
     for n in args.sizes:
         for distribution in ("uniform", "first", "last"):
-            checksum = expected(n, distribution, args.iterations)
-            for kind in ("integer", "tree", "enum"):
+            for kind in args.kinds:
+                checksum = expected(n, distribution, args.iterations, kind == "work")
                 name = f"{kind}-{n}-{distribution}"
                 path = output / (name + ".plenty")
                 path.write_text(source(n, kind, distribution, args.iterations))
                 binary = output / name
                 command = [str(compiler), "--release", "--no-cache", "--compile", str(path), "-o", str(binary)]
                 row = {"name": name, "arms": n, "kind": kind, "distribution": distribution,
-                       "variant": "switch" if report["switch_experiment"] else "baseline",
+                       "variant": args.label or ("switch" if report["switch_experiment"] else "baseline"),
                        "source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                        "compile_command": command, "compile_seconds": [], "run_seconds": [],
                        "checksum": checksum.strip()}

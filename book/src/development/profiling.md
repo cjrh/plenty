@@ -210,10 +210,10 @@ compiler work, while adding no reliable latency claim.
 ## Dense-match dispatch
 
 The 2026-10-22 B19 experiment at `9c994af0` measures dense integer and enum
-dispatch with 4, 16, 64 and 256 arms. Production still emits comparison chains.
+dispatch with 4, 16, 64 and 256 arms against the then-production comparison chains.
 A temporary Cranelift `Switch` patch produces `br_table`; the patch is preserved
-as an experiment, not enabled in the compiler. Local issue #395 tracks the
-production follow-up. Reproduction, samples and generated-fixture methodology
+as the original experiment. The production policy described below addresses
+issue #395. Reproduction, samples and generated-fixture methodology
 are in [`examples/dense_match/`](../../../examples/dense_match/README.md).
 
 On a Ryzen 7 7840HS, x86-64 Linux, Cranelift 0.131.1, pinned to one CPU, median
@@ -247,11 +247,44 @@ uniform fixtures were 69/65 ms (integer chain/switch) and 95/99 ms (enum);
 these include validation/setup code and linking, with only three samples in
 separate batches. They establish no reliable compile-time gain.
 
-The next bounded task is a large-dense-match selection policy with semantic
-coverage, not another baseline audit. The evidence supports exploring 64+ arms
-but does not establish a universal threshold. Cover signed/narrow integers,
-offset and sparse keys, alternatives, nested payload matches, fallback ordering
-and invalid-tag traps before production adoption. Measure real arm bodies and
-application distributions too: these constant-return microbenchmarks could
-also benefit from data lookup tables. No learner-facing syntax or tutorial
-idiom changes follow from this experiment.
+### Production policy
+
+The production lowerer now selects a jump table for at least 256 distinct
+contiguous integer/tag values, in any source order (issue #395). Smaller and
+sparse sets retain chains. The threshold deliberately leaves the mixed 64-arm
+results alone; it is not claimed to be optimal for every CPU or distribution.
+Regression checks cover all eight integer widths, negative/offset ranges,
+signed extrema, unsigned maxima, distant 64-bit fallbacks, reversed cases,
+alternatives, nested payload ordering, owned/borrowed enum payloads and tail
+exits. Exhaustive enum matching retains the invalid-tag trap. The
+[emission contract](../design/toolchain/02-architecture/emission.md#match-dispatch)
+describes index normalization and bounded table storage.
+
+The harness also offers `--kinds work`: each arm computes a different wrapping
+multiply/add over a runtime state argument. This avoids drawing the entire
+conclusion from constant-return arms, while remaining a synthetic workload.
+It does not establish a benefit for any existing application. No source syntax
+or tutorial idiom changes follow from this optimization.
+
+A follow-up paired run against the chain compiler at `70aa0a3e` validated the
+production policy on the same host and CPU affinity, using two million
+dispatches and seven shuffled rounds (672 checked timed executions):
+
+| 256-case workload | Uniform chain / table | 90%-first chain / table | 90%-last chain / table |
+|---|---:|---:|---:|
+| Integer | 55.6 / 21.0 ms | 12.2 / 10.5 ms | 79.7 / 12.1 ms |
+| Enum | 100.1 / 35.1 ms | 19.7 / 15.6 ms | 127.7 / 17.8 ms |
+| Runtime multiply/add | 57.6 / 22.1 ms | 13.5 / 10.5 ms | 82.1 / 11.8 ms |
+
+Isolated dispatch bytes, including table data/padding, fell from 5,515 to 3,646
+for integers, 7,763 to 3,674 for enums and 7,623 to 5,754 for runtime arithmetic.
+All 26 optimized-IR/assembly dump files for the smaller matches and unchanged
+tree controls are byte-identical between compilers.
+Full samples, compiler/source hashes and dump indexes are preserved in
+[`production-results.json`](../../../examples/dense_match/production-results.json).
+Cold build samples were collected in separate batches with other builds active
+during the baseline batch; they establish **no compile-time gain**. The machine
+was not reserved or frequency-locked, so small timing differences in unchanged
+controls are noise rather than evidence for tuning smaller matches. This run
+does not measure allocation or peak memory, nor justify a broader sparse-table
+policy.
