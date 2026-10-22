@@ -114,6 +114,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(counts, counts.get("z"))?
     for word, count in counts.items():
         print(word, *count)?
+    print(len(counts.keys()), "a" in counts.keys())?
 
     mut seen = {1, 2}?
     seen.add(2)?
@@ -127,6 +128,7 @@ def main() -> Result[(), AllocError | IoError]:
 {"a": 2, "b": 5} Option[i64].Nothing
 a 2
 b 5
+2 True
 2 [0, 4, 16]
 ```
 

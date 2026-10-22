@@ -37,7 +37,7 @@ fn decimal_forms_unit_payloads_and_prelude_shadowing() {
     "Point(x=2.5, y=2.5)\n2.5\nTrue\n"
 )]
 #[case(
-    "mut xs = [1.5f32, -0f32].unwrap()\nxs.append(2.5f32).unwrap()\nxs[0] = 3.5f32\nfor x in &xs:\n    print(x).unwrap()\nprint(2.5f32 in xs).unwrap()\nprint({'x': 2.5}.unwrap().values().unwrap()).unwrap()\nprint([1.0].unwrap() == [1.0].unwrap()).unwrap()\nprint([0.0].unwrap() == [-0.0].unwrap()).unwrap()",
+    "mut xs = [1.5f32, -0f32].unwrap()\nxs.append(2.5f32).unwrap()\nxs[0] = 3.5f32\nfor x in &xs:\n    print(x).unwrap()\nprint(2.5f32 in xs).unwrap()\nprint({'x': 2.5}.unwrap().values_snapshot().unwrap()).unwrap()\nprint([1.0].unwrap() == [1.0].unwrap()).unwrap()\nprint([0.0].unwrap() == [-0.0].unwrap()).unwrap()",
     "3.5\n-0.0\n2.5\nTrue\n[2.5]\nTrue\nTrue\n"
 )]
 #[case(

@@ -1,4 +1,5 @@
 //! Rust-owned metadata and buffers behind a small, layout-stable native prefix.
+use crate::collection_opcodes::*;
 use crate::entries::{Entries, Entry};
 use crate::generators::{Generator, plenty_generator_resume};
 use crate::memory::{self, AllocError, Header, plenty_release, plenty_retain};
@@ -1932,34 +1933,56 @@ pub(crate) unsafe fn collection_at(
                 plenty_retain(a as *mut Header);
                 a
             }
-            65..=68 => {
+            SET_UNION..=SET_SYMMETRIC_DIFFERENCE
+            | KEY_VIEW_UNION..=KEY_VIEW_SYMMETRIC_DIFFERENCE => {
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
+                let (op, result_type) = match op {
+                    KEY_VIEW_UNION => (SET_UNION, &*descriptor),
+                    KEY_VIEW_INTERSECTION => (SET_INTERSECTION, &*descriptor),
+                    KEY_VIEW_DIFFERENCE => (SET_DIFFERENCE, &*descriptor),
+                    KEY_VIEW_SYMMETRIC_DIFFERENCE => (SET_SYMMETRIC_DIFFERENCE, &*descriptor),
+                    _ => (op, &*left.ty),
+                };
                 let left_entries = left.entries.iter().filter(|entry| match op {
-                    65 => true,
-                    66 => right.find(entry.key).is_some(),
+                    SET_UNION => true,
+                    SET_INTERSECTION => right.find(entry.key).is_some(),
                     _ => right.find(entry.key).is_none(),
                 });
-                let right_entries = right
-                    .entries
-                    .iter()
-                    .filter(|entry| matches!(op, 65 | 68) && left.find(entry.key).is_none());
+                let right_entries = right.entries.iter().filter(|entry| {
+                    matches!(op, SET_UNION | SET_SYMMETRIC_DIFFERENCE)
+                        && left.find(entry.key).is_none()
+                });
                 let entries = left_entries.chain(right_entries);
-                match try_set_from_entries(entries, &*left.ty) {
+                match try_set_from_entries(entries, result_type) {
                     Ok(set) => wrap(set, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
             }
-            62..=64 => {
+            KEY_VIEW_TO_SET => {
+                let source = &*(a as *const Collection);
+                match try_set_from_entries(source.entries.iter(), &*descriptor) {
+                    Ok(set) => wrap(set, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
+            }
+            SET_IS_SUBSET..=SET_IS_DISJOINT | KEY_VIEW_EQUAL => {
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
                 let result = match op {
-                    62 => {
+                    KEY_VIEW_EQUAL => {
+                        left.entries.len() == right.entries.len()
+                            && left
+                                .entries
+                                .iter()
+                                .all(|entry| right.find(entry.key).is_some())
+                    }
+                    SET_IS_SUBSET => {
                         left.entries.len() <= right.entries.len()
                             && left
                                 .entries
                                 .iter()
                                 .all(|entry| right.find(entry.key).is_some())
                     }
-                    63 => {
+                    SET_IS_SUPERSET => {
                         right.entries.len() <= left.entries.len()
                             && right
                                 .entries

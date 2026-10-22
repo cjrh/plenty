@@ -110,7 +110,7 @@ fn define_type(
         Ty::Box(_) | Ty::Shared(_) => b'O',
         Ty::Generator(_) => b'G',
         Ty::Enum(_) => b'B',
-        Ty::Ref(..) => b'v',
+        Ty::Ref(..) | Ty::KeyView(_) => b'v',
         Ty::Atomic(_) => unreachable!("replaced by its element"),
     };
     bytes[1] = u8::from(affine);

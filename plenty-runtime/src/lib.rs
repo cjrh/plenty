@@ -13,6 +13,7 @@ mod accounting;
 mod aggregates;
 mod channels;
 mod closures;
+mod collection_opcodes;
 mod control;
 mod deadline;
 mod entries;

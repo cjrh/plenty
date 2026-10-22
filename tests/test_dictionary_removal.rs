@@ -112,7 +112,7 @@ for n in range(1, 100, 2):
         case Nothing:
             valid = False
 print(valid).unwrap()
-print(values.keys().unwrap() == [n for n in range(1, 100, 2)].unwrap()).unwrap()
+print(values.keys_snapshot().unwrap() == [n for n in range(1, 100, 2)].unwrap()).unwrap()
 for n in range(0, 100, 2):
     values.insert(n, n).unwrap()
 print(len(values)).unwrap()

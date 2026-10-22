@@ -27,6 +27,9 @@ impl Lower<'_> {
                 at: at.clone(),
                 kind: Expression::Name(capture.name.clone()),
             };
+            if self.place_type(&source).as_ref().is_some_and(Ty::key_view) {
+                return Err(at.error("dictionary key views cannot be captured; materialise keys_snapshot() or to_set()"));
+            }
             let ty = if capture.borrowed {
                 if self.yield_type.is_some() {
                     return Err(at.error("borrowed captures cannot be suspended in generators"));

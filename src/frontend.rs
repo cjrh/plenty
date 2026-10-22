@@ -881,6 +881,18 @@ impl TypeRef {
                 }
             }));
         }
+        if name == "KeyView" {
+            if self.args.len() != 1 {
+                return Err(self.at.error("KeyView requires one key type"));
+            }
+            let key = self.args[0]
+                .resolve(aliases)?
+                .ok_or_else(|| self.at.error("KeyView keys cannot be unit"))?;
+            if !key.hashable() {
+                return Err(self.at.error("KeyView requires a hashable key type"));
+            }
+            return Ok(Some(Ty::KeyView(Arc::new(key))));
+        }
         if matches!(name.as_str(), "list" | "dict" | "set") {
             let count = if name == "dict" { 2 } else { 1 };
             if self.args.len() != count {
@@ -2470,6 +2482,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "contains"
                 | "list"
                 | "dict"
+                | "KeyView"
                 | "set"
                 | "len"
                 | "sorted"
@@ -3015,7 +3028,11 @@ impl Lower<'_> {
                 crate::sum::result(ty, target.get().variants[1].fields[0].clone())
             }
         });
-        let Some(Ty::Enum(source)) = self.expr_expected(value, operand_context, ops)? else {
+        let operand = self.expr_expected(value, operand_context, ops)?;
+        if operand.as_ref().is_some_and(Ty::key_view) {
+            return Err(value.at.error("keys() returns a borrowed KeyView without AllocError; remove `?`, or use keys_snapshot(), into_keys(), or to_set() for an owned result"));
+        }
+        let Some(Ty::Enum(source)) = operand else {
             return Err(e.at.error("`?` requires a Result or Option operand"));
         };
         if !source.propagatable() || source.is_option() != target.is_option() {
@@ -3372,7 +3389,7 @@ impl Lower<'_> {
                 let (a, mut loans) = self.observe(left, ops)?;
                 let (b, other_loans) = self.observe(right, ops)?;
                 loans.extend(other_loans);
-                if b.restricted_storage() {
+                if b.restricted_storage() && !matches!(b, Ty::KeyView(_)) {
                     return Err(e
                         .at
                         .error("membership does not consume generators; use a loop"));
@@ -3436,6 +3453,15 @@ impl Lower<'_> {
                 let mut rhs = Vec::new();
                 let (b, other_loans) = if a.is_numeric() {
                     self.observe_expected(right, Some(a.clone()), &mut rhs)?
+                } else if matches!(a, Ty::KeyView(_))
+                    && matches!(op.as_str(), "==" | "!=")
+                    && list_display(right).is_none()
+                {
+                    self.observe_expected(
+                        right,
+                        Some(Ty::Set(Arc::new(a.element().unwrap()))),
+                        &mut rhs,
+                    )?
                 } else {
                     self.observe(right, &mut rhs)?
                 };
@@ -3443,6 +3469,32 @@ impl Lower<'_> {
                     Self::end_reads(other_loans, &mut rhs);
                 } else {
                     loans.extend(other_loans);
+                }
+                if matches!(op.as_str(), "==" | "!=")
+                    && (matches!(a, Ty::KeyView(_)) || matches!(b, Ty::KeyView(_)))
+                {
+                    if !matches!(a, Ty::Set(_) | Ty::KeyView(_))
+                        || !matches!(b, Ty::Set(_) | Ty::KeyView(_))
+                        || a.element() != b.element()
+                    {
+                        return Err(e.at.error(
+                            "KeyView equality requires a set or KeyView with the same key type",
+                        ));
+                    }
+                    ops.extend(rhs);
+                    ops.push(Op::Collection(CollectionOp::key_set_relation(
+                        a,
+                        b,
+                        crate::collection_opcodes::KEY_VIEW_EQUAL,
+                    )));
+                    Self::end_reads(loans, ops);
+                    if op == "!=" {
+                        ops.push(Op::Not);
+                    }
+                    return Ok(Some(Ty::Bool));
+                }
+                if matches!(a, Ty::KeyView(_)) || matches!(b, Ty::KeyView(_)) {
+                    return Err(e.at.error(format!("KeyView does not support binary operator `{op}`; use ==/!= for set equality or the set relationship/algebra methods")));
                 }
                 if a.restricted_storage() {
                     if matches!(a, Ty::Closure(_)) {
@@ -3643,6 +3695,9 @@ impl Lower<'_> {
                     let mut reads = Vec::new();
                     for argument in args {
                         let (ty, loans) = self.observe(argument, ops)?;
+                        if ty.key_view() {
+                            return Err(argument.at.error("dictionary key views cannot be printed; iterate the view or materialise keys_snapshot(), into_keys(), or to_set()"));
+                        }
                         if ty.prints_generator_frame() {
                             return Err(e.at.error("generators cannot be printed"));
                         }
@@ -5237,6 +5292,9 @@ fn register_resolved(
         Some(resolved) => resolved,
         None => protocols::signature(f, aliases)?,
     };
+    if types.iter().any(Ty::key_view) || output.as_ref().is_some_and(Ty::key_view) {
+        return Err(f.at.error("dictionary key views are local-only; user-function parameters, returns, and captures require an owned keys_snapshot(), into_keys(), or to_set()"));
+    }
     if let Some((_, written)) = f
         .inputs
         .iter()

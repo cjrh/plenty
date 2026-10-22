@@ -41,7 +41,8 @@ impl Ty {
             let resource = self.is_resource() || matches!(self, Self::Task(_));
             return Facts {
                 affine: resource || matches!(self, Self::Atomic(_)),
-                copyable: !resource && !matches!(self, Self::Ref(..) | Self::Atomic(_)),
+                copyable: !resource
+                    && !matches!(self, Self::Ref(..) | Self::KeyView(_) | Self::Atomic(_)),
                 destructor: resource,
                 complete: true,
                 reflexive: !self.is_float(),

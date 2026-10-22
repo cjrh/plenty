@@ -60,6 +60,15 @@ no item tuples or snapshot buffers. `items()` is a loop/comprehension intrinsic,
 not a storable iterator, and requires two distinct binding names (or `_`).
 Its source loan prohibits invalidating dictionary mutation.
 
+`dictionary.keys()` creates a bindable local `KeyView[K]`; iteration yields
+`&K` in the same insertion order, without allocation. `dictionary.values()`
+is a loop/comprehension source yielding `&V`, including affine values;
+`(&mut dictionary).values()` yields `&mut V`. Both protect the whole dictionary
+under their loans. Collect explicitly (`[*key for key in d.keys()]?`), or
+use `keys_snapshot()` / `values_snapshot()` for owned lists and `into_keys()` /
+`into_values()` to consume the owner. See [dictionary views](../../facilities/01-builtins/dictionaries.md#snapshots-and-views)
+for the key view's set operations and storage restrictions.
+
 Loop targets permit flat tuple unpacking. Iteration itself, including string
 scalar production and generator `next`, adds no allocation; iterable creation
 and body expressions keep their own contracts. There is no arbitrary user

@@ -120,7 +120,7 @@ print(d).unwrap()
     "4\n5\n5\n6\n"
 )]
 #[case(
-    "d = {'a': 1, 'b': 2}.unwrap()\nfor key in &d:\n    print(key).unwrap()\n    print(d[key]).unwrap()\nprint(d.keys().unwrap()).unwrap()\nprint(d.values().unwrap()).unwrap()",
+    "d = {'a': 1, 'b': 2}.unwrap()\nfor key in &d:\n    print(key).unwrap()\n    print(d[key]).unwrap()\nprint(d.keys_snapshot().unwrap()).unwrap()\nprint(d.values_snapshot().unwrap()).unwrap()",
     "a\n1\nb\n2\n[\"a\", \"b\"]\n[1, 2]\n"
 )]
 #[case(

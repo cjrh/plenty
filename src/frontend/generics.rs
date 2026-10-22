@@ -1095,6 +1095,9 @@ impl Engine {
             .zip(actual.iter().map(|ty| type_ref(ty, at)))
             .collect();
         for ((_, bound), ty) in template.type_params.iter().zip(&actual) {
+            if ty.key_view() {
+                return Err(at.error("dictionary key views are local-only and cannot be user-function type arguments; materialise keys_snapshot() or to_set()"));
+            }
             let borrowed_callable =
                 matches!(ty, Ty::Closure(_)) && bound.as_ref().is_some_and(callable_bound);
             if ty.contains_reference() && !borrowed_callable {

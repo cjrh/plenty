@@ -34,21 +34,71 @@ collisions can make it linear.
 
 ## Snapshots and views
 
-`dictionary.keys() -> Result[list[K], AllocError]` and
-`dictionary.values() -> Result[list[V], AllocError]` take no arguments and
+`dictionary.keys() -> KeyView[K]` creates a shared, local-only borrowed view
+without allocating. A view can be bound to a local, iterated, and used with
+builtin set operations. Iteration yields `&K` in insertion order; use
+`[*key for key in dictionary.keys()]?` to collect owned keys explicitly.
+`len(view)` is O(1), and `key in view` / `not in` use dictionary lookup.
+The value holds a borrowed owner handle with a compiler-known key projection;
+the owner retains its row descriptor and each loop keeps its own cursor.
+
+`==` and `!=` compare keys as sets, ignoring insertion order, against
+`KeyView[K]` or `set[K]` with the same key type. Dictionaries may have different
+value types. `issubset`, `issuperset`, and `isdisjoint` take `&set[K]` or
+`&KeyView[K]` and return `bool`. These observations allocate nothing and have
+no `AllocError`; relationships perform O(n) expected hash lookups (equality
+first compares lengths). Empty views are subsets of every set-like operand
+and disjoint from every operand.
+
+`union`, `intersection`, `difference`, and `symmetric_difference` take those
+same operands and return `Result[set[K], AllocError]`. `to_set()` materialises
+the keys as that result type. Algebra reserves its result before inserting
+keys and leaves both sources unchanged on failure. Result order is unspecified.
+Operators such as `|`, `&`, and `<=` are not part of the view API.
+Mixed set/view operands belong to methods on a `KeyView` receiver. Existing
+`set` methods still require set operands: use `view.union(&set)` rather than
+`set.union(&view)`. Equality accepts either operand order. These builtin
+methods observe their operands, so an explicit `&` may be omitted without
+moving a named set or view.
+
+`set(view)` and `list(view)` are not supported. Use `view.to_set()`,
+`dictionary.keys_snapshot()`, or `[*key for key in view]?` to choose the owned
+result explicitly.
+
+A bound view holds a shared loan on the whole dictionary until its last use.
+Insertion, indexed assignment, update, removal, clearing, and moving the owner
+conflict with that loan, including through aliases. Views cannot be stored in
+fields, collections, tuples, enum payloads, generators or worker/closure
+captures, or passed to or returned from user functions. Binding a view of a
+temporary dictionary is rejected; immediate iteration may borrow a temporary.
+`drop(view)` and `copy(view)` are rejected like ordinary
+references; end the loan by finishing the view's last use.
+Conditional view bindings are not supported. General stored/returned views
+remain separate work.
+
+`dictionary.values()` is a borrowed loop/comprehension source, yielding `&V`
+without allocating or copying affine payloads. `(&mut dictionary).values()`
+yields `&mut V`. It cannot be bound as a value or used as a set-like operand.
+Automatic box dereferencing applies to `keys()`, `values()` and `items()`,
+including nested boxes and borrowed boxed dictionaries. Their loans protect
+the boxed owner throughout the observation or loop.
+
+`dictionary.keys_snapshot() -> Result[list[K], AllocError]` and
+`dictionary.values_snapshot() -> Result[list[V], AllocError]` take no arguments and
 preserve insertion order. Each returns a new list, retaining immutable element
 storage. Observed dictionaries remain unchanged on failure, and snapshots
 survive later source mutation or destruction.
 
-`keys()` can observe a dictionary with affine values. `values()` with affine
+`keys_snapshot()` can observe a dictionary with affine values. `values_snapshot()` with affine
 payloads instead requires an owned temporary; its values transfer and the
-temporary is consumed on success or failure. Use `copy(d)?.values()` to preserve
+temporary is consumed on success or failure. Use `copy(d)?.values_snapshot()` to preserve
 such a source explicitly. Both snapshots reserve their complete output before
 transfer: two allocations when nonempty, one for an empty owner.
 
-`dictionary.into_values() -> Result[list[V], AllocError]` consumes a named owner
+`dictionary.into_keys() -> Result[list[K], AllocError]` and
+`dictionary.into_values() -> Result[list[V], AllocError]` consume a named owner
 or owned expression directly, including dictionaries with affine payloads.
-It preserves insertion order and transfers those payloads without copying.
+They preserve insertion order and transfer the selected elements without copying.
 The dictionary is consumed on success and failure. Output reservation happens
 before any transfer; allocation failure drops the remaining source exactly once.
 Use `for value in dictionary.into_values()?:` when the dictionary is no longer

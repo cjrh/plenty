@@ -328,6 +328,7 @@ impl Clone for Ty {
             Self::Enum(t) => Self::Enum(t.clone()),
             Self::List(t) => Self::List(Self::clone_child(t)),
             Self::Set(t) => Self::Set(Self::clone_child(t)),
+            Self::KeyView(t) => Self::KeyView(Self::clone_child(t)),
             Self::Dict(k, v) => Self::Dict(Self::clone_child(k), Self::clone_child(v)),
             Self::Box(t) => Self::Box(Self::clone_child(t)),
             Self::Shared(t) => Self::Shared(Self::clone_child(t)),

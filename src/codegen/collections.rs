@@ -413,6 +413,12 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn lower_collection(&mut self, operation: &CollectionOp) -> Result<()> {
+        if let CollectionOp::KeyView(owner) = operation {
+            let (reference, _) = self.pop_typed(Ty::Ref(Arc::new(owner.clone()), false))?;
+            let value = self.reference_word(reference);
+            self.stack.push((value, operation.signature().1));
+            return Ok(());
+        }
         if let CollectionOp::CallerLocation = operation {
             let function = self
                 .module
@@ -624,7 +630,13 @@ impl Lowerer<'_, '_> {
             self.stack.push((result, output));
             return Ok(());
         }
+        let key_set = match operation {
+            CollectionOp::KeySetAlgebra(op) => Some(Ty::Set(Arc::new(op.left.element().unwrap()))),
+            CollectionOp::KeyViewToSet(t) => Some(Ty::Set(Arc::new(t.element().unwrap()))),
+            _ => None,
+        };
         let descriptor = match operation {
+            CollectionOp::KeySetAlgebra(..) | CollectionOp::KeyViewToSet(_) => key_set.as_ref(),
             CollectionOp::Filesystem(_)
             | CollectionOp::Bytes(_)
             | CollectionOp::Crypto(_)

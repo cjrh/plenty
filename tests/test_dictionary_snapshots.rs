@@ -9,14 +9,14 @@ fn snapshots_preserve_order_types_and_empty_lists() {
         r#"
 mut data = {3u8: 2.5f32, 1u8: -1.5f32, 2u8: 0f32}.unwrap()
 data[1u8] = 4.5f32
-print(str.repr(data.keys()).unwrap()).unwrap()
-print(str.repr(data.values()).unwrap()).unwrap()
+print(str.repr(data.keys_snapshot()).unwrap()).unwrap()
+print(str.repr(data.values_snapshot()).unwrap()).unwrap()
 print(data).unwrap()
-print(str.repr(dict[str, i64]().unwrap().keys()).unwrap()).unwrap()
-print(str.repr(dict[str, i64]().unwrap().values()).unwrap()).unwrap()
+print(str.repr(dict[str, i64]().unwrap().keys_snapshot()).unwrap()).unwrap()
+print(str.repr(dict[str, i64]().unwrap().values_snapshot()).unwrap()).unwrap()
 flags = {False: True, True: False}.unwrap()
-print(str.repr(flags.keys()).unwrap()).unwrap()
-print(str.repr(flags.values()).unwrap()).unwrap()
+print(str.repr(flags.keys_snapshot()).unwrap()).unwrap()
+print(str.repr(flags.values_snapshot()).unwrap()).unwrap()
 "#,
         "Result[list[u8], AllocError].Ok([3, 1, 2])\nResult[list[f32], AllocError].Ok([2.5, 4.5, 0.0])\n{3: 2.5, 1: 4.5, 2: 0.0}\nResult[list[str], AllocError].Ok([])\nResult[list[i64], AllocError].Ok([])\nResult[list[bool], AllocError].Ok([False, True])\nResult[list[bool], AllocError].Ok([True, False])",
     );
@@ -29,15 +29,15 @@ fn snapshots_retain_strings_and_inline_and_heap_enum_payloads() {
 enum Label:
     Text(str)
 mut data = {("na" + "me").unwrap(): ("é" + "🙂").unwrap()}.unwrap()
-keys = data.keys()
-values = data.values()
+keys = data.keys_snapshot()
+values = data.values_snapshot()
 data["name"] = "changed"
 drop(data)
 print(str.repr(keys).unwrap()).unwrap()
 print(str.repr(values).unwrap()).unwrap()
-print(str.repr({0: Label.Text(("A" + "da").unwrap())}.unwrap().values()).unwrap()).unwrap()
+print(str.repr({0: Label.Text(("A" + "da").unwrap())}.unwrap().values_snapshot()).unwrap()).unwrap()
 options: dict[i64, Option[str]] = {0: Nothing, 1: Some(("B" + "ea").unwrap())}.unwrap()
-result = options.values()
+result = options.values_snapshot()
 drop(options)
 print(str.repr(result).unwrap()).unwrap()
 "#,
@@ -52,14 +52,14 @@ fn references_fields_and_propagation_preserve_the_source() {
 class Data:
     entries: dict[str, i64]
 def values(data: &dict[str, i64]) -> Result[list[i64], AllocError]:
-    items = data.values()?
+    items = data.values_snapshot()?
     Ok(items)
 def keys(data: &mut dict[str, i64]) -> Result[list[str], AllocError]:
-    data.keys()
+    data.keys_snapshot()
 mut data = Data({"a": 1, "b": 2}.unwrap())
 print(str.repr(values(&data.entries)).unwrap()).unwrap()
 print(str.repr(keys(&mut data.entries)).unwrap()).unwrap()
-print(str.repr(data.entries.values()).unwrap()).unwrap()
+print(str.repr(data.entries.values_snapshot()).unwrap()).unwrap()
 data.entries["a"] = 3
 print(data.entries).unwrap()
 "#,
@@ -72,7 +72,7 @@ fn explicit_fallible_copy_produces_independent_mutable_values() {
     native(
         r#"
 def snapshot(data: &dict[str, list[i64]]) -> Result[list[list[i64]], AllocError]:
-    mut items = copy(data)?.values()?
+    mut items = copy(data)?.values_snapshot()?
     match items.pop():
         case Some(item):
             mut changed = item
@@ -84,7 +84,7 @@ def snapshot(data: &dict[str, list[i64]]) -> Result[list[list[i64]], AllocError]
 data = {"a": [1, 2].unwrap()}.unwrap()
 print(str.repr(snapshot(&data)).unwrap()).unwrap()
 print(data).unwrap()
-print(str.repr(data.keys()).unwrap()).unwrap()
+print(str.repr(data.keys_snapshot()).unwrap()).unwrap()
 "#,
         "Result[list[list[i64]], AllocError].Ok([[1, 2, 3]])\n{\"a\": [1, 2]}\nResult[list[str], AllocError].Ok([\"a\"])",
     );
@@ -101,7 +101,7 @@ class Guard:
 def make() -> dict[i64, Guard]:
     print("make").unwrap()
     {0: Guard(10), 1: Guard(20)}.unwrap()
-result = make().values()
+result = make().values_snapshot()
 print("snapshot").unwrap()
 drop(result)
 print("done").unwrap()
@@ -122,8 +122,8 @@ class Custom:
         n
     def values(self) -> bool:
         True
-print(str.repr(make().keys()).unwrap()).unwrap()
-print(str.repr(make().values()).unwrap()).unwrap()
+print(str.repr(make().keys_snapshot()).unwrap()).unwrap()
+print(str.repr(make().values_snapshot()).unwrap()).unwrap()
 print(Custom().keys(42)).unwrap()
 custom = Custom()
 print(custom.values()).unwrap()
@@ -134,8 +134,8 @@ print(custom.values()).unwrap()
 
 #[cfg(feature = "runtime-checks")]
 #[rstest]
-#[case("keys", "str", "[\"key\"]")]
-#[case("values", "str", "[\"value\"]")]
+#[case("keys_snapshot", "str", "[\"key\"]")]
+#[case("values_snapshot", "str", "[\"value\"]")]
 fn each_snapshot_allocation_can_fail_and_retry(
     #[case] method: &str,
     #[case] element: &str,
@@ -169,7 +169,7 @@ print(str.repr(data.{method}()).unwrap()).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn empty_snapshots_need_only_the_list_header() {
-    for method in ["keys", "values"] {
+    for method in ["keys_snapshot", "values_snapshot"] {
         for budget in 0..=1 {
             native(
                 &format!(
@@ -211,7 +211,7 @@ def consume(data: dict[i64, Guard]) -> dict[i64, Guard]:
     data
 def snapshot(data: dict[i64, Guard]) -> Result[list[Guard], AllocError]:
     print("__test_fail_allocations_after_{budget}__").unwrap()
-    result = consume(data).values()?
+    result = consume(data).values_snapshot()?
     print("__test_restore_allocations__").unwrap()
     print("success").unwrap()
     Ok(result)
@@ -230,27 +230,36 @@ drop(result)
 }
 
 #[rstest]
-#[case("print({1: 2}.unwrap().keys(0)).unwrap()", "keys takes no arguments")]
 #[case(
-    "print({1: 2}.unwrap().values(0)).unwrap()",
-    "values takes no arguments"
-)]
-#[case("print([1].unwrap().keys()).unwrap()", "unsupported method `keys`")]
-#[case("print(\"text\".values()).unwrap()", "unsupported method `values`")]
-#[case(
-    "data = {1: [2].unwrap()}.unwrap()\nprint(data.values()).unwrap()",
-    "values with owned payloads requires an owned temporary"
+    "print({1: 2}.unwrap().keys_snapshot(0)).unwrap()",
+    "keys_snapshot takes no arguments"
 )]
 #[case(
-    "data = {1: [2].unwrap()}.unwrap()\nloan = &data\nprint(loan.values()).unwrap()",
-    "values with owned payloads requires an owned temporary"
+    "print({1: 2}.unwrap().values_snapshot(0)).unwrap()",
+    "values_snapshot takes no arguments"
 )]
 #[case(
-    "mut data = {1: [2].unwrap()}.unwrap()\nloan = &mut data\nprint(loan.values()).unwrap()",
-    "values with owned payloads requires an owned temporary"
+    "print([1].unwrap().keys_snapshot()).unwrap()",
+    "unsupported method `keys_snapshot`"
 )]
 #[case(
-    "mut data = {1: 2}.unwrap()\nloan = &mut data\nprint(str.repr(data.keys()).unwrap()).unwrap()\nloan[1] = 3",
+    "print(\"text\".values_snapshot()).unwrap()",
+    "unsupported method `values_snapshot`"
+)]
+#[case(
+    "data = {1: [2].unwrap()}.unwrap()\nprint(data.values_snapshot()).unwrap()",
+    "values_snapshot with owned payloads requires an owned temporary"
+)]
+#[case(
+    "data = {1: [2].unwrap()}.unwrap()\nloan = &data\nprint(loan.values_snapshot()).unwrap()",
+    "values_snapshot with owned payloads requires an owned temporary"
+)]
+#[case(
+    "mut data = {1: [2].unwrap()}.unwrap()\nloan = &mut data\nprint(loan.values_snapshot()).unwrap()",
+    "values_snapshot with owned payloads requires an owned temporary"
+)]
+#[case(
+    "mut data = {1: 2}.unwrap()\nloan = &mut data\nprint(str.repr(data.keys_snapshot()).unwrap()).unwrap()\nloan[1] = 3",
     "borrow"
 )]
 fn rejects_invalid_snapshots(#[case] source: &str, #[case] expected: &str) {
