@@ -1,8 +1,9 @@
-# Typed HTTP body framing after head validation.
-# Construct only after validating the transfer coding and method/status semantics.
+# Typed HTTP body framing and connection recovery from parsed heads.
+# Low-level adapters require already validated framing and method/status semantics.
 from std.bytes import Bytes
 import std.bytes
-from std.http import Header, HttpError, Limits
+import std.http
+from std.http import Header, HttpError, Limits, Framing, RequestHead, ResponseHead
 from std.io.typed import Reader, StepError, within
 
 pub enum FramingError[E]:
@@ -11,15 +12,16 @@ pub enum FramingError[E]:
     InvalidProgress
     OutOfRange
     Broken
+    NotReusable
     Protocol(HttpError)
 
 pub def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]:
     if length < 0:
         return Err(FramingError[E].OutOfRange)
-    Ok(FixedBody[E, R](inner, length, False))
+    Ok(FixedBody[E, R](Some(inner), length, False))
 
 pub class FixedBody[E, R]:
-    inner: R
+    inner: Option[R]
     remaining: i64
     broken: bool
 
@@ -33,7 +35,7 @@ pub class FixedBody[E, R]:
         mut offered = stop - start
         if offered > self.remaining:
             offered = self.remaining
-        match self.inner.read(buffer, start, start + offered):
+        match read_inner[E, R](&mut self.inner, buffer, start, start + offered):
             case Ok(count):
                 if count <= 0 or count > offered:
                     self.broken = True
@@ -46,7 +48,7 @@ pub class FixedBody[E, R]:
                 Err(StepError[FramingError[E]].Interrupted)
             case Err(StepError.Source(cause)):
                 self.broken = True
-                Err(StepError[FramingError[E]].Source(FramingError[E].Transport(cause)))
+                Err(StepError[FramingError[E]].Source(cause))
 
 # Parsing state survives Interrupted, including a partially consumed CRLF.
 # Metadata is read one byte at a time so the next message is never prefetched.
@@ -55,7 +57,7 @@ pub def chunked_body[E, R: Reader[E]](inner: R, limits: &Limits) -> Result[Chunk
         return Err(FramingError[E].Protocol(HttpError.InvalidLimit))
     line = chunk_bytes[E, Bytes](std.bytes.with_capacity(limits.max_line))?
     trailers = chunk_alloc[E, list[Header]](list[Header].new())?
-    Ok(ChunkedBody[E, R](inner, trailers, line, 0, 0, 0, 0, 0, limits.max_line, limits.max_head, limits.max_headers, limits.max_body))
+    Ok(ChunkedBody[E, R](Some(inner), trailers, line, 0, 0, 0, 0, 0, limits.max_line, limits.max_head, limits.max_headers, limits.max_body))
 
 def chunk_alloc[E, T](result: Result[T, AllocError]) -> Result[T, FramingError[E]]:
     match result:
@@ -95,7 +97,7 @@ const done: i64 = 4
 const broken: i64 = 5
 
 pub class ChunkedBody[E, R]:
-    inner: R
+    inner: Option[R]
     pub trailers: list[Header]
     line: Bytes
     state: i64
@@ -115,7 +117,7 @@ pub class ChunkedBody[E, R]:
         self.state == done
 
     def pull(self: &mut ChunkedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
-        match self.inner.read(buffer, start, stop):
+        match read_inner[E, R](&mut self.inner, buffer, start, stop):
             case Ok(count):
                 if count == 0:
                     return Err(StepError[FramingError[E]].Source(FramingError[E].Truncated))
@@ -125,7 +127,7 @@ pub class ChunkedBody[E, R]:
             case Err(StepError.Interrupted):
                 Err(StepError[FramingError[E]].Interrupted)
             case Err(StepError.Source(cause)):
-                Err(StepError[FramingError[E]].Source(FramingError[E].Transport(cause)))
+                Err(StepError[FramingError[E]].Source(cause))
 
     def parse_line(self: &mut ChunkedBody[E, R]) -> Result[(), FramingError[E]]:
         size = self.line.len() - 2
@@ -245,10 +247,10 @@ pub class ChunkedBody[E, R]:
                 result
 # EOF completes this framing mode; its connection must never be reused.
 pub def close_body[E, R: Reader[E]](inner: R) -> CloseBody[E, R]:
-    CloseBody[E, R](inner, False, False)
+    CloseBody[E, R](Some(inner), False, False)
 
 pub class CloseBody[E, R]:
-    inner: R
+    inner: Option[R]
     finished: bool
     broken: bool
 
@@ -259,7 +261,7 @@ pub class CloseBody[E, R]:
             return Err(StepError[FramingError[E]].Source(FramingError[E].OutOfRange))
         if start == stop or self.finished:
             return Ok(0)
-        match self.inner.read(buffer, start, stop):
+        match read_inner[E, R](&mut self.inner, buffer, start, stop):
             case Ok(count):
                 if count < 0 or count > stop - start:
                     self.broken = True
@@ -271,4 +273,143 @@ pub class CloseBody[E, R]:
                 Err(StepError[FramingError[E]].Interrupted)
             case Err(StepError.Source(cause)):
                 self.broken = True
-                Err(StepError[FramingError[E]].Source(FramingError[E].Transport(cause)))
+                Err(StepError[FramingError[E]].Source(cause))
+
+# Only Body.finish extracts these transports, and it rejects later reads.
+def read_inner[E, R](inner: &mut Option[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+    match inner:
+        case Some(reader):
+            match reader.read(buffer, start, stop):
+                case Ok(count):
+                    Ok(count)
+                case Err(StepError.Interrupted):
+                    Err(StepError[FramingError[E]].Interrupted)
+                case Err(StepError.Source(cause)):
+                    Err(StepError[FramingError[E]].Source(FramingError[E].Transport(cause)))
+        case Nothing:
+            Err(StepError[FramingError[E]].Source(FramingError[E].Broken))
+
+enum BodyKind[E, R]:
+    Fixed(FixedBody[E, R])
+    Chunked(ChunkedBody[E, R])
+    Close(CloseBody[E, R])
+
+# Parsed heads retain the existing framing validation policy. Head syntax,
+# routing and request semantics are the caller's responsibility.
+pub def request_body[E, R: Reader[E]](inner: R, head: &RequestHead, limits: &Limits) -> Result[Body[E, R], FramingError[E]]:
+    framing = head_result[E, Framing](std.http.request_framing(head))?
+    framed_body[E, R](inner, &framing, limits, std.http.request_keeps_alive(head))
+
+# `request_keep_alive` must also account for the request's Connection policy.
+# Recovery is for another HTTP message, never a protocol upgrade or tunnel.
+pub def response_body[E, R: Reader[E]](inner: R, head: &ResponseHead, method: &str, request_keep_alive: bool, limits: &Limits) -> Result[Body[E, R], FramingError[E]]:
+    framing = head_result[E, Framing](std.http.response_framing(head, method))?
+    keep = request_keep_alive and std.http.response_keeps_alive(head, &framing) and head.status != 101 and not (method == "CONNECT" and head.status >= 200 and head.status < 300)
+    framed_body[E, R](inner, &framing, limits, keep)
+
+def head_result[E, T](result: Result[T, HttpError]) -> Result[T, FramingError[E]]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(FramingError[E].Protocol(cause))
+
+def framed_body[E, R: Reader[E]](inner: R, framing: &Framing, limits: &Limits, keep: bool) -> Result[Body[E, R], FramingError[E]]:
+    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+        return Err(FramingError[E].Protocol(HttpError.InvalidLimit))
+    empty = chunk_alloc[E, list[Header]](list[Header].new())?
+    kind: BodyKind[E, R] = match framing:
+        case Framing.Empty:
+            BodyKind[E, R].Fixed(fixed_body[E, R](inner, 0)?)
+        case Framing.Length(length):
+            if *length > limits.max_body:
+                return Err(FramingError[E].Protocol(HttpError.BodyTooLarge))
+            BodyKind[E, R].Fixed(fixed_body[E, R](inner, *length)?)
+        case Framing.Chunked:
+            BodyKind[E, R].Chunked(chunked_body[E, R](inner, limits)?)
+        case Framing.UntilClose:
+            BodyKind[E, R].Close(close_body[E, R](inner))
+    Ok(Body[E, R](kind, empty, keep, False, 0, limits.max_body))
+
+pub class Body[E, R]:
+    kind: BodyKind[E, R]
+    empty: list[Header]
+    keep: bool
+    broken: bool
+    delivered: i64
+    max_body: i64
+
+    pub def total(self) -> i64:
+        self.delivered
+
+    pub def is_done(self) -> bool:
+        if self.broken:
+            return False
+        match &self.kind:
+            case BodyKind.Fixed(body):
+                not body.broken and body.remaining == 0
+            case BodyKind.Chunked(body):
+                body.is_done()
+            case BodyKind.Close(body):
+                not body.broken and body.finished
+
+    # Complete only once is_done() is true, as with ChunkedBody.trailers.
+    pub def trailers(self) -> &list[Header]:
+        match &self.kind:
+            case BodyKind.Chunked(body):
+                &body.trailers
+            case _:
+                &self.empty
+
+    pub def read(self: &mut Body[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+        if self.broken:
+            return Err(StepError[FramingError[E]].Source(FramingError[E].Broken))
+        if not within(start, stop, buffer.len()):
+            return Err(StepError[FramingError[E]].Source(FramingError[E].OutOfRange))
+        if start == stop:
+            return Ok(0)
+        # At the close-delimited budget, probe one byte to distinguish EOF
+        # from an oversized body. That connection is never recoverable.
+        mut offered = stop - start
+        left = self.max_body - self.delivered
+        if offered > left:
+            offered = left
+        if offered == 0:
+            offered = 1
+        outcome = match &mut self.kind:
+            case BodyKind.Fixed(body):
+                body.read(buffer, start, start + offered)
+            case BodyKind.Chunked(body):
+                body.read(buffer, start, start + offered)
+            case BodyKind.Close(body):
+                body.read(buffer, start, start + offered)
+        match outcome:
+            case Ok(count):
+                if count > left:
+                    self.broken = True
+                    return Err(StepError[FramingError[E]].Source(FramingError[E].Protocol(HttpError.BodyTooLarge)))
+                self.delivered += count
+                Ok(count)
+            case Err(StepError.Interrupted):
+                Err(StepError[FramingError[E]].Interrupted)
+            case Err(StepError.Source(cause)):
+                self.broken = True
+                Err(StepError[FramingError[E]].Source(cause))
+
+    # An incomplete body remains readable; failure does not extract its
+    # transport. Success transfers ownership exactly once and breaks the body.
+    pub def finish(self: &mut Body[E, R]) -> Result[R, FramingError[E]]:
+        if self.broken:
+            return Err(FramingError[E].Broken)
+        if not self.is_done():
+            return Err(FramingError[E].Protocol(HttpError.Unfinished))
+        if not self.keep:
+            return Err(FramingError[E].NotReusable)
+        self.broken = True
+        match &mut self.kind:
+            case BodyKind.Fixed(body):
+                Ok(replace(body.inner, Nothing).unwrap())
+            case BodyKind.Chunked(body):
+                Ok(replace(body.inner, Nothing).unwrap())
+            case BodyKind.Close(_):
+                Err(FramingError[E].NotReusable)
