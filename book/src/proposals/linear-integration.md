@@ -179,8 +179,10 @@ obligation to the suspended frame. Dropping that frame cannot abandon it. A
 responsible scope/runtime must continue driving the computation or its
 cancellation to an allowed terminal outcome. `async with` or an async destructor
 provides a place to write suspending cleanup; neither ensures someone keeps
-executing it. This needs a separate suspension/execution proposal before any
-such syntax can claim non-abandonment.
+executing it. The separate [async/await exploration](async-await.md) now
+examines suspension and execution ownership, but its affine spike does not
+support linear values or establish non-abandonment. Such syntax still needs a
+complete obligation-preserving runtime contract before claiming that guarantee.
 
 A timeout can return immediately only by retaining responsibility elsewhere or
 returning the live owner. The responsible scope must retain all required owned
