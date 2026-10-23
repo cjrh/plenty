@@ -53,6 +53,7 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --linker PATH: cc-compatible linker driver (default: cc on PATH).
 --link-arg ARG: pass one extra driver argument verbatim; may be repeated.
   Without either override, prefer installed mold, then lld, then cc's default.
+  PLENTY_LINKER_THREADS=N limits that mold or lld to N threads.
 --verbose: report the effective linker command.
 --target TRIPLE: require this target to match the supported packaged runtime.
 --release: optimize generated code for FILE, --compile, or --fuzz (slower

@@ -8,6 +8,25 @@ debug = false
 [profile.dev.build-override]
 debug = "line-tables-only"
 
+# CI's test runs (issue #414). Nearly every test compiles a Plenty program, so
+# suite time is mostly the compiler's own run time: building it at opt-level 1
+# cut the suite's wall time by about a third, for a slower build. Inheriting
+# `dev` keeps debug assertions and overflow checks. Locally:
+# `cargo nextest run --cargo-profile ci ...`; see
+# book/src/development/workflow.md.
+[profile.ci]
+inherits = "dev"
+opt-level = 1
+incremental = false
+debug = "line-tables-only"
+
+[profile.ci.package."*"]
+opt-level = 2
+debug = false
+
+[profile.ci.build-override]
+debug = "line-tables-only"
+
 [profile.release]
 incremental = false
 debug = "line-tables-only"
@@ -33,3 +52,7 @@ debug = "line-tables-only"
 [env]
 COMPILER_PATH = "/usr/libexec/mold"
 PLENTY_CACHE_DIR = { value = "target/plenty-cache", relative = true }
+# Tests link many programs at once. Each mold link then starts a thread per
+# core, and the links compete for the cores; one thread per link is faster
+# overall (issue #415). The compiler run outside Cargo keeps mold's threads.
+PLENTY_LINKER_THREADS = "1"

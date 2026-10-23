@@ -62,13 +62,16 @@ done
 exit 1
 "##,
     );
-    let build = || {
+    let cache = temp.path().join("cache");
+    let build_with = |cache_mode: &str| {
         success(
             Command::new(env!("CARGO_BIN_EXE_plenty"))
                 .current_dir(&project)
                 .arg("build")
                 .env("PATH", &tools)
                 .env("DRIVER_LOG", &log)
+                .env("PLENTY_CACHE_DIR", &cache)
+                .env("PLENTY_CACHE", cache_mode)
                 .output()
                 .unwrap(),
         );
@@ -76,6 +79,7 @@ exit 1
         std::fs::write(&log, "").unwrap();
         calls
     };
+    let build = || build_with("");
     let first = build();
     assert_eq!(first.lines().count(), 2, "{first}");
     assert!(build().is_empty());
@@ -84,7 +88,10 @@ exit 1
     assert_eq!(changed.lines().count(), 3, "{changed}");
     assert_eq!(changed.matches("--version").count(), 1, "{changed}");
     assert!(changed.lines().all(|line| line.contains("-fuse-ld=mold")));
-    let fresh = build();
+    // A new process reuses the probe recorded in the cache directory.
+    assert!(build().is_empty());
+    // Without the cache, each process probes once.
+    let fresh = build_with("off");
     assert_eq!(fresh.lines().count(), 1, "{fresh}");
     assert!(fresh.contains("--version"));
 }

@@ -55,6 +55,19 @@ push to `main` and every PR. Its jobs run in parallel:
 - `lint`: format, clippy and book links.
 - `proxy_tests`: the [reverse-proxy tests](#reverse-proxy-tests).
 
+The shards build with the `ci` Cargo profile, defined in `.cargo/config.toml`:
+the `dev` profile with the `plenty` crate at `opt-level = 1` and dependencies
+at `opt-level = 2`, keeping debug assertions and overflow checks. Nearly every
+test compiles a Plenty program, so suite time is mostly the compiler's own
+run time, and an optimized compiler shortens it by about a third. Building
+takes longer, so the local default stays `dev`, which rebuilds faster after an
+edit. For a local full-suite run, `cargo nextest run --locked --workspace
+--all-features --cargo-profile ci` uses CI's build; its artifacts live in
+`target/ci/`. The `doctests` and `proxy_tests` jobs run few tests per build
+and stay on `dev`. The nightly workflow also stays on `dev`, the profile
+`cargo test` uses locally, so the full suite still runs weekly with an
+unoptimized compiler.
+
 Each shard compiles the tests itself. A shared build job with
 `cargo nextest archive` would compile once, but the shards would then wait for
 that job's setup, compilation and upload, so it saves runner time, not wall
@@ -152,6 +165,11 @@ with mold, several times faster than GNU ld. Elsewhere `cc` uses its default
 linker. CI installs mold for this. The setting does not change the compiler's default `cc` driver or the
 Rust linker; `COMPILER_PATH= cargo test ...` links with the system default.
 Tests must not depend on one linker's output, such as the exact symbol table.
+The file also sets `PLENTY_LINKER_THREADS=1`, so each test's link runs mold
+on one thread
+([Native linking](../design/toolchain/01-building/linking.md)): many links
+run at once, and mold's default thread per core made them compete for the
+cores. `PLENTY_LINKER_THREADS= cargo test ...` restores mold's default.
 
 The same file points `PLENTY_CACHE_DIR` at `target/plenty-cache`, so every
 test run of a worktree reuses the
