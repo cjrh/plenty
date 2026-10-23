@@ -57,6 +57,7 @@ fn operand(ops: &[Op], index: usize) -> Option<&Op> {
             Op::Site(_)
                 | Op::CallerSite(_)
                 | Op::UseLoan(_)
+                | Op::EndLoan(_)
                 | Op::ReadRef(_)
                 | Op::Access(..)
                 | Op::Loan(_)
@@ -515,7 +516,10 @@ impl Walk<'_, '_, '_> {
                     let jobs = self.roots(holds(ops, index)).into_iter().map(|r| (r, site));
                     fn next(ops: &[Op]) -> &[Op] {
                         let start = ops.iter().position(|op| {
-                            !matches!(op, Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_))
+                            !matches!(
+                                op,
+                                Op::UseLoan(_) | Op::EndLoan(_) | Op::Site(_) | Op::CallerSite(_)
+                            )
                         });
                         &ops[start.unwrap_or(ops.len())..]
                     }

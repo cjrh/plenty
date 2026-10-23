@@ -19,7 +19,12 @@ pub(super) fn scalar(ty: &Ty) -> bool {
 fn marker(op: &Op) -> bool {
     matches!(
         op,
-        Op::Site(_) | Op::CallerSite(_) | Op::Access(..) | Op::Loan(_) | Op::UseLoan(_)
+        Op::Site(_)
+            | Op::CallerSite(_)
+            | Op::Access(..)
+            | Op::Loan(_)
+            | Op::UseLoan(_)
+            | Op::EndLoan(_)
     )
 }
 

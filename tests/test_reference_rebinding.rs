@@ -1,5 +1,6 @@
-//! A `mut` reference binding may be assigned only a reference borrowed from the
-//! binding itself, so a cursor walks owned data in a loop (issue 1).
+//! A `mut` reference binding may be assigned a reference borrowed through
+//! itself, so a cursor walks owned data in a loop (issue 1), or another borrow
+//! within the place it first borrowed (B11 retargeting).
 
 mod support;
 
@@ -311,7 +312,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(cur.value)?
     Ok(())
 "#,
-        "reference binding `cur` can be reassigned only to a reference borrowed from `cur` itself",
+        "reference binding `cur` can be reassigned only to a reference into the owner it first borrowed",
     );
 }
 
@@ -324,15 +325,15 @@ def choose(head: &Node, other: &Node) -> i64:
     cur = other
     cur.value
 "#,
-        "reference binding `cur` can be reassigned only to a reference borrowed from `cur` itself",
+        "reference binding `cur` can be reassigned only to a reference into the owner it first borrowed",
     );
 }
 
-/// The rule has no same-owner exception: a borrow that does not go through
-/// the cursor is rejected even when it reaches the same data.
+/// A borrow of the cursor's first place need not go through the cursor: it
+/// retargets the cursor, ending the old loan.
 #[test]
-fn a_cursor_cannot_be_reset_through_its_owner() {
-    rejects(
+fn a_cursor_can_be_reset_through_its_owner() {
+    runs(
         r#"
 def reset(head: &Node) -> i64:
     mut cur = head
@@ -341,13 +342,9 @@ def reset(head: &Node) -> i64:
             cur = n
         case Nothing:
             pass
+    first = cur.value
     cur = head
-    cur.value
-"#,
-        "reference binding `cur` can be reassigned only to a reference borrowed from `cur` itself",
-    );
-    rejects(
-        r#"
+    first * 10 + cur.value
 def skip(head: &Node) -> i64:
     mut cur = head
     match &head.next:
@@ -356,8 +353,13 @@ def skip(head: &Node) -> i64:
         case Nothing:
             pass
     cur.value
+def main() -> Result[(), AllocError | IoError]:
+    head = build(3)?
+    print(reset(&head))?
+    print(skip(&head))?
+    Ok(())
 "#,
-        "reference binding `cur` can be reassigned only to a reference borrowed from `cur` itself",
+        "23\n2\n",
     );
 }
 
@@ -381,7 +383,7 @@ def choose(head: &Node, other: &Node) -> i64:
     cur.value
 "#
             ),
-            "reference binding `cur` can be reassigned only to a reference borrowed from `cur` itself",
+            "reference binding `cur` can be reassigned only to a reference into the owner it first borrowed",
         );
     }
 }
@@ -558,4 +560,87 @@ def main() -> Result[(), AllocError | IoError]:
 "#,
         "cannot modify or exclusively borrow `bag.items` while `bag` is borrowed",
     );
+}
+
+/// Another borrow within the first place retargets a cursor and ends the old
+/// loan, so the owner can change between the old target's last use and the
+/// reassignment.
+#[test]
+fn a_cursor_retargets_within_its_first_place() {
+    runs(
+        r#"
+def longest(items: &list[str]) -> &str:
+    mut best = &items[0]
+    for i in range(1, len(items)):
+        if items[i].byte_len() > best.byte_len():
+            best = &items[i]
+    best
+def bump_all(values: &mut list[i64]) -> ():
+    mut cur = &mut values[0]
+    for i in range(len(values)):
+        cur = &mut values[i]
+        *cur = *cur + 1
+def main() -> Result[(), AllocError | IoError]:
+    words = ["a", "abc", "ab"]?
+    print(longest(&words))?
+    mut xs = [1, 2, 3]?
+    mut cur = &mut xs[0]
+    *cur = 10
+    xs.append(4)?
+    cur = &mut xs[3]
+    *cur = 40
+    bump_all(&mut xs)
+    print(xs)?
+    mut ys = [1, 2, 3]?
+    mut at = &mut ys[0]
+    for i in range(3):
+        *at = *at + 1
+        ys.append(i)?
+        at = &mut ys[i]
+    print(ys)?
+    Ok(())
+"#,
+        "abc\n[11, 3, 4, 41]\n[3, 3, 3, 0, 1, 2]\n",
+    );
+}
+
+#[test]
+fn retargeting_keeps_loans_sound() {
+    let cases = [
+        // A different owner.
+        (
+            "xs = [1].unwrap()\nys = [2].unwrap()\nmut cur = &xs[0]\nprint(cur).unwrap()\ncur = &ys[0]\nprint(cur).unwrap()",
+            "reference binding `cur` can be reassigned only to a reference into the owner it first borrowed",
+        ),
+        // Outside the first place: the binding covers only `p.left`.
+        (
+            "mut p = Pair([1].unwrap(), [2].unwrap())\nmut cur = &mut p.left\ncur.append(3).unwrap()\ncur = &mut p.right\ncur.append(4).unwrap()",
+            "reference binding `cur` can be reassigned only to a reference within the place it first borrowed",
+        ),
+        // The old target is used on the next iteration before the reassignment.
+        (
+            "mut xs = [1, 2, 3].unwrap()\nmut cur = &mut xs[0]\nfor i in range(3):\n    xs.append(i).unwrap()\n    *cur = *cur + 1\n    cur = &mut xs[i]",
+            "cannot modify or exclusively borrow `xs` while it is exclusively borrowed",
+        ),
+        // A reborrow of the old target is still live.
+        (
+            "mut xs = [1, 2].unwrap()\nmut cur = &mut xs[0]\nold = cur\ncur = &mut xs[1]\n*old = 5\n*cur = 6",
+            "cannot modify or exclusively borrow `xs[1]` while `xs` is exclusively borrowed",
+        ),
+        // The new target is already exclusively borrowed.
+        (
+            "mut xs = [1, 2].unwrap()\nmut cur = &mut xs[0]\nother = &mut xs[1]\ncur = &mut xs[1]\n*other = 5\n*cur = 6",
+            "cannot modify or exclusively borrow `xs[1]` while it is exclusively borrowed",
+        ),
+        // A path that skips the reassignment keeps the old loan.
+        (
+            "mut xs = [1, 2, 3].unwrap()\nflag = len(xs) > 2\nmut cur = &mut xs[0]\nif flag:\n    cur = &mut xs[2]\nxs.append(1).unwrap()\n*cur = 6",
+            "cannot modify or exclusively borrow `xs` while it is exclusively borrowed",
+        ),
+    ];
+    for (body, expected) in cases {
+        let source = format!("class Pair:\n    left: list[i64]\n    right: list[i64]\n{body}");
+        let error = support::check_diagnostic(&source);
+        assert!(error.contains(expected), "{source}\n{error}");
+    }
 }

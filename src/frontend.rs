@@ -4798,8 +4798,11 @@ impl Lower<'_> {
                                 .error(format!("`{name}` is immutable; declare it with `mut`")));
                         }
                         self.same(Some(ty.clone()), Some(local.ty.clone()), &stmt.at)?;
-                        if let Some(origin) = origin {
-                            self.check_retargeted_reference(name, local.slot, origin, &stmt.at)?;
+                        if let Some(origin) = origin
+                            && self
+                                .check_retargeted_reference(name, local.slot, origin, &stmt.at)?
+                        {
+                            ops.push(Op::EndLoan(self.reference_locals[&local.slot]));
                         }
                         local.slot
                     } else {
@@ -5057,7 +5060,7 @@ fn branch(yes: Vec<Op>, no: Vec<Op>) -> Op {
 fn forwarding_call(ops: &[Op]) -> Option<usize> {
     let call = ops
         .iter()
-        .rposition(|op| !matches!(op, Op::Loan(_) | Op::UseLoan(_)))?;
+        .rposition(|op| !matches!(op, Op::Loan(_) | Op::UseLoan(_) | Op::EndLoan(_)))?;
     (matches!(ops[call], Op::Call(_) | Op::CallIndirect(_))
         && matches!(ops[..call].last(), Some(Op::ForwardsReferences)))
     .then(|| call - 1)

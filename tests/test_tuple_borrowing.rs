@@ -109,7 +109,7 @@ print(unit_pair[1]).unwrap()
     "cannot read or borrow `pair` while it is exclusively borrowed"
 )]
 #[case::indexed_collection_stays_conservative(
-    "mut pairs = [(1, [2].unwrap())].unwrap()\nr = &mut pairs[0][1]\nprint(pairs[0][0]).unwrap()\nr.append(3).unwrap()",
+    "mut pairs = [(1, [2].unwrap())].unwrap()\ni = 0\nr = &mut pairs[i][1]\nprint(pairs[i][0]).unwrap()\nr.append(3).unwrap()",
     "cannot read or borrow `pairs` while it is exclusively borrowed"
 )]
 fn overlapping_tuple_reads_are_rejected(#[case] source: &str, #[case] diagnostic: &str) {

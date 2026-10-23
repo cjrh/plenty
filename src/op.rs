@@ -790,6 +790,9 @@ pub enum Op {
     ReplaceRef(Ty),
     Loan(crate::ownership::Loan),
     UseLoan(usize),
+    /// A `mut` reference binding is retargeted here: the loan it holds ends,
+    /// and later uses of the binding hold it again for the new target.
+    EndLoan(usize),
     Access(u8, bool, Option<usize>),
     /// Source position of the operations that follow; diagnostics only.
     Site(crate::ownership::Site),
@@ -1917,6 +1920,7 @@ fn step(
         }
         Op::Loan(_)
         | Op::UseLoan(_)
+        | Op::EndLoan(_)
         | Op::Access(..)
         | Op::Site(_)
         | Op::CallerSite(_)

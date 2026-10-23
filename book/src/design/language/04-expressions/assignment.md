@@ -55,7 +55,8 @@ the right side:
 
 A shared loan protects the destination during right-side evaluation. The right
 side may observe it (`count += count`), but cannot move, replace, or resize its
-owner. Collection loans conservatively cover the whole collection. Index
+owner. Collection loans cover the whole collection unless distinct literal
+list indices separate them. Index
 expressions may mutate the owner before the destination is read. If an index or
 the right side propagates an error, the update performs no write. Missing keys
 and invalid indices trap as in ordinary indexed assignment. The update itself

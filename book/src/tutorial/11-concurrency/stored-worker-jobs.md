@@ -45,7 +45,7 @@ def main() -> Result[(), ThreadError | IoError]:
 13
 ```
 
-List and dictionary entries can also supply a borrowed job, but their loans
-protect the whole collection. Even after `join()`, wait until the `with` block
+List and dictionary entries can also supply a borrowed job. Except at distinct
+literal list indices, their loans protect the whole collection. Even after `join()`, wait until the `with` block
 ends before resizing or replacing that collection. Stored callbacks have the
 same thread-eligibility restrictions as local ones.
