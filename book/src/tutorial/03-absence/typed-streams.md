@@ -47,27 +47,34 @@ never be reused. The copy helper retries explicit interruption and preserves
 other transport causes. A write failure can leave unwritten data from the last
 chunk in scratch; the delivered count alone is not a resume token.
 
-For an already validated head with chunked transfer coding, use `chunked_body`
-with explicit limits. Its typed errors include framing failures as well as the
-transport cause. This small in-memory example propagates either kind of failure:
+When you have a parsed HTTP head, prefer `request_body` or `response_body`.
+They check the framing fields and select the body decoder with explicit limits.
+This in-memory response uses chunked framing. Keep the entire buffered reader
+when handing it to the typed bridge, so prefetched bytes are preserved:
 
 ```plenty
 import std.bytes
 import std.http
 import std.io
 import std.io.typed
-from std.http.typed import FramingError, chunked_body
+from std.http.typed import FramingError, response_body
 from std.io.typed import CopyFailure, copy_all
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[std.io.StreamError] | CopyFailure[FramingError[std.io.StreamError], std.io.StreamError]]:
-    wire = std.bytes.from_text("3\r\nABC\r\n0\r\nX-Tag: sample\r\n\r\n")?
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.http.HttpError | FramingError[std.io.StreamError] | CopyFailure[FramingError[std.io.StreamError], std.io.StreamError]]:
+    wire = std.bytes.from_text("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nABC\r\n0\r\nX-Tag: sample\r\n\r\n")?
     limits = std.http.Limits(64, 128, 4, 1024)
-    mut body = chunked_body(std.io.typed.reader(std.io.cursor(wire)), &limits)?
+    mut conn = std.io.buffered_reader(std.io.cursor(wire), 128)?
+    head = std.http.read_response(&mut conn, &limits)?.ok_or(std.http.HttpError.Truncated)?
+    # Our GET request allows keep-alive; the response must also allow it.
+    mut body = response_body(std.io.typed.reader(conn), &head, "GET", True, &limits)?
     mut output = std.io.typed.writer(std.io.cursor(std.bytes.with_capacity(3)?))
     mut scratch = std.bytes.with_capacity(2)?
     scratch.resize(2, 0u8)?
     print(copy_all(&mut body, &mut output, &mut scratch)?)?
-    print(body.is_done(), body.trailers[0].value)?
+    print(body.is_done(), body.trailers()[0].value)?
+    # finish checks completion and persistence before handing back ownership.
+    recovered = std.io.typed.unwrap_reader(body.finish()?)
+    drop(recovered)
     Ok(())
 ```
 
@@ -78,7 +85,14 @@ True sample
 
 Only decoded payload contributes to the copy count. The decoder keeps partial
 framing state across interruption and stops after the trailers; it does not
-parse or validate an HTTP head. Real clients should continue using
+parse an HTTP head. The parsed-head constructor validates framing; `finish`
+checks whether this completed message permits recovering its connection.
+Dropping an unfinished or failed body drops its connection. Close-delimited,
+closing, upgraded and successful CONNECT connections cannot be recovered by
+this API. The [reference](../../design/stdlib/http-typed.md) describes the
+remaining caller responsibilities and the lower-level `chunked_body` adapter.
+
+Real clients should continue using
 [`std.http.client`](../../design/stdlib/http-client.md), which also handles
 head validation, connection ownership and reuse.
 

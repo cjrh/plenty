@@ -1070,7 +1070,7 @@ Fixed-length, chunked and close-delimited body readers over `std.io.typed` strea
 
 ```text
 enum FramingError[E]
-    Transport(E) | Truncated | InvalidProgress | OutOfRange | Broken | Protocol(HttpError)
+    Transport(E) | Truncated | InvalidProgress | OutOfRange | Broken | NotReusable | Protocol(HttpError)
 def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]
 class FixedBody[E, R]
     def read(self: &mut FixedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
@@ -1083,6 +1083,14 @@ class ChunkedBody[E, R]
 def close_body[E, R: Reader[E]](inner: R) -> CloseBody[E, R]
 class CloseBody[E, R]
     def read(self: &mut CloseBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
+def request_body[E, R: Reader[E]](inner: R, head: &RequestHead, limits: &Limits) -> Result[Body[E, R], FramingError[E]]
+def response_body[E, R: Reader[E]](inner: R, head: &ResponseHead, method: &str, request_keep_alive: bool, limits: &Limits) -> Result[Body[E, R], FramingError[E]]
+class Body[E, R]
+    def total(self) -> i64
+    def is_done(self) -> bool
+    def trailers(self) -> &list[Header]
+    def read(self: &mut Body[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
+    def finish(self: &mut Body[E, R]) -> Result[R, FramingError[E]]
 ```
 
 ## `std.io`

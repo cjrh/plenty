@@ -292,6 +292,253 @@ def reason(error: FramingError[Transport]) -> str:
 "#;
 
 #[test]
+fn parsed_heads_select_typed_bodies_and_recover_buffered_next_message() {
+    execute_modules(
+        r#"
+import std.http
+import std.http.typed
+import std.io
+import std.io.typed
+from std.http import HttpError
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError | HttpError | FramingError[std.io.StreamError] | StepError[FramingError[std.io.StreamError]]]:
+    data = std.bytes.from_text("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nABHTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nC\r\n0\r\nX: yes\r\n\r\nHTTP/1.1 204 No Content\r\n\r\n")?
+    mut conn = std.io.buffered_reader(std.io.cursor(data), 256)?
+    limits = std.http.limits()
+    head = std.http.read_response(&mut conn, &limits)?.unwrap()
+    mut body = std.http.typed.response_body(std.io.typed.reader(conn), &head, "GET", True, &limits)?
+    print(body.is_done())?
+    match body.finish():
+        case Err(FramingError.Protocol(HttpError.Unfinished)):
+            print("unfinished")?
+        case _:
+            print("wrong")?
+    mut buffer = scratch()?
+    print(body.read(&mut buffer, 0, 4)?, body.total(), body.is_done())?
+    print(buffer.to_text_range(0, 2)?)?
+    mut next = std.io.typed.unwrap_reader(body.finish()?)
+    match body.finish():
+        case Err(FramingError.Broken):
+            print("released")?
+        case _:
+            print("wrong")?
+    match body.read(&mut buffer, 0, 4):
+        case Err(StepError.Source(FramingError.Broken)):
+            print("broken")?
+        case _:
+            print("wrong")?
+    second = std.http.read_response(&mut next, &limits)?.unwrap()
+    mut chunks = std.http.typed.response_body(std.io.typed.reader(next), &second, "GET", True, &limits)?
+    print(chunks.read(&mut buffer, 0, 4)?)?
+    print(buffer.to_text_range(0, 1)?)?
+    print(chunks.is_done())?
+    print(chunks.read(&mut buffer, 0, 4)?, chunks.total(), chunks.is_done())?
+    print(chunks.trailers()[0].name, chunks.trailers()[0].value)?
+    mut last = std.io.typed.unwrap_reader(chunks.finish()?)
+    third = std.http.read_response(&mut last, &limits)?.unwrap()
+    print(third.status)?
+    mut empty = std.http.typed.response_body(std.io.typed.reader(last), &third, "GET", True, &limits)?
+    print(empty.is_done(), empty.total(), len(empty.trailers()))?
+    drop(empty.finish()?)
+    Ok(())
+"#,
+        "False\nunfinished\n2 2 True\nAB\nreleased\nbroken\n1\nC\nFalse\n0 1 True\nX yes\n204\nTrue 0 0\n",
+        true,
+    );
+}
+
+#[test]
+fn parsed_head_bodies_validate_framing_limits_and_connection_policy() {
+    execute_modules(
+        &format!(
+            r#"{CHUNK_SOURCE}
+import std.http
+import std.http.typed
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | HttpError | FramingError[Transport] | StepError[FramingError[Transport]] | CopyFailure[FramingError[Transport], Storage]]:
+    limits = Limits(32, 128, 8, 2)
+    mut head = std.http.response(200, "OK")?
+    head.add("Content-Length", "3")?
+    match std.http.typed.response_body(wire("@")?, &head, "GET", True, &limits):
+        case Err(FramingError.Protocol(HttpError.BodyTooLarge)):
+            print("large")?
+        case _:
+            print("wrong")?
+    mut no_body = std.http.typed.response_body(wire("@")?, &head, "HEAD", True, &limits)?
+    print(no_body.is_done(), no_body.total())?
+    drop(no_body.finish()?)
+    head.add("Transfer-Encoding", "chunked")?
+    match std.http.typed.response_body(wire("@")?, &head, "HEAD", True, &limits):
+        case Err(FramingError.Protocol(HttpError.ConflictingFraming)):
+            print("conflict")?
+        case _:
+            print("wrong")?
+    mut request = std.http.request("POST", "/")?
+    request.add("Content-Length", "0")?
+    mut empty = std.http.typed.request_body(wire("@")?, &request, &limits)?
+    print(empty.is_done())?
+    drop(empty.finish()?)
+    request.add("Content-Length", "0")?
+    match std.http.typed.request_body(wire("@")?, &request, &limits):
+        case Err(FramingError.Protocol(HttpError.DuplicateFraming)):
+            print("duplicate")?
+        case _:
+            print("wrong")?
+    head = std.http.response(204, "No Content")?
+    for index in range(7):
+        mut policy = std.http.response(204, "No Content")?
+        mut method = "GET"
+        mut request_keep = True
+        if index == 0:
+            policy.add("Connection", "close")?
+        elif index == 1:
+            policy.minor = 0
+        elif index == 2:
+            policy.status = 101
+        elif index == 3:
+            method = "CONNECT"
+        elif index == 4:
+            request_keep = False
+        elif index == 5:
+            policy.minor = 0
+            policy.add("Connection", "keep-alive")?
+        mut body = std.http.typed.response_body(wire("@")?, &policy, &method, request_keep, &limits)?
+        match body.finish():
+            case Err(FramingError.NotReusable):
+                print("close")?
+            case Ok(_):
+                print("keep")?
+            case _:
+                print("wrong")?
+    match std.http.typed.response_body(wire("@")?, &head, "GET", True, &Limits(1, 128, 8, 2)):
+        case Err(FramingError.Protocol(HttpError.InvalidLimit)):
+            print("limit")?
+        case _:
+            print("wrong")?
+    mut buffer = scratch()?
+    mut sink = Sink(0, 0, 0)
+    mut close_head = std.http.response(200, "OK")?
+    mut exact = std.http.typed.response_body(wire("AB")?, &close_head, "GET", True, &limits)?
+    print(copy_all(&mut exact, &mut sink, &mut buffer)?, exact.total(), exact.is_done())?
+    match exact.finish():
+        case Err(FramingError.NotReusable):
+            print("closed")?
+        case _:
+            print("wrong")?
+    mut large = std.http.typed.response_body(wire("ABC")?, &close_head, "GET", True, &limits)?
+    match copy_all(&mut large, &mut sink, &mut buffer):
+        case Err(CopyFailure.Read(count, ReadFailure.Source(FramingError.Protocol(HttpError.BodyTooLarge)))):
+            print("large", count, large.total(), large.is_done())?
+        case _:
+            print("wrong")?
+    match large.finish():
+        case Err(FramingError.Broken):
+            print("broken")?
+        case _:
+            print("wrong")?
+    Ok(())
+"#
+        ),
+        "large\nTrue 0\nconflict\nTrue\nduplicate\nclose\nclose\nclose\nclose\nclose\nkeep\nkeep\nlimit\n2 2 True\nclosed\nlarge 2 2 False\nbroken\n",
+        true,
+    );
+}
+
+#[test]
+fn parsed_head_bodies_preserve_typed_causes_and_partial_progress() {
+    execute_modules(
+        &format!(
+            r#"{CHUNK_SOURCE}
+import std.http
+import std.http.typed
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | HttpError | FramingError[Transport] | StepError[FramingError[Transport]]]:
+    mut head = std.http.response(200, "OK")?
+    head.add("Content-Length", "4")?
+    limits = Limits(32, 128, 8, 4)
+    mut buffer = scratch()?
+    for mode in range(1, 6):
+        mut body = std.http.typed.response_body(Source(mode, 0), &head, "GET", True, &limits)?
+        match body.read(&mut buffer, -1, 1):
+            case Err(StepError.Source(FramingError.OutOfRange)):
+                pass
+            case _:
+                print("wrong")?
+        print(body.read(&mut buffer, 0, 0)?, body.total())?
+        match read_exact(&mut body, &mut buffer, 0, 4):
+            case Err(partial):
+                print(partial.completed, body.total())?
+                match partial.cause:
+                    case ReadFailure.Source(FramingError.Transport(Transport.Tls(code, message))):
+                        print(code, message)?
+                    case ReadFailure.Source(cause):
+                        print(reason(cause))?
+                    case _:
+                        print("wrong")?
+            case _:
+                print("wrong")?
+        match body.finish():
+            case Err(FramingError.Broken):
+                print("broken")?
+            case _:
+                print("wrong")?
+    Ok(())
+"#
+        ),
+        "0 0\n2 2\n47 handshake\nbroken\n0 0\n2 2\ncancelled\nbroken\n0 0\n2 2\nprogress\nbroken\n0 0\n2 2\nprogress\nbroken\n0 0\n2 2\nallocation\nbroken\n",
+        true,
+    );
+}
+
+#[test]
+fn parsed_head_body_connection_ownership_is_released_exactly_once() {
+    execute_modules(
+        &format!(
+            r#"{CHUNK_SOURCE}
+import std.http
+import std.http.typed
+pub class Tracked:
+    source: Wire
+    tag: str
+    def __del__(self) -> ():
+        print(self.tag).unwrap()
+    pub def read(self: &mut Tracked, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[Transport]]:
+        self.source.read(buffer, start, stop)
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | HttpError | FramingError[Transport] | CopyFailure[FramingError[Transport], Storage]]:
+    limits = Limits(32, 128, 8, 2)
+    mut head = std.http.response(200, "OK")?
+    head.add("Content-Length", "9")?
+    drop(std.http.typed.response_body(Tracked(wire("@")?, "construction"), &head, "GET", True, &limits))
+    head.headers[0].value = "2"
+    unfinished = std.http.typed.response_body(Tracked(wire("AB@")?, "unfinished"), &head, "GET", True, &limits)?
+    drop(unfinished)
+    mut buffer = scratch()?
+    mut sink = Sink(0, 0, 0)
+    mut broken = std.http.typed.response_body(Tracked(wire("A")?, "truncated"), &head, "GET", True, &limits)?
+    match copy_all(&mut broken, &mut sink, &mut buffer):
+        case Err(CopyFailure.Read(count, ReadFailure.Source(FramingError.Truncated))):
+            print(count)?
+        case _:
+            print("wrong")?
+    drop(broken.finish())
+    drop(broken)
+    mut body = std.http.typed.response_body(Tracked(wire("AB@")?, "recovered"), &head, "GET", True, &limits)?
+    print(copy_all(&mut body, &mut sink, &mut buffer)?)?
+    recovered = body.finish()?
+    drop(body)
+    print("owner retained")?
+    drop(recovered)
+    mut closing = std.http.typed.response_body(Tracked(wire("AB@")?, "closing"), &head, "GET", False, &limits)?
+    print(copy_all(&mut closing, &mut sink, &mut buffer)?)?
+    drop(closing.finish())
+    print("still owned")?
+    drop(closing)
+    Ok(())
+"#
+        ),
+        "construction\nunfinished\n1\ntruncated\n2\nowner retained\nrecovered\n2\nstill owned\nclosing\n",
+        true,
+    );
+}
+
+#[test]
 fn chunked_body_preserves_interruptions_trailers_and_message_boundary() {
     execute_modules(
         &format!(

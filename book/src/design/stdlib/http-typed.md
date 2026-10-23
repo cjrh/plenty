@@ -2,8 +2,65 @@
 
 Body framing over [`std.io.typed.Reader[E]`](io-typed.md) preserves the
 transport cause in `FramingError[E]`, with no stored-error retrieval API.
-These adapters assume the caller has already validated the HTTP head,
-Content-Length, and method/status semantics.
+Use `request_body` or `response_body` with a parsed HTTP head to validate
+framing, select the decoder, enforce body limits and recover a completed
+persistent connection. The lower-level adapters also remain available for
+callers that have already validated Content-Length and method/status semantics.
+
+## From a parsed head
+
+`request_body(inner, head, limits)` and
+`response_body(inner, head, method, request_keep_alive, limits)` return
+`Result[Body[E, R], FramingError[E]]`, where `R` satisfies `Reader[E]`.
+The transport must be positioned immediately after the head. Pass the **whole
+buffered reader**, including any prefetched body or next-message bytes; taking
+its inner stream would lose those bytes.
+
+These constructors call [`request_framing` or `response_framing`](http.md),
+respectively. Duplicate/conflicting framing, unsupported transfer coding and
+invalid lengths remain `Protocol(HttpError)` failures, including on HEAD and
+bodyless responses. HEAD, 1xx, 204, 304 and successful CONNECT semantics select
+an empty body. Requests without declared framing are empty; responses without
+declared framing are close-delimited. The constructors accept **parsed heads**:
+they do not parse bytes, revalidate arbitrary hand-built head syntax, validate
+request routing/Host, or consume interim responses on the caller's behalf.
+
+Every mode checks `Limits` at construction. A declared payload length above
+`max_body` fails before any read. Chunked and close-delimited payloads are
+bounded while reading. At exactly the close-delimited limit, the next nonempty
+read probes one byte to distinguish EOF from an oversized body; that probe
+is not delivered or counted, and an oversized body becomes broken. Empty reads
+never probe. HEAD/bodyless responses do not spend a body budget on their
+declared representation length.
+
+`Body.read` follows the same typed reader contract as the low-level adapters.
+`total()` counts payload bytes returned successfully; `is_done()` is true only
+after successful completion. `trailers()` borrows the chunked trailer list
+(empty for other modes); it is complete only once `is_done()` is true.
+Interruption preserves state; failures retain concrete transport causes and
+previously delivered progress through the typed stream helpers. Invalid ranges
+leave a healthy body readable. Other source/framing failures break it.
+
+`body.finish()` returns `Result[R, FramingError[E]]`. It returns the complete
+transport, with buffered bytes preserved, only after a persistent fixed-length,
+chunked or empty body completes. An unfinished body reports
+`Protocol(HttpError.Unfinished)` and remains readable. A failed or previously
+finished body reports `Broken`. Successful extraction happens exactly once;
+subsequent reads report `Broken` and `is_done()` becomes false.
+
+`NotReusable` means completion did not permit another HTTP message: the
+connection is close-delimited, has a closing Connection policy, is HTTP/1.0
+without keep-alive, is a 101 upgrade or is a successful CONNECT tunnel.
+For responses, pass the originating request's keep-alive policy as
+`request_keep_alive`; both sides must allow persistence. This is message-boundary
+recovery, not pooling: after an interim response, the next message is still
+the final response; after reading a request, the server must also honor its
+response's closing policy. Upgraded/tunnel streams are deliberately not exposed
+by this API. Rejected `finish` calls retain ownership; dropping the body closes
+or drops its transport, including on incomplete/error paths. Constructors take
+ownership too, so a construction failure drops the supplied transport.
+
+## Low-level framing
 
 | Constructor | Framing |
 | --- | --- |
@@ -19,7 +76,7 @@ completion and remembers it, avoiding further transport reads. **A
 close-delimited connection must never be reused.**
 
 `FramingError` distinguishes `Transport(E)`, `Truncated`,
-`InvalidProgress`, `OutOfRange`, `Broken`, and `Protocol(HttpError)`. The latter
+`InvalidProgress`, `OutOfRange`, `Broken`, `NotReusable`, and `Protocol(HttpError)`. The latter
 retains chunk syntax, limit, trailer and framing-allocation errors using the
 existing [`HttpError`](http.md) variants; transport errors always use
 `Transport(E)`. Interruption is forwarded as
@@ -65,8 +122,10 @@ decoder prioritizes bounded, resumable behavior; it has no internal read-ahead
 buffer or throughput qualification yet.
 
 The adapters own their transports. They do not provide connection pooling,
-head parsing, TLS setup, cancellation polling, or a
+typed head parsing, TLS setup, cancellation polling, or a
 replacement for [`std.http.client`](http-client.md). Cancellation delivered
 as a typed transport cause survives intact. Existing HTTP side channels remain
-in place until those paths are migrated. No adapter exposes its transport
-for connection reuse.
+in place until those paths are migrated. The low-level adapters do not expose
+their transports; use the parsed-head constructors and `Body.finish` for
+guarded connection recovery. Bridging a legacy head reader preserves only the
+error type that the legacy reader itself returns.
