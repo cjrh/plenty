@@ -42,20 +42,73 @@ so they take precedence over user-wide Cargo profile settings.
 
 ## CI build caches and timings
 
-The Cargo workflow caches third-party Rust dependencies separately for each
-job and toolchain. The key includes the compiler, lockfile, manifests, Cargo
-configuration and compiler environment. Only successful `main` runs save
-caches; PRs restore the base branch's caches without filling storage with
-per-PR copies. Workspace artifacts and incremental state are not retained.
-The line-table-only workspace profiles and disabled dependency debug information
-above also keep compilation outputs small.
+The Cargo workflow (`.github/workflows/ci.yml`) runs on stable Rust for every
+push to `main` and every PR. Its jobs run in parallel:
 
-Stable checks default-feature linking once. Stable and nightly both compile
-and run the full all-feature test suite; clippy and Docker proxy checks keep
-their existing coverage. Test compilation is a separate step from execution,
-and the `cargo-timings-*` artifacts retain Cargo's HTML compilation reports for
-seven days, including reports available after a failed run. Doctests still run
-in the test step, so that step can include their compilation time.
+- `test`: four shards of the full all-features suite under
+  [cargo-nextest](https://nexte.st), split with `--partition hash:K/4` so a
+  test stays in the same shard from run to run. The Docker proxy tests are
+  excluded; they run in `proxy_tests`. Each shard uploads its JUnit report
+  (`junit-shard-K`) with per-test durations.
+- `doctests`: builds default features once, then runs the doctests, which
+  nextest does not run.
+- `lint`: format, clippy and book links.
+- `proxy_tests`: the [reverse-proxy tests](#reverse-proxy-tests).
+
+Each shard compiles the tests itself. A shared build job with
+`cargo nextest archive` would compile once, but the shards would then wait for
+that job's setup, compilation and upload, so it saves runner time, not wall
+time.
+
+Jobs that run tests install mold from Ubuntu's package and fail unless `cc`
+links with `/usr/libexec/mold/ld` (`scripts/ci_check_mold.sh`); see
+[Running tests](#running-tests) for why. A weekly workflow,
+`.github/workflows/nightly.yml`, runs the full all-features suite with
+`cargo test` on nightly Rust, also on demand through `workflow_dispatch`.
+
+### Dependency cache
+
+Third-party Rust dependencies are cached separately for each job. The key
+includes the compiler, lockfile, manifests, Cargo configuration and compiler
+environment. Only successful `main` runs save caches, and only the first shard
+saves the shards' shared dependency cache; PRs restore the base branch's caches
+without filling storage with per-PR copies. Workspace artifacts and incremental
+state are not retained. The line-table-only workspace profiles and disabled
+dependency debug information above also keep compilation outputs small. The
+nightly workflow keeps no cache: each nightly update invalidates compiled
+dependencies.
+
+### Compiled-function cache
+
+Each shard also keeps the function entries of the
+[compiled-function cache](../design/toolchain/02-architecture/cache.md),
+`target/plenty-cache/fn`, in its own GitHub Actions cache. The dependency
+cache deletes that directory, so it has its own restore and save steps. Their
+keys depend on the compiler and Cranelift versions and the compiled IR, so
+entries stay valid across commits. Program entries, `target/plenty-cache/program`,
+key on the compiler binary's modification time, never hit in a new CI build,
+and are not kept.
+
+The cache needs no maintenance. A cache hit only reads its entry, so
+`scripts/ci_fn_cache.sh mark` gives every restored entry an old access time,
+and the next read updates it. After a successful `main` run,
+`scripts/ci_fn_cache.sh prune` deletes the entries the run did not read or
+write. The saved cache is therefore the shard's working set for that commit:
+it grows only with the suite, and entries for replaced code generation leave
+it at the next save. The cache key ends with a digest of the remaining entry
+names, so an unchanged working set is not saved again. A save deletes the
+cache it replaces, so storage holds about one cache per shard. If reads do not
+update access times on the runner, `mark` warns and nothing is pruned or
+saved. GitHub removes a cache unused for seven days; the next run is then
+cold, as is the first run after the shard count changes.
+
+### Timings
+
+Test compilation is a separate step from execution. The `cargo-timings-*`
+artifacts retain Cargo's HTML compilation reports for seven days, including
+reports available after a failed run: `cargo-timings-tests` from the first
+shard, `cargo-timings-build` from the default-feature build,
+`cargo-timings-proxy` and `cargo-timings-nightly`.
 
 Documentation caches only the pinned mdBook executable, keyed by its version,
 Rust version, runner OS, architecture and Ubuntu image. Every run checks its
@@ -63,15 +116,15 @@ version before building. Cache hits skip both Rust setup and `cargo install`.
 Superseded PR runs are cancelled; main documentation deployments are not
 interrupted. Release packaging keeps its isolated, pinned build environment.
 
-The first run for a compiler or cache key remains cold. In particular, rolling
-nightly updates invalidate compiled dependencies frequently. Compare the restore,
+The first run for a compiler or cache key remains cold. Compare the restore,
 compile, test and cache-save step durations on hosted runs before attributing a
 speedup; cached dependencies do not eliminate compiling Plenty itself.
 
 ## Running tests
 
-`cargo test --locked --workspace --all-features` runs the full suite, as CI
-does. When several workers share a machine, add `-j 3 -- --test-threads=3`.
+`cargo test --locked --workspace --all-features` runs the full suite: the
+tests CI runs in shards under nextest, plus the doctests. When several workers
+share a machine, add `-j 3 -- --test-threads=3`.
 
 CI's `lint` job also gates `cargo fmt --all -- --check`,
 `cargo clippy --locked --workspace --all-targets -- -D warnings`, and
@@ -96,7 +149,7 @@ Most tests compile a Plenty program and link it with `cc`. The workspace's
 `.cargo/config.toml` sets `COMPILER_PATH` for the processes Cargo starts, so
 where mold is installed as `/usr/libexec/mold/ld`, `cc` links these programs
 with mold, several times faster than GNU ld. Elsewhere `cc` uses its default
-linker. The setting does not change the compiler's default `cc` driver or the
+linker. CI installs mold for this. The setting does not change the compiler's default `cc` driver or the
 Rust linker; `COMPILER_PATH= cargo test ...` links with the system default.
 Tests must not depend on one linker's output, such as the exact symbol table.
 
@@ -107,8 +160,16 @@ the runs before it and never writes to `~/.cache`. A fresh cache must not
 change any result: `PLENTY_CACHE=off cargo test ...` runs without it, and a
 test that exercises the cache uses a directory of its own.
 
-[cargo-nextest](https://nexte.st) is optional: `cargo nextest run --workspace
---all-features` runs each test in its own process. It does not run doctests.
+[cargo-nextest](https://nexte.st) is optional locally; CI uses it.
+`cargo nextest run --locked --workspace --all-features` runs each test in its
+own process and does not run doctests (`cargo test --locked --workspace
+--all-features --doc` does). Its `-j` sets test threads, not build jobs: when
+sharing a machine, use `--build-jobs 3 --test-threads 3`. Because each test is
+its own process, a `static` lock in a test file no longer keeps two tests
+apart: tests that must not overlap belong to a test group in
+`.config/nextest.toml`, as the timing tests of
+`tests/test_compile_scaling.rs` do. `--profile ci` is CI's profile: it runs
+every test after a failure and writes `target/nextest/ci/junit.xml`.
 
 ## Runnable documentation
 

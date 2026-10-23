@@ -15,38 +15,137 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
+# Nightly runs weekly in nightly.yml. See book/src/development/workflow.md
+# ("CI build caches and timings") for the shards and caches below.
 jobs:
-  build_and_test:
-    name: Rust project - ${{ matrix.toolchain }}
+  # The full all-features suite under cargo-nextest, split across runners.
+  # Each shard compiles the tests itself: a shared build job plus
+  # `cargo nextest archive` would add a dependent job's setup to the critical
+  # path and save no wall time. SHARDS must match the matrix.
+  test:
+    name: Tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Deletes this shard's superseded compiled-function cache on main.
+      actions: write
     strategy:
+      fail-fast: false
       matrix:
-        toolchain: [stable, nightly]
-
+        shard: [1, 2, 3, 4]
+    env:
+      SHARDS: 4
+      FN_CACHE: target/plenty-cache/fn
+      FN_CACHE_PREFIX: plenty-fn-Linux-x64-shard-${{ matrix.shard }}-of-4-
     steps:
       - uses: actions/checkout@v4
-      - run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal && rustup default ${{ matrix.toolchain }}
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
+      # .cargo/config.toml points COMPILER_PATH at /usr/libexec/mold; without
+      # it, test programs silently link with GNU ld.
+      - name: Check mold is cc's linker
+        run: scripts/ci_check_mold.sh
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
-          key: ${{ matrix.toolchain }}
+          key: stable
           cache-bin: "false"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # Default-feature linking is covered once; every toolchain still runs
-      # the full feature-enabled suite below.
-      - name: Build default features (stable)
-        if: matrix.toolchain == 'stable'
-        run: cargo build --locked --workspace --timings
+          save-if: ${{ github.ref == 'refs/heads/main' && matrix.shard == 1 }}
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: cargo-nextest@0.9.146
       # --all-features, not --features runtime-checks: the runtime crate's
-      # allocation-checks unit tests are gated on a feature the root does not forward.
+      # allocation-checks unit tests are gated on a feature the root does not
+      # forward. nextest reuses this build: same profile and features.
       - name: Compile tests
         run: cargo test --locked --workspace --all-features --no-run --timings
-      - name: Run tests and doctests
-        run: cargo test --locked --workspace --all-features
+      # Swatinem/rust-cache deletes target/plenty-cache, so the compiled
+      # functions are cached on their own. Program entries (program/) key on
+      # the compiler binary's modification time and never hit in a new run.
+      - name: Restore compiled-function cache
+        id: fn-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.FN_CACHE }}
+          key: ${{ env.FN_CACHE_PREFIX }}${{ github.sha }}
+          restore-keys: ${{ env.FN_CACHE_PREFIX }}
+      - name: Mark restored compiled functions unused
+        run: scripts/ci_fn_cache.sh mark "$FN_CACHE"
+      # The proxy tests run in proxy_tests; here they would only skip.
+      - name: Run tests
+        run: >-
+          cargo nextest run --locked --workspace --all-features --profile ci
+          --partition "hash:${{ matrix.shard }}/$SHARDS"
+          -E 'not (binary(integration) & test(/^test_std_http_server_proxy::/))'
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-shard-${{ matrix.shard }}
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload compile timings
+        if: always() && matrix.shard == 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cargo-timings-tests
+          path: target/cargo-timings/*.html
+          if-no-files-found: ignore
+          retention-days: 7
+      # Keep only what this run read or wrote, so the saved cache is this
+      # shard's working set. The key names the entry set: an unchanged set
+      # is not saved again.
+      - name: Prune compiled-function cache
+        id: fn-prune
+        if: github.ref == 'refs/heads/main'
+        run: scripts/ci_fn_cache.sh prune "$FN_CACHE" "$FN_CACHE_PREFIX"
+      - name: Save compiled-function cache
+        if: >-
+          github.ref == 'refs/heads/main' && steps.fn-prune.outputs.key != ''
+          && steps.fn-prune.outputs.key != steps.fn-cache.outputs.cache-matched-key
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.FN_CACHE }}
+          key: ${{ steps.fn-prune.outputs.key }}
+      # Cache entries are immutable, so each save adds one; deleting the one
+      # it replaces keeps storage at one cache per shard.
+      - name: Delete superseded compiled-function cache
+        if: >-
+          github.ref == 'refs/heads/main' && steps.fn-prune.outputs.key != ''
+          && steps.fn-cache.outputs.cache-matched-key != ''
+          && steps.fn-prune.outputs.key != steps.fn-cache.outputs.cache-matched-key
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          OLD_KEY: ${{ steps.fn-cache.outputs.cache-matched-key }}
+        run: gh cache delete "$OLD_KEY" || echo "::warning::could not delete $OLD_KEY"
+
+  # nextest does not run doctests. Default-feature linking is checked once,
+  # here; the shards build with all features.
+  doctests:
+    name: Doctests and default-feature build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
+      - name: Check mold is cc's linker
+        run: scripts/ci_check_mold.sh
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-bin: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build default features
+        run: cargo build --locked --workspace --timings
+      - name: Run doctests
+        run: cargo test --locked --workspace --all-features --doc
       - name: Upload compile timings
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cargo-timings-${{ matrix.toolchain }}
+          name: cargo-timings-build
           path: target/cargo-timings/*.html
           if-no-files-found: ignore
           retention-days: 7
@@ -74,6 +173,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
+      - name: Check mold is cc's linker
+        run: scripts/ci_check_mold.sh
       - run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
