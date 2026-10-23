@@ -1,147 +1,156 @@
-# Rust crates as project dependencies
+# Using Rust crates in Plenty
 
-> **Status: Not implemented; research proposal (2026-10-23).** Proposed under
-> B17, with backend work related to B20. [Packages](../design/toolchain/01-building/packages.md),
-> [linking](../design/toolchain/01-building/linking.md), and
-> [runtime packaging](../design/toolchain/02-architecture/runtime.md) describe
-> current behavior. No Rust imports, manifest keys or ABI support ship here.
+> **Status: Not implemented; comparative prototype research (2026-10-23).**
+> B17 owns dependency tooling; backend alternatives relate to B20. Current
+> [packages](../design/toolchain/01-building/packages.md),
+> [linking](../design/toolchain/01-building/linking.md) and
+> [runtime packaging](../design/toolchain/02-architecture/runtime.md) are unchanged.
+> The prototypes are experiments, not a new supported compiler mode.
 
 ## Recommendation
 
-Reusing Rust crates is tractable if **Cargo and rustc participate in the Plenty
-build**. Treat `rlib` files as cached Rust compiler inputs, not a portable foreign
-library format. Investigate generated Rust-ABI adapters with a toolchain-matched
-compiler helper before committing to implementation. Upstream Rust source stays
-unchanged; crate authors need not publish C interfaces.
+The most tractable way to let Plenty projects use Rust crates is **generated
+C-ABI adapters over a Cargo-built Rust dependency graph**, with Rust-owned opaque
+objects and checked Plenty-facing bindings. Users select Rust APIs, not C APIs;
+upstream crate authors need neither rewrite their implementation nor provide C
+exports. Cargo and rustc still consume ordinary `rlib` build artifacts.
 
-Adding a dependency and exposing every Rust API are different goals. The first
-can support a useful checked subset; the second would entail much of Rust's type
-system. Initially, selected APIs need a binding specification and sometimes a
-small Rust facade. This is still much less work than translating a crate.
+This broadens the original investigation beyond avoiding C ABI. Executed
+prototypes show that Rust ABI does not eliminate the ownership/marshalling layer
+for Plenty's different value representations, and it adds compiler-version and
+lowering obligations. A Rust-source backend removes that boundary for supported
+types, but preserving the whole Plenty language/runtime is a much larger job.
+The recommendation concerns implementation cost and maintenance, not a claimed
+universal performance winner.
 
-See the [project/value contract](rust-crate-dependencies/contract.md) and
-[research evidence](rust-crate-dependencies/evidence.md). The recommendation is
-an architectural inference, not a demonstrated Plenty integration.
+Keep native Rust ABI as an opt-in research route. Keep a Rust-source backend as
+a separate backend project if access to Rust-native types/traits/async becomes
+a central goal. [Evidence and measurements](rust-crate-dependencies/evidence.md)
+describe all three; the [project/value contract](rust-crate-dependencies/contract.md)
+sets the intended user-facing boundary.
 
-## What an rlib does and does not provide
+## What the three prototypes establish
 
-Rust explicitly treats passing rlibs directly to foreign linkers as unsupported.
-Supported mixed-language linking uses rustc as final driver or a single aggregate
-Rust `staticlib`. An rlib does not bundle the Rust dependency closure. These are
-packaging rules, not requirements to use C ABI.
-[Rust linkage](https://doc.rust-lang.org/reference/linkage.html#mixed-rust-and-foreign-codebases).
+All paths execute one source workload containing scalar calls, Unicode/NUL text,
+a generic identity operation, a Rust `regex` owner with query and destruction,
+and a local Rust Future polled from Pending to Ready. Source is checked by the
+existing Plenty frontend against generated binding signatures, then a small
+restricted parser lowers its actual operations. Both native routes emit a real
+Cranelift object. The third emits actual Rust source, not a substituted result.
 
-The archive contains compiler-specific metadata and code, potentially LLVM
-bitcode rather than native instructions. Metadata identifies the producing
-compiler; rustc rejects other compiler versions. A symbol table is not an API
-schema. [Libraries and metadata](https://rustc-dev-guide.rust-lang.org/backend/libs-and-metadata.html).
+| Route | Demonstrated | Remaining production work |
+| --- | --- | --- |
+| Rust-ABI adapters | Real Cranelift calls to pinned scalar/pointer Rust-ABI functions, debug/release adapter builds; separate rustc-private ABI queries work. | Connect matched compiler ABI information to lowering, pin compiler/helper identities, validate every admitted type and upgrade. |
+| Generated C adapters | Same selected Rust APIs and ownership lifecycle, generated adapters and caller declarations, stable Rust compiler interfaces. | Integrate generated modules/contracts with Plenty project tooling, error/allocation policy and runtime linking. |
+| Plenty-to-Rust source | Checked restricted Plenty calls and arithmetic become Rust calls, native Rust owners and borrows; no opaque-handle adapter boxes. | Backend for checked IR, complete Plenty representations/semantics, std/runtime parity, diagnostics and compile-time qualification. |
 
-Generic functions may have no callable machine-code instance until a downstream
-Rust crate asks for concrete types. Rust performs monomorphization; a linker
-cannot type-check or instantiate MIR.
-[Monomorphization](https://rustc-dev-guide.rust-lang.org/backend/monomorph.html).
+A separate pinned nightly helper queried `FnAbi`: `i64` was direct, `&str` a
+pair, and a 24-byte `repr(C)` record passed indirectly by pointer under Rust ABI
+but on the stack under C ABI. **`repr(C)` fixes layout, not the function calling
+convention.** This makes compiler-assisted Rust ABI handling plausible, while
+showing why the successful scalar calls must not be generalized. The helper
+observes a different compiler build from the stable executable tests and is not
+connected to their Cranelift lowering.
 
-Rust ABI has no stability guarantee. Default Rust record layout does not promise
-source field order. Matching field names or sizes cannot justify reinterpreting
-Plenty strings, sums, records or ownership descriptors as Rust values.
-[ABIs](https://doc.rust-lang.org/reference/items/external-blocks.html#abi),
-[layout](https://doc.rust-lang.org/reference/type-layout.html#the-rust-representation).
+## rlib consumption and final linking
 
-## Architecture to investigate
+An rlib contains compiler-specific metadata and code, potentially LLVM bitcode.
+It is not an API schema or a bundle of all upstream Rust dependencies. Generic
+instances may be generated downstream; rustc must participate. Metadata from
+another compiler version is rejected.
+[Libraries and metadata](https://rustc-dev-guide.rust-lang.org/backend/libs-and-metadata.html),
+[monomorphization](https://rustc-dev-guide.rust-lang.org/backend/monomorph.html).
+
+Rust's supported mixed-language linking routes are a rustc-owned final link or
+one aggregate Rust `staticlib` linked by a foreign driver. Passing arbitrary
+rlibs directly to a foreign linker remains unsupported. Artifact format and
+calling convention are independent: **C-ABI functions can live in rlibs**.
+Both adapter prototypes use rustc to link their rlibs and the Cranelift object.
+[Linkage](https://doc.rust-lang.org/reference/linkage.html#mixed-rust-and-foreign-codebases).
+
+For production, prefer a Cargo-managed final Rust target that includes the
+generated adapters, dependency graph, rebuilt Plenty runtime and application
+object. Alternatively produce one aggregate staticlib for today's linker.
+Neither route means converting upstream crates to C libraries individually.
+
+## Recommended boundary
 
 ```text
-Plenty manifest + selected Rust API bindings
-        |
-Cargo-resolved graph + generated Rust adapter crate
-        |                               |
-rustc checks/instantiates calls     matched helper emits ABI/binding contract
-        |                               |
-dependency/adapter rlibs            Plenty checks loans, emits Cranelift object
-        |                               |
-        +------ rebuilt runtime rlib ---+
-                         |
-                  rustc owns final link
+Plenty manifest + selected Rust APIs / small Rust companion module
+                     |
+                generated bindings
+               /                  \
+Plenty checked foreign owners     Rust C-ABI adapters
+          |                       ordinary Rust calls
+    Cranelift object              Cargo dependency rlibs
+               \                  /
+             one runtime graph, rustc final link
 ```
 
-Adapters are ordinary Rust functions using Rust ABI. Their Rust bodies call
-upstream APIs, leaving trait resolution, associated types, generic instances and
-upstream layout to rustc. Stable generated symbol names identify adapters rather
-than guessing upstream mangled names. A stable symbol name does not fix its ABI.
+Generate exact-width scalar/pointer/length interfaces and explicit output/error
+contracts. Keep complex Rust values opaque; Rust constructs, borrows, mutates
+and drops them. Instantiate selected generic operations inside Rust. Plenty
+enforces owner moves, exclusive/shared loans and drop timing across calls.
+Binding metadata must specify these rules, not merely the machine signature.
+Automatic discovery can assist API selection, but Cargo metadata and symbol
+lists are insufficient to derive every lifetime/effect contract safely.
 
-Keep adapter interfaces small: fixed-width scalars, thin pointers, lengths and
-output slots. Rust constructs native references/values inside the adapter after
-the generated contract establishes validity. Complex values remain behind owned
-handles. This is explicit marshalling over **Rust ABI**, not a promise of shared
-Rust/Plenty representations or universal zero-copy calls.
+A companion `.rs` module is a practical escape hatch for trait-heavy APIs,
+callbacks and async executors. It can present a small reusable operation to
+Plenty while calling an unchanged crate. Publish/cache adapters independently
+of individual applications where their API and crate-version contract allows;
+do not make every user write unsafe pointer glue. Unsupported APIs should give
+a precise diagnostic and suggest a facade, not silently erase types/errors.
 
-The missing component is a pinned rustc helper that checks selected APIs and
-exports the exact adapter ABI plus semantic contract. Cranelift must implement
-argument/return lowering, extensions, alignment and hidden arguments. Merely
-setting `SystemV` is insufficient. Internal `FnAbi` and `PassMode` distinguish
-direct, pair, indirect, ignored and cast arguments; they are implementation
-starting points, not stable protocols.
+The prototypes' async operation is a future with explicit polling, not async
+Plenty syntax or a reactor integration. C ABI does not prevent async use: an
+opaque operation can expose start/poll/cancel with owned state. Real executors,
+wakers, callbacks, retained buffers and cancellation completion need explicit
+lifecycle contracts before general async crate support.
+
+## Runtime and compiler integration
+
+Today `src/codegen.rs::link_object` extracts an embedded staticlib and
+`src/toolchain.rs::link` invokes a cc driver. `build.rs::build_runtime` builds
+Rust std, vendored dependencies and an abort-on-panic runtime into that archive.
+Appending another independent Rust staticlib risks conflicting allocator,
+panic/std and native library implementations.
+
+For Rust-enabled projects, ship the matching Plenty runtime source/build recipe
+and rebuild it in the same Rust graph. Reuse the runtime variant without C main
+and a Rust launcher, preserving Plenty application initialization and exit
+status; or produce one aggregate staticlib with the existing startup contract.
+Keep today's embedded-runtime mode for pure Plenty projects. None of the three
+experiments integrates the real Plenty runtime into its final executable.
+
+Project resolution and caching belong in `src/project.rs`; imports receive a
+resolved graph rather than fetching during type checking. Add foreign-owner
+types and loan/drop operations before backend lowering. Map generated Rust
+diagnostics back to binding requests. Stable C ABI removes dependence on
+compiler-private lowering, **not** the need for compatible Rust artifacts
+within each Cargo build.
+
+The Rust-ABI alternative would obtain a monomorphic adapter's `FnAbi` and layout
+from a matched helper and translate every accepted pass mode and attribute.
+Reject unsupported cases. Compiler APIs are unstable; rustup's `rustc-dev` and
+`llvm-tools` enable investigation but do not make a portable ABI contract.
+[ABI rules](https://doc.rust-lang.org/reference/items/external-blocks.html#abi),
 [FnAbi](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_target/callconv/struct.FnAbi.html),
-[PassMode](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_target/callconv/enum.PassMode.html).
+[external drivers](https://rustc-dev-guide.rust-lang.org/rustc-driver/external-rustc-drivers.html).
 
-Reject unsupported lowering. Initially validate only constrained adapter shapes
-on `x86_64-unknown-linux-gnu`. If ABI extraction is too fragile, evaluate a rustc
-codegen integration that emits boundary calls itself. Generating a Rust wrapper
-alone does not solve how the Cranelift caller reaches it.
+## Other boundaries and next evidence
 
-Compiler internals require a matched helper and pinned supported toolchain,
-potentially nightly with `rustc-dev` and `llvm-tools`. Any installed stable
-rustc is not sufficient for this design. Assuming rustup makes selecting the
-required toolchain reasonable, but Plenty must publish its exact identity and
-diagnose mismatches. [External compiler drivers](https://rustc-dev-guide.rust-lang.org/rustc-driver/external-rustc-drivers.html).
+Wasm components could supply isolation and a defined value-transfer interface,
+but need a Wasm runtime, supported crate targets, bindings and copy/lifetime
+policies. A subprocess/RPC boundary offers strong isolation and independent
+toolchains at the cost of serialization, process lifecycle and latency. These
+are useful for coarse operations, not substitutes for cheap in-process calls.
+Neither was prototyped here.
 
-## Integration with Plenty
-
-At the researched revision, `src/codegen.rs::link_object` extracts the embedded
-runtime and `src/toolchain.rs::link` invokes a cc-compatible driver.
-`build.rs::build_runtime` builds an optimized ThinLTO, abort-on-panic `staticlib`.
-It includes Rust std and vendored dependencies and supplies C `main` for
-applications. Ordinary Plenty functions use private conventions, including
-Cranelift tail calls. Existing C imports do not implement Rust ABI lowering.
-
-For Rust-enabled projects, rebuild the **matching Plenty release's runtime
-sources** in the same Cargo/rustc graph as the adapters and user crates. Ship
-sources, vendored inputs and the build recipe as an optional toolchain component.
-Do not append a new arbitrary Rust graph to today's embedded staticlib: that
-risks conflicting std, allocator, panic and native-library implementations.
-Keep the embedded runtime for projects without Rust dependencies.
-
-Use a runtime library variant without C `main` and a generated Rust launcher
-calling Plenty through its established entry contract. Factor initialization
-so application signal/stack handling and exit status remain equivalent. Existing
-internal C runtime calls may remain; the new crate boundary is still Rust ABI.
-Require one coherent std/allocator/panic policy and diagnose native conflicts.
-
-`src/project.rs` should own resolution, generated workspaces and fingerprints.
-The compiler receives a resolved binding graph, rather than fetching during
-imports. Add foreign-owner loan/drop operations before codegen. Preserve rustc
-diagnostics and map generated errors back to binding requests. Checking and LSP
-may require Rust builds for macros/bindings even without a final executable.
-
-## Alternatives and adoption gates
-
-| Route | Assessment |
-| --- | --- |
-| Pass rlibs to today's linker | Useful probe; no general metadata processing, generics or ABI support. |
-| Decode metadata and reimplement Rust semantics | Possible with a pinned compiler, but a large compatibility/type-system burden; avoid independent decoding. |
-| Rust-ABI adapters plus matched helper | Recommended investigation; constrained boundary still needs compiler integration. |
-| rustc codegen plugin/backend | Stronger ownership of boundary lowering, more unstable compiler coupling. |
-| Emit a Rust backend for Plenty | rustc owns calls throughout, but this is a separate substantial backend project. |
-| C adapters plus aggregate staticlib | Simpler stable-Rust fallback; does not meet the non-C-ABI goal and needs an explicit design decision. |
-
-First prove actual Cranelift calls to generated Rust-ABI adapters across debug
-and release optimization, including mismatch rejection. Then build a complete
-Plenty executable with a rebuilt runtime and one generic allocating crate.
-Finally qualify a parser/regex-style API and a native build-script dependency,
-including errors, cleanup and offline rebuilds. These are technical dependencies,
-not a second delivery queue. Keep cross-language LTO off initially.
-
-Measure clean/incremental build time, binary size, call overhead, copies,
-allocations and toolchain-upgrade maintenance. A scalar archive link is not an
-adoption gate. If a safe bounded interface requires too much rustc machinery or
-cannot preserve Plenty ownership, reconsider the C-adapter fallback explicitly.
-This is a substantial compiler/tooling feature, not an extra linker flag.
+The next adoption gate is one real Plenty executable using a generated adapter,
+recoverable constructor errors, deterministic cleanup and a unified runtime
+graph. Then qualify a native build-script dependency, realistic async facade,
+offline rebuilds and version updates. Source-backend expansion and full native
+Rust ABI lowering remain separate decisions. The current evidence supports
+generated C adapters as the smallest route to useful crate reuse; it does not
+justify promising that every crate API will be directly importable.

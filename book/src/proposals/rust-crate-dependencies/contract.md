@@ -12,7 +12,7 @@ Distinguish Cargo crates from Plenty packages. One possible spelling is:
 matcher = { package = "regex", version = "1", default-features = false, features = ["std"] }
 
 [rust]
-toolchain = "<exact Plenty-supported Rust toolchain>"
+toolchain = "<project-selected supported Rust toolchain>"
 bindings = "rust-bindings.toml"
 ```
 
@@ -23,6 +23,11 @@ Cargo owns feature resolution and transitive dependencies, including host
 proc-macros/build scripts. Use versioned metadata and build JSON for actual
 artifact paths, not guessed hash-suffixed filenames.
 [Cargo external tools](https://doc.rust-lang.org/cargo/reference/external-tools.html).
+
+The recommended generated C-adapter route uses stable Rust interfaces. Pin the
+project toolchain for reproducibility; an exact compiler-private helper match
+is required only for the experimental Rust-ABI route. A Rust companion module
+can simplify unsupported APIs while the generator supplies the ABI glue.
 
 Commit a Cargo-format companion lockfile, for example `plenty.rust.lock`, and
 record its digest and toolchain identity in the Plenty lock/build contract.
@@ -66,7 +71,7 @@ translating the crate. Automatic discovery can later prefill binding selections.
 | Generic calls | Selected concrete Rust instantiations; no automatic Rust trait implementation for arbitrary Plenty classes. |
 | Shared/mutable methods | Shared/exclusive loans on the owner; forbid aliases and use after consuming calls. |
 | Borrowed returns | Initially reject or explicitly copy; general Rust lifetime relationships exceed current Plenty returned-borrow rules. |
-| Closures, trait objects, async, retained callbacks | Initially reject pending environment/lifetime/executor contracts. Macros may run in Rust facades, not as Plenty syntax. |
+| Closures, trait objects, async, retained callbacks | No automatic general import; allow a reviewed Rust facade with a defined environment/lifetime/executor contract. Explicit future polling works in the prototype, but no production executor contract exists. Macros run in Rust, not as Plenty syntax. |
 | Unsafe APIs/raw pointers | Separately audited safe facade, not automatic safe exposure. |
 
 Boxing an opaque owner is an explicit fallible bridge allocation. Rust crates
@@ -94,4 +99,7 @@ toolchain mismatches; drop counters across moves/errors; output-initialization
 checks; embedded-NUL/non-ASCII text; narrow integers and return lowering; panic
 in a subprocess; generics; a native dependency; and Rust owners alongside Plenty
 allocations. Check duplicate runtime/native symbols and cold/offline builds.
-None of this Plenty integration has been implemented in this research.
+The [prototype evidence](evidence.md) covers a subset: real Cranelift callers,
+generated adapters, a restricted Rust-source path, move rejection, cleanup,
+UTF-8/NUL input, generic calls, Pending/Ready polling and arithmetic traps.
+Production project/runtime integration and the broader matrix remain unimplemented.

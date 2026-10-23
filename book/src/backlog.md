@@ -159,8 +159,10 @@ it; first prove mixed-edition compilation with a shared type and runtime model.
 No edition or migration tooling is scheduled.
 
 B17 includes the [Rust crate dependency investigation](proposals/rust-crate-dependencies.md).
-Rust dependency support is not implemented or scheduled; the proposal requires
-a Cranelift/Rust-ABI feasibility gate and a coherent runtime build.
+Rust dependency support is not implemented or scheduled. Three isolated
+prototypes compare Rust-ABI adapters, generated C adapters and Rust-source
+lowering; the proposal favors generated C adapters. The next gate is actual
+Plenty project integration with checked foreign owners and a coherent runtime build.
 
 B17 also tracks local semantic search over documentation, source docstrings,
 and issue/PR descriptions, using a separate SQLite index. The

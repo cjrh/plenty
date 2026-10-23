@@ -1,89 +1,119 @@
-# Rust rlib research and probe evidence
+# Three Rust crate prototype results
 
-Companion to [Rust crate dependencies](../rust-crate-dependencies.md).
-Checked on 2026-10-23 against Plenty `d7332b6c` and primary Rust documentation.
-Compiler-private documentation follows nightly and is not a stable API promise.
+Companion to [Using Rust crates in Plenty](../rust-crate-dependencies.md).
+Reproducible code, commands and checked result snapshots are in
+[`experiments/rust-crates`](../../../../experiments/rust-crates/README.md).
+These are bounded experiments against Plenty `d7332b6c`, not shipped features.
 
-## Evidence
+## One workload, three paths
 
-| Finding | Source and limit |
+The original Plenty source executes scalar arithmetic, Unicode/NUL text length,
+generic identity, construction/query/drop of a Rust `regex::Regex` owner,
+and a local pinned Future polled twice. `regex` 1.13.1 is an actual external
+crate resolved by the experiment's Cargo.lock. The future is a synthetic fixture
+that returns Pending once, then Ready; there is no network I/O or executor.
+
+The existing Plenty parser/type checker checks the source against generated
+signature-only stubs. Those stubs model move-only classes and loans, never run,
+and do not automatically prove the selected Rust API matches the declaration.
+A second restricted parser converts the same source into an operation plan.
+It supports one `run(i64) -> i64` function, simple/mutable local bindings from
+selected function calls, name/integer/text arguments, borrow markers and a final
+sum of names. It rejects branches, loops, arbitrary expressions and unknown APIs.
+
+The Rust-ABI and C-ABI paths emit real Cranelift machine code from that plan,
+calling generated Rust adapters. The generator changes the ABI keyword; both
+otherwise use the same scalar/pointer interfaces and Rust-owned handles. Both
+link ordinary rlibs through rustc. Cranelift's scalar lowering is experimentally
+matched to stable rustc 1.99.0 on x86_64 Linux, not derived from compiler metadata.
+
+The source backend emits Rust statements and checked arithmetic from the plan,
+calling the shared Rust fixture directly. Rust owns native values and borrows;
+there are no handle-box adapters on that path. This is a real source-lowering
+experiment, but it does **not** consume Plenty's internal checked IR, compile
+arbitrary Plenty, reproduce its string/allocation model, or execute its runtime.
+Passing the public checker before a second parser is a prototype compromise.
+
+## Correctness and failure observations
+
+All three paths passed with adapter/generated-source optimization levels 0 and
+3. For inputs -100, -1, 0, 1, 41 and 1000, the independently specified answer is
+`3 * input + 11`; live Rust owner counters return to zero. The workload includes
+four Unicode scalars in five UTF-8 bytes (`é`, NUL, `a`, `b`) and two regex matches.
+The Future's first/second poll yield 0/1; finish requires Ready and a second poll
+after Ready is forbidden. Unit tests separately assert these states and dropping
+an unfinished Future. This does not qualify foreign callback/cancellation races.
+
+An inserted use-after-move is rejected by the real Plenty checker. Large inputs
+trap on integer-sum overflow in all executable paths: Cranelift exits by SIGILL,
+generated Rust by SIGABRT. The harness detects an incorrectly successful wrap
+followed by its fallback panic, rather than counting any abort as a pass. This
+preserves the limited no-wrap contract, not identical Plenty trap diagnostics.
+
+Rust unit tests, Python grammar rejection/literal tests, formatting and Clippy
+passed. No compiler/runtime implementation was changed, and no full Plenty
+regression suite was run. Native dependency build scripts, real async I/O,
+fallible constructor errors, OOM recovery, aggregate ABI calls and cross-target
+compatibility remain untested.
+
+## Compiler-derived ABI observation
+
+After installing `rustc-dev` and `llvm-tools`, the separate helper built and ran
+on `nightly-2026-10-01` (`21b707e3f`, Rust 1.101.0-nightly). It invokes
+`fn_abi_of_instance` after analysis:
+
+| Function input | Observed pass mode |
 | --- | --- |
-| rlib carries metadata and code | [Compiler guide](https://rustc-dev-guide.rust-lang.org/backend/libs-and-metadata.html) and archive probe. Member names are implementation details. |
-| rustc can link Rust dependencies and foreign objects | [Linkage reference](https://doc.rust-lang.org/reference/linkage.html#mixed-rust-and-foreign-codebases). Passing an object does not establish call ABI. |
-| Generic calls require compiler participation | [Monomorphization](https://rustc-dev-guide.rust-lang.org/backend/monomorph.html) and downstream generic probe. |
-| Rust ABI requires version discipline | [ABI reference](https://doc.rust-lang.org/reference/items/external-blocks.html#abi) and [FnAbi](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_target/callconv/struct.FnAbi.html); Cranelift integration remains unproven. |
-| Plenty's embedded runtime is not an rlib dependency | `build.rs::build_runtime`, `src/codegen.rs::link_object`, `src/toolchain.rs::link`, and [runtime reference](../../design/toolchain/02-architecture/runtime.md). |
+| Rust ABI `i64` | Direct, size/alignment 8 |
+| Rust ABI `&str` | Pair, size 16/alignment 8 |
+| Rust ABI 24-byte `repr(C)` record | Indirect, Pointer |
+| C ABI the same record | Indirect, OnStack |
 
-## Executed probes
+Both record returns are indirect. This is concrete evidence that the query is
+accessible and layout alone does not determine calling convention.
+The helper's results are **not fed into the stable Cranelift caller**: compiler
+identities differ, and complete pass-mode translation, attributes, monomorphic
+API discovery and compatibility checking remain work. Missing initial components
+were an environment issue, not evidence the approach was infeasible.
+[FnAbi](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_target/callconv/struct.FnAbi.html),
+[PassMode](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_target/callconv/enum.PassMode.html).
 
-Environment: `rustc 1.99.0 (b940084d7 2026-09-28)`, full commit
-`b940084d7eb6a299eb4bfeb8e34901bc051e7ac4`, LLVM 23.1.1,
-`x86_64-unknown-linux-gnu`. These equivalent sources/commands reproduce the
-experiment. Research supplied source through rustc stdin and used temporary
-outputs; no repository Rust implementation was changed.
+## Cost observations and interpretation
 
-`probe.rs`:
+See the committed [measurement snapshot](../../../../experiments/rust-crates/RESULTS.md)
+for exact values and all samples. The initial isolated dependency/tool build took
+85 seconds; subsequent fixture builds were warm. Adapter-plus-link builds were
+roughly a tenth of a second. Cranelift object emission took a few milliseconds.
+These are different stages, not cold-build comparisons of production backends.
 
-```text
-pub fn id<T>(x: T) -> T { x }
-#[unsafe(no_mangle)]
-pub fn probe_add(x: u64) -> u64 { x + 1 }
-```
+Each timing has three runs, with 2,000 whole workloads or two million scalar
+iterations, black-boxing inputs **inside** the loop and outputs. Source-mode
+Rust may inline; native calls cross an object boundary. Scalar results measure
+the whole small loop/call, not a calibrated standalone ABI transition. The
+shared fixture and regex dependencies remain debug-built even when adapters are
+optimized. CPU contention/frequency, ordering and debug dependencies make these
+exploratory measurements, not a backend speed ranking. No benefit of Rust ABI
+over C ABI was established.
 
-```sh
-rustc --edition=2024 --crate-name=probe --crate-type=rlib \
-  -C panic=abort -C opt-level=0 -o libprobe.rlib probe.rs
-ar t libprobe.rlib
-nm --defined-only --demangle libprobe.rlib
-```
+Both native adapter paths borrow existing UTF-8 bytes without copying payloads
+and add two opaque-owner Box allocations per workload. Source mode avoids those
+two boxes; all paths retain the future's internal pin allocation and regex's
+own allocations. These are source-level accounting observations, not allocator
+instrumentation or a general zero-copy guarantee.
 
-Observed members: `lib.rmeta`, `lib.rmeta-link` and one `.rcgu.o`. Defined symbols
-included `probe_add`, but no `probe::id`: the library requests no concrete generic
-instance. Do not hard-code this archive structure.
+Handwritten glue consists of a ten-function API-selection table and the shared
+Rust facade/fixture. Unsafe adapter bodies, native caller signatures and checked
+source stubs are generated; no handwritten C wrapper or C header is needed.
+The Rust-source route calls the same facade directly. Both still rely on a
+trusted hand-selected type/ownership contract rather than automatic reflection.
 
-`consumer.rs`:
+## What changes the recommendation
 
-```text
-extern crate probe;
-fn main() {
-    assert_eq!(probe::id(String::from("ok")), "ok");
-    assert_eq!(probe::probe_add(41), 42);
-}
-```
-
-```sh
-rustc --edition=2024 --crate-name=consumer --extern probe=libprobe.rlib \
-  -C panic=abort -o consumer consumer.rs
-./consumer
-```
-
-Compilation/linking and both assertions passed. The downstream Rust compilation
-instantiated the generic with owning `String` and its ordinary Rust cleanup.
-
-`direct.rs`:
-
-```text
-unsafe extern "Rust" { fn probe_add(x: u64) -> u64; }
-fn main() { assert_eq!(unsafe { probe_add(41) }, 42); }
-```
-
-```sh
-rustc --edition=2024 --crate-name=direct -C panic=abort \
-  -C link-arg=libprobe.rlib -o direct direct.rs
-./direct
-```
-
-This also passed without `--extern`; the linker extracted an ordinary symbol.
-**rustc generated both sides of this call.** It proves neither compatibility
-with C/Plenty callers nor general raw-rlib linker support, generic instantiation
-or dependency closure. Rust's documented unsupported status still applies to
-general foreign-linker consumption.
-
-## Limits
-
-No compiler helper, Cranelift-to-Rust adapter, Cargo project integration, runtime
-rebuild, third-party crate qualification or cross-version matrix was built.
-There are no Plenty ownership/unwind or performance results here. The next
-decisive probe must use a real Plenty/Cranelift caller and compare its lowering
-against the pinned rustc for scalars, pointers, returns and output slots at
-debug/release optimization. Then test one complete runtime/dependency graph.
+All three routes can reach the same useful Rust operations. Rust ABI did not
+remove conversion or ownership glue, while the helper revealed additional ABI
+machinery that must be maintained. C adapters can expose ordinary crates and
+future handles using stable compiler interfaces. Rust-source lowering is concise
+for this grammar and avoids handle boxes, but a complete backend must preserve
+Plenty's fallible allocation, strings, sums, borrowing, cleanup, std and diagnostics.
+Therefore generated C adapters are the most tractable next production experiment;
+the others remain viable research directions with larger scope.
