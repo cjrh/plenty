@@ -23,9 +23,10 @@ types, but preserving the whole Plenty language/runtime is a much larger job.
 The recommendation concerns implementation cost and maintenance, not a claimed
 universal performance winner.
 
-Keep native Rust ABI as an opt-in research route. Keep a Rust-source backend as
-a separate backend project if access to Rust-native types/traits/async becomes
-a central goal. [Evidence and measurements](rust-crate-dependencies/evidence.md)
+Keep native Rust ABI as an opt-in research route. The separate
+[Rust-source backend proposal](rust-source-backend.md) explores Rust-consumable
+libraries and native interoperability if this becomes a central goal.
+[Evidence and measurements](rust-crate-dependencies/evidence.md)
 describe all three; the [project/value contract](rust-crate-dependencies/contract.md)
 sets the intended user-facing boundary.
 
