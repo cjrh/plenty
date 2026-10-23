@@ -214,7 +214,7 @@ dispatch with 4, 16, 64 and 256 arms against the then-production comparison chai
 A temporary Cranelift `Switch` patch produces `br_table`; the patch is preserved
 as the original experiment. The production policy described below addresses
 issue #395. Reproduction, samples and generated-fixture methodology
-are in [`examples/dense_match/`](../../../examples/dense_match/README.md).
+are in [`examples/dense_match/`](https://github.com/cjrh/plenty/blob/main/examples/dense_match/README.md).
 
 On a Ryzen 7 7840HS, x86-64 Linux, Cranelift 0.131.1, pinned to one CPU, median
 wall times over seven shuffled rounds for two million dispatches were:
@@ -281,7 +281,7 @@ for integers, 7,763 to 3,674 for enums and 7,623 to 5,754 for runtime arithmetic
 All 26 optimized-IR/assembly dump files for the smaller matches and unchanged
 tree controls are byte-identical between compilers.
 Full samples, compiler/source hashes and dump indexes are preserved in
-[`production-results.json`](../../../examples/dense_match/production-results.json).
+[`production-results.json`](https://github.com/cjrh/plenty/blob/main/examples/dense_match/production-results.json).
 Cold build samples were collected in separate batches with other builds active
 during the baseline batch; they establish **no compile-time gain**. The machine
 was not reserved or frequency-locked, so small timing differences in unchanged

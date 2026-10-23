@@ -2,7 +2,7 @@
 
 Companion to the **unadopted** [proposal](../async-await.md). Evidence collected
 on 2026-10-22 against local `main` at `9c994af0`. This is a standalone compiler
-experiment under [`experiments/async-await`](../../../../experiments/async-await/README.md),
+experiment under [`experiments/async-await`](https://github.com/cjrh/plenty/blob/main/experiments/async-await/README.md),
 not a modification to the Plenty parser, checker, code generator or runtime.
 
 ## What actually executes
@@ -57,7 +57,7 @@ python3 -B experiments/async-await/lower.py experiments/async-await/program.asyn
 The first two commands compile and execute temporary artifacts and report test
 status. The third prints generated C for inspection. No dependencies beyond
 Python 3 and a C11 compiler are required; `CC` selects the compiler. See the
-[README](../../../../experiments/async-await/README.md) for the exact subset and
+[README](https://github.com/cjrh/plenty/blob/main/experiments/async-await/README.md) for the exact subset and
 host/compiler allocation boundary.
 
 Validation passed with the default C compiler and with Clang's address,
