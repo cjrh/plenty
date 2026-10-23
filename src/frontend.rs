@@ -1152,6 +1152,10 @@ struct Parser {
     deepest: usize,
     /// Whether the module has an f-string, which needs `std.fmt`.
     formats: bool,
+    /// Elements of the lists being parsed; see [`Parser::exact_list`].
+    scratch_stmts: Vec<Stmt>,
+    scratch_exprs: Vec<Expr>,
+    scratch_inputs: Vec<(String, TypeRef)>,
 }
 impl Parser {
     /// A parser for a module whose tokens name `origin` as their source file.
@@ -1174,7 +1178,27 @@ impl Parser {
             depth: 0,
             deepest: 0,
             formats: false,
+            scratch_stmts: Vec::new(),
+            scratch_exprs: Vec::new(),
+            scratch_inputs: Vec::new(),
         }
+    }
+    /// Runs `parse`, which pushes a list's elements onto the scratch stack
+    /// that `scratch` selects, and moves them into a vector of exactly their
+    /// number. A vector grown element by element reserves four, over 1.6 KB
+    /// for a one-statement block, and shrinking it copies them again; the
+    /// whole tree is live when lowering starts (issues #54, #422). Lists
+    /// nest, so each takes only the elements above where it started, also
+    /// after a failed parse that a caller discards.
+    fn exact_list<T>(
+        &mut self,
+        scratch: fn(&mut Self) -> &mut Vec<T>,
+        parse: impl FnOnce(&mut Self) -> Result<()>,
+    ) -> Result<Vec<T>> {
+        let base = scratch(self).len();
+        let parsed = parse(self);
+        let elements = scratch(self).drain(base..);
+        parsed.map(|()| elements.collect())
     }
     /// Releases the tokens of the items already parsed and buffers the next
     /// item with `lookahead` items after it. Call between top-level items.
@@ -1549,95 +1573,27 @@ impl Parser {
             }
         }
         self.expect("(")?;
-        let mut inputs = Vec::new();
+        // Empty unless a parameter has a default; then aligned with inputs.
         let mut defaults = Vec::new();
         let mut adapters = Vec::new();
-        while !self.eat(")") {
-            let param_at = self.peek().clone();
-            let param = self.name()?;
-            if captures.iter().any(|c| c.name == param) {
-                return Err(param_at.error("a parameter cannot shadow a closure capture"));
-            }
-            if inputs.iter().any(|(n, _)| n == &param) {
-                return Err(param_at.error("duplicate parameter"));
-            }
-            let ty = if let Some(class) =
-                class.filter(|_| param == "self" && inputs.is_empty() && !self.peek().is(":"))
-            {
-                TypeRef {
-                    concrete: None,
-                    // Preserve the shorthand's provenance for receiver diagnostics.
-                    at: param_at.clone(),
-                    name: Some(
-                        if matches!(name.as_str(), "__init__" | "__del__") {
-                            "&mut"
-                        } else {
-                            "&"
-                        }
-                        .into(),
-                    ),
-                    args: vec![TypeRef {
-                        concrete: None,
-                        at: at.clone(),
-                        name: Some(class.into()),
-                        args: vec![],
-                    }],
-                }
-            } else {
-                self.expect(":")?;
-                self.ty()?
-            };
-            let adapter = if foreign && self.eat("as") {
-                let token = self.take();
-                if token.is("utf8") {
-                    crate::foreign::Argument::Utf8
-                } else if token.is("c_string") {
-                    crate::foreign::Argument::CString
-                } else {
-                    return Err(token.error("expected utf8 or c_string C argument adapter"));
-                }
-            } else {
-                crate::foreign::Argument::Direct
-            };
-            if foreign {
-                adapters.push(adapter);
-            }
-            let default =
-                if self.eat("=") {
-                    if anonymous {
-                        return Err(
-                            param_at.error("anonymous functions cannot declare parameter defaults")
-                        );
-                    }
-                    if foreign || exported {
-                        return Err(param_at
-                            .error("C imports and exports cannot declare parameter defaults"));
-                    }
-                    if param == "self" && class.is_some() {
-                        return Err(param_at.error("self cannot have a default value"));
-                    }
-                    Some(self.expr(0)?)
-                } else {
-                    if defaults.iter().any(Option::is_some) {
-                        return Err(param_at
-                            .error("required parameters must precede parameters with defaults"));
-                    }
-                    None
-                };
-            inputs.push((param, ty));
-            defaults.push(default);
-            if self.eat(")") {
-                break;
-            }
-            self.expect(",")?;
-        }
+        let inputs = self.exact_list(
+            |parser| &mut parser.scratch_inputs,
+            |parser| {
+                parser.parameters(
+                    &at,
+                    &name,
+                    class,
+                    &captures,
+                    (foreign, exported, anonymous),
+                    &mut defaults,
+                    &mut adapters,
+                )
+            },
+        )?;
         if inputs.len() > 256 {
             return Err(at.error("at most 256 parameter/local slots are supported"));
         }
         defaults::validate_dependencies(&inputs, &defaults)?;
-        if defaults.iter().all(Option::is_none) {
-            defaults = Vec::new();
-        }
         self.expect("->")?;
         let output = self.ty()?;
         let mut address_parameter = None;
@@ -1767,6 +1723,103 @@ impl Parser {
             body,
         })
     }
+    /// Pushes a function's parameters up to the closing `)` onto
+    /// `scratch_inputs`. `at` and `name` are the function's; `flags` are
+    /// whether it is foreign, exported and anonymous.
+    #[allow(clippy::too_many_arguments)]
+    fn parameters(
+        &mut self,
+        at: &Token,
+        name: &str,
+        class: Option<&str>,
+        captures: &[Capture],
+        (foreign, exported, anonymous): (bool, bool, bool),
+        defaults: &mut Vec<Option<Expr>>,
+        adapters: &mut Vec<crate::foreign::Argument>,
+    ) -> Result<()> {
+        let base = self.scratch_inputs.len();
+        while !self.eat(")") {
+            let param_at = self.peek().clone();
+            let param = self.name()?;
+            if captures.iter().any(|c| c.name == param) {
+                return Err(param_at.error("a parameter cannot shadow a closure capture"));
+            }
+            let inputs = &self.scratch_inputs[base..];
+            if inputs.iter().any(|(n, _)| n == &param) {
+                return Err(param_at.error("duplicate parameter"));
+            }
+            let first = inputs.is_empty();
+            let ty = if let Some(class) =
+                class.filter(|_| param == "self" && first && !self.peek().is(":"))
+            {
+                TypeRef {
+                    concrete: None,
+                    // Preserve the shorthand's provenance for receiver diagnostics.
+                    at: param_at.clone(),
+                    name: Some(
+                        if matches!(name, "__init__" | "__del__") {
+                            "&mut"
+                        } else {
+                            "&"
+                        }
+                        .into(),
+                    ),
+                    args: vec![TypeRef {
+                        concrete: None,
+                        at: at.clone(),
+                        name: Some(class.into()),
+                        args: vec![],
+                    }],
+                }
+            } else {
+                self.expect(":")?;
+                self.ty()?
+            };
+            let adapter = if foreign && self.eat("as") {
+                let token = self.take();
+                if token.is("utf8") {
+                    crate::foreign::Argument::Utf8
+                } else if token.is("c_string") {
+                    crate::foreign::Argument::CString
+                } else {
+                    return Err(token.error("expected utf8 or c_string C argument adapter"));
+                }
+            } else {
+                crate::foreign::Argument::Direct
+            };
+            if foreign {
+                adapters.push(adapter);
+            }
+            if self.eat("=") {
+                if anonymous {
+                    return Err(
+                        param_at.error("anonymous functions cannot declare parameter defaults")
+                    );
+                }
+                if foreign || exported {
+                    return Err(
+                        param_at.error("C imports and exports cannot declare parameter defaults")
+                    );
+                }
+                if param == "self" && class.is_some() {
+                    return Err(param_at.error("self cannot have a default value"));
+                }
+                let default = self.expr(0)?;
+                defaults.resize_with(self.scratch_inputs.len() - base, || None);
+                defaults.push(Some(default));
+            } else if !defaults.is_empty() {
+                return Err(
+                    param_at.error("required parameters must precede parameters with defaults")
+                );
+            }
+            self.scratch_inputs.push((param, ty));
+            if self.eat(")") {
+                break;
+            }
+            self.expect(",")?;
+        }
+        Ok(())
+    }
     /// The body of an anonymous function written inside brackets: one
     /// expression, parsed as the tail expression of an indented body so both
     /// forms share every later rule. Brackets suspend layout, so statements
@@ -1815,18 +1868,20 @@ impl Parser {
         self.expect(":")?;
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented block")?;
-        let mut body = Vec::new();
-        while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
-            body.push(self.statement()?);
-        }
+        let body = self.exact_list(
+            |parser| &mut parser.scratch_stmts,
+            |parser| {
+                while !matches!(parser.peek().kind, Kind::Dedent | Kind::Eof) {
+                    let statement = parser.statement()?;
+                    parser.scratch_stmts.push(statement);
+                }
+                Ok(())
+            },
+        )?;
         self.kind(Kind::Dedent, "the end of an indented block")?;
         if body.is_empty() {
             return Err(self.peek().error("empty block; use `pass`"));
         }
-        // A growing vector reserves at least four statements, which is over
-        // 2 KB for a one-line body. The whole tree is live when lowering
-        // starts, so the unused capacity counts against peak memory (issue #54).
-        body.shrink_to_fit();
         Ok(body)
     }
     fn conditional_statement(&mut self) -> Result<Stmt> {

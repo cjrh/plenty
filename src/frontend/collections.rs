@@ -19,7 +19,12 @@ pub(super) struct Iteration {
 
 impl Parser {
     pub(super) fn arguments(&mut self) -> Result<Vec<Expr>> {
-        let mut args = Vec::new();
+        self.exact_list(|parser| &mut parser.scratch_exprs, Self::arguments_into)
+    }
+
+    /// Pushes the arguments up to the closing `)` onto `scratch_exprs`.
+    fn arguments_into(&mut self) -> Result<()> {
+        let base = self.scratch_exprs.len();
         let mut named = false;
         while !self.eat(")") {
             // `=` is not an expression operator, so `name =` here can only be
@@ -42,12 +47,12 @@ impl Parser {
                 self.expr(0)?
             };
             if self.peek().is("for") {
-                if !args.is_empty() || label.is_some() {
+                if self.scratch_exprs.len() > base || label.is_some() {
                     return Err(argument.at.error("a generator expression must be parenthesized when there are other arguments"));
                 }
                 argument.kind = self.generator_display(argument.clone())?;
                 self.expect(")")?;
-                args.push(argument);
+                self.scratch_exprs.push(argument);
                 break;
             }
             if let Some(label) = label {
@@ -56,14 +61,13 @@ impl Parser {
                     kind: Expression::NamedArgument(label, Box::new(argument)),
                 };
             }
-            args.push(argument);
+            self.scratch_exprs.push(argument);
             if self.eat(")") {
                 break;
             }
             self.expect(",")?;
         }
-        args.shrink_to_fit();
-        Ok(args)
+        Ok(())
     }
 
     pub(super) fn generator_display(&mut self, element: Expr) -> Result<Expression> {
