@@ -56,6 +56,20 @@ within one resume are permitted, but generator parameters cannot be references
 and no live loan may cross `yield`. `yield` inside `with` is unsupported.
 There is no yield-from, send/throw, or async/await.
 
+## Fluent transformations
+
+Generators expose the [pipeline adapters and terminals](06-pipelines.md):
+`numbers(100).filter(even).map(square).fold(0, add)` consumes the generator
+through a fused adapter loop. Source resumption retains its ordinary cost;
+the fluent adapters do not each construct another suspended frame.
+
+An owned pipeline can become a returnable resumable stream through explicit
+`.generator()`. It transfers already prepared source and capture state into
+one frame without advancing any item. Borrowed sources or callback captures
+are ineligible, including when mapped items are owned. There is no implicit
+conversion at a `Generator[T]` parameter or return annotation. The resulting
+frame follows the specialization, suspension and cleanup rules above.
+
 ## Generator expressions
 
 `(expression for name in source if condition)` creates a concrete owned

@@ -665,7 +665,8 @@ impl Lower<'_> {
     fn expr_hinted(&mut self, e: &Expr, expected: Type, ops: &mut Vec<Op>) -> Result<Type> {
         match &e.kind {
             Expression::Method(base, name, args, _)
-                if matches!(name.as_str(), "collect" | "try_collect") && self.is_pipeline(base) =>
+                if matches!(name.as_str(), "collect" | "try_collect")
+                    && (self.is_pipeline(base) || self.is_generator_source(base)) =>
             {
                 self.pipeline_collect(base, name, args, expected, ops)
                     .map(Some)
@@ -2321,7 +2322,23 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if self.is_pipeline(base) {
+        if self.is_pipeline(base)
+            || (self.is_generator_source(base)
+                && matches!(
+                    name,
+                    "collect"
+                        | "try_collect"
+                        | "fold"
+                        | "try_fold"
+                        | "for_each"
+                        | "try_for_each"
+                        | "count"
+                        | "any"
+                        | "all"
+                        | "find"
+                        | "reduce"
+                ))
+        {
             return self.pipeline_terminal(base, name, args, ops);
         }
         if matches!(self.place_type(base), Some(Ty::Shared(_))) {

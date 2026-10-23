@@ -953,6 +953,7 @@ impl Lower<'_> {
         if types.is_some() {
             return Err(base.at.error(format!("`{name}` is not a generic method")));
         }
+        self.ensure_concrete_output(&callee, &base.at)?;
         let sig = self
             .sigs
             .get(&callee)

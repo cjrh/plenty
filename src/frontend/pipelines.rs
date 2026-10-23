@@ -3,6 +3,8 @@
 use super::collections::Iteration;
 use super::*;
 
+mod generator_bridge;
+
 fn result_payload(ty: &Ty) -> Option<Ty> {
     match ty {
         Ty::Enum(result) if result.is_result() => Some(result.get().variants[0].fields[0].clone()),
@@ -18,11 +20,70 @@ pub(super) struct Pipeline {
     pub(super) item: Local,
     pair: Option<[Local; 2]>,
     resources: Vec<u8>,
+    initialized: std::collections::BTreeSet<u8>,
+    owned: bool,
     loans: Vec<usize>,
     depth: usize,
 }
 
 impl Lower<'_> {
+    pub(super) fn is_generator_source(&self, e: &Expr) -> bool {
+        let hint = |e: &Expr| self.place_type(e).or_else(|| self.expression_type_hint(e));
+        if matches!(hint(e), Some(Ty::Generator(_))) {
+            return true;
+        }
+        let success_is_generator = |e: &Expr| {
+            matches!(hint(e), Some(Ty::Enum(sum))
+            if (sum.is_result() || sum.is_option())
+                && matches!(sum.get().variants[usize::from(sum.is_option())].fields.first(), Some(Ty::Generator(_))))
+        };
+        match &ungroup(e).kind {
+            Expression::Call(name, _) if !self.names.contains_key(name) => self
+                .generics
+                .templates
+                .get(name)
+                .is_some_and(|function| function.output.name.as_deref() == Some("Generator")),
+            Expression::Collection { kind, .. } => kind == "generator",
+            Expression::Try(inner) => success_is_generator(inner),
+            Expression::Conditional { yes, no, .. } => {
+                self.is_generator_source(yes) && self.is_generator_source(no)
+            }
+            Expression::Method(base, name, args, _) => {
+                if name == "generator" && self.is_pipeline(base) {
+                    return true;
+                }
+                if name == "unwrap" && args.is_empty() && success_is_generator(base) {
+                    return true;
+                }
+                if name == "new"
+                    && let Expression::Name(function) = &ungroup(base).kind
+                {
+                    return !self.names.contains_key(function)
+                        && self.sigs.get(function).is_some_and(|sig| {
+                            matches!(sig.outputs.first(), Some(Ty::Generator(_)))
+                        });
+                }
+                let owner = match hint(base).map(classes::unbox) {
+                    Some(Ty::Class(class)) => class.name.clone(),
+                    Some(Ty::Enum(sum)) => sum.name.clone(),
+                    _ => return false,
+                };
+                let method = crate::record::method(&owner, name);
+                self.sigs
+                    .get(&method)
+                    .is_some_and(|sig| matches!(sig.outputs.first(), Some(Ty::Generator(_))))
+                    || self
+                        .generics
+                        .templates
+                        .get(&method)
+                        .is_some_and(|function| {
+                            function.output.name.as_deref() == Some("Generator")
+                        })
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn is_pipeline(&self, e: &Expr) -> bool {
         match &ungroup(e).kind {
             Expression::Name(n) => matches!(self.names.get(n).map(|l| &l.ty), Some(Ty::Iter(..))),
@@ -47,7 +108,7 @@ impl Lower<'_> {
                 matches!(
                     name.as_str(),
                     "map" | "filter" | "take" | "skip" | "take_while" | "enumerate" | "zip"
-                ) && self.is_pipeline(base)
+                ) && (self.is_pipeline(base) || self.is_generator_source(base))
             }
             _ => false,
         }
@@ -104,7 +165,7 @@ impl Lower<'_> {
                 self.pipeline_raw_source(e, ops)?
             }
             Expression::Method(base, method, args, _) => {
-                let mut plan = self.pipeline(base, ops)?;
+                let mut plan = self.pipeline_source(base, ops)?;
                 if plan.depth >= 64 {
                     return Err(e.at.error(
                         "iterator pipeline nesting exceeds the implementation limit of 64",
@@ -119,6 +180,9 @@ impl Lower<'_> {
                     };
                     if matches!(method.as_str(), "map" | "filter" | "take_while") {
                         let callback = self.pipeline_callback(argument, ops)?;
+                        plan.owned &= !self
+                            .expression_type_hint(&callback)
+                            .is_some_and(|ty| ty.contains_reference());
                         let items = self.pipeline_arguments(&plan, method != "map", &e.at);
                         let output =
                             self.pipeline_call(&callback, &items, &mut plan.iteration.body)?;
@@ -212,6 +276,7 @@ impl Lower<'_> {
             .extend((start..self.locals.len()).map(|i| (self.parameters + i) as u8));
         plan.resources.sort_unstable();
         plan.resources.dedup();
+        generator_bridge::initialized_after(&ops[ops_start..], &mut plan.initialized);
         plan.loans
             .extend(ops[ops_start..].iter().filter_map(|op| match op {
                 Op::Loan(loan) => Some(loan.id),
@@ -224,6 +289,11 @@ impl Lower<'_> {
     }
 
     fn pipeline_source(&mut self, source: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
+        if self.yield_type.is_some() {
+            return Err(source
+                .at
+                .error("iterator pipelines cannot be held across yield"));
+        }
         if self.is_pipeline(source) {
             return self.pipeline(source, ops);
         }
@@ -231,6 +301,8 @@ impl Lower<'_> {
     }
 
     fn pipeline_raw_source(&mut self, source: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
+        let start = self.locals.len();
+        let ops_start = ops.len();
         let name = format!("<pipeline item {}>", self.locals.len());
         // Dictionary item views cannot form a stored tuple of references.
         let paired = super::collections::dictionary_items(source).is_some_and(|(base, _)| {
@@ -268,15 +340,24 @@ impl Lower<'_> {
         } else {
             self.names[&names[0]].clone()
         };
+        let owned = !item.ty.contains_reference()
+            && pair
+                .as_ref()
+                .is_none_or(|fields| fields.iter().all(|field| !field.ty.contains_reference()));
         let mut plan = Pipeline {
             iteration,
             item,
             pair,
             resources: vec![],
+            initialized: Default::default(),
+            owned,
             loans: vec![],
             depth: 0,
         };
         self.pipeline_split_pair(&mut plan, &source.at)?;
+        plan.resources
+            .extend((start..self.locals.len()).map(|i| (self.parameters + i) as u8));
+        generator_bridge::initialized_after(&ops[ops_start..], &mut plan.initialized);
         Ok(plan)
     }
 
@@ -500,6 +581,8 @@ impl Lower<'_> {
             left.iteration.step.extend(right.iteration.step);
             left.iteration.exact_len = None;
             left.resources.extend(right.resources);
+            left.initialized.extend(right.initialized);
+            left.owned &= right.owned;
             left.loans.extend(right.loans);
             [left.item.clone(), right.item]
         };
@@ -644,12 +727,18 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if name == "generator" {
+            if !args.is_empty() {
+                return Err(base.at.error("generator takes no arguments"));
+            }
+            return self.pipeline_generator(base, ops).map(Some);
+        }
         if matches!(name, "collect" | "try_collect") {
             return self.pipeline_collect(base, name, args, None, ops).map(Some);
         }
         let start = self.locals.len();
         let saved = self.names.clone();
-        let plan = self.pipeline(base, ops)?;
+        let plan = self.pipeline_source(base, ops)?;
         let items = self.pipeline_arguments(&plan, false, &base.at);
         let mut body = plan.iteration.body.clone();
         let output = match (name, args) {
@@ -940,7 +1029,7 @@ impl Lower<'_> {
             )));
         };
         let start = self.locals.len();
-        let mut plan = self.pipeline(base, ops)?;
+        let mut plan = self.pipeline_source(base, ops)?;
         self.pipeline_pack_pair(&mut plan, &base.at)?;
         let (item, item_error) = if name == "try_collect" {
             let Some(item) = result_payload(&plan.item.ty) else {

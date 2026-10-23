@@ -378,7 +378,9 @@ See [generators](../language/09-iteration/03-generators.md).
 Local transformations can use `iter(source).map(callback).filter(predicate)`
 with a loop or a terminal such as `fold(initial, callback)` or `count()`.
 Borrowed sources and callback captures stay borrowed until the pipeline is
-consumed. Pipelines cannot leave their creating scope. See
+consumed. Generators expose the same fluent methods directly. An unfinished
+pipeline stays local; `.generator()` explicitly transfers owned sources and
+owned captures into one resumable frame that can be passed or returned. See
 [local iterator pipelines](../language/09-iteration/06-pipelines.md).
 `enumerate` and `zip` produce pair items: mapping takes two parameters,
 predicates borrow both, and folds take the accumulator followed by the pair's
@@ -388,13 +390,18 @@ components. Collect owned pairs into an expected `dict[K, V]` with `collect()`.
 def add(total: i64, value: i64) -> i64:
     total + value
 
+def squares(stop: i64) -> Generator[i64]:
+    iter(range(stop)).map(def(n: i64) -> i64: n * n).generator()
+
 def main() -> Result[(), IoError]:
     values = iter(range(5)).map(def(n: i64) -> i64: n * n)
     print(values.fold(0, add))?
+    print(squares(4).fold(0, add))?
     Ok(())
 ```
 ```output
 30
+14
 ```
 
 ## Python habits that Plenty rejects

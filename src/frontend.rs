@@ -2680,6 +2680,7 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 
 struct Lower<'a> {
     pipelines: Vec<pipelines::Pipeline>,
+    pipeline_generators: usize,
     function_name: String,
     bare_self_receiver: bool,
     source_tail: Vec<crate::ownership::Site>,
@@ -5502,6 +5503,7 @@ fn lower_body(
                 access,
                 names: HashMap::default(),
                 pipelines: Vec::new(),
+                pipeline_generators: 0,
                 function_places: HashMap::default(),
                 function_initializers: Vec::new(),
                 locals: Vec::new(),

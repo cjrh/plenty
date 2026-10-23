@@ -1,6 +1,7 @@
 # Fluent iterator pipelines
 
-**Status: Serial core, pair callbacks and dictionary collection implemented;
+**Status: Serial core, pair callbacks, dictionary collection, generator fluent
+methods and explicit owned `.generator()` conversion implemented;
 composition, lending and parallel stages remain proposed.** Bounded native
 substitution of scalar leaf callbacks also covers named functions and immutable
 scalar captures; it addresses the original performance gap (issue #399).
@@ -41,9 +42,9 @@ wrapper, chained methods, terminal "sinks". The cost model follows Rust's
 `Iterator`, but fusion is done by the compiler rather than by monomorphized
 adapter structs and an optimizer's inliner, which Plenty does not have.
 
-## What exists today
+## Starting point before B75
 
-Plenty has iteration, but no fluent interface and no zero-cost composition.
+The original design started with iteration but no fluent interface or fused composition.
 There are no builtin top-level `map` or `filter` functions; the reusable
 adapters are the importable `std.iter` module.
 
@@ -59,7 +60,7 @@ adapters are the importable `std.iter` module.
 | `std.math.sum_iter`, `prod_iter` | Borrowed-iterable folds | Plain loop |
 | `pool.map`, `pool.map_result`, `pool.reduce_tree` | Explicit parallel operations | Owned list or range input; eager, ordered |
 
-Current `std.iter` usage is nested calls, generator sources only:
+The original `std.iter` usage was nested calls, generator sources only:
 
 ```text
 # current
@@ -147,8 +148,7 @@ it.** It may be:
 - bound to a local and used later; it is affine, and consuming it ends it;
 - lent to a function as `&mut Iter[T]` (next section); the caller keeps
   ownership and can continue or collect it afterwards;
-- turned into an owned generator with a generator expression,
-  `(x for x in pipeline)`, when the items themselves must cross a function
+- turned into an owned generator with explicit `.generator()` when items must cross a function
   boundary, subject to the ownership restrictions below. That conversion is
   explicit and costs what generators cost today.
 
@@ -166,6 +166,11 @@ Borrowed sources, borrowed callback captures and sub-pipelines lending another
 pipeline are rejected, even if their yielded items are owned. No loan may cross
 `yield`, and no implicit copying makes a borrowed pipeline eligible. The
 resulting generator may leave the scope; the unfinished pipeline itself may not.
+Generators themselves expose the same fluent methods: `source.map(f)` builds
+a pipeline equivalent to `iter(source).map(f)`, with no frame per adapter.
+`.generator()` creates one frame around the complete fused plan. This spelling
+replaces the originally proposed generator-expression bridge. There is no
+implicit conversion from an expected `Generator[T]` type.
 
 ### Lending a pipeline to a function
 
@@ -639,8 +644,10 @@ Acceptance for the implementation, not optional extras:
   `iter(s).filter(p).map(f).collect()` into a `list` target. Comprehensions stay: they are the
   Python-shaped way to build a collection, and the tutorial teaches them first.
   The two forms must produce the same operations; that is a test, not a goal.
-- A generator expression is a pipeline converted to a frame. Its outer source
-  should lower through the source plan, not a stored range (issue #371).
+- `.generator()` converts an eligible prepared pipeline into one frame. Ordinary
+  generator expressions keep their existing syntax and owned-source rules;
+  an unconverted pipeline is not a valid generator-expression source. Stored
+  range sources already use counted iteration (issue #371).
 - `any(xs)`/`all(xs)` over booleans stay as builtins; `.any(keep)`/`.all(keep)`
   take a predicate. The free forms are defined as the pipeline forms with an
   identity predicate.
@@ -722,13 +729,14 @@ benefit and whether effect checks are sufficient.
 ## Migration
 
 - **`std.iter`.** Mark `map`, `filter`, `take`, `fold` and `try_fold`
-  deprecated when stage 2 lands, keep them working (they still serve as the
-  generator-to-generator route across function boundaries), and remove them
-  once no `std` module or test needs them. Internal uses today are limited to
+  deprecated in a deliberate compatibility change after migration review.
+  Fluent methods plus `.generator()` now cover their cross-function use cases;
+  keep existing functions working until removal is separately approved. Internal uses are limited to
   `tests/test_std_collections.rs` and `tests/test_trap_locations.rs`.
 - **Tutorial.** Rewrite
   [Transform a stream of values](../tutorial/07-modules/06-iterator-adapters.md)
-  around pipelines. It moves out of the modules chapter, since `iter` needs no
+  around pipelines (implemented, including explicit returning conversion).
+  A later organization pass can move it out of the modules chapter, since `iter` needs no
   import; it belongs after comprehensions and closures in the iteration
   lessons. Review lessons that build lists by looping only to fold them, and the
   comprehension lessons for the equivalence note.
@@ -809,7 +817,9 @@ scope, with lending for helpers, ships the useful part now.
    slow path that would have misled the benchmarks.
    Small scalar leaf callback substitution and SSA scalar captures are also
    implemented; [measurements](../development/profiling.md#serial-pipeline-callbacks)
-   cover the original workload. General callback-body splicing remains separate.
+   cover the original workload. Generator fluent entry and the explicit owned
+   `.generator()` bridge also landed independently of composition. General
+   callback-body splicing remains separate.
 2. **Stage 2 — composition.** `chain`, `flat_map`, broader closure-body splicing,
    comprehensions lowered through the pipeline plan, `std.math` pipeline
    helpers, tutorial rewrite and `std.iter` deprecation.
