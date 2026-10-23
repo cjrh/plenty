@@ -4,6 +4,9 @@
 expressions and callback captures are evaluated immediately, from left to right;
 items are visited only when a loop, comprehension, or terminal consumes it.
 The compiler fuses the adapters into the source's ordinary iteration loop.
+Generators expose the same adapters and terminals directly:
+`numbers(100).filter(even).map(square).collect()` is equivalent to starting
+with `iter(numbers(100))`. Each adapter extends the fused plan.
 
 ```text
 p = iter(&payments).filter(def(p: &Payment) -> bool: p.name == "bob")
@@ -30,8 +33,43 @@ an owning consumer releases the unconsumed source and captures.
 
 Pipelines cannot be returned, passed as arguments, borrowed, captured, or put in
 stored data. They are currently rejected in generator functions, including
-before a `yield`. Pipeline lending and explicit conversion to generator frames
-are not implemented.
+before a `yield`. Pipeline lending is not implemented. An eligible owned
+pipeline can leave its scope after explicit `.generator()` conversion.
+
+## Returning a resumable stream
+
+`.generator()` consumes a pipeline and transfers its prepared source, callback
+environments, counters and other iteration state into one concrete
+[generator frame](03-generators.md). It takes no arguments and adds no heap
+allocation. It does not revisit source expressions, reconstruct callbacks, or
+advance the source. Adapters remain fused inside the frame; `next` resumes
+that frame until its next accepted item or exhaustion.
+
+```text
+def squares(stop: i64) -> Generator[i64]:
+    iter(range(stop)).map(def(n: i64) -> i64: n * n).generator()
+
+def total(values: Generator[i64]) -> i64:
+    values.fold(0, def(acc: i64, n: i64) -> i64: acc + n)
+```
+
+The result can be returned, passed to a generator-consuming helper, moved,
+advanced with `next`, or used as another fluent source. Owned sources and
+owned captures are required. Borrowed sources and borrowed captures are
+rejected even when a later `map` produces owned items; conversion never copies
+borrowed state. Items must satisfy the ordinary generator yield restrictions.
+The existing concrete-producer and finite-frame rules apply, including the
+restriction against joining unrelated generator producer types.
+
+Dropping an unstarted or partly consumed frame releases all its owned state
+without invoking more callbacks. Exhaustion is stable. A zip frame preserves
+left-first pulls and drops an unmatched left item when the right input ends.
+Mutable owned captures keep their state between resumptions.
+
+Conversion is always explicit. An expected `Generator[T]` type does not convert
+an `Iter[T]`, and a generator expression over an unconverted pipeline is not
+an alternative conversion spelling. Prefer local consumption when a resumable
+stream does not need to cross a function boundary.
 
 ## Adapters
 
@@ -80,6 +118,7 @@ There is a 64-adapter/type-depth limit, alongside expression nesting limits.
 | `try_for_each(f)` | Call `(Item) -> Result[(), E]`, stopping at the callback's first error |
 | `collect()` | Build an expected `list[T]`, `set[T]`, or `dict[K, V]`; return `Result[Collection, AllocError]` |
 | `try_collect()` | Collect `Result[T, E]` items, returning `Result[Collection, E | AllocError]` |
+| `generator()` | Transfer an eligible owned plan into a lazy `Generator[Item]` |
 
 `find` and `reduce` need an item that can be stored in an `Option`; map a
 borrowed item to an owned value first.
@@ -117,6 +156,12 @@ calls; fusion alone does not guarantee inline-loop performance for every body.
 The reproducible [benchmark](../../../development/profiling.md#serial-pipeline-callbacks)
 covers named callbacks, closure literals and scalar captures.
 
+Explicit conversion adds one suspension boundary for the whole pipeline,
+rather than one frame per adapter. A generator source inside that frame still
+has its own suspension boundary. Local fluent consumption keeps its fused
+loop without relying on generator-frame fusion as an optimization.
+
 The [proposal](../../../proposals/fluent-iterators.md) describes the broader
 design; [B75](../../../backlog.md) tracks the remaining stages. `std.iter`
-continues to support owned generator composition across function boundaries.
+remains available for compatibility; prefer fluent methods and explicit
+conversion for new code.

@@ -4,6 +4,12 @@
 adapters and reductions over [generators](../language/09-iteration/03-generators.md).
 They are ordinary embedded Plenty generic functions.
 
+For new code, prefer [fluent pipelines](../language/09-iteration/06-pipelines.md):
+`source.filter(keep).map(transform).fold(initial, combine)` consumes a generator
+through one fused adapter loop. End an owned chain with `.generator()` when it
+needs to be returned or passed as a resumable stream. This module remains
+available for compatibility; its adapters each construct a generator frame.
+
 | Function | Result | Contract |
 |---|---|---|
 | `map(source, f)` | `Generator[U]` | Yield `f(item)` for each item; `F: Callable[[T], U]` |

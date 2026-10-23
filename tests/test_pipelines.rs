@@ -1,6 +1,234 @@
 mod support;
 
 #[test]
+fn generator_bridge_constructs_once_and_resumes_mutable_captures_lazily() {
+    output(
+        r#"
+def source() -> list[i64]:
+    print("source").unwrap()
+    [2, 4, 6].unwrap()
+def callback() -> Closure[[i64], i64]:
+    print("callback").unwrap()
+    count = 0
+    def [mut count](n: i64) -> i64:
+        count += 1
+        print("visit", n).unwrap()
+        n + count
+def build() -> Generator[i64]:
+    p = iter(source()).map(callback())
+    print("prepared").unwrap()
+    p.generator()
+def main() -> ():
+    mut stream = build()
+    print("converted").unwrap()
+    print(next(stream)).unwrap()
+    print(next(stream)).unwrap()
+    print(next(stream)).unwrap()
+    print(next(stream), next(stream)).unwrap()
+"#,
+        "source\ncallback\nprepared\nconverted\nvisit 2\nOption[i64].Some(3)\nvisit 4\nOption[i64].Some(6)\nvisit 6\nOption[i64].Some(9)\nOption[i64].Nothing Option[i64].Nothing\n",
+    );
+}
+
+#[test]
+fn generator_bridge_rejects_borrowed_sources_and_captures_even_after_owned_mapping() {
+    for source in [
+        "values = [1, 2].unwrap()\np = iter(&values).map(def(n: &i64) -> i64: *n)\ng = p.generator()\n",
+        "values = {1: 2}.unwrap()\np = iter(values.items()).map(def(k: &i64, v: &i64) -> i64: *k + *v)\ng = p.generator()\n",
+        "n = 2\np = iter(range(3)).map(def [&n](x: i64) -> i64: x + n)\ng = p.generator()\n",
+        "values = [1, 2].unwrap()\np = iter(range(2)).zip(&values).map(def(k: i64, v: &i64) -> i64: k + *v)\ng = p.generator()\n",
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(
+            error.contains("owned sources and owned callback captures"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn generator_bridge_cleans_never_started_partial_exhausted_and_zip_pending_owners() {
+    let source = r#"
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print("drop", self.n).unwrap()
+def build(start: i64) -> Generator[Guard]:
+    values = [Guard(start), Guard(start + 1), Guard(start + 2)].unwrap()
+    capture = Guard(start + 9)
+    iter(values).map(def [capture](g: Guard) -> Guard: g).generator()
+def main() -> ():
+    unused = build(10)
+    drop(unused)
+    print("unstarted").unwrap()
+    mut partial = build(20)
+    drop(next(partial))
+    drop(partial)
+    print("partial").unwrap()
+    mut full = build(30)
+    drop(next(full))
+    drop(next(full))
+    drop(next(full))
+    drop(next(full))
+    drop(full)
+    print("full").unwrap()
+    left = [Guard(40), Guard(41)].unwrap()
+    mut zipped = iter(left).zip(range(0)).generator()
+    drop(next(zipped))
+    drop(zipped)
+    print("zip").unwrap()
+"#;
+    let result = support::run(source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let text = String::from_utf8_lossy(&result.stdout);
+    let mut lines = text.lines();
+    for (marker, expected) in [
+        (
+            "unstarted",
+            vec!["drop 10", "drop 11", "drop 12", "drop 19"],
+        ),
+        ("partial", vec!["drop 20", "drop 21", "drop 22", "drop 29"]),
+        ("full", vec!["drop 30", "drop 31", "drop 32", "drop 39"]),
+        ("zip", vec!["drop 40", "drop 41"]),
+    ] {
+        let mut actual = lines
+            .by_ref()
+            .take_while(|line| *line != marker)
+            .collect::<Vec<_>>();
+        actual.sort_unstable();
+        assert_eq!(actual, expected, "{text}");
+    }
+    assert!(lines.next().is_none());
+}
+
+#[test]
+fn generators_share_fluent_surface_and_owned_pipelines_cross_function_boundaries() {
+    output(
+        r#"
+def numbers(stop: i64) -> Generator[i64]:
+    for n in range(stop):
+        yield n
+def squares(stop: i64) -> Generator[i64]:
+    values = iter(range(stop)).filter(def(n: &i64) -> bool: *n % 2 == 0).map(def(n: i64) -> i64: n * n)
+    values.generator()
+def consume(values: Generator[i64]) -> i64:
+    values.fold(0, def(a: i64, n: i64) -> i64: a + n)
+def main() -> ():
+    values: list[i64] = numbers(5).filter(def(n: &i64) -> bool: *n > 1).map(def(n: i64) -> i64: n * 2).collect().unwrap()
+    print(values).unwrap()
+    print(consume(squares(6))).unwrap()
+    mut stream = iter(range(10)).skip(2).take(3).enumerate(5).generator()
+    print(next(stream), next(stream), next(stream), next(stream), next(stream)).unwrap()
+    print(iter(range(4)).generator().map(def(n: i64) -> i64: n + 1).count()).unwrap()
+"#,
+        "[4, 6, 8]\n20\nOption[tuple[i64, i64]].Some((5, 2)) Option[tuple[i64, i64]].Some((6, 3)) Option[tuple[i64, i64]].Some((7, 4)) Option[tuple[i64, i64]].Nothing Option[tuple[i64, i64]].Nothing\n4\n",
+    );
+}
+
+#[test]
+fn generator_fluent_receivers_include_expressions_unwrapped_results_and_methods() {
+    output(
+        r#"
+def numbers() -> Generator[i64]:
+    yield 1
+    yield 2
+def fallible() -> Result[Generator[i64], str]:
+    Ok(numbers())
+def once[T](value: T) -> Generator[T]:
+    yield value
+class Source:
+    def numbers(self) -> Generator[i64]:
+        numbers()
+def main() -> Result[(), str | IoError]:
+    print((n * 2 for n in range(3)).count())?
+    print(fallible()?.count(), fallible().unwrap().count())?
+    source = Source()
+    print(source.numbers().count())?
+    print((numbers() if True else numbers()).take(1).count())?
+    print(once(3).count(), once[str]("x").count(), numbers.new().count())?
+    Ok(())
+"#,
+        "3\n2 2\n2\n1\n1 1 2\n",
+    );
+}
+
+#[test]
+fn generator_bridge_preserves_nested_conversion_and_zip_filter_progress() {
+    output(
+        r#"
+def main() -> ():
+    mut nested = iter(range(4)).generator().map(def(n: i64) -> str: str.from(n).unwrap()).generator()
+    print(next(nested), next(nested)).unwrap()
+    left = iter(range(8)).filter(def(n: &i64) -> bool: *n % 2 == 0)
+    right = iter(range(10, 20)).skip(1).filter(def(n: &i64) -> bool: *n % 2 == 1)
+    mut pairs = left.zip(right).take_while(def(a: &i64, b: &i64) -> bool: *a < 5).generator()
+    print(next(pairs), next(pairs), next(pairs), next(pairs), next(pairs)).unwrap()
+"#,
+        "Option[str].Some(\"0\") Option[str].Some(\"1\")\nOption[tuple[i64, i64]].Some((0, 11)) Option[tuple[i64, i64]].Some((2, 13)) Option[tuple[i64, i64]].Some((4, 15)) Option[tuple[i64, i64]].Nothing Option[tuple[i64, i64]].Nothing\n",
+    );
+}
+
+#[test]
+fn generator_bridge_empty_and_error_consumers_release_state_without_extra_calls() {
+    output(
+        r#"
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print("drop", self.n).unwrap()
+def source(g: Guard) -> Generator[i64]:
+    print("source resumed").unwrap()
+    yield g.n
+def checked(g: Guard) -> Result[Guard, str]:
+    print("visit", g.n).unwrap()
+    if g.n == 2:
+        return Err("two")
+    Ok(g)
+def main() -> ():
+    mut empty = source(Guard(9)).take(0).generator()
+    drop(next(empty))
+    drop(next(empty))
+    drop(empty)
+    values = [Guard(1), Guard(2), Guard(3)].unwrap()
+    stream = iter(values).map(checked).generator()
+    result: Result[list[Guard], AllocError | str] = stream.try_collect()
+    drop(result)
+    print("done").unwrap()
+"#,
+        "drop 9\nvisit 1\nvisit 2\ndrop 2\ndrop 1\ndrop 3\ndone\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn generator_bridge_frames_and_fluent_consumers_do_not_allocate() {
+    support::assert_visible_stdout(
+        r#"
+def make(stop: i64) -> Generator[i64]:
+    offset = 3
+    iter(range(stop)).filter(def(n: &i64) -> bool: *n % 2 == 0).map(def [offset](n: i64) -> i64: n + offset).generator()
+def consume(values: Generator[i64]) -> i64:
+    values.fold(0, def(a: i64, n: i64) -> i64: a + n)
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+mut values = make(6)
+drop(next(values))
+total = consume(values)
+unused = make(10)
+drop(unused)
+print("__test_end_no_allocations__").unwrap()
+print("__test_restore_allocations__").unwrap()
+print(total).unwrap()
+"#,
+        "12",
+    );
+}
+
+#[test]
 fn optimized_scalar_captures_follow_copies_branches_and_loop_assignments() {
     let source = r#"
 def offset(n: i64) -> Closure[[i64], i64]:
@@ -787,5 +1015,55 @@ def main() -> ():
             assert!(!dump.contains(absent), "{function}: {absent}\n{dump}");
         }
         assert!(dump.contains("call"), "{dump}");
+    }
+}
+
+#[test]
+fn converted_range_has_one_fused_frame_and_no_adapter_resume_dispatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("bridge.plenty");
+    std::fs::write(
+        &source,
+        r#"
+def even(n: &i64) -> bool:
+    *n % 2 == 0
+def square(n: i64) -> i64:
+    n * n
+def build(stop: i64) -> Generator[i64]:
+    iter(range(stop)).filter(even).map(square).generator()
+def main() -> ():
+    mut values = build(10)
+    drop(next(values))
+"#,
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .args([
+            "--release",
+            "--no-cache",
+            "--dump",
+            "clif",
+            "--dump-filter",
+            "__plenty_pipeline_",
+        ])
+        .arg(&source)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let dump = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(dump.matches("kind=resume").count(), 1, "{dump}");
+    assert_eq!(dump.matches("kind=function").count(), 1, "{dump}");
+    for absent in [
+        "plenty_generator_resume",
+        "call_indirect",
+        "__plenty_fn_even",
+        "__plenty_fn_square",
+    ] {
+        assert!(!dump.contains(absent), "{absent}\n{dump}");
     }
 }
