@@ -23,6 +23,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     functions.insert(
         "callee".into(),
         UserFn {
+            inline: None,
             standard_library: false,
             drop_callback: None,
             generator: None,
@@ -69,6 +70,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         return_types: &sig.outputs,
         collection_scratch: None,
         fresh_load: None,
+        scalar_captures: Default::default(),
         slot_copies: Vec::new(),
         empty_slot: None,
         counters: Default::default(),

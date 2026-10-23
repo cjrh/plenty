@@ -30,7 +30,11 @@ impl Lowerer<'_, '_> {
         if !ty.wide()
             && let Some(bytes) = plain_bytes(ty)
         {
-            return self.copy_words(value, destination, bytes);
+            let copied = self.copy_words(value, destination, bytes);
+            if matches!(ty, Ty::Closure(_)) {
+                self.copy_capture_values(value, copied);
+            }
+            return copied;
         }
         // A null value word owns no inline payload, and the runtime returns
         // such a value unchanged. Testing it here keeps calls out of the

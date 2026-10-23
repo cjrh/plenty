@@ -367,7 +367,6 @@ def main() -> ():
 )]
 #[case("for a, b in enumerate():\n    pass", "enumerate requires an iterable")]
 #[case("for a, b in zip(range(2)):\n    pass", "zip requires two iterables")]
-#[case("items = enumerate(range(2))", "supported directly in for loops")]
 #[case(
     "items = [1].unwrap()\nfor pair in enumerate(&items):\n    pass",
     "requires two unpacked"

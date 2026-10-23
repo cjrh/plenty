@@ -13,7 +13,10 @@ fn result_payload(ty: &Ty) -> Option<Ty> {
 #[derive(Clone)]
 pub(super) struct Pipeline {
     iteration: Iteration,
+    // The type is always the logical item type. With `pair`, its components
+    // live in separate locals: `item.slot` is not a stored tuple until packed.
     pub(super) item: Local,
+    pair: Option<[Local; 2]>,
     resources: Vec<u8>,
     loans: Vec<usize>,
     depth: usize,
@@ -24,16 +27,26 @@ impl Lower<'_> {
         match &ungroup(e).kind {
             Expression::Name(n) => matches!(self.names.get(n).map(|l| &l.ty), Some(Ty::Iter(..))),
             Expression::Call(n, _) => {
-                n == "iter"
+                matches!(n.as_str(), "iter" | "enumerate" | "zip")
                     && !self.names.contains_key(n)
                     && !self.sigs.contains_key(n)
                     && !self.generics.templates.contains_key(n)
                     && !self.aliases.contains_key(n)
             }
             Expression::Method(base, name, _, _) => {
+                if name == "items"
+                    && super::collections::dictionary_items(e).is_some_and(|(base, _)| {
+                        self.place_type(base)
+                            .or_else(|| self.expression_type_hint(base))
+                            .map(classes::unbox)
+                            .is_some_and(|t| matches!(t, Ty::Dict(..)))
+                    })
+                {
+                    return true;
+                }
                 matches!(
                     name.as_str(),
-                    "map" | "filter" | "take" | "skip" | "take_while"
+                    "map" | "filter" | "take" | "skip" | "take_while" | "enumerate" | "zip"
                 ) && self.is_pipeline(base)
             }
             _ => false,
@@ -60,25 +73,35 @@ impl Lower<'_> {
                     .cloned()
                     .ok_or_else(|| e.at.error("iterator pipeline has no local source plan"))?
             }
+            Expression::Call(function, args) if function != "iter" => {
+                if function == "enumerate" && !(1..=2).contains(&args.len()) {
+                    return Err(e
+                        .at
+                        .error("enumerate requires an iterable and optional i64 start"));
+                }
+                if function == "zip" && args.len() != 2 {
+                    return Err(e.at.error("zip requires two iterables"));
+                }
+                let (source, rest) = args
+                    .split_first()
+                    .ok_or_else(|| e.at.error("adapter requires a source"))?;
+                let mut base = self.pipeline_source(source, ops)?;
+                if base.depth >= 64 {
+                    return Err(e.at.error(
+                        "iterator pipeline nesting exceeds the implementation limit of 64",
+                    ));
+                }
+                base.depth += 1;
+                self.pipeline_pair_adapter(base, function, rest, &e.at, ops)?
+            }
             Expression::Call(_, args) => {
                 let [source] = args.as_slice() else {
                     return Err(e.at.error("iter requires one iterable"));
                 };
-                let name = format!("<pipeline item {start}>");
-                let iteration = self.iteration(std::slice::from_ref(&name), source, None, ops)?;
-                let item = self.names[&name].clone();
-                if matches!(&item.ty, Ty::Enum(t) if t.tuple()) {
-                    return Err(e.at.error(
-                        "pipeline pair items are not implemented yet; use an unpacking for loop",
-                    ));
-                }
-                Pipeline {
-                    iteration,
-                    item,
-                    resources: vec![],
-                    loans: vec![],
-                    depth: 0,
-                }
+                self.pipeline_source(source, ops)?
+            }
+            Expression::Method(_, method, _, _) if method == "items" => {
+                self.pipeline_raw_source(e, ops)?
             }
             Expression::Method(base, method, args, _) => {
                 let mut plan = self.pipeline(base, ops)?;
@@ -88,102 +111,97 @@ impl Lower<'_> {
                     ));
                 }
                 plan.depth += 1;
-                let [argument] = args.as_slice() else {
-                    return Err(e.at.error(format!("{method} requires one argument")));
-                };
-                if matches!(method.as_str(), "map" | "filter" | "take_while") {
-                    let callback = self.pipeline_callback(argument, ops)?;
-                    let item = self.pipeline_item(&plan, &e.at);
-                    let item = if method == "map" || matches!(plan.item.ty, Ty::Ref(..)) {
-                        item
-                    } else {
-                        Expr {
-                            at: e.at.clone(),
-                            kind: Expression::Unary("&".into(), Box::new(item)),
-                        }
-                    };
-                    let output =
-                        self.pipeline_call(&callback, &[item], &mut plan.iteration.body)?;
-                    if method == "map" {
-                        let ty = output
-                            .ok_or_else(|| e.at.error("map callbacks must return a value"))?;
-                        if matches!(ty, Ty::Ref(..)) {
-                            return Err(e
-                                .at
-                                .error("pipeline map callbacks cannot return references yet"));
-                        }
-                        if matches!(&ty, Ty::Enum(t) if t.tuple()) {
-                            return Err(e.at.error("pipeline pair items are not implemented yet; use an unpacking for loop"));
-                        }
-                        let slot = self.slot(ty.clone(), &e.at)?;
-                        plan.iteration.body.push(Op::StoreLocal(slot));
-                        if ty.managed() {
-                            plan.iteration.step.push(Op::DropLocal(slot));
-                        }
-                        plan.iteration.target = slot;
-                        plan.item = Local {
-                            slot,
-                            ty,
-                            mutable: false,
-                        };
-                    } else {
-                        plan.iteration.exact_len = None;
-                        self.same(output, Some(Ty::Bool), &argument.at)?;
-                        let mut rejected = if method == "filter" {
-                            plan.iteration.step.clone()
-                        } else {
-                            vec![]
-                        };
-                        rejected.push(if method == "filter" {
-                            Op::Continue
-                        } else {
-                            Op::Break
-                        });
-                        plan.iteration.body.push(branch(vec![], rejected));
-                    }
+                if matches!(method.as_str(), "enumerate" | "zip") {
+                    plan = self.pipeline_pair_adapter(plan, method, args, &e.at, ops)?;
                 } else {
-                    let actual = self.expr_expected(argument, Some(Ty::I64), ops)?;
-                    self.same(actual, Some(Ty::I64), &argument.at)?;
-                    let remaining = self.slot(Ty::I64, &e.at)?;
-                    ops.push(Op::StoreLocal(remaining));
-                    if let Some(length) = plan.iteration.exact_len.take() {
-                        let mut less = vec![Op::LoadLocal(remaining)];
-                        less.extend(length.clone());
-                        less.push(Op::Lt);
-                        let mut exact =
-                            vec![Op::LoadLocal(remaining), Op::PushInt(Value::I64(0)), Op::Gt];
-                        if method == "take" {
-                            less.push(branch(vec![Op::LoadLocal(remaining)], length));
-                            exact.push(branch(less, vec![Op::PushInt(Value::I64(0))]));
+                    let [argument] = args.as_slice() else {
+                        return Err(e.at.error(format!("{method} requires one argument")));
+                    };
+                    if matches!(method.as_str(), "map" | "filter" | "take_while") {
+                        let callback = self.pipeline_callback(argument, ops)?;
+                        let items = self.pipeline_arguments(&plan, method != "map", &e.at);
+                        let output =
+                            self.pipeline_call(&callback, &items, &mut plan.iteration.body)?;
+                        if method == "map" {
+                            let ty = output
+                                .ok_or_else(|| e.at.error("map callbacks must return a value"))?;
+                            if matches!(ty, Ty::Ref(..)) {
+                                return Err(e
+                                    .at
+                                    .error("pipeline map callbacks cannot return references yet"));
+                            }
+                            let slot = self.slot(ty.clone(), &e.at)?;
+                            plan.iteration.body.push(Op::StoreLocal(slot));
+                            if ty.managed() {
+                                plan.iteration.step.push(Op::DropLocal(slot));
+                            }
+                            plan.iteration.target = slot;
+                            plan.item = Local {
+                                slot,
+                                ty,
+                                mutable: false,
+                            };
+                            plan.pair = None;
+                            self.pipeline_split_pair(&mut plan, &e.at)?;
                         } else {
-                            let mut rest = length.clone();
-                            rest.extend([Op::LoadLocal(remaining), Op::Sub]);
-                            less.push(branch(rest, vec![Op::PushInt(Value::I64(0))]));
-                            exact.push(branch(less, length));
+                            plan.iteration.exact_len = None;
+                            self.same(output, Some(Ty::Bool), &argument.at)?;
+                            let mut rejected = if method == "filter" {
+                                plan.iteration.step.clone()
+                            } else {
+                                vec![]
+                            };
+                            rejected.push(if method == "filter" {
+                                Op::Continue
+                            } else {
+                                Op::Break
+                            });
+                            plan.iteration.body.push(branch(vec![], rejected));
                         }
-                        plan.iteration.exact_len = Some(exact);
-                    }
-                    let positive =
-                        vec![Op::LoadLocal(remaining), Op::PushInt(Value::I64(0)), Op::Gt];
-                    let decrement = vec![
-                        Op::LoadLocal(remaining),
-                        Op::PushInt(Value::I64(1)),
-                        Op::Sub,
-                        Op::StoreLocal(remaining),
-                    ];
-                    if method == "take" {
-                        let mut condition = positive;
-                        let mut absent = plan.iteration.absent.clone();
-                        absent.push(Op::PushBool(false));
-                        condition.push(branch(plan.iteration.condition, absent));
-                        plan.iteration.condition = condition;
-                        plan.iteration.body.extend(decrement);
                     } else {
-                        let mut skipped = decrement;
-                        skipped.extend(plan.iteration.step.clone());
-                        skipped.push(Op::Continue);
-                        plan.iteration.body.extend(positive);
-                        plan.iteration.body.push(branch(skipped, vec![]));
+                        let actual = self.expr_expected(argument, Some(Ty::I64), ops)?;
+                        self.same(actual, Some(Ty::I64), &argument.at)?;
+                        let remaining = self.slot(Ty::I64, &e.at)?;
+                        ops.push(Op::StoreLocal(remaining));
+                        if let Some(length) = plan.iteration.exact_len.take() {
+                            let mut less = vec![Op::LoadLocal(remaining)];
+                            less.extend(length.clone());
+                            less.push(Op::Lt);
+                            let mut exact =
+                                vec![Op::LoadLocal(remaining), Op::PushInt(Value::I64(0)), Op::Gt];
+                            if method == "take" {
+                                less.push(branch(vec![Op::LoadLocal(remaining)], length));
+                                exact.push(branch(less, vec![Op::PushInt(Value::I64(0))]));
+                            } else {
+                                let mut rest = length.clone();
+                                rest.extend([Op::LoadLocal(remaining), Op::Sub]);
+                                less.push(branch(rest, vec![Op::PushInt(Value::I64(0))]));
+                                exact.push(branch(less, length));
+                            }
+                            plan.iteration.exact_len = Some(exact);
+                        }
+                        let positive =
+                            vec![Op::LoadLocal(remaining), Op::PushInt(Value::I64(0)), Op::Gt];
+                        let decrement = vec![
+                            Op::LoadLocal(remaining),
+                            Op::PushInt(Value::I64(1)),
+                            Op::Sub,
+                            Op::StoreLocal(remaining),
+                        ];
+                        if method == "take" {
+                            let mut condition = positive;
+                            let mut absent = plan.iteration.absent.clone();
+                            absent.push(Op::PushBool(false));
+                            condition.push(branch(plan.iteration.condition, absent));
+                            plan.iteration.condition = condition;
+                            plan.iteration.body.extend(decrement);
+                        } else {
+                            let mut skipped = decrement;
+                            skipped.extend(plan.iteration.step.clone());
+                            skipped.push(Op::Continue);
+                            plan.iteration.body.extend(positive);
+                            plan.iteration.body.push(branch(skipped, vec![]));
+                        }
                     }
                 }
                 plan
@@ -205,12 +223,315 @@ impl Lower<'_> {
         Ok(plan)
     }
 
-    fn pipeline_item(&mut self, plan: &Pipeline, at: &Token) -> Expr {
-        let name = format!("<pipeline value {}>", plan.item.slot);
-        self.bind(name.clone(), plan.item.clone());
-        Expr {
-            at: at.clone(),
-            kind: Expression::Name(name),
+    fn pipeline_source(&mut self, source: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
+        if self.is_pipeline(source) {
+            return self.pipeline(source, ops);
+        }
+        self.pipeline_raw_source(source, ops)
+    }
+
+    fn pipeline_raw_source(&mut self, source: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
+        let name = format!("<pipeline item {}>", self.locals.len());
+        // Dictionary item views cannot form a stored tuple of references.
+        let paired = super::collections::dictionary_items(source).is_some_and(|(base, _)| {
+            !self
+                .place_type(base)
+                .or_else(|| self.expression_type_hint(base))
+                .map(classes::unbox)
+                .as_ref()
+                .is_some_and(classes::inherent_receiver)
+        }) && {
+            let mut expression = ungroup(source);
+            if let Expression::Unary(_, inner) = &expression.kind {
+                expression = ungroup(inner);
+            }
+            matches!(&expression.kind, Expression::Method(_, n, _, _) if n == "items")
+        };
+        let names = if paired {
+            vec![format!("{name} key"), format!("{name} value")]
+        } else {
+            vec![name]
+        };
+        let iteration = if paired {
+            let (base, mutable) = super::collections::dictionary_items(source).unwrap();
+            self.dictionary_iteration(&names, base, mutable, false, ops)?
+        } else {
+            self.iteration(&names, source, None, ops)?
+        };
+        let pair = paired.then(|| [self.names[&names[0]].clone(), self.names[&names[1]].clone()]);
+        let item = if let Some(pair) = &pair {
+            Local {
+                slot: pair[0].slot,
+                ty: crate::sum::tuple(pair.iter().map(|p| p.ty.clone()).collect()),
+                mutable: false,
+            }
+        } else {
+            self.names[&names[0]].clone()
+        };
+        let mut plan = Pipeline {
+            iteration,
+            item,
+            pair,
+            resources: vec![],
+            loans: vec![],
+            depth: 0,
+        };
+        self.pipeline_split_pair(&mut plan, &source.at)?;
+        Ok(plan)
+    }
+
+    fn pipeline_split_pair(&mut self, plan: &mut Pipeline, at: &Token) -> Result<()> {
+        if plan.pair.is_some() {
+            return Ok(());
+        }
+        let Ty::Enum(tuple) = &plan.item.ty else {
+            return Ok(());
+        };
+        if !tuple.tuple() || tuple.get().variants[0].fields.len() != 2 {
+            return Ok(());
+        }
+        let mut fields = Vec::new();
+        for ty in &tuple.get().variants[0].fields {
+            let slot = self.slot(ty.clone(), at)?;
+            fields.push(Local {
+                slot,
+                ty: ty.clone(),
+                mutable: false,
+            });
+            if ty.managed() {
+                plan.iteration.step.push(Op::DropLocal(slot));
+            }
+        }
+        plan.iteration
+            .body
+            .extend([Op::MoveLocal(plan.item.slot), Op::Split(tuple.clone(), 0)]);
+        plan.iteration
+            .body
+            .extend(fields.iter().rev().map(|f| Op::StoreLocal(f.slot)));
+        plan.pair = Some(fields.try_into().unwrap_or_else(|_| unreachable!()));
+        Ok(())
+    }
+
+    /// Reconstitute an owned pair only at a consumer that stores the item.
+    fn pipeline_pack_pair(&mut self, plan: &mut Pipeline, at: &Token) -> Result<()> {
+        let Some(fields) = plan.pair.take() else {
+            return Ok(());
+        };
+        if let Some(barrier) = fields.iter().find_map(|f| f.ty.storage_barrier()) {
+            return Err(
+                at.error(barrier.message("a pipeline item tuple; map to owned values first"))
+            );
+        }
+        let ty = crate::sum::tuple(fields.iter().map(|f| f.ty.clone()).collect());
+        let Ty::Enum(tuple) = &ty else { unreachable!() };
+        let slot = self.slot(ty.clone(), at)?;
+        for field in fields {
+            plan.iteration.body.push(if field.ty.affine() {
+                Op::MoveLocal(field.slot)
+            } else {
+                Op::LoadLocal(field.slot)
+            });
+        }
+        plan.iteration.body.extend([
+            Op::Enum(crate::sum::EnumOp::New(tuple.clone(), 0)),
+            Op::StoreLocal(slot),
+        ]);
+        plan.iteration.step.push(Op::DropLocal(slot));
+        plan.iteration.target = slot;
+        plan.item = Local {
+            slot,
+            ty,
+            mutable: false,
+        };
+        Ok(())
+    }
+
+    fn pipeline_arguments(&mut self, plan: &Pipeline, predicate: bool, at: &Token) -> Vec<Expr> {
+        let fields = plan
+            .pair
+            .as_ref()
+            .map_or_else(|| vec![plan.item.clone()], |p| p.to_vec());
+        fields
+            .into_iter()
+            .map(|field| {
+                let name = format!("<pipeline value {}>", field.slot);
+                let borrowed = matches!(field.ty, Ty::Ref(..));
+                let mutable_reference = matches!(field.ty, Ty::Ref(_, true));
+                self.bind(name.clone(), field);
+                let value = Expr {
+                    at: at.clone(),
+                    kind: Expression::Name(name),
+                };
+                if predicate && mutable_reference {
+                    Expr {
+                        at: at.clone(),
+                        kind: Expression::Unary(
+                            "&".into(),
+                            Box::new(Expr {
+                                at: at.clone(),
+                                kind: Expression::Unary("*".into(), Box::new(value)),
+                            }),
+                        ),
+                    }
+                } else if predicate && !borrowed {
+                    Expr {
+                        at: at.clone(),
+                        kind: Expression::Unary("&".into(), Box::new(value)),
+                    }
+                } else {
+                    value
+                }
+            })
+            .collect()
+    }
+
+    /// A zip arm must produce one *accepted* item before the other arm advances.
+    /// Adapter continues belong to this pull loop, not to the outer zip loop.
+    /// Pair-valued arms must be packed before calling this helper.
+    fn pipeline_pull(&mut self, plan: &mut Pipeline, at: &Token) -> Result<()> {
+        let ready = self.slot(Ty::Bool, at)?;
+        // The pending slot is initialized even on exhaustion. Extract the item
+        // only in the outer body's successful path, just like generator next().
+        // This internal option may carry a reference protected by the source's
+        // loan; it never becomes a user-visible stored reference.
+        let option = crate::sum::option(plan.item.ty.clone());
+        let Ty::Enum(sum) = &option else {
+            unreachable!()
+        };
+        let pending = self.slot(option.clone(), at)?;
+        let absent = vec![
+            Op::Enum(crate::sum::EnumOp::New(sum.clone(), 0)),
+            Op::StoreLocal(pending),
+        ];
+        let mut body = std::mem::take(&mut plan.iteration.body);
+        body.extend(self.pipeline_value_ops(plan));
+        body.extend([
+            Op::Enum(crate::sum::EnumOp::New(sum.clone(), 1)),
+            Op::StoreLocal(pending),
+        ]);
+        body.extend([Op::PushBool(true), Op::StoreLocal(ready), Op::Break]);
+        let mut condition = absent.clone();
+        condition.extend([
+            Op::PushBool(false),
+            Op::StoreLocal(ready),
+            Op::Loop {
+                condition: std::mem::take(&mut plan.iteration.condition).into(),
+                body: body.into(),
+            },
+            Op::LoadLocal(ready),
+        ]);
+        plan.iteration.condition = condition;
+        plan.iteration.absent.extend(absent);
+        plan.iteration.body = vec![
+            Op::MoveLocal(pending),
+            Op::Enum(crate::sum::EnumOp::Take(sum.clone(), 1, 0)),
+            Op::StoreLocal(plan.item.slot),
+        ];
+        Ok(())
+    }
+
+    fn pipeline_pair_adapter(
+        &mut self,
+        mut left: Pipeline,
+        method: &str,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Pipeline> {
+        if (method == "enumerate" && args.len() > 1) || (method == "zip" && args.len() != 1) {
+            return Err(at.error(if method == "zip" {
+                "zip requires one other iterable"
+            } else {
+                "enumerate takes an optional i64 start"
+            }));
+        }
+        self.pipeline_pack_pair(&mut left, at)?;
+        let fields = if method == "enumerate" {
+            let counter = self.slot(Ty::I64, at)?;
+            let first = self.slot(Ty::Bool, at)?;
+            if let Some(start) = args.first() {
+                let start = match &start.kind {
+                    Expression::NamedArgument(name, value) if name == "start" => value,
+                    _ => start,
+                };
+                let actual = self.expr_expected(start, Some(Ty::I64), ops)?;
+                self.same(actual, Some(Ty::I64), &start.at)?;
+            } else {
+                ops.push(Op::PushInt(Value::I64(0)));
+            }
+            ops.extend([
+                Op::StoreLocal(counter),
+                Op::PushBool(true),
+                Op::StoreLocal(first),
+            ]);
+            let mut advance = Vec::new();
+            self.mark(at, &mut advance);
+            advance.extend([
+                Op::LoadLocal(counter),
+                Op::PushInt(Value::I64(1)),
+                Op::Add,
+                Op::StoreLocal(counter),
+            ]);
+            left.iteration.body.extend([
+                Op::LoadLocal(first),
+                branch(vec![Op::PushBool(false), Op::StoreLocal(first)], advance),
+            ]);
+            [
+                Local {
+                    slot: counter,
+                    ty: Ty::I64,
+                    mutable: false,
+                },
+                left.item.clone(),
+            ]
+        } else {
+            let mut right = self.pipeline_source(&args[0], ops)?;
+            self.pipeline_pack_pair(&mut right, at)?;
+            self.pipeline_pull(&mut left, at)?;
+            self.pipeline_pull(&mut right, at)?;
+            let mut absent = right.iteration.absent.clone();
+            absent.push(Op::PushBool(false));
+            left.iteration
+                .condition
+                .push(branch(right.iteration.condition, absent));
+            left.iteration.absent.extend(right.iteration.absent);
+            left.iteration.body.extend(right.iteration.body);
+            left.iteration.cleanup.extend(right.iteration.cleanup);
+            left.iteration.step.extend(right.iteration.step);
+            left.iteration.exact_len = None;
+            left.resources.extend(right.resources);
+            left.loans.extend(right.loans);
+            [left.item.clone(), right.item]
+        };
+        let types: Vec<_> = fields.iter().map(|f| f.ty.clone()).collect();
+        if Ty::identity_names_exceed_limit(&types) || types.iter().any(|ty| ty.layout_depth() >= 64)
+        {
+            return Err(at.error("type nesting exceeds the implementation limit of 64"));
+        }
+        left.item.ty = crate::sum::tuple(types);
+        left.pair = Some(fields);
+        Ok(left)
+    }
+
+    fn pipeline_value_ops(&self, plan: &Pipeline) -> Vec<Op> {
+        let load = |local: &Local| {
+            if local.ty.affine() {
+                Op::MoveLocal(local.slot)
+            } else {
+                Op::LoadLocal(local.slot)
+            }
+        };
+        if let Some(pair) = &plan.pair {
+            let Ty::Enum(tuple) = &plan.item.ty else {
+                unreachable!()
+            };
+            vec![
+                load(&pair[0]),
+                load(&pair[1]),
+                Op::Enum(crate::sum::EnumOp::New(tuple.clone(), 0)),
+            ]
+        } else {
+            vec![load(&plan.item)]
         }
     }
 
@@ -280,11 +601,33 @@ impl Lower<'_> {
         e: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
-        let plan = self.pipeline(e, ops)?;
-        if names.len() != 1 {
-            return Err(e.at.error("pipeline pair bindings are not implemented yet"));
+        let mut plan = self.pipeline(e, ops)?;
+        if names.len() == 2
+            && let Some(pair) = &plan.pair
+        {
+            if names[0] == names[1] && names[0] != "_" {
+                return Err(e.at.error("duplicate unpacking binding"));
+            }
+            for (name, local) in names.iter().zip(pair) {
+                if name != "_" {
+                    self.bind(name.clone(), local.clone());
+                }
+            }
+        } else if names.len() == 1 {
+            if plan
+                .pair
+                .as_ref()
+                .is_some_and(|pair| pair.iter().any(|field| matches!(field.ty, Ty::Ref(..))))
+            {
+                return Err(e
+                    .at
+                    .error("a borrowed pair pipeline requires two unpacked bindings"));
+            }
+            self.pipeline_pack_pair(&mut plan, &e.at)?;
+            self.bind(names[0].clone(), plan.item.clone());
+        } else {
+            return Err(e.at.error("pipeline binding arity does not match item"));
         }
-        self.bind(names[0].clone(), plan.item.clone());
         // Consumers own every source/callback slot, including slots initialized
         // earlier by a local pipeline binding.
         let mut cleanup = Vec::new();
@@ -307,7 +650,7 @@ impl Lower<'_> {
         let start = self.locals.len();
         let saved = self.names.clone();
         let plan = self.pipeline(base, ops)?;
-        let item = self.pipeline_item(&plan, &base.at);
+        let items = self.pipeline_arguments(&plan, false, &base.at);
         let mut body = plan.iteration.body.clone();
         let output = match (name, args) {
             ("fold", [initial, callback]) => {
@@ -326,13 +669,13 @@ impl Lower<'_> {
                 let callback = self.pipeline_callback(callback, ops)?;
                 let actual = self.pipeline_call(
                     &callback,
-                    &[
-                        Expr {
-                            at: initial.at.clone(),
-                            kind: Expression::Name(acc),
-                        },
-                        item,
-                    ],
+                    &[Expr {
+                        at: initial.at.clone(),
+                        kind: Expression::Name(acc),
+                    }]
+                    .into_iter()
+                    .chain(items.clone())
+                    .collect::<Vec<_>>(),
                     &mut body,
                 )?;
                 self.same(actual, Some(ty.clone()), &callback.at)?;
@@ -356,13 +699,13 @@ impl Lower<'_> {
                 let mut call = Vec::new();
                 let result = self.pipeline_call(
                     &callback,
-                    &[
-                        Expr {
-                            at: initial.at.clone(),
-                            kind: Expression::Name(acc_name),
-                        },
-                        item,
-                    ],
+                    &[Expr {
+                        at: initial.at.clone(),
+                        kind: Expression::Name(acc_name),
+                    }]
+                    .into_iter()
+                    .chain(items.clone())
+                    .collect::<Vec<_>>(),
                     &mut call,
                 )?;
                 let Some(ty @ Ty::Enum(_)) = result else {
@@ -407,7 +750,7 @@ impl Lower<'_> {
             }
             ("try_for_each", [callback]) => {
                 let callback = self.pipeline_callback(callback, ops)?;
-                let result = self.pipeline_call(&callback, &[item], &mut body)?;
+                let result = self.pipeline_call(&callback, &items, &mut body)?;
                 let Some(ty @ Ty::Enum(_)) = result else {
                     return Err(callback
                         .at
@@ -451,15 +794,8 @@ impl Lower<'_> {
             }
             ("any" | "all" | "find", [callback]) => {
                 let callback = self.pipeline_callback(callback, ops)?;
-                let predicate_item = if matches!(plan.item.ty, Ty::Ref(..)) {
-                    item
-                } else {
-                    Expr {
-                        at: base.at.clone(),
-                        kind: Expression::Unary("&".into(), Box::new(item)),
-                    }
-                };
-                let actual = self.pipeline_call(&callback, &[predicate_item], &mut body)?;
+                let predicate_items = self.pipeline_arguments(&plan, true, &base.at);
+                let actual = self.pipeline_call(&callback, &predicate_items, &mut body)?;
                 self.same(actual, Some(Ty::Bool), &callback.at)?;
                 if name == "find" {
                     if let Some(barrier) = plan.item.ty.storage_barrier() {
@@ -476,19 +812,13 @@ impl Lower<'_> {
                         Op::Enum(crate::sum::EnumOp::New(option.clone(), 0)),
                         Op::StoreLocal(slot),
                     ]);
-                    body.push(branch(
-                        vec![
-                            if plan.item.ty.affine() {
-                                Op::MoveLocal(plan.item.slot)
-                            } else {
-                                Op::LoadLocal(plan.item.slot)
-                            },
-                            Op::Enum(crate::sum::EnumOp::New(option.clone(), 1)),
-                            Op::StoreLocal(slot),
-                            Op::Break,
-                        ],
-                        vec![],
-                    ));
+                    let mut found = self.pipeline_value_ops(&plan);
+                    found.extend([
+                        Op::Enum(crate::sum::EnumOp::New(option.clone(), 1)),
+                        Op::StoreLocal(slot),
+                        Op::Break,
+                    ]);
+                    body.push(branch(found, vec![]));
                     Some((ty, slot))
                 } else {
                     let slot = self.slot(Ty::Bool, &base.at)?;
@@ -543,24 +873,17 @@ impl Lower<'_> {
                 ];
                 let actual = self.pipeline_call(
                     &callback,
-                    &[
-                        Expr {
-                            at: base.at.clone(),
-                            kind: Expression::Name(acc_name),
-                        },
-                        item,
-                    ],
+                    &[Expr {
+                        at: base.at.clone(),
+                        kind: Expression::Name(acc_name),
+                    }]
+                    .into_iter()
+                    .chain(items.clone())
+                    .collect::<Vec<_>>(),
                     &mut combine,
                 )?;
                 self.same(actual, Some(plan.item.ty.clone()), &callback.at)?;
-                body.push(branch(
-                    combine,
-                    vec![if plan.item.ty.affine() {
-                        Op::MoveLocal(plan.item.slot)
-                    } else {
-                        Op::LoadLocal(plan.item.slot)
-                    }],
-                ));
+                body.push(branch(combine, self.pipeline_value_ops(&plan)));
                 body.extend([
                     Op::Enum(crate::sum::EnumOp::New(option.clone(), 1)),
                     Op::StoreLocal(slot),
@@ -569,7 +892,7 @@ impl Lower<'_> {
             }
             ("for_each", [callback]) => {
                 let callback = self.pipeline_callback(callback, ops)?;
-                let actual = self.pipeline_call(&callback, &[item], &mut body)?;
+                let actual = self.pipeline_call(&callback, &items, &mut body)?;
                 self.same(actual, None, &callback.at)?;
                 None
             }
@@ -611,13 +934,14 @@ impl Lower<'_> {
             )));
         }
         let target = expected.as_ref().and_then(result_payload);
-        let Some(target @ (Ty::List(_) | Ty::Set(_))) = target else {
+        let Some(target @ (Ty::List(_) | Ty::Set(_) | Ty::Dict(..))) = target else {
             return Err(base.at.error(format!(
-                "{name} requires an expected list[T] or set[T] collection type"
+                "{name} requires an expected list[T] or set[T] or dict[K, V] collection type"
             )));
         };
         let start = self.locals.len();
-        let plan = self.pipeline(base, ops)?;
+        let mut plan = self.pipeline(base, ops)?;
+        self.pipeline_pack_pair(&mut plan, &base.at)?;
         let (item, item_error) = if name == "try_collect" {
             let Some(item) = result_payload(&plan.item.ty) else {
                 return Err(base.at.error("try_collect requires Result items"));
@@ -629,7 +953,11 @@ impl Lower<'_> {
         } else {
             (plan.item.ty.clone(), None)
         };
-        self.same(Some(item), target.element(), &base.at)?;
+        let expected_item = match &target {
+            Ty::Dict(k, v) => Some(crate::sum::tuple(vec![(**k).clone(), (**v).clone()])),
+            _ => target.element(),
+        };
+        self.same(Some(item), expected_item, &base.at)?;
         let result =
             self.collect_iteration(plan.iteration.clone(), target, item_error, &base.at, ops)?;
         self.finish_pipeline(&plan, ops);

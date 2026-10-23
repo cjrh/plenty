@@ -1,7 +1,9 @@
 # Enumeration and paired iteration
 
 `enumerate(iterable[, start: i64])` and `zip(left, right)` are intrinsic
-sources for `for` loops and comprehensions. They compose the existing loop
+sources for `for` loops and comprehensions, and can start local
+[pipelines](06-pipelines.md). Pipelines also have `.enumerate(start=0)` and
+`.zip(right)` methods. They compose the existing loop
 plans and allocate no iterator object, snapshot, or item buffer. Inputs
 evaluate once in source order; both zip inputs evaluate even if one is empty.
 Owned items use inline tuples, allowing one tuple binding or two unpacked
@@ -23,11 +25,12 @@ Borrowed elements retain their reference types and source loans. Such adapters
 require two unpacked bindings and bind the references directly, without
 constructing a tuple containing references. Aliasing exclusive inputs and
 invalidating mutation remain errors. An inner borrowed adapter cannot be
-used as an outer adapter's tuple-valued input. `dictionary.items()` retains
-its separate two-binding contract and is not an adapter input.
+used as an outer adapter's tuple-valued input. `dictionary.items()` yields
+two references; it can start a pipeline but cannot become a nested tuple
+containing references.
 
 The calls do not construct first-class iterators, support arbitrary iterator
-protocols, or implement keyword arguments or zip strictness. Outside a loop
-source they report this restriction explicitly. [Reverse traversal](05-reverse-and-reduce.md)
+protocols, or implement zip strictness. Pipeline enumeration also accepts the
+`start` keyword. [Reverse traversal](05-reverse-and-reduce.md)
 can supply either input. A user function or callable
 binding named `enumerate` or `zip` retains its normal call behavior.

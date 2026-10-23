@@ -1,7 +1,10 @@
 # Fluent iterator pipelines
 
-**Status: Initial serial core implemented; later serial operations and stages
-remain proposed.** The [pipeline reference](../design/language/09-iteration/06-pipelines.md)
+**Status: Serial core, pair callbacks and dictionary collection implemented;
+composition, lending and parallel stages remain proposed.** Bounded native
+substitution of scalar leaf callbacks also covers named functions and immutable
+scalar captures; it addresses the original performance gap (issue #399).
+The [pipeline reference](../design/language/09-iteration/06-pipelines.md)
 lists the supported adapters, terminals, ownership rules and current limits.
 Current iteration is defined by
 [iteration and generators](../design/language/09-iteration/index.md),
@@ -327,7 +330,7 @@ top: list[str] = scores.items()
     .collect()?
 
 flagged: list[i64] = enumerate(&rows)
-    .filter(def(i: i64, row: &Row) -> bool: row.bad)
+    .filter(def(i: &i64, row: &Row) -> bool: row.bad)
     .map(def(i: i64, row: &Row) -> i64: i)
     .collect()?
 ```
@@ -339,6 +342,12 @@ unpack nested pairs today either. A `map` that returns an owned tuple
 produces a pair item, so the next callback takes two parameters. `collect()`
 into a `dict[K, V]` target consumes owned pairs directly. If B11 later adds tuples of references, option 1
 stays valid and nothing has to change.
+
+The accumulator is separate from the item spreading rule: pair `fold` and
+`try_fold` callbacks take `(accumulator, left, right)`, even when the accumulator
+is a tuple. Pair `reduce` similarly takes `(accumulator_pair, left, right)`.
+Predicates borrow each component; owned components therefore become `&T` and
+borrowed `&T` / `&mut T` components become `&T` for the predicate call.
 
 ### Closure parameter types
 
@@ -798,7 +807,10 @@ scope, with lending for helpers, ships the useful part now.
    at the consumer,
    with the verification suite above. Issue #371, fixed, removed the stored-range
    slow path that would have misled the benchmarks.
-2. **Stage 2 — composition.** `chain`, `flat_map`, closure-literal splicing,
+   Small scalar leaf callback substitution and SSA scalar captures are also
+   implemented; [measurements](../development/profiling.md#serial-pipeline-callbacks)
+   cover the original workload. General callback-body splicing remains separate.
+2. **Stage 2 — composition.** `chain`, `flat_map`, broader closure-body splicing,
    comprehensions lowered through the pipeline plan, `std.math` pipeline
    helpers, tutorial rewrite and `std.iter` deprecation.
 3. **Stage 3 — lending.** `&mut Iter[T]` parameters specialized per pipeline

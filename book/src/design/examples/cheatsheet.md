@@ -380,6 +380,9 @@ with a loop or a terminal such as `fold(initial, callback)` or `count()`.
 Borrowed sources and callback captures stay borrowed until the pipeline is
 consumed. Pipelines cannot leave their creating scope. See
 [local iterator pipelines](../language/09-iteration/06-pipelines.md).
+`enumerate` and `zip` produce pair items: mapping takes two parameters,
+predicates borrow both, and folds take the accumulator followed by the pair's
+components. Collect owned pairs into an expected `dict[K, V]` with `collect()`.
 
 ```plenty
 def add(total: i64, value: i64) -> i64:
