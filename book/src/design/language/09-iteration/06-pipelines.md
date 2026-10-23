@@ -42,6 +42,8 @@ are not implemented.
 | `take(n)` | Emit at most `n` items; zero or negative `n` advances nothing |
 | `skip(n)` | Discard the first `n` items; zero or negative `n` skips nothing |
 | `take_while(f)` | Stop at the first false shared-reference predicate, dropping that item |
+| `enumerate(start=0)` | Emit the checked `i64` index and item; count accepted items at this point in the chain |
+| `zip(right)` | Pull one accepted item from each input, left first; stop when either ends |
 
 Predicates receive `&T` for owned `T`, borrowed `&T`, and mutable `&mut T`
 items. Mapping receives the item itself. Callback parameters and results require
@@ -49,9 +51,20 @@ explicit types. Named functions and reusable closures are accepted; captures
 may be owned or borrowed. One-shot closures and indirect function values are
 rejected. `map` cannot currently return references.
 
-The implemented core handles single item bindings. Pipeline pair callbacks and
-chained `enumerate`/`zip` are not implemented; use existing paired loops instead.
-There is a 64-adapter limit, alongside the ordinary expression nesting limit.
+Free `enumerate(source[, start])` and `zip(left, right)` also start pipelines.
+`dictionary.items()` can be used directly in a chain or through `iter`.
+A pair item spreads into two callback parameters: `map` and `for_each` receive
+the components themselves; predicates receive shared references to both.
+`fold` and `try_fold` take `(accumulator, left, right)`, and `reduce` takes
+`(accumulator_pair, left, right)`. The accumulator is always one value, even
+when it is a tuple. Only the item's top level spreads. Owned nested pairs are
+ordinary tuples; a nested pair containing references cannot be formed.
+
+Zip pulls through each arm's filters and skips independently. If the right
+arm ends, a left item may already have been consumed; that unmatched item is
+dropped. Ending a consumer drops both arms and their pending items. Enumeration
+permits a final index of `i64.MAX`, trapping only if another item is available.
+There is a 64-adapter/type-depth limit, alongside expression nesting limits.
 
 ## Terminals
 
@@ -65,7 +78,7 @@ There is a 64-adapter limit, alongside the ordinary expression nesting limit.
 | `for_each(f)` | Call `(Item) -> ()` for each item |
 | `try_fold(initial, f)` | Left fold with `(A, Item) -> Result[A, E]`, stopping at the callback's first error |
 | `try_for_each(f)` | Call `(Item) -> Result[(), E]`, stopping at the callback's first error |
-| `collect()` | Build an expected `list[T]` or `set[T]`; return `Result[Collection, AllocError]` |
+| `collect()` | Build an expected `list[T]`, `set[T]`, or `dict[K, V]`; return `Result[Collection, AllocError]` |
 | `try_collect()` | Collect `Result[T, E]` items, returning `Result[Collection, E | AllocError]` |
 
 `find` and `reduce` need an item that can be stored in an `Option`; map a
@@ -80,7 +93,9 @@ result: Result[list[i64], AllocError] = iter(range(10)).map(square).collect()
 ```
 
 Borrowed items must be mapped to owned values before collection. Dictionary
-collection awaits pipeline pair items. A failed collection drops its partial
+collection consumes owned `(K, V)` pairs; the last value for a duplicate key
+wins. `try_collect` into a dictionary needs `Result[(K, V), E]` items.
+A failed collection drops its partial
 output and the remaining owned source. `try_collect` stops at the first item
 error. `try_fold` and `try_for_each` instead stop on callback errors: their
 callbacks must explicitly handle any `Result` items. They add no allocation
@@ -91,11 +106,16 @@ error of their own.
 The pipeline itself adds no heap allocation or per-adapter generator frame.
 Source expressions, callbacks, and destructors retain their own costs. A
 generator source still pays its normal resume cost. Collecting reserves once
-for a known-length range or list pipeline containing only `map`, `take`, or
-`skip`; a filter or unknown-length source grows like a comprehension. Named callbacks and concrete
-closure callbacks are direct calls; closure bodies are not spliced into the
-loop yet. Therefore loop fusion does **not** promise the performance of a
-hand-written loop containing the callback expressions inline.
+for a known-length range or list pipeline containing only `map`, `take`,
+`skip`, or `enumerate`; a filter, zip, or unknown-length source grows like a comprehension.
+Optimized native code substitutes small, straight-line scalar leaf functions
+and closures at their call sites (at most 24 meaningful operations). Immutable
+scalar captures can stay in registers, including through local copies and
+assignments. Arithmetic checks and source locations are preserved. Larger
+callbacks, control flow, mutable captures and other capture types retain direct
+calls; fusion alone does not guarantee inline-loop performance for every body.
+The reproducible [benchmark](../../../development/profiling.md#serial-pipeline-callbacks)
+covers named callbacks, closure literals and scalar captures.
 
 The [proposal](../../../proposals/fluent-iterators.md) describes the broader
 design; [B75](../../../backlog.md) tracks the remaining stages. `std.iter`

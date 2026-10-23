@@ -32,6 +32,12 @@ LOOP = """    mut total = 0
 """
 PIPELINE = """    iter(range(stop)).filter(even).map(square).fold(0, add)
 """
+CLOSURE = """    iter(range(stop)).filter(def(n: &i64) -> bool: *n % 2 == 0).map(def(n: i64) -> i64: (n * n) % 1000).fold(0, def(a: i64, b: i64) -> i64: a + b)
+"""
+CAPTURED = """    parity = 2
+    modulus = 1000
+    iter(range(stop)).filter(def [parity](n: &i64) -> bool: *n % parity == 0).map(def [modulus](n: i64) -> i64: (n * n) % modulus).fold(0, add)
+"""
 
 
 def measured(command, env):
@@ -46,6 +52,7 @@ def main():
     parser.add_argument("--items", type=int, default=20_000_000)
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--units", type=int, default=100)
+    parser.add_argument("--cases", nargs="+", choices=["named", "closure", "captured"], default=["named", "closure", "captured"])
     args = parser.parse_args()
     if min(args.items, args.runs, args.units) < 1:
         parser.error("items, runs and units must be positive")
@@ -55,26 +62,39 @@ def main():
         root = Path(directory)
         timings = {}
         expected = None
-        for label, body in [("loop", LOOP), ("pipeline", PIPELINE)]:
+        cases = [("loop", LOOP)] + [(label, {"named": PIPELINE, "closure": CLOSURE, "captured": CAPTURED}[label]) for label in args.cases]
+        executables = {}
+        for label, body in cases:
             source = root / f"{label}.plenty"
             executable = root / label
             source.write_text(DECLARATIONS + "def work(stop: i64) -> i64:\n" + body
                               + f"def main() -> ():\n    print(work({args.items})).unwrap()\n")
             compile_time, _ = measured([compiler, "--release", "--compile", str(source), "-o", str(executable)], env)
-            results = [measured([str(executable)], env) for _ in range(args.runs)]
-            if expected is None:
-                expected = results[0][1]
-            if any(stdout != expected for _, stdout in results):
-                raise RuntimeError(f"{label} produced a different result")
-            timings[label] = statistics.median(duration for duration, _ in results)
-            print(f"{label}: native median={timings[label]:.6f}s compile={compile_time:.6f}s result={expected.decode().strip()}")
+            executables[label] = executable
+            timings[label] = []
+            print(f"{label}: compile={compile_time:.6f}s")
             source.write_text(DECLARATIONS + "".join(
                 f"def work_{unit}(stop: i64) -> i64:\n{body}"
                 for unit in range(args.units)
             ) + "def main() -> ():\n    print(work_0(10)).unwrap()\n")
             checking = [measured([compiler, "--check", str(source)], env)[0] for _ in range(args.runs)]
             print(f"{label}: cold check {args.units} functions median={statistics.median(checking):.6f}s")
-        print(f"pipeline/loop runtime ratio={timings['pipeline'] / timings['loop']:.3f}")
+        # Alternate traversal order to reduce bias from frequency/thermal drift.
+        for run in range(args.runs):
+            order = cases if run % 2 == 0 else list(reversed(cases))
+            for label, _ in order:
+                duration, stdout = measured([str(executables[label])], env)
+                if expected is None:
+                    expected = stdout
+                if stdout != expected:
+                    raise RuntimeError(f"{label} produced a different result")
+                timings[label].append(duration)
+        medians = {label: statistics.median(samples) for label, samples in timings.items()}
+        for label, _ in cases:
+            print(f"{label}: native median={medians[label]:.6f}s result={expected.decode().strip()}")
+            print(f"{label}: native samples=" + ",".join(f"{sample:.6f}" for sample in timings[label]))
+            if label != "loop":
+                print(f"{label}/loop runtime ratio={medians[label] / medians['loop']:.3f}")
 
 
 if __name__ == "__main__":

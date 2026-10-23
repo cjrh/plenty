@@ -288,3 +288,51 @@ was not reserved or frequency-locked, so small timing differences in unchanged
 controls are noise rather than evidence for tuning smaller matches. This run
 does not measure allocation or peak memory, nor justify a broader sparse-table
 policy.
+
+## Serial pipeline callbacks
+
+`scripts/bench_pipelines.py` compares an inline range/filter/map/fold loop with
+fused pipelines using named callbacks, closure literals, and immutable scalar
+captures. All variants do the same checked arithmetic: filter even values,
+square each accepted value modulo 1,000, and add the results. Run:
+
+```sh
+python3 -B scripts/bench_pipelines.py target/debug/plenty --items 100000000 --runs 7
+```
+
+The compiler executable can be a debug build: the harness requests optimized
+native output with `--release`, disables caches, checks every result, interleaves
+executables and reverses their order on alternate rounds. Compilation and cold
+checking of 100 separate functions are measured separately. This is a repeatable
+measurement tool, not a timing-sensitive unit test.
+
+Issue #399 recorded the original named-callback pipeline at 1.906 times its
+inline-loop baseline. A fresh pre-change run on this host measured 0.160906 s
+for the inline loop and 0.283777 s for the pipeline (1.764 times, medians of
+seven executions over 100 million items). The direct callback calls survived
+fusion. Bounded scalar leaf substitution removes those calls, while SSA mirrors
+of immutable scalar captures expose constant divisors to native optimization.
+
+Only straight-line scalar leaf bodies with at most 24 meaningful operations
+qualify. Capture mirrors follow local assignments and joins; exclusive borrowing
+disables them for the affected local. Checked arithmetic keeps the original
+callee source location. Debug code and larger or effectful callbacks retain
+their existing behavior. Broader callback substitution needs separate evidence.
+
+On the same host, a quiet post-change run over 100 million items (seven
+interleaved executions per variant) measured:
+
+| Variant | Native median | Relative to inline loop | Cold check, 100 functions | Single-program compile |
+|---|---:|---:|---:|---:|
+| Inline loop | 0.156573 s | 1.000 | 0.011199 s | 0.046002 s |
+| Named callbacks | 0.155743 s | 0.995 | 0.011768 s | 0.043120 s |
+| Closure literals | 0.169209 s | 1.081 | 0.023402 s | 0.042156 s |
+| Scalar captures | 0.154756 s | 0.988 | 0.023753 s | 0.044352 s |
+
+All executions returned `24500000000`; all three pipeline forms meet the
+proposal's within-10% runtime target for this workload. Closure literals still
+cost about 8% here, and checking 100 closure-heavy functions costs roughly twice
+the named-function variant. Single-program compilation is one observation per
+variant, not evidence of a compilation speedup. The machine was not frequency-
+locked or CPU-pinned; small runtime differences around parity are noise. These
+results do not promise the same ratios for larger, branching or mutable callbacks.

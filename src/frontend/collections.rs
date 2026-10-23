@@ -1015,7 +1015,7 @@ impl Lower<'_> {
         Ok(())
     }
 
-    fn dictionary_iteration(
+    pub(super) fn dictionary_iteration(
         &mut self,
         names: &[String],
         base: &Expr,
@@ -1136,9 +1136,6 @@ impl Lower<'_> {
         hint: Option<Ty>,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
-        if self.is_pipeline(iterable) {
-            return self.pipeline_iteration(names, iterable, ops);
-        }
         if let Expression::Call(function, args) = &ungroup(iterable).kind
             && matches!(function.as_str(), "enumerate" | "zip" | "reversed")
             && !self.names.contains_key(function)
@@ -1152,7 +1149,15 @@ impl Lower<'_> {
                 };
                 return self.iteration_source(names, source, hint, true, ops);
             }
+            if self.yield_type.is_none() {
+                return self.pipeline_iteration(names, iterable, ops);
+            }
             return self.iteration_adapter(names, function, args, &iterable.at, ops);
+        }
+        // Raw adapter loops inside generators retain their legacy lowering.
+        // Other adapters use pull plans so filters advance each zip arm alone.
+        if dictionary_items(iterable).is_none() && self.is_pipeline(iterable) {
+            return self.pipeline_iteration(names, iterable, ops);
         }
         self.iteration_source(names, iterable, hint, false, ops)
     }
@@ -3770,7 +3775,11 @@ impl Lower<'_> {
             let Ty::Enum(item_result) = item_ty else {
                 unreachable!()
             };
-            let element = self.slot(target_ty.element().unwrap(), at)?;
+            let item_type = match &target_ty {
+                Ty::Dict(k, v) => crate::sum::tuple(vec![(**k).clone(), (**v).clone()]),
+                _ => target_ty.element().unwrap(),
+            };
+            let element = self.slot(item_type, at)?;
             let mut failed = vec![
                 Op::MoveLocal(target),
                 Op::Enum(EnumOp::Take(item_result.clone(), 1, 0)),
@@ -3823,6 +3832,14 @@ impl Lower<'_> {
             } else {
                 Op::LoadLocal(target)
             },
+        ]);
+        if matches!(target_ty, Ty::Dict(..)) {
+            let Ty::Enum(tuple) = &self.locals[target as usize - self.parameters] else {
+                unreachable!()
+            };
+            body.push(Op::Split(tuple.clone(), 0));
+        }
+        body.extend([
             Op::Collection(CollectionOp::TryInsert(target_ty)),
             Op::StoreLocal(pending),
             Op::LoadLocal(pending),
@@ -3877,7 +3894,7 @@ fn comprehension_hint(names: &[String], entries: &[(Expr, Option<Expr>)], ty: Op
     }
 }
 
-fn dictionary_items(iterable: &Expr) -> Option<(&Expr, bool)> {
+pub(super) fn dictionary_items(iterable: &Expr) -> Option<(&Expr, bool)> {
     let mut e = ungroup(iterable);
     let mut mutable = false;
     if let Expression::Unary(op, base) = &e.kind {

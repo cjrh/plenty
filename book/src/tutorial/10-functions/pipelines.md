@@ -62,6 +62,29 @@ For an infallible transformation, use `collect()` with the same annotation.
 `try_fold` and `try_for_each` propagate errors returned by their callbacks;
 they do not automatically unwrap `Result` items.
 
+Use `enumerate` when a transformation needs an index, or `zip` to walk two
+sources together. Their callbacks take two item parameters. Predicates borrow
+both components; mapping receives the index by value and the borrowed item:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    names = ["Ada", "Bob", "Cal"]?
+    indexed = iter(&names).enumerate(1)
+    selected = indexed.filter(def(i: &i64, name: &str) -> bool: *i != 2)
+    labels: dict[i64, str] = selected.map(def(i: i64, name: &str) -> Result[(i64, str), AllocError]: Ok((i, copy(name)?))).try_collect()?
+    print(labels[1], labels[3], len(names))?
+    Ok(())
+```
+```output
+Ada Cal 3
+```
+
+Copying a name can fail, so `try_collect` propagates that error as well as
+dictionary allocation errors. The successful owned pairs become dictionary entries. Repeated keys
+keep the last value. A pair fold takes the accumulator followed by both item
+components; a tuple accumulator stays a single parameter. Zip stops at the
+shorter input, pulling the left first, so it may consume one extra left item.
+
 Keep a plain loop for several statements or error propagation, and use a
 comprehension when building a list is the clearest form. Pipelines are local:
 return an owned collection or generator when values must cross a function

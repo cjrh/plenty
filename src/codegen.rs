@@ -92,6 +92,8 @@ mod output;
 mod references;
 mod relax;
 pub(crate) use relax::relax_local_addresses;
+mod leaf_calls;
+mod scalar_captures;
 mod sites;
 mod small_calls;
 mod sorting;
@@ -673,6 +675,9 @@ fn object_module(
     let mut user_fns: HashMap<String, UserFn> = HashMap::default();
     let mut bodies = Vec::new();
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
+    if build.optimize {
+        leaf_calls::prepare(&bodies, &mut user_fns);
+    }
     sites::mark_context_preserving(&bodies, &mut user_fns);
     runtime.drop_hooks = user_fns
         .iter()
@@ -1461,6 +1466,8 @@ fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, (
 /// allocates one of these per `DefineFn` reachable from the source set;
 /// Pass 2 reads it back when emitting bodies and resolving calls.
 struct UserFn {
+    /// Small scalar leaf body, retained only for optimized call substitution.
+    inline: Option<Arc<leaf_calls::Leaf>>,
     standard_library: bool,
     drop_callback: Option<FuncId>,
     generator: Option<Ty>,
@@ -1525,6 +1532,7 @@ fn collect_user_fns(
                 out.insert(
                     name.clone(),
                     UserFn {
+                        inline: None,
                         drop_callback: if name.starts_with("__plenty_class_")
                             && name.ends_with(".__del__")
                         {
@@ -1730,6 +1738,8 @@ fn build_user_function(
             .iter()
             .any(Ty::has_inline_storage)
             .then(|| bcx.block_params(entry)[decl.sig.inputs.len()]);
+        let scalar_captures =
+            scalar_captures::Captures::new(body, &locals, decl.sig.inputs.len(), fns, &mut bcx);
         let mut lower = Lowerer {
             bcx: &mut bcx,
             module: &mut module,
@@ -1747,6 +1757,7 @@ fn build_user_function(
             return_types: &decl.sig.outputs,
             collection_scratch: None,
             fresh_load: None,
+            scalar_captures,
             slot_copies: Vec::new(),
             empty_slot: Some((empty_word, empty_double)),
             counters: Default::default(),
@@ -1854,6 +1865,7 @@ fn build_main(
             return_types: &[],
             collection_scratch: None,
             fresh_load: None,
+            scalar_captures: Default::default(),
             slot_copies: Vec::new(),
             empty_slot: None,
             counters: Default::default(),
@@ -2015,6 +2027,7 @@ struct Lowerer<'a, 'b> {
     position: sites::Position,
     /// The copy the op just lowered with a `LoadLocal`, if it was counted.
     fresh_load: Option<FreshLoad>,
+    scalar_captures: scalar_captures::Captures,
     /// Counted one-word copies pushed since the last op that could run code
     /// or write a slot, with the `plenty_retain` call that counted each, and
     /// string literals, which are immortal and need none. Their sources hold
@@ -2130,7 +2143,7 @@ impl Lowerer<'_, '_> {
     }
     fn read_local(&mut self, i: u8) -> cranelift_codegen::ir::Value {
         let (var, ty) = self.locals[i as usize].clone();
-        if let Some((frame, offset)) = self.local_address(i) {
+        let value = if let Some((frame, offset)) = self.local_address(i) {
             let value = self.bcx.ins().load(
                 types::I128,
                 cranelift_codegen::ir::MemFlags::trusted(),
@@ -2140,9 +2153,12 @@ impl Lowerer<'_, '_> {
             self.unpack(value, &ty)
         } else {
             self.bcx.use_var(var)
-        }
+        };
+        self.read_capture_local(i, value);
+        value
     }
     fn write_local(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
+        self.save_capture_local(i, value);
         let (var, ty) = self.locals[i as usize].clone();
         if let Some((frame, offset)) = self.local_address(i) {
             let slot = self.bcx.ins().iadd_imm(frame, offset);
@@ -2217,6 +2233,7 @@ impl Lowerer<'_, '_> {
                 let (frame, offset) = self.local_address(*i).expect("addressable local");
                 let ptr = self.bcx.ins().iadd_imm(frame, offset);
                 let ptr = self.bcx.ins().uextend(types::I128, ptr);
+                self.borrow_capture_local(*i, ptr);
                 self.stack.push((
                     ptr,
                     Ty::Ref(
@@ -3220,6 +3237,14 @@ impl Lowerer<'_, '_> {
     /// Lower `Op::Call`: emit a regular call and push each return value
     /// onto the compile-time stack with its declared `Ty`.
     fn lower_call(&mut self, name: &str) -> Result<()> {
+        self.lower_call_captured(name, &[])
+    }
+
+    fn lower_call_captured(
+        &mut self,
+        name: &str,
+        captures: &[cranelift_codegen::ir::Value],
+    ) -> Result<()> {
         let caller_standard = self.in_standard_library();
         let (decl, mut args) = self.pop_call_args(name)?;
         // User code names itself as the caller of std. Std restores the
@@ -3230,6 +3255,16 @@ impl Lowerer<'_, '_> {
         } else {
             decl.standard_library || decl.source.is_none()
         };
+        if let Some(inline) = decl.inline.clone() {
+            let saved = if track_caller {
+                self.enter_call()?
+            } else {
+                None
+            };
+            self.lower_leaf_call(&inline, &args, captures)?;
+            self.leave_call(saved);
+            return Ok(());
+        }
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
         let bytes = outputs.iter().map(Ty::inline_bytes).sum();

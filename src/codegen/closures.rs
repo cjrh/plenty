@@ -68,10 +68,24 @@ impl Lowerer<'_, '_> {
         self.bcx
             .ins()
             .store(MemFlags::trusted(), descriptor, storage, 0);
+        let track = self.scalar_captures.enabled()
+            && !t.mutable
+            && !t.once
+            && t.captures
+                .iter()
+                .all(|(_, field)| leaf_calls::scalar(field));
+        let mut captured = Vec::new();
         for (i, (_, field)) in t.captures.iter().enumerate().rev() {
             let (value, _) = self.pop_typed(field.clone())?;
+            if track {
+                captured.push(value);
+            }
             let slot = self.bcx.ins().iadd_imm(storage, t.offset(i) as i64);
             self.store_slot(slot, value, field);
+        }
+        if track {
+            captured.reverse();
+            self.remember_capture_values(storage, captured);
         }
         self.stack.push((storage, ty));
         Ok(())
@@ -85,6 +99,16 @@ impl Lowerer<'_, '_> {
             .ok_or("closure call underflow")?;
         let args: Vec<_> = self.stack.drain(split..).collect();
         let (reference, _) = self.stack.pop().ok_or("missing closure environment")?;
+        if let Some(captures) = self.captured_arguments(reference) {
+            self.stack.extend(
+                captures
+                    .iter()
+                    .enumerate()
+                    .map(|(i, value)| (*value, t.parameter(i))),
+            );
+            self.stack.extend(args);
+            return self.lower_call_captured(&t.name, &captures);
+        }
         let storage = if t.once {
             reference
         } else {

@@ -1,6 +1,376 @@
 mod support;
 
 #[test]
+fn optimized_scalar_captures_follow_copies_branches_and_loop_assignments() {
+    let source = r#"
+def offset(n: i64) -> Closure[[i64], i64]:
+    def [n](value: i64) -> i64:
+        value + n
+def replace(f: &mut Closure[[i64], i64], n: i64) -> ():
+    *f = offset(n)
+def exercise(start: i64) -> ():
+    mut f = offset(start)
+    mut changing = offset(start)
+    for i in range(4):
+        before = f
+        previous = changing
+        if i % 2 == 0:
+            f = offset(i)
+            changing = offset(i * start)
+        else:
+            f = offset(i + 10)
+            changing = offset(i * start + 1)
+        print(before(100), f(100)).unwrap()
+        print(previous(1), changing(1)).unwrap()
+    saved = f
+    f = offset(20)
+    replace(&mut f, 50)
+    print(saved(1), f(1)).unwrap()
+    bias = 1.5
+    scaled = def [bias](n: f64) -> f64:
+        n * bias
+    print(scaled(2.0)).unwrap()
+    count = 4
+    mixed = def [count, bias](n: f64) -> bool:
+        (bias > n) == (count > 0)
+    print(mixed(1.0)).unwrap()
+    for i in range(3):
+        n = i * start
+        callback = def [n](value: i64) -> i64:
+            value + n
+        print(iter(range(2)).map(callback).fold(0, def(a: i64, b: i64) -> i64: a + b)).unwrap()
+def main() -> ():
+    exercise(7)
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("captures.plenty");
+    std::fs::write(&path, source).unwrap();
+    for optimize in [false, true] {
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"));
+        if optimize {
+            command.arg("--release");
+        }
+        let result = command.arg("--no-cache").arg(&path).output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&result.stdout),
+            "107 100\n8 1\n100 111\n1 9\n111 102\n9 15\n102 113\n15 23\n14 51\n3.0\nTrue\n1\n15\n29\n"
+        );
+    }
+}
+
+#[test]
+fn pair_callbacks_enumerate_zip_and_dictionary_collection() {
+    output(
+        r#"
+def total(acc: i64, i: i64, n: &i64) -> i64:
+    acc + i * *n
+def main() -> ():
+    values = [10, 20, 30].unwrap()
+    print(enumerate(&values, 1).fold(0, total)).unwrap()
+    pairs: dict[i64, i64] = iter(range(4)).map(def(n: i64) -> (i64, i64): (n % 2, n)).collect().unwrap()
+    print(pairs[0], pairs[1]).unwrap()
+    selected: list[i64] = iter(pairs.items()).filter(def(k: &i64, v: &i64) -> bool: *v > 1).map(def(k: &i64, v: &i64) -> i64: *k + *v).collect().unwrap()
+    print(len(selected)).unwrap()
+    print(iter(range(3)).enumerate(5).map(def(i: i64, n: i64) -> i64: i + n).fold(0, def(a: i64, n: i64) -> i64: a + n)).unwrap()
+    for a, b in zip(&values, range(2)):
+        print(*a, b).unwrap()
+"#,
+        "140\n2 3\n2\n21\n10 0\n20 1\n",
+    );
+}
+
+#[test]
+fn pipeline_sources_keep_user_items_methods_and_owned_nested_pairs() {
+    output(
+        r#"
+class Source:
+    def items(self: &Source) -> list[i64]:
+        [4, 5].unwrap()
+def numbers() -> dict[i64, i64]:
+    {1: 10, 2: 20}.unwrap()
+def main() -> ():
+    source = Source()
+    print(iter(source.items()).fold(0, def(a: i64, b: i64) -> i64: a + b)).unwrap()
+    print(iter(numbers().items()).map(def(k: &i64, v: &i64) -> i64: *k + *v).fold(0, def(a: i64, b: i64) -> i64: a + b)).unwrap()
+    for pair, n in iter(range(2)).enumerate().zip(range(10, 12)):
+        print(pair, n).unwrap()
+"#,
+        "9\n33\n(0, 0) 10\n(1, 1) 11\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn pair_collection_reclaims_items_at_each_failed_allocation() {
+    for budget in 0..=8 {
+        let source = format!(
+            r#"
+class Guard:
+    n: i64
+def build() -> Result[dict[i64, Guard], AllocError]:
+    iter(range(20)).map(def(n: i64) -> (i64, Guard): (n, Guard(n))).collect()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = build()
+print("__test_restore_allocations__").unwrap()
+drop(result)
+print("clean").unwrap()
+"#
+        );
+        support::assert_visible_stdout(&source, "clean");
+    }
+}
+
+#[test]
+fn zipped_pipelines_pull_each_accepted_item_left_first() {
+    output(
+        r#"
+def left(n: i64) -> i64:
+    print("left", n).unwrap()
+    n
+def right(n: i64) -> i64:
+    print("right", n).unwrap()
+    n
+def main() -> ():
+    a = iter(range(5)).map(left).filter(def(n: &i64) -> bool: *n % 2 == 0)
+    b = iter(range(2)).map(right)
+    for x, y in a.zip(b):
+        print("pair", x, y).unwrap()
+"#,
+        "left 0\nright 0\npair 0 0\nleft 1\nleft 2\nright 1\npair 2 1\nleft 3\nleft 4\n",
+    );
+}
+
+#[test]
+fn free_adapters_in_loop_sources_pull_filtered_arms_independently() {
+    output(
+        r#"
+def even(n: &i64) -> bool:
+    *n % 2 == 0
+def visit(n: i64) -> i64:
+    print("left", n).unwrap()
+    n
+def right() -> Generator[i64]:
+    print("right", 0).unwrap()
+    yield 10
+    print("right", 1).unwrap()
+    yield 11
+def main() -> ():
+    for i, n in enumerate(iter(range(5)).filter(even)):
+        print(i, n).unwrap()
+    for a, b in zip(iter(range(5)).map(visit).filter(even), right()):
+        print(a, b).unwrap()
+    for a, b in zip(iter(range(3)).map(visit), iter(range(5)).filter(even)):
+        print(a, b).unwrap()
+"#,
+        "0 0\n1 2\n2 4\nleft 0\nright 0\n0 10\nleft 1\nleft 2\nright 1\n2 11\nleft 3\nleft 4\nleft 0\n0 0\nleft 1\n1 2\nleft 2\n2 4\n",
+    );
+}
+
+#[test]
+fn fallible_pair_collection_and_tuple_accumulator() {
+    output(
+        r#"
+def pair(n: i64) -> Result[(i64, i64), str]:
+    if n == 3:
+        return Err("stop")
+    Ok((n, n * n))
+def sum(acc: (i64, i64), a: i64, b: i64) -> Result[(i64, i64), str]:
+    Ok((acc[0] + a, acc[1] + b))
+def main() -> ():
+    values: Result[dict[i64, i64], str | AllocError] = iter(range(2)).map(pair).try_collect()
+    print(values.unwrap()[1]).unwrap()
+    print(zip(range(3), range(10, 13)).try_fold((0, 0), sum).unwrap()).unwrap()
+    result: Result[dict[i64, i64], str | AllocError] = iter(range(5)).map(pair).try_collect()
+    print(result.is_err()).unwrap()
+"#,
+        "1\n(3, 33)\nTrue\n",
+    );
+}
+
+#[test]
+fn pair_ownership_survives_filter_short_zip_and_duplicate_dictionary_keys() {
+    output(
+        r#"
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print("drop", self.n).unwrap()
+def guards() -> Generator[Guard]:
+    yield Guard(1)
+    yield Guard(2)
+    yield Guard(3)
+def main() -> ():
+    for a, b in iter(guards()).zip(range(1)):
+        print(a.n, b).unwrap()
+    print("zip done").unwrap()
+    values = [(Guard(4), 1), (Guard(5), 2)].unwrap()
+    print(iter(values).filter(def(g: &Guard, n: &i64) -> bool: *n > 1).count()).unwrap()
+    pairs = [(0, Guard(6)), (0, Guard(7))].unwrap()
+    collected: dict[i64, Guard] = iter(pairs).collect().unwrap()
+    print(collected[0].n).unwrap()
+    drop(collected)
+"#,
+        "1 0\ndrop 1\ndrop 2\nzip done\ndrop 4\ndrop 5\n1\ndrop 6\n7\ndrop 7\n",
+    );
+}
+
+#[test]
+fn pair_predicates_and_reducers_keep_accumulator_whole() {
+    output(
+        r#"
+def combine(acc: (i64, i64), a: i64, b: i64) -> (i64, i64):
+    (acc[0] + a, acc[1] + b)
+def visit(a: i64, b: i64) -> Result[(), str]:
+    if a == 1:
+        return Err("stop")
+    print(a, b).unwrap()
+    Ok(())
+def main() -> ():
+    print(iter([(1, 10), (2, 20)].unwrap()).reduce(combine).unwrap()).unwrap()
+    print(iter([(1, 10), (2, 20)].unwrap()).find(def(a: &i64, b: &i64) -> bool: *b == 20).unwrap()).unwrap()
+    print(iter(range(3)).enumerate().any(def(i: &i64, n: &i64) -> bool: *i == 1)).unwrap()
+    print(iter(range(3)).enumerate().all(def(i: &i64, n: &i64) -> bool: *i == *n)).unwrap()
+    print(iter(range(3)).enumerate().try_for_each(visit).is_err()).unwrap()
+"#,
+        "(3, 30)\n(2, 20)\nTrue\nTrue\n0 0\nTrue\n",
+    );
+}
+
+#[test]
+fn borrowed_pairs_retain_loans_and_cannot_escape_into_collections() {
+    for source in [
+        "mut xs = [1, 2].unwrap()\np = enumerate(&xs)\nxs.append(3).unwrap()\nprint(p.count()).unwrap()",
+        "xs = [1, 2].unwrap()\np = zip(&xs, &xs)\nvalues: list[(i64, i64)] = p.collect().unwrap()",
+        "xs = [1, 2].unwrap()\np = enumerate(enumerate(&xs))\nprint(p.count()).unwrap()",
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(
+            error.contains("borrow") || error.contains("reference"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn mutable_pair_items_are_shared_in_predicates_and_mutable_in_mapping() {
+    output(
+        r#"
+def bump(i: i64, n: &mut i64) -> i64:
+    *n += i
+    *n
+def main() -> ():
+    mut values = [10, 20].unwrap()
+    print(iter(&mut values).enumerate().filter(def(i: &i64, n: &i64) -> bool: *n > 0).map(bump).count()).unwrap()
+    print(values).unwrap()
+"#,
+        "2\n[10, 21]\n",
+    );
+    let error = support::check_source("mut values = [1].unwrap()\np = iter(&mut values).filter(def(n: &mut i64) -> bool: True)\nprint(p.count()).unwrap()").unwrap_err().to_string();
+    assert!(
+        error.contains("shared") || error.contains("mutable"),
+        "{error}"
+    );
+}
+
+#[test]
+fn enumerate_counts_accepted_items_and_preserves_maximum_final_index() {
+    output(
+        r#"
+def main() -> ():
+    for i, n in iter(range(5)).filter(def(n: &i64) -> bool: *n % 2 == 0).enumerate(start=7):
+        print(i, n).unwrap()
+    print(iter(range(1)).enumerate(9223372036854775807).count()).unwrap()
+    print(iter(range(3)).zip(range(3)).take(0).count()).unwrap()
+"#,
+        "7 0\n8 2\n9 4\n1\n0\n",
+    );
+}
+
+#[test]
+fn optimized_callbacks_preserve_imported_and_caller_trap_sites() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("arithmetic.plenty"),
+        "pub def square(n: i64) -> i64:\n    n * n\n",
+    )
+    .unwrap();
+    let source = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    for (body, expected) in [
+        (
+            "    print(iter(range(4000000000, 4000000001)).map(square).count()).unwrap()\n",
+            "arithmetic.plenty:2:5: integer overflow",
+        ),
+        (
+            "    print(iter(range(2)).map(square).count()).unwrap()\n    zero = 0\n    print(1 // zero).unwrap()\n",
+            "main.plenty:5:11: division by zero",
+        ),
+    ] {
+        std::fs::write(
+            &source,
+            format!("from arithmetic import square\ndef main() -> ():\n{body}"),
+        )
+        .unwrap();
+        for optimize in [false, true] {
+            let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"));
+            if optimize {
+                command.arg("--release");
+            }
+            let compiled = command
+                .args(["--no-cache", "--compile"])
+                .arg(&source)
+                .arg("-o")
+                .arg(&executable)
+                .output()
+                .unwrap();
+            assert!(
+                compiled.status.success(),
+                "{}",
+                String::from_utf8_lossy(&compiled.stderr)
+            );
+            let result = std::process::Command::new(&executable).output().unwrap();
+            assert_eq!(result.status.code(), Some(1));
+            assert!(
+                String::from_utf8_lossy(&result.stderr).contains(expected),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+    }
+}
+
+#[test]
+fn changing_inlined_callback_invalidates_cached_caller() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("main.plenty");
+    std::fs::write(&source, "from arithmetic import bump\ndef main() -> ():\n    print(iter(range(3)).map(bump).fold(0, def(a: i64, b: i64) -> i64: a + b)).unwrap()\n").unwrap();
+    for (delta, expected) in [(1, "6\n"), (2, "9\n")] {
+        std::fs::write(
+            dir.path().join("arithmetic.plenty"),
+            format!("pub def bump(n: i64) -> i64:\n    n + {delta}\n"),
+        )
+        .unwrap();
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .args(["--release", "--no-program-cache"])
+            .arg(&source)
+            .env("PLENTY_CACHE_DIR", dir.path().join("cache"))
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&result.stdout), expected);
+    }
+}
+
+#[test]
 fn collecting_uses_the_expected_collection_type() {
     output(
         r#"
@@ -412,6 +782,7 @@ def main() -> ():
             "call_indirect",
             "plenty_collection_call",
             "plenty_generator_resume",
+            "__plenty_fn_add",
         ] {
             assert!(!dump.contains(absent), "{function}: {absent}\n{dump}");
         }

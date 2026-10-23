@@ -99,8 +99,8 @@ fn constants_keep_their_values_types_and_bindings_without_getters() {
     }
 }
 
-/// `digit` and `blank` are leaf predicates; `bump` can overflow and
-/// `countdown` calls itself, so both stay calls.
+/// `digit` and `blank` are leaf predicates; `bump` also substitutes its checked
+/// arithmetic in optimized native code. Recursive `countdown` stays a call.
 const PREDICATES: &str = "\
 const space: u8 = 32
 const tab: u8 = 9
@@ -175,7 +175,8 @@ fn leaf_predicates_run_in_the_caller_in_release_builds() {
         assert!(!code.contains("__plenty_fn_"), "{caller}:\n{asm}");
     }
     let main = section(dir.path(), "asm.txt", "main").unwrap();
-    for callee in ["bump", "countdown", "classify", "check"] {
+    assert!(!main.contains("__plenty_fn_bump\n"), "{main}");
+    for callee in ["countdown", "classify", "check"] {
         assert!(
             main.contains(&format!("__plenty_fn_{callee}\n")),
             "{callee}:\n{main}"
