@@ -53,6 +53,7 @@ coverage. This is a status review, not a fresh execution of every feature test.
 | Allocation and parallel execution | [Memory, parallelism, and SIMD](memory-parallelism-and-simd.md) | [Allocation audit](completed/allocation-audit.md), [shipped concurrency](completed/native-concurrency.md) |
 | Cooperative suspension and owned tasks | [Async/await exploration](async-await.md), [Go-style scoped tasks](stackful-tasks.md) | [Async ownership and cleanup](async-await/ownership.md), [async spike evidence](async-await/evidence.md), [stackful runtime choices](stackful-tasks/runtime.md), [stackful spike evidence](stackful-tasks/evidence.md), [linear execution responsibility](linear-integration.md) |
 | Iteration and adapter chains | [Fluent iterator pipelines](fluent-iterators.md) | [Shipped generators](completed/generators.md), [parallel execution](memory-parallelism-and-simd.md) |
+| Portable vector operations and automatic SIMD | [Portable `std.simd`](std-simd.md) | [API contract](std-simd/api.md), [pipeline recognition](std-simd/automatic.md), [backend evidence](std-simd/evidence.md) |
 
 These families keep distinct contracts separate: a sorting algorithm does not
 define user equality, protocol defaults do not imply private access, and error
@@ -93,6 +94,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Synchronous resolution scopes](linear-scope-resolution.md) — consuming scope policy; depends on linear obligations | B72 (issue #149) |
 | [Linearity, typestate, and execution responsibility](linear-integration.md) — shared boundaries and deferred worker/async contracts | B72 (issue #149) |
 | [GCC backend (`plenty_codegen_gcc`)](codegen-gcc.md) | B20 |
+| [Portable `std.simd` and automatic pipeline SIMD](std-simd.md) — small portable API, bounded safe transformations, and backend spike evidence | B23; related B12, B19, B24, B75 |
 | [User-defined ordering](user-type-ordering.md) — one three-way `__cmp__` hook | B37 |
 | [Timsort for stable, adaptive sorting](timsort.md) — fallible workspace, stability, and compatibility choices | B37 (issue #331) |
 | [User-defined dictionary keys and set members](user-type-hashing.md) — derived structural hashing and a `KeyType` bound | None yet |

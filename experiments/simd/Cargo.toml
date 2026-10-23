@@ -1,0 +1,13 @@
+[package]
+name = "plenty-simd-spike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+cranelift-codegen = { version = "=0.131.1", features = ["arm64", "x86"] }
+cranelift-frontend = "=0.131.1"
+cranelift-module = "=0.131.1"
+cranelift-object = "=0.131.1"
