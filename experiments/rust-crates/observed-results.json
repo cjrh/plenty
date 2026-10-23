@@ -1,0 +1,107 @@
+{
+  "toolchain": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "cargo_build_seconds": 0.05898264600546099,
+  "cranelift_emit_seconds": 0.0021642919746227562,
+  "paths": {
+    "Rust-debug": {
+      "adapter_and_link_seconds": 0.11101943696849048,
+      "workload_ns_median": 8009.1055,
+      "samples_ns": [
+        8311.41,
+        8009.1055,
+        7898.1285
+      ],
+      "binary_bytes": 7365752,
+      "overflow_exit": -4
+    },
+    "C-debug": {
+      "adapter_and_link_seconds": 0.11532315603108145,
+      "workload_ns_median": 8462.307,
+      "samples_ns": [
+        9892.4185,
+        8462.307,
+        7949.414
+      ],
+      "binary_bytes": 7365752,
+      "overflow_exit": -4
+    },
+    "source-debug": {
+      "adapter_and_link_seconds": 0.07987956999568269,
+      "workload_ns_median": 8012.006,
+      "samples_ns": [
+        8012.006,
+        7693.771,
+        8289.895
+      ],
+      "binary_bytes": 7356944,
+      "overflow_exit": -6
+    },
+    "Rust-release": {
+      "adapter_and_link_seconds": 0.15543299898854457,
+      "workload_ns_median": 8191.451,
+      "samples_ns": [
+        12087.8345,
+        8191.451,
+        7785.3725
+      ],
+      "binary_bytes": 7347392,
+      "overflow_exit": -4,
+      "scalar_ns_median": 3.8988275,
+      "scalar_samples_ns": [
+        3.5826575,
+        3.8988275,
+        4.963862
+      ]
+    },
+    "C-release": {
+      "adapter_and_link_seconds": 0.17339707401697524,
+      "workload_ns_median": 8150.334,
+      "samples_ns": [
+        9830.257,
+        8150.334,
+        8136.759
+      ],
+      "binary_bytes": 7347392,
+      "overflow_exit": -4,
+      "scalar_ns_median": 4.024307,
+      "scalar_samples_ns": [
+        3.7516925,
+        4.024307,
+        4.1101425
+      ]
+    },
+    "source-release": {
+      "adapter_and_link_seconds": 0.11151102499570698,
+      "workload_ns_median": 8320.938,
+      "samples_ns": [
+        12221.524,
+        7861.279,
+        8320.938
+      ],
+      "binary_bytes": 7344480,
+      "overflow_exit": -6,
+      "scalar_ns_median": 2.446525,
+      "scalar_samples_ns": [
+        2.4317275,
+        2.446525,
+        2.755873
+      ]
+    }
+  },
+  "rust_abi_definitions": [
+    "define i64 @bridge_char_count(ptr %arg0, i64 %arg0_len) unnamed_addr #0 personality ptr @rust_eh_personality !guid !59 {",
+    "define i64 @bridge_drop_matcher(ptr %arg0) unnamed_addr #0 !guid !60 {",
+    "define i64 @bridge_finish_future(ptr %arg0) unnamed_addr #0 !guid !61 {",
+    "define i64 @bridge_identity(i64 %arg0) unnamed_addr #0 !guid !62 {",
+    "define i64 @bridge_live_owners() unnamed_addr #0 !guid !63 {",
+    "define i64 @bridge_match_count(ptr %arg0, ptr %arg1, i64 %arg1_len) unnamed_addr #0 personality ptr @rust_eh_personality !guid !64 {",
+    "define ptr @bridge_new_future(i64 %arg0) unnamed_addr #0 personality ptr @rust_eh_personality !guid !65 {",
+    "define ptr @bridge_new_matcher(ptr %arg0, i64 %arg0_len) unnamed_addr #0 personality ptr @rust_eh_personality !guid !66 {",
+    "define i64 @bridge_poll_future(ptr %arg0) unnamed_addr #0 !guid !67 {",
+    "define i64 @bridge_scalar(i64 %arg0) unnamed_addr #0 !guid !68 {"
+  ],
+  "rustc_private_probe": {
+    "exit": 0,
+    "diagnostic": ""
+  }
+}

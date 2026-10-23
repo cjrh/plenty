@@ -1,0 +1,13 @@
+def run(value: i64) -> i64:
+    a = scalar(value)
+    text = char_count("é\0ab")
+    generic = identity(value)
+    matcher = new_matcher("a+")
+    matches = match_count(&matcher, "aa é a")
+    destroyed = drop_matcher(matcher)
+    mut future = new_future(value)
+    pending = poll_future(&mut future)
+    ready = poll_future(&mut future)
+    result = finish_future(future)
+    remaining = live_owners()
+    a + text + generic + matches + destroyed + pending + ready + result + remaining
