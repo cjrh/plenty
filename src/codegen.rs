@@ -93,6 +93,7 @@ mod references;
 mod relax;
 pub(crate) use relax::relax_local_addresses;
 mod leaf_calls;
+mod reachability;
 mod scalar_captures;
 mod sites;
 mod small_calls;
@@ -656,6 +657,7 @@ fn object_module(
     workers: usize,
     build: Build,
 ) -> Result<Output> {
+    reachability::prune(&mut ops, exports);
     small_calls::substitute(&mut ops, build.optimize, workers);
     crate::tail_abi::prepare(&mut ops, workers);
     last_use::prepare(&mut ops, workers);

@@ -27,8 +27,9 @@ pub struct Site {
     pub scope_end: bool,
 }
 
-/// Per-function facts used only to render ownership diagnostics and trap
-/// reports. They never affect liveness or aliasing.
+/// Per-function provenance and names for ownership diagnostics and trap
+/// reports. Trusted standard-library provenance also controls eligibility for
+/// native emission pruning; these facts never affect loan liveness or aliasing.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Origins {
     pub source: Option<Arc<str>>,

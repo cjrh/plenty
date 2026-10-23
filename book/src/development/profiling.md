@@ -1,5 +1,9 @@
 # Profiling the compiler
 
+For fresh-process cold, unchanged and edited builds, see
+[Measuring module edits](module-edits.md). That workload complements the fixed
+`compile_bench` baseline below and validates cached objects against uncached ones.
+
 The `profile` Cargo feature reports, per compiler phase, the call count, time
 percentiles, total time and, with `profile-alloc`, the bytes and number of
 allocations. It uses [hotpath](https://crates.io/crates/hotpath), pinned to
@@ -336,3 +340,46 @@ the named-function variant. Single-program compilation is one observation per
 variant, not evidence of a compilation speedup. The machine was not frequency-
 locked or CPU-pinned; small runtime differences around parity are noise. These
 results do not promise the same ratios for larger, branching or mutable callbacks.
+
+## Fluent generators and explicit conversion
+
+`scripts/bench_pipeline_generators.py` measures the same filter/map/fold workload
+with range and generator sources, local fused consumption, explicit `.generator()`
+conversion, and a `std.iter` adapter chain. The compiler executable requests
+optimized native output, disables caches, checks equal results, and alternates
+execution order as above:
+
+```sh
+python3 -B scripts/bench_pipeline_generators.py target/debug/plenty --items 5000000 --runs 7
+```
+
+A quiet run on this host measured the following medians. Every execution returned
+`1225000000`.
+
+| Variant | Native median |
+|---|---:|
+| Inline range loop | 0.010011 s |
+| Local fused range pipeline | 0.009781 s |
+| Inline generator loop | 0.042060 s |
+| Generator source through `iter(...)` | 0.044602 s |
+| Direct fluent generator source | 0.044454 s |
+| Range pipeline converted with `.generator()` | 0.027202 s |
+| Generator-source pipeline converted with `.generator()` | 0.065896 s |
+| `std.iter` chain with the same generator source | 0.105389 s |
+
+Direct fluent syntax has the same cost as wrapping the source in `iter(...)`
+(0.997 times here), and costs 1.057 times the inline generator loop. Explicit
+conversion adds a resumable frame: the converted range pipeline costs 2.781 times
+local consumption. With the same generator source, the converted pipeline takes
+0.625 times the `std.iter` chain's runtime. Internal filter/map adapters are fused
+into one frame; resuming the source generator and the converted frame still has
+a cost. Keep local consumers fused when the stream does not need to escape.
+
+The existing 100-million-item callback benchmark was also rerun with seven
+interleaved executions. Named callbacks, closure literals and scalar captures
+measured 0.999, 1.066 and 1.000 times the inline loop respectively, retaining the
+within-10% target. Compiler tests separately check a single converted frame with
+inlined scalar callbacks, and zero tracked allocations while constructing,
+moving, resuming and dropping an owned scalar pipeline. These timings are
+observations on a machine without frequency locking or CPU pinning; they do not
+establish universal ratios or allocation behavior for heap-owning source items.
