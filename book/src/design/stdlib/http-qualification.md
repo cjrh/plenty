@@ -51,9 +51,11 @@ CLI/service diagnostics, generic `500` responses without private error details,
 successful requests after failures, nine handler errors among twelve requests,
 and no protocol errors. After the client, workers, CSV readers and listener have
 dropped, the process has the same number of open descriptors as before the run.
-This qualifies application composition over the existing CSV/HTTP APIs; typed
-chunked framing, validated heads and full client cause preservation remain
-separate work in [B71](../../backlog.md).
+This qualifies application composition over the CSV/HTTP APIs. The client now
+uses typed head parsing, writes and fixed/chunked/close-delimited framing.
+Separate typed-stream and client checks cover exact partial progress, original
+transport causes, interruption, bounded heads, trailers, compatibility readers
+and connection recovery; HTTPS checks cover verified and tunnelled requests.
 
 ## Handler errors and traps
 

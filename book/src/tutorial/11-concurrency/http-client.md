@@ -109,3 +109,13 @@ A request that fails because a reused connection was closed by the server
 is sent again on a new connection, but only for methods that are safe to
 repeat, such as `GET` and `PUT`. A `POST` is never sent twice; its error is
 returned so the program can decide what to do.
+
+For a body that should be processed incrementally, `send` returns a response
+after its head arrives. Use `read_body` to read chunks, or
+`read_all_progress` to append into your own buffer while retaining the count
+appended before an error. Both preserve the full `ClientError`, including
+cancellation and TLS failures. `response.total()` counts successfully read
+payload bytes; `response.trailers()` is complete after `response.is_done()`.
+Give a completed response to `client.finish` to allow reuse. The
+[typed stream lesson](../03-absence/typed-streams.md) explains how to compose
+it with transfers through `typed_response` without a stored-error side channel.

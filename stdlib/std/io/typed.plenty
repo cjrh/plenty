@@ -1,5 +1,6 @@
 # Typed byte streams with explicit retry policy and partial progress.
 from std.bytes import Bytes
+import std.bytes
 import std.io
 from std.io import StreamError
 
@@ -67,6 +68,73 @@ pub enum ReadFailure[E]:
     UnexpectedEof
     InvalidProgress
     OutOfRange
+
+# Buffering introduces range/progress failures but never erases E. Construction
+# allocates once; reads only copy into already-sized buffers.
+pub class BufReader[E, R]:
+    pub inner: R
+    buffer: Bytes
+    start: i64
+    stop: i64
+
+    pub def capacity(self) -> i64:
+        self.buffer.len()
+
+    pub def buffered(self) -> i64:
+        self.stop - self.start
+
+    def checked(self: &mut BufReader[E, R], result: Result[i64, StepError[E]], offered: i64) -> Result[i64, StepError[ReadFailure[E]]]:
+        match result:
+            case Ok(count):
+                if count < 0 or count > offered:
+                    return Err(StepError[ReadFailure[E]].Source(ReadFailure[E].InvalidProgress))
+                Ok(count)
+            case Err(StepError.Interrupted):
+                Err(StepError[ReadFailure[E]].Interrupted)
+            case Err(StepError.Source(cause)):
+                Err(StepError[ReadFailure[E]].Source(ReadFailure[E].Source(cause)))
+
+    pub def read(self: &mut BufReader[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ReadFailure[E]]]:
+        if not within(start, stop, buffer.len()):
+            return Err(StepError[ReadFailure[E]].Source(ReadFailure[E].OutOfRange))
+        if start == stop:
+            return Ok(0)
+        if self.start == self.stop:
+            if stop - start >= self.buffer.len():
+                result = self.inner.read(buffer, start, stop)
+                return self.checked(result, stop - start)
+            self.start = 0
+            self.stop = 0
+            size = self.buffer.len()
+            result = self.inner.read(&mut self.buffer, 0, size)
+            self.stop = self.checked(result, size)?
+            if self.stop == 0:
+                return Ok(0)
+        mut count = stop - start
+        if count > self.stop - self.start:
+            count = self.stop - self.start
+        if buffer.overwrite(start, &self.buffer, self.start, self.start + count).is_err():
+            return Err(StepError[ReadFailure[E]].Source(ReadFailure[E].OutOfRange))
+        self.start += count
+        Ok(count)
+
+pub def buffered_reader[E, R: Reader[E]](inner: R, capacity: i64) -> Result[BufReader[E, R], StreamError]:
+    if capacity <= 0:
+        return Err(StreamError.OutOfRange)
+    mut buffer = match std.bytes.with_capacity(capacity):
+        case Ok(value):
+            value
+        case Err(std.bytes.BytesError.Allocation(cause)):
+            return Err(StreamError.Allocation(cause))
+        case Err(_):
+            return Err(StreamError.OutOfRange)
+    match buffer.resize(capacity, 0u8):
+        case Ok(_):
+            Ok(BufReader[E, R](inner, buffer, 0, 0))
+        case Err(std.bytes.BytesError.Allocation(cause)):
+            Err(StreamError.Allocation(cause))
+        case Err(_):
+            Err(StreamError.OutOfRange)
 
 pub enum WriteFailure[E]:
     Source(E)

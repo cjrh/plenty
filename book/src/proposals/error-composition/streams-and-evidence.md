@@ -1,9 +1,9 @@
 # Error-composition experiments and typed streams
 
-**Status: Partly implemented.** This is the evidence companion to the
+**Status: Implemented through HTTP client adoption.** This is the evidence companion to the
 [composition overview](../error-composition.md), not a separate proposal or
-work queue. Mapping and the additive typed body-transfer slice have shipped;
-a complete typed HTTP client migration has not. Current contracts belong to
+work queue. Mapping, typed streams and framing, and the HTTP client's head,
+write and body paths have shipped. Current contracts belong to
 [`std.error`](../../design/stdlib/error.md),
 [`std.io.typed`](../../design/stdlib/io-typed.md), and
 [`std.http.typed`](../../design/stdlib/http-typed.md).
@@ -59,8 +59,9 @@ progress, invalid range, and reuse after failure. Interruption leaves it
 usable; terminal framing/transport failures mark it broken. The full body-copy
 path returns the original transport cause through `FramingError[E]` and
 `CopyFailure[FramingError[E], W]`. It contains zero error-storage fields and
-zero retrieval methods. Production `_failure` fields and `take_failure`
-methods are unchanged: the experiment does not yet justify their removal.
+zero retrieval methods. At that prototype stage, production `_failure` fields
+and `take_failure` methods were retained: the experiment alone did not justify
+their removal.
 
 This is one complete **body-transfer** path, not a complete HTTP client. It
 assumes a previously validated Content-Length and response semantics. It does
@@ -114,11 +115,22 @@ interruptions and transport errors throughout metadata and payload, and check
 limits, malformed input and terminal-state behavior. The original isolated
 prototype remains a fixed-body experiment rather than a duplicate chunk parser.
 
-This is still a body-transfer slice: validated heads, TLS
-setup, deadlines, connection recovery and client migration remain outside its
-contract. Existing HTTP adapters retain all their side channels; bridging them
-does not reconstruct causes they already discarded. No builtin Failure,
-general-sum, or reporting change is needed by these modules.
+Production now also includes parsed-head framing validation, bounded typed head
+readers and writers, typed buffering, and guarded recovery of completed
+persistent connections. Shared grammar/serialization helpers keep legacy and
+typed HTTP validation aligned. Head failures count consumed wire bytes; writes
+count delivered wire bytes; body-copy and collection counts refer to payload.
+
+The HTTP client uses these paths for CONNECT, request heads, in-memory and
+streamed uploads, response heads and all body modes. Its existing TLS/network
+transports, deadlines, cancellation, redirect policy and pool remain in charge
+of connection lifetime. Internal `Wire`/`Dialled` error storage and retrieval
+are removed. `Response.read`/`take_failure` remains a compatibility bridge;
+`typed_response` carries the full `ClientError` through typed stream helpers,
+and `read_all_progress` retains bytes appended before failure. Existing
+`send`/`fetch` signatures still return causes without per-head/write counts;
+those are available from the lower-level typed operations. No builtin Failure,
+general-sum, or reporting change was needed for this migration.
 
 On 2026-10-18, a local unoptimized compiler comparison of `main.plenty`
 against `standard.plenty` used five `--compile` runs each with

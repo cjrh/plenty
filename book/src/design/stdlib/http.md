@@ -71,6 +71,14 @@ name, a colon with no space before it, and a value of visible bytes, spaces
 and tabs that is valid UTF-8. A line starting with a space or tab (an obsolete
 line fold) is `InvalidHeader`.
 
+`parse_request_line(line, size)`, `parse_status_line(line, size)` and
+`parse_field(line, size)` expose the same grammar for custom readers. `size`
+selects a prefix of the `Bytes` excluding CRLF; an invalid prefix range is
+`Stream(OutOfRange)`. These helpers do not read streams or enforce head budgets.
+For typed transports, prefer [`std.http.typed.read_request` and
+`read_response`](http-typed.md), which enforce those budgets and retain causes
+and consumed-byte progress.
+
 ## Framing
 
 `Framing` is `Empty`, `Length(i64)`, `Chunked`, or `UntilClose`.
@@ -181,6 +189,12 @@ CR, LF or other control bytes, values without surrounding blanks, status 100–9
 and the framing rules above. A value cannot add a field of its own. A stream
 failure may leave part of a message delivered. Heads are written with one
 `write_all`; a chunk with three. The caller flushes.
+
+`encode_request(head)`, `encode_response(head)`, `encode_last_chunk(trailers)`
+and `encode_chunk_size(length)` return `Result[Bytes, HttpError]`. They perform
+the same validation and serialization without writing, sharing implementation
+with the typed writers. A negative chunk length is `Stream(OutOfRange)`;
+zero encodes `0\r\n` without the final trailer-section terminator.
 
 ## Errors
 

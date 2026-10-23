@@ -1,11 +1,46 @@
 # `std.http.typed`
 
-Body framing over [`std.io.typed.Reader[E]`](io-typed.md) preserves the
+HTTP head parsing, writing and body framing over
+[`std.io.typed.Reader[E]` and `Writer[E]`](io-typed.md) preserve the
 transport cause in `FramingError[E]`, with no stored-error retrieval API.
 Use `request_body` or `response_body` with a parsed HTTP head to validate
 framing, select the decoder, enforce body limits and recover a completed
 persistent connection. The lower-level adapters also remain available for
 callers that have already validated Content-Length and method/status semantics.
+
+## Reading and writing heads
+
+`read_request(reader, limits)` and `read_response(reader, limits)` return
+`Result[Option[RequestHead or ResponseHead], Partial[FramingError[E]]]`.
+They share the legacy parser's grammar, UTF-8 validation and `Limits` policy.
+`Nothing` means EOF before a message; request parsing permits leading blank
+lines within the head budget. Response parsing returns each interim response
+separately. Framing fields and request routing remain separate validation steps.
+
+On failure, `completed` counts bytes consumed for this head, including CRLF and
+leading request blank lines. It excludes prefetched bytes still in a buffered
+reader. Transport errors remain `Transport(E)`; malformed syntax and limits
+are `Protocol(HttpError)`, and an incomplete head is `Truncated`.
+Explicit interruption retries without losing the partially read line. Other
+errors terminate this parse; the count is diagnostic information, not a token
+for resuming a partially parsed head.
+
+These functions request one byte at a time and never consume body bytes. For
+sockets, use `std.io.typed.buffered_reader` so those requests are served from a
+buffer; its `ReadFailure[E]` envelope preserves the original transport payload.
+Pass the same buffered reader to the body constructor to retain read-ahead.
+
+`write_request(writer, head)`, `write_response(writer, head)`,
+`write_chunk(writer, source, start, stop)` and
+`write_last_chunk(writer, trailers)` return
+`Result[(), Partial[FramingError[E]]]`. Head/trailer serialization shares
+[`std.http`](http.md)'s validation and completes before any write. Chunk
+payload is written directly from the source without copying it. `completed`
+counts wire bytes delivered by that operation, including chunk metadata.
+Transport errors and invalid progress remain distinct; a zero write is
+`Protocol(HttpError.Stream(StreamError.WriteZero))`. Partial output must not
+be blindly replayed. Empty chunks write nothing; `write_last_chunk` ends a
+chunked body.
 
 ## From a parsed head
 
@@ -121,11 +156,13 @@ trailer strings and their list allocate fallibly while reading. This simple
 decoder prioritizes bounded, resumable behavior; it has no internal read-ahead
 buffer or throughput qualification yet.
 
-The adapters own their transports. They do not provide connection pooling,
-typed head parsing, TLS setup, cancellation polling, or a
-replacement for [`std.http.client`](http-client.md). Cancellation delivered
-as a typed transport cause survives intact. Existing HTTP side channels remain
-in place until those paths are migrated. The low-level adapters do not expose
+The adapters own their transports. Connection pooling, TLS setup and
+cancellation polling belong to [`std.http.client`](http-client.md), which uses
+these typed head and body paths, including CONNECT and streamed uploads.
+Cancellation delivered as a typed transport cause survives intact. The
+client's legacy `Response.read`/`take_failure` bridge remains for compatibility;
+its internal transport and framing paths do not retrieve stored errors.
+The low-level adapters do not expose
 their transports; use the parsed-head constructors and `Body.finish` for
 guarded connection recovery. Bridging a legacy head reader preserves only the
 error type that the legacy reader itself returns.

@@ -1,4 +1,4 @@
-# A reusable HTTP/1.1 client over std.http framing: pooled keep-alive
+# A reusable HTTP/1.1 client over typed HTTP framing: pooled keep-alive
 # connections, a caller deadline and cancellation token for every exchange,
 # per-phase timeouts, bounded redirects that drop credentials across origins,
 # an explicit forward proxy with CONNECT tunnels for `https`, streamed
@@ -14,14 +14,18 @@ import std.atomic
 import std.bytes
 import std.error
 import std.http
+import std.http.typed
 import std.io
+import std.io.typed
 import std.net
 import std.text
 import std.time
 import std.url
 from std.bytes import ByteSource, Bytes, BytesError
-from std.http import BodyReader, Header, HttpError, Limits, RequestHead, ResponseHead
-from std.io import BufReader, Reader, StreamError
+from std.http import Header, HttpError, Limits, RequestHead, ResponseHead
+from std.http.typed import Body, FramingError
+from std.io import Reader, StreamError
+from std.io.typed import BufReader, ReadFailure, StepError, Partial, WriteFailure
 from std.net import NetError, TcpStream
 from std.atomic import Atomic, Ordering
 from std.sync import CancellationToken, Mutex
@@ -143,47 +147,27 @@ def reach(host: &str, port: u16, deadline: &Deadline, cancel: &CancellationToken
                         last = error
     Err(ClientError.Net(last))
 
-# A TCP stream as a std.io Reader and Writer whose waits end at `until`.
+# A TCP stream as a typed Reader and Writer whose waits end at `until`.
 pub class Dialled:
     stream: Option[TcpStream]
     until: u64
     cancel: CancellationToken
-    failure: Option[ClientError]
 
-    def noted(self: &mut Dialled, error: NetError) -> StreamError:
-        match error:
-            case NetError.Stream(StreamError.Allocation(cause)):
-                StreamError.Allocation(cause)
-            case _ as other:
-                self.failure = Some(ClientError.Net(other))
-                StreamError.Io(IoError.Other)
-
-    pub def read(self: &mut Dialled, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def read(self: &mut Dialled, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
         outcome: Result[i64, NetError] = match &mut self.stream:
             case Some(tcp):
                 tcp.read_before(buffer, start, stop, &deadline_of(self.until), &self.cancel)
             case Nothing:
                 Err(NetError.Stream(StreamError.Io(IoError.Closed)))
-        match outcome:
-            case Ok(count):
-                Ok(count)
-            case Err(error):
-                Err(self.noted(error))
+        transport_step(netted(outcome))
 
-    pub def write[S: ByteSource](self: &mut Dialled, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut Dialled, source: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
         outcome: Result[i64, NetError] = match &mut self.stream:
             case Some(tcp):
                 tcp.write_before(source, start, stop, &deadline_of(self.until), &self.cancel)
             case Nothing:
                 Err(NetError.Stream(StreamError.Io(IoError.Closed)))
-        match outcome:
-            case Ok(count):
-                Ok(count)
-            case Err(error):
-                Err(self.noted(error))
-
-    pub def flush(self: &mut Dialled) -> Result[(), StreamError]:
-        Ok(())
+        transport_step(netted(outcome))
 
 # `host:port` for a request target or Host field, with an IPv6 address
 # in brackets.
@@ -202,28 +186,26 @@ def tunnelled(stream: TcpStream, endpoint: &Endpoint, via: &Tunnel, deadline: &D
             framed(head.add("Proxy-Authorization", *secret))?
         case Nothing:
             pass
-    failure: Option[ClientError] = Nothing
-    wire = Dialled(Some(stream), until_of(deadline), cancel.share(), failure)
+    wire = Dialled(Some(stream), until_of(deadline), cancel.share())
     # Byte-sized reads, so that nothing after the proxy's head is taken from
     # the stream that the TLS session continues on.
-    mut conn = match std.io.buffered_reader(wire, 1):
+    mut conn = match std.io.typed.buffered_reader[ClientError, Dialled](wire, 1):
         case Ok(reader):
             reader
         case Err(StreamError.Allocation(cause)):
             return Err(ClientError.Allocation(cause))
         case Err(_):
             return Err(ClientError.InvalidConfig)
-    sent = std.http.write_request(&mut conn.inner, &head)
-    proxied(&mut conn, sent)?
+    written(std.http.typed.write_request[ClientError, Dialled](&mut conn.inner, &head))?
     mut interim = 0
     while True:
-        answer = match std.http.read_response(&mut conn, &via.limits):
+        answer = match std.http.typed.read_response[ReadFailure[ClientError], BufReader[ClientError, Dialled]](&mut conn, &via.limits):
             case Ok(Some(found)):
                 found
             case Ok(Nothing):
                 return Err(ClientError.Http(HttpError.Truncated))
-            case Err(error):
-                return Err(proxied_fault(&mut conn, error))
+            case Err(partial):
+                return Err(buffered_framing(partial.cause))
         if answer.status >= 200 and answer.status < 300:
             match replace(conn.inner.stream, Nothing):
                 case Some(tcp):
@@ -236,20 +218,6 @@ def tunnelled(stream: TcpStream, endpoint: &Endpoint, via: &Tunnel, deadline: &D
         if interim > max_interim:
             return Err(ClientError.UnexpectedInterim)
     Err(ClientError.UnexpectedInterim)
-
-def proxied_fault(conn: &mut BufReader[Dialled], error: HttpError) -> ClientError:
-    match replace(conn.inner.failure, Nothing):
-        case Some(cause):
-            cause
-        case Nothing:
-            http_of(error)
-
-def proxied(conn: &mut BufReader[Dialled], result: Result[(), HttpError]) -> Result[(), ClientError]:
-    match result:
-        case Ok(_):
-            Ok(())
-        case Err(error):
-            Err(proxied_fault(conn, error))
 
 # An HTTP proxy: a forward proxy for `http` URLs and a CONNECT tunnel for
 # `https` ones. `authorization`, when set, is sent as Proxy-Authorization to
@@ -597,10 +565,9 @@ def idempotent(method: &str) -> bool:
 
 # Connections
 
-# A std.io Reader and Writer over a transport. Every read waits at most
+# A typed Reader and Writer over a transport. Every read waits at most
 # `read_span`, and also no later than the request deadline and, until the
-# response head has arrived, the head deadline. The cause of a failed read
-# or write is kept in `failure`; `received` counts response bytes and
+# response head has arrived, the head deadline. `received` counts response bytes and
 # `pulled` bytes taken from a streamed request body.
 pub class Wire[T]:
     _stream: T
@@ -611,7 +578,6 @@ pub class Wire[T]:
     _write_span: u64
     _received: i64
     _pulled: i64
-    _failure: Option[ClientError]
     _key: str
     _since: u64
     # Set once the connection is counted as opened, so that dropping it
@@ -625,48 +591,96 @@ pub class Wire[T]:
             case Nothing:
                 pass
 
-    def noted(self: &mut Wire[T], error: ClientError) -> StreamError:
-        match error:
-            case ClientError.Allocation(cause):
-                StreamError.Allocation(cause)
-            case _ as other:
-                self._failure = Some(other)
-                StreamError.Io(IoError.Other)
-
-    pub def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
         limit = least(least(after(now_ns(), self._read_span), self._until), self._phase)
         match self._stream.read_before(buffer, start, stop, &deadline_of(limit), &self._cancel):
             case Ok(count):
+                if count < 0 or count > stop - start or count > i64.MAX - self._received:
+                    return Err(StepError[ClientError].Source(ClientError.Http(HttpError.Stream(StreamError.InvalidProgress))))
                 self._received += count
                 Ok(count)
             case Err(error):
-                Err(self.noted(error))
+                transport_step(Err(error))
 
-    pub def write[S: ByteSource](self: &mut Wire[T], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut Wire[T], source: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
         limit = least(after(now_ns(), self._write_span), self._until)
-        match self._stream.write_before(source, start, stop, &deadline_of(limit), &self._cancel):
-            case Ok(count):
-                Ok(count)
-            case Err(error):
-                Err(self.noted(error))
+        transport_step(self._stream.write_before(source, start, stop, &deadline_of(limit), &self._cancel))
 
-    pub def flush(self: &mut Wire[T]) -> Result[(), StreamError]:
-        Ok(())
+def transport_step(result: Result[i64, ClientError]) -> Result[i64, StepError[ClientError]]:
+    match result:
+        case Ok(count):
+            Ok(count)
+        case Err(ClientError.Net(NetError.Stream(StreamError.Interrupted))):
+            Err(StepError[ClientError].Interrupted)
+        case Err(cause):
+            Err(StepError[ClientError].Source(cause))
 
-# The cause of a framing failure: the transport's error when there was one.
-def fault[T](conn: &mut BufReader[Wire[T]], error: HttpError) -> ClientError:
-    match replace(conn.inner._failure, Nothing):
-        case Some(cause):
+def read_failure(cause: ReadFailure[ClientError]) -> ClientError:
+    match cause:
+        case ReadFailure.Source(error):
+            error
+        case ReadFailure.UnexpectedEof:
+            ClientError.Http(HttpError.Truncated)
+        case ReadFailure.InvalidProgress:
+            ClientError.Http(HttpError.Stream(StreamError.InvalidProgress))
+        case ReadFailure.OutOfRange:
+            ClientError.Http(HttpError.Stream(StreamError.OutOfRange))
+
+def framing_failure(error: FramingError[ClientError]) -> ClientError:
+    match error:
+        case FramingError.Transport(cause):
             cause
-        case Nothing:
-            http_of(error)
+        case FramingError.Protocol(cause):
+            http_of(cause)
+        case FramingError.Truncated:
+            ClientError.Http(HttpError.Truncated)
+        case FramingError.InvalidProgress:
+            ClientError.Http(HttpError.Stream(StreamError.InvalidProgress))
+        case FramingError.OutOfRange:
+            ClientError.Http(HttpError.Stream(StreamError.OutOfRange))
+        case FramingError.Broken:
+            ClientError.Http(HttpError.Broken)
+        case FramingError.NotReusable:
+            ClientError.Http(HttpError.Unfinished)
 
-def written[T](conn: &mut BufReader[Wire[T]], result: Result[(), HttpError]) -> Result[(), ClientError]:
+def buffered_framing(error: FramingError[ReadFailure[ClientError]]) -> ClientError:
+    match error:
+        case FramingError.Transport(cause):
+            read_failure(cause)
+        case FramingError.Protocol(cause):
+            http_of(cause)
+        case FramingError.Truncated:
+            ClientError.Http(HttpError.Truncated)
+        case FramingError.InvalidProgress:
+            ClientError.Http(HttpError.Stream(StreamError.InvalidProgress))
+        case FramingError.OutOfRange:
+            ClientError.Http(HttpError.Stream(StreamError.OutOfRange))
+        case FramingError.Broken:
+            ClientError.Http(HttpError.Broken)
+        case FramingError.NotReusable:
+            ClientError.Http(HttpError.Unfinished)
+
+def written(result: Result[(), Partial[FramingError[ClientError]]]) -> Result[(), ClientError]:
     match result:
         case Ok(_):
             Ok(())
-        case Err(error):
-            Err(fault(conn, error))
+        case Err(partial):
+            Err(framing_failure(partial.cause))
+
+def write_all[T](wire: &mut Wire[T], data: &Bytes, start: i64, stop: i64) -> Result[(), ClientError]:
+    match std.io.typed.write_all[ClientError, Wire[T]](wire, data, start, stop):
+        case Ok(_):
+            Ok(())
+        case Err(partial):
+            match partial.cause:
+                case WriteFailure.Source(cause):
+                    Err(cause)
+                case WriteFailure.WriteZero:
+                    Err(ClientError.Http(HttpError.Stream(StreamError.WriteZero)))
+                case WriteFailure.InvalidProgress:
+                    Err(ClientError.Http(HttpError.Stream(StreamError.InvalidProgress)))
+                case WriteFailure.OutOfRange:
+                    Err(ClientError.Http(HttpError.Stream(StreamError.OutOfRange)))
 
 # One response. Read its body with `read_body`, `read_all` or as a std.io
 # Reader, then give it back with `Client.finish` so its connection can be
@@ -690,6 +704,27 @@ pub class Response[T]:
     pub def read_all(self: &mut Response[T], out: &mut Bytes) -> Result[i64, ClientError]:
         self._incoming.read_all(out)
 
+    # completed counts bytes appended by this call, excluding any old prefix.
+    pub def read_all_progress(self: &mut Response[T], out: &mut Bytes) -> Result[i64, Partial[ClientError]]:
+        self._incoming.read_all_progress(out)
+
+    pub def total(self) -> i64:
+        self._incoming._total
+
+    pub def trailers(self) -> &list[Header]:
+        match &self._incoming._body:
+            case Some(body):
+                body.trailers()
+            case Nothing:
+                &self._incoming._trailers
+
+    pub def read_typed(self: &mut Response[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
+        match self.read_body(buffer, start, stop):
+            case Ok(count):
+                Ok(count)
+            case Err(cause):
+                Err(StepError[ClientError].Source(cause))
+
     # The std.io Reader method. A failure other than a stream or allocation
     # error is `Io(IoError.InvalidInput)`; `take_failure` returns its cause.
     pub def read(self: &mut Response[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
@@ -709,13 +744,34 @@ pub class Response[T]:
     pub def take_failure(self: &mut Response[T]) -> Option[ClientError]:
         replace(self._incoming._failure, Nothing)
 
+# An owning typed-reader view. Unwrap it before Client.finish; the response,
+# deadline, progress and connection ownership remain the same throughout.
+pub class TypedResponse[T]:
+    response: Option[Response[T]]
+
+    pub def read(self: &mut TypedResponse[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
+        match &mut self.response:
+            case Some(response):
+                response.read_typed(buffer, start, stop)
+            case Nothing:
+                Err(StepError[ClientError].Source(ClientError.Http(HttpError.Broken)))
+
+pub def typed_response[T](response: Response[T]) -> TypedResponse[T]:
+    TypedResponse[T](Some(response))
+
+pub def unwrap_response[T](response: TypedResponse[T]) -> Response[T]:
+    mut owned = response
+    replace(owned.response, Nothing).unwrap()
+
 # A response body and the state that decides its connection's reuse, kept
 # apart from the head so that `fetch` can move the head into `Fetched`
 # without a partial move out of `Response`.
 class Incoming[T]:
-    _body: Option[BodyReader[Wire[T]]]
+    _body: Option[Body[ReadFailure[ClientError], BufReader[ClientError, Wire[T]]]]
     _keep: bool
     _failure: Option[ClientError]
+    _total: i64
+    _trailers: list[Header]
 
     def is_done(self) -> bool:
         match &self._body:
@@ -725,49 +781,75 @@ class Incoming[T]:
                 False
 
     def read_body(self: &mut Incoming[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, ClientError]:
-        outcome: Result[i64, HttpError] = match &mut self._body:
-            case Some(body):
-                body.read_body(buffer, start, stop)
-            case Nothing:
-                Err(HttpError.Broken)
-        match outcome:
-            case Ok(count):
-                Ok(count)
-            case Err(error):
-                Err(self.broken(error))
+        # Invalid caller ranges do not consume or poison a healthy response.
+        if not std.io.typed.within(start, stop, buffer.len()):
+            return Err(ClientError.Http(HttpError.Stream(StreamError.OutOfRange)))
+        while True:
+            outcome: Result[i64, StepError[FramingError[ReadFailure[ClientError]]]] = match &mut self._body:
+                case Some(body):
+                    body.read(buffer, start, stop)
+                case Nothing:
+                    return Err(ClientError.Http(HttpError.Broken))
+            match outcome:
+                case Ok(count):
+                    self._total += count
+                    return Ok(count)
+                case Err(StepError.Interrupted):
+                    pass
+                case Err(StepError.Source(cause)):
+                    self._body = Nothing
+                    self._keep = False
+                    return Err(buffered_framing(cause))
+        Err(ClientError.Http(HttpError.Broken))
 
     def read_all(self: &mut Incoming[T], out: &mut Bytes) -> Result[i64, ClientError]:
-        outcome: Result[i64, HttpError] = match &mut self._body:
-            case Some(body):
-                std.http.read_to_end(body, out)
-            case Nothing:
-                Err(HttpError.Broken)
-        match outcome:
+        match self.read_all_progress(out):
             case Ok(count):
                 Ok(count)
-            case Err(error):
-                Err(self.broken(error))
+            case Err(partial):
+                Err(partial.cause)
 
-    # After a failed read the connection is closed and the body is gone.
-    def broken(self: &mut Incoming[T], error: HttpError) -> ClientError:
-        mut cause: Option[ClientError] = Nothing
-        match &mut self._body:
-            case Some(body):
-                match std.http.release(body):
-                    case Some(conn):
-                        mut owned = conn
-                        cause = replace(owned.inner._failure, Nothing)
-                    case Nothing:
-                        pass
-            case Nothing:
+    def read_all_progress(self: &mut Incoming[T], out: &mut Bytes) -> Result[i64, Partial[ClientError]]:
+        if self.is_done():
+            return Ok(0)
+        mut buffer = match bytes_of(std.bytes.with_capacity(4096)):
+            case Ok(value):
+                value
+            case Err(cause):
+                return Err(self.failed(0, cause))
+        match bytes_of(buffer.resize(4096, 0u8)):
+            case Ok(_):
                 pass
+            case Err(cause):
+                return Err(self.failed(0, cause))
+        mut total = 0
+        while True:
+            if self.is_done():
+                return Ok(total)
+            # Reserve before consuming payload, so an allocation failure can
+            # never discard successfully read bytes that the caller needs.
+            match bytes_of(out.reserve(4096)):
+                case Ok(_):
+                    pass
+                case Err(cause):
+                    return Err(self.failed(total, cause))
+            match self.read_body(&mut buffer, 0, 4096):
+                case Ok(count):
+                    if count == 0:
+                        return Ok(total)
+                    match bytes_of(out.extend_range(&buffer, 0, count)):
+                        case Ok(_):
+                            total += count
+                        case Err(cause):
+                            return Err(self.failed(total, cause))
+                case Err(cause):
+                    return Err(self.failed(total, cause))
+        Ok(total)
+
+    def failed(self: &mut Incoming[T], completed: i64, cause: ClientError) -> Partial[ClientError]:
         self._body = Nothing
         self._keep = False
-        match cause:
-            case Some(found):
-                found
-            case Nothing:
-                http_of(error)
+        Partial(completed, cause)
 
 const max_interim: i64 = 16
 
@@ -786,8 +868,8 @@ def copy_limits(limits: &Limits) -> Limits:
 # A connection taken out of the pool under its lock, to be closed or probed
 # with the lock released.
 enum Taken[T]:
-    Expired(BufReader[Wire[T]])
-    Candidate(BufReader[Wire[T]])
+    Expired(BufReader[ClientError, Wire[T]])
+    Candidate(BufReader[ClientError, Wire[T]])
     Empty
 
 # Every method borrows the client shared, so threads can use one client
@@ -798,7 +880,7 @@ enum Taken[T]:
 pub class Client[T, C]:
     _connector: C
     _config: Config
-    _pool: Mutex[list[BufReader[Wire[T]]]]
+    _pool: Mutex[list[BufReader[ClientError, Wire[T]]]]
     _stats: Shared[Counters]
 
     pub def stats(self) -> Stats:
@@ -817,7 +899,7 @@ pub class Client[T, C]:
     # go after those, and other threads parking cannot keep it running.
     pub def close_idle(self) -> ():
         for _ in range(self.idle()):
-            mut taken: Option[BufReader[Wire[T]]] = Nothing
+            mut taken: Option[BufReader[ClientError, Wire[T]]] = Nothing
             with self._pool.lock() as pool:
                 taken = pool.pop(0)
             match taken:
@@ -917,7 +999,7 @@ pub class Client[T, C]:
         match &mut incoming._body:
             case Some(body):
                 if body.is_done():
-                    match std.http.finish(body):
+                    match body.finish():
                         case Ok(conn):
                             self.park(conn)
                         case Err(_):
@@ -952,7 +1034,7 @@ pub class Client[T, C]:
     # Pools a connection whose response has ended, idle from now. It closes
     # instead when bytes beyond the response are already buffered or the
     # pool keeps nothing.
-    def park(self, conn: BufReader[Wire[T]]) -> ():
+    def park(self, conn: BufReader[ClientError, Wire[T]]) -> ():
         config = &self._config
         if config.max_idle == 0 or config.max_idle_per_origin == 0 or conn.buffered() != 0:
             return
@@ -963,10 +1045,10 @@ pub class Client[T, C]:
     # Puts a connection last in the pool. The connection it displaces, the
     # oldest for its origin or the oldest of all, closes after the lock is
     # released, and so does `conn` itself if the pool cannot grow.
-    def store(self, conn: BufReader[Wire[T]]) -> ():
+    def store(self, conn: BufReader[ClientError, Wire[T]]) -> ():
         config = &self._config
-        mut evicted: Option[BufReader[Wire[T]]] = Nothing
-        mut refused: Option[BufReader[Wire[T]]] = Nothing
+        mut evicted: Option[BufReader[ClientError, Wire[T]]] = Nothing
+        mut refused: Option[BufReader[ClientError, Wire[T]]] = Nothing
         with self._pool.lock() as pool:
             mut same = 0
             mut oldest = -1
@@ -1017,7 +1099,7 @@ pub class Client[T, C]:
     # with the pool lock released. A probe that `cancel` cut short has
     # learned nothing about its connection, which goes back to the pool
     # still idle since it was parked.
-    def take_idle(self, key: &str, cancel: &CancellationToken) -> Result[Option[BufReader[Wire[T]]], ClientError]:
+    def take_idle(self, key: &str, cancel: &CancellationToken) -> Result[Option[BufReader[ClientError, Wire[T]]], ClientError]:
         now = now_ns()
         idle_span = self._config.idle_timeout.as_nanoseconds()
         mut probe = match std.bytes.with_capacity(1):
@@ -1047,13 +1129,12 @@ pub class Client[T, C]:
                     return Ok(Nothing)
         Ok(Nothing)
 
-    def open(self, endpoint: &Endpoint, key: &str, until: u64, cancel: &CancellationToken) -> Result[BufReader[Wire[T]], ClientError]:
+    def open(self, endpoint: &Endpoint, key: &str, until: u64, cancel: &CancellationToken) -> Result[BufReader[ClientError, Wire[T]], ClientError]:
         limit = least(after(now_ns(), self._config.connect_timeout.as_nanoseconds()), until)
         stream = self._connector.open(endpoint, &deadline_of(limit), cancel)?
-        failure: Option[ClientError] = Nothing
         counters: Option[Shared[Counters]] = Nothing
-        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, 0, failure, *key, 0u64, counters)
-        mut conn = match std.io.buffered_reader(wire, 4096):
+        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, 0, *key, 0u64, counters)
+        mut conn = match std.io.typed.buffered_reader[ClientError, Wire[T]](wire, 4096):
             case Ok(reader):
                 reader
             case Err(StreamError.Allocation(cause)):
@@ -1107,7 +1188,7 @@ pub class Client[T, C]:
             if now_ns() >= until:
                 return Err(ClientError.Net(NetError.TimedOut))
             mut reused = False
-            mut found: Option[BufReader[Wire[T]]] = Nothing
+            mut found: Option[BufReader[ClientError, Wire[T]]] = Nothing
             if not fresh:
                 found = self.take_idle(&key, cancel)?
             mut conn = match found:
@@ -1124,7 +1205,6 @@ pub class Client[T, C]:
             conn.inner._write_span = self._config.write_timeout.as_nanoseconds()
             conn.inner._received = 0
             conn.inner._pulled = 0
-            conn.inner._failure = Nothing
             match self.exchange(&mut conn, request, &head, body, upload, streamed):
                 case Ok(answer):
                     answered, complete = answer
@@ -1176,9 +1256,8 @@ pub class Client[T, C]:
     # Writes the request and reads up to the final response head, paired
     # with whether the whole request body went before it. With
     # `Expect: 100-continue`, a final response can arrive before the body.
-    def exchange[R: Reader](self, conn: &mut BufReader[Wire[T]], request: &Request, head: &RequestHead, body: &mut R, upload: &Upload, streamed: bool) -> Result[(ResponseHead, bool), ClientError]:
-        sent = std.http.write_request(&mut conn.inner, head)
-        written(conn, sent)?
+    def exchange[R: Reader](self, conn: &mut BufReader[ClientError, Wire[T]], request: &Request, head: &RequestHead, body: &mut R, upload: &Upload, streamed: bool) -> Result[(ResponseHead, bool), ClientError]:
+        written(std.http.typed.write_request[ClientError, Wire[T]](&mut conn.inner, head))?
         if streamed:
             if upload.expect_continue:
                 conn.inner._phase = after(now_ns(), self._config.continue_timeout.as_nanoseconds())
@@ -1192,15 +1271,11 @@ pub class Client[T, C]:
         else:
             size = request.body.len()
             if size > 0:
-                match std.io.write_all(&mut conn.inner, &request.body, 0, size):
-                    case Ok(_):
-                        pass
-                    case Err(partial):
-                        return Err(fault(conn, HttpError.Stream(partial.cause)))
+                write_all(&mut conn.inner, &request.body, 0, size)?
         conn.inner._phase = after(now_ns(), self._config.head_timeout.as_nanoseconds())
         mut interim = 0
         while True:
-            match std.http.read_response(conn, &self._config.limits):
+            match std.http.typed.read_response[ReadFailure[ClientError], BufReader[ClientError, Wire[T]]](conn, &self._config.limits):
                 case Ok(Some(answer)):
                     if answer.status == 101:
                         return Err(ClientError.UnexpectedInterim)
@@ -1211,18 +1286,18 @@ pub class Client[T, C]:
                         return Err(ClientError.UnexpectedInterim)
                 case Ok(Nothing):
                     return Err(ClientError.Http(HttpError.Truncated))
-                case Err(error):
-                    return Err(fault(conn, error))
+                case Err(partial):
+                    return Err(buffered_framing(partial.cause))
         Err(ClientError.UnexpectedInterim)
 
     # Waits up to the continue phase for `100 Continue` (Nothing: send the
     # body) or a final response (send no body). Silence until then also
     # means sending the body, as servers that ignore Expect never answer.
-    def await_continue(self, conn: &mut BufReader[Wire[T]]) -> Result[Option[ResponseHead], ClientError]:
+    def await_continue(self, conn: &mut BufReader[ClientError, Wire[T]]) -> Result[Option[ResponseHead], ClientError]:
         mut interim = 0
         while True:
             before = conn.inner._received
-            match std.http.read_response(conn, &self._config.limits):
+            match std.http.typed.read_response[ReadFailure[ClientError], BufReader[ClientError, Wire[T]]](conn, &self._config.limits):
                 case Ok(Some(answer)):
                     if answer.status == 100:
                         return Ok(Nothing)
@@ -1235,23 +1310,27 @@ pub class Client[T, C]:
                         return Err(ClientError.UnexpectedInterim)
                 case Ok(Nothing):
                     return Err(ClientError.Http(HttpError.Truncated))
-                case Err(error):
-                    cause = fault(conn, error)
-                    if timed_out(&cause) and conn.inner._received == before and conn.buffered() == 0 and now_ns() < conn.inner._until:
+                case Err(partial):
+                    cause = buffered_framing(partial.cause)
+                    if partial.completed == 0 and timed_out(&cause) and conn.inner._received == before and conn.buffered() == 0 and now_ns() < conn.inner._until:
                         return Ok(Nothing)
                     return Err(cause)
         Err(ClientError.UnexpectedInterim)
 
     # The body that follows `head` on `conn`.
-    def incoming(self, conn: BufReader[Wire[T]], head: &ResponseHead, method: &str, complete: bool) -> Result[Incoming[T], ClientError]:
+    def incoming(self, conn: BufReader[ClientError, Wire[T]], head: &ResponseHead, method: &str, complete: bool) -> Result[Incoming[T], ClientError]:
         mut owned = conn
         framing = framed(std.http.response_framing(head, method))?
         # A request whose body was never sent leaves the server expecting it.
         keep = complete and std.http.response_keeps_alive(head, &framing) and self._config.max_idle > 0
         owned.inner._phase = u64.MAX
-        body = framed(std.http.body_reader(owned, &framing, &self._config.limits))?
+        body = match std.http.typed.response_body[ReadFailure[ClientError], BufReader[ClientError, Wire[T]]](owned, head, method, keep, &self._config.limits):
+            case Ok(value):
+                value
+            case Err(cause):
+                return Err(buffered_framing(cause))
         failure: Option[ClientError] = Nothing
-        Ok(Incoming(Some(body), keep, failure))
+        Ok(Incoming(Some(body), keep, failure, 0, alloc(list[Header].new())?))
 
 def timed_out(error: &ClientError) -> bool:
     match error:
@@ -1262,7 +1341,7 @@ def timed_out(error: &ClientError) -> bool:
 
 # Copies `body` to the connection until it ends: as is under Content-Length,
 # which it must match exactly, or as chunks and the last chunk.
-def stream_body[T, R: Reader](conn: &mut BufReader[Wire[T]], body: &mut R, upload: &Upload) -> Result[(), ClientError]:
+def stream_body[T, R: Reader](conn: &mut BufReader[ClientError, Wire[T]], body: &mut R, upload: &Upload) -> Result[(), ClientError]:
     mut buffer = bytes_of(std.bytes.with_capacity(upload_chunk))?
     bytes_of(buffer.resize(upload_chunk, 0u8))?
     while True:
@@ -1271,32 +1350,30 @@ def stream_body[T, R: Reader](conn: &mut BufReader[Wire[T]], body: &mut R, uploa
                 found
             case Err(StreamError.Allocation(cause)):
                 return Err(ClientError.Allocation(cause))
+            case Err(StreamError.Interrupted):
+                continue
             case Err(error):
                 return Err(ClientError.Body(error))
         if count == 0:
             break
+        if count < 0 or count > upload_chunk or count > i64.MAX - conn.inner._pulled:
+            return Err(ClientError.Body(StreamError.InvalidProgress))
         match upload.length:
             case Some(total):
                 if count > total - conn.inner._pulled:
                     return Err(ClientError.WrongBodyLength)
                 conn.inner._pulled += count
-                match std.io.write_all(&mut conn.inner, &buffer, 0, count):
-                    case Ok(_):
-                        pass
-                    case Err(partial):
-                        return Err(fault(conn, HttpError.Stream(partial.cause)))
+                write_all(&mut conn.inner, &buffer, 0, count)?
             case Nothing:
                 conn.inner._pulled += count
-                sent = std.http.write_chunk(&mut conn.inner, &buffer, 0, count)
-                written(conn, sent)?
+                written(std.http.typed.write_chunk[ClientError, Wire[T]](&mut conn.inner, &buffer, 0, count))?
     match upload.length:
         case Some(total):
             if conn.inner._pulled != total:
                 return Err(ClientError.WrongBodyLength)
         case Nothing:
             trailers = alloc(list[Header].new())?
-            sent = std.http.write_last_chunk(&mut conn.inner, &trailers)
-            written(conn, sent)?
+            written(std.http.typed.write_last_chunk[ClientError, Wire[T]](&mut conn.inner, &trailers))?
     Ok(())
 
 # Whether following a redirect with `status` drops the request body.
@@ -1360,6 +1437,6 @@ pub def client(config: Config) -> Result[Client[Plain, TcpConnector], ClientErro
 pub def connector[T: Transport, C: Connector[T]](opener: C, config: Config) -> Result[Client[T, C], ClientError]:
     if not checked(&config):
         return Err(ClientError.InvalidConfig)
-    pool = alloc(list[BufReader[Wire[T]]].new())?
+    pool = alloc(list[BufReader[ClientError, Wire[T]]].new())?
     counters = alloc(Shared(Counters(Atomic[u64](0), Atomic[u64](0), Atomic[u64](0), Atomic[u64](0), Atomic[u64](0))))?
     Ok(Client(opener, config, Mutex(pool), counters))

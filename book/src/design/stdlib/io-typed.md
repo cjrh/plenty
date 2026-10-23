@@ -31,6 +31,19 @@ have been consumed when writing fails: this API does not promise resumable
 copying or retain unwritten bytes. Empty scratch is an `OutOfRange` read
 failure. Helpers allocate nothing and require caller-provided storage.
 
+`buffered_reader(inner, capacity)` returns
+`Result[BufReader[E, R], StreamError]` for a `Reader[E]`. Capacity must be
+positive; construction allocates the buffer. Its `read` returns
+`StepError[ReadFailure[E]]`, preserving a transport cause as
+`Source(ReadFailure.Source(E))` and forwarding `Interrupted`. Invalid ranges
+and empty reads do not call the transport. Invalid inner counts become
+`ReadFailure.InvalidProgress`. Reads allocate nothing; `capacity()` and
+`buffered()` report the buffer size and unread bytes.
+
+The public `inner` field permits transport-specific operations, but consuming
+it discards prefetched bytes. Keep the whole buffered reader when handing a
+connection from head parsing to body decoding or to the next HTTP message.
+
 `reader(inner)` wraps an existing `std.io.Reader` as
 `LegacyReader[R]`; `writer(inner)` wraps a `std.io.Writer` as
 `LegacyWriter[W]`. Their typed cause is `StreamError`. Only its
@@ -39,7 +52,9 @@ failure. Helpers allocate nothing and require caller-provided storage.
 return the owned stream, allowing
 explicit flushing, seeking or closing. Copying does not flush or close.
 These bridges cannot recover causes already erased by a legacy adapter:
-HTTP `take_failure` side channels still require the old APIs.
+For HTTP client responses, prefer `std.http.client.typed_response(response)`
+over bridging `Response.read`: its typed cause is the complete `ClientError`.
+The legacy `Response.read`/`take_failure` pair remains a compatibility API.
 
 See [typed HTTP framing](http-typed.md) and the
 [tutorial](../../tutorial/03-absence/typed-streams.md).

@@ -701,6 +701,9 @@ def request(method: str, target: str) -> Result[RequestHead, HttpError]
 def response(status: i64, reason: str) -> Result[ResponseHead, HttpError]
 def find(headers: &list[Header], name: &str) -> Option[i64]
 def same_name(left: &str, right: &str) -> bool
+def parse_field(line: &Bytes, size: i64) -> Result[Header, HttpError]
+def parse_request_line(line: &Bytes, size: i64) -> Result[RequestHead, HttpError]
+def parse_status_line(line: &Bytes, size: i64) -> Result[ResponseHead, HttpError]
 def read_request[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Result[Option[RequestHead], HttpError]
 def read_response[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Result[Option[ResponseHead], HttpError]
 def request_framing(head: &RequestHead) -> Result[Framing, HttpError]
@@ -725,9 +728,13 @@ def discard[R: Reader](body: &mut BodyReader[R]) -> Result[i64, HttpError]
 def finish[R](body: &mut BodyReader[R]) -> Result[BufReader[R], HttpError]
 def release[R](body: &mut BodyReader[R]) -> Option[BufReader[R]]
 def write_request[W: Writer](writer: &mut W, head: &RequestHead) -> Result[(), HttpError]
+def encode_request(head: &RequestHead) -> Result[Bytes, HttpError]
 def write_response[W: Writer](writer: &mut W, head: &ResponseHead) -> Result[(), HttpError]
+def encode_response(head: &ResponseHead) -> Result[Bytes, HttpError]
 def write_chunk[W: Writer](writer: &mut W, source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]
+def encode_chunk_size(length: i64) -> Result[Bytes, HttpError]
 def write_last_chunk[W: Writer](writer: &mut W, trailers: &list[Header]) -> Result[(), HttpError]
+def encode_last_chunk(trailers: &list[Header]) -> Result[Bytes, HttpError]
 def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]
 ```
 
@@ -799,9 +806,8 @@ class TcpConnector
     def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Plain, ClientError]
 def dial(endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, ClientError]
 class Dialled
-    def read(self: &mut Dialled, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-    def write[S: ByteSource](self: &mut Dialled, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
-    def flush(self: &mut Dialled) -> Result[(), StreamError]
+    def read(self: &mut Dialled, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]
+    def write(self: &mut Dialled, source: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]
 class Proxy
     endpoint: Endpoint
     authorization: Option[str]
@@ -848,9 +854,8 @@ class Fetched
     redirects: i64
     body: Bytes
 class Wire[T]
-    def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-    def write[S: ByteSource](self: &mut Wire[T], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
-    def flush(self: &mut Wire[T]) -> Result[(), StreamError]
+    def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]
+    def write(self: &mut Wire[T], source: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]
 class Response[T]
     status: i64
     head: ResponseHead
@@ -859,8 +864,16 @@ class Response[T]
     def is_done(self) -> bool
     def read_body(self: &mut Response[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, ClientError]
     def read_all(self: &mut Response[T], out: &mut Bytes) -> Result[i64, ClientError]
+    def read_all_progress(self: &mut Response[T], out: &mut Bytes) -> Result[i64, Partial[ClientError]]
+    def total(self) -> i64
+    def trailers(self) -> &list[Header]
+    def read_typed(self: &mut Response[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]
     def read(self: &mut Response[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
     def take_failure(self: &mut Response[T]) -> Option[ClientError]
+class TypedResponse[T]
+    def read(self: &mut TypedResponse[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]
+def typed_response[T](response: Response[T]) -> TypedResponse[T]
+def unwrap_response[T](response: TypedResponse[T]) -> Response[T]
 class Client[T, C]
     def stats(self) -> Stats
     def idle(self) -> i64
@@ -1066,11 +1079,17 @@ def serve[R, E, H: Handler[TlsTransport, R, E]](listener: TcpListener, tls: Serv
 
 ## `std.http.typed`
 
-Fixed-length, chunked and close-delimited body readers over `std.io.typed` streams that keep the transport cause. Errors: `FramingError[E]`. [Reference](http-typed.md).
+Typed head parsing and writes, fixed/chunked/close-delimited bodies, and guarded connection recovery with concrete causes and progress. Errors: `FramingError[E]`, `Partial[E]`. [Reference](http-typed.md).
 
 ```text
 enum FramingError[E]
     Transport(E) | Truncated | InvalidProgress | OutOfRange | Broken | NotReusable | Protocol(HttpError)
+def read_request[E, R: Reader[E]](reader: &mut R, limits: &Limits) -> Result[Option[RequestHead], Partial[FramingError[E]]]
+def read_response[E, R: Reader[E]](reader: &mut R, limits: &Limits) -> Result[Option[ResponseHead], Partial[FramingError[E]]]
+def write_request[E, W: Writer[E]](writer: &mut W, head: &RequestHead) -> Result[(), Partial[FramingError[E]]]
+def write_response[E, W: Writer[E]](writer: &mut W, head: &ResponseHead) -> Result[(), Partial[FramingError[E]]]
+def write_last_chunk[E, W: Writer[E]](writer: &mut W, trailers: &list[Header]) -> Result[(), Partial[FramingError[E]]]
+def write_chunk[E, W: Writer[E]](writer: &mut W, source: &Bytes, start: i64, stop: i64) -> Result[(), Partial[FramingError[E]]]
 def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]
 class FixedBody[E, R]
     def read(self: &mut FixedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
@@ -1173,7 +1192,7 @@ def stderr() -> Stderr
 
 ## `std.io.typed`
 
-Byte stream protocols that carry a caller-chosen error type, adapters for `std.io` streams, and exact read, write, and copy helpers. Errors: `StepError[E]`, `Partial[E]`, `CopyFailure[R, W]`. [Reference](io-typed.md).
+Byte stream protocols that carry a caller-chosen error type, buffering, adapters for `std.io` streams, and exact read, write, and copy helpers. Errors: `StepError[E]`, `Partial[E]`, `CopyFailure[R, W]`. [Reference](io-typed.md).
 
 ```text
 enum StepError[E]
@@ -1192,6 +1211,12 @@ protocol Writer[E]
     def write(self: &mut Writer[E], buffer: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[E]]
 enum ReadFailure[E]
     Source(E) | UnexpectedEof | InvalidProgress | OutOfRange
+class BufReader[E, R]
+    inner: R
+    def capacity(self) -> i64
+    def buffered(self) -> i64
+    def read(self: &mut BufReader[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ReadFailure[E]]]
+def buffered_reader[E, R: Reader[E]](inner: R, capacity: i64) -> Result[BufReader[E, R], StreamError]
 enum WriteFailure[E]
     Source(E) | WriteZero | InvalidProgress | OutOfRange
 class Partial[E]

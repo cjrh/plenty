@@ -5,7 +5,8 @@ connections. Each call has a caller deadline and cancellation token and a
 timeout for each phase. Redirects are bounded and drop credentials when the
 origin changes. A proxy is used only when configured, and a request is
 replayed only when that is safe. Request bodies are in memory or streamed
-from a `std.io` `Reader`. Framing comes from [`std.http`](http.md) and
+from a `std.io` `Reader`. Head parsing, writes and body framing use
+[`std.http.typed`](http-typed.md), with shared [`std.http`](http.md) validation, and
 sockets from [`std.net`](net.md); [`std.http.https`](#https) adds `https`
 URLs through [`std.tls`](tls.md). Both modules are checked Plenty in
 `stdlib/std/http/` and add no runtime primitives. The tutorial lessons
@@ -50,6 +51,10 @@ before it takes a connection, so it leaves pooled connections alone.
 | `Response.status`, `head: ResponseHead`, `url`, `redirects` | Final status and head, the URL that answered, and redirects followed |
 | `response.read_body(&mut buffer, start, stop)` | `Result[i64, ClientError]`: part of the body; `0` is the end |
 | `response.read_all(&mut out)` | `Result[i64, ClientError]`: append the rest, within `limits.max_body` |
+| `response.read_all_progress(&mut out)` | `Result[i64, Partial[ClientError]]`: append the rest and retain the count appended by this call if it fails |
+| `response.read_typed(...)` | `Result[i64, StepError[ClientError]]`: read with the complete returned cause |
+| `typed_response(response)`, `unwrap_response(stream)` | Owning `TypedResponse[T]` adapter for `std.io.typed.Reader[ClientError]`; unwrap before `client.finish` |
+| `response.total()`, `response.trailers()` | Payload bytes successfully read, and borrowed trailer fields (complete after `is_done`) |
 | `response.read(...)`, `take_failure()` | A `std.io` `Reader`; a client failure is `Io(InvalidInput)` and `take_failure` returns it, a short body is `UnexpectedEof` |
 | `response.is_done()` | The whole body has been read |
 | `Fetched.status`, `head`, `url`, `redirects`, `body: Bytes` | A whole response |
@@ -70,6 +75,21 @@ The fragment is not sent. The TCP connector refuses an `https` URL with
 Interim `1xx` responses are skipped, up to 16; `101 Switching Protocols` is
 `UnexpectedInterim`. A response to `HEAD`, and a `204` or `304`, has no body.
 
+Typed response reads preserve network, TLS, cancellation and framing causes
+directly. `read_all_progress` counts bytes appended after the output's existing
+prefix. It reserves output capacity before consuming payload; on failure the
+prefix and appended bytes remain available, the connection closes, and
+`total()` retains previously returned payload progress. The existing `read_all`
+returns the same cause while omitting the count. `send` and `fetch` also retain
+their established `ClientError` return types; use the lower-level typed HTTP
+operations when per-head or per-write partial counts are needed.
+
+The legacy `read` method still implements `std.io.Reader` and uses
+`take_failure` for causes that `StreamError` cannot represent. Bridging that
+method with `std.io.typed.reader` cannot recover the erased cause; use
+`typed_response` instead. Internal head parsing, body decoding and CONNECT
+tunnelling no longer store transport errors for later retrieval.
+
 ## Streamed bodies
 
 `send_from` reads the request body from any `std.io` `Reader`, 16 KiB at a
@@ -85,7 +105,8 @@ or the call fails with `InvalidRequest` before connecting.
 With `sized`, the reader must yield exactly `length` bytes: more, or an end
 before `length`, is `WrongBodyLength` and the connection is closed. A
 negative length is `InvalidRequest`. A reader failure is `Body(StreamError)`,
-or `Allocation`.
+or `Allocation`. Explicit reader interruption is retried; negative or oversized
+successful counts are rejected as `Body(InvalidProgress)`.
 
 With `expect_continue`, the head carries `Expect: 100-continue` and the
 client waits up to `config.continue_timeout` before sending the body:
