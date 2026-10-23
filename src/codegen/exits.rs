@@ -1,22 +1,28 @@
-//! Shared exits of a user function (issues #407 and #417).
+//! Shared exits of a user function (issues #407, #417 and #419).
 //!
 //! A `?` failure runs its cleanup ops, then, like every `return` and tail
 //! call, releases each owned local that may still hold a value and leaves.
-//! A `return` or `break` inside scopes first runs the scope cleanup the front
-//! end marks with [`Op::Leaving`]. Lowered at each exit, that code is
-//! proportional to the live locals, so a function with *n* exits and *n* owned
-//! locals grows quadratically. Instead each exit stages the values it carries
-//! and jumps into a chain of shared blocks.
+//! A `return`, `break` or `continue` inside scopes first runs the scope
+//! cleanup the front end marks with [`Op::Leaving`], and a `continue` then
+//! its loop's step. Lowered at each exit, that code is proportional to the
+//! live locals, so a function with *n* exits and *n* owned locals grows
+//! quadratically. Instead each exit stages the values it carries and jumps
+//! into a chain of shared blocks.
 //!
 //! An exit's work is a list of steps: its cleanup ops, split after each
-//! `DropLocal`, then, unless it is a `break`, one release per local that may
-//! hold a value, in reverse slot order. One block performs each distinct
-//! (step, rest of the list) pair and jumps to the block for the rest; the last
-//! jumps to the exit's target: a return, a tail call, or a loop's exit block.
-//! Successive exits in a scope release the same values in the same order after
-//! their newest locals, so their lists share suffixes and the chain is a
-//! ladder entered at each exit's newest live value. Lists with no common
-//! suffix still share identical ones.
+//! `DropLocal`, then, unless it stays in the function, one release per local
+//! that may hold a value, in reverse slot order. One block performs each
+//! distinct (step, rest of the list) pair and jumps to the block for the
+//! rest; the last jumps to the exit's target: a return, a tail call, or a
+//! loop's exit block or header. Successive exits in a scope release the same
+//! values in the same order after their newest locals, so their lists share
+//! suffixes and the chain is a ladder entered at each exit's newest live
+//! value. Lists with no common suffix still share identical ones.
+//!
+//! Direct tail calls whose callees take the same carried values share one
+//! target, so their releases are shared too. Each exit names its callee's
+//! index in a variable, and the target dispatches on it when it has more than
+//! one callee.
 //!
 //! Behavior matches lowering each exit inline:
 //! - Steps run in the same order, from the same operand stack (empty). The
@@ -30,12 +36,15 @@
 //!   After a context's exit, scope cleanup restores the exiting statement's
 //!   position before the next drop. That marker differs between exits, so
 //!   exits pass it in two more variables and a [`Step::Restore`] reads them.
+//!   Line tables likewise give a shared block no line until its own marker.
 //! - Shared blocks are lowered after every predecessor exists, and sealed
 //!   first, so a local every predecessor leaves empty still reads as the empty
 //!   constant (issue #391): a function's blocks after its body, a loop's
 //!   before its exit block is sealed.
 use super::*;
-use cranelift_codegen::ir::{FuncRef, SigRef, Signature, Type, Value as NativeValue};
+use cranelift_codegen::ir::{
+    FuncRef, JumpTableData, SigRef, Signature, Type, Value as NativeValue, types,
+};
 use std::ops::Range;
 
 #[derive(Default)]
@@ -44,12 +53,14 @@ pub(super) struct Exits {
     sites: Option<(Variable, Variable)>,
     /// Records of the position a [`Step::Restore`] returns to.
     restore: Option<(Variable, Variable)>,
-    /// The scope cleanup gathered since an `Op::Leaving`, until its `Return`
-    /// or `Break`.
+    /// Which callee of an [`End::Calls`] target the exit being taken calls.
+    callee: Option<Variable>,
+    /// The scope cleanup gathered since an `Op::Leaving`, until its `Return`,
+    /// `Break` or `Continue`.
     pending: Option<Vec<Op>>,
     /// Exits leaving the function.
     function: Ladder,
-    /// `break`s of each enclosing loop, innermost last.
+    /// `break`s and `continue`s of each enclosing loop, innermost last.
     loops: Vec<Ladder>,
 }
 
@@ -71,21 +82,33 @@ struct Target {
 
 enum End {
     Return,
-    /// A loop's exit block, lowered by the loop.
-    Jump,
-    /// A tail call, and whether it names this function's caller. Each
-    /// declaration of a callee makes a new reference, so the function's id
-    /// identifies it.
-    Call(FuncId, FuncRef, bool),
+    /// A block the loop lowers: its exit block, or the header a `continue`
+    /// returns to.
+    Jump(Block),
+    /// Tail calls of callees taking the same carried values. Exits calling
+    /// different callees share their releases; the target dispatches on
+    /// [`Exits::callee`] when there is more than one.
+    Calls(Vec<Callee>),
     /// The callee is the first carried value.
     CallIndirect(Signature, SigRef, bool),
 }
 
-impl PartialEq for End {
-    fn eq(&self, other: &End) -> bool {
+/// A tail call's callee, and whether the call names this function's caller.
+/// Each declaration of a callee makes a new reference, so the function's id
+/// identifies it.
+#[derive(Clone, Copy)]
+struct Callee {
+    id: FuncId,
+    func: FuncRef,
+    track_caller: bool,
+}
+
+impl End {
+    /// Whether an exit ending in `self` can use a target ending in `other`.
+    fn joins(&self, other: &End) -> bool {
         match (self, other) {
-            (End::Return, End::Return) | (End::Jump, End::Jump) => true,
-            (End::Call(a, _, x), End::Call(b, _, y)) => a == b && x == y,
+            (End::Return, End::Return) | (End::Calls(_), End::Calls(_)) => true,
+            (End::Jump(a), End::Jump(b)) => a == b,
             (End::CallIndirect(a, _, x), End::CallIndirect(b, _, y)) => a == b && x == y,
             _ => false,
         }
@@ -102,7 +125,8 @@ struct Shared {
 }
 
 enum Step {
-    /// Cleanup ops of a `?`, `return` or `break`.
+    /// Cleanup ops of a `?`, `return`, `break` or `continue`, and a
+    /// `continue`'s loop step.
     Ops(Arc<[Op]>, Range<usize>),
     /// Return to the exiting statement's position, as its cleanup's marker
     /// after a context exit does.
@@ -216,7 +240,7 @@ impl Lowerer<'_, '_> {
         let Some(pending) = self.exits.as_mut().and_then(|exits| exits.pending.as_mut()) else {
             return Ok(false);
         };
-        if !matches!(op, Op::Return | Op::Break) {
+        if !matches!(op, Op::Return | Op::Break | Op::Continue) {
             pending.push(op.clone());
             return Ok(true);
         }
@@ -227,7 +251,7 @@ impl Lowerer<'_, '_> {
         if matches!(op, Op::Return) {
             self.leave(self.stack.clone(), &cleanup)?;
         } else {
-            self.leave_loop(&cleanup)?;
+            self.leave_loop(&cleanup, matches!(op, Op::Continue))?;
         }
         self.terminated = true;
         self.fresh_load = None;
@@ -235,16 +259,18 @@ impl Lowerer<'_, '_> {
         Ok(true)
     }
 
-    fn leave_loop(&mut self, cleanup: &Arc<[Op]>) -> Result<()> {
+    /// Leave the loop for its exit block, or for its header to continue.
+    fn leave_loop(&mut self, cleanup: &Arc<[Op]>, continuing: bool) -> Result<()> {
         let (steps, restore) = self.cleanup_steps(cleanup);
+        let &(header, exit) = self
+            .loop_targets
+            .last()
+            .ok_or("loop control outside a loop")?;
+        let target = if continuing { header } else { exit };
         if steps.is_empty() {
-            let &(_, exit) = self
-                .loop_targets
-                .last()
-                .ok_or("loop control outside a loop")?;
-            self.bcx.ins().jump(exit, &[]);
+            self.bcx.ins().jump(target, &[]);
         } else {
-            self.take_exit(Which::Loop, steps, restore, Vec::new(), End::Jump)?;
+            self.take_exit(Which::Loop, steps, restore, Vec::new(), End::Jump(target))?;
         }
         self.follow_markers(cleanup);
         Ok(())
@@ -259,7 +285,12 @@ impl Lowerer<'_, '_> {
         track_caller: bool,
         args: &[NativeValue],
     ) -> Result<bool> {
-        self.shared_tail(args.to_vec(), End::Call(id, func, track_caller))
+        let callee = Callee {
+            id,
+            func,
+            track_caller,
+        };
+        self.shared_tail(args.to_vec(), End::Calls(vec![callee]))
     }
 
     /// As [`Self::shared_tail_call`] for an indirect call of `callee`.
@@ -389,8 +420,13 @@ impl Lowerer<'_, '_> {
         let found = ladder
             .targets
             .iter()
-            .position(|target| target.types == types && target.end == end);
-        let mut next = Next::Target(match found {
+            .position(|target| target.types == types && target.end.joins(&end));
+        let (end, called) = match end {
+            // The callee joins the target's below.
+            End::Calls(called) => (End::Calls(Vec::new()), called.first().copied()),
+            end => (end, None),
+        };
+        let target = match found {
             Some(i) => i,
             None => {
                 let block = self.parameterized_block(&types);
@@ -401,7 +437,20 @@ impl Lowerer<'_, '_> {
                 });
                 ladder.targets.len() - 1
             }
-        });
+        };
+        let arm = match (&mut ladder.targets[target].end, called) {
+            (End::Calls(callees), Some(callee)) => {
+                let known = callees.iter().position(|known| {
+                    known.id == callee.id && known.track_caller == callee.track_caller
+                });
+                Some(known.unwrap_or_else(|| {
+                    callees.push(callee);
+                    callees.len() - 1
+                }))
+            }
+            _ => None,
+        };
+        let mut next = Next::Target(target);
         for step in steps.into_iter().rev() {
             let found = ladder.entering.get(&next).and_then(|entering| {
                 entering
@@ -429,6 +478,14 @@ impl Lowerer<'_, '_> {
         let sites = *exits
             .sites
             .get_or_insert_with(|| (self.bcx.declare_var(PTR_TY), self.bcx.declare_var(PTR_TY)));
+        // A target with one callee never reads the variable, so SSA
+        // construction gives it no parameters and the constant goes unused.
+        let calling = arm.map(|arm| {
+            let var = *exits
+                .callee
+                .get_or_insert_with(|| self.bcx.declare_var(types::I32));
+            (var, arm)
+        });
         let restoring = restore.map(|site| {
             let vars = *exits.restore.get_or_insert_with(|| {
                 (self.bcx.declare_var(PTR_TY), self.bcx.declare_var(PTR_TY))
@@ -437,6 +494,10 @@ impl Lowerer<'_, '_> {
         });
         self.exits = Some(exits);
         self.pass_sites(sites)?;
+        if let Some((var, arm)) = calling {
+            let index = self.bcx.ins().iconst(types::I32, arm as i64);
+            self.bcx.def_var(var, index);
+        }
         if let Some(((trap, call), site)) = restoring {
             let at = self.site_record(Some((site.line, site.column)))?;
             self.bcx.def_var(trap, at);
@@ -460,29 +521,30 @@ impl Lowerer<'_, '_> {
         block
     }
 
-    /// Share the `break`s of the loop about to be lowered, which exits to
-    /// `exit`.
-    pub(super) fn enter_loop_exits(&mut self, exit: Block) {
+    /// Share the `break`s and `continue`s of the loop about to be lowered,
+    /// which exits to `exit` and continues at `header`.
+    pub(super) fn enter_loop_exits(&mut self, header: Block, exit: Block) {
         if let Some(exits) = &mut self.exits {
+            let target = |block| Target {
+                block,
+                types: Vec::new(),
+                end: End::Jump(block),
+            };
             exits.loops.push(Ladder {
-                targets: vec![Target {
-                    block: exit,
-                    types: Vec::new(),
-                    end: End::Jump,
-                }],
+                targets: vec![target(exit), target(header)],
                 ..Default::default()
             });
         }
     }
 
-    /// Lower the blocks shared by the `break`s of the loop just lowered,
-    /// before its exit block is sealed.
+    /// Lower the blocks shared by the `break`s and `continue`s of the loop
+    /// just lowered, before its header and exit block are sealed.
     pub(super) fn finish_loop_exits(&mut self) -> Result<()> {
         let Some(mut exits) = self.exits.take() else {
             return Ok(());
         };
         let ladder = exits.loops.pop().expect("a loop's shared exits");
-        let (sites, restore) = (exits.sites, exits.restore);
+        let (sites, restore, callee) = (exits.sites, exits.restore, exits.callee);
         let pending = exits.pending.is_some();
         self.exits = Some(exits);
         if pending {
@@ -496,7 +558,7 @@ impl Lowerer<'_, '_> {
         let position = self.position.clone();
         let srcloc = self.bcx.srcloc();
         let exits = self.exits.take();
-        let lowered = self.lower_ladder(ladder, sites, restore);
+        let lowered = self.lower_ladder(ladder, sites, restore, callee);
         self.exits = exits;
         self.stack = stack;
         self.position = position;
@@ -517,7 +579,7 @@ impl Lowerer<'_, '_> {
         };
         // The body's returned operands were passed to the blocks.
         self.stack.clear();
-        self.lower_ladder(exits.function, sites, exits.restore)?;
+        self.lower_ladder(exits.function, sites, exits.restore, exits.callee)?;
         self.terminated = true;
         Ok(())
     }
@@ -527,12 +589,11 @@ impl Lowerer<'_, '_> {
         ladder: Ladder,
         sites: (Variable, Variable),
         restore: Option<(Variable, Variable)>,
+        callee: Option<Variable>,
     ) -> Result<()> {
         self.terminated = false;
         self.slot_copies.clear();
         self.fresh_load = None;
-        self.bcx
-            .set_srcloc(cranelift_codegen::ir::SourceLoc::default());
         // Every predecessor of a step is an exit or a later step.
         for shared in ladder.steps.iter().rev() {
             self.enter_shared(shared.block, sites);
@@ -553,6 +614,9 @@ impl Lowerer<'_, '_> {
                 Step::Restore => {
                     let (trap, call) = restore.ok_or("AOT: restore step without its positions")?;
                     self.position.share(trap, call);
+                    // The restored line differs between exits.
+                    self.bcx
+                        .set_srcloc(cranelift_codegen::ir::SourceLoc::default());
                 }
                 Step::Release(slot) => {
                     let ty = self.locals[*slot as usize].1.clone();
@@ -569,7 +633,7 @@ impl Lowerer<'_, '_> {
             self.bcx.ins().jump(next, &args);
         }
         for target in &ladder.targets {
-            if matches!(target.end, End::Jump) {
+            if matches!(target.end, End::Jump(_)) {
                 continue;
             }
             self.enter_shared(target.block, sites);
@@ -578,12 +642,7 @@ impl Lowerer<'_, '_> {
                 End::Return => {
                     self.bcx.ins().return_(&values);
                 }
-                End::Call(_, func, track_caller) => {
-                    if *track_caller {
-                        self.enter_call()?;
-                    }
-                    self.bcx.ins().return_call(*func, &values);
-                }
+                End::Calls(callees) => self.dispatch(callees, callee, &values)?,
                 End::CallIndirect(_, reference, track_caller) => {
                     if *track_caller {
                         self.enter_call()?;
@@ -592,15 +651,59 @@ impl Lowerer<'_, '_> {
                         .ins()
                         .return_call_indirect(*reference, values[0], &values[1..]);
                 }
-                End::Jump => unreachable!(),
+                End::Jump(_) => unreachable!(),
             }
         }
         Ok(())
     }
 
+    /// Tail-call the callee `var` selects among `callees` with `values`.
+    fn dispatch(
+        &mut self,
+        callees: &[Callee],
+        var: Option<Variable>,
+        values: &[NativeValue],
+    ) -> Result<()> {
+        let blocks: Vec<Block> = match callees {
+            [] => return Err("AOT: tail-call target without a callee".into()),
+            [_] => vec![self.bcx.current_block().expect("a target block")],
+            _ => {
+                let var = var.ok_or("AOT: tail-call target without its callee index")?;
+                let index = self.bcx.use_var(var);
+                let blocks: Vec<Block> = callees.iter().map(|_| self.bcx.create_block()).collect();
+                // The last callee's index is past the table.
+                let (&last, table) = blocks.split_last().expect("callees");
+                let table = JumpTableData::new(
+                    self.bcx.func.dfg.block_call(last, &[]),
+                    &table
+                        .iter()
+                        .map(|&block| self.bcx.func.dfg.block_call(block, &[]))
+                        .collect::<Vec<_>>(),
+                );
+                let table = self.bcx.create_jump_table(table);
+                self.bcx.ins().br_table(index, table);
+                blocks
+            }
+        };
+        for (block, callee) in blocks.into_iter().zip(callees) {
+            if self.bcx.current_block() != Some(block) {
+                self.bcx.switch_to_block(block);
+                self.bcx.seal_block(block);
+            }
+            if callee.track_caller {
+                self.enter_call()?;
+            }
+            self.bcx.ins().return_call(callee.func, values);
+        }
+        Ok(())
+    }
+
+    /// Enter a shared block, which has no source line of its own.
     fn enter_shared(&mut self, block: Block, (trap, call): (Variable, Variable)) {
         self.bcx.switch_to_block(block);
         self.bcx.seal_block(block);
+        self.bcx
+            .set_srcloc(cranelift_codegen::ir::SourceLoc::default());
         self.position.share(trap, call);
     }
 
