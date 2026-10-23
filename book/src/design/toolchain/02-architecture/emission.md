@@ -21,7 +21,18 @@ The independent limits of 256 generic data instances and 256 concrete generator
 consumer specializations per compilation are unchanged. Type nesting is still
 bounded separately.
 
-Native emission builds and compiles each function on any available core. The
+Before native preparation, emission removes unreachable definitions from the
+embedded standard library (issue #400). It keeps every user definition, C export,
+destructor and generator as a root, then follows direct/tail calls, function
+addresses, closure and boxed-callable adapters, thread/executor workers and sort
+key adapters through nested operations. Standard-library provenance comes from
+the embedded-module loader, not a filename or symbol prefix. Retained definitions
+keep their declaration order. All frontend and ownership checks run before this
+step, including checks of bodies subsequently omitted. This saves native work
+and object space; it does not avoid parsing or lowering imported modules.
+See the [edit-build measurements](../../../development/module-edits.md).
+
+Native emission builds and compiles each retained function on any available core. The
 main thread places finished functions in the object in declaration order,
 preserving byte-for-byte output across core counts. There is no worker-count
 flag. Tests compare one, two, and eight workers. A function compiled before,

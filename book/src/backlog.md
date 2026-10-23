@@ -33,6 +33,11 @@ Preserve the installed CLI/data, JSON-service and mutual-TLS acceptance checks.
    costs. Per-module caching is the next cache-design candidate; remote caching
    follows a useful local contract. Broader architecture changes need measured
    benefit before scheduling.
+   The first bounded improvement omits unreachable `std` definitions from native
+   emission after checking (issue #400); [module-edit measurements](development/module-edits.md)
+   cover cold, unchanged, body, interface and generic-body builds. Parsing and
+   lowering still process all imported modules; module artifacts remain the
+   next cache-design investigation.
 
 Keep the `compile_bench` precise-error template migration deferred while active
 performance comparisons rely on the unchanged workload. Floating-point report

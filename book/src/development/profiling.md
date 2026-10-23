@@ -1,5 +1,9 @@
 # Profiling the compiler
 
+For fresh-process cold, unchanged and edited builds, see
+[Measuring module edits](module-edits.md). That workload complements the fixed
+`compile_bench` baseline below and validates cached objects against uncached ones.
+
 The `profile` Cargo feature reports, per compiler phase, the call count, time
 percentiles, total time and, with `profile-alloc`, the bytes and number of
 allocations. It uses [hotpath](https://crates.io/crates/hotpath), pinned to
