@@ -6,6 +6,7 @@ const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowe
 
 #[derive(Clone)]
 pub(super) struct Iteration {
+    pub(super) exact_len: Option<Vec<Op>>,
     pub(super) cleanup: Vec<Op>,
     pub(super) condition: Vec<Op>,
     // Initialize pending generator results when a paired condition is skipped.
@@ -663,6 +664,12 @@ impl Lower<'_> {
 
     fn expr_hinted(&mut self, e: &Expr, expected: Type, ops: &mut Vec<Op>) -> Result<Type> {
         match &e.kind {
+            Expression::Method(base, name, args, _)
+                if matches!(name.as_str(), "collect" | "try_collect") && self.is_pipeline(base) =>
+            {
+                self.pipeline_collect(base, name, args, expected, ops)
+                    .map(Some)
+            }
             Expression::Name(name)
                 if !self.names.contains_key(name)
                     && self.generics.templates.contains_key(name)
@@ -1107,6 +1114,7 @@ impl Lower<'_> {
         step.push(Op::DropLocal(key_slot));
         step.push(Op::DropLocal(value_slot));
         Ok(Iteration {
+            exact_len: None,
             cleanup: vec![],
             condition: vec![
                 Op::LoadLocal(index),
@@ -1488,6 +1496,7 @@ impl Lower<'_> {
             skipped.push(Op::PushBool(false));
             left.condition.push(branch(right.condition, skipped));
             left.absent.extend(right.absent);
+            left.exact_len = None;
             left.cleanup.extend(right.cleanup);
             left.body.extend(right.body);
             left.step.extend(right.step);
@@ -1634,6 +1643,7 @@ impl Lower<'_> {
             Op::StoreLocal(target),
         ]);
         Ok(Iteration {
+            exact_len: Some(vec![Op::LoadLocal(length)]),
             cleanup: vec![],
             condition,
             absent: vec![],
@@ -1661,6 +1671,7 @@ impl Lower<'_> {
             Op::StoreLocal(index),
         ]);
         Ok(Iteration {
+            exact_len: None,
             cleanup: vec![],
             condition: vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne],
             absent: vec![],
@@ -1712,6 +1723,7 @@ impl Lower<'_> {
             };
             let item = self.slot(option.clone(), at)?;
             return Ok(Iteration {
+                exact_len: None,
                 cleanup: vec![],
                 absent: vec![
                     Op::Enum(crate::sum::EnumOp::New(enum_type.clone(), 0)),
@@ -1769,6 +1781,12 @@ impl Lower<'_> {
             ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
         }
         let scalar_list = list && (element.is_numeric() || element == Ty::Bool);
+        let exact_len = list.then(|| {
+            vec![
+                Op::BorrowLocal(source, false),
+                Op::Collection(CollectionOp::ListLenRef(ty.clone())),
+            ]
+        });
         let condition = if hashed {
             vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne]
         } else if reverse {
@@ -1848,6 +1866,7 @@ impl Lower<'_> {
             step.push(Op::DropLocal(target));
         }
         Ok(Iteration {
+            exact_len,
             cleanup: vec![],
             condition,
             absent: vec![],
@@ -3532,6 +3551,7 @@ impl Lower<'_> {
             ]);
         }
         Ok(Iteration {
+            exact_len: Some(vec![Op::LoadLocal(remaining)]),
             cleanup: vec![],
             condition: vec![Op::LoadLocal(remaining), Op::PushInt(Value::I64(0)), Op::Gt],
             absent: vec![],
@@ -3684,6 +3704,24 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
+        let start = self.locals.len();
+        let mut iteration = self.iteration_on_stack(source, at, ops)?;
+        // Preserve the existing collection-constructor allocation schedule.
+        // Pipelines opt into their known-length reservation at their consumer.
+        iteration.exact_len = None;
+        let result = self.collect_iteration(iteration, target_ty, None, at, ops)?;
+        self.cleanup(start, ops);
+        Ok(result)
+    }
+
+    pub(super) fn collect_iteration(
+        &mut self,
+        iteration: Iteration,
+        target_ty: Ty,
+        item_error: Type,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
         use crate::sum::EnumOp;
         let start = self.locals.len();
         let Iteration {
@@ -3691,9 +3729,17 @@ impl Lower<'_> {
             mut body,
             step,
             target,
+            cleanup,
+            exact_len,
             ..
-        } = self.iteration_on_stack(source, at, ops)?;
-        let output = crate::sum::result(target_ty.clone(), crate::sum::alloc_error());
+        } = iteration;
+        let alloc_error = crate::sum::alloc_error();
+        let error = item_error.as_ref().map_or_else(
+            || alloc_error.clone(),
+            |item| crate::sum::anonymous(vec![item.clone(), alloc_error.clone()]),
+        );
+        let allocation_output = crate::sum::result(target_ty.clone(), alloc_error.clone());
+        let output = crate::sum::result(target_ty.clone(), error.clone());
         let Ty::Enum(result_type) = &output else {
             unreachable!()
         };
@@ -3703,37 +3749,92 @@ impl Lower<'_> {
         };
         let result = self.slot(output.clone(), at)?;
         let pending = self.slot(mutation.clone(), at)?;
+        ops.extend(exact_len.unwrap_or_else(|| vec![Op::PushInt(Value::I64(0))]));
+        ops.push(Op::Collection(CollectionOp::TryNew(target_ty.clone())));
+        if allocation_output != output {
+            ops.push(Op::Enum(EnumOp::Widen(
+                Box::new(allocation_output),
+                Box::new(output.clone()),
+            )));
+        }
         ops.extend([
-            Op::PushInt(Value::I64(0)),
-            Op::Collection(CollectionOp::TryNew(target_ty.clone())),
             Op::StoreLocal(result),
             Op::LoadLocal(result),
             Op::Enum(EnumOp::Tag(result_type.clone())),
             Op::PushInt(Value::I64(0)),
             Op::Eq,
         ]);
+        let fallible = item_error.is_some();
+        let target = if let Some(item_error) = item_error {
+            let item_ty = self.locals[target as usize - self.parameters].clone();
+            let Ty::Enum(item_result) = item_ty else {
+                unreachable!()
+            };
+            let element = self.slot(target_ty.element().unwrap(), at)?;
+            let mut failed = vec![
+                Op::MoveLocal(target),
+                Op::Enum(EnumOp::Take(item_result.clone(), 1, 0)),
+            ];
+            if item_error != error {
+                failed.push(Op::Enum(EnumOp::Widen(
+                    Box::new(item_error),
+                    Box::new(error.clone()),
+                )));
+            }
+            failed.extend([
+                Op::Enum(EnumOp::New(result_type.clone(), 1)),
+                Op::StoreLocal(result),
+                Op::Break,
+            ]);
+            body.extend([
+                Op::LoadLocal(target),
+                Op::Enum(EnumOp::Tag(item_result.clone())),
+                Op::PushInt(Value::I64(1)),
+                Op::Eq,
+                branch(failed, vec![]),
+                Op::MoveLocal(target),
+                Op::Enum(EnumOp::Take(item_result, 0, 0)),
+                Op::StoreLocal(element),
+            ]);
+            element
+        } else {
+            target
+        };
+        let mut failed = vec![
+            Op::MoveLocal(pending),
+            Op::Enum(EnumOp::Take(mutation_type.clone(), 1, 0)),
+        ];
+        if alloc_error != error {
+            failed.push(Op::Enum(EnumOp::Widen(
+                Box::new(alloc_error),
+                Box::new(error),
+            )));
+        }
+        failed.extend([
+            Op::Enum(EnumOp::New(result_type.clone(), 1)),
+            Op::StoreLocal(result),
+            Op::Break,
+        ]);
         body.extend([
             Op::LoadLocal(result),
             Op::Enum(EnumOp::Field(result_type.clone(), 0, 0)),
-            Op::LoadLocal(target),
+            if self.locals[target as usize - self.parameters].affine() {
+                Op::MoveLocal(target)
+            } else {
+                Op::LoadLocal(target)
+            },
             Op::Collection(CollectionOp::TryInsert(target_ty)),
             Op::StoreLocal(pending),
             Op::LoadLocal(pending),
             Op::Enum(EnumOp::Tag(mutation_type.clone())),
             Op::PushInt(Value::I64(1)),
             Op::Eq,
-            branch(
-                vec![
-                    Op::MoveLocal(pending),
-                    Op::Enum(EnumOp::Take(mutation_type.clone(), 1, 0)),
-                    Op::Enum(EnumOp::New(result_type.clone(), 1)),
-                    Op::StoreLocal(result),
-                    Op::Break,
-                ],
-                vec![],
-            ),
+            branch(failed, vec![]),
             Op::DropLocal(pending),
         ]);
+        if fallible {
+            body.push(Op::DropLocal(target));
+        }
         body.extend(step);
         ops.push(branch(
             vec![Op::Loop {
@@ -3743,6 +3844,7 @@ impl Lower<'_> {
             vec![],
         ));
         ops.push(Op::LoadLocal(result));
+        ops.extend(cleanup);
         self.cleanup(start, ops);
         Ok(output)
     }

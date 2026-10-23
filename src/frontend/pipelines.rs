@@ -3,6 +3,13 @@
 use super::collections::Iteration;
 use super::*;
 
+fn result_payload(ty: &Ty) -> Option<Ty> {
+    match ty {
+        Ty::Enum(result) if result.is_result() => Some(result.get().variants[0].fields[0].clone()),
+        _ => None,
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct Pipeline {
     iteration: Iteration,
@@ -120,6 +127,7 @@ impl Lower<'_> {
                             mutable: false,
                         };
                     } else {
+                        plan.iteration.exact_len = None;
                         self.same(output, Some(Ty::Bool), &argument.at)?;
                         let mut rejected = if method == "filter" {
                             plan.iteration.step.clone()
@@ -138,6 +146,23 @@ impl Lower<'_> {
                     self.same(actual, Some(Ty::I64), &argument.at)?;
                     let remaining = self.slot(Ty::I64, &e.at)?;
                     ops.push(Op::StoreLocal(remaining));
+                    if let Some(length) = plan.iteration.exact_len.take() {
+                        let mut less = vec![Op::LoadLocal(remaining)];
+                        less.extend(length.clone());
+                        less.push(Op::Lt);
+                        let mut exact =
+                            vec![Op::LoadLocal(remaining), Op::PushInt(Value::I64(0)), Op::Gt];
+                        if method == "take" {
+                            less.push(branch(vec![Op::LoadLocal(remaining)], length));
+                            exact.push(branch(less, vec![Op::PushInt(Value::I64(0))]));
+                        } else {
+                            let mut rest = length.clone();
+                            rest.extend([Op::LoadLocal(remaining), Op::Sub]);
+                            less.push(branch(rest, vec![Op::PushInt(Value::I64(0))]));
+                            exact.push(branch(less, length));
+                        }
+                        plan.iteration.exact_len = Some(exact);
+                    }
                     let positive =
                         vec![Op::LoadLocal(remaining), Op::PushInt(Value::I64(0)), Op::Gt];
                     let decrement = vec![
@@ -276,6 +301,9 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if matches!(name, "collect" | "try_collect") {
+            return self.pipeline_collect(base, name, args, None, ops).map(Some);
+        }
         let start = self.locals.len();
         let saved = self.names.clone();
         let plan = self.pipeline(base, ops)?;
@@ -309,6 +337,105 @@ impl Lower<'_> {
                 )?;
                 self.same(actual, Some(ty.clone()), &callback.at)?;
                 body.push(Op::StoreLocal(slot));
+                Some((ty, slot))
+            }
+            ("try_fold", [initial, callback]) => {
+                let accumulator_ty = self.value(initial, ops)?;
+                let accumulator = self.slot(accumulator_ty.clone(), &initial.at)?;
+                ops.push(Op::StoreLocal(accumulator));
+                let acc_name = format!("<pipeline accumulator {accumulator}>");
+                self.bind(
+                    acc_name.clone(),
+                    Local {
+                        slot: accumulator,
+                        ty: accumulator_ty.clone(),
+                        mutable: true,
+                    },
+                );
+                let callback = self.pipeline_callback(callback, ops)?;
+                let mut call = Vec::new();
+                let result = self.pipeline_call(
+                    &callback,
+                    &[
+                        Expr {
+                            at: initial.at.clone(),
+                            kind: Expression::Name(acc_name),
+                        },
+                        item,
+                    ],
+                    &mut call,
+                )?;
+                let Some(ty @ Ty::Enum(_)) = result else {
+                    return Err(callback
+                        .at
+                        .error("try_fold callbacks must return Result[Accumulator, Error]"));
+                };
+                let success = result_payload(&ty).ok_or_else(|| {
+                    callback
+                        .at
+                        .error("try_fold callbacks must return Result[Accumulator, Error]")
+                })?;
+                self.same(Some(success), Some(accumulator_ty.clone()), &callback.at)?;
+                let Ty::Enum(result_type) = &ty else {
+                    unreachable!()
+                };
+                let slot = self.slot(ty.clone(), &base.at)?;
+                ops.extend([
+                    if accumulator_ty.affine() {
+                        Op::MoveLocal(accumulator)
+                    } else {
+                        Op::LoadLocal(accumulator)
+                    },
+                    Op::Enum(crate::sum::EnumOp::New(result_type.clone(), 0)),
+                    Op::StoreLocal(slot),
+                ]);
+                body.extend([
+                    Op::MoveLocal(slot),
+                    Op::Enum(crate::sum::EnumOp::Take(result_type.clone(), 0, 0)),
+                    Op::StoreLocal(accumulator),
+                ]);
+                body.extend(call);
+                body.extend([
+                    Op::StoreLocal(slot),
+                    Op::LoadLocal(slot),
+                    Op::Enum(crate::sum::EnumOp::Tag(result_type.clone())),
+                    Op::PushInt(Value::I64(1)),
+                    Op::Eq,
+                    branch(vec![Op::Break], vec![]),
+                ]);
+                Some((ty, slot))
+            }
+            ("try_for_each", [callback]) => {
+                let callback = self.pipeline_callback(callback, ops)?;
+                let result = self.pipeline_call(&callback, &[item], &mut body)?;
+                let Some(ty @ Ty::Enum(_)) = result else {
+                    return Err(callback
+                        .at
+                        .error("try_for_each callbacks must return Result[(), Error]"));
+                };
+                let success = result_payload(&ty).ok_or_else(|| {
+                    callback
+                        .at
+                        .error("try_for_each callbacks must return Result[(), Error]")
+                })?;
+                self.same(Some(success), Some(Ty::Unit), &callback.at)?;
+                let Ty::Enum(result_type) = &ty else {
+                    unreachable!()
+                };
+                let slot = self.slot(ty.clone(), &base.at)?;
+                ops.extend([
+                    Op::PushUnit,
+                    Op::Enum(crate::sum::EnumOp::New(result_type.clone(), 0)),
+                    Op::StoreLocal(slot),
+                ]);
+                body.extend([
+                    Op::StoreLocal(slot),
+                    Op::LoadLocal(slot),
+                    Op::Enum(crate::sum::EnumOp::Tag(result_type.clone())),
+                    Op::PushInt(Value::I64(1)),
+                    Op::Eq,
+                    branch(vec![Op::Break], vec![]),
+                ]);
                 Some((ty, slot))
             }
             ("count", []) => {
@@ -468,5 +595,45 @@ impl Lower<'_> {
         self.cleanup(start, ops);
         self.names = saved;
         Ok(output.map(|(ty, _)| ty))
+    }
+
+    pub(super) fn pipeline_collect(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        if !args.is_empty() {
+            return Err(base.at.error(format!(
+                "{name} takes no arguments; annotate the target collection"
+            )));
+        }
+        let target = expected.as_ref().and_then(result_payload);
+        let Some(target @ (Ty::List(_) | Ty::Set(_))) = target else {
+            return Err(base.at.error(format!(
+                "{name} requires an expected list[T] or set[T] collection type"
+            )));
+        };
+        let start = self.locals.len();
+        let plan = self.pipeline(base, ops)?;
+        let (item, item_error) = if name == "try_collect" {
+            let Some(item) = result_payload(&plan.item.ty) else {
+                return Err(base.at.error("try_collect requires Result items"));
+            };
+            let Ty::Enum(result) = &plan.item.ty else {
+                unreachable!()
+            };
+            (item, Some(result.get().variants[1].fields[0].clone()))
+        } else {
+            (plan.item.ty.clone(), None)
+        };
+        self.same(Some(item), target.element(), &base.at)?;
+        let result =
+            self.collect_iteration(plan.iteration.clone(), target, item_error, &base.at, ops)?;
+        self.finish_pipeline(&plan, ops);
+        self.cleanup(start, ops);
+        Ok(result)
     }
 }
