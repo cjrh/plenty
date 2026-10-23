@@ -14,10 +14,30 @@ and before the runtime's native dependencies. Static-library builds use
 With no `--linker` or `--link-arg` override, Plenty prefers **mold**, then **lld**,
 then the driver's default linker. It looks for executable `ld.mold` or `ld.lld`
 on `PATH` and checks that `cc -fuse-ld=NAME -Wl,--version` succeeds before
-selecting one. Discovery is cached for the compiler process; set `PATH` and the
-driver's environment before starting it. An unavailable or rejected candidate
-falls through to the next choice. A failure linking the actual program is
-reported without retrying with a different linker.
+selecting one. An unavailable or rejected candidate falls through to the next
+choice. A failure linking the actual program is reported without retrying with
+a different linker.
+
+Discovery runs once per compiler process; set `PATH` and the driver's
+environment before starting it. The probe's result is also recorded in the
+[compile cache](../02-architecture/cache.md) directory, under
+`DIR/linker-probe/`, so later processes skip the probe. A record's key covers
+`PATH`, `COMPILER_PATH`, and the resolved path, size and modification time of
+`cc` and of each `ld.mold` and `ld.lld` found on `PATH`: installing, removing,
+upgrading or touching any of them causes a fresh probe. The directory keeps the
+64 newest records. With the cache off (`PLENTY_CACHE=off`, `--no-cache`), each
+process probes again. A linker that `cc` finds elsewhere than `PATH`, such as
+its own installation directory, is not part of the key; after changing one,
+remove `DIR/linker-probe/`.
+
+`PLENTY_LINKER_THREADS=N` limits the automatically selected linker to `N`
+threads: it adds `-Wl,--thread-count=N` for mold and `-Wl,--threads=N` for
+lld. Unset or empty keeps the linker's default, and a value that is not a
+positive integer fails the link. It does not apply to a linker selected with
+`--link-arg` or found through `COMPILER_PATH`. mold uses every core by default,
+which is fastest for one link; when many links run at once, as in a parallel
+test run, each link's threads compete with the others, and one thread per link
+finished 400 links at 8 at a time in about 60% of the time.
 
 Pass `--verbose` to report the effective driver command. `--linker cc` opts out
 of automatic selection and uses the driver's configured default; to pin a

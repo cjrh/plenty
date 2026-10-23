@@ -50,7 +50,7 @@ pub enum CacheMode {
 }
 
 impl CacheMode {
-    fn directory(&self) -> Option<PathBuf> {
+    pub(crate) fn directory(&self) -> Option<PathBuf> {
         match self {
             CacheMode::Off => None,
             CacheMode::Directory(path) => Some(path.clone()),
