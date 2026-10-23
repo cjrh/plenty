@@ -149,15 +149,19 @@ def main() -> Result[(), IoError]:
         ),
         (
             "def escape() -> &i64:\n    x = 1\n    x",
-            "exactly one reference parameter",
+            "borrow from the first reference parameter",
         ),
         (
-            "type Invalid = Callable[[&i64, &i64], &i64]",
-            "exactly one reference parameter",
+            "type Invalid = Callable[[i64], &i64]",
+            "borrow from the first reference parameter",
         ),
         (
-            "type Invalid = Callable[[&i64], &mut i64]",
-            "mutable reference parameter",
+            "type Invalid = Callable[[&i64, &mut i64], &mut i64]",
+            "which must be `&mut`",
+        ),
+        (
+            "def pick(a: &i64, b: &i64) -> &i64:\n    a\ncallback = pick\nmut x = 1\ny = 2\nr = callback(&x, &y)\nx = 2\nprint(r).unwrap()",
+            "conflicting borrow",
         ),
     ] {
         let error = check_source(source).unwrap_err().to_string();

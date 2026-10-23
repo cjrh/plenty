@@ -254,7 +254,7 @@ fn a_forwarded_result_cannot_outlive_a_conflicting_borrow_or_a_local() {
         ),
         (
             "mut local = Node(1)\n    pick(&mut local)",
-            "must originate from the reference parameter",
+            "must originate from the first reference parameter",
         ),
     ] {
         let source = format!(

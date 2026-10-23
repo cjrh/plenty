@@ -262,7 +262,7 @@ impl Lower<'_> {
         if Some(self.loans[id].root) != self.return_origin {
             return Err(e
                 .at
-                .error("returned reference must originate from the reference parameter"));
+                .error("returned reference must originate from the first reference parameter"));
         }
         Ok(id)
     }

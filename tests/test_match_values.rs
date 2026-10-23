@@ -283,7 +283,7 @@ def side(left: bool, other: &i64) -> &i64:
         case False:
             other
 "#,
-        "returned reference must originate from the reference parameter",
+        "returned reference must originate from the first reference parameter",
     );
 }
 
