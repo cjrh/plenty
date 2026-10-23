@@ -77,6 +77,7 @@ pub(super) fn prepare(
     mut functions: Vec<Function>,
     aliases: &TypeAliases,
     protocols: Vec<protocols::Protocol>,
+    table: &mut functions::Functions,
 ) -> Result<(Engine, Vec<Signature>)> {
     aliases.validate_data_bounds()?;
     functions.extend(aliases.data.factories());
@@ -148,7 +149,6 @@ pub(super) fn prepare(
         // One entry per function: sized up front, these are not rehashed
         // key by key at every doubling (issue #57).
         pending: VecDeque::with_capacity(functions.len()),
-        functions: HashMap::with_capacity_and_hasher(functions.len(), Default::default()),
         compiled: Vec::new(),
         tail_candidates: HashMap::default(),
         active: HashSet::default(),
@@ -160,7 +160,7 @@ pub(super) fn prepare(
         source_facts: None,
     };
     for f in functions {
-        if engine.functions.contains_key(&f.name)
+        if table.declared(&f.name).is_some()
             || engine.templates.contains_key(&f.name)
             || aliases.contains_key(&f.name)
         {
@@ -170,7 +170,7 @@ pub(super) fn prepare(
             )));
         }
         if f.type_params.is_empty() {
-            engine.declare(f);
+            engine.declare(f, table);
         } else {
             if f.name == "main" {
                 return Err(f.at.error("main cannot have type parameters"));
@@ -185,7 +185,7 @@ pub(super) fn prepare(
     // program importing a module that declares one (issue #57).
     if let Some(protocol) = protocols
         .iter()
-        .find(|p| engine.functions.contains_key(&p.name) || engine.templates.contains_key(&p.name))
+        .find(|p| table.declared(&p.name).is_some() || engine.templates.contains_key(&p.name))
     {
         return Err(conflict(protocol));
     }
@@ -206,7 +206,6 @@ pub(super) struct Engine {
     /// First-requiring dependency depth, also inherited by lifted code.
     specialization_depths: HashMap<String, usize>,
     pub(super) pending: VecDeque<Arc<Function>>,
-    pub(super) functions: HashMap<String, Declared>,
     pub(super) compiled: Vec<Op>,
     pub(super) tail_candidates: HashMap<String, Vec<tail_calls::Candidate>>,
     pub(super) active: HashSet<String>,
@@ -236,13 +235,17 @@ pub(super) struct Declared {
     pub(super) function: Option<Arc<Function>>,
     /// Whether the function is lowered. Kept here, not in a table of its own:
     /// each whole-program table costs a cache miss per function (issue #57).
-    lowered: bool,
+    pub(super) lowered: bool,
 }
 
 impl Engine {
-    pub(super) fn defer_reporting_method(&mut self, function: Function) {
+    pub(super) fn defer_reporting_method(
+        &mut self,
+        function: Function,
+        table: &mut functions::Functions,
+    ) {
         let function = Arc::new(function);
-        self.record(&function);
+        self.record(&function, table);
         self.deferred_reporting
             .insert(function.name.clone(), function);
     }
@@ -264,10 +267,11 @@ impl Engine {
         }
     }
     /// Adds a concrete function to the table without queueing it.
-    pub(super) fn record(&mut self, f: &Arc<Function>) {
+    pub(super) fn record(&mut self, f: &Arc<Function>, table: &mut functions::Functions) {
         self.record_defaults(f);
-        self.functions.insert(
-            f.name.clone(),
+        let symbol = table.intern(&f.name);
+        table.declare(
+            symbol,
             Declared {
                 yields: generators::yields(&f.body),
                 function: Some(Arc::clone(f)),
@@ -277,28 +281,10 @@ impl Engine {
     }
 
     /// Adds a concrete function to the table and to the lowering queue.
-    pub(super) fn declare(&mut self, f: Function) {
+    pub(super) fn declare(&mut self, f: Function, table: &mut functions::Functions) {
         let f = Arc::new(f);
-        self.record(&f);
+        self.record(&f, table);
         self.pending.push_back(f);
-    }
-
-    pub(super) fn lowered(&self, name: &str) -> bool {
-        self.functions[name].lowered
-    }
-
-    /// Marks a function lowered and releases its syntax tree. A function with
-    /// a generator parameter keeps its tree: each frame specialization copies
-    /// its declaration.
-    pub(super) fn complete(&mut self, name: &str, sig: &FnSig) {
-        let declared = self
-            .functions
-            .get_mut(name)
-            .expect("a lowered function is declared");
-        declared.lowered = true;
-        if !sig.inputs.iter().any(|(_, t)| t.unresolved_generator()) {
-            declared.function = None;
-        }
     }
 
     /// `source` relative to the source root (unchanged without a root), and
@@ -691,11 +677,11 @@ impl Lower<'_> {
                 .aliases
                 .data
                 .attribute_within(|| data::Requiring::Instance(required.clone()));
-            let registered = register_signature(&f, self.aliases, self.sigs, self.returned_fields);
+            let registered = register_signature(&f, self.aliases, self.sigs);
             self.aliases.data.attribute(outer);
             registered?;
             let f = Arc::new(f);
-            self.generics.record(&f);
+            self.generics.record(&f, self.sigs);
             if !self.sigs[&f.name]
                 .inputs
                 .iter()

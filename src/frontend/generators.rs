@@ -111,11 +111,11 @@ impl Lower<'_> {
                 doc_at: None,
                 body,
             };
-            register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
+            register_signature(&function, self.aliases, self.sigs)?;
             self.generics
                 .inherit_requirement(&self.function_name, &name);
             let function = Arc::new(function);
-            self.generics.record(&function);
+            self.generics.record(&function, self.sigs);
             lower_function(
                 function,
                 self.heap,
@@ -123,7 +123,6 @@ impl Lower<'_> {
                 self.generics,
                 self.aliases,
                 self.access,
-                self.returned_fields,
             )?;
         }
         let signature = self.sigs[&name].clone();
@@ -206,9 +205,8 @@ impl Lower<'_> {
                 ));
             }
             let declared = self
-                .generics
-                .functions
-                .get(name)
+                .sigs
+                .declared(name)
                 .ok_or_else(|| at.error("missing generator factory body"))?;
             // A released declaration is already lowered.
             let Some(f) = declared.function.clone() else {
@@ -221,7 +219,6 @@ impl Lower<'_> {
                 self.generics,
                 self.aliases,
                 self.access,
-                self.returned_fields,
             )?;
         }
         Ok(())
@@ -258,9 +255,9 @@ impl Lower<'_> {
             ));
         }
         let mut f = Function::clone(
-            self.generics.functions[name]
-                .function
-                .as_ref()
+            self.sigs
+                .declared(name)
+                .and_then(|declared| declared.function.as_ref())
                 .expect("a function with a generator parameter keeps its declaration"),
         );
         let symbol = format!("__plenty_frame_call_{}", self.generics.frames.len());
@@ -268,10 +265,10 @@ impl Lower<'_> {
         for ((_, pattern), ty) in f.inputs.iter_mut().zip(&actual) {
             *pattern = generics::type_ref(ty, &pattern.at);
         }
-        register_signature(&f, self.aliases, self.sigs, self.returned_fields)?;
+        register_signature(&f, self.aliases, self.sigs)?;
         self.generics.frames.insert(key, symbol.clone());
         self.generics.inherit_requirement(name, &symbol);
-        self.generics.declare(f);
+        self.generics.declare(f, self.sigs);
         self.ensure_concrete_output(&symbol, at)?;
         Ok(symbol)
     }

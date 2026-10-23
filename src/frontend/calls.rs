@@ -54,10 +54,10 @@ impl Lower<'_> {
                 doc_at: None,
                 body,
             };
-            register_signature(&validator, self.aliases, self.sigs, self.returned_fields)?;
+            register_signature(&validator, self.aliases, self.sigs)?;
             self.generics
                 .inherit_requirement(&function.name, &validator.name);
-            self.generics.declare(validator);
+            self.generics.declare(validator, self.sigs);
         }
         Ok(())
     }
@@ -265,11 +265,12 @@ impl Lower<'_> {
             body,
         };
         if wrapper.type_params.is_empty() {
-            register_signature(&wrapper, self.aliases, self.sigs, self.returned_fields)?;
-            if let Some(fields) = self.returned_fields.get(name).cloned() {
-                self.returned_fields.insert(symbol.clone(), fields);
+            register_signature(&wrapper, self.aliases, self.sigs)?;
+            if let Some(fields) = self.sigs.returned_fields(name).cloned() {
+                let wrapper = self.sigs.intern(&symbol);
+                self.sigs.set_returned_fields(wrapper, fields);
             }
-            self.generics.declare(wrapper);
+            self.generics.declare(wrapper, self.sigs);
         } else {
             self.generics
                 .templates

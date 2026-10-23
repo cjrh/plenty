@@ -122,7 +122,7 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
 
 pub(super) fn check_symbols<'a>(
     functions: impl Iterator<Item = &'a Function>,
-    sigs: &HashMap<String, Arc<FnSig>>,
+    sigs: &super::functions::Functions,
 ) -> Result<()> {
     let mut symbols = HashMap::default();
     fn abi(ty: &Ty) -> String {

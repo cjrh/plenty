@@ -312,8 +312,8 @@ impl Lower<'_> {
             let parent = loans[0];
             let id = self.new_loan(self.loans[parent].root, *mutable, Some(parent), ops);
             if let Some(fields) = self
-                .returned_fields
-                .get(name)
+                .sigs
+                .returned_fields(name)
                 .filter(|_| self.loans[id].precise)
             {
                 self.loans[id].fields.extend(fields);

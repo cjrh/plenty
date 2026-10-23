@@ -755,7 +755,11 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
 
 impl generics::Engine {
     #[cfg_attr(feature = "profile", hotpath::measure(label = "generics::expand_data"))]
-    pub(super) fn expand_data(&mut self, aliases: &TypeAliases) -> Result<Vec<Function>> {
+    pub(super) fn expand_data(
+        &mut self,
+        aliases: &TypeAliases,
+        table: &mut functions::Functions,
+    ) -> Result<Vec<Function>> {
         let pending = std::mem::take(&mut *aliases.data.pending.borrow_mut());
         let mut functions = Vec::new();
         let pending_enums = std::mem::take(&mut *aliases.data.pending_enums.borrow_mut());
@@ -800,9 +804,9 @@ impl generics::Engine {
                         if aliases.data.report_context(owner, &self.standard_sources).is_some())
                 });
             if conditional {
-                self.defer_reporting_method(f.clone());
+                self.defer_reporting_method(f.clone(), table);
             } else {
-                self.declare(f.clone());
+                self.declare(f.clone(), table);
             }
         }
         Ok(functions
@@ -814,12 +818,12 @@ impl generics::Engine {
 impl Lower<'_> {
     pub(super) fn sync_data(&mut self) -> Result<()> {
         loop {
-            let functions = self.generics.expand_data(self.aliases)?;
+            let functions = self.generics.expand_data(self.aliases, self.sigs)?;
             if functions.is_empty() {
                 break;
             }
             for f in functions {
-                register_signature(&f, self.aliases, self.sigs, self.returned_fields)?;
+                register_signature(&f, self.aliases, self.sigs)?;
             }
         }
         Ok(())

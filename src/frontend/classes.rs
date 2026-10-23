@@ -921,12 +921,7 @@ impl Lower<'_> {
                     // Instances created before the initial signature pass
                     // were deliberately absent from its pending queue.
                     if !self.sigs.contains_key(&callee) {
-                        register_signature(
-                            &function,
-                            self.aliases,
-                            self.sigs,
-                            self.returned_fields,
-                        )?;
+                        register_signature(&function, self.aliases, self.sigs)?;
                     }
                 }
             }
@@ -1068,10 +1063,10 @@ impl Lower<'_> {
                 cases,
             },
         }];
-        register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
+        register_signature(&function, self.aliases, self.sigs)?;
         self.generics
             .inherit_requirement(&self.function_name, callee);
-        self.generics.declare(function);
+        self.generics.declare(function, self.sigs);
         Ok(())
     }
 
