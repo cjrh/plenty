@@ -155,7 +155,7 @@ impl Lexer<'_> {
             kind: Kind::Eof,
             line: self.line,
             column: self.column,
-            source: None,
+            file: None,
         }
     }
     fn char_at(&self, offset: usize) -> Option<char> {
@@ -235,7 +235,7 @@ impl Lexer<'_> {
         if !text.is_empty() {
             parts.push(Part::Literal(text));
         }
-        Ok(Kind::Format(parts))
+        Ok(Kind::Format(parts.into()))
     }
 
     /// Lexes one field after its `{`, through its `}`. A `nested` field is
@@ -557,7 +557,7 @@ fn parse_spec(text: &str, at: &Token, kinds: &[Nested]) -> Result<Spec> {
 impl Parser {
     /// Parses a field's expression from its lexed tokens.
     fn field_expression(&self, field: &LexedField) -> Result<Expr> {
-        let mut parser = Parser::new(self.end.source.clone());
+        let mut parser = Parser::new(self.end.file);
         parser.tokens = field.tokens.iter().map(|t| self.located(t)).collect();
         parser.end = self.located(&field.end);
         parser.in_brackets = parser.tokens.iter().map(|_| true).collect();
@@ -584,7 +584,7 @@ impl Parser {
 
     fn located(&self, token: &Token) -> Token {
         Token {
-            source: self.end.source.clone(),
+            file: self.end.file,
             ..token.clone()
         }
     }

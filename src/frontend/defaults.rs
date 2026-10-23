@@ -5,6 +5,9 @@ pub(super) fn validate_dependencies(
     inputs: &[(String, TypeRef)],
     defaults: &[Option<Expr>],
 ) -> Result<()> {
+    if defaults.is_empty() {
+        return Ok(());
+    }
     let names: HashSet<_> = inputs.iter().map(|(name, _)| name.clone()).collect();
     for default in defaults.iter().flatten() {
         expression(default, &names)?;

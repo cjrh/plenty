@@ -389,7 +389,7 @@ pub(super) fn reporting(protocol: &Protocol, standard_sources: &HashSet<Arc<str>
     protocol.name == "std.report.Formattable"
         && protocol
             .at
-            .source
+            .source()
             .as_ref()
             .is_some_and(|source| standard_sources.contains(source))
 }

@@ -414,7 +414,8 @@ fn parse_buffered(
         }
     };
     let mut lexer = Lexer::new(source);
-    let mut parser = Parser::new(path.map(|p| Arc::<str>::from(p.to_string_lossy().as_ref())));
+    let mut parser =
+        Parser::new(path.map(|p| FileId::intern(&p.to_string_lossy().as_ref().into())));
     let parsed = parse_items(&mut parser, &mut lexer, path, name, lookahead, &located);
     if parser.starved.get() {
         return Ok(None);
@@ -1833,7 +1834,7 @@ fn resolve(
             result.access.types.insert(
                 p.name.clone(),
                 Access {
-                    owner: p.at.source.clone(),
+                    owner: p.at.source(),
                     public,
                 },
             );
@@ -1862,7 +1863,7 @@ fn resolve(
                 result.access.types.insert(
                     name.to_string(),
                     Access {
-                        owner: a.at.source.clone(),
+                        owner: a.at.source(),
                         public: m.exports.contains(&a.name),
                     },
                 );
@@ -1880,7 +1881,7 @@ fn resolve(
             result.access.types.insert(
                 e.name.clone(),
                 Access {
-                    owner: e.at.source.clone(),
+                    owner: e.at.source(),
                     public,
                 },
             );
@@ -1912,7 +1913,7 @@ fn resolve(
                 result.access.members.insert(
                     (e.name.clone(), f.name.clone()),
                     Access {
-                        owner: e.at.source.clone(),
+                        owner: e.at.source(),
                         public: exposed,
                     },
                 );
@@ -1945,7 +1946,7 @@ fn resolve(
             result.access.types.insert(
                 c.name.clone(),
                 Access {
-                    owner: c.at.source.clone(),
+                    owner: c.at.source(),
                     public,
                 },
             );
@@ -1957,7 +1958,7 @@ fn resolve(
             result.access.members.insert(
                 (c.name.clone(), "__new__".into()),
                 Access {
-                    owner: c.at.source.clone(),
+                    owner: c.at.source(),
                     public: public && constructor,
                 },
             );
@@ -1966,7 +1967,7 @@ fn resolve(
                 result.access.members.insert(
                     (c.name.clone(), n.clone()),
                     Access {
-                        owner: c.at.source.clone(),
+                        owner: c.at.source(),
                         public: exposed,
                     },
                 );
@@ -1979,7 +1980,7 @@ fn resolve(
                 result.access.members.insert(
                     (c.name.clone(), f.name.clone()),
                     Access {
-                        owner: c.at.source.clone(),
+                        owner: c.at.source(),
                         public: exposed,
                     },
                 );
@@ -2018,7 +2019,7 @@ pub(super) fn check_member_at(
     let class = class.split('[').next().unwrap();
     if let Some(rule) = access.members.get(&(class.into(), member.into()))
         && !rule.public
-        && rule.owner != context.source
+        && rule.owner != context.source()
     {
         if access.types.get(class).is_some_and(|ty| !ty.public) {
             let kind = if access.enums.contains(class) {
