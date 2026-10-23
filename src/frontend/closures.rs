@@ -95,10 +95,10 @@ impl Lower<'_> {
         hidden.append(&mut function.inputs);
         function.inputs = hidden;
         if !self.sigs.contains_key(&function.name) {
-            register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
+            register_signature(&function, self.aliases, self.sigs)?;
             self.generics
                 .inherit_requirement(&self.function_name, &function.name);
-            self.generics.declare(function);
+            self.generics.declare(function, self.sigs);
         }
         self.closure_loans
             .insert(closure.name.clone(), loans.clone());

@@ -2520,11 +2520,7 @@ impl Lower<'_> {
         if name == "new" {
             if let Expression::Name(function) = &ungroup(base).kind
                 && !self.names.contains_key(function)
-                && self
-                    .generics
-                    .functions
-                    .get(function)
-                    .is_some_and(|f| f.yields)
+                && self.sigs.declared(function).is_some_and(|f| f.yields)
             {
                 return self.call_named(function, args, &base.at, ops);
             }

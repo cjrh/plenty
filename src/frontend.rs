@@ -35,6 +35,7 @@ mod executors;
 mod files;
 mod foreign;
 mod fstrings;
+mod functions;
 mod generators;
 mod generics;
 pub(crate) mod ide;
@@ -2790,7 +2791,7 @@ struct Lower<'a> {
     closure_loans: HashMap<String, Vec<usize>>,
     captures: HashSet<String>,
     heap: &'a mut Heap,
-    sigs: &'a mut HashMap<String, Arc<FnSig>>,
+    sigs: &'a mut functions::Functions,
     generics: &'a mut generics::Engine,
     aliases: &'a TypeAliases,
     access: &'a modules::AccessMap,
@@ -2810,7 +2811,6 @@ struct Lower<'a> {
     expression_temps: Vec<u8>,
     contexts: Vec<contexts::Context>,
     return_origin: Option<u8>,
-    returned_fields: &'a mut HashMap<String, Vec<usize>>,
     /// Source name of each slot, kept after the binding leaves scope so an
     /// ownership diagnostic can still name it.
     slot_names: Vec<Option<Arc<str>>>,
@@ -3248,12 +3248,12 @@ impl Lower<'_> {
                     return self.closure_value(function, &e.at, ops).map(Some);
                 }
                 let mut function = (**function).clone();
-                function.name = format!("__plenty_anonymous_{}", self.generics.functions.len());
+                function.name = format!("__plenty_anonymous_{}", self.sigs.declared_len());
                 let name = function.name.clone();
-                register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
+                register_signature(&function, self.aliases, self.sigs)?;
                 self.generics
                     .inherit_requirement(&self.function_name, &name);
-                self.generics.declare(function);
+                self.generics.declare(function, self.sigs);
                 Some(self.function_value(&name, &e.at, ops)?)
             }
             Expression::GenericValue(name, types) => {
@@ -5414,10 +5414,10 @@ const UNRESOLVED_SUM_MEMBER: &str = "a closure signature in an anonymous sum nam
 fn register_signature(
     f: &Function,
     aliases: &TypeAliases,
-    sigs: &mut HashMap<String, Arc<FnSig>>,
-    returned_fields: &mut HashMap<String, Vec<usize>>,
+    sigs: &mut functions::Functions,
 ) -> Result<Arc<FnSig>> {
-    register_resolved(f, None, aliases, sigs, returned_fields)
+    let symbol = sigs.intern(&f.name);
+    register_resolved(symbol, f, None, aliases, sigs)
 }
 
 /// [`register_signature`] for a function whose parameter and return types
@@ -5426,11 +5426,11 @@ fn register_signature(
 /// only the cost differs.
 #[cfg_attr(feature = "profile", hotpath::measure)]
 fn register_resolved(
+    symbol: functions::Symbol,
     f: &Function,
     resolved: Option<generics::Signature>,
     aliases: &TypeAliases,
-    sigs: &mut HashMap<String, Arc<FnSig>>,
-    returned_fields: &mut HashMap<String, Vec<usize>>,
+    sigs: &mut functions::Functions,
 ) -> Result<Arc<FnSig>> {
     if f.inputs.len() > 256 {
         return Err(f
@@ -5444,12 +5444,12 @@ fn register_resolved(
     }
     // The entry is found once and filled below: a whole-program table costs
     // a cache miss per probe once it outgrows the caches (issue #57).
-    let Entry::Vacant(entry) = sigs.entry(f.name.clone()) else {
+    if sigs.sig(symbol).is_some() {
         return Err(f.at.error(format!(
             "function `{}` is already defined; redefinition is not supported",
             f.name
         )));
-    };
+    }
     let (types, mut output) = match resolved {
         Some(resolved) => resolved,
         None => protocols::signature(f, aliases)?,
@@ -5507,9 +5507,9 @@ fn register_resolved(
     let outputs = output.into_iter().collect();
     let sig = Arc::new(FnSig { inputs, outputs });
     if let Some(fields) = references::returned_fields(f, &sig) {
-        returned_fields.insert(f.name.clone(), fields);
+        sigs.set_returned_fields(symbol, fields);
     }
-    entry.insert(Arc::clone(&sig));
+    sigs.register(symbol, &sig);
     Ok(sig)
 }
 
@@ -5518,22 +5518,22 @@ fn register_resolved(
 /// note: see `ownership::Instantiation`.
 #[cfg_attr(feature = "profile", hotpath::measure)]
 fn lower_function(
+    symbol: functions::Symbol,
     f: Arc<Function>,
     heap: &mut Heap,
-    sigs: &mut HashMap<String, Arc<FnSig>>,
+    sigs: &mut functions::Functions,
     generics: &mut generics::Engine,
     aliases: &TypeAliases,
     access: &modules::AccessMap,
-    returned_fields: &mut HashMap<String, Vec<usize>>,
 ) -> Result<()> {
-    if generics.lowered(&f.name) {
+    if sigs.lowered(symbol) {
         return Ok(());
     }
     let required = generics.required.get(&f.name).cloned();
     let outer = aliases
         .data
         .attribute(required.clone().map(data::Requiring::Instance));
-    let lowered = lower_body(f, heap, sigs, generics, aliases, access, returned_fields);
+    let lowered = lower_body(symbol, f, heap, sigs, generics, aliases, access);
     aliases.data.attribute(outer);
     lowered.map_err(|error| {
         if error.is::<Attributed>() {
@@ -5551,21 +5551,24 @@ fn lower_function(
 }
 
 fn lower_body(
+    symbol: functions::Symbol,
     f: Arc<Function>,
     heap: &mut Heap,
-    sigs: &mut HashMap<String, Arc<FnSig>>,
+    sigs: &mut functions::Functions,
     generics: &mut generics::Engine,
     aliases: &TypeAliases,
     access: &modules::AccessMap,
-    returned_fields: &mut HashMap<String, Vec<usize>>,
 ) -> Result<()> {
     let (mut sig, mut yield_type, mut lower, mut body) = crate::profile_block!(
         "frontend::setup_function",
         {
-            if !generics.active.insert(f.name.clone()) {
+            if !generics.active.insert(symbol) {
                 return Err(f.at.error("recursive generator factory requires a concrete return type; recursive inline frames are not supported"));
             }
-            let sig = Arc::clone(&sigs[&f.name]);
+            let sig = Arc::clone(
+                sigs.sig(symbol)
+                    .expect("a lowered function has a registered signature"),
+            );
             if let Some(declaration) = &f.foreign {
                 let mut body: Vec<_> = (0..sig.inputs.len())
                     .map(|i| Op::LoadLocal(i as u8))
@@ -5580,8 +5583,8 @@ fn lower_body(
                     .iter()
                     .map(|(_, t)| t.clone())
                     .collect::<Vec<_>>();
-                generics.active.remove(&f.name);
-                generics.complete(&f.name, &sig);
+                generics.active.remove(&symbol);
+                sigs.complete(symbol, &sig);
                 generics.compiled.push(Op::DefineFn(
                     f.name.clone(),
                     Box::new(CompiledFn {
@@ -5620,7 +5623,6 @@ fn lower_body(
                     .filter(|capture| !f.once || capture.borrowed)
                     .map(|c| c.name.clone())
                     .collect(),
-                returned_fields,
                 heap,
                 sigs,
                 generics,
@@ -5752,17 +5754,14 @@ fn lower_body(
                     inputs: sig.inputs.clone(),
                     outputs: output.into_iter().collect(),
                 });
-                *lower
-                    .sigs
-                    .get_mut(&f.name)
-                    .expect("a lowered function has a registered signature") = sig.clone();
+                *lower.sigs.sig_mut(symbol) = sig.clone();
             }
             if inferred_frame {
                 // Check empty variants and propagation paths again with the resolved
                 // return context. Calls/specializations are cached across this pass.
                 drop(lower);
-                generics.active.remove(&f.name);
-                return lower_function(f, heap, sigs, generics, aliases, access, returned_fields);
+                generics.active.remove(&symbol);
+                return lower_function(symbol, f, heap, sigs, generics, aliases, access);
             }
         } else if let Some(Ty::Generator(t)) = sig.outputs.first() {
             t.set_slots(
@@ -5809,8 +5808,8 @@ fn lower_body(
             body: body.into(),
             locals: lower.locals.into(),
         };
-        generics.active.remove(&f.name);
-        generics.complete(&f.name, &compiled.sig);
+        generics.active.remove(&symbol);
+        sigs.complete(symbol, &compiled.sig);
         generics
             .compiled
             .push(Op::DefineFn(f.name.clone(), Box::new(compiled)));
@@ -5882,16 +5881,14 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             .collect(),
         &aliases,
     )?);
-    let (mut generics, prepared) = generics::prepare(functions, &aliases, protocols)?;
-    generics.source_root = source_root;
-    generics.standard_sources = standard_sources;
-    while !generics.expand_data(&aliases)?.is_empty() {}
     // One entry per function: sized up front, the table is not rehashed key by
     // key at every doubling while the program is lowered (issue #57).
-    let declared = generics.pending.len();
-    let mut sigs = HashMap::with_capacity_and_hasher(declared, Default::default());
-    generics.compiled.reserve(declared);
-    let mut returned_fields = HashMap::default();
+    let mut sigs = functions::Functions::with_capacity(functions.len());
+    let (mut generics, prepared) = generics::prepare(functions, &aliases, protocols, &mut sigs)?;
+    generics.source_root = source_root;
+    generics.standard_sources = standard_sources;
+    while !generics.expand_data(&aliases, &mut sigs)?.is_empty() {}
+    generics.compiled.reserve(generics.pending.len());
     // Every function is visited once here. A pass over the whole program
     // costs cache misses per function once the program outgrows the caches,
     // so the checks below visit only the functions they concern (issue #57).
@@ -5900,14 +5897,8 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     // `prepare` resolved the types of the functions it queued, in queue
     // order. Those `expand_data` queued after them are resolved here.
     let mut prepared = prepared.into_iter();
-    for f in &generics.pending {
-        let sig = register_resolved(
-            f,
-            prepared.next(),
-            &aliases,
-            &mut sigs,
-            &mut returned_fields,
-        )?;
+    for (symbol, f) in &generics.pending {
+        let sig = register_resolved(*symbol, f, prepared.next(), &aliases, &mut sigs)?;
         generator_parameters |= sig.inputs.iter().any(|(_, t)| t.unresolved_generator());
         if f.foreign.is_some() || f.export.is_some() {
             boundary.push(f.as_ref());
@@ -5953,9 +5944,8 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     exports.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     let returns_status = if require_main {
         const MAIN_RETURN_TYPES: &str = "(), i32, Result[(), E], or Result[i32, E]";
-        let (yields, entry) = generics
-            .functions
-            .get("main")
+        let (yields, entry) = sigs
+            .declared("main")
             .and_then(|declared| Some((declared.yields, declared.function.as_ref()?)))
             .ok_or_else(|| {
                 at.error(format!(
@@ -6008,8 +5998,8 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                         "main",
                     )?;
                     if let Some(function) = function {
-                        register_signature(&function, &aliases, &mut sigs, &mut returned_fields)?;
-                        generics.declare(function);
+                        register_signature(&function, &aliases, &mut sigs)?;
+                        generics.declare(function, &mut sigs);
                     }
                     Some(symbol)
                 } else {
@@ -6022,8 +6012,10 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         None
     };
     if generator_parameters {
-        generics.pending.retain(|f| {
-            !sigs[&f.name]
+        generics.pending.retain(|(symbol, _)| {
+            !sigs
+                .sig(*symbol)
+                .expect("a queued function has a registered signature")
                 .inputs
                 .iter()
                 .any(|(_, t)| t.unresolved_generator())
@@ -6033,29 +6025,21 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         // Resolving a specialized return type can introduce data instances even
         // when its body only returns Err. Drain those methods before finishing.
         loop {
-            let functions = generics.expand_data(&aliases)?;
+            let functions = generics.expand_data(&aliases, &mut sigs)?;
             if functions.is_empty() {
                 break;
             }
             for f in functions {
-                register_signature(&f, &aliases, &mut sigs, &mut returned_fields)?;
+                register_signature(&f, &aliases, &mut sigs)?;
             }
         }
-        let Some(f) = generics.pending.pop_front() else {
+        let Some((symbol, f)) = generics.pending.pop_front() else {
             break;
         };
         if ide::active() && ide::skipped(&f.name) {
             continue;
         }
-        let lowered = lower_function(
-            f,
-            heap,
-            &mut sigs,
-            &mut generics,
-            &aliases,
-            &access,
-            &mut returned_fields,
-        );
+        let lowered = lower_function(symbol, f, heap, &mut sigs, &mut generics, &aliases, &access);
         if let Err(error) = lowered {
             // An editor check reports the error and goes on to the next
             // function; nothing is being lowered between functions.
