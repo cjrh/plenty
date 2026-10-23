@@ -77,6 +77,7 @@ mod coverage;
 mod dump;
 mod enums;
 mod executors;
+mod exits;
 mod exports;
 mod foreign;
 mod generators;
@@ -1762,6 +1763,7 @@ fn build_user_function(
             scalar_captures,
             slot_copies: Vec::new(),
             empty_slot: Some((empty_word, empty_double)),
+            exits: Some(Default::default()),
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
         };
@@ -1786,8 +1788,13 @@ fn build_user_function(
                 .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         }
         if !lower.terminated {
-            lower.return_values(lower.stack.clone());
+            lower
+                .leave(lower.stack.clone(), &Arc::from([]))
+                .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         }
+        lower
+            .finish_exits()
+            .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         bcx.finalize();
     }
     out.define(decl.id, func, module);
@@ -1870,6 +1877,7 @@ fn build_main(
             scalar_captures: Default::default(),
             slot_copies: Vec::new(),
             empty_slot: None,
+            exits: None,
             counters: Default::default(),
             position: Default::default(),
         };
@@ -2046,6 +2054,9 @@ struct Lowerer<'a, 'b> {
     /// leave a slot empty, SSA construction resolves its value to the same
     /// constant and [`Lowerer::release`] emits nothing (issue #391).
     empty_slot: Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)>,
+    /// Blocks shared by a user function's exits; `None` lowers each exit
+    /// inline. See [`exits`].
+    exits: Option<exits::Exits>,
 }
 
 impl Lowerer<'_, '_> {
@@ -2481,7 +2492,7 @@ impl Lowerer<'_, '_> {
                     self.complete_generator();
                     return Ok(());
                 }
-                self.return_values(self.stack.clone());
+                self.leave(self.stack.clone(), &Arc::from([]))?;
                 self.terminated = true;
             }
             // `DefineFn` is hoisted into a top-level Cranelift function by

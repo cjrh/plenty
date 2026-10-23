@@ -73,6 +73,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         scalar_captures: Default::default(),
         slot_copies: Vec::new(),
         empty_slot: None,
+        exits: None,
         counters: Default::default(),
         position: Default::default(),
     };
