@@ -1,0 +1,8 @@
+# Known iteration limitation: bind result = column(&values), then iter(result).
+def column(values: &list[i64]) -> &list[i64]:
+    values
+
+def main() -> Result[(), AllocError | IoError]:
+    values = [1, 2, 3]?
+    print(iter(column(&values)).count())?
+    Ok(())

@@ -482,6 +482,7 @@
         - [Columnar ownership and API boundary](proposals/columnar-list/contract.md)
         - [Chunks, deletion, and statistics](proposals/columnar-list/chunks.md)
         - [Columnar-list spike evidence](proposals/columnar-list/evidence.md)
+        - [Generated Plenty column-container spike](proposals/columnar-list/implementation-spike.md)
     - [Exploring async/await without exposed pinning](proposals/async-await.md)
         - [Async suspension, allocation and cleanup](proposals/async-await/ownership.md)
         - [Native async/await spike evidence](proposals/async-await/evidence.md)

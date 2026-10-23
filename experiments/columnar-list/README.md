@@ -4,6 +4,11 @@ Native Rust layout and ownership experiments plus a concrete Plenty wrapper.
 No production `clist` is implemented. The design and recorded results are in
 `book/src/proposals/columnar-list.md` and its `evidence.md` companion.
 
+The follow-up [`plenty/` implementation spike](plenty/README.md) generates a
+primitive-field container in ordinary Plenty, exercises real allocation failure
+and borrow checking, and compares its Cranelift-generated scans with Plenty
+`list[Particle]`. The Rust measurements below remain a separate layout experiment.
+
 From this directory:
 
 ```sh

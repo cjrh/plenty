@@ -1,0 +1,10 @@
+# Field-only input to the experimental generator, not a language annotation.
+pub class Particle:
+    pub x: i64
+    pub y: i64
+    pub z: i64
+    pub vx: i64
+    pub vy: i64
+    pub vz: i64
+    pub mass: i64
+    pub tag: i64
