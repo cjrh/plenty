@@ -34,6 +34,12 @@ the item it is parsing and of the next one, so a module's tokens never all exist
 beside its syntax tree (issue #54). A lexical error anywhere in a module is still
 reported before any syntax error in it.
 
+The whole syntax tree is live when lowering starts, so its layout sets much of
+checking's peak memory. Blocks, call arguments and parameters are collected on
+parser scratch stacks and stored at their exact length. Every node holds a
+40-byte token that names its module by an interned file number, not a
+reference-counted path (issue #422).
+
 `op.rs` defines backend-neutral structured operations and an independent checker.
 Its compile-time operand stack is private compiler machinery. `CompiledFn` carries
 a signature, documentation, body, and typed local slots. Unit produces zero stack
