@@ -1764,6 +1764,7 @@ fn build_user_function(
             empty_slot: Some((empty_word, empty_double)),
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
+            trap_blocks: HashMap::default(),
         };
         // Argument addresses belong to the caller. Snapshot inline values into
         // this function's locals before any mutation or nested call can occur.
@@ -1788,6 +1789,7 @@ fn build_user_function(
         if !lower.terminated {
             lower.return_values(lower.stack.clone());
         }
+        lower.seal_trap_blocks();
         bcx.finalize();
     }
     out.define(decl.id, func, module);
@@ -1872,6 +1874,7 @@ fn build_main(
             empty_slot: None,
             counters: Default::default(),
             position: Default::default(),
+            trap_blocks: HashMap::default(),
         };
         for op in ops {
             lower.lower(op)?;
@@ -1885,6 +1888,7 @@ fn build_main(
         };
         lower.release_stack();
         lower.bcx.ins().return_(&[status]);
+        lower.seal_trap_blocks();
         bcx.finalize();
     }
     out.define(main_id, func, module);
@@ -1947,7 +1951,7 @@ enum ArithKind {
 
 /// Which trap block to branch into on a failed check. The kinds map
 /// one-to-one to the runtime trap helpers and their diagnostics.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum TrapKind {
     Overflow,
     DivZero,
@@ -2046,6 +2050,13 @@ struct Lowerer<'a, 'b> {
     /// leave a slot empty, SSA construction resolves its value to the same
     /// constant and [`Lowerer::release`] emits nothing (issue #391).
     empty_slot: Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)>,
+    /// The trap block already emitted for each kind of check at each source
+    /// position, by the position's record offset in the function's site
+    /// table (`None` before the first marker). A block reads no SSA variable,
+    /// so later checks of the same kind at the same position branch to it
+    /// rather than emitting another; see [`Lowerer::trap_if`]. The blocks are
+    /// sealed together by [`Lowerer::seal_trap_blocks`].
+    trap_blocks: HashMap<(TrapKind, Option<i64>), Block>,
 }
 
 impl Lowerer<'_, '_> {
@@ -2798,12 +2809,12 @@ impl Lowerer<'_, '_> {
     /// calls the runtime helper for `kind` (which `_Noreturn`s) and
     /// ends with a CLIF `trap` to satisfy the verifier.
     ///
-    /// Each call emits its own trap block rather than sharing one
-    /// per function: Cranelift's FunctionBuilder forbids switching
-    /// away from an unterminated block, so a shared lazily-filled
-    /// trap block would require either eager construction at entry
-    /// or a post-pass. Inlining is straightforward and the IR cost
-    /// is a handful of instructions per arithmetic op.
+    /// Checks of one kind at one source position share a trap block: it
+    /// reads no SSA variable, only the position's record address, so every
+    /// such check branches to the same code and the function carries one
+    /// block, one helper call and one relocation per distinct trap rather
+    /// than per operation. A shared block gains predecessors until the body
+    /// ends, so it is sealed by [`Self::seal_trap_blocks`], not here.
     ///
     /// The trap block computes the site's address itself, so the passing
     /// path gains nothing, and is cold, so it is laid out after the body.
@@ -2814,34 +2825,47 @@ impl Lowerer<'_, '_> {
         if known::known_int(&self.bcx.func.dfg, flag) == Some(0) {
             return Ok(());
         }
-        let trap_block = self.bcx.create_block();
+        let key = (kind, self.trap_site_offset());
         let after = self.bcx.create_block();
-        self.bcx.ins().brif(flag, trap_block, &[], after, &[]);
+        if let Some(&trap_block) = self.trap_blocks.get(&key) {
+            self.bcx.ins().brif(flag, trap_block, &[], after, &[]);
+        } else {
+            let trap_block = self.bcx.create_block();
+            self.bcx.ins().brif(flag, trap_block, &[], after, &[]);
 
-        // Fill the trap block. The `brif` above terminated the
-        // previous block, so this switch is legal.
-        self.bcx.switch_to_block(trap_block);
-        self.bcx.seal_block(trap_block);
-        self.bcx.set_cold_block(trap_block);
-        let site = self.trap_site()?;
-        let (helper, arguments) = match kind {
-            TrapKind::Overflow => (self.runtime.trap_overflow, vec![site]),
-            TrapKind::DivZero => (self.runtime.trap_div_zero, vec![site]),
-            TrapKind::Shift => (self.runtime.trap_shift, vec![site]),
-            TrapKind::CastRange => (self.runtime.trap_cast_range, vec![site]),
-            TrapKind::Unwrap { option } => {
-                let option = self.bcx.ins().iconst(types::I64, i64::from(option));
-                (self.runtime.trap_unwrap, vec![site, option])
-            }
-        };
-        let local = self.module.declare_func_in_func(helper, self.bcx.func);
-        self.bcx.ins().call(local, &arguments);
-        self.bcx.ins().trap(TrapCode::unwrap_user(3));
+            // Fill the trap block. The `brif` above terminated the
+            // previous block, so this switch is legal.
+            self.bcx.switch_to_block(trap_block);
+            self.bcx.set_cold_block(trap_block);
+            let site = self.trap_site()?;
+            let (helper, arguments) = match kind {
+                TrapKind::Overflow => (self.runtime.trap_overflow, vec![site]),
+                TrapKind::DivZero => (self.runtime.trap_div_zero, vec![site]),
+                TrapKind::Shift => (self.runtime.trap_shift, vec![site]),
+                TrapKind::CastRange => (self.runtime.trap_cast_range, vec![site]),
+                TrapKind::Unwrap { option } => {
+                    let option = self.bcx.ins().iconst(types::I64, i64::from(option));
+                    (self.runtime.trap_unwrap, vec![site, option])
+                }
+            };
+            let local = self.module.declare_func_in_func(helper, self.bcx.func);
+            self.bcx.ins().call(local, &arguments);
+            self.bcx.ins().trap(TrapCode::unwrap_user(3));
+            self.trap_blocks.insert(key, trap_block);
+        }
 
         // Continue lowering into `after`.
         self.bcx.switch_to_block(after);
         self.bcx.seal_block(after);
         Ok(())
+    }
+
+    /// Seals the shared trap blocks once the body has emitted its last
+    /// branch into them. Call before the builder is finalized.
+    fn seal_trap_blocks(&mut self) {
+        for block in std::mem::take(&mut self.trap_blocks).into_values() {
+            self.bcx.seal_block(block);
+        }
     }
 
     /// Tuples share sorting's lexicographic total order. Scalar floats retain

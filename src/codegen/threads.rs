@@ -75,6 +75,7 @@ pub(super) fn build_adapter(
             empty_slot: None,
             counters: Default::default(),
             position: Default::default(),
+            trap_blocks: HashMap::default(),
         };
         for (i, ty) in task.inputs.iter().enumerate() {
             let packed = lower.bcx.ins().load(
@@ -121,6 +122,7 @@ pub(super) fn build_adapter(
         lower.store_slot(result_slot, value, &task.output);
         let zero = lower.bcx.ins().iconst(PTR_TY, 0);
         lower.bcx.ins().return_(&[zero]);
+        lower.seal_trap_blocks();
         bcx.finalize();
         out.define(id, func, module);
     }

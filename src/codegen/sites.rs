@@ -123,16 +123,29 @@ impl Lowerer<'_, '_> {
         self.site_record(self.position.at)
     }
 
-    fn site_record(&mut self, at: Option<(u32, u32)>) -> Result<Value> {
-        let Some((line, column)) = at else {
-            return Ok(self.bcx.ins().iconst(PTR_TY, 0));
-        };
-        let key = (
+    /// Offset in the function's site table of the record [`Self::trap_site`]
+    /// would point at, or `None` before the first marker. Emits nothing.
+    pub(super) fn trap_site_offset(&mut self) -> Option<i64> {
+        self.position.at.map(|(line, column)| {
+            let key = self.site_key(line, column);
+            self.module.site(key, self.bcx.func).1
+        })
+    }
+
+    fn site_key(&self, line: u32, column: u32) -> Key {
+        (
             self.position.file.clone(),
             line,
             column,
             self.position.standard_library,
-        );
+        )
+    }
+
+    fn site_record(&mut self, at: Option<(u32, u32)>) -> Result<Value> {
+        let Some((line, column)) = at else {
+            return Ok(self.bcx.ins().iconst(PTR_TY, 0));
+        };
+        let key = self.site_key(line, column);
         let (table, offset) = self.module.site(key, self.bcx.func);
         let base = self.bcx.ins().global_value(PTR_TY, table);
         Ok(if offset == 0 {

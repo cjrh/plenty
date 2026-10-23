@@ -83,6 +83,7 @@ pub(super) fn build_adapter(
             empty_slot: None,
             counters: Default::default(),
             position: Default::default(),
+            trap_blocks: HashMap::default(),
         };
         let packed = lower
             .bcx
@@ -122,6 +123,7 @@ pub(super) fn build_adapter(
         };
         lower.store_slot(output, value, &job.output);
         lower.bcx.ins().return_(&[]);
+        lower.seal_trap_blocks();
         bcx.finalize();
         out.define(id, func, module);
     }
