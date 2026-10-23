@@ -201,6 +201,10 @@ model described below, which this phase does not implement.
 
 These are design notes, not implemented behavior.
 
+The [bounded module-cache investigation](../../../development/module-cache-investigation.md)
+records current edit profiles, a scalar native-artifact spike, and a runnable
+counterexample to signature-only invalidation. It changes no cache behavior.
+
 **Per-module artifacts.** Program objects make a no-change rebuild nearly
 free, but any edit runs the whole frontend again, `std` modules included. A
 per-module cache would keep, for each module:

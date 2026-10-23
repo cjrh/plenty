@@ -36,8 +36,12 @@ Preserve the installed CLI/data, JSON-service and mutual-TLS acceptance checks.
    The first bounded improvement omits unreachable `std` definitions from native
    emission after checking (issue #400); [module-edit measurements](development/module-edits.md)
    cover cold, unchanged, body, interface and generic-body builds. Parsing and
-   lowering still process all imported modules; module artifacts remain the
-   next cache-design investigation.
+   lowering still process all imported modules. The bounded
+   [module-cache investigation](development/module-cache-investigation.md) found
+   reusable frontend work but rejected separate C-library caching as a shortcut.
+   Next cache-design gate: isolate deterministic module lowering outputs and
+   measure replay before persistence; include body-inferred interface facts,
+   generic dependencies and native substitution in invalidation.
 
 Keep the `compile_bench` precise-error template migration deferred while active
 performance comparisons rely on the unchanged workload. Floating-point report
