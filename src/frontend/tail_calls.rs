@@ -167,6 +167,7 @@ fn expression_endings(
                 | Op::Site(_)
                 | Op::CallerSite(_)
                 | Op::Returning(..)
+                | Op::Leaving
                 | Op::Building(_)
                 | Op::Passes(_)
                 | Op::Forwards(_)

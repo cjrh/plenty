@@ -82,7 +82,7 @@ pub(super) fn define(module: &mut ObjectModule, records: &[Key]) -> Result<DataI
 }
 
 /// Where the operation being lowered is in the source.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct Position {
     /// File of the function's body: for a generic instance or an imported
     /// function, the file that defines it.
@@ -148,7 +148,7 @@ impl Lowerer<'_, '_> {
         self.site_record(self.position.call_at.or(self.position.at))
     }
 
-    fn site_record(&mut self, at: Option<(u32, u32)>) -> Result<Value> {
+    pub(super) fn site_record(&mut self, at: Option<(u32, u32)>) -> Result<Value> {
         let Some((line, column)) = at else {
             return Ok(self.bcx.ins().iconst(PTR_TY, 0));
         };

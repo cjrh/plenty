@@ -22,6 +22,7 @@ fn transparent(op: &Op) -> bool {
         Op::Site(_)
             | Op::CallerSite(_)
             | Op::Returning(..)
+            | Op::Leaving
             | Op::Building(_)
             | Op::UseLoan(_) | Op::EndLoan(_)
             | Op::Access(..)
