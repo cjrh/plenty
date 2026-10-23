@@ -69,18 +69,11 @@ pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
         ));
     }
     if let Some(Ty::Ref(_, mutable)) = &sig.output {
-        let references: Vec<_> = sig
-            .inputs
-            .iter()
-            .filter(|ty| matches!(ty, Ty::Ref(..)))
-            .collect();
-        if references.len() != 1 {
-            return Err(at.error("returned references require exactly one reference parameter"));
-        }
-        if *mutable && !matches!(references[0], Ty::Ref(_, true)) {
-            return Err(
-                at.error("mutable returned references require a mutable reference parameter")
-            );
+        let Some(origin) = sig.inputs.iter().find(|ty| matches!(ty, Ty::Ref(..))) else {
+            return Err(at.error(super::NO_ORIGIN));
+        };
+        if *mutable && !matches!(origin, Ty::Ref(_, true)) {
+            return Err(at.error(super::IMMUTABLE_ORIGIN));
         }
     }
     Ok(())

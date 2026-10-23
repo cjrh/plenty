@@ -131,19 +131,15 @@ print(p).unwrap()
 fn returned_borrows_preserve_conflicts_and_cannot_escape_owned_locals() {
     reject(
         "def bad() -> &i64:\n    value = 1\n    &value\n",
-        "exactly one reference parameter",
+        "borrow from the first reference parameter",
     );
     reject(
         "def bad(input: &i64) -> &i64:\n    value = 1\n    &value\n",
         "must originate",
     );
     reject(
-        "def bad(a: &i64, b: &i64) -> &i64:\n    a\n",
-        "exactly one reference parameter",
-    );
-    reject(
         "def bad(a: &i64) -> &mut i64:\n    &mut a\n",
-        "mutable reference parameter",
+        "which must be `&mut`",
     );
     reject(
         "def view(a: &i64) -> &i64:\n    a\nmut n = 1\nr = view(&n)\nn = 2\nprint(r).unwrap()\n",
@@ -226,5 +222,157 @@ class Point:
 print([Point(1)].unwrap()[0].view()).unwrap()
 "#,
         "require a named receiver",
+    );
+}
+
+#[test]
+fn the_first_reference_parameter_is_the_origin_of_a_returned_reference() {
+    run(
+        r#"
+class Entry:
+    name: str
+    score: i64
+class Table:
+    entries: list[Entry]
+    def score_of(self: &mut Table, name: &str) -> &mut i64:
+        mut i = 0
+        while i < len(self.entries) - 1:
+            if self.entries[i].name == name:
+                return &mut self.entries[i].score
+            i = i + 1
+        &mut self.entries[len(self.entries) - 1].score
+def lookup(scores: &dict[str, i64], key: &str) -> &i64:
+    &scores[*key]
+mut table = Table([Entry("ada", 3), Entry("bob", 5)].unwrap())
+score = table.score_of("ada")
+*score = *score + 10
+print(table.entries[0].score).unwrap()
+scores = {"x": 4}.unwrap()
+mut name = "x"
+value = lookup(&scores, &name)
+name = "changed"
+print(value).unwrap()
+print(name).unwrap()
+"#,
+        "13\n4\nchanged\n",
+    );
+}
+
+#[test]
+fn later_reference_arguments_are_released_after_the_call() {
+    run(
+        r#"
+def add_into(target: &mut i64, amount: &i64) -> &mut i64:
+    *target = *target + *amount
+    target
+mut total = 1
+mut step = 2
+result = add_into(&mut total, &step)
+step = 7
+*result = *result * 10
+print(total).unwrap()
+print(step).unwrap()
+"#,
+        "30\n7\n",
+    );
+    // A temporary later argument does not prevent binding the result.
+    run(
+        r#"
+def first(items: &list[i64], label: &str) -> &i64:
+    &items[0]
+items = [5, 6].unwrap()
+value = first(&items, "label")
+print(value).unwrap()
+"#,
+        "5\n",
+    );
+}
+
+#[test]
+fn a_returned_reference_cannot_originate_in_a_later_reference_parameter() {
+    reject(
+        "def pick(a: &i64, b: &i64) -> &i64:\n    b\n",
+        "must originate from the first reference parameter",
+    );
+    reject(
+        "def pick(a: &i64, b: &i64) -> &i64:\n    if *a > *b:\n        return a\n    b\n",
+        "must originate from the first reference parameter",
+    );
+    reject(
+        "def other(a: &i64, b: &i64) -> &i64:\n    a\ndef pick(a: &i64, b: &i64) -> &i64:\n    other(b, a)\n",
+        "must originate from the first reference parameter",
+    );
+    reject(
+        "class Pair:\n    x: i64\ndef pick(a: &Pair, b: &Pair) -> &i64:\n    &b.x\n",
+        "must originate from the first reference parameter",
+    );
+    // `b` is exclusive, but the result must come from `a`, which is shared.
+    reject(
+        "def pick(a: &i64, b: &mut i64) -> &mut i64:\n    b\n",
+        "which must be `&mut`",
+    );
+}
+
+#[test]
+fn the_origin_argument_stays_borrowed_and_temporary_origins_cannot_escape() {
+    reject(
+        "def pick(a: &i64, b: &i64) -> &i64:\n    a\nmut x = 1\ny = 2\nr = pick(&x, &y)\nx = 5\nprint(r).unwrap()\n",
+        "conflicting borrow",
+    );
+    reject(
+        "def pick(a: &mut i64, b: &i64) -> &mut i64:\n    a\nmut x = 1\nr = pick(&mut x, &x)\nprint(r).unwrap()\n",
+        "conflicting borrow",
+    );
+    reject(
+        "def view(a: &str, b: &str) -> &str:\n    a\nr = view(\"temporary\", \"other\")\nprint(r).unwrap()\n",
+        "temporary cannot be stored",
+    );
+}
+
+#[test]
+fn recursive_lookups_with_a_key_parameter_reuse_the_frame() {
+    run(
+        r#"
+class Node:
+    value: i64
+    next: Option[Box[Node]]
+def find(node: &mut Node, key: &i64) -> &mut i64:
+    if node.value == *key:
+        return &mut node.value
+    match &mut node.next:
+        case Some(next):
+            return find(next, key)
+        case Nothing:
+            return &mut node.value
+mut head = Node(0, Nothing)
+mut i = 1
+while i < 200000:
+    head = Node(i, Some(Box(head).unwrap()))
+    i = i + 1
+key = 5
+found = find(&mut head, &key)
+*found = 99
+print(*find(&mut head, &99)).unwrap()
+"#,
+        "99\n",
+    );
+}
+
+#[test]
+fn generic_and_callable_signatures_use_the_same_origin_rule() {
+    run(
+        r#"
+def first_of[T](a: &list[T], b: &list[T]) -> &list[T]:
+    a
+def apply(f: Callable[[&list[i64], &list[i64]], &list[i64]], x: &list[i64], y: &list[i64]) -> i64:
+    len(f(x, y))
+xs = [1, 2, 3].unwrap()
+mut ys = [4].unwrap()
+chosen = first_of(&xs, &ys)
+ys = [5, 6].unwrap()
+print(len(chosen)).unwrap()
+print(apply(first_of, &xs, &ys)).unwrap()
+"#,
+        "3\n3\n",
     );
 }
