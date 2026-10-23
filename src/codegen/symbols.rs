@@ -318,9 +318,11 @@ fn symbol(
 }
 
 /// Declare `requests` of `function` in `module` and point `relocs` at the
-/// real symbols.
+/// real symbols. The function's trap-site records join the object's one
+/// table (`sites`); their relocations gain the function's base offset in it.
 pub(super) fn resolve(
     module: &mut ObjectModule,
+    sites: &mut sites::Table,
     runtime: &Runtime,
     function: FuncId,
     requests: &[Request],
@@ -330,14 +332,16 @@ pub(super) fn resolve(
         return Ok(Vec::new());
     }
     let mut targets = Vec::with_capacity(requests.len());
-    for request in requests {
+    let mut addends = vec![0; requests.len()];
+    for (number, request) in requests.iter().enumerate() {
         targets.push(match request {
             Request::Metadata(ty) => {
                 let id = metadata::declare(module, runtime, ty)?;
                 ModuleRelocTarget::user(1, id.as_u32())
             }
             Request::Sites(records) => {
-                let id = sites::define(module, records)?;
+                let (id, base) = sites.append(module, records)?;
+                addends[number] = base;
                 ModuleRelocTarget::user(1, id.as_u32())
             }
             Request::Import(name, signature) | Request::Foreign(name, signature) => {
@@ -355,6 +359,7 @@ pub(super) fn resolve(
             && namespace == REQUESTED
         {
             reloc.name = targets[index as usize].clone();
+            reloc.addend += addends[index as usize];
         }
     }
     Ok(targets)
