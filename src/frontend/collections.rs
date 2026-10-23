@@ -4,7 +4,9 @@ use crate::collection_opcodes as opcode;
 
 const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowed KeyView values; use view.to_set(), dictionary.keys_snapshot(), or [*key for key in view]";
 
+#[derive(Clone)]
 pub(super) struct Iteration {
+    pub(super) cleanup: Vec<Op>,
     pub(super) condition: Vec<Op>,
     // Initialize pending generator results when a paired condition is skipped.
     // This keeps conditional advancement compatible with definite ownership.
@@ -913,6 +915,7 @@ impl Lower<'_> {
                     condition,
                     mut body,
                     step,
+                    cleanup,
                     ..
                 } = self.iteration(
                     name,
@@ -932,6 +935,7 @@ impl Lower<'_> {
                     condition: condition.into(),
                     body: body.into(),
                 });
+                ops.extend(cleanup);
                 self.cleanup(start, ops);
                 self.names = saved;
             }
@@ -1103,6 +1107,7 @@ impl Lower<'_> {
         step.push(Op::DropLocal(key_slot));
         step.push(Op::DropLocal(value_slot));
         Ok(Iteration {
+            cleanup: vec![],
             condition: vec![
                 Op::LoadLocal(index),
                 Op::PushInt(Value::I64(0)),
@@ -1116,13 +1121,16 @@ impl Lower<'_> {
         })
     }
 
-    fn iteration(
+    pub(super) fn iteration(
         &mut self,
         names: &[String],
         iterable: &Expr,
         hint: Option<Ty>,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
+        if self.is_pipeline(iterable) {
+            return self.pipeline_iteration(names, iterable, ops);
+        }
         if let Expression::Call(function, args) = &ungroup(iterable).kind
             && matches!(function.as_str(), "enumerate" | "zip" | "reversed")
             && !self.names.contains_key(function)
@@ -1480,6 +1488,7 @@ impl Lower<'_> {
             skipped.push(Op::PushBool(false));
             left.condition.push(branch(right.condition, skipped));
             left.absent.extend(right.absent);
+            left.cleanup.extend(right.cleanup);
             left.body.extend(right.body);
             left.step.extend(right.step);
             (
@@ -1625,6 +1634,7 @@ impl Lower<'_> {
             Op::StoreLocal(target),
         ]);
         Ok(Iteration {
+            cleanup: vec![],
             condition,
             absent: vec![],
             body,
@@ -1651,6 +1661,7 @@ impl Lower<'_> {
             Op::StoreLocal(index),
         ]);
         Ok(Iteration {
+            cleanup: vec![],
             condition: vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne],
             absent: vec![],
             body: vec![
@@ -1701,6 +1712,7 @@ impl Lower<'_> {
             };
             let item = self.slot(option.clone(), at)?;
             return Ok(Iteration {
+                cleanup: vec![],
                 absent: vec![
                     Op::Enum(crate::sum::EnumOp::New(enum_type.clone(), 0)),
                     Op::StoreLocal(item),
@@ -1836,6 +1848,7 @@ impl Lower<'_> {
             step.push(Op::DropLocal(target));
         }
         Ok(Iteration {
+            cleanup: vec![],
             condition,
             absent: vec![],
             body,
@@ -1862,6 +1875,7 @@ impl Lower<'_> {
             mut body,
             step,
             target,
+            cleanup,
             ..
         } = self.iteration(std::slice::from_ref(&internal), source, None, ops)?;
         let item = &self.names[&internal].ty;
@@ -1892,6 +1906,7 @@ impl Lower<'_> {
             body: body.into(),
         });
         ops.push(Op::LoadLocal(result));
+        ops.extend(cleanup);
         self.cleanup(start, ops);
         Ok(Ty::Bool)
     }
@@ -1910,6 +1925,7 @@ impl Lower<'_> {
             condition,
             mut body,
             step,
+            cleanup,
             ..
         } = self.iteration(name, iterable, None, ops)?;
         self.building(&iterable.at, iterable_start, ops, false);
@@ -1926,6 +1942,7 @@ impl Lower<'_> {
             condition: condition.into(),
             body: body.into(),
         });
+        ops.extend(cleanup);
         self.cleanup(start, ops);
         Ok(())
     }
@@ -2280,6 +2297,9 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if self.is_pipeline(base) {
+            return self.pipeline_terminal(base, name, args, ops);
+        }
         if matches!(self.place_type(base), Some(Ty::Shared(_))) {
             return self.shared_method(base, name, args, ops);
         }
@@ -3512,6 +3532,7 @@ impl Lower<'_> {
             ]);
         }
         Ok(Iteration {
+            cleanup: vec![],
             condition: vec![Op::LoadLocal(remaining), Op::PushInt(Value::I64(0)), Op::Gt],
             absent: vec![],
             body: vec![],

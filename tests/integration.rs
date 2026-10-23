@@ -13,6 +13,9 @@
 //! own copy of those helpers, as when every file was a separate crate.
 #![allow(clippy::duplicate_mod)]
 
+#[path = "test_pipelines.rs"]
+mod test_pipelines;
+
 #[path = "test_aliases.rs"]
 mod test_aliases;
 #[path = "test_allocation.rs"]

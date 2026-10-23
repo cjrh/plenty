@@ -20,6 +20,8 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// generic functions are specialized before native lowering.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
+    /// Affine token for a frontend-local fused plan; its state lives in local slots.
+    Iter(Arc<Ty>, usize),
     /// Lexical join token: only direct `.join()` consumes a source task.
     Task(Arc<crate::threading::Task>),
     /// Shared channel core, with affine sender (true) or receiver (false) handles.
@@ -82,6 +84,7 @@ pub enum Ty {
 /// Why a type cannot enter heap storage; see `Ty::storage_barrier`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StorageBarrier {
+    Iter,
     KeyView,
     Reference,
     Generator,
@@ -96,6 +99,7 @@ impl StorageBarrier {
     /// The diagnostic for storing the rejected type in `place`, e.g. "collections".
     pub fn message(self, place: &str) -> String {
         let subject = match self {
+            Self::Iter => "iterator pipelines",
             Self::KeyView => "dictionary key views",
             Self::Reference => "references",
             Self::Generator => "generators",
@@ -169,7 +173,8 @@ impl Ty {
     pub fn affine(&self) -> bool {
         matches!(
             self,
-            Self::List(_)
+            Self::Iter(..)
+                | Self::List(_)
                 | Self::Task(_)
                 | Self::Channel(..)
                 | Self::CancellationToken
@@ -193,7 +198,8 @@ impl Ty {
     }
     pub fn restricted_storage(&self) -> bool {
         match self {
-            Self::Task(_)
+            Self::Iter(..)
+            | Self::Task(_)
             | Self::Generator(_)
             | Self::Closure(_)
             | Self::Ref(..)
@@ -238,6 +244,7 @@ impl Ty {
     /// The first reason a heap owner cannot embed this type.
     pub fn storage_barrier(&self) -> Option<StorageBarrier> {
         match self {
+            Self::Iter(..) => Some(StorageBarrier::Iter),
             Self::KeyView(_) => Some(StorageBarrier::KeyView),
             Self::Ref(..) => Some(StorageBarrier::Reference),
             Self::Generator(_) => Some(StorageBarrier::Generator),
@@ -573,6 +580,7 @@ impl fmt::Display for Ty {
             Ty::ByteStorage => "ByteStorage",
             Ty::ForeignPtr(name) => return f.write_str(name),
             Ty::Bool => "bool",
+            Ty::Iter(t, _) => return write!(f, "Iter[{t}]"),
             Ty::List(t) => return write!(f, "list[{t}]"),
             Ty::Set(t) => return write!(f, "set[{t}]"),
             Ty::KeyView(t) => return write!(f, "KeyView[{t}]"),
@@ -839,6 +847,7 @@ pub enum Op {
         ty: Ty,
     },
     PushUnit,
+    PipelineToken(Arc<Ty>, usize),
     FloatNeg,
     /// Push a string literal — already stored in the heap — onto the stack.
     PushStr(StrId),
@@ -2080,6 +2089,7 @@ fn step(
             stack.push(ty.clone());
         }
         Op::PushUnit => stack.push(Ty::Unit),
+        Op::PipelineToken(item, id) => stack.push(Ty::Iter(item.clone(), *id)),
         Op::FloatNeg => {
             let ty = stack.last().ok_or("stack underflow on float negation")?;
             if !ty.is_float() {

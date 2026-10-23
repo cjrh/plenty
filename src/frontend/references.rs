@@ -122,6 +122,14 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Option<usize>)> {
+        if self.is_pipeline(value) {
+            let plan = self.pipeline(value, ops)?;
+            let item = Arc::new(plan.item.ty.clone());
+            let id = self.pipelines.len();
+            self.pipelines.push(plan);
+            ops.push(Op::PipelineToken(item.clone(), id));
+            return Ok((Ty::Iter(item, id), None));
+        }
         let place = match &ungroup(value).kind {
             Expression::Unary(op, place) if op == "&" || op == "&mut" => {
                 Some((&**place, op == "&mut"))
@@ -381,6 +389,11 @@ impl Lower<'_> {
         mutable: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        if self.is_pipeline(e) {
+            return Err(e.at.error(
+                "iterator pipeline lending is not implemented; consume it in its creating scope",
+            ));
+        }
         self.ide_member(e);
         self.borrow_with_indices(e, mutable, &mut None, ops)
     }
@@ -699,6 +712,9 @@ impl Lower<'_> {
         unbox_owned: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Vec<usize>)> {
+        if self.is_pipeline(e) {
+            return Err(e.at.error("iterator pipelines cannot be passed as values; consume them with a loop or terminal"));
+        }
         let mut result = self.observe_inner(e, expected, ops)?;
         if unbox_owned
             && result.1.is_empty()

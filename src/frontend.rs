@@ -42,6 +42,7 @@ mod modules;
 mod mutex;
 mod numeric;
 mod patterns;
+mod pipelines;
 mod protocols;
 mod references;
 mod shared;
@@ -761,6 +762,15 @@ impl TypeRef {
             }
             return Ok(Some(crate::atomic::ty(element)));
         }
+        if name == "Iter" {
+            let [element] = self.args.as_slice() else {
+                return Err(self.at.error("Iter requires one item type"));
+            };
+            let element = element
+                .resolve(aliases)?
+                .ok_or_else(|| self.at.error("iterator items cannot be unit"))?;
+            return Ok(Some(Ty::Iter(Arc::new(element), usize::MAX)));
+        }
         if name == "Generator" {
             if self.args.len() != 1 {
                 return Err(self.at.error("Generator requires 1 type argument"));
@@ -870,6 +880,14 @@ impl TypeRef {
                 return Err(self
                     .at
                     .error("references cannot be stored in enum payloads"));
+            }
+            if args
+                .iter()
+                .any(|ty| ty.storage_barrier() == Some(crate::op::StorageBarrier::Iter))
+            {
+                return Err(self
+                    .at
+                    .error("iterator pipelines cannot be stored in enum payloads"));
             }
             let mut args = args.into_iter();
             let mut next = || args.next().expect("argument count checked above");
@@ -2504,6 +2522,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "select_recv_nowait"
                 | "select_recv_timeout"
                 | "Generator"
+                | "Iter"
                 | "Callable"
                 | "BoxedCallable"
                 | "Closure"
@@ -2660,6 +2679,7 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 }
 
 struct Lower<'a> {
+    pipelines: Vec<pipelines::Pipeline>,
     function_name: String,
     bare_self_receiver: bool,
     source_tail: Vec<crate::ownership::Site>,
@@ -2928,6 +2948,7 @@ impl Lower<'_> {
     }
     fn same(&self, got: Type, expected: Type, at: &Token) -> Result<()> {
         if got == expected
+            || matches!((&expected, &got), (Some(Ty::Iter(a, usize::MAX)), Some(Ty::Iter(b, _))) if a == b)
             || matches!((&expected, &got), (Some(a), Some(b)) if crate::generator::refine(a, b).is_some())
         {
             Ok(())
@@ -3093,6 +3114,9 @@ impl Lower<'_> {
         }
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        if self.is_pipeline(e) {
+            return Err(e.at.error("iterator pipelines cannot escape their creating scope; bind locally or consume with a loop or terminal"));
+        }
         let ty = match &e.kind {
             Expression::NamedArgument(..) => {
                 return Err(e.at.error("named arguments require a statically resolved function, method, or class constructor"));
@@ -3871,6 +3895,14 @@ impl Lower<'_> {
                     return self.prelude_constructor(name, Some(args), None, &e.at, ops);
                 }
                 if matches!(name.as_str(), "copy" | "drop") {
+                    if name == "drop"
+                        && let [value] = args.as_slice()
+                        && self.is_pipeline(value)
+                    {
+                        let plan = self.pipeline(value, ops)?;
+                        self.finish_pipeline(&plan, ops);
+                        return Ok(None);
+                    }
                     return self.copy_or_drop(name, args, &e.at, ops);
                 }
                 if name == "sorted" {
@@ -5295,6 +5327,14 @@ fn register_resolved(
     if types.iter().any(Ty::key_view) || output.as_ref().is_some_and(Ty::key_view) {
         return Err(f.at.error("dictionary key views are local-only; user-function parameters, returns, and captures require an owned keys_snapshot(), into_keys(), or to_set()"));
     }
+    let pipeline = |ty: &Ty| {
+        matches!(ty, Ty::Iter(..)) || matches!(ty, Ty::Ref(t, _) if matches!(**t, Ty::Iter(..)))
+    };
+    if types.iter().any(pipeline) || output.as_ref().is_some_and(pipeline) {
+        return Err(f.at.error(
+            "iterator pipelines are local-only; parameters, returns, and lending are not supported",
+        ));
+    }
     if let Some((_, written)) = f
         .inputs
         .iter()
@@ -5463,6 +5503,7 @@ fn lower_body(
                 aliases,
                 access,
                 names: HashMap::default(),
+                pipelines: Vec::new(),
                 function_places: HashMap::default(),
                 function_initializers: Vec::new(),
                 locals: Vec::new(),

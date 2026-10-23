@@ -73,6 +73,7 @@ impl Lower<'_> {
             Op::StoreLocal(target),
         ]);
         Ok(Iteration {
+            cleanup: vec![],
             condition,
             absent: vec![],
             body,

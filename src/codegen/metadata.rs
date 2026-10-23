@@ -92,7 +92,7 @@ fn define_type(
         Ty::U64 | Ty::ForeignPtr(_) => b'8',
         Ty::F32 => b'f',
         Ty::F64 => b'd',
-        Ty::Unit => b'v',
+        Ty::Unit | Ty::Iter(..) => b'v',
         Ty::Bool => b'b',
         Ty::Str => b's',
         Ty::ByteStr => b'y',

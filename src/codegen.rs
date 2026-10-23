@@ -2327,6 +2327,10 @@ impl Lowerer<'_, '_> {
                 let value = self.bcx.ins().iconst(types::I64, 0);
                 self.stack.push((value, Ty::Unit));
             }
+            Op::PipelineToken(item, id) => {
+                let value = self.bcx.ins().iconst(types::I64, 0);
+                self.stack.push((value, Ty::Iter(item.clone(), *id)));
+            }
             Op::FloatNeg => {
                 let (value, ty) = self.stack.pop().ok_or("empty float negation")?;
                 let value = self.float_neg(value);

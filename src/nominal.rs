@@ -320,6 +320,7 @@ impl Ty {
 impl Clone for Ty {
     fn clone(&self) -> Self {
         match self {
+            Self::Iter(t, id) => Self::Iter(t.clone(), *id),
             Self::Task(t) => Self::Task(t.clone()),
             Self::Channel(t, sender) => Self::Channel(Self::clone_child(t), *sender),
             Self::Future(t) => Self::Future(Self::clone_child(t)),
