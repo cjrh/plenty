@@ -1,0 +1,23 @@
+# cargo-nextest runs each test in its own process, so a `static` lock in a
+# test file no longer keeps two tests apart. Tests that must not overlap each
+# other belong to a test group here instead. See
+# book/src/development/workflow.md#running-tests.
+[test-groups]
+# tests/test_compile_scaling.rs times checking of a small and a large program
+# and compares them. Checking uses every core, so two measurements that overlap
+# slow each other unevenly; its MEASURING mutex serialises them under
+# `cargo test`.
+compile-scaling = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'binary(integration) & test(/^test_compile_scaling::/)'
+test-group = 'compile-scaling'
+
+# CI's test shards (.github/workflows/ci.yml).
+[profile.ci]
+fail-fast = false
+failure-output = "immediate-final"
+slow-timeout = { period = "120s" }
+
+[profile.ci.junit]
+path = "junit.xml"

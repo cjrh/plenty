@@ -1,0 +1,39 @@
+name: Nightly Rust
+
+# The full all-features suite on nightly Rust, weekly and on demand (issue
+# #405). Pushes and pull requests test stable only, in ci.yml. Nightly updates
+# invalidate compiled dependencies, so this job keeps no build cache.
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Tests on nightly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold
+      - name: Check mold is cc's linker
+        run: scripts/ci_check_mold.sh
+      - run: rustup toolchain install nightly --profile minimal && rustup default nightly
+      - name: Compile tests
+        run: cargo test --locked --workspace --all-features --no-run --timings
+      - name: Run tests and doctests
+        run: cargo test --locked --workspace --all-features
+      - name: Upload compile timings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cargo-timings-nightly
+          path: target/cargo-timings/*.html
+          if-no-files-found: ignore
+          retention-days: 7
