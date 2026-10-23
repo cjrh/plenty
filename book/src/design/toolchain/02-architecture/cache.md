@@ -254,6 +254,13 @@ prints, the calls in its operations reach 64 of the 222 `std` functions
 (drop hooks and thread, executor and sort adapters, not counted, reach more),
 and in `examples/http_server_bench.plenty` 155 of 230.
 
+Native emission now omits unreachable standard definitions *after* checking
+(issue #400; see [emission](emission.md)). This reduces object size and native
+work without a cache redesign. It does not implement selective frontend
+lowering or module artifacts. The [module-edit probe](../../../development/module-edits.md)
+checks unchanged, body, interface and generic-body edits against uncached objects
+and provides fresh-process time and peak-memory measurements for further work.
+
 **Remote and shared cache.** The same keys over HTTP to a content-addressed
 store would serve CI and teams. It must be optional and opt-in, readable by
 default and written only by trusted builders such as CI, perhaps through the

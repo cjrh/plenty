@@ -140,7 +140,9 @@ fn an_edit_misses_only_what_changed() {
     let warm = emit(dir.path(), &edited, Some(&cache), &[]);
     let (hits, misses) = warm.counts();
     assert!(off.object == warm.object);
-    assert!(misses >= 1 && misses < functions / 2, "{}", warm.stderr());
+    // Only total's body changed. Unused std.json definitions are no longer
+    // emitted, so there need not be a large majority of unrelated std hits.
+    assert_eq!(misses, 1, "{}", warm.stderr());
     assert_eq!(hits + misses, functions);
 }
 
