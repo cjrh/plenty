@@ -90,6 +90,7 @@ pub(super) fn build_adapter(
         exits: None,
         counters: Default::default(),
         position: Default::default(),
+        trap_blocks: HashMap::default(),
     };
     // References are slot addresses: the runtime passes each row's value word
     // through a slot it owns for the duration of the call.
@@ -103,6 +104,7 @@ pub(super) fn build_adapter(
     lower.lower_collection(&CollectionOp::OrderCompare(sort.key.clone()))?;
     let (order, _) = lower.pop_typed(Ty::I64)?;
     lower.bcx.ins().return_(&[order]);
+    lower.seal_trap_blocks();
     bcx.finalize();
     out.define(id, func, module);
     Ok(())

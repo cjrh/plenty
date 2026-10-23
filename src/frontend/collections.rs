@@ -4,6 +4,60 @@ use crate::collection_opcodes as opcode;
 
 const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowed KeyView values; use view.to_set(), dictionary.keys_snapshot(), or [*key for key in view]";
 
+/// Only literal i64 progressions: evaluating or skipping these elements has no
+/// effects, traps, borrows, or destructors. Reuse counted loops without building
+/// a collection or a stack array. Other displays retain eager materialization.
+fn literal_progression(iterable: &Expr) -> Option<(i64, i64, i64)> {
+    let literal = match &ungroup(iterable).kind {
+        Expression::Try(inner) => ungroup(inner),
+        Expression::Method(inner, name, args, _) if name == "unwrap" && args.is_empty() => {
+            ungroup(inner)
+        }
+        _ => return None,
+    };
+    let Expression::Collection {
+        kind,
+        entries,
+        clauses,
+    } = &literal.kind
+    else {
+        return None;
+    };
+    if kind != "list" || !clauses.is_empty() || entries.is_empty() {
+        return None;
+    }
+    let mut first = 0;
+    let mut previous = 0;
+    let mut stride = 0;
+    for (index, (entry, value)) in entries.iter().enumerate() {
+        if value.is_some() {
+            return None;
+        }
+        let (entry, negative) = match &ungroup(entry).kind {
+            Expression::Unary(op, inner) if op == "-" => (ungroup(inner), true),
+            _ => (ungroup(entry), false),
+        };
+        let Expression::Number(text) = &entry.kind else {
+            return None;
+        };
+        let Value::I64(number) = integer(text, negative, &entry.at).ok()? else {
+            return None;
+        };
+        if index == 0 {
+            first = number;
+        } else {
+            let difference = number.checked_sub(previous)?;
+            if index == 1 {
+                stride = difference;
+            } else if difference != stride {
+                return None;
+            }
+        }
+        previous = number;
+    }
+    Some((first, stride, i64::try_from(entries.len()).ok()?))
+}
+
 #[derive(Clone)]
 pub(super) struct Iteration {
     pub(super) exact_len: Option<Vec<Op>>,
@@ -874,8 +928,15 @@ impl Lower<'_> {
             unreachable!()
         };
         let result = self.slot(output.clone(), &e.at)?;
+        // A display has a known final size; a comprehension may be filtered or
+        // unbounded. Reserve before evaluating elements, as with with_capacity.
+        let capacity = if kind == "list" && clauses.is_empty() {
+            entries.len() as i64
+        } else {
+            0
+        };
         ops.extend([
-            Op::PushInt(Value::I64(0)),
+            Op::PushInt(Value::I64(capacity)),
             Op::Collection(CollectionOp::TryNew(ty)),
             Op::StoreLocal(result),
             Op::LoadLocal(result),
@@ -1175,6 +1236,47 @@ impl Lower<'_> {
         reverse: bool,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
+        if names.len() == 1
+            && let Some((first, stride, count)) = literal_progression(iterable)
+        {
+            // Eliding storage must not make an otherwise invalid `?` legal.
+            if matches!(&ungroup(iterable).kind, Expression::Try(_)) {
+                let target = self.propagation_target(iterable)?;
+                let Ty::Enum(source) =
+                    crate::sum::result(Ty::List(Arc::new(Ty::I64)), crate::sum::alloc_error())
+                else {
+                    unreachable!()
+                };
+                self.check_propagation(iterable, &source, target, true)?;
+            }
+            let target = self.slot(Ty::I64, &iterable.at)?;
+            let step = self.slot(Ty::I64, &iterable.at)?;
+            let remaining = self.slot(Ty::I64, &iterable.at)?;
+            ops.extend([
+                Op::PushInt(Value::I64(first)),
+                Op::StoreLocal(target),
+                Op::PushInt(Value::I64(stride)),
+                Op::StoreLocal(step),
+                Op::PushInt(Value::I64(count)),
+                Op::StoreLocal(remaining),
+            ]);
+            let plan = self.counted_iteration(
+                (target, step, remaining),
+                Ty::I64,
+                reverse,
+                &iterable.at,
+                ops,
+            )?;
+            self.bind(
+                names[0].clone(),
+                Local {
+                    slot: target,
+                    ty: Ty::I64,
+                    mutable: false,
+                },
+            );
+            return Ok(plan);
+        }
         if let Some((base, mutable)) = dictionary_items(iterable)
             && !self
                 .place_type(base)

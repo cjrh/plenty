@@ -5,10 +5,10 @@
 //! only when the trap fires, so the passing path costs one address
 //! computation.
 //!
-//! Each function has its own table so that its offsets are known while its IR
-//! is built on any thread. The tables are local to the object and reached
-//! only by pointer: two Plenty static libraries linked into one program each
-//! keep their own.
+//! Each function numbers its own records, so their offsets are known while
+//! its IR is built on any thread; the object holds them all in one table
+//! ([`Table`]). The table is local to the object and reached only by pointer:
+//! two Plenty static libraries linked into one program each keep their own.
 //!
 //! Layout, matching `Site` in the runtime: one sixteen-byte record per distinct
 //! position (`line`, `column`, `file`, `standard_library`, each a `u32`), then the file names, each
@@ -49,36 +49,75 @@ impl Sites {
     }
 }
 
-/// Define a table of `records` in `module`.
-pub(super) fn define(module: &mut ObjectModule, records: &[Key]) -> Result<DataId> {
-    let names_start = records.len() * RECORD;
-    let mut names = Vec::new();
-    let mut name_offsets: HashMap<&str, usize> = HashMap::default();
-    let mut bytes = Vec::with_capacity(names_start);
-    for (i, (file, line, column, standard_library)) in records.iter().enumerate() {
-        let file = match file {
-            None => 0,
-            Some(name) => {
-                let at = *name_offsets.entry(name).or_insert_with(|| {
-                    let at = names.len();
-                    names.extend((name.len() as u32).to_ne_bytes());
-                    names.extend(name.as_bytes());
-                    at
-                });
-                u32::try_from(names_start + at - i * RECORD)?
-            }
+/// The object's one table of every function's records.
+///
+/// A body computes record addresses as offsets from its own table, which it
+/// knows while its IR is built on any thread. The placing thread appends the
+/// function's records to this table in placement order and carries the
+/// function's base offset in its relocation's addend, so the object holds one
+/// data symbol and section for all trap sites rather than one per function,
+/// and names each source file once after the records. The object is still
+/// the same for every worker count: placement order is job order.
+#[derive(Default)]
+pub(super) struct Table {
+    records: Vec<Key>,
+    /// Declared with the first function that has a record, so a program
+    /// without one adds no symbol.
+    data: Option<DataId>,
+}
+
+impl Table {
+    /// Appends a function's records, returning the table's symbol and the
+    /// byte offset of the function's first record in it.
+    pub(super) fn append(
+        &mut self,
+        module: &mut ObjectModule,
+        records: &[Key],
+    ) -> Result<(DataId, i64)> {
+        let data = match self.data {
+            Some(data) => data,
+            None => *self
+                .data
+                .insert(module.declare_anonymous_data(false, false)?),
         };
-        for field in [*line, *column, file, u32::from(*standard_library)] {
-            bytes.extend(field.to_ne_bytes());
-        }
+        let base = (self.records.len() * RECORD) as i64;
+        self.records.extend_from_slice(records);
+        Ok((data, base))
     }
-    bytes.extend(names);
-    let mut description = DataDescription::new();
-    description.define(bytes.into_boxed_slice());
-    description.set_align(4);
-    let data = module.declare_anonymous_data(false, false)?;
-    module.define_data(data, &description)?;
-    Ok(data)
+
+    /// Defines the table in `module`, once every function is placed.
+    pub(super) fn define(self, module: &mut ObjectModule) -> Result<()> {
+        let Some(data) = self.data else {
+            return Ok(());
+        };
+        let names_start = self.records.len() * RECORD;
+        let mut names = Vec::new();
+        let mut name_offsets: HashMap<&str, usize> = HashMap::default();
+        let mut bytes = Vec::with_capacity(names_start);
+        for (i, (file, line, column, standard_library)) in self.records.iter().enumerate() {
+            let file = match file {
+                None => 0,
+                Some(name) => {
+                    let at = *name_offsets.entry(name).or_insert_with(|| {
+                        let at = names.len();
+                        names.extend((name.len() as u32).to_ne_bytes());
+                        names.extend(name.as_bytes());
+                        at
+                    });
+                    u32::try_from(names_start + at - i * RECORD)?
+                }
+            };
+            for field in [*line, *column, file, u32::from(*standard_library)] {
+                bytes.extend(field.to_ne_bytes());
+            }
+        }
+        bytes.extend(names);
+        let mut description = DataDescription::new();
+        description.define(bytes.into_boxed_slice());
+        description.set_align(4);
+        module.define_data(data, &description)?;
+        Ok(())
+    }
 }
 
 /// Where the operation being lowered is in the source.
@@ -140,6 +179,20 @@ impl Lowerer<'_, '_> {
         self.site_record(self.position.at)
     }
 
+    /// Offset in the function's site table of the record [`Self::trap_site`]
+    /// would point at (`None` before the first marker), or `Err(())` while
+    /// the site is read from a shared exit's variable and so is not fixed at
+    /// lowering time. Emits nothing.
+    pub(super) fn trap_site_offset(&mut self) -> std::result::Result<Option<i64>, ()> {
+        if self.position.shared_at.is_some() {
+            return Err(());
+        }
+        Ok(self.position.at.map(|(line, column)| {
+            let key = self.site_key(line, column);
+            self.module.site(key, self.bcx.func).1
+        }))
+    }
+
     /// The record a user-code call names as its caller.
     pub(super) fn call_site(&mut self) -> Result<Value> {
         if let Some(call) = self.position.shared_call {
@@ -148,16 +201,20 @@ impl Lowerer<'_, '_> {
         self.site_record(self.position.call_at.or(self.position.at))
     }
 
-    pub(super) fn site_record(&mut self, at: Option<(u32, u32)>) -> Result<Value> {
-        let Some((line, column)) = at else {
-            return Ok(self.bcx.ins().iconst(PTR_TY, 0));
-        };
-        let key = (
+    fn site_key(&self, line: u32, column: u32) -> Key {
+        (
             self.position.file.clone(),
             line,
             column,
             self.position.standard_library,
-        );
+        )
+    }
+
+    pub(super) fn site_record(&mut self, at: Option<(u32, u32)>) -> Result<Value> {
+        let Some((line, column)) = at else {
+            return Ok(self.bcx.ins().iconst(PTR_TY, 0));
+        };
+        let key = self.site_key(line, column);
         let (table, offset) = self.module.site(key, self.bcx.func);
         let base = self.bcx.ins().global_value(PTR_TY, table);
         Ok(if offset == 0 {

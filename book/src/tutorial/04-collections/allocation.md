@@ -5,7 +5,7 @@ propagate a failure, or `match` to recover:
 
 ```plenty
 def answers() -> Result[list[i64], AllocError]:
-    mut values = list[i64]()?
+    mut values = list[i64].with_capacity(2)?
     values.append(21)?
     values.append(42)?
     Ok(values)
@@ -25,9 +25,18 @@ def main() -> Result[(), IoError]:
 [21, 42]
 ```
 
-`list[i64]()` constructs an empty list. `dict[str, i64]()` and `set[str]()`
+`list[i64].with_capacity(2)?` constructs an empty list with room for at least
+two elements. Appending those elements needs no further list storage allocation.
+Use `list[i64]()` when you do not know the capacity ahead of time.
+`dict[str, i64]()` and `set[str]()`
 construct the other collection kinds. Displays such as `[21, 42]` return the
 same kind of allocation result; extract their collection with `?` too.
+List displays reserve their full element count automatically. Both mutable and
+immutable list bindings benefit. Element expressions may still allocate.
+
+For an existing mutable collection, `values.reserve(n)?` reserves room for
+`n` **additional** elements beyond its current length. Existing contents remain
+unchanged if reservation fails.
 
 Growth also returns a result: `append` for lists, `insert` for dictionaries,
 and `add` for sets. A failed insertion keeps existing contents but consumes

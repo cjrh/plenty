@@ -3,6 +3,64 @@ mod support;
 use rstest::rstest;
 use support::assert_visible_stdout as native;
 
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn list_displays_reserve_once_before_evaluating_elements() {
+    for budget in 0..=2 {
+        native(
+            &format!(
+                r#"
+def item(n: i64, calls: &mut i64) -> i64:
+    *calls += 1
+    n
+def build(calls: &mut i64) -> Result[list[i64], AllocError]:
+    Ok([item(1, &mut *calls), item(2, &mut *calls), item(3, &mut *calls), item(4, &mut *calls), item(5, &mut *calls), item(6, &mut *calls), item(7, &mut *calls), item(8, &mut *calls), item(9, &mut *calls)]?)
+mut calls = 0
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = build(&mut calls)
+print("__test_restore_allocations__").unwrap()
+print(calls).unwrap()
+match result:
+    case Ok(values):
+        print(len(values)).unwrap()
+    case Err(error):
+        print(error).unwrap()
+"#
+            ),
+            if budget == 2 {
+                "9\n9"
+            } else {
+                "0\nAllocError.OutOfMemory"
+            },
+        );
+    }
+}
+
+#[test]
+fn reserved_display_drops_initialized_prefix_on_element_error() {
+    native(
+        r#"
+class Item:
+    value: i64
+    def __del__(self: &mut Item) -> ():
+        print(self.value).unwrap()
+def fail() -> Result[Item, AllocError]:
+    Err(AllocError.CapacityOverflow)
+def later() -> Item:
+    print("must not run").unwrap()
+    Item(3)
+def build() -> Result[list[Item], AllocError]:
+    Ok([Item(1), fail()?, later()]?)
+match build():
+    case Ok(values):
+        print("unexpected success").unwrap()
+    case Err(error):
+        print(error).unwrap()
+"#,
+        "1\nAllocError.CapacityOverflow",
+    );
+}
+
 #[test]
 fn constructors_support_type_aliases_nested_payloads_and_propagation() {
     native(
