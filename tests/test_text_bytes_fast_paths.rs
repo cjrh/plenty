@@ -248,11 +248,10 @@ fn ord_literals_and_owned_receivers_skip_the_dispatcher_and_retain() {
     for (function, expected) in [
         ("code", &["plenty_text_ord"][..]),
         ("literal", &["plenty_byte_str_item"][..]),
-        // Sorted. The releases are the parameter's drop on each return path.
+        // Sorted. Both return paths share the parameter's drop (issue #407).
         (
             "sizes",
             &[
-                "plenty_release",
                 "plenty_release",
                 "plenty_text_byte_len",
                 "plenty_text_is_ascii",

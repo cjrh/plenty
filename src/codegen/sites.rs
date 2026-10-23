@@ -91,6 +91,11 @@ pub(super) struct Position {
     /// Line and column of the last `Op::Site` marker.
     at: Option<(u32, u32)>,
     call_at: Option<(u32, u32)>,
+    /// In a cleanup block shared by several exits, the variables holding the
+    /// trap and caller records of the exit taken, until a marker in the block
+    /// fixes the position (see [`super::exits`]).
+    shared_at: Option<Variable>,
+    shared_call: Option<Variable>,
 }
 
 impl Position {
@@ -105,10 +110,19 @@ impl Position {
     pub(super) fn set(&mut self, site: &crate::ownership::Site) {
         self.at = Some((site.line, site.column));
         self.call_at = None;
+        self.shared_at = None;
+        self.shared_call = None;
     }
 
     pub(super) fn set_call(&mut self, site: &crate::ownership::Site) {
         self.call_at = Some((site.line, site.column));
+        self.shared_call = None;
+    }
+
+    /// Read the position from `trap` and `call` until the next marker.
+    pub(super) fn share(&mut self, trap: Variable, call: Variable) {
+        self.shared_at = Some(trap);
+        self.shared_call = Some(call);
     }
 }
 
@@ -120,7 +134,18 @@ impl Lowerer<'_, '_> {
     /// trap. Null before the first marker: the token front end and compiler
     /// adapters have no position, and the runtime then prints the message alone.
     pub(super) fn trap_site(&mut self) -> Result<Value> {
+        if let Some(trap) = self.position.shared_at {
+            return Ok(self.bcx.use_var(trap));
+        }
         self.site_record(self.position.at)
+    }
+
+    /// The record a user-code call names as its caller.
+    pub(super) fn call_site(&mut self) -> Result<Value> {
+        if let Some(call) = self.position.shared_call {
+            return Ok(self.bcx.use_var(call));
+        }
+        self.site_record(self.position.call_at.or(self.position.at))
     }
 
     fn site_record(&mut self, at: Option<(u32, u32)>) -> Result<Value> {
@@ -154,7 +179,7 @@ impl Lowerer<'_, '_> {
         let site = if self.position.standard_library {
             self.bcx.ins().iconst(PTR_TY, 0)
         } else {
-            self.site_record(self.position.call_at.or(self.position.at))?
+            self.call_site()?
         };
         let enter = self
             .module
