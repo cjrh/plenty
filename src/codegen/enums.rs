@@ -495,7 +495,7 @@ impl Lowerer<'_, '_> {
         &mut self,
         source: &crate::nominal::Nominal<crate::sum::EnumType>,
         target: &crate::nominal::Nominal<crate::sum::EnumType>,
-        cleanup: &[Op],
+        cleanup: &Arc<[Op]>,
     ) -> Result<()> {
         let (value, _) = self.pop_typed(Ty::Enum(source.clone()))?;
         let tag = self.sum_tag(value);
@@ -533,10 +533,7 @@ impl Lowerer<'_, '_> {
         // Earlier operands and locals still need normal early-return cleanup.
         let pending = self.stack.clone();
         self.release_stack();
-        for op in cleanup {
-            self.lower(op)?;
-        }
-        self.return_values(vec![(residual, Ty::Enum(target.clone()))]);
+        self.leave(vec![(residual, Ty::Enum(target.clone()))], cleanup)?;
         self.stack = pending;
         self.bcx.switch_to_block(success);
         self.bcx.seal_block(success);

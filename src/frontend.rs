@@ -4376,7 +4376,7 @@ impl Lower<'_> {
             finish_return(&mut returned);
         } else {
             self.finish_temporaries(temporary_start, &mut returned);
-            self.cleanup(0, &mut returned);
+            self.leaving(0, &mut returned);
             if let Some(loan) = returned_loan {
                 returned.push(Op::UseLoan(loan));
             }
@@ -4679,7 +4679,8 @@ impl Lower<'_> {
                             "break outside a loop"
                         })
                     })?;
-                    self.cleanup(*self.loop_scopes.last().unwrap(), ops);
+                    let scope = *self.loop_scopes.last().unwrap();
+                    self.leaving(scope, ops);
                     if is_continue {
                         ops.extend(step.iter().cloned());
                     }

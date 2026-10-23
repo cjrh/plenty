@@ -156,6 +156,10 @@ function hits or misses.
 | `plenty cache stats` | Print the directory, its entry count (functions and programs) and size, and the limit |
 | `plenty cache clean` | Remove every entry |
 
+The same directory also holds the automatic linker probe's results under
+`DIR/linker-probe/` ([Native linking](../01-building/linking.md)); they are not
+cache entries, and `plenty cache clean` leaves them.
+
 Function entries live under `DIR/fn/` and program entries under
 `DIR/program/`, sharded by the first byte of the hash. Each is written to a
 temporary name in its shard and renamed, so compilers running at once in

@@ -1,7 +1,7 @@
 # Fallible memory, parallel execution, and SIMD
 
 > **Status: Partly implemented.** Researched after `b690afe` on 2026-10-05,
-> against Cranelift `0.131.1` (the tree now pins `0.131.3`). API names and
+> against Cranelift `0.131.1`. API names and
 > syntax below are sketches from that date.
 >
 > - **Fallible memory: partly implemented.** Allocating operations return
@@ -13,7 +13,9 @@
 >   parallelization is B24.
 > - **SIMD: not implemented** (B23).
 >
-> This page is the only design record for B13 and B23.
+> This page remains the B13 design record. The newer
+> [portable `std.simd` proposal](std-simd.md) refines B23 with an API contract,
+> automatic pipeline SIMD and measured backend evidence.
 > The completed [allocation audit](completed/allocation-audit.md) and
 > [native concurrency contract](completed/native-concurrency.md) record the
 > delivered subsets. [Checked-index arenas](arenas.md) solve node identity;

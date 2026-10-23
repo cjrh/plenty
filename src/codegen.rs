@@ -77,6 +77,7 @@ mod coverage;
 mod dump;
 mod enums;
 mod executors;
+mod exits;
 mod exports;
 mod foreign;
 mod generators;
@@ -1762,6 +1763,7 @@ fn build_user_function(
             scalar_captures,
             slot_copies: Vec::new(),
             empty_slot: Some((empty_word, empty_double)),
+            exits: Some(Default::default()),
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),
@@ -1787,8 +1789,13 @@ fn build_user_function(
                 .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         }
         if !lower.terminated {
-            lower.return_values(lower.stack.clone());
+            lower
+                .leave(lower.stack.clone(), &Arc::from([]))
+                .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         }
+        lower
+            .finish_exits()
+            .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         lower.seal_trap_blocks();
         bcx.finalize();
     }
@@ -1872,6 +1879,7 @@ fn build_main(
             scalar_captures: Default::default(),
             slot_copies: Vec::new(),
             empty_slot: None,
+            exits: None,
             counters: Default::default(),
             position: Default::default(),
             trap_blocks: HashMap::default(),
@@ -1977,6 +1985,7 @@ fn keeps_slot_copies(op: &Op) -> bool {
             | Op::PushBool(_)
             | Op::Site(_)
             | Op::CallerSite(_)
+            | Op::Leaving
             | Op::Access(..)
             | Op::Loan(_)
             | Op::UseLoan(_)
@@ -2057,6 +2066,9 @@ struct Lowerer<'a, 'b> {
     /// rather than emitting another; see [`Lowerer::trap_if`]. The blocks are
     /// sealed together by [`Lowerer::seal_trap_blocks`].
     trap_blocks: HashMap<(TrapKind, Option<i64>), Block>,
+    /// Blocks shared by a user function's exits; `None` lowers each exit
+    /// inline. See [`exits`].
+    exits: Option<exits::Exits>,
 }
 
 impl Lowerer<'_, '_> {
@@ -2196,6 +2208,9 @@ impl Lowerer<'_, '_> {
         }
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
+        if self.gathering() && self.gather(op)? {
+            return Ok(());
+        }
         let fresh_load = self.fresh_load.take();
         // A copy is read in place only by an op in the same block as its
         // retain, never by one inside a nested body.
@@ -2240,6 +2255,7 @@ impl Lowerer<'_, '_> {
             | Op::Passes(_)
             | Op::Forwards(_)
             | Op::Tokens(_) => {}
+            Op::Leaving => self.start_leaving(),
             // Consumed by `tail_abi::prepare`, which decides whether the call
             // after it keeps this frame.
             Op::ForwardsReferences => {}
@@ -2492,7 +2508,7 @@ impl Lowerer<'_, '_> {
                     self.complete_generator();
                     return Ok(());
                 }
-                self.return_values(self.stack.clone());
+                self.leave(self.stack.clone(), &Arc::from([]))?;
                 self.terminated = true;
             }
             // `DefineFn` is hoisted into a top-level Cranelift function by
@@ -2825,9 +2841,11 @@ impl Lowerer<'_, '_> {
         if known::known_int(&self.bcx.func.dfg, flag) == Some(0) {
             return Ok(());
         }
-        let key = (kind, self.trap_site_offset());
+        // A site read from a shared exit's variable differs by predecessor,
+        // so its trap block is not shared.
+        let key = self.trap_site_offset().ok().map(|offset| (kind, offset));
         let after = self.bcx.create_block();
-        if let Some(&trap_block) = self.trap_blocks.get(&key) {
+        if let Some(&trap_block) = key.as_ref().and_then(|key| self.trap_blocks.get(key)) {
             self.bcx.ins().brif(flag, trap_block, &[], after, &[]);
         } else {
             let trap_block = self.bcx.create_block();
@@ -2851,7 +2869,12 @@ impl Lowerer<'_, '_> {
             let local = self.module.declare_func_in_func(helper, self.bcx.func);
             self.bcx.ins().call(local, &arguments);
             self.bcx.ins().trap(TrapCode::unwrap_user(3));
-            self.trap_blocks.insert(key, trap_block);
+            match key {
+                Some(key) => {
+                    self.trap_blocks.insert(key, trap_block);
+                }
+                None => self.bcx.seal_block(trap_block),
+            }
         }
 
         // Continue lowering into `after`.
@@ -3331,9 +3354,14 @@ impl Lowerer<'_, '_> {
             self.tail_arguments(&sig, &mut args)?;
             let native = user_fn_signature(&sig);
             let reference = self.bcx.import_signature(native);
-            self.release_locals();
             // In std the site would be null, which changes nothing.
-            if !self.in_standard_library() {
+            let track_caller = !self.in_standard_library();
+            self.terminated = true;
+            if self.shared_tail_call_indirect(reference, callee, &args, track_caller)? {
+                return Ok(());
+            }
+            self.release_locals();
+            if track_caller {
                 self.enter_call()?;
             }
             self.bcx
@@ -3376,6 +3404,10 @@ impl Lowerer<'_, '_> {
         let sig = decl.sig.clone();
         self.tail_arguments(&sig, &mut args)?;
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
+        self.terminated = true;
+        if self.shared_tail_call(func_id, funcref, track_caller, &args)? {
+            return Ok(());
+        }
         self.release_locals();
         if track_caller {
             self.enter_call()?;

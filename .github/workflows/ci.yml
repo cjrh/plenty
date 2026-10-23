@@ -56,9 +56,11 @@ jobs:
           tool: cargo-nextest@0.9.146
       # --all-features, not --features runtime-checks: the runtime crate's
       # allocation-checks unit tests are gated on a feature the root does not
-      # forward. nextest reuses this build: same profile and features.
+      # forward. nextest reuses this build: same profile and features. The
+      # `ci` Cargo profile (.cargo/config.toml) optimizes the compiler the
+      # tests run, which costs build time and saves more test time.
       - name: Compile tests
-        run: cargo test --locked --workspace --all-features --no-run --timings
+        run: cargo test --locked --workspace --all-features --profile ci --no-run --timings
       # Swatinem/rust-cache deletes target/plenty-cache, so the compiled
       # functions are cached on their own. Program entries (program/) key on
       # the compiler binary's modification time and never hit in a new run.
@@ -74,7 +76,8 @@ jobs:
       # The proxy tests run in proxy_tests; here they would only skip.
       - name: Run tests
         run: >-
-          cargo nextest run --locked --workspace --all-features --profile ci
+          cargo nextest run --locked --workspace --all-features
+          --cargo-profile ci --profile ci
           --partition "hash:${{ matrix.shard }}/$SHARDS"
           -E 'not (binary(integration) & test(/^test_std_http_server_proxy::/))'
       - name: Upload test results
@@ -122,7 +125,8 @@ jobs:
         run: gh cache delete "$OLD_KEY" || echo "::warning::could not delete $OLD_KEY"
 
   # nextest does not run doctests. Default-feature linking is checked once,
-  # here; the shards build with all features.
+  # here; the shards build with all features. This job and proxy_tests run
+  # few tests, so they keep the faster-building dev profile.
   doctests:
     name: Doctests and default-feature build
     runs-on: ubuntu-latest

@@ -720,7 +720,9 @@ fn graph<'a>(
     let mut next = next;
     for (op, site) in ops.iter().zip(sites).rev() {
         match op {
-            Op::Site(_) | Op::CallerSite(_) | Op::Returning(..) | Op::Building(_) => continue,
+            Op::Site(_) | Op::CallerSite(_) | Op::Returning(..) | Op::Leaving | Op::Building(_) => {
+                continue;
+            }
             Op::Try { cleanup, .. } => {
                 let failure = graph(cleanup, site, 0, None, nodes);
                 nodes.push(Node {

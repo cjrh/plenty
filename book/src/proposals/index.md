@@ -37,6 +37,8 @@ are not completed implementations. The reference and tutorial remain authoritati
 for current behavior. Statuses were last scanned against local `main` at
 `74fa81d8` on 2026-10-20, using the reference, implementation, and regression
 coverage. This is a status review, not a fresh execution of every feature test.
+HTTP acceptance, error composition and anonymous sums were reconciled separately
+against local `main` at `4e40c4fc` on 2026-10-23 and moved to `completed/`.
 
 ## Find a design by topic
 
@@ -45,7 +47,7 @@ coverage. This is a status review, not a fresh execution of every feature test.
 | Executable scripts and embedded metadata | [Single-file scripts](single-file-scripts.md) | [Modules and entry points](entrypoints-modules-and-tutorials.md), [current packages](../design/toolchain/01-building/packages.md) |
 | Mixed-edition packages and language evolution | [Package language editions](language-editions.md) | [Current packages](../design/toolchain/01-building/packages.md), [script metadata](single-file-scripts.md) |
 | Protocol bodies, defaults, `final`, and private hooks | [Protocol method bodies](protocol-method-bodies.md) | [Agreed rules](protocol-method-bodies/final-and-visibility.md), [short programs](protocol-method-bodies/examples.md), [existing wrappers and capabilities](library-owned-operations.md) |
-| Error composition | [Composition overview](error-composition.md) | [Anonymous sums and the `Failure` policy](error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](error-composition/streams-and-evidence.md) |
+| Error composition | [Composition overview](completed/error-composition.md) | [Anonymous sums and the `Failure` policy](completed/error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](completed/error-composition/streams-and-evidence.md) |
 | Ownership and state | [Typestate](typestate-and-owned-transitions.md) | [Linear obligations](linear-obligations.md), [resolution scopes](linear-scope-resolution.md), [integration boundaries](linear-integration.md) |
 | Linked structures and graphs | [Owned structures and checked identities](arenas.md) | [Recursive representation](recursive-data.md), [arena prototype](arenas/prototype.md) |
 | Collections | [Ordering](user-type-ordering.md) | [Stable sorting algorithm](timsort.md), [hashing and equality](user-type-hashing.md) |
@@ -53,6 +55,8 @@ coverage. This is a status review, not a fresh execution of every feature test.
 | Allocation and parallel execution | [Memory, parallelism, and SIMD](memory-parallelism-and-simd.md) | [Allocation audit](completed/allocation-audit.md), [shipped concurrency](completed/native-concurrency.md) |
 | Cooperative suspension and owned tasks | [Async/await exploration](async-await.md), [Go-style scoped tasks](stackful-tasks.md) | [Async ownership and cleanup](async-await/ownership.md), [async spike evidence](async-await/evidence.md), [stackful runtime choices](stackful-tasks/runtime.md), [stackful spike evidence](stackful-tasks/evidence.md), [linear execution responsibility](linear-integration.md) |
 | Iteration and adapter chains | [Fluent iterator pipelines](fluent-iterators.md) | [Shipped generators](completed/generators.md), [parallel execution](memory-parallelism-and-simd.md) |
+| Portable vector operations and automatic SIMD | [Portable `std.simd`](std-simd.md) | [API contract](std-simd/api.md), [pipeline recognition](std-simd/automatic.md), [backend evidence](std-simd/evidence.md) |
+| Columnar record storage | [Columnar lists](columnar-list.md) | [Ownership and API](columnar-list/contract.md), [chunks and deletion](columnar-list/chunks.md), [spike evidence](columnar-list/evidence.md) |
 
 These families keep distinct contracts separate: a sorting algorithm does not
 define user equality, protocol defaults do not imply private access, and error
@@ -77,9 +81,6 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Plenty's next language phase](next-language-phase.md) | Nine of eleven recommendations, at least in part | B13, B23, and others |
 | [Standard library scope](standard-library-scope.md) | [Embedded library](../design/stdlib/index.md), including data formats, TLS, HTTP, SQLite, signals and testing | Remaining B38–B70 scope |
 | [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | [Named calls and fresh defaults](completed/named-arguments-and-fresh-defaults.md) under the narrower design | B36: splats and signature markers remain separate candidates |
-| [Explicit error composition](error-composition.md) | [Result mapping](../design/stdlib/error.md), anonymous sums, reporting, [typed I/O](../design/stdlib/io-typed.md) and [typed HTTP bodies](../design/stdlib/http-typed.md) | B71: broader production stream composition |
-| [Finite error sets as anonymous sums](error-sets.md) | [Normalization, injection, widening, and typed-member matching](../design/language/03-types/anonymous-sums.md) | B14/B71: `Failure` kept as a last resort; residual-set inference and guards remain deferred |
-| [Bundled HTTP acceptance](standard-http.md) | [Client](../design/stdlib/http-client.md), [server](../design/stdlib/http-server.md), TLS and deployment helpers | B66 qualification |
 
 ## Not implemented
 
@@ -93,6 +94,8 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Synchronous resolution scopes](linear-scope-resolution.md) — consuming scope policy; depends on linear obligations | B72 (issue #149) |
 | [Linearity, typestate, and execution responsibility](linear-integration.md) — shared boundaries and deferred worker/async contracts | B72 (issue #149) |
 | [GCC backend (`plenty_codegen_gcc`)](codegen-gcc.md) | B20 |
+| [Portable `std.simd` and automatic pipeline SIMD](std-simd.md) — small portable API, bounded safe transformations, and backend spike evidence | B23; related B12, B19, B24, B75 |
+| [Columnar lists](columnar-list.md) — explicit field-column storage, a bounded object facade, and native layout/ownership spikes | B76; related B11, B12, B23, B75 |
 | [User-defined ordering](user-type-ordering.md) — one three-way `__cmp__` hook | B37 |
 | [Timsort for stable, adaptive sorting](timsort.md) — fallible workspace, stability, and compatibility choices | B37 (issue #331) |
 | [User-defined dictionary keys and set members](user-type-hashing.md) — derived structural hashing and a `KeyType` bound | None yet |

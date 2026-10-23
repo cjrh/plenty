@@ -208,7 +208,7 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().return_(&returned);
     }
 
-    fn stage_results(&mut self, values: Vec<StackEntry>) -> Vec<NativeValue> {
+    pub(super) fn stage_results(&mut self, values: Vec<StackEntry>) -> Vec<NativeValue> {
         let mut offset = 0;
         let mut returned = Vec::new();
         for (value, ty) in values {

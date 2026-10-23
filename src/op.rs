@@ -804,6 +804,12 @@ pub enum Op {
     /// position. That value leaves the frame only after the exit's joins and
     /// pool shutdowns; ownership checks only.
     Returning(crate::ownership::Site, Arc<[u8]>),
+    /// The operations from here to the next `Return`, `Break` or `Continue`
+    /// of this sequence are the scope cleanup of that exit, with an empty
+    /// operand stack at each `DropLocal`, then a `Continue`'s loop step. Code
+    /// generation may share them between exits (issues #417 and #419); every
+    /// other pass reads them in place.
+    Leaving,
     /// A statement-level value under construction; ownership checks only.
     Building(Building),
     /// Future and pool slots that the arguments of the call that follows
@@ -1925,6 +1931,7 @@ fn step(
         | Op::Site(_)
         | Op::CallerSite(_)
         | Op::Returning(..)
+        | Op::Leaving
         | Op::Building(_)
         | Op::Passes(_)
         | Op::Forwards(_)

@@ -89,6 +89,28 @@ have restricted types and effects; the [concurrency reference](book/src/design/f
 defines ownership transfer and shutdown. Trusted [C interfaces](book/src/design/facilities/04-interop/index.md)
 place ABI, lifetime, and aliasing obligations on foreign code.
 
+## Compiler benchmarks
+
+It's early days, but not too terrible. I set up and ran a benchmark from
+https://github.com/nordlow/compiler-benchmark locally. The DMD compiler
+is by far the fastest on this benchmark by like an order of magnitude faster
+than the numbers below, but I don't have it installed so it is omitted.
+
+ 40,000 functions, three requested runs, caches disabled:
+
+| Compiler | Build + run (µs/function) |
+| --- | ---: |
+| Clang 22.1.8 | 172 |
+| Plenty 0.2.4 | 233 |
+| Zig 0.16.0 | 269 |
+| GCC 16.2.1 | 367 |
+| Go 1.26.10 | 440 |
+
+Plenty’s build took approximately 9.3 seconds, with 176 MB peak RSS.
+
+Generated-code optimization stayed off. Only the non-generic Plenty workload is implemented.
+All four adapter tests passed, including native-result verification.
+
 ## Development
 
 ```sh

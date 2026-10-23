@@ -25,7 +25,7 @@ reader bytes that were lost after a write failure.
 
 These modules are experimental examples, not new `std.io` APIs. They do not
 implement HTTP header parsing, chunking, TLS, deadlines, or connection reuse.
-See the [proposal and findings](../../book/src/proposals/error-composition.md)
+See the [proposal and findings](../../book/src/proposals/completed/error-composition.md)
 for the scope, tradeoffs, and production migration boundary.
 
 Separately, `std.error.map_error` is implemented as an ordinary library helper

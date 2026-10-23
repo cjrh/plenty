@@ -22,7 +22,7 @@
 >
 > **Shipped since this proposal:** enum methods and protocol satisfaction,
 > [human-readable reports](error-formatting.md), and
-> [general anonymous sums](../error-sets.md), and bounded large dense integer/tag
+> [general anonymous sums](error-sets.md), and bounded large dense integer/tag
 > jump tables (issue #395; [measurements](../../development/profiling.md#dense-match-dispatch)).
 >
 > **Remaining:** deep operations on recursive enums

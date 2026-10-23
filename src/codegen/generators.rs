@@ -147,6 +147,7 @@ pub(super) fn build_generator(
             scalar_captures: Default::default(),
             slot_copies: Vec::new(),
             empty_slot: None,
+            exits: None,
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),

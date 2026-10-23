@@ -848,22 +848,25 @@ impl Lowerer<'_, '_> {
         self.bcx.switch_to_block(iteration);
         self.bcx.seal_block(iteration);
         self.loop_targets.push((header, exit));
+        self.enter_loop_exits(header, exit);
         for (index, op) in body.iter().enumerate() {
             if self.terminated {
                 break;
             }
-            if Some(index) == proven_step {
+            if Some(index) == proven_step && !self.gathering() {
                 self.lower_proven_step(op)?;
             } else {
                 self.lower(op)?;
             }
         }
+        if !self.terminated {
+            self.bcx.ins().jump(header, &[]);
+        }
+        // The shared `break` blocks are still inside the iteration.
+        self.finish_loop_exits()?;
         self.loop_targets.pop();
         if nonnegative.is_some() {
             self.counters.nonnegative_locals.pop();
-        }
-        if !self.terminated {
-            self.bcx.ins().jump(header, &[]);
         }
         self.bcx.seal_block(header);
         self.bcx.switch_to_block(exit);

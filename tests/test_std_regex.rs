@@ -71,10 +71,19 @@ fn program(body: &str) -> String {
 
 fn output(source: &str) -> String {
     let (_dir, executable) = build(source);
-    let output = std::process::Command::new(executable).output().unwrap();
+    run_output(&executable, &[], source)
+}
+
+/// Runs a built program with `args` and returns its stdout without test
+/// markers. `source` only labels a failure.
+fn run_output(executable: &std::path::Path, args: &[&str], source: &str) -> String {
+    let output = std::process::Command::new(executable)
+        .args(args)
+        .output()
+        .unwrap();
     assert!(
         output.status.success(),
-        "{source}\n{}",
+        "{args:?}\n{source}\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout)
@@ -636,22 +645,23 @@ def main() -> Result[(), AllocError | IoError | ThreadError]:
 #[test]
 fn allocation_failure_is_reported_without_leaks() {
     // Each allocation in compiling and matching fails in turn; every failure
-    // is reported, and the exit-time balance check finds no leaks.
-    let mut reported = 0;
-    for after in 0..80 {
-        let body = format!(
-            r#"
+    // is reported, and the exit-time balance check finds no leaks. One
+    // program reads its budget marker from argv, so each budget is a run,
+    // not a link (issue #409).
+    let source = program(
+        r#"
+argv = args()?
 limits = std.regex.limits()
 text = "key=value; other=thing"
-print("__test_fail_allocations_after_{after}__")?
+print(argv[1])?
 result = run(&limits, text)
 print("__test_restore_allocations__")?
 print(result)?
-"#
-        );
-        let source = program(&body).replace(
-            "def main()",
-            r#"def run(limits: &Limits, text: &str) -> str:
+"#,
+    )
+    .replace(
+        "def main()",
+        r#"def run(limits: &Limits, text: &str) -> str:
     match std.regex.compile("(?P<k>\\w+)=(?P<v>[a-z]+)", limits):
         case Ok(regex):
             match regex.replace_all(text, "${v}:${k}", 100):
@@ -669,8 +679,12 @@ print(result)?
             return "compile failed"
 
 def main()"#,
-        );
-        let out = output(&source);
+    );
+    let (_dir, executable) = build(&source);
+    let mut reported = 0;
+    for after in 0..80 {
+        let marker = format!("__test_fail_allocations_after_{after}__");
+        let out = run_output(&executable, &[&marker], &source);
         if out == "value:key; thing:other" {
             assert!(after > 10, "{after}");
             break;
@@ -685,21 +699,21 @@ def main()"#,
 #[test]
 fn compile_allocation_failure_is_reported_as_allocation() {
     // Issue #258: the empty bytes buffer allocated last in compile reported
-    // its allocation failure as `OutOfRange`.
-    let mut reported = 0;
-    for after in 0..80 {
-        let body = format!(
-            r#"
+    // its allocation failure as `OutOfRange`. The budget comes from argv, as
+    // above.
+    let source = program(
+        r#"
+argv = args()?
 limits = std.regex.limits()
-print("__test_fail_allocations_after_{after}__")?
+print(argv[1])?
 result = run(&limits)
 print("__test_restore_allocations__")?
 print(result)?
-"#
-        );
-        let source = program(&body).replace(
-            "def main()",
-            r#"def run(limits: &Limits) -> str:
+"#,
+    )
+    .replace(
+        "def main()",
+        r#"def run(limits: &Limits) -> str:
     match std.regex.compile("(?P<k>\\w+)=(?P<v>[a-z]+)", limits):
         case Ok(regex):
             return "compiled"
@@ -711,8 +725,12 @@ print(result)?
                     return "other"
 
 def main()"#,
-        );
-        let out = output(&source);
+    );
+    let (_dir, executable) = build(&source);
+    let mut reported = 0;
+    for after in 0..80 {
+        let marker = format!("__test_fail_allocations_after_{after}__");
+        let out = run_output(&executable, &[&marker], &source);
         if out == "compiled" {
             break;
         }

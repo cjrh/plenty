@@ -719,8 +719,12 @@ mod tests {
         assert!(worker_machine_code(&targets, &over_limit) == single_pass);
     }
 
-    /// Enough functions that workers finish them out of order.
-    const UNITS: usize = 400;
+    /// Enough functions that workers finish them out of order (issue #413).
+    /// Over five 8-worker builds, `Output::place_in_order` received at least
+    /// 4 batches ahead of the next job at 12 units, 5 at 25 and 7 at 50; this
+    /// is twice 25. To recheck, count those batches, or make `place_in_order`
+    /// place batches as they arrive: all three worker-count tests must fail.
+    const UNITS: usize = 50;
 
     fn unit(i: usize) -> String {
         format!(

@@ -324,7 +324,14 @@ fn build_commands(build: &Fence) -> Vec<Vec<&str>> {
 
 /// Run job `number` (its position in reading order, which names its files)
 /// in `workspace`, returning whether its output matched.
-fn run_job(job: &Job, number: usize, workspace: &Path) -> bool {
+///
+/// Every runnable example is built once with `plenty --compile` and its
+/// binary's output checked. Linking each one a second time through
+/// `plenty FILE` adds little, since both share the whole compiler, so only
+/// the first runnable example in each book directory also runs that way:
+/// `run_command` is set for it (issue #411). Invalid examples, which do not
+/// link, go through both.
+fn run_job(job: &Job, number: usize, workspace: &Path, run_command: bool) -> bool {
     let binary = env!("CARGO_BIN_EXE_plenty");
     let (source, expected, modules, builds) = match job {
         Job::Project {
@@ -398,6 +405,7 @@ fn run_job(job: &Job, number: usize, workspace: &Path) -> bool {
     // Runtime examples may create files. Give each execution a separate
     // empty working directory so examples neither touch the repo nor rely
     // on files left behind by the other execution mode.
+    let run_command = run_command || !valid;
     let run_dir = example_dir.join("run");
     let native_dir = example_dir.join("native");
     std::fs::create_dir(&run_dir).unwrap();
@@ -409,11 +417,13 @@ fn run_job(job: &Job, number: usize, workspace: &Path) -> bool {
             std::fs::copy(example_dir.join(&library), destination).unwrap();
         }
     }
-    let run_output = Command::new(binary)
-        .arg(&source_path)
-        .current_dir(&run_dir)
-        .output()
-        .unwrap();
+    let run_output = run_command.then(|| {
+        Command::new(binary)
+            .arg(&source_path)
+            .current_dir(&run_dir)
+            .output()
+            .unwrap()
+    });
     let executable = workspace.join(format!("lesson-{number}"));
     let compiled = Command::new(binary)
         .arg("--compile")
@@ -424,12 +434,6 @@ fn run_job(job: &Job, number: usize, workspace: &Path) -> bool {
         .unwrap();
     std::panic::catch_unwind(|| {
         if valid {
-            assert!(
-                run_output.status.success(),
-                "{} run command: {}",
-                source.line,
-                String::from_utf8_lossy(&run_output.stderr)
-            );
             assert!(
                 compiled.status.success(),
                 "{} compiler: {}",
@@ -447,19 +451,29 @@ fn run_job(job: &Job, number: usize, workspace: &Path) -> bool {
                 String::from_utf8_lossy(&native.stderr)
             );
             assert_eq!(
-                String::from_utf8_lossy(&run_output.stdout),
+                String::from_utf8_lossy(&native.stdout),
                 expected.body,
-                "{} run command output",
-                source.line
-            );
-            assert_eq!(
-                native.stdout, run_output.stdout,
                 "{} native output",
                 source.line
             );
+            if let Some(run_output) = run_output {
+                assert!(
+                    run_output.status.success(),
+                    "{} run command: {}",
+                    source.line,
+                    String::from_utf8_lossy(&run_output.stderr)
+                );
+                assert_eq!(
+                    String::from_utf8_lossy(&run_output.stdout),
+                    expected.body,
+                    "{} run command output",
+                    source.line
+                );
+            }
         } else {
             let message = expected.body.trim();
             assert!(!message.is_empty());
+            let run_output = run_output.expect("invalid examples use the run command");
             for (backend, output) in [("run command", run_output), ("compiler", compiled)] {
                 assert!(
                     !output.status.success(),
@@ -482,6 +496,21 @@ fn run_job(job: &Job, number: usize, workspace: &Path) -> bool {
     .is_ok()
 }
 
+/// For each job, whether it is the first runnable example in its book
+/// directory, which [`run_job`] also checks through `plenty FILE`.
+fn first_runnable_example_per_directory(jobs: &[Job]) -> Vec<bool> {
+    let mut seen = std::collections::HashSet::new();
+    jobs.iter()
+        .map(|job| match job {
+            Job::Example { source, .. } if source.language == "plenty" => {
+                let (page, _) = source.line.rsplit_once(':').unwrap();
+                seen.insert(page.rsplit_once('/').map_or("", |(directory, _)| directory))
+            }
+            _ => false,
+        })
+        .collect()
+}
+
 /// Run every `shards`th job in reading order, starting at `shard`. Every
 /// shard checks the structure of the whole tutorial.
 fn run_shard(shard: usize, shards: usize) {
@@ -491,12 +520,13 @@ fn run_shard(shard: usize, shards: usize) {
         std::env::temp_dir().join(format!("plenty-tutorial-{}-{shard}", std::process::id())),
     );
     std::fs::create_dir(&workspace.0).unwrap();
+    let run_command = first_runnable_example_per_directory(&jobs);
     let failures: Vec<&str> = jobs
         .iter()
         .enumerate()
         .skip(shard)
         .step_by(shards)
-        .filter(|(number, job)| !run_job(job, *number, &workspace.0))
+        .filter(|(number, job)| !run_job(job, *number, &workspace.0, run_command[*number]))
         .map(|(_, job)| match job {
             Job::Example { source, .. } => source.line.as_str(),
             Job::Project { command, .. } => command.line.as_str(),

@@ -121,7 +121,7 @@ impl Table {
 }
 
 /// Where the operation being lowered is in the source.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct Position {
     /// File of the function's body: for a generic instance or an imported
     /// function, the file that defines it.
@@ -130,6 +130,11 @@ pub(super) struct Position {
     /// Line and column of the last `Op::Site` marker.
     at: Option<(u32, u32)>,
     call_at: Option<(u32, u32)>,
+    /// In a cleanup block shared by several exits, the variables holding the
+    /// trap and caller records of the exit taken, until a marker in the block
+    /// fixes the position (see [`super::exits`]).
+    shared_at: Option<Variable>,
+    shared_call: Option<Variable>,
 }
 
 impl Position {
@@ -144,10 +149,19 @@ impl Position {
     pub(super) fn set(&mut self, site: &crate::ownership::Site) {
         self.at = Some((site.line, site.column));
         self.call_at = None;
+        self.shared_at = None;
+        self.shared_call = None;
     }
 
     pub(super) fn set_call(&mut self, site: &crate::ownership::Site) {
         self.call_at = Some((site.line, site.column));
+        self.shared_call = None;
+    }
+
+    /// Read the position from `trap` and `call` until the next marker.
+    pub(super) fn share(&mut self, trap: Variable, call: Variable) {
+        self.shared_at = Some(trap);
+        self.shared_call = Some(call);
     }
 }
 
@@ -159,16 +173,32 @@ impl Lowerer<'_, '_> {
     /// trap. Null before the first marker: the token front end and compiler
     /// adapters have no position, and the runtime then prints the message alone.
     pub(super) fn trap_site(&mut self) -> Result<Value> {
+        if let Some(trap) = self.position.shared_at {
+            return Ok(self.bcx.use_var(trap));
+        }
         self.site_record(self.position.at)
     }
 
     /// Offset in the function's site table of the record [`Self::trap_site`]
-    /// would point at, or `None` before the first marker. Emits nothing.
-    pub(super) fn trap_site_offset(&mut self) -> Option<i64> {
-        self.position.at.map(|(line, column)| {
+    /// would point at (`None` before the first marker), or `Err(())` while
+    /// the site is read from a shared exit's variable and so is not fixed at
+    /// lowering time. Emits nothing.
+    pub(super) fn trap_site_offset(&mut self) -> std::result::Result<Option<i64>, ()> {
+        if self.position.shared_at.is_some() {
+            return Err(());
+        }
+        Ok(self.position.at.map(|(line, column)| {
             let key = self.site_key(line, column);
             self.module.site(key, self.bcx.func).1
-        })
+        }))
+    }
+
+    /// The record a user-code call names as its caller.
+    pub(super) fn call_site(&mut self) -> Result<Value> {
+        if let Some(call) = self.position.shared_call {
+            return Ok(self.bcx.use_var(call));
+        }
+        self.site_record(self.position.call_at.or(self.position.at))
     }
 
     fn site_key(&self, line: u32, column: u32) -> Key {
@@ -180,7 +210,7 @@ impl Lowerer<'_, '_> {
         )
     }
 
-    fn site_record(&mut self, at: Option<(u32, u32)>) -> Result<Value> {
+    pub(super) fn site_record(&mut self, at: Option<(u32, u32)>) -> Result<Value> {
         let Some((line, column)) = at else {
             return Ok(self.bcx.ins().iconst(PTR_TY, 0));
         };
@@ -206,7 +236,7 @@ impl Lowerer<'_, '_> {
         let site = if self.position.standard_library {
             self.bcx.ins().iconst(PTR_TY, 0)
         } else {
-            self.site_record(self.position.call_at.or(self.position.at))?
+            self.call_site()?
         };
         let enter = self
             .module

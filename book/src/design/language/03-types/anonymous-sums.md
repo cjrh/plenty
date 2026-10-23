@@ -64,6 +64,6 @@ sums, forward arbitrary member methods or protocols, or erase errors. See
 [propagation](../08-errors/01-sums-and-propagation.md) for `?` and builtin
 `Failure`, the last-resort error that erases its cause.
 
-The [anonymous-sum proposal](../../../proposals/error-sets.md) records the
-design rationale and migration boundary. The [composition overview](../../../proposals/error-composition.md)
+The [anonymous-sum proposal](../../../proposals/completed/error-sets.md) records the
+design rationale and migration boundary. The [composition overview](../../../proposals/completed/error-composition.md)
 distinguishes sums from deliberate error mapping and typed stream APIs.
