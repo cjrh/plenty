@@ -1111,28 +1111,29 @@ fn fails_cleanly_at_every_allocation(setup: &str, call: &str) {
     );
 }
 
+/// Values every call in the allocation sweep below borrows.
 #[cfg(feature = "runtime-checks")]
-#[test]
-fn allocation_failure_is_reported_at_every_point_without_leaking() {
-    let setup = r#"
+const SWEEP_SETUP: &str = r#"
 text = "https://a-user-name-too-long-for-inline-storage:and-a-password@a-host-name-too-long-for-inline-storage.example:8443/a/path/too/long/for/inline/string/storage?a-query-too-long-for-inline-string-storage=1#a-fragment-too-long-for-inline-string-storage"
 url = std.url.parse(&text, 4096)?
 query = "first-key-too-long-for-inline-storage=first%20value-too-long-for-inline-storage&second-key-too-long-for-inline-storage=second%20value-too-long-for-inline-storage"
 pairs = std.url.query_pairs(&query)?
 raw = std.bytes.from_text(&query)?
 "#;
-    for call in [
-        "std.url.parse(&text, 4096)",
-        "url.format()",
-        "std.url.encode(&query, Component.QueryPart)",
-        "std.url.decode(&query)",
-        "std.url.encode_bytes(&raw, 0, raw.len(), Component.Path)",
-        "std.url.decode_bytes(&raw, 0, raw.len())",
-        "std.url.query_pairs(&query)",
-        "std.url.query_text(&pairs)",
-    ] {
-        fails_cleanly_at_every_allocation(setup, call);
-    }
+
+// One case per call, so the eight programs compile in parallel (issue #408).
+#[cfg(feature = "runtime-checks")]
+#[rstest::rstest]
+#[case::parse("std.url.parse(&text, 4096)")]
+#[case::format("url.format()")]
+#[case::encode("std.url.encode(&query, Component.QueryPart)")]
+#[case::decode("std.url.decode(&query)")]
+#[case::encode_bytes("std.url.encode_bytes(&raw, 0, raw.len(), Component.Path)")]
+#[case::decode_bytes("std.url.decode_bytes(&raw, 0, raw.len())")]
+#[case::query_pairs("std.url.query_pairs(&query)")]
+#[case::query_text("std.url.query_text(&pairs)")]
+fn allocation_failure_is_reported_at_every_point_without_leaking(#[case] call: &str) {
+    fails_cleanly_at_every_allocation(SWEEP_SETUP, call);
 }
 
 #[cfg(feature = "runtime-checks")]
