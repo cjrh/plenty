@@ -18,6 +18,7 @@ use cranelift_module::{FuncId, Module, ModuleReloc, ModuleRelocTarget};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use super::dump::{Capture, Entry, Plan};
+use super::sites;
 use super::symbols::{self, Declared, Request, Symbols};
 use super::{Result, Runtime};
 use crate::cache::{Cache, MachineCode};
@@ -79,6 +80,8 @@ pub(super) struct Output {
     /// placement order.
     pub dump: Option<Arc<Plan>>,
     pub dumped: Vec<Entry>,
+    /// Every placed function's trap-site records, defined by [`Self::finish`].
+    sites: sites::Table,
 }
 
 struct Code {
@@ -146,6 +149,7 @@ impl Output {
             coverage: false,
             dump: None,
             dumped: Vec::new(),
+            sites: sites::Table::default(),
         })
     }
 
@@ -168,15 +172,16 @@ impl Output {
             self.cache.as_deref(),
             capture.as_deref_mut(),
         );
-        self.place(id, code, &[], capture, |_, _| Ok(Vec::new()))
+        self.place(id, code, &[], capture, |_, _, _| Ok(Vec::new()))
     }
 
     #[cfg_attr(feature = "profile", hotpath::measure)]
-    pub(super) fn finish(self) -> cranelift_object::ObjectProduct {
+    pub(super) fn finish(mut self) -> Result<cranelift_object::ObjectProduct> {
         use cranelift_object::object::{FileFlags, elf};
         if let Some(cache) = &self.cache {
             cache.finish();
         }
+        self.sites.define(&mut self.module)?;
         let mut product = self.module.finish();
         // GNU ld honours SHF_GNU_RETAIN, which keeps a library's interface
         // section through `--gc-sections`, only in GNU OSABI objects, as GNU
@@ -188,7 +193,7 @@ impl Output {
                 e_flags: 0,
             };
         }
-        product
+        Ok(product)
     }
 
     /// Run `build` on each job across `workers` threads, placing the
@@ -280,8 +285,8 @@ impl Output {
                     built.code,
                     &built.requests,
                     built.capture,
-                    |module, relocs| {
-                        symbols::resolve(module, runtime, built.id, &built.requests, relocs)
+                    |module, sites, relocs| {
+                        symbols::resolve(module, sites, runtime, built.id, &built.requests, relocs)
                     },
                 )?;
             }
@@ -297,13 +302,17 @@ impl Output {
         code: Compiled,
         requests: &[Request],
         capture: Option<Box<Capture>>,
-        relocate: impl FnOnce(&mut ObjectModule, &mut [ModuleReloc]) -> Result<Vec<ModuleRelocTarget>>,
+        relocate: impl FnOnce(
+            &mut ObjectModule,
+            &mut sites::Table,
+            &mut [ModuleReloc],
+        ) -> Result<Vec<ModuleRelocTarget>>,
     ) -> Result<()> {
         let mut code = code.map_err(|error| {
             let declaration = self.module.declarations().get_function_decl(id);
             format!("compiling `{}`: {error}", declaration.linkage_name(id))
         })?;
-        let targets = relocate(&mut self.module, &mut code.relocs)?;
+        let targets = relocate(&mut self.module, &mut self.sites, &mut code.relocs)?;
         if let (Some(plan), Some(capture)) = (&self.dump, capture) {
             let entry = plan.entry(
                 &self.module,

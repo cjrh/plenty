@@ -2,6 +2,90 @@
 mod support;
 use rstest::rstest;
 
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn immediate_literal_progressions_need_no_collection_storage() {
+    support::assert_visible_stdout(
+        r#"
+def numbers() -> Generator[i64]:
+    for n in [3, 2, 1].unwrap():
+        yield n
+def total() -> Result[i64, AllocError]:
+    mut total = 0
+    for n in [2, 4, 6]?:
+        total += n
+    for n in reversed([9, 6, 3]?):
+        if n == 6:
+            continue
+        total += n
+    for n in [7, 7, 7].unwrap():
+        total += n
+        break
+    for n in [9223372036854775806, 9223372036854775807]?:
+        total += n - 9223372036854775806
+    for n in [-9223372036854775808]?:
+        total += n - -9223372036854775808
+    total += iter([1, 2, 3]?).map(def(n: i64) -> i64: n * 2).fold(0, def(a: i64, b: i64) -> i64: a + b)
+    for n in numbers():
+        total += n
+    Ok(total)
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+answer = total()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(answer.unwrap()).unwrap()
+"#,
+        "50",
+    );
+}
+
+#[test]
+fn immediate_lists_keep_eager_effects_and_ordinary_fallbacks() {
+    support::assert_visible_stdout(
+        r#"
+def item(n: i64) -> i64:
+    print(n).unwrap()
+    n
+for n in [item(1), item(2), item(3)].unwrap():
+    print("body", n).unwrap()
+    break
+for n in [1, 4, 2].unwrap():
+    print(n).unwrap()
+for n in [254u8, 255u8].unwrap():
+    print(n).unwrap()
+for n in [-9223372036854775808, 9223372036854775807].unwrap():
+    print(n).unwrap()
+for n in &[1, 2, 3].unwrap():
+    print(*n).unwrap()
+"#,
+        "1\n2\n3\nbody 1\n1\n4\n2\n254\n255\n-9223372036854775808\n9223372036854775807\n1\n2\n3",
+    );
+}
+
+#[rstest]
+#[case(
+    "def main() -> ():\n    for n in [1, 2]?:\n        pass",
+    "requires a function returning Result or Option"
+)]
+#[case(
+    "def main() -> Result[(), IoError]:\n    for n in [1, 2]?:\n        pass\n    Ok(())",
+    "cannot propagate as IoError"
+)]
+#[case("def main() -> ():\n    for n in [1, 2]:\n        pass", "iterable")]
+#[case(
+    "def main() -> ():\n    for n in [1i8, 2i64].unwrap():\n        pass",
+    "expected list[i8]"
+)]
+#[case(
+    "def numbers() -> Generator[i64]:\n    for n in [1, 2]?:\n        yield n\ndef main() -> ():\n    pass",
+    "not supported in generators"
+)]
+fn literal_iteration_elision_keeps_source_checks(#[case] source: &str, #[case] expected: &str) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+}
+
 #[rstest]
 #[case("-128i8", "-128")]
 #[case("-32768i16", "-32768")]

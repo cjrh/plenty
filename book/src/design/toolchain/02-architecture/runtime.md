@@ -64,16 +64,20 @@ An operation that can [trap](../../language/08-errors/02-allocation-and-traps.md
 passes its runtime helper a pointer to its source position. Positions are
 sixteen-byte records (line, column, the offset to a length-prefixed file
 name, and an embedded-standard-library flag) in one read-only table per
-function, deduplicated by position and provenance. A per-function table lets
-the function's IR be built on any thread with its offsets known. The module loader supplies provenance;
+object. Each function numbers its own records, deduplicated by position and
+provenance, so its IR is built on any thread with the offsets known; the
+thread placing the function appends them to the object's table and carries
+the function's base offset in its relocation, and file names follow all the
+records, each named once. The module loader supplies provenance;
 a filename that resembles a standard module cannot acquire it. File names
 are relative to the source root, which keeps objects
-[independent of the source directory](../01-building/linking.md). Each table
+[independent of the source directory](../01-building/linking.md). The table
 is a local symbol with no relocations, so each Plenty library in a program keeps
 its own.
 
 Inline checks (integer overflow, division by zero, shift counts, `unwrap`) compute the pointer
-in their cold trap block, so the passing path gains nothing. A check whose
+in their cold trap block, so the passing path gains nothing; checks of one
+kind at one position share the block. A check whose
 condition the compiler computes from constants and finds false, such as the
 divisor's zero test in `x // 10` or the count test in `x >> 13`, emits no branch
 or trap call, in debug and release builds. A check that may fire, or always

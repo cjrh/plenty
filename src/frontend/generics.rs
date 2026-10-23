@@ -1555,12 +1555,13 @@ mod tests {
         assert_eq!(instances, 1);
     }
 
-    /// The whole syntax tree is live when lowering starts, and statements hold
-    /// their expressions inline (issue #54). Box a payload that would raise
-    /// these bounds.
+    /// The whole syntax tree is live when lowering starts, statements hold
+    /// their expressions inline, and every node holds a token (issues #54,
+    /// #422). Box a payload that would raise these bounds.
     #[test]
     fn syntax_nodes_stay_small() {
-        assert!(std::mem::size_of::<Expr>() <= 144);
-        assert!(std::mem::size_of::<Stmt>() <= 424);
+        assert!(std::mem::size_of::<Token>() <= 40);
+        assert!(std::mem::size_of::<Expr>() <= 120);
+        assert!(std::mem::size_of::<Stmt>() <= 344);
     }
 }

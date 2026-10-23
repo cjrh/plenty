@@ -72,7 +72,8 @@ a `#N` suffix.
   operand refers to, and shows the constants Cranelift places after the code
   as `.byte` rows. RIP-relative addresses are offsets within the function.
 - Data symbols carry what they hold: a string literal's text, a type's
-  metadata, or the function's trap-site table.
+  metadata, or the object's trap-site table, with the function's record count
+  and its offset into the table (`.Ldata1 (trap sites: 1)+44`).
 
 `index.txt` starts with the compiler version, target, optimization level,
 stages, scope, and filter, then lists one row per dumped function, largest

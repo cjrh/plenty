@@ -102,7 +102,7 @@ impl Inputs {
                             kind: Kind::Eof,
                             line: 0,
                             column: 0,
-                            source: None,
+                            file: None,
                         },
                         module: import.module.clone(),
                         item: None,

@@ -133,7 +133,7 @@ impl DataTypes {
         let declaration = self.classes.get(&name)?;
         if !declaration
             .at
-            .source
+            .source()
             .as_ref()
             .is_some_and(|source| standard_sources.contains(source))
         {

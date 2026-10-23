@@ -68,8 +68,8 @@ impl Lower<'_> {
             .extend(candidates.into_iter().filter(|candidate| {
                 endings.contains(&(
                     candidate.callee.clone(),
-                    candidate.at.line as u32,
-                    candidate.at.column as u32,
+                    candidate.at.line,
+                    candidate.at.column,
                 ))
             }));
         result
@@ -301,8 +301,8 @@ pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
                 .or_else(|| {
                     (!native.contains(&(
                         candidate.callee.clone(),
-                        candidate.at.line as u32,
-                        candidate.at.column as u32,
+                        candidate.at.line,
+                        candidate.at.column,
                     )))
                     .then(|| candidate.fallback.to_string())
                 });

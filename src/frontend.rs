@@ -82,8 +82,8 @@ enum Kind {
     Number(Arc<str>),
     Text(Arc<str>),
     /// An `f"..."` literal's text and fields; see `fstrings`.
-    Format(Vec<fstrings::Part>),
-    Bytes(Vec<u8>),
+    Format(Arc<[fstrings::Part]>),
+    Bytes(Arc<[u8]>),
     Symbol(&'static str),
     Newline,
     Indent,
@@ -139,12 +139,55 @@ fn sendable(error: Box<dyn Error>) -> Box<dyn Error + Send + Sync> {
 #[derive(Clone, Debug, PartialEq)]
 struct Token {
     kind: Kind,
-    line: usize,
-    column: usize,
-    source: Option<Arc<str>>,
+    line: u32,
+    column: u32,
+    file: Option<FileId>,
+}
+
+/// A module path interned for the life of the process. Every token names
+/// its file, and a four-byte copy costs no reference count where an
+/// `Arc<str>` cost two atomic updates per token (issue #422).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct FileId(std::num::NonZeroU32);
+
+#[derive(Default)]
+struct Files {
+    ids: HashMap<Arc<str>, FileId>,
+    paths: Vec<Arc<str>>,
+}
+
+static FILES: std::sync::LazyLock<std::sync::RwLock<Files>> =
+    std::sync::LazyLock::new(Default::default);
+
+impl FileId {
+    fn intern(path: &Arc<str>) -> FileId {
+        if let Some(&id) = FILES.read().unwrap().ids.get(path) {
+            return id;
+        }
+        let mut files = FILES.write().unwrap();
+        if let Some(&id) = files.ids.get(path) {
+            return id;
+        }
+        files.paths.push(path.clone());
+        let id = FileId(
+            std::num::NonZeroU32::new(u32::try_from(files.paths.len()).unwrap())
+                .expect("a file number starts at one"),
+        );
+        files.ids.insert(path.clone(), id);
+        id
+    }
+
+    fn path(self) -> Arc<str> {
+        FILES.read().unwrap().paths[self.0.get() as usize - 1].clone()
+    }
 }
 
 impl Token {
+    /// The path of the module the token is in, when it came from a file.
+    fn source(&self) -> Option<Arc<str>> {
+        self.file.map(FileId::path)
+    }
+
     fn is(&self, text: &str) -> bool {
         self.text() == Some(text)
     }
@@ -166,11 +209,7 @@ impl Token {
     }
 
     fn location(&self) -> String {
-        let source = self
-            .source
-            .as_ref()
-            .map(|s| format!("{s}:"))
-            .unwrap_or_default();
+        let source = self.source().map(|s| format!("{s}:")).unwrap_or_default();
         format!("{source}{}:{}", self.line, self.column)
     }
 }
@@ -182,8 +221,8 @@ struct Lexer<'a> {
     source: &'a str,
     /// Byte offset of the next character.
     pos: usize,
-    line: usize,
-    column: usize,
+    line: u32,
+    column: u32,
     line_start: bool,
     indents: Vec<usize>,
     /// Open brackets with their positions, so an unclosed one is reported where it opened.
@@ -228,13 +267,21 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
-    fn push(&mut self, out: &mut VecDeque<Token>, kind: Kind, line: usize, column: usize) {
+    /// Moves the column past `width` characters. Positions are 32-bit to
+    /// keep tokens small; a column past `u32::MAX` stays there.
+    fn skip_columns(&mut self, width: usize) {
+        self.column = self
+            .column
+            .saturating_add(u32::try_from(width).unwrap_or(u32::MAX));
+    }
+
+    fn push(&mut self, out: &mut VecDeque<Token>, kind: Kind, line: u32, column: u32) {
         self.open = !matches!(kind, Kind::Newline | Kind::Dedent);
         out.push_back(Token {
             kind,
             line,
             column,
-            source: None,
+            file: None,
         });
     }
 
@@ -273,14 +320,14 @@ impl<'a> Lexer<'a> {
         let triple = closes(self.pos + 1) && closes(self.pos + 2);
         let width = if triple { 3 } else { 1 };
         self.pos += width;
-        self.column += width;
+        self.skip_columns(width);
         let mut value = Vec::new();
         loop {
             let here = Token {
                 kind: Kind::Eof,
                 line: self.line,
                 column: self.column,
-                source: None,
+                file: None,
             };
             let ch = source[self.pos..]
                 .chars()
@@ -288,7 +335,7 @@ impl<'a> Lexer<'a> {
                 .ok_or_else(|| start.error("unterminated byte literal"))?;
             if ch == quote as char && (!triple || (closes(self.pos + 1) && closes(self.pos + 2))) {
                 self.pos += width;
-                self.column += width;
+                self.skip_columns(width);
                 return Ok(value);
             }
             if ch == '\n' && !triple {
@@ -315,7 +362,7 @@ impl<'a> Lexer<'a> {
             let (byte, width) = byte_escape(&source[self.pos..]).map_err(|m| here.error(m))?;
             value.push(byte);
             self.pos += width;
-            self.column += width;
+            self.skip_columns(width);
         }
     }
 
@@ -373,7 +420,7 @@ impl<'a> Lexer<'a> {
                 kind: Kind::Eof,
                 line,
                 column,
-                source: None,
+                file: None,
             };
             let c = bytes[self.pos];
             match c {
@@ -396,7 +443,7 @@ impl<'a> Lexer<'a> {
                         .iter()
                         .position(|&b| b == b'\n')
                         .map_or(bytes.len(), |length| self.pos + length);
-                    self.column += source[self.pos..end].chars().count();
+                    self.skip_columns(source[self.pos..end].chars().count());
                     self.pos = end;
                 }
                 b'\'' | b'"' => {
@@ -405,7 +452,7 @@ impl<'a> Lexer<'a> {
                     let triple = closes(self.pos + 1) && closes(self.pos + 2);
                     let width = if triple { 3 } else { 1 };
                     self.pos += width;
-                    self.column += width;
+                    self.skip_columns(width);
                     let mut text = String::new();
                     loop {
                         let ch = source[self.pos..]
@@ -416,7 +463,7 @@ impl<'a> Lexer<'a> {
                             && (!triple || (closes(self.pos + 1) && closes(self.pos + 2)))
                         {
                             self.pos += width;
-                            self.column += width;
+                            self.skip_columns(width);
                             break;
                         }
                         if ch == '\n' && !triple {
@@ -426,7 +473,7 @@ impl<'a> Lexer<'a> {
                             kind: Kind::Eof,
                             line: self.line,
                             column: self.column,
-                            source: None,
+                            file: None,
                         };
                         self.pos += ch.len_utf8();
                         self.column += 1;
@@ -453,11 +500,11 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_alphabetic() && self.literal_prefix().is_some() => {
                     let (prefix, width) = self.literal_prefix().expect("checked prefix");
                     self.pos += width;
-                    self.column += width;
+                    self.skip_columns(width);
                     match prefix.map_err(|message| start.error(message))? {
                         Prefix::Bytes => {
                             let value = self.byte_literal(&start)?;
-                            self.push(out, Kind::Bytes(value), line, column);
+                            self.push(out, Kind::Bytes(value.into()), line, column);
                         }
                         Prefix::Format => {
                             let kind = self.format_string(&start)?;
@@ -473,7 +520,7 @@ impl<'a> Lexer<'a> {
                     {
                         self.pos += 1;
                     }
-                    self.column += self.pos - begin;
+                    self.skip_columns(self.pos - begin);
                     self.push(
                         out,
                         Kind::Word(source[begin..self.pos].into()),
@@ -514,7 +561,7 @@ impl<'a> Lexer<'a> {
                         pos += 1;
                     }
                     self.pos = pos;
-                    self.column += pos - begin;
+                    self.skip_columns(pos - begin);
                     self.push(out, Kind::Number(source[begin..pos].into()), line, column);
                 }
                 b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'.' | b':' | b',' | b'+' | b'-'
@@ -1106,8 +1153,8 @@ struct Pos {
 impl Pos {
     fn of(at: &Token) -> Self {
         Pos {
-            line: at.line as u32,
-            column: at.column as u32,
+            line: at.line,
+            column: at.column,
         }
     }
 }
@@ -1153,10 +1200,14 @@ struct Parser {
     deepest: usize,
     /// Whether the module has an f-string, which needs `std.fmt`.
     formats: bool,
+    /// Elements of the lists being parsed; see [`Parser::exact_list`].
+    scratch_stmts: Vec<Stmt>,
+    scratch_exprs: Vec<Expr>,
+    scratch_inputs: Vec<(String, TypeRef)>,
 }
 impl Parser {
     /// A parser for a module whose tokens name `origin` as their source file.
-    fn new(origin: Option<Arc<str>>) -> Self {
+    fn new(origin: Option<FileId>) -> Self {
         Parser {
             tokens: VecDeque::new(),
             in_brackets: VecDeque::new(),
@@ -1169,13 +1220,33 @@ impl Parser {
                 kind: Kind::Eof,
                 line: 0,
                 column: 0,
-                source: origin,
+                file: origin,
             },
             type_depth: 0,
             depth: 0,
             deepest: 0,
             formats: false,
+            scratch_stmts: Vec::new(),
+            scratch_exprs: Vec::new(),
+            scratch_inputs: Vec::new(),
         }
+    }
+    /// Runs `parse`, which pushes a list's elements onto the scratch stack
+    /// that `scratch` selects, and moves them into a vector of exactly their
+    /// number. A vector grown element by element reserves four, over 1.6 KB
+    /// for a one-statement block, and shrinking it copies them again; the
+    /// whole tree is live when lowering starts (issues #54, #422). Lists
+    /// nest, so each takes only the elements above where it started, also
+    /// after a failed parse that a caller discards.
+    fn exact_list<T>(
+        &mut self,
+        scratch: fn(&mut Self) -> &mut Vec<T>,
+        parse: impl FnOnce(&mut Self) -> Result<()>,
+    ) -> Result<Vec<T>> {
+        let base = scratch(self).len();
+        let parsed = parse(self);
+        let elements = scratch(self).drain(base..);
+        parsed.map(|()| elements.collect())
     }
     /// Releases the tokens of the items already parsed and buffers the next
     /// item with `lookahead` items after it. Call between top-level items.
@@ -1196,7 +1267,7 @@ impl Parser {
             // An item ends outside brackets, so each starts at depth zero.
             let mut depth = 0usize;
             for token in self.tokens.range_mut(lexed..) {
-                token.source = self.end.source.clone();
+                token.file = self.end.file;
                 if [")", "]", "}"].iter().any(|close| token.is(close)) {
                     depth = depth.saturating_sub(1);
                 }
@@ -1550,95 +1621,27 @@ impl Parser {
             }
         }
         self.expect("(")?;
-        let mut inputs = Vec::new();
+        // Empty unless a parameter has a default; then aligned with inputs.
         let mut defaults = Vec::new();
         let mut adapters = Vec::new();
-        while !self.eat(")") {
-            let param_at = self.peek().clone();
-            let param = self.name()?;
-            if captures.iter().any(|c| c.name == param) {
-                return Err(param_at.error("a parameter cannot shadow a closure capture"));
-            }
-            if inputs.iter().any(|(n, _)| n == &param) {
-                return Err(param_at.error("duplicate parameter"));
-            }
-            let ty = if let Some(class) =
-                class.filter(|_| param == "self" && inputs.is_empty() && !self.peek().is(":"))
-            {
-                TypeRef {
-                    concrete: None,
-                    // Preserve the shorthand's provenance for receiver diagnostics.
-                    at: param_at.clone(),
-                    name: Some(
-                        if matches!(name.as_str(), "__init__" | "__del__") {
-                            "&mut"
-                        } else {
-                            "&"
-                        }
-                        .into(),
-                    ),
-                    args: vec![TypeRef {
-                        concrete: None,
-                        at: at.clone(),
-                        name: Some(class.into()),
-                        args: vec![],
-                    }],
-                }
-            } else {
-                self.expect(":")?;
-                self.ty()?
-            };
-            let adapter = if foreign && self.eat("as") {
-                let token = self.take();
-                if token.is("utf8") {
-                    crate::foreign::Argument::Utf8
-                } else if token.is("c_string") {
-                    crate::foreign::Argument::CString
-                } else {
-                    return Err(token.error("expected utf8 or c_string C argument adapter"));
-                }
-            } else {
-                crate::foreign::Argument::Direct
-            };
-            if foreign {
-                adapters.push(adapter);
-            }
-            let default =
-                if self.eat("=") {
-                    if anonymous {
-                        return Err(
-                            param_at.error("anonymous functions cannot declare parameter defaults")
-                        );
-                    }
-                    if foreign || exported {
-                        return Err(param_at
-                            .error("C imports and exports cannot declare parameter defaults"));
-                    }
-                    if param == "self" && class.is_some() {
-                        return Err(param_at.error("self cannot have a default value"));
-                    }
-                    Some(self.expr(0)?)
-                } else {
-                    if defaults.iter().any(Option::is_some) {
-                        return Err(param_at
-                            .error("required parameters must precede parameters with defaults"));
-                    }
-                    None
-                };
-            inputs.push((param, ty));
-            defaults.push(default);
-            if self.eat(")") {
-                break;
-            }
-            self.expect(",")?;
-        }
+        let inputs = self.exact_list(
+            |parser| &mut parser.scratch_inputs,
+            |parser| {
+                parser.parameters(
+                    &at,
+                    &name,
+                    class,
+                    &captures,
+                    (foreign, exported, anonymous),
+                    &mut defaults,
+                    &mut adapters,
+                )
+            },
+        )?;
         if inputs.len() > 256 {
             return Err(at.error("at most 256 parameter/local slots are supported"));
         }
         defaults::validate_dependencies(&inputs, &defaults)?;
-        if defaults.iter().all(Option::is_none) {
-            defaults = Vec::new();
-        }
         self.expect("->")?;
         let output = self.ty()?;
         let mut address_parameter = None;
@@ -1768,6 +1771,103 @@ impl Parser {
             body,
         })
     }
+    /// Pushes a function's parameters up to the closing `)` onto
+    /// `scratch_inputs`. `at` and `name` are the function's; `flags` are
+    /// whether it is foreign, exported and anonymous.
+    #[allow(clippy::too_many_arguments)]
+    fn parameters(
+        &mut self,
+        at: &Token,
+        name: &str,
+        class: Option<&str>,
+        captures: &[Capture],
+        (foreign, exported, anonymous): (bool, bool, bool),
+        defaults: &mut Vec<Option<Expr>>,
+        adapters: &mut Vec<crate::foreign::Argument>,
+    ) -> Result<()> {
+        let base = self.scratch_inputs.len();
+        while !self.eat(")") {
+            let param_at = self.peek().clone();
+            let param = self.name()?;
+            if captures.iter().any(|c| c.name == param) {
+                return Err(param_at.error("a parameter cannot shadow a closure capture"));
+            }
+            let inputs = &self.scratch_inputs[base..];
+            if inputs.iter().any(|(n, _)| n == &param) {
+                return Err(param_at.error("duplicate parameter"));
+            }
+            let first = inputs.is_empty();
+            let ty = if let Some(class) =
+                class.filter(|_| param == "self" && first && !self.peek().is(":"))
+            {
+                TypeRef {
+                    concrete: None,
+                    // Preserve the shorthand's provenance for receiver diagnostics.
+                    at: param_at.clone(),
+                    name: Some(
+                        if matches!(name, "__init__" | "__del__") {
+                            "&mut"
+                        } else {
+                            "&"
+                        }
+                        .into(),
+                    ),
+                    args: vec![TypeRef {
+                        concrete: None,
+                        at: at.clone(),
+                        name: Some(class.into()),
+                        args: vec![],
+                    }],
+                }
+            } else {
+                self.expect(":")?;
+                self.ty()?
+            };
+            let adapter = if foreign && self.eat("as") {
+                let token = self.take();
+                if token.is("utf8") {
+                    crate::foreign::Argument::Utf8
+                } else if token.is("c_string") {
+                    crate::foreign::Argument::CString
+                } else {
+                    return Err(token.error("expected utf8 or c_string C argument adapter"));
+                }
+            } else {
+                crate::foreign::Argument::Direct
+            };
+            if foreign {
+                adapters.push(adapter);
+            }
+            if self.eat("=") {
+                if anonymous {
+                    return Err(
+                        param_at.error("anonymous functions cannot declare parameter defaults")
+                    );
+                }
+                if foreign || exported {
+                    return Err(
+                        param_at.error("C imports and exports cannot declare parameter defaults")
+                    );
+                }
+                if param == "self" && class.is_some() {
+                    return Err(param_at.error("self cannot have a default value"));
+                }
+                let default = self.expr(0)?;
+                defaults.resize_with(self.scratch_inputs.len() - base, || None);
+                defaults.push(Some(default));
+            } else if !defaults.is_empty() {
+                return Err(
+                    param_at.error("required parameters must precede parameters with defaults")
+                );
+            }
+            self.scratch_inputs.push((param, ty));
+            if self.eat(")") {
+                break;
+            }
+            self.expect(",")?;
+        }
+        Ok(())
+    }
     /// The body of an anonymous function written inside brackets: one
     /// expression, parsed as the tail expression of an indented body so both
     /// forms share every later rule. Brackets suspend layout, so statements
@@ -1816,18 +1916,20 @@ impl Parser {
         self.expect(":")?;
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented block")?;
-        let mut body = Vec::new();
-        while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
-            body.push(self.statement()?);
-        }
+        let body = self.exact_list(
+            |parser| &mut parser.scratch_stmts,
+            |parser| {
+                while !matches!(parser.peek().kind, Kind::Dedent | Kind::Eof) {
+                    let statement = parser.statement()?;
+                    parser.scratch_stmts.push(statement);
+                }
+                Ok(())
+            },
+        )?;
         self.kind(Kind::Dedent, "the end of an indented block")?;
         if body.is_empty() {
             return Err(self.peek().error("empty block; use `pass`"));
         }
-        // A growing vector reserves at least four statements, which is over
-        // 2 KB for a one-line body. The whole tree is live when lowering
-        // starts, so the unused capacity counts against peak memory (issue #54).
-        body.shrink_to_fit();
         Ok(body)
     }
     fn conditional_statement(&mut self) -> Result<Stmt> {
@@ -2138,7 +2240,7 @@ impl Parser {
             Kind::Number(n) => Expression::Number(n.to_string()),
             Kind::Text(s) => Expression::Text(s.to_string()),
             Kind::Format(parts) => self.format_literal(parts)?,
-            Kind::Bytes(b) => Expression::Bytes(b.clone()),
+            Kind::Bytes(b) => Expression::Bytes(b.to_vec()),
             Kind::Word(s) if matches!(&**s, "True" | "False") => Expression::Bool(&**s == "True"),
             Kind::Word(s) if &**s == "not" => {
                 Expression::Unary(s.to_string(), Box::new(self.expr(3)?))
@@ -2720,8 +2822,8 @@ struct Lower<'a> {
 
 fn site(at: &Token, scope_end: bool) -> crate::ownership::Site {
     crate::ownership::Site {
-        line: at.line as u32,
-        column: at.column as u32,
+        line: at.line,
+        column: at.column,
         scope_end,
     }
 }
@@ -3014,13 +3116,10 @@ impl Lower<'_> {
         self.expr(e, ops)?
             .ok_or_else(|| e.at.error("expected a value, got ()"))
     }
-    fn propagate(
-        &mut self,
+    fn propagation_target(
+        &self,
         e: &Expr,
-        value: &Expr,
-        expected: Type,
-        ops: &mut Vec<Op>,
-    ) -> Result<Type> {
+    ) -> Result<crate::nominal::Nominal<crate::sum::EnumType>> {
         if self.yield_type.is_some() {
             return Err(e
                 .at
@@ -3036,6 +3135,17 @@ impl Lower<'_> {
                 .at
                 .error("`?` requires a function returning Result or Option"));
         }
+        Ok(target)
+    }
+
+    fn propagate(
+        &mut self,
+        e: &Expr,
+        value: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let target = self.propagation_target(e)?;
         // A collection literal's error is always AllocError, so its context keeps
         // that error and the mismatch is reported below rather than as a missing `?`.
         let literal = matches!(&ungroup(value).kind, Expression::Collection { kind, .. } if kind != "generator");
@@ -3057,6 +3167,33 @@ impl Lower<'_> {
         let Some(Ty::Enum(source)) = operand else {
             return Err(e.at.error("`?` requires a Result or Option operand"));
         };
+        let target = self.check_propagation(e, &source, target, literal)?;
+        let success = usize::from(source.is_option());
+        let payload = source.get().variants[success].fields[0].clone();
+        let mut cleanup = Vec::new();
+        if !self.contexts.is_empty() {
+            self.cleanup(0, &mut cleanup);
+        }
+        ops.push(Op::Try {
+            source: Box::new(source),
+            target: Box::new(target),
+            cleanup: cleanup.into(),
+        });
+        if payload == Ty::Unit {
+            ops.push(Op::Drop);
+            Ok(None)
+        } else {
+            Ok(Some(payload))
+        }
+    }
+
+    fn check_propagation(
+        &mut self,
+        e: &Expr,
+        source: &crate::nominal::Nominal<crate::sum::EnumType>,
+        target: crate::nominal::Nominal<crate::sum::EnumType>,
+        literal: bool,
+    ) -> Result<crate::nominal::Nominal<crate::sum::EnumType>> {
         if !source.propagatable() || source.is_option() != target.is_option() {
             let note = if literal {
                 "; a collection literal returns Result[collection, AllocError]"
@@ -3067,8 +3204,8 @@ impl Lower<'_> {
                 "`?` operand and function return must use the same Result or Option family{note}"
             )));
         }
-        let target = self.infer_propagated_producers(target, &source);
-        if !source.is_option() && !target.accepts_result_error(&source) {
+        let target = self.infer_propagated_producers(target, source);
+        if !source.is_option() && !target.accepts_result_error(source) {
             let target_error = &target.get().variants[1].fields[0];
             let source_error = &source.get().variants[1].fields[0];
             if matches!(target_error, Ty::Enum(t) if t.anonymous())
@@ -3096,23 +3233,7 @@ impl Lower<'_> {
                 "`?` requires identical Result error types; convert the error explicitly{hint}"
             )));
         }
-        let success = usize::from(source.is_option());
-        let payload = source.get().variants[success].fields[0].clone();
-        let mut cleanup = Vec::new();
-        if !self.contexts.is_empty() {
-            self.cleanup(0, &mut cleanup);
-        }
-        ops.push(Op::Try {
-            source: Box::new(source),
-            target: Box::new(target),
-            cleanup: cleanup.into(),
-        });
-        if payload == Ty::Unit {
-            ops.push(Op::Drop);
-            Ok(None)
-        } else {
-            Ok(Some(payload))
-        }
+        Ok(target)
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         if self.is_pipeline(e) {
@@ -3946,7 +4067,7 @@ impl Lower<'_> {
                 } {
                     // Trusted std hooks are not user-visible API.
                     let standard =
-                        e.at.source
+                        e.at.source()
                             .as_ref()
                             .is_some_and(|source| self.generics.source_facts(source).1);
                     if !standard {
@@ -5666,19 +5787,17 @@ fn lower_body(
                 .tail_candidates
                 .insert(f.name.clone(), std::mem::take(&mut lower.tail_candidates));
         }
-        let facts =
-            f.at.source
-                .as_ref()
-                .map(|source| lower.generics.source_facts(source));
+        let source = f.at.source();
+        let facts = source
+            .as_ref()
+            .map(|source| lower.generics.source_facts(source));
         let compiled = CompiledFn {
-            location: f
-                .at
-                .source
+            location: source
                 .as_ref()
                 .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
             origins: Arc::new(crate::ownership::Origins {
                 standard_library: facts.as_ref().is_some_and(|(_, standard)| *standard),
-                source: f.at.source.clone(),
+                source,
                 trap_file: facts.map(|(relative, _)| relative),
                 names: lower.slot_names,
                 required: lower.generics.required.get(&f.name).cloned(),
