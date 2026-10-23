@@ -143,15 +143,15 @@ struct Anchor {
 impl Anchor {
     fn of(at: &Token) -> Option<Self> {
         Some(Anchor {
-            source: at.source.clone()?,
-            line: at.line as u32,
-            column: at.column as u32,
+            source: at.source()?,
+            line: at.line,
+            column: at.column,
         })
     }
     fn at(at: &Token, pos: Pos) -> Option<Self> {
         (pos != Pos::default()).then_some(())?;
         Some(Anchor {
-            source: at.source.clone()?,
+            source: at.source()?,
             line: pos.line,
             column: pos.column,
         })
@@ -263,7 +263,8 @@ pub(super) fn refer_member(at: &Token, pos: Pos, name: &str, key: String) {
 
 /// The key of a local bound at `pos` in the file of `at`.
 pub(super) fn local_key(at: &Token, pos: Pos, name: &str) -> String {
-    let source = at.source.as_deref().unwrap_or_default();
+    let source = at.source();
+    let source = source.as_deref().unwrap_or_default();
     format!("local {source}:{}:{}:{name}", pos.line, pos.column)
 }
 
@@ -274,8 +275,8 @@ pub(super) fn bind_local(at: &Token, pos: Pos, name: &str, parameter: bool, find
     }
     let key = local_key(at, pos, name);
     let anchor = Token {
-        line: pos.line as usize,
-        column: pos.column as usize,
+        line: pos.line,
+        column: pos.column,
         ..at.clone()
     };
     let kind = if parameter {
@@ -366,7 +367,7 @@ pub(super) fn module(name: &str, path: &Path, standard: bool, import: &Token) {
         kind: Kind::Eof,
         line: 1,
         column: 1,
-        source: Some(source),
+        file: Some(FileId::intern(&source)),
     };
     let display = if standard {
         name.to_owned()

@@ -148,7 +148,7 @@ impl Lower<'_> {
         let body = relocate(&body, &slots, &loans, &source.at)?;
         let facts = source
             .at
-            .source
+            .source()
             .as_ref()
             .map(|path| self.generics.source_facts(path));
         self.generics
@@ -159,12 +159,12 @@ impl Lower<'_> {
             Box::new(CompiledFn {
                 location: source
                     .at
-                    .source
+                    .source()
                     .as_ref()
                     .map(|path| format!("{path}:{}:{}", source.at.line, source.at.column).into()),
                 origins: Arc::new(crate::ownership::Origins {
                     standard_library: facts.as_ref().is_some_and(|(_, standard)| *standard),
-                    source: source.at.source.clone(),
+                    source: source.at.source(),
                     trap_file: facts.map(|(relative, _)| relative),
                     names: order
                         .iter()

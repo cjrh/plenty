@@ -81,8 +81,8 @@ enum Kind {
     Number(Arc<str>),
     Text(Arc<str>),
     /// An `f"..."` literal's text and fields; see `fstrings`.
-    Format(Vec<fstrings::Part>),
-    Bytes(Vec<u8>),
+    Format(Arc<[fstrings::Part]>),
+    Bytes(Arc<[u8]>),
     Symbol(&'static str),
     Newline,
     Indent,
@@ -138,12 +138,55 @@ fn sendable(error: Box<dyn Error>) -> Box<dyn Error + Send + Sync> {
 #[derive(Clone, Debug, PartialEq)]
 struct Token {
     kind: Kind,
-    line: usize,
-    column: usize,
-    source: Option<Arc<str>>,
+    line: u32,
+    column: u32,
+    file: Option<FileId>,
+}
+
+/// A module path interned for the life of the process. Every token names
+/// its file, and a four-byte copy costs no reference count where an
+/// `Arc<str>` cost two atomic updates per token (issue #422).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct FileId(std::num::NonZeroU32);
+
+#[derive(Default)]
+struct Files {
+    ids: HashMap<Arc<str>, FileId>,
+    paths: Vec<Arc<str>>,
+}
+
+static FILES: std::sync::LazyLock<std::sync::RwLock<Files>> =
+    std::sync::LazyLock::new(Default::default);
+
+impl FileId {
+    fn intern(path: &Arc<str>) -> FileId {
+        if let Some(&id) = FILES.read().unwrap().ids.get(path) {
+            return id;
+        }
+        let mut files = FILES.write().unwrap();
+        if let Some(&id) = files.ids.get(path) {
+            return id;
+        }
+        files.paths.push(path.clone());
+        let id = FileId(
+            std::num::NonZeroU32::new(u32::try_from(files.paths.len()).unwrap())
+                .expect("a file number starts at one"),
+        );
+        files.ids.insert(path.clone(), id);
+        id
+    }
+
+    fn path(self) -> Arc<str> {
+        FILES.read().unwrap().paths[self.0.get() as usize - 1].clone()
+    }
 }
 
 impl Token {
+    /// The path of the module the token is in, when it came from a file.
+    fn source(&self) -> Option<Arc<str>> {
+        self.file.map(FileId::path)
+    }
+
     fn is(&self, text: &str) -> bool {
         self.text() == Some(text)
     }
@@ -165,11 +208,7 @@ impl Token {
     }
 
     fn location(&self) -> String {
-        let source = self
-            .source
-            .as_ref()
-            .map(|s| format!("{s}:"))
-            .unwrap_or_default();
+        let source = self.source().map(|s| format!("{s}:")).unwrap_or_default();
         format!("{source}{}:{}", self.line, self.column)
     }
 }
@@ -181,8 +220,8 @@ struct Lexer<'a> {
     source: &'a str,
     /// Byte offset of the next character.
     pos: usize,
-    line: usize,
-    column: usize,
+    line: u32,
+    column: u32,
     line_start: bool,
     indents: Vec<usize>,
     /// Open brackets with their positions, so an unclosed one is reported where it opened.
@@ -227,13 +266,21 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
-    fn push(&mut self, out: &mut VecDeque<Token>, kind: Kind, line: usize, column: usize) {
+    /// Moves the column past `width` characters. Positions are 32-bit to
+    /// keep tokens small; a column past `u32::MAX` stays there.
+    fn skip_columns(&mut self, width: usize) {
+        self.column = self
+            .column
+            .saturating_add(u32::try_from(width).unwrap_or(u32::MAX));
+    }
+
+    fn push(&mut self, out: &mut VecDeque<Token>, kind: Kind, line: u32, column: u32) {
         self.open = !matches!(kind, Kind::Newline | Kind::Dedent);
         out.push_back(Token {
             kind,
             line,
             column,
-            source: None,
+            file: None,
         });
     }
 
@@ -272,14 +319,14 @@ impl<'a> Lexer<'a> {
         let triple = closes(self.pos + 1) && closes(self.pos + 2);
         let width = if triple { 3 } else { 1 };
         self.pos += width;
-        self.column += width;
+        self.skip_columns(width);
         let mut value = Vec::new();
         loop {
             let here = Token {
                 kind: Kind::Eof,
                 line: self.line,
                 column: self.column,
-                source: None,
+                file: None,
             };
             let ch = source[self.pos..]
                 .chars()
@@ -287,7 +334,7 @@ impl<'a> Lexer<'a> {
                 .ok_or_else(|| start.error("unterminated byte literal"))?;
             if ch == quote as char && (!triple || (closes(self.pos + 1) && closes(self.pos + 2))) {
                 self.pos += width;
-                self.column += width;
+                self.skip_columns(width);
                 return Ok(value);
             }
             if ch == '\n' && !triple {
@@ -314,7 +361,7 @@ impl<'a> Lexer<'a> {
             let (byte, width) = byte_escape(&source[self.pos..]).map_err(|m| here.error(m))?;
             value.push(byte);
             self.pos += width;
-            self.column += width;
+            self.skip_columns(width);
         }
     }
 
@@ -372,7 +419,7 @@ impl<'a> Lexer<'a> {
                 kind: Kind::Eof,
                 line,
                 column,
-                source: None,
+                file: None,
             };
             let c = bytes[self.pos];
             match c {
@@ -395,7 +442,7 @@ impl<'a> Lexer<'a> {
                         .iter()
                         .position(|&b| b == b'\n')
                         .map_or(bytes.len(), |length| self.pos + length);
-                    self.column += source[self.pos..end].chars().count();
+                    self.skip_columns(source[self.pos..end].chars().count());
                     self.pos = end;
                 }
                 b'\'' | b'"' => {
@@ -404,7 +451,7 @@ impl<'a> Lexer<'a> {
                     let triple = closes(self.pos + 1) && closes(self.pos + 2);
                     let width = if triple { 3 } else { 1 };
                     self.pos += width;
-                    self.column += width;
+                    self.skip_columns(width);
                     let mut text = String::new();
                     loop {
                         let ch = source[self.pos..]
@@ -415,7 +462,7 @@ impl<'a> Lexer<'a> {
                             && (!triple || (closes(self.pos + 1) && closes(self.pos + 2)))
                         {
                             self.pos += width;
-                            self.column += width;
+                            self.skip_columns(width);
                             break;
                         }
                         if ch == '\n' && !triple {
@@ -425,7 +472,7 @@ impl<'a> Lexer<'a> {
                             kind: Kind::Eof,
                             line: self.line,
                             column: self.column,
-                            source: None,
+                            file: None,
                         };
                         self.pos += ch.len_utf8();
                         self.column += 1;
@@ -452,11 +499,11 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_alphabetic() && self.literal_prefix().is_some() => {
                     let (prefix, width) = self.literal_prefix().expect("checked prefix");
                     self.pos += width;
-                    self.column += width;
+                    self.skip_columns(width);
                     match prefix.map_err(|message| start.error(message))? {
                         Prefix::Bytes => {
                             let value = self.byte_literal(&start)?;
-                            self.push(out, Kind::Bytes(value), line, column);
+                            self.push(out, Kind::Bytes(value.into()), line, column);
                         }
                         Prefix::Format => {
                             let kind = self.format_string(&start)?;
@@ -472,7 +519,7 @@ impl<'a> Lexer<'a> {
                     {
                         self.pos += 1;
                     }
-                    self.column += self.pos - begin;
+                    self.skip_columns(self.pos - begin);
                     self.push(
                         out,
                         Kind::Word(source[begin..self.pos].into()),
@@ -513,7 +560,7 @@ impl<'a> Lexer<'a> {
                         pos += 1;
                     }
                     self.pos = pos;
-                    self.column += pos - begin;
+                    self.skip_columns(pos - begin);
                     self.push(out, Kind::Number(source[begin..pos].into()), line, column);
                 }
                 b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'.' | b':' | b',' | b'+' | b'-'
@@ -1105,8 +1152,8 @@ struct Pos {
 impl Pos {
     fn of(at: &Token) -> Self {
         Pos {
-            line: at.line as u32,
-            column: at.column as u32,
+            line: at.line,
+            column: at.column,
         }
     }
 }
@@ -1159,7 +1206,7 @@ struct Parser {
 }
 impl Parser {
     /// A parser for a module whose tokens name `origin` as their source file.
-    fn new(origin: Option<Arc<str>>) -> Self {
+    fn new(origin: Option<FileId>) -> Self {
         Parser {
             tokens: VecDeque::new(),
             in_brackets: VecDeque::new(),
@@ -1172,7 +1219,7 @@ impl Parser {
                 kind: Kind::Eof,
                 line: 0,
                 column: 0,
-                source: origin,
+                file: origin,
             },
             type_depth: 0,
             depth: 0,
@@ -1219,7 +1266,7 @@ impl Parser {
             // An item ends outside brackets, so each starts at depth zero.
             let mut depth = 0usize;
             for token in self.tokens.range_mut(lexed..) {
-                token.source = self.end.source.clone();
+                token.file = self.end.file;
                 if [")", "]", "}"].iter().any(|close| token.is(close)) {
                     depth = depth.saturating_sub(1);
                 }
@@ -2192,7 +2239,7 @@ impl Parser {
             Kind::Number(n) => Expression::Number(n.to_string()),
             Kind::Text(s) => Expression::Text(s.to_string()),
             Kind::Format(parts) => self.format_literal(parts)?,
-            Kind::Bytes(b) => Expression::Bytes(b.clone()),
+            Kind::Bytes(b) => Expression::Bytes(b.to_vec()),
             Kind::Word(s) if matches!(&**s, "True" | "False") => Expression::Bool(&**s == "True"),
             Kind::Word(s) if &**s == "not" => {
                 Expression::Unary(s.to_string(), Box::new(self.expr(3)?))
@@ -2775,8 +2822,8 @@ struct Lower<'a> {
 
 fn site(at: &Token, scope_end: bool) -> crate::ownership::Site {
     crate::ownership::Site {
-        line: at.line as u32,
-        column: at.column as u32,
+        line: at.line,
+        column: at.column,
         scope_end,
     }
 }
@@ -4001,7 +4048,7 @@ impl Lower<'_> {
                 } {
                     // Trusted std hooks are not user-visible API.
                     let standard =
-                        e.at.source
+                        e.at.source()
                             .as_ref()
                             .is_some_and(|source| self.generics.source_facts(source).1);
                     if !standard {
@@ -5722,19 +5769,17 @@ fn lower_body(
                 .tail_candidates
                 .insert(f.name.clone(), std::mem::take(&mut lower.tail_candidates));
         }
-        let facts =
-            f.at.source
-                .as_ref()
-                .map(|source| lower.generics.source_facts(source));
+        let source = f.at.source();
+        let facts = source
+            .as_ref()
+            .map(|source| lower.generics.source_facts(source));
         let compiled = CompiledFn {
-            location: f
-                .at
-                .source
+            location: source
                 .as_ref()
                 .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
             origins: Arc::new(crate::ownership::Origins {
                 standard_library: facts.as_ref().is_some_and(|(_, standard)| *standard),
-                source: f.at.source.clone(),
+                source,
                 trap_file: facts.map(|(relative, _)| relative),
                 names: lower.slot_names,
                 required: lower.generics.required.get(&f.name).cloned(),
