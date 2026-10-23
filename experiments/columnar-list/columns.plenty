@@ -1,0 +1,21 @@
+# A concrete hand-written two-column collection, using existing Plenty only.
+class Columns:
+    x: list[i64]
+    y: list[i64]
+
+    def append(self: &mut Columns, x: i64, y: i64) -> Result[(), AllocError]:
+        self.x.reserve(1)?
+        self.y.reserve(1)?
+        self.x.append(x)?
+        self.y.append(y)?
+        Ok(())
+
+def accumulate(total: i64, x: &i64, y: &i64) -> i64:
+    total + *y if *x >= 2 else total
+
+def main() -> Result[(), AllocError | IoError]:
+    mut values = Columns([]?, []?)
+    for i in range(5):
+        values.append(i, i * 10)?
+    print(iter(&values.x).zip(&values.y).fold(0, accumulate))?
+    Ok(())
