@@ -1,0 +1,7 @@
+# Expected rejection: Plenty does not currently store references in classes.
+class RowRef:
+    x: &i64
+    y: &i64
+
+def main() -> ():
+    pass

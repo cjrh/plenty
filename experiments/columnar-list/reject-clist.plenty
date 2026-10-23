@@ -1,0 +1,8 @@
+# Expected rejection: clist is proposed, not an implemented builtin.
+class Point:
+    x: i64
+    y: i64
+
+def main() -> ():
+    mut values = clist[Point]()
+    drop(values)
