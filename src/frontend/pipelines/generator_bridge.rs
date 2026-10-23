@@ -171,7 +171,6 @@ impl Lower<'_> {
                         .map(|slot| self.slot_names.get(*slot as usize).cloned().flatten())
                         .collect(),
                     required: self.generics.required.get(&name).cloned(),
-                    ..Default::default()
                 }),
                 generator: Some(plan.item.ty),
                 sig: sig.clone(),
