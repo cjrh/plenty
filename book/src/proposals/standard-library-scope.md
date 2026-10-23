@@ -14,7 +14,7 @@ The goal is useful CLI/data tools and network services without third-party
 application packages. Python's library breadth and Go's combined HTTP
 client/server scope motivated issue #49; compatibility with their APIs is not
 a requirement. A production HTTP server remains an explicit bundled-library
-goal, with [separate acceptance criteria](standard-http.md).
+goal, with [separate acceptance criteria](completed/standard-http.md).
 
 ## Boundaries
 

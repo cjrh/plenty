@@ -2,11 +2,12 @@
 
 **Status: Implemented through HTTP client adoption.** This is the evidence companion to the
 [composition overview](../error-composition.md), not a separate proposal or
-work queue. Mapping, typed streams and framing, and the HTTP client's head,
+work queue. It accompanies the completed B71 acceptance batch. Mapping, typed
+streams and framing, and the HTTP client's head,
 write and body paths have shipped. Current contracts belong to
-[`std.error`](../../design/stdlib/error.md),
-[`std.io.typed`](../../design/stdlib/io-typed.md), and
-[`std.http.typed`](../../design/stdlib/http-typed.md).
+[`std.error`](../../../design/stdlib/error.md),
+[`std.io.typed`](../../../design/stdlib/io-typed.md), and
+[`std.http.typed`](../../../design/stdlib/http-typed.md).
 
 ## Prototype findings
 
@@ -35,7 +36,7 @@ wider eleven-adapter adoption: body allocation, byte classification, HTTP and
 storage conversions; client allocation; and JSON allocation and location-free
 errors now also use mapping. Their conversion policies are unchanged. This
 addresses the observed scaling constraint without removing finite compiler
-limits or introducing allocation. See [specialization limits](../../design/toolchain/02-architecture/emission.md).
+limits or introducing allocation. See [specialization limits](../../../design/toolchain/02-architecture/emission.md).
 
 Worker integration exposed a real ergonomic restriction: thin function values
 lose their target identity inside the generic helper, so thread effect checking
@@ -89,7 +90,7 @@ usable.
 
 ## Additive production slice
 
-[`std.io.typed`](../../design/stdlib/io-typed.md) now makes the prototype's typed
+[`std.io.typed`](../../../design/stdlib/io-typed.md) now makes the prototype's typed
 protocols and progress helpers available without copying example modules.
 Its owned legacy reader/writer bridges preserve the returned `StreamError`
 and classify only explicit interruption as retryable. A consuming free function
@@ -97,7 +98,7 @@ recovers each bridge's stream for explicit flushing, closing or seeking.
 The private optional slot supports extraction under existing field-move rules;
 it allocates no storage.
 
-[`std.http.typed`](../../design/stdlib/http-typed.md) initially provided fixed-length and
+[`std.http.typed`](../../../design/stdlib/http-typed.md) initially provided fixed-length and
 close-delimited body readers. Close-delimited EOF is sticky, empty reads do not
 consume input, and its connection is never reusable. Both return
 `FramingError[E]` through the typed protocol without error-storage fields or

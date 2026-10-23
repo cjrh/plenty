@@ -461,7 +461,6 @@
         - [Standard library and OS semantics](proposals/cross-platform/stdlib.md)
         - [Qualification, delivery, and reference implementations](proposals/cross-platform/delivery.md)
     - [Standard library scope](proposals/standard-library-scope.md)
-    - [Bundled HTTP acceptance](proposals/standard-http.md)
     - [Recursive owned data](proposals/recursive-data.md)
     - [Owned structures and checked node identities](proposals/arenas.md)
         - [Arena prototype assessment](proposals/arenas/prototype.md)
@@ -488,9 +487,6 @@
         - [Native stackful-task spike evidence](proposals/stackful-tasks/evidence.md)
     - [Plenty's next language phase](proposals/next-language-phase.md)
     - [Keyword arguments, defaults, and static unpacking](proposals/keyword-arguments-and-unpacking.md)
-    - [Explicit error composition](proposals/error-composition.md)
-        - [Experiments and typed streams](proposals/error-composition/streams-and-evidence.md)
-    - [Finite error sets as anonymous sums](proposals/error-sets.md)
     - [Typestate and owned transitions](proposals/typestate-and-owned-transitions.md)
     - [Linear obligations](proposals/linear-obligations.md)
         - [Linear values, aggregates, and errors](proposals/linear-obligations/values-and-errors.md)
@@ -521,6 +517,10 @@
         - [Bounded channel implementation](proposals/completed/bounded-channels.md)
         - [Named arguments and fresh defaults](proposals/completed/named-arguments-and-fresh-defaults.md)
         - [Human-readable formatting and error reports](proposals/completed/error-formatting.md)
+        - [Explicit error composition](proposals/completed/error-composition.md)
+            - [Experiments and typed streams](proposals/completed/error-composition/streams-and-evidence.md)
+        - [Finite error sets as anonymous sums](proposals/completed/error-sets.md)
+        - [Bundled HTTP acceptance](proposals/completed/standard-http.md)
 
 # Development
 
