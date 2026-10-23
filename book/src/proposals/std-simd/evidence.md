@@ -7,7 +7,7 @@ lowering, and another optimizer's recognition of equivalent scalar loops.
 
 ## Reproduce
 
-The checked-in [experiment](../../../../experiments/simd/README.md) contains a
+The checked-in experiment (`experiments/simd/README.md` in the repository) contains a
 locked isolated Rust package, C comparison/verification harness, a Plenty
 pipeline program, and a runner that preserves objects, assembly, compiler
 remarks, exit status and command timings. No changes to the production compiler
