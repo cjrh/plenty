@@ -17,7 +17,10 @@ such as the annotation in `names: list[str] = []?`; a typed constructor such as
 context supplies the type.
 Already typed entries never implicitly narrow.
 
-The owner is allocated first, then entries evaluate left to right. A failed
+List displays reserve space for all entries before evaluating any of them;
+their element buffer does not grow during insertion. Other displays and
+comprehensions start with an empty owner and grow as needed. Entries evaluate
+left to right after initial storage succeeds. A failed
 insertion stops evaluation and destroys the initialized prefix; unevaluated
 entries have no effects. Nested fallible expressions require their own `?`.
 A display's error is always `AllocError`, so `?` on it needs a function
@@ -26,6 +29,16 @@ as `Result[_, AllocError | IoError]` when it also prints. Otherwise match the
 result and convert the error explicitly.
 Propagation leaves the enclosing function, not merely the display. Comprehension
 evaluation follows the [iteration rules](../../language/09-iteration/index.md).
+
+A directly iterated nonempty `i64` list display with constant integer entries
+at a constant step, such as `for n in [2, 4, 6]?:`, is lowered to a counted
+loop without collection storage. Repeated entries, descending sequences,
+singletons, `.unwrap()`, and `reversed(...)` are supported too, provided the
+step fits `i64`. Borrowed sources, other element types, nonuniform sequences,
+and expressions with effects retain ordinary materialization. This is an
+allocation optimization: the source still needs valid Result handling,
+including a compatible enclosing error type for `?`. Use `range` when a
+sequence is naturally described by bounds and a step.
 
 ## Reservation and insertion
 

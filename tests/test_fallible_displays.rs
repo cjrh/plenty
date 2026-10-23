@@ -98,7 +98,7 @@ fn failure_at_each_literal_allocation_is_recoverable() {
     for (literal, allocations, value) in [
         (
             "[1, 2, 3, 4, 5, 6, 7, 8, 9]",
-            4,
+            2,
             "Result[list[i64], AllocError].Ok([1, 2, 3, 4, 5, 6, 7, 8, 9])",
         ),
         ("{1, 2}", 4, "Result[set[i64], AllocError].Ok({1, 2})"),
@@ -130,7 +130,7 @@ fn failure_at_each_literal_allocation_is_recoverable() {
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn failed_growth_skips_later_entry_expressions() {
+fn failed_reservation_skips_entry_expressions() {
     native(
         r#"
 def unexpected() -> i64:
