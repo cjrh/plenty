@@ -848,7 +848,7 @@ impl Lowerer<'_, '_> {
         self.bcx.switch_to_block(iteration);
         self.bcx.seal_block(iteration);
         self.loop_targets.push((header, exit));
-        self.enter_loop_exits(exit);
+        self.enter_loop_exits(header, exit);
         for (index, op) in body.iter().enumerate() {
             if self.terminated {
                 break;

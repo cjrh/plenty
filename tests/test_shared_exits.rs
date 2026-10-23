@@ -1,5 +1,6 @@
-//! A function's `?` failures, returns, tail calls and `break`s share their
-//! cleanup and release code (issues #407 and #417): code grows linearly with
+//! A function's `?` failures, returns, tail calls, `break`s and `continue`s
+//! share their cleanup and release code (issues #407, #417 and #419): code
+//! grows linearly with
 //! the number of exits and live owned locals, and every exit still drops in
 //! scope-exit order.
 mod support;
@@ -40,38 +41,42 @@ def run(stop: i64) -> Result[(), AllocError | IoError]:
 "#;
 
 /// Machine-code bytes of `run` in a program with `n` owned locals, each
-/// followed by `exit`, taken when `stop` names the local. A nonempty
-/// `around` opens the block holding them. The strings are borrowed, so they
-/// live in the frame.
-fn exits_bytes(n: usize, around: &str, exit: &str) -> usize {
+/// followed by `exit`, taken when `stop` names the local; `{i}` in `exit`
+/// names the local's index, and functions `to0` to `to{n-1}` take `stop`.
+/// `around` opens the nested blocks holding them. The strings are borrowed,
+/// so they live in the frame.
+fn exits_bytes(n: usize, around: &[&str], exit: &str) -> usize {
     let mut source = String::from(SCOPE);
-    let indent = if around.is_empty() {
-        "    "
-    } else {
-        "        "
-    };
-    if !around.is_empty() {
-        source.push_str(&format!("    {around}\n"));
+    let mut indent = String::from("    ");
+    for line in around {
+        source.push_str(&format!("{indent}{line}\n"));
+        indent.push_str("    ");
     }
     for i in 0..n {
+        let exit = exit.replace("{i}", &i.to_string());
         source.push_str(&format!(
             "{indent}t{i} = \"item\".concat(\"-{i}\")?\n{indent}print(&t{i})?\n\
              {indent}if stop == {i}:\n{indent}    {exit}\n"
         ));
     }
-    if around.starts_with("while") {
+    if around.first().is_some_and(|line| line.starts_with("while")) {
         source.push_str(&format!("{indent}break\n"));
     }
     source.push_str("    Ok(())\n");
+    for i in 0..n {
+        source.push_str(&format!(
+            "\ndef to{i}(stop: i64) -> Result[(), AllocError | IoError]:\n    print(stop, {i})?\n    Ok(())\n"
+        ));
+    }
     function_bytes(&source, "run")
 }
 
 /// Asserts that 40 exits take at most 2.2 times the code of 20.
-fn assert_linear(around: &str, exit: &str) {
+fn assert_linear(around: &[&str], exit: &str) {
     let (small, large) = (exits_bytes(20, around, exit), exits_bytes(40, around, exit));
     assert!(
         large * 10 <= small * 22,
-        "`{exit}` in `{around}`: 20 exits: {small} bytes, 40 exits: {large} bytes"
+        "`{exit}` in {around:?}: 20 exits: {small} bytes, 40 exits: {large} bytes"
     );
 }
 
@@ -111,19 +116,31 @@ fn function_bytes(source: &str, name: &str) -> usize {
 fn returns_in_a_context_grow_linearly() {
     // Lowering each return's scope cleanup inline made 40 returns 5.6 times
     // the size of 20; shared exits make it 2.0.
-    assert_linear("with Scope(\"s\"):", "return Ok(())");
+    assert_linear(&["with Scope(\"s\"):"], "return Ok(())");
 }
 
 #[test]
 fn breaks_grow_linearly() {
     // Inline: 2.9 times; shared: 2.0.
-    assert_linear("while stop >= 0:", "break");
+    assert_linear(&["while stop >= 0:"], "break");
+}
+
+#[test]
+fn continues_grow_linearly() {
+    // Inline (issue #419): 2.6 times; shared: 1.9.
+    assert_linear(&["for k in range(3):", "with Scope(\"s\"):"], "continue");
 }
 
 #[test]
 fn tail_calls_grow_linearly() {
     // Inline: 3.2 times; shared: 2.0.
-    assert_linear("", "return finish(stop)");
+    assert_linear(&[], "return finish(stop)");
+}
+
+#[test]
+fn tail_calls_to_different_callees_grow_linearly() {
+    // A chain per callee (issue #419): 3.0 times; shared: 2.0.
+    assert_linear(&[], "return to{i}(stop)");
 }
 
 #[test]
@@ -345,6 +362,107 @@ def main() -> ():
         "tails 1|show a|b|a|finish 1|result 1",
         "tails 2|show a|show c|c|b|a|finish 2|result 2",
         "tails 3|show a|show c|c|b|a|finish 3|result 3",
+    ]
+    .join("|")
+        + "|";
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace('\n', "|"),
+        expected
+    );
+}
+
+#[test]
+fn continues_and_tail_calls_to_different_callees_drop_in_scope_order() {
+    // `keep` leaves `c`'s slot empty; `zero` and `one` share releases.
+    let output = support::run(
+        r#"class Guard:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+
+class Scope:
+    name: str
+    def __enter__(self: &mut Scope) -> ():
+        print("enter", self.name).unwrap()
+    def __exit__(self: &mut Scope) -> ():
+        print("exit", self.name).unwrap()
+
+def show(g: &Guard) -> ():
+    print("show", g.name).unwrap()
+
+def keep(g: Guard) -> ():
+    print("keep", g.name).unwrap()
+
+def continues(stop: i64) -> i64:
+    mut n = 0
+    for i in range(2):
+        a = Guard("a")
+        with Scope("loop"):
+            b = Guard("b")
+            show(&b)
+            if i == stop:
+                continue
+            c = Guard("c")
+            if i + 10 == stop:
+                keep(c)
+                continue
+            for j in range(2):
+                d = Guard("d")
+                if i * 10 + j + 100 == stop:
+                    continue
+                e = Guard("e")
+                show(&e)
+            n += 1
+        n += 10
+    n
+
+def zero(n: i64) -> i64:
+    print("zero", n).unwrap()
+    n
+
+def one(n: i64) -> i64:
+    print("one", n).unwrap()
+    n
+
+def tails(stop: i64) -> i64:
+    a = Guard("a")
+    show(&a)
+    if stop == 0:
+        return zero(0)
+    b = Guard("b")
+    if stop == 1:
+        return one(1)
+    c = Guard("c")
+    show(&c)
+    if stop == 2:
+        return zero(2)
+    one(3)
+
+def main() -> ():
+    for stop in [0, 1, 10, 101, 99].unwrap():
+        print("continues", stop).unwrap()
+        print("result", continues(stop)).unwrap()
+    for stop in range(4):
+        print("tails", stop).unwrap()
+        print("result", tails(stop)).unwrap()
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Lowering each exit inline printed the same.
+    let expected = [
+        "continues 0|enter loop|show b|b|exit loop|a|enter loop|show b|show e|e|d|show e|e|d|c|b|exit loop|a|result 11",
+        "continues 1|enter loop|show b|show e|e|d|show e|e|d|c|b|exit loop|a|enter loop|show b|b|exit loop|a|result 11",
+        "continues 10|enter loop|show b|keep c|c|b|exit loop|a|enter loop|show b|show e|e|d|show e|e|d|c|b|exit loop|a|result 11",
+        "continues 101|enter loop|show b|show e|e|d|d|c|b|exit loop|a|enter loop|show b|show e|e|d|show e|e|d|c|b|exit loop|a|result 22",
+        "continues 99|enter loop|show b|show e|e|d|show e|e|d|c|b|exit loop|a|enter loop|show b|show e|e|d|show e|e|d|c|b|exit loop|a|result 22",
+        "tails 0|show a|a|zero 0|result 0",
+        "tails 1|show a|b|a|one 1|result 1",
+        "tails 2|show a|show c|c|b|a|zero 2|result 2",
+        "tails 3|show a|show c|c|b|a|one 3|result 3",
     ]
     .join("|")
         + "|";

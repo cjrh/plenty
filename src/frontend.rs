@@ -4680,11 +4680,9 @@ impl Lower<'_> {
                         })
                     })?;
                     let scope = *self.loop_scopes.last().unwrap();
+                    self.leaving(scope, ops);
                     if is_continue {
-                        self.cleanup(scope, ops);
                         ops.extend(step.iter().cloned());
-                    } else {
-                        self.leaving(scope, ops);
                     }
                     ops.push(if is_continue { Op::Continue } else { Op::Break });
                     return exited_block(body, i);

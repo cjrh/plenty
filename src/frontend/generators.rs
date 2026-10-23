@@ -350,8 +350,8 @@ impl Lower<'_> {
             }
         }
     }
-    /// [`Self::cleanup`] for the `return` or `break` that follows, marked so
-    /// code generation can share it between exits (issue #417).
+    /// [`Self::cleanup`] for the `return`, `break` or `continue` that follows,
+    /// marked so code generation can share it between exits (issue #417).
     pub(super) fn leaving(&self, start: usize, ops: &mut Vec<Op>) {
         let marker = ops.len();
         ops.push(Op::Leaving);
