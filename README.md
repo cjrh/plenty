@@ -92,7 +92,9 @@ place ABI, lifetime, and aliasing obligations on foreign code.
 ## Compiler benchmarks
 
 It's early days, but not too terrible. I set up and ran a benchmark from
-https://github.com/nordlow/compiler-benchmark locally:
+https://github.com/nordlow/compiler-benchmark locally. The DMD compiler
+is by far the fastest on this benchmark by like an order of magnitude faster
+than the numbers below, but I don't have it installed so it is omitted.
 
  40,000 functions, three requested runs, caches disabled:
 
