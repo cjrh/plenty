@@ -621,7 +621,7 @@ fn emit_object(
         crate::parallel::workers(),
         build,
     )?
-    .finish();
+    .finish()?;
     // Written section by section: the file's bytes are never all in memory
     // beside the sections (issue #54).
     let file = std::io::BufWriter::new(std::fs::File::create(output)?);
@@ -641,7 +641,7 @@ fn object_bytes(
     build: Build,
 ) -> Result<Vec<u8>> {
     let module = object_module(ops, heap, entry, exports, interface, workers, build)?;
-    Ok(module.finish().emit()?)
+    Ok(module.finish()?.emit()?)
 }
 
 /// Every definition of the object, not yet serialized. Takes the program to
