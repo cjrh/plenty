@@ -163,6 +163,7 @@ fn expression_endings(
             op,
             Op::Loan(_)
                 | Op::UseLoan(_)
+                | Op::EndLoan(_)
                 | Op::Site(_)
                 | Op::CallerSite(_)
                 | Op::Returning(..)

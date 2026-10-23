@@ -39,7 +39,8 @@ uses the list index rules for `buffer[i]` reads and writes.
 Collections move on assignment, owned calls, and returns. Independent duplication
 uses [copy](construction-copy.md). Indexed reads do not extract affine owners:
 use an explicit element reference, an owned removal operation, or copying.
-Element loans conservatively protect the whole collection. See
+Element loans protect the whole collection unless they use distinct
+nonnegative integer literal list indices. See
 [borrowing](../../language/05-ownership/index.md) and
 [iteration](../../language/09-iteration/index.md).
 

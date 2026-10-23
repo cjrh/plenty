@@ -170,12 +170,12 @@ fn element_references_hold_the_list_loan() {
     let shared = support::check_error(
         "mut xs = [1, 2].unwrap()\nr = &xs[0]\nxs.append(3).unwrap()\nprint(*r).unwrap()\n",
     );
-    assert!(shared.contains("while it is borrowed"), "{shared}");
+    assert!(shared.contains("while `xs[0]` is borrowed"), "{shared}");
     let exclusive = support::check_error(
         "mut xs = [1, 2].unwrap()\nr = &mut xs[0]\nprint(len(xs)).unwrap()\n*r = 3\n",
     );
     assert!(
-        exclusive.contains("while it is exclusively borrowed"),
+        exclusive.contains("while `xs[0]` is exclusively borrowed"),
         "{exclusive}"
     );
 }

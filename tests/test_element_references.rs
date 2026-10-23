@@ -69,7 +69,7 @@ fn element_loans_reject_invalidating_access() {
     for source in [
         "mut a = [1].unwrap()\nr = &a[0]\na.append(2).unwrap()\nprint(r).unwrap()",
         "mut a = [1].unwrap()\nr = &a[0]\ndrop(a)\nprint(r).unwrap()",
-        "mut a = [1, 2].unwrap()\nr = &mut a[0]\ns = &mut a[1]\nprint(r).unwrap()\nprint(s).unwrap()",
+        "mut a = [1, 2].unwrap()\ni = 1\nr = &mut a[0]\ns = &mut a[i]\nprint(r).unwrap()\nprint(s).unwrap()",
         "a = [1].unwrap()\nr = &mut a[0]",
         "mut a = {1: 2}.unwrap()\nr = &a[1]\na.pop(1)\nprint(r).unwrap()",
     ] {
@@ -125,5 +125,129 @@ fn borrowed_loops_protect_storage_and_owned_elements() {
         "a = [[1].unwrap()].unwrap()\nfor item in &a:\n    owned: list[i64] = *item",
     ] {
         assert!(support::check_source(source).is_err(), "{source}");
+    }
+}
+
+/// Distinct nonnegative integer literals name distinct list elements, so
+/// their loans coexist. Reads and writes of another literal index do too.
+#[test]
+fn distinct_literal_list_indices_are_disjoint() {
+    support::assert_stdout(
+        r#"
+def add_into(target: &mut list[i64], source: &list[i64]) -> Result[(), AllocError]:
+    for value in source:
+        target.append(*value)?
+    Ok(())
+
+def first_two(values: &mut list[i64]) -> ():
+    a = &mut values[0]
+    b = &values[1]
+    *a = *a + *b
+
+def main() -> Result[(), AllocError | IoError]:
+    mut buffers = [[1, 2]?, [3]?]?
+    add_into(&mut buffers[1], &buffers[0])?
+    front = &mut buffers[0]
+    buffers[1].append(4)?
+    front.append(9)?
+    print(buffers)?
+    mut grid = [[1, 2]?, [3, 4]?]?
+    top = &mut grid[0][1]
+    bottom = &grid[1][1]
+    *top = *bottom
+    print(grid)?
+    mut xs = [1, 2, 3]?
+    a = &mut xs[0]
+    xs[1] = 7
+    xs[2] += 10
+    print(xs[2])?
+    *a = 5
+    print(xs)?
+    first_two(&mut xs)
+    print(xs)?
+    for i in range(2):
+        left = &mut xs[0]
+        right = &mut xs[1]
+        *left = *left + i
+        *right = *right + i
+    print(xs)?
+    Ok(())
+"#,
+        "[[1, 2, 9], [3, 1, 2, 4]]\n[[1, 4], [3, 4]]\n13\n[5, 7, 13]\n[12, 7, 13]\n[13, 8, 13]\n",
+    );
+}
+
+/// Everything that is not two distinct literal indices still borrows the
+/// whole list, and any whole-list access conflicts with an element loan.
+#[test]
+fn unproven_indices_and_whole_list_access_conflict() {
+    let cases = [
+        (
+            "a = &mut xs[0]\nb = &mut xs[0]\n*a = 1\n*b = 2",
+            "`xs[0]` while it is exclusively borrowed",
+        ),
+        (
+            "a = &mut xs[0]\nb = &xs[0]\n*a = 1\nprint(b).unwrap()",
+            "`xs[0]` while it is exclusively borrowed",
+        ),
+        (
+            "i = 1\na = &mut xs[0]\nb = &mut xs[i]\n*a = 1\n*b = 2",
+            "`xs` while `xs[0]` is exclusively borrowed",
+        ),
+        (
+            "a = &mut xs[2]\nb = &mut xs[-1]\n*a = 1\n*b = 2",
+            "`xs` while `xs[2]` is exclusively borrowed",
+        ),
+        (
+            "a = &mut xs[0]\nxs.append(4).unwrap()\n*a = 1",
+            "`xs` while `xs[0]` is exclusively borrowed",
+        ),
+        (
+            "a = &xs[0]\nxs.clear()\nprint(a).unwrap()",
+            "`xs` while `xs[0]` is borrowed",
+        ),
+        (
+            "a = &xs[0]\nxs.pop()\nprint(a).unwrap()",
+            "`xs` while `xs[0]` is borrowed",
+        ),
+        (
+            "a = &xs[0]\nxs = [4].unwrap()\nprint(a).unwrap()",
+            "assign to `xs` while `xs[0]` is borrowed",
+        ),
+        (
+            "a = &xs[0]\ndrop(xs)\nprint(a).unwrap()",
+            "use of moved binding `xs`",
+        ),
+        (
+            "a = &mut xs[0]\nprint(len(xs)).unwrap()\n*a = 1",
+            "read or borrow `xs` while `xs[0]` is exclusively borrowed",
+        ),
+        (
+            "a = &mut xs[0]\ntake(&xs)\n*a = 1",
+            "read or borrow `xs` while `xs[0]` is exclusively borrowed",
+        ),
+        (
+            "a = &mut xs[0]\nfor x in &xs:\n    print(x).unwrap()\n*a = 1",
+            "`xs` while `xs[0]` is exclusively borrowed",
+        ),
+        (
+            "mut d = {1: 2, 3: 4}.unwrap()\na = &mut d[1]\nb = &mut d[3]\n*a = 1\n*b = 2",
+            "`d` while it is exclusively borrowed",
+        ),
+        (
+            "a = &mut xs[0]\nfor i in range(2):\n    b = &mut xs[0]\n    *b = i\n*a = 1",
+            "`xs[0]` while it is exclusively borrowed",
+        ),
+        (
+            "mut a = &mut xs[0]\nb = &mut xs[1]\n*a = 1\n*b = 2",
+            "`xs[1]` while `xs` is exclusively borrowed",
+        ),
+    ];
+    for (body, expected) in cases {
+        let source = format!(
+            "def take(values: &list[i64]) -> ():\n    pass\nmut xs = [1, 2, 3].unwrap()\n{body}"
+        );
+        let error = support::check_diagnostic(&source);
+        assert!(error.contains(expected), "{source}\n{error}");
     }
 }

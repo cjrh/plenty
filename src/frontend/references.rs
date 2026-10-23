@@ -49,6 +49,22 @@ pub(super) fn returned_fields(function: &Function, sig: &FnSig) -> Option<Vec<us
     Some(fields)
 }
 
+/// The loan path step for a list element at a nonnegative integer literal.
+fn literal_index(collection: &Ty, index: &Expr) -> Option<usize> {
+    let Ty::List(_) = collection else {
+        return None;
+    };
+    let Expression::Number(n) = &ungroup(index).kind else {
+        return None;
+    };
+    let digits = n.strip_suffix("i64").unwrap_or(n);
+    if !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let value = digits.parse::<i64>().ok()?;
+    Some(crate::ownership::ELEMENT | value as usize)
+}
+
 impl Lower<'_> {
     /// Keep a method's already-evaluated place stable while arguments run.
     /// Runtime reference construction stays in source order; only exclusivity
@@ -184,6 +200,15 @@ impl Lower<'_> {
     pub(super) fn bind_reference(&mut self, slot: u8, loan: usize, mutable: bool, ops: &mut [Op]) {
         self.loans[loan].binding = Some(slot);
         if mutable {
+            // A list element target widens to the whole list, so the binding
+            // can later be retargeted to any element of it.
+            let fields = &mut self.loans[loan].fields;
+            if let Some(element) = fields
+                .iter()
+                .position(|step| step & crate::ownership::ELEMENT != 0)
+            {
+                fields.truncate(element);
+            }
             self.loans[loan].precise = false;
         }
         if let Some(Op::Loan(fact)) = ops
@@ -196,16 +221,19 @@ impl Lower<'_> {
         self.reference_locals.insert(slot, loan);
     }
 
-    /// A reassigned reference binding keeps the loan it was declared with, so
-    /// the new reference must be borrowed through that loan: it then stays
-    /// inside the target the loan already protects.
+    /// A reassigned reference binding keeps the loan it was declared with,
+    /// which covers the place the binding first borrowed. The new reference
+    /// must lie within that place. One borrowed through the binding extends
+    /// its loan. Any other borrow of that place ends the held loan here; the
+    /// new loan was already checked against every loan live at its creation.
+    /// Returns whether the held loan ends.
     pub(super) fn check_retargeted_reference(
         &self,
         name: &str,
         slot: u8,
-        mut loan: usize,
+        loan: usize,
         at: &Token,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let held = self.reference_locals[&slot];
         // Only a loan widened by `bind_reference` protects every later target.
         if self.loans[held].precise {
@@ -213,19 +241,25 @@ impl Lower<'_> {
                 "reference `{name}` was not declared as a `mut` reference binding and cannot be reassigned"
             )));
         }
-        loop {
-            if loan == held {
-                return Ok(());
+        let mut ancestor = Some(loan);
+        while let Some(id) = ancestor {
+            if id == held {
+                return Ok(false);
             }
-            match self.loans[loan].parent {
-                Some(parent) => loan = parent,
-                None => {
-                    return Err(at.error(format!(
-                        "reference binding `{name}` can be reassigned only to a reference borrowed from `{name}` itself"
-                    )))
-                }
-            }
+            ancestor = self.loans[id].parent;
         }
+        let (old, new) = (&self.loans[held], &self.loans[loan]);
+        if new.root != old.root {
+            return Err(at.error(format!(
+                "reference binding `{name}` can be reassigned only to a reference into the owner it first borrowed"
+            )));
+        }
+        if !new.fields.starts_with(&old.fields) {
+            return Err(at.error(format!(
+                "reference binding `{name}` can be reassigned only to a reference within the place it first borrowed"
+            )));
+        }
+        Ok(true)
     }
 
     pub(super) fn reference_origin(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
@@ -493,9 +527,14 @@ impl Lower<'_> {
                 }
             };
             let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
-            // Index identities are not proven disjoint. Descendant projections
-            // must therefore retain the whole collection's loan footprint.
-            self.loans[loan].precise = false;
+            // Only distinct literal list indices are proven disjoint. Other
+            // element loans, and descendant projections, keep the whole
+            // collection's footprint. Dictionary assignment may insert, so
+            // dictionary keys never refine a loan.
+            match literal_index(&collection, index) {
+                Some(step) if self.loans[loan].precise => self.loans[loan].fields.push(step),
+                _ => self.loans[loan].precise = false,
+            }
             for op in ops.iter_mut().rev() {
                 if let Op::Loan(fact) = op
                     && fact.id == loan
@@ -826,7 +865,14 @@ impl Lower<'_> {
                     };
                     return self.observe_inner(&element, expected, ops);
                 }
-                if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple()) {
+                // A literal list index reads through an element loan, which
+                // stays disjoint from loans of other literal indices.
+                if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple())
+                    || self
+                        .place_type(base)
+                        .and_then(|ty| literal_index(&ty, index))
+                        .is_some()
+                {
                     let (reference, loan) = self.borrow(e, false, ops)?;
                     let Ty::Ref(value, _) = reference else {
                         unreachable!()

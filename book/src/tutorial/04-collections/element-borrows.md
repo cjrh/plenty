@@ -15,8 +15,44 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 The loan ends after its last use. While an element reference is live, the
-collection cannot grow, remove entries, or move. Different indices are treated
-as potentially overlapping. Missing keys and out-of-range indices still trap.
+collection cannot grow, remove entries, or move. Missing keys and out-of-range
+indices still trap.
+
+Two list elements written as different number literals are different places, so
+both can be borrowed at once:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut scores = [10, 20, 30]?
+    first = &mut scores[0]
+    last = &mut scores[2]
+    *first = *first + *last
+    *last = 0
+    print(scores)?
+    Ok(())
+```
+```output
+[40, 20, 0]
+```
+
+The compiler proves only this literal case. Any other index, such as `i` or
+`-1`, may name the same element, so its loan covers the whole list:
+
+```plenty-error
+def main() -> Result[(), AllocError | IoError]:
+    mut scores = [10, 20, 30]?
+    i = 2
+    first = &mut scores[0]
+    last = &mut scores[i]
+    *first = *first + *last
+    Ok(())
+```
+```error
+while `scores[0]` is exclusively borrowed
+```
+
+Dictionary entries are never separated this way. To exchange two list elements
+at computed indices, [`swap`](reordering.md) them instead.
 
 Borrowed loops always give references, including when the elements are numbers.
 Printing and comparison inspect those references directly. Use `*` when a

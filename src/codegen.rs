@@ -1974,6 +1974,7 @@ fn keeps_slot_copies(op: &Op) -> bool {
             | Op::Access(..)
             | Op::Loan(_)
             | Op::UseLoan(_)
+            | Op::EndLoan(_)
     )
 }
 
@@ -2212,7 +2213,7 @@ impl Lowerer<'_, '_> {
                 target,
                 cleanup,
             } => self.lower_try(source, target, cleanup)?,
-            Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
+            Op::Loan(_) | Op::UseLoan(_) | Op::EndLoan(_) | Op::Access(..) => {}
             Op::Site(site) => {
                 if self.module.lines() {
                     self.bcx

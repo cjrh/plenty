@@ -45,7 +45,7 @@ pub(super) struct Facts {
 fn transparent(op: &Op) -> bool {
     matches!(
         op,
-        Op::Site(_) | Op::Access(..) | Op::Loan(_) | Op::UseLoan(_)
+        Op::Site(_) | Op::Access(..) | Op::Loan(_) | Op::UseLoan(_) | Op::EndLoan(_)
     )
 }
 

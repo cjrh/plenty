@@ -24,8 +24,11 @@ be borrowed independently; access to an ancestor or whole owner overlaps its
 descendants. `&items[index]` and `&mut items[index]` borrow list elements or
 dictionary values in named storage, including projected collections. Indices
 and keys follow ordinary indexing, including negative list indices and traps
-for absent entries. Element loans protect the whole collection: different
-indices are not proven disjoint, and invalidating mutation or movement conflicts.
+for absent entries. Element loans at distinct nonnegative integer literal list
+indices, such as `xs[0]` and `xs[1]`, are disjoint. Every other element loan
+protects the whole collection: a variable, computed, or negative index, and
+every dictionary key. Growth, removal, replacement, movement, and whole-list
+access such as `len(xs)` or `&xs` overlap every element loan.
 Nested fields and collection elements can be projected through these references.
 Borrowing itself allocates nothing.
 

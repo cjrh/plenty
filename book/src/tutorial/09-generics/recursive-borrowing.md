@@ -1,7 +1,7 @@
 # Walk recursive data with a reference
 
 A reference binding declared with `mut` can advance through a recursive
-structure. Each new reference must be borrowed from the binding itself:
+structure by borrowing each next step from itself:
 
 ```plenty
 class Folder:
@@ -29,6 +29,8 @@ notes
 `folder` starts at `top`. Each `&folder.inside[0]` is borrowed from `folder`, so
 the assignment is allowed. `home` stays borrowed until `folder`'s last use.
 
+It can also be pointed back at any place within `top`, such as `folder = top`.
+That ends the old loan; see [reference binding reassignment](../../design/language/05-ownership/03-reference-rebinding.md).
 Pointing it at a different value is rejected, even one of the same type:
 
 ```plenty-error
@@ -42,7 +44,7 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 ```error
-reference binding `view` can be reassigned only to a reference borrowed from `view` itself
+reference binding `view` can be reassigned only to a reference into the owner it first borrowed
 ```
 
 [Matching borrowed values](../06-data/08-borrowed-matching.md) also leaves the

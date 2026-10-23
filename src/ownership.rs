@@ -429,11 +429,16 @@ enum Slot {
 }
 type State = Vec<Slot>;
 
+/// Marks a loan path step as a list element rather than a field. Distinct
+/// literal indices denote distinct elements, so their paths diverge.
+pub const ELEMENT: usize = 1 << (usize::BITS - 1);
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Loan {
     pub id: usize,
     pub root: u8,
     /// Statically known field projections; an empty path covers the whole root.
+    /// A list element at a nonnegative literal index `k` is `ELEMENT | k`.
     pub fields: Vec<usize>,
     /// Calls expose an origin, not a field mapping. Descendants must retain its footprint.
     pub precise: bool,
@@ -841,6 +846,10 @@ impl Checker<'_, '_> {
                 ty = Some((**inner).clone());
             }
             ty = match &ty {
+                Some(Ty::List(element)) if index & ELEMENT != 0 => {
+                    path.push_str(&format!("[{}]", index & !ELEMENT));
+                    Some((**element).clone())
+                }
                 Some(Ty::Class(class)) => {
                     let Some((name, field)) = class.get().fields.get(index).cloned() else {
                         break;
@@ -1470,7 +1479,10 @@ impl Checker<'_, '_> {
                     let sends = Hazard::of(&job.input).map(|hazard| (hazard, site));
                     fn next(ops: &[Op]) -> &[Op] {
                         let start = ops.iter().position(|op| {
-                            !matches!(op, Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_))
+                            !matches!(
+                                op,
+                                Op::UseLoan(_) | Op::EndLoan(_) | Op::Site(_) | Op::CallerSite(_)
+                            )
                         });
                         &ops[start.unwrap_or(ops.len())..]
                     }
@@ -1735,6 +1747,7 @@ impl Checker<'_, '_> {
                                 before.insert(p);
                             }
                         }
+                        Some(Op::EndLoan(id)) => before.remove(id),
                         _ => {}
                     }
                     if before != live[i] {

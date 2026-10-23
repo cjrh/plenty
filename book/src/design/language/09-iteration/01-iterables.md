@@ -32,8 +32,9 @@ preserves the list and always yields `&T`, including scalars and strings.
 `for item in &mut list` yields `&mut T`, including scalar elements.
 Existing collection references follow the same access mode. Loans last
 through the loop, including backedges, and protect the source against
-invalidating mutation, movement, or destruction. Element loans protect the
-whole collection; different indices are not proven disjoint. Iteration
+invalidating mutation, movement, or destruction. Element loans follow the
+[borrowing rules](../05-ownership/02-borrowing.md): only distinct literal list
+indices are disjoint. Iteration
 references cannot escape into stored references.
 
 Borrowed temporary iterable owners remain alive through the loop and drop

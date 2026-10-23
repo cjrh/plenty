@@ -23,7 +23,7 @@ fn transparent(op: &Op) -> bool {
             | Op::CallerSite(_)
             | Op::Returning(..)
             | Op::Building(_)
-            | Op::UseLoan(_)
+            | Op::UseLoan(_) | Op::EndLoan(_)
             | Op::Access(..)
             | Op::Loan(_)
             // Scope cleanup after an extraction, such as `drop_job()`'s
