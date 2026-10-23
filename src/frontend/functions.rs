@@ -63,11 +63,6 @@ impl Functions {
         self.get(name).is_some()
     }
 
-    pub(super) fn get_mut(&mut self, name: &str) -> Option<&mut Arc<FnSig>> {
-        let symbol = self.symbol(name)?;
-        self.entries[symbol.0 as usize].sig.as_mut()
-    }
-
     pub(super) fn insert(&mut self, name: String, sig: Arc<FnSig>) {
         let symbol = match self.symbol(&name) {
             Some(symbol) => symbol,
@@ -109,17 +104,23 @@ impl Functions {
         *entry = Some(declared);
     }
 
-    pub(super) fn lowered(&self, name: &str) -> bool {
-        self.declared(name)
+    pub(super) fn lowered(&self, symbol: Symbol) -> bool {
+        self.declared_at(symbol)
             .expect("a lowered function is declared")
             .lowered
+    }
+
+    pub(super) fn sig_mut(&mut self, symbol: Symbol) -> &mut Arc<FnSig> {
+        self.entries[symbol.0 as usize]
+            .sig
+            .as_mut()
+            .expect("a lowered function has a registered signature")
     }
 
     /// Marks a function lowered and releases its syntax tree. A function with
     /// a generator parameter keeps its tree: each frame specialization copies
     /// its declaration.
-    pub(super) fn complete(&mut self, name: &str, sig: &FnSig) {
-        let symbol = self.symbol(name).expect("a lowered function is declared");
+    pub(super) fn complete(&mut self, symbol: Symbol, sig: &FnSig) {
         let declared = self
             .declared_mut(symbol)
             .expect("a lowered function is declared");

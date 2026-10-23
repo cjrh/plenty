@@ -5295,7 +5295,8 @@ fn register_signature(
     aliases: &TypeAliases,
     sigs: &mut functions::Functions,
 ) -> Result<Arc<FnSig>> {
-    register_resolved(f, None, aliases, sigs)
+    let symbol = sigs.intern(&f.name);
+    register_resolved(symbol, f, None, aliases, sigs)
 }
 
 /// [`register_signature`] for a function whose parameter and return types
@@ -5304,6 +5305,7 @@ fn register_signature(
 /// only the cost differs.
 #[cfg_attr(feature = "profile", hotpath::measure)]
 fn register_resolved(
+    symbol: functions::Symbol,
     f: &Function,
     resolved: Option<generics::Signature>,
     aliases: &TypeAliases,
@@ -5321,7 +5323,6 @@ fn register_resolved(
     }
     // The entry is found once and filled below: a whole-program table costs
     // a cache miss per probe once it outgrows the caches (issue #57).
-    let symbol = sigs.intern(&f.name);
     if sigs.sig(symbol).is_some() {
         return Err(f.at.error(format!(
             "function `{}` is already defined; redefinition is not supported",
@@ -5396,6 +5397,7 @@ fn register_resolved(
 /// note: see `ownership::Instantiation`.
 #[cfg_attr(feature = "profile", hotpath::measure)]
 fn lower_function(
+    symbol: functions::Symbol,
     f: Arc<Function>,
     heap: &mut Heap,
     sigs: &mut functions::Functions,
@@ -5403,14 +5405,14 @@ fn lower_function(
     aliases: &TypeAliases,
     access: &modules::AccessMap,
 ) -> Result<()> {
-    if sigs.lowered(&f.name) {
+    if sigs.lowered(symbol) {
         return Ok(());
     }
     let required = generics.required.get(&f.name).cloned();
     let outer = aliases
         .data
         .attribute(required.clone().map(data::Requiring::Instance));
-    let lowered = lower_body(f, heap, sigs, generics, aliases, access);
+    let lowered = lower_body(symbol, f, heap, sigs, generics, aliases, access);
     aliases.data.attribute(outer);
     lowered.map_err(|error| {
         if error.is::<Attributed>() {
@@ -5428,6 +5430,7 @@ fn lower_function(
 }
 
 fn lower_body(
+    symbol: functions::Symbol,
     f: Arc<Function>,
     heap: &mut Heap,
     sigs: &mut functions::Functions,
@@ -5438,10 +5441,13 @@ fn lower_body(
     let (mut sig, mut yield_type, mut lower, mut body) = crate::profile_block!(
         "frontend::setup_function",
         {
-            if !generics.active.insert(f.name.clone()) {
+            if !generics.active.insert(symbol) {
                 return Err(f.at.error("recursive generator factory requires a concrete return type; recursive inline frames are not supported"));
             }
-            let sig = Arc::clone(&sigs[&f.name]);
+            let sig = Arc::clone(
+                sigs.sig(symbol)
+                    .expect("a lowered function has a registered signature"),
+            );
             if let Some(declaration) = &f.foreign {
                 let mut body: Vec<_> = (0..sig.inputs.len())
                     .map(|i| Op::LoadLocal(i as u8))
@@ -5456,8 +5462,8 @@ fn lower_body(
                     .iter()
                     .map(|(_, t)| t.clone())
                     .collect::<Vec<_>>();
-                generics.active.remove(&f.name);
-                sigs.complete(&f.name, &sig);
+                generics.active.remove(&symbol);
+                sigs.complete(symbol, &sig);
                 generics.compiled.push(Op::DefineFn(
                     f.name.clone(),
                     Box::new(CompiledFn {
@@ -5627,17 +5633,14 @@ fn lower_body(
                     inputs: sig.inputs.clone(),
                     outputs: output.into_iter().collect(),
                 });
-                *lower
-                    .sigs
-                    .get_mut(&f.name)
-                    .expect("a lowered function has a registered signature") = sig.clone();
+                *lower.sigs.sig_mut(symbol) = sig.clone();
             }
             if inferred_frame {
                 // Check empty variants and propagation paths again with the resolved
                 // return context. Calls/specializations are cached across this pass.
                 drop(lower);
-                generics.active.remove(&f.name);
-                return lower_function(f, heap, sigs, generics, aliases, access);
+                generics.active.remove(&symbol);
+                return lower_function(symbol, f, heap, sigs, generics, aliases, access);
             }
         } else if let Some(Ty::Generator(t)) = sig.outputs.first() {
             t.set_slots(
@@ -5686,8 +5689,8 @@ fn lower_body(
             body: body.into(),
             locals: lower.locals.into(),
         };
-        generics.active.remove(&f.name);
-        sigs.complete(&f.name, &compiled.sig);
+        generics.active.remove(&symbol);
+        sigs.complete(symbol, &compiled.sig);
         generics
             .compiled
             .push(Op::DefineFn(f.name.clone(), Box::new(compiled)));
@@ -5775,8 +5778,8 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     // `prepare` resolved the types of the functions it queued, in queue
     // order. Those `expand_data` queued after them are resolved here.
     let mut prepared = prepared.into_iter();
-    for f in &generics.pending {
-        let sig = register_resolved(f, prepared.next(), &aliases, &mut sigs)?;
+    for (symbol, f) in &generics.pending {
+        let sig = register_resolved(*symbol, f, prepared.next(), &aliases, &mut sigs)?;
         generator_parameters |= sig.inputs.iter().any(|(_, t)| t.unresolved_generator());
         if f.foreign.is_some() || f.export.is_some() {
             boundary.push(f.as_ref());
@@ -5890,8 +5893,10 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         None
     };
     if generator_parameters {
-        generics.pending.retain(|f| {
-            !sigs[&f.name]
+        generics.pending.retain(|(symbol, _)| {
+            !sigs
+                .sig(*symbol)
+                .expect("a queued function has a registered signature")
                 .inputs
                 .iter()
                 .any(|(_, t)| t.unresolved_generator())
@@ -5909,13 +5914,13 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                 register_signature(&f, &aliases, &mut sigs)?;
             }
         }
-        let Some(f) = generics.pending.pop_front() else {
+        let Some((symbol, f)) = generics.pending.pop_front() else {
             break;
         };
         if ide::active() && ide::skipped(&f.name) {
             continue;
         }
-        let lowered = lower_function(f, heap, &mut sigs, &mut generics, &aliases, &access);
+        let lowered = lower_function(symbol, f, heap, &mut sigs, &mut generics, &aliases, &access);
         if let Err(error) = lowered {
             // An editor check reports the error and goes on to the next
             // function; nothing is being lowered between functions.

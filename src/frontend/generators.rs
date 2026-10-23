@@ -115,8 +115,9 @@ impl Lower<'_> {
             self.generics
                 .inherit_requirement(&self.function_name, &name);
             let function = Arc::new(function);
-            self.generics.record(&function, self.sigs);
+            let symbol = self.generics.record(&function, self.sigs);
             lower_function(
+                symbol,
                 function,
                 self.heap,
                 self.sigs,
@@ -199,20 +200,25 @@ impl Lower<'_> {
             .get(name)
             .is_some_and(|s| s.outputs.iter().any(Ty::unresolved_generator))
         {
-            if self.generics.active.contains(name) {
+            let symbol = self
+                .sigs
+                .symbol(name)
+                .expect("a function with a signature has a symbol");
+            if self.generics.active.contains(&symbol) {
                 return Err(at.error(
                     "recursive generator factory cannot infer a finite concrete return layout",
                 ));
             }
             let declared = self
                 .sigs
-                .declared(name)
+                .declared_at(symbol)
                 .ok_or_else(|| at.error("missing generator factory body"))?;
             // A released declaration is already lowered.
             let Some(f) = declared.function.clone() else {
                 return Ok(());
             };
             lower_function(
+                symbol,
                 f,
                 self.heap,
                 self.sigs,

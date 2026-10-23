@@ -201,14 +201,15 @@ pub(super) struct Engine {
     pub(super) call_wrappers: HashMap<(String, Vec<usize>), String>,
     /// Conditional Context methods retain their declarations without lowering
     /// an unsupported cause's formatting body merely by constructing Context.
-    deferred_reporting: HashMap<String, Arc<Function>>,
+    deferred_reporting: HashMap<String, (functions::Symbol, Arc<Function>)>,
     cache: HashMap<(String, Vec<Ty>), String>,
     /// First-requiring dependency depth, also inherited by lifted code.
     specialization_depths: HashMap<String, usize>,
-    pub(super) pending: VecDeque<Arc<Function>>,
+    /// Functions to lower, with their symbols in the function table.
+    pub(super) pending: VecDeque<(functions::Symbol, Arc<Function>)>,
     pub(super) compiled: Vec<Op>,
     pub(super) tail_candidates: HashMap<String, Vec<tail_calls::Candidate>>,
-    pub(super) active: HashSet<String>,
+    pub(super) active: HashSet<functions::Symbol>,
     pub(super) frames: HashMap<(String, Vec<Ty>), String>,
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
@@ -245,14 +246,14 @@ impl Engine {
         table: &mut functions::Functions,
     ) {
         let function = Arc::new(function);
-        self.record(&function, table);
+        let symbol = self.record(&function, table);
         self.deferred_reporting
-            .insert(function.name.clone(), function);
+            .insert(function.name.clone(), (symbol, function));
     }
 
     pub(super) fn require_reporting_method(&mut self, name: &str) -> Option<Arc<Function>> {
-        let function = self.deferred_reporting.remove(name)?;
-        self.pending.push_back(Arc::clone(&function));
+        let (symbol, function) = self.deferred_reporting.remove(name)?;
+        self.pending.push_back((symbol, Arc::clone(&function)));
         Some(function)
     }
 
@@ -267,7 +268,11 @@ impl Engine {
         }
     }
     /// Adds a concrete function to the table without queueing it.
-    pub(super) fn record(&mut self, f: &Arc<Function>, table: &mut functions::Functions) {
+    pub(super) fn record(
+        &mut self,
+        f: &Arc<Function>,
+        table: &mut functions::Functions,
+    ) -> functions::Symbol {
         self.record_defaults(f);
         let symbol = table.intern(&f.name);
         table.declare(
@@ -278,13 +283,14 @@ impl Engine {
                 lowered: false,
             },
         );
+        symbol
     }
 
     /// Adds a concrete function to the table and to the lowering queue.
     pub(super) fn declare(&mut self, f: Function, table: &mut functions::Functions) {
         let f = Arc::new(f);
-        self.record(&f, table);
-        self.pending.push_back(f);
+        let symbol = self.record(&f, table);
+        self.pending.push_back((symbol, f));
     }
 
     /// `source` relative to the source root (unchanged without a root), and
@@ -681,13 +687,13 @@ impl Lower<'_> {
             self.aliases.data.attribute(outer);
             registered?;
             let f = Arc::new(f);
-            self.generics.record(&f, self.sigs);
+            let id = self.generics.record(&f, self.sigs);
             if !self.sigs[&f.name]
                 .inputs
                 .iter()
                 .any(|(_, t)| t.unresolved_generator())
             {
-                self.generics.pending.push_back(f);
+                self.generics.pending.push_back((id, f));
             }
         }
         Ok(symbol)
