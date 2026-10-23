@@ -254,6 +254,14 @@ and checks search, print, 404 and custom highlighting assets. Source checking
 alone cannot catch a malformed `SUMMARY.md` that leaves a chapter unrendered.
 Neither checker validates external URLs or heading anchors.
 
+Book links must target published pages or assets. A relative link to a repository
+file outside `book/src` can pass the source check but fail the site build because
+mdBook does not publish that file. Refer to such files with a repository-relative
+code path (for example, `experiments/rust-crates/README.md`), or include the needed
+content in a book page. Run the complete site helper after adding links; a
+successful `mdbook build` alone does not validate generated links, including
+those in `print.html`.
+
 The Pages artifact is only `book/site`, which remains ignored. It contains all
 admitted versions together, so development updates preserve older books. Each
 build receives its own `site-url` prefix for nested 404 assets. Check navigation,

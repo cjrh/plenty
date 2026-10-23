@@ -1,8 +1,8 @@
 # Three Rust crate prototype results
 
 Companion to [Using Rust crates in Plenty](../rust-crate-dependencies.md).
-Reproducible code, commands and checked result snapshots are in
-[`experiments/rust-crates`](../../../../experiments/rust-crates/README.md).
+Reproducible code, commands and checked result snapshots are in the repository's
+`experiments/rust-crates/` directory; start with its `README.md`.
 These are bounded experiments against Plenty `d7332b6c`, not shipped features.
 
 ## One workload, three paths
@@ -80,7 +80,7 @@ were an environment issue, not evidence the approach was infeasible.
 
 ## Cost observations and interpretation
 
-See the committed [measurement snapshot](../../../../experiments/rust-crates/RESULTS.md)
+See the committed measurement snapshot at `experiments/rust-crates/RESULTS.md`
 for exact values and all samples. The initial isolated dependency/tool build took
 85 seconds; subsequent fixture builds were warm. Adapter-plus-link builds were
 roughly a tenth of a second. Cranelift object emission took a few milliseconds.
