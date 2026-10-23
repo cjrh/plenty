@@ -1,0 +1,12 @@
+class Trace:
+    tag: i64
+
+    def __del__(self) -> ():
+        print(self.tag).unwrap()
+
+def add(left: i64, right: i64) -> i64:
+    left + right
+
+def main() -> ():
+    must_not_unwind = Trace(99)
+    print(add(i64.MAX, 1)).unwrap()
