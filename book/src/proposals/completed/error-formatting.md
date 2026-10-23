@@ -8,9 +8,10 @@
 > [`std.error`](../../design/stdlib/error.md) define current behavior.
 >
 > Floating-point report formatting and dynamic cause-chain interfaces are
-> extensions, not prerequisites for this completed core. Builtin `Failure`
-> removal belongs to the separate [anonymous-sum migration](../error-sets.md).
-> The [composition overview](../error-composition.md) explains how mapping,
+> extensions, not prerequisites for this completed core. The
+> [anonymous-sum decision](error-sets.md#replacing-failure) retains builtin
+> `Failure` as a last resort after removing the cases that forced erasure.
+> The [composition overview](error-composition.md) explains how mapping,
 > sums, reporting, and typed streams fit together; remaining work stays in
 > B71 of the [backlog](../../backlog.md).
 

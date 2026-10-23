@@ -1,20 +1,23 @@
 # Bundled HTTP acceptance
 
-> **Status: Partly implemented.** The [HTTP framing layer](../design/stdlib/http.md),
-> [client](../design/stdlib/http-client.md), [server](../design/stdlib/http-server.md),
-> [TLS](../design/stdlib/tls.md), and deployment helpers ship over checked native
+> **Status: Implemented and qualified for x86-64 Linux GNU.** The
+> [HTTP framing layer](../../design/stdlib/http.md),
+> [client](../../design/stdlib/http-client.md), [server](../../design/stdlib/http-server.md),
+> [TLS](../../design/stdlib/tls.md), and deployment helpers ship over checked native
 > I/O effects and bounded workers. The server parks request heads and TLS
 > handshakes, supports signal-driven draining, and passes nginx/Caddy
-> reverse-proxy tests, which CI runs. The [qualification record](../design/stdlib/http-qualification.md)
-> owns the evidence, plain and HTTPS baselines, and limits; this is not yet a
-> production-readiness claim. Remaining qualification belongs to B66 in the
-> [backlog](../backlog.md), including coverage-guided fuzzing. The requirements below retain the original design rationale;
-> the linked references own shipped names, signatures, and backend choices.
+> reverse-proxy tests, which CI runs. The [qualification record](../../design/stdlib/http-qualification.md)
+> records every B66 gate passing, including coverage-guided fuzzing, retained
+> corpora, resource-failure tests and installed offline application checks.
+> Issue #103 is closed. The linked references own the production-readiness
+> claim, plain and HTTPS baselines, operational limits and maintenance process.
+> HTTP/2, HTTP/3 and additional platforms are outside this completed scope;
+> the requirements below preserve the original design rationale.
 
-The [library scope](standard-library-scope.md) supplies the broader context.
-[Typed stream composition](error-composition.md) is a separate API evolution:
-its additive body readers do not replace the current client or complete these
-qualification gates. [Platform qualification](cross-platform/delivery.md)
+The [library scope](../standard-library-scope.md) supplies the broader context.
+[Typed stream composition](error-composition.md) has also shipped through HTTP
+client adoption; its API acceptance is distinct from these server qualification
+gates. [Platform qualification](../cross-platform/delivery.md)
 also remains distinct from HTTP behavior on the current supported host.
 
 The bundled server should remain usable in production without requiring a

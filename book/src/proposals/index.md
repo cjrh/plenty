@@ -37,6 +37,8 @@ are not completed implementations. The reference and tutorial remain authoritati
 for current behavior. Statuses were last scanned against local `main` at
 `74fa81d8` on 2026-10-20, using the reference, implementation, and regression
 coverage. This is a status review, not a fresh execution of every feature test.
+HTTP acceptance, error composition and anonymous sums were reconciled separately
+against local `main` at `4e40c4fc` on 2026-10-23 and moved to `completed/`.
 
 ## Find a design by topic
 
@@ -45,7 +47,7 @@ coverage. This is a status review, not a fresh execution of every feature test.
 | Executable scripts and embedded metadata | [Single-file scripts](single-file-scripts.md) | [Modules and entry points](entrypoints-modules-and-tutorials.md), [current packages](../design/toolchain/01-building/packages.md) |
 | Mixed-edition packages and language evolution | [Package language editions](language-editions.md) | [Current packages](../design/toolchain/01-building/packages.md), [script metadata](single-file-scripts.md) |
 | Protocol bodies, defaults, `final`, and private hooks | [Protocol method bodies](protocol-method-bodies.md) | [Agreed rules](protocol-method-bodies/final-and-visibility.md), [short programs](protocol-method-bodies/examples.md), [existing wrappers and capabilities](library-owned-operations.md) |
-| Error composition | [Composition overview](error-composition.md) | [Anonymous sums and the `Failure` policy](error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](error-composition/streams-and-evidence.md) |
+| Error composition | [Composition overview](completed/error-composition.md) | [Anonymous sums and the `Failure` policy](completed/error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](completed/error-composition/streams-and-evidence.md) |
 | Ownership and state | [Typestate](typestate-and-owned-transitions.md) | [Linear obligations](linear-obligations.md), [resolution scopes](linear-scope-resolution.md), [integration boundaries](linear-integration.md) |
 | Linked structures and graphs | [Owned structures and checked identities](arenas.md) | [Recursive representation](recursive-data.md), [arena prototype](arenas/prototype.md) |
 | Collections | [Ordering](user-type-ordering.md) | [Stable sorting algorithm](timsort.md), [hashing and equality](user-type-hashing.md) |
@@ -78,9 +80,6 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Plenty's next language phase](next-language-phase.md) | Nine of eleven recommendations, at least in part | B13, B23, and others |
 | [Standard library scope](standard-library-scope.md) | [Embedded library](../design/stdlib/index.md), including data formats, TLS, HTTP, SQLite, signals and testing | Remaining B38–B70 scope |
 | [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | [Named calls and fresh defaults](completed/named-arguments-and-fresh-defaults.md) under the narrower design | B36: splats and signature markers remain separate candidates |
-| [Explicit error composition](error-composition.md) | [Result mapping](../design/stdlib/error.md), anonymous sums, reporting, [typed I/O](../design/stdlib/io-typed.md) and [typed HTTP bodies](../design/stdlib/http-typed.md) | B71: broader production stream composition |
-| [Finite error sets as anonymous sums](error-sets.md) | [Normalization, injection, widening, and typed-member matching](../design/language/03-types/anonymous-sums.md) | B14/B71: `Failure` kept as a last resort; residual-set inference and guards remain deferred |
-| [Bundled HTTP acceptance](standard-http.md) | [Client](../design/stdlib/http-client.md), [server](../design/stdlib/http-server.md), TLS and deployment helpers | B66 qualification |
 
 ## Not implemented
 

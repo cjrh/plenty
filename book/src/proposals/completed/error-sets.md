@@ -1,16 +1,18 @@
 # Finite error sets as anonymous sums
 
-**Status: Partly implemented.** General anonymous sums have shipped, as described in the
-[anonymous-sum reference](../design/language/03-types/anonymous-sums.md).
+**Status: Implemented within the agreed initial contract.** General anonymous
+sums have shipped, as described in the
+[anonymous-sum reference](../../design/language/03-types/anonymous-sums.md).
 It adopts `case cause: Type:` at the case position, grouped types and inline
-normalization/injection/widening. Existing pattern guards remain unsupported.
-[Human-readable reporting](completed/error-formatting.md) has also shipped.
+normalization/injection/widening, including Result widening and borrowed matching.
+[Human-readable reporting](error-formatting.md) has also shipped.
 Builtin `Failure` stays as a last resort, for when no precise error can be
-written (issue #342). The current
-[propagation reference](../design/language/08-errors/01-sums-and-propagation.md)
-remains authoritative. Scheduling belongs in B14/B71 in
-the [backlog](../backlog.md). Human-readable presentation is specified separately
-in [formatting and error reports](completed/error-formatting.md). The
+written; issue #342 closed after removing the cases that forced erasure. The current
+[propagation reference](../../design/language/08-errors/01-sums-and-propagation.md)
+remains authoritative. Case guards, residual-set inference and empty sums are
+deferred extensions in B14/B71 of the [backlog](../../backlog.md), not missing
+requirements of this completed initial contract. Human-readable presentation is specified separately
+in [formatting and error reports](error-formatting.md). The
 [composition overview](error-composition.md) separates this language feature
 from explicit mapping and typed stream APIs.
 
@@ -68,9 +70,9 @@ the type system must not restrict sums to the second argument of Result.
    This does not establish covariance for arbitrary generic containers or
    references, and does not change the success type.
 4. Reject propagation when any source alternative is absent. Diagnostics name
-   the missing alternatives and source operation. The final design removes
-   builtin `Failure` and its special erasure rule; the existing rule remains
-   only during migration.
+   the missing alternatives and source operation. The separately specified
+   builtin `Failure` erasure at `?` remains a deliberate last resort; it is not
+   lossless sum widening. Issue #342 superseded the original removal plan.
 5. Provide exhaustive, unambiguous matching by member type using
    `case cause: MemberType:`. Existing enum constructor patterns cannot identify
    every class payload; existing pattern `|` keeps its separate meaning.
@@ -128,13 +130,19 @@ named by ordinary type aliases. Keep domain enums where they express policy;
 `map_error` remains the explicit way to classify or wrap a cause. Do not replace
 erasure with an implicit catch-all member or mandatory reporting bound.
 
-Removal includes the prelude builtin, special checking/code generation, fixtures,
-examples, reference and tutorial text, and agent-facing probe guidance. The
-mutual-TLS lesson is an acceptance case: configuration and networking errors
-propagate with `?`, retaining details; intentional matches still demonstrate
-certificate rejection. Migrate only after sum propagation and reporting work.
-The final change must reject reliance on the removed builtin rather than silently
-reinterpreting old erasure. User-defined types named Failure are ordinary types.
+The original alternative was to remove the prelude builtin and its special
+checking/code generation entirely, then reject old erasure uses. That alternative
+was superseded by the issue #342 decision: retain `Failure` as a last resort and
+remove the cases that force it. C exports now accept payload-free user error
+enums; explicit retained-job errors and `drop_job()` preserve start/submission
+causes without mandatory erasure. Examples, templates and diagnostics use precise
+errors, except the benchmark template deliberately deferred during performance
+comparisons. Tests of `Failure` itself remain intentional.
+
+The mutual-TLS lesson and installed CLI/data and JSON-service workflows are
+acceptance cases for precise errors and reporting; see the
+[qualification record](../../design/stdlib/http-qualification.md#application-error-composition).
+Retaining erasure is a documented policy, not unfinished builtin removal.
 
 ## What sets do not solve
 
@@ -171,5 +179,6 @@ Explicit mapping is the implemented baseline. Add ordinary non-error sum values
 to the acceptance cases, plus Result widening on both success and failure,
 generic normalization, borrowed/mutable matching, and entrypoint reporting of
 each active member. Builtin Failure and its erasure stay as a last resort, for
-when no precise error can be written (issue #342). Production typed-stream migration remains a
-separate change: sums cannot restore causes already discarded by an adapter.
+when no precise error can be written (issue #342). Production typed-stream
+adoption subsequently shipped under the separate [composition proposal](error-composition.md):
+sums alone cannot restore causes already discarded by an adapter.
