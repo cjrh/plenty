@@ -347,6 +347,198 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.St
 }
 
 #[test]
+fn typed_heads_share_grammar_preserve_prefetch_and_recover_messages() {
+    execute_modules(
+        r#"
+import std.io
+import std.io.typed
+import std.http
+import std.http.typed
+def main() -> Result[(), IoError]:
+    bytes = std.bytes.from_text("\r\nGET /one HTTP/1.1\r\nHost: example\r\nContent-Length: 2\r\n\r\nABGET /two HTTP/1.0\r\nHost: example\r\n\r\n").unwrap()
+    mut conn = std.io.typed.buffered_reader(std.io.typed.reader(std.io.cursor(bytes)), 256).unwrap()
+    limits = std.http.limits()
+    first = std.http.typed.read_request(&mut conn, &limits).unwrap().unwrap()
+    print(first.method, first.target, first.minor, len(first.headers), conn.buffered() > 2)?
+    mut body = std.http.typed.request_body(conn, &first, &limits).unwrap()
+    mut buffer = scratch().unwrap()
+    print(body.read(&mut buffer, 0, 4).unwrap(), body.is_done())?
+    print(buffer.to_text_range(0, 2).unwrap())?
+    mut next = body.finish().unwrap()
+    second = std.http.typed.read_request(&mut next, &limits).unwrap().unwrap()
+    print(second.target, second.minor, next.buffered())?
+    print(std.http.typed.read_request(&mut next, &limits).unwrap().is_none())?
+    Ok(())
+"#,
+        "GET /one 1 2 True\n2 True\nAB\n/two 0 0\nTrue\n",
+        true,
+    );
+}
+
+#[test]
+fn typed_head_failures_keep_exact_consumed_progress_and_transport_payloads() {
+    execute_modules(
+        &format!(
+            r#"{CHUNK_SOURCE}
+import std.http
+import std.http.typed
+def main() -> Result[(), IoError]:
+    text = "HTTP/1.1 200 OK\r\nX: yes\r\n\r\n"
+    size = text.byte_len()
+    limits = std.http.limits()
+    for position in range(size):
+        mut input = wire(text).unwrap()
+        input.fail_at = position
+        input.mode = 1
+        match std.http.typed.read_response(&mut input, &limits):
+            case Err(partial):
+                match partial.cause:
+                    case FramingError.Transport(Transport.Tls(47, "body")):
+                        if partial.completed != position:
+                            print("wrong progress", position, partial.completed)?
+                    case _:
+                        print("lost transport")?
+            case Ok(_):
+                print("missed failure")?
+    mut complete = wire(text).unwrap()
+    answer = std.http.typed.read_response(&mut complete, &limits).unwrap().unwrap()
+    print(answer.status, answer.headers[0].value, complete.position == size)?
+    mut partial = wire("HTTP/1.1 200 OK\r\nX: yes\r\n").unwrap()
+    match std.http.typed.read_response(&mut partial, &limits):
+        case Err(failure):
+            print(failure.completed, reason(failure.cause))?
+        case Ok(_):
+            print("wrong")?
+    mut bad = wire("HTTP/1.1 200 OK\n").unwrap()
+    match std.http.typed.read_response(&mut bad, &limits):
+        case Err(failure):
+            print(failure.completed, reason(failure.cause))?
+        case Ok(_):
+            print("wrong")?
+    Ok(())
+"#
+        ),
+        "200 yes True\n25 truncated\n16 lf\n",
+        true,
+    );
+}
+
+#[test]
+fn typed_head_writes_keep_partial_delivery_and_validate_before_writing() {
+    execute_modules(
+        r#"
+import std.http
+import std.http.typed
+def main() -> Result[(), IoError]:
+    head = std.http.request("GET", "/").unwrap()
+    mut sink = Sink(1, 0, 0)
+    match std.http.typed.write_request(&mut sink, &head):
+        case Err(partial):
+            match partial.cause:
+                case FramingError.Transport(Storage.Full(code)):
+                    print(partial.completed, code, sink.delivered)?
+                case _:
+                    print("lost cause")?
+        case Ok(_):
+            print("wrong")?
+    mut invalid = std.http.request("GET bad", "/").unwrap()
+    invalid.add("Host", "example").unwrap()
+    mut untouched = Sink(0, 0, 0)
+    match std.http.typed.write_request(&mut untouched, &invalid):
+        case Err(partial):
+            print(partial.completed, untouched.calls)?
+        case Ok(_):
+            print("wrong")?
+    Ok(())
+"#,
+        "1 28 1\n0 0\n",
+        true,
+    );
+}
+
+#[test]
+fn typed_head_limits_and_legacy_grammar_agree() {
+    execute_modules(
+        &format!(
+            r#"{CHUNK_SOURCE}
+import std.http
+import std.http.typed
+import std.io
+import std.io.typed
+def main() -> Result[(), IoError]:
+    cases = ["HTTP/2.0 200 OK\r\n\r\n", "HTTP/1.1 099 No\r\n\r\n", "HTTP/1.1 20x No\r\n\r\n", "HTTP/1.1 200 OK\r\n bad: fold\r\n\r\n", "HTTP/1.1 200 OK\r\nBad : field\r\n\r\n", "HTTP/1.1 200 OK\r\nX: yes\n\r\n"].unwrap()
+    limits = std.http.limits()
+    for text in &cases:
+        mut old = std.io.buffered_reader(std.io.cursor(std.bytes.from_text(text).unwrap()), 64).unwrap()
+        mut typed = wire(*text).unwrap()
+        legacy = std.http.read_response(&mut old, &limits)
+        current = std.http.typed.read_response(&mut typed, &limits)
+        match legacy:
+            case Err(expected):
+                match current:
+                    case Err(failure):
+                        match failure.cause:
+                            case FramingError.Protocol(actual):
+                                print(str.repr(expected).unwrap() == str.repr(actual).unwrap())?
+                            case _:
+                                print(False)?
+                    case Ok(_):
+                        print(False)?
+            case Ok(_):
+                print(False)?
+    choices = [Limits(16, 256, 5, 0), Limits(17, 17, 5, 0), Limits(64, 256, 0, 0), Limits(1, 256, 5, 0)].unwrap()
+    for limit in &choices:
+        mut source = wire("HTTP/1.1 200 OK\r\nX: yes\r\n\r\n").unwrap()
+        match std.http.typed.read_response(&mut source, limit):
+            case Err(failure):
+                print(failure.completed, source.position)?
+            case Ok(_):
+                print("wrong")?
+    Ok(())
+"#
+        ),
+        "True\nTrue\nTrue\nTrue\nTrue\nTrue\n16 16\n17 17\n25 25\n0 0\n",
+        true,
+    );
+}
+
+#[test]
+fn typed_buffering_retains_payloads_and_checks_progress_without_empty_reads() {
+    execute_modules(
+        r#"
+import std.io.typed
+def main() -> Result[(), IoError]:
+    mut source = std.io.typed.buffered_reader(Source(1, 0), 4).unwrap()
+    mut bytes = scratch().unwrap()
+    print(source.read(&mut bytes, 1, 1).unwrap(), source.inner.calls)?
+    print(source.read(&mut bytes, -1, 1).is_err(), source.inner.calls)?
+    match source.read(&mut bytes, 0, 1):
+        case Err(StepError.Interrupted):
+            print("retry")?
+        case _:
+            print("wrong")?
+    print(source.read(&mut bytes, 0, 1).unwrap(), source.buffered(), source.inner.calls)?
+    print(source.read(&mut bytes, 1, 2).unwrap(), source.buffered(), source.inner.calls)?
+    match source.read(&mut bytes, 0, 1):
+        case Err(StepError.Source(ReadFailure.Source(Transport.Tls(code, phase)))):
+            print(code, phase)?
+        case _:
+            print("lost cause")?
+    for mode in range(3, 5):
+        mut invalid = std.io.typed.buffered_reader(Source(mode, 2), 4).unwrap()
+        match invalid.read(&mut bytes, 0, 1):
+            case Err(StepError.Source(ReadFailure.InvalidProgress)):
+                print("invalid")?
+            case _:
+                print("wrong")?
+    Ok(())
+"#,
+        "0 0\nTrue 0\nretry\n1 1 2\n1 0 2\n47 handshake\ninvalid\ninvalid\n",
+        true,
+    );
+}
+
+#[test]
 fn parsed_head_bodies_validate_framing_limits_and_connection_policy() {
     execute_modules(
         &format!(

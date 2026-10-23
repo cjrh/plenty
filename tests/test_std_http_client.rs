@@ -1342,3 +1342,135 @@ def main() -> Result[(), hc.ClientError | AllocError | IoError]:
         "2\n2\nPROPFIND-BEYOND-INLINE\nhttp://a-host-name-beyond-inline.example/a-path-beyond-inline",
     );
 }
+
+#[test]
+fn typed_client_body_progress_preserves_cancellation_and_legacy_failure_bridge() {
+    runs(
+        SCRIPTED,
+        r##"
+import std.io.typed
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
+    never = CancellationToken()?
+    mut broken = script(["HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nAB"]?, True)?
+    broken.echo = False
+    broken.cancel_once = True
+    client = hc.connector[Script, Scripts](Scripts(Mutex([broken]?), False), hc.config()?)?
+    mut response = client.send(hc.request("GET", "http://example.test/")?, &later()?, &never)?
+    mut out = std.bytes.from_text("prefix:")?
+    match response.read_all_progress(&mut out):
+        case Err(partial):
+            print(partial.completed, partial.cause)?
+        case Ok(_):
+            print("wrong")?
+    print(out.to_text()?, response.total(), response.is_done())?
+    client.finish(response)
+    print(client.idle(), client.stats().discarded)?
+    mut broken2 = script(["HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nAB"]?, True)?
+    broken2.echo = False
+    broken2.cancel_once = True
+    client2 = hc.connector[Script, Scripts](Scripts(Mutex([broken2]?), False), hc.config()?)?
+    mut response2 = client2.send(hc.request("GET", "http://example.test/")?, &later()?, &never)?
+    mut scratch = std.bytes.empty()?
+    scratch.resize(5, 0u8)?
+    print(response2.read(&mut scratch, 0, 5).unwrap())?
+    print(str.repr(response2.read(&mut scratch, 0, 5))?)?
+    print(response2.take_failure())?
+    print(response2.take_failure().is_none())?
+    Ok(())
+"##,
+        "2 std.http.client.ClientError.Net(std.net.NetError.Cancelled)\nprefix:AB 2 False\n0 1\n2\nResult[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.InvalidInput))\nOption[std.http.client.ClientError].Some(std.http.client.ClientError.Net(std.net.NetError.Cancelled))\nTrue\n",
+    );
+}
+
+#[test]
+fn typed_client_response_adapter_preserves_trailers_and_reuse() {
+    runs(
+        SCRIPTED,
+        r##"
+import std.io.typed
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
+    never = CancellationToken()?
+    mut source = script(["HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nAB\r\n0\r\nX-Final: yes\r\n\r\n"]?, True)?
+    source.echo = False
+    client = hc.connector[Script, Scripts](Scripts(Mutex([source]?), False), hc.config()?)?
+    response = client.send(hc.request("GET", "http://example.test/")?, &later()?, &never)?
+    mut stream = hc.typed_response(response)
+    mut buffer = std.bytes.empty()?
+    buffer.resize(4, 0u8)?
+    std.io.typed.read_exact(&mut stream, &mut buffer, 0, 2).unwrap()
+    print(buffer.to_text_range(0, 2)?)?
+    print(stream.read(&mut buffer, 0, 4).unwrap())?
+    recovered = hc.unwrap_response(stream)
+    print(recovered.total(), recovered.is_done(), recovered.trailers()[0].value)?
+    client.finish(recovered)
+    print(client.idle(), client.stats().discarded)?
+    client.close_idle()
+    print(client.stats().discarded)?
+    Ok(())
+"##,
+        "AB\n0\n2 True yes\n1 0\n1\n",
+    );
+}
+
+#[test]
+fn typed_client_preserves_transport_causes_in_heads_bodies_and_partial_writes() {
+    runs(
+        SCRIPTED,
+        r##"
+pub class Faulty:
+    input: Script
+    cause: ClientError
+    fail_write: bool
+    writes: i64
+
+    pub def read_before(self: &mut Faulty, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+        match self.input.read_before(buffer, start, stop, deadline, cancel):
+            case Ok(count):
+                Ok(count)
+            case Err(_):
+                Err(self.cause)
+
+    pub def write_before[S: ByteSource](self: &mut Faulty, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+        if self.fail_write:
+            self.writes += 1
+            if self.writes > 1:
+                return Err(self.cause)
+            return Ok(1)
+        self.input.write_before(source, start, stop, deadline, cancel)
+
+pub class Faults:
+    pending: Mutex[list[Faulty]]
+
+    pub def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Faulty, ClientError]:
+        mut found: Option[Faulty] = Nothing
+        with self.pending.lock() as pending:
+            found = pending.pop()
+        found.ok_or(ClientError.Net(NetError.Refused))
+
+def main() -> Result[(), std.bytes.BytesError | ClientError | RangeError | AllocError | IoError]:
+    never = CancellationToken()?
+    causes = [ClientError.Tls(hc.TlsFailure.Protocol), ClientError.Net(NetError.Cancelled), ClientError.Net(NetError.TimedOut), ClientError.Net(NetError.Reset), ClientError.Allocation(AllocError.OutOfMemory)]?
+    for cause in &causes:
+        for phase in range(3):
+            mut text = "HTTP/1.1"
+            if phase == 1:
+                text = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nAB"
+            mut source = script([text]?, True)?
+            source.echo = False
+            client = hc.connector[Faulty, Faults](Faults(Mutex([Faulty(source, *cause, phase == 2, 0)]?)), hc.config()?)?
+            match client.send(hc.request("GET", "http://example.test/")?, &later()?, &never):
+                case Err(actual):
+                    print(phase != 1 and str.repr(actual)? == str.repr(*cause)?, client.stats().discarded)?
+                case Ok(response):
+                    mut reading = response
+                    mut bytes = std.bytes.empty()?
+                    match reading.read_all_progress(&mut bytes):
+                        case Err(partial):
+                            print(phase == 1 and partial.completed == 2 and bytes.to_text()? == "AB" and str.repr(partial.cause)? == str.repr(*cause)?, client.stats().discarded)?
+                        case Ok(_):
+                            print(False)?
+    Ok(())
+"##,
+        &"True 1\n".repeat(15),
+    );
+}

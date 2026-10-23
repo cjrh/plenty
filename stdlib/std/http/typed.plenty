@@ -1,10 +1,12 @@
-# Typed HTTP body framing and connection recovery from parsed heads.
+# Typed HTTP heads, writes, body framing and connection recovery.
 # Low-level adapters require already validated framing and method/status semantics.
 from std.bytes import Bytes
 import std.bytes
 import std.http
+import std.io
 from std.http import Header, HttpError, Limits, Framing, RequestHead, ResponseHead
-from std.io.typed import Reader, StepError, within
+import std.io.typed
+from std.io.typed import Reader, Writer, StepError, Partial, WriteFailure, within
 
 pub enum FramingError[E]:
     Transport(E)
@@ -14,6 +16,141 @@ pub enum FramingError[E]:
     Broken
     NotReusable
     Protocol(HttpError)
+
+# completed is bytes consumed from this head, including CRLF and leading
+# request blank lines. Interrupted retries the current byte without losing
+# parser state. Other failures are terminal for this head.
+def head_step[E, T](result: Result[T, HttpError], completed: i64) -> Result[T, Partial[FramingError[E]]]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(Partial(completed, FramingError[E].Protocol(cause)))
+
+def head_storage[E, T](result: Result[T, std.bytes.BytesError], completed: i64) -> Result[T, Partial[FramingError[E]]]:
+    match chunk_bytes[E, T](result):
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(Partial(completed, cause))
+
+def head_line[E, R: Reader[E]](reader: &mut R, line: &mut Bytes, limits: &Limits, completed: i64) -> Result[i64, Partial[FramingError[E]]]:
+    mut limit = limits.max_line
+    mut overflow = HttpError.LineTooLong
+    if limits.max_head - completed < limit:
+        limit = limits.max_head - completed
+        overflow = HttpError.HeadTooLarge
+    line.clear()
+    mut at = 0
+    while at < limit:
+        head_storage[E, ()](line.resize(at + 1, 0u8), completed + at)?
+        match reader.read(line, at, at + 1):
+            case Ok(count):
+                if count == 0:
+                    if at == 0:
+                        return Ok(-1)
+                    return Err(Partial(completed + at, FramingError[E].Truncated))
+                if count != 1:
+                    return Err(Partial(completed + at, FramingError[E].InvalidProgress))
+                at += 1
+                if line[at - 1] == 10u8:
+                    if at < 2 or line[at - 2] != 13u8:
+                        return Err(Partial(completed + at, FramingError[E].Protocol(HttpError.BareLineFeed)))
+                    return Ok(at - 2)
+            case Err(StepError.Interrupted):
+                pass
+            case Err(StepError.Source(cause)):
+                return Err(Partial(completed + at, FramingError[E].Transport(cause)))
+    Err(Partial(completed + at, FramingError[E].Protocol(overflow)))
+
+def head_fields[E, R: Reader[E]](reader: &mut R, line: &mut Bytes, limits: &Limits, completed: i64, headers: &mut list[Header]) -> Result[(), Partial[FramingError[E]]]:
+    mut total = completed
+    while True:
+        size = head_line[E, R](reader, line, limits, total)?
+        if size < 0:
+            return Err(Partial(total, FramingError[E].Truncated))
+        total += size + 2
+        if size == 0:
+            return Ok(())
+        if len(headers) >= limits.max_headers:
+            return Err(Partial(total, FramingError[E].Protocol(HttpError.TooManyHeaders)))
+        field = head_step[E, Header](std.http.parse_field(line, size), total)?
+        match headers.append(field):
+            case Ok(_):
+                pass
+            case Err(cause):
+                return Err(Partial(total, FramingError[E].Protocol(HttpError.Allocation(cause))))
+    Ok(())
+
+def head_buffer[E](limits: &Limits) -> Result[Bytes, Partial[FramingError[E]]]:
+    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+        return Err(Partial(0, FramingError[E].Protocol(HttpError.InvalidLimit)))
+    head_storage[E, Bytes](std.bytes.empty(), 0)
+
+# These readers do not read ahead. Supply a typed BufReader for efficient
+# transport reads and retain that same reader for the body and next message.
+pub def read_request[E, R: Reader[E]](reader: &mut R, limits: &Limits) -> Result[Option[RequestHead], Partial[FramingError[E]]]:
+    mut line = head_buffer[E](limits)?
+    mut total = 0
+    mut size = 0
+    while size == 0:
+        size = head_line[E, R](reader, &mut line, limits, total)?
+        if size < 0:
+            return Ok(Nothing)
+        total += size + 2
+    mut head = head_step[E, RequestHead](std.http.parse_request_line(&line, size), total)?
+    head_fields[E, R](reader, &mut line, limits, total, &mut head.headers)?
+    Ok(Some(head))
+
+pub def read_response[E, R: Reader[E]](reader: &mut R, limits: &Limits) -> Result[Option[ResponseHead], Partial[FramingError[E]]]:
+    mut line = head_buffer[E](limits)?
+    size = head_line[E, R](reader, &mut line, limits, 0)?
+    if size < 0:
+        return Ok(Nothing)
+    total = size + 2
+    mut head = head_step[E, ResponseHead](std.http.parse_status_line(&line, size), total)?
+    head_fields[E, R](reader, &mut line, limits, total, &mut head.headers)?
+    Ok(Some(head))
+
+def write_failure[E](cause: WriteFailure[E]) -> FramingError[E]:
+    match cause:
+        case WriteFailure.Source(error):
+            FramingError[E].Transport(error)
+        case WriteFailure.WriteZero:
+            FramingError[E].Protocol(HttpError.Stream(std.io.StreamError.WriteZero))
+        case WriteFailure.InvalidProgress:
+            FramingError[E].InvalidProgress
+        case WriteFailure.OutOfRange:
+            FramingError[E].OutOfRange
+
+def deliver[E, W: Writer[E]](writer: &mut W, data: &Bytes, start: i64, stop: i64, completed: i64) -> Result[(), Partial[FramingError[E]]]:
+    match std.io.typed.write_all[E, W](writer, data, start, stop):
+        case Ok(_):
+            Ok(())
+        case Err(partial):
+            Err(Partial(completed + partial.completed, write_failure[E](partial.cause)))
+
+pub def write_request[E, W: Writer[E]](writer: &mut W, head: &RequestHead) -> Result[(), Partial[FramingError[E]]]:
+    data = head_step[E, Bytes](std.http.encode_request(head), 0)?
+    deliver[E, W](writer, &data, 0, data.len(), 0)
+
+pub def write_response[E, W: Writer[E]](writer: &mut W, head: &ResponseHead) -> Result[(), Partial[FramingError[E]]]:
+    data = head_step[E, Bytes](std.http.encode_response(head), 0)?
+    deliver[E, W](writer, &data, 0, data.len(), 0)
+
+pub def write_last_chunk[E, W: Writer[E]](writer: &mut W, trailers: &list[Header]) -> Result[(), Partial[FramingError[E]]]:
+    data = head_step[E, Bytes](std.http.encode_last_chunk(trailers), 0)?
+    deliver[E, W](writer, &data, 0, data.len(), 0)
+
+pub def write_chunk[E, W: Writer[E]](writer: &mut W, source: &Bytes, start: i64, stop: i64) -> Result[(), Partial[FramingError[E]]]:
+    if not within(start, stop, source.len()):
+        return Err(Partial(0, FramingError[E].OutOfRange))
+    if start == stop:
+        return Ok(())
+    line = head_step[E, Bytes](std.http.encode_chunk_size(stop - start), 0)?
+    deliver[E, W](writer, &line, 0, line.len(), 0)?
+    deliver[E, W](writer, source, start, stop, line.len())?
+    deliver[E, W](writer, &line, line.len() - 2, line.len(), line.len() + stop - start)
 
 pub def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]:
     if length < 0:

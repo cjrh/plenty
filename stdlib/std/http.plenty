@@ -260,7 +260,11 @@ def head_line[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, max_line: i6
         return read_line(conn, line, max_line, HttpError.LineTooLong)
     read_line(conn, line, left, HttpError.HeadTooLarge)
 
-def parse_field(line: &Bytes, size: i64) -> Result[Header, HttpError]:
+# The line parsers share validation between legacy and typed stream readers.
+# `size` excludes CRLF; callers may retain it in their reusable line buffer.
+pub def parse_field(line: &Bytes, size: i64) -> Result[Header, HttpError]:
+    if size < 0 or size > line.len():
+        return Err(HttpError.Stream(StreamError.OutOfRange))
     # A leading blank is an obsolete line fold, which RFC 9112 lets a
     # recipient reject.
     colon = run(line, 0, size, 0)
@@ -306,7 +310,9 @@ def version(data: &Bytes, start: i64, stop: i64, invalid: HttpError) -> Result[i
         return Err(HttpError.UnsupportedVersion)
     Ok(minor - 48)
 
-def parse_request_line(line: &Bytes, size: i64) -> Result[RequestHead, HttpError]:
+pub def parse_request_line(line: &Bytes, size: i64) -> Result[RequestHead, HttpError]:
+    if size < 0 or size > line.len():
+        return Err(HttpError.Stream(StreamError.OutOfRange))
     method_end = run(line, 0, size, 0)
     if method_end == 0 or method_end == size or line[method_end] != space:
         return Err(HttpError.InvalidRequestLine)
@@ -318,7 +324,9 @@ def parse_request_line(line: &Bytes, size: i64) -> Result[RequestHead, HttpError
     target = text_of(line, method_end + 1, target_end, HttpError.InvalidRequestLine)?
     Ok(RequestHead(method, target, minor, listed(list[Header].new())?))
 
-def parse_status_line(line: &Bytes, size: i64) -> Result[ResponseHead, HttpError]:
+pub def parse_status_line(line: &Bytes, size: i64) -> Result[ResponseHead, HttpError]:
+    if size < 0 or size > line.len():
+        return Err(HttpError.Stream(StreamError.OutOfRange))
     if size < 12 or line[8] != space:
         return Err(HttpError.InvalidStatusLine)
     minor = version(line, 0, 8, HttpError.InvalidStatusLine)?
@@ -904,6 +912,10 @@ def deliver[W: Writer](writer: &mut W, data: &Bytes, start: i64, stop: i64) -> R
 # Validates and writes a request head. Nothing is written when validation
 # fails; a stream failure may leave part of the head delivered.
 pub def write_request[W: Writer](writer: &mut W, head: &RequestHead) -> Result[(), HttpError]:
+    out = encode_request(head)?
+    deliver(writer, &out, 0, out.len())
+
+pub def encode_request(head: &RequestHead) -> Result[Bytes, HttpError]:
     drop(declared(&head.headers, head.minor)?)
     mut out = lifted(std.bytes.with_capacity(256))?
     put(&mut out, head.method)?
@@ -919,9 +931,13 @@ pub def write_request[W: Writer](writer: &mut W, head: &RequestHead) -> Result[(
     put_version(&mut out, head.minor)?
     put_line_end(&mut out)?
     put_fields(&mut out, &head.headers)?
-    deliver(writer, &out, 0, out.len())
+    Ok(out)
 
 pub def write_response[W: Writer](writer: &mut W, head: &ResponseHead) -> Result[(), HttpError]:
+    out = encode_response(head)?
+    deliver(writer, &out, 0, out.len())
+
+pub def encode_response(head: &ResponseHead) -> Result[Bytes, HttpError]:
     drop(declared(&head.headers, head.minor)?)
     if head.status < 100 or head.status > 999:
         return Err(HttpError.InvalidStatusLine)
@@ -936,7 +952,7 @@ pub def write_response[W: Writer](writer: &mut W, head: &ResponseHead) -> Result
         return Err(HttpError.InvalidStatusLine)
     put_line_end(&mut out)?
     put_fields(&mut out, &head.headers)?
-    deliver(writer, &out, 0, out.len())
+    Ok(out)
 
 # Sends source[start:stop] as one chunk of a chunked body. An empty range
 # sends nothing, because a zero-size chunk would end the body.
@@ -945,21 +961,31 @@ pub def write_chunk[W: Writer](writer: &mut W, source: &Bytes, start: i64, stop:
         return Err(HttpError.Stream(StreamError.OutOfRange))
     if start == stop:
         return Ok(())
-    mut line = lifted(std.bytes.with_capacity(18))?
-    put_hex(&mut line, stop - start)?
-    put_line_end(&mut line)?
+    line = encode_chunk_size(stop - start)?
     deliver(writer, &line, 0, line.len())?
     deliver(writer, source, start, stop)?
     deliver(writer, &line, line.len() - 2, line.len())
 
+pub def encode_chunk_size(length: i64) -> Result[Bytes, HttpError]:
+    if length < 0:
+        return Err(HttpError.Stream(StreamError.OutOfRange))
+    mut line = lifted(std.bytes.with_capacity(18))?
+    put_hex(&mut line, length)?
+    put_line_end(&mut line)?
+    Ok(line)
+
 # Ends a chunked body with the zero-size chunk and `trailers`, which follow
 # the field-line rules of `write_request`.
 pub def write_last_chunk[W: Writer](writer: &mut W, trailers: &list[Header]) -> Result[(), HttpError]:
+    out = encode_last_chunk(trailers)?
+    deliver(writer, &out, 0, out.len())
+
+pub def encode_last_chunk(trailers: &list[Header]) -> Result[Bytes, HttpError]:
     mut out = lifted(std.bytes.with_capacity(64))?
     emit(&mut out, 48u8)?
     put_line_end(&mut out)?
     put_fields(&mut out, trailers)?
-    deliver(writer, &out, 0, out.len())
+    Ok(out)
 
 # Sends a whole body held in memory under `framing`: a Length body must be
 # exactly stop - start bytes, an Empty one none, and a Chunked one becomes

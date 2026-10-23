@@ -19,33 +19,20 @@ performance, collection conveniences, and documentation fixes have landed.
 Remaining limitations have explicit homes below; completing this review does
 not mean all candidates or every concurrency diagnostic are implemented.
 
+The B71 typed HTTP acceptance batch is complete: typed head parsing, writes,
+buffering, body framing and connection recovery are used throughout the HTTP
+client, including CONNECT and streamed uploads. Concrete causes survive
+without internal stored-error retrieval. The client retains its legacy Reader
+bridge and adds typed response composition and partial body-collection progress.
+Preserve the installed CLI/data, JSON-service and mutual-TLS acceptance checks.
+
 ### Next batches
 
-1. **Complete typed HTTP composition (B71).** The B14/B71 language/reporting
-   foundation and precise-error migration are complete: general sums, enum
-   methods, protocol-based reports and typed contexts are implemented. Keep
-   their existing non-error-sum and mutual-TLS acceptance checks. The installed
-   CLI/data and JSON-service
-   workflows now [validate error composition](design/stdlib/http-qualification.md#application-error-composition)
-   through real CSV/HTTP calls: precise data/open causes, operation/path reports,
-   exit statuses, repeated handler failures followed by success, and descriptor
-   cleanup. These extend the existing B66 acceptance checks.
-   The additive B71 [typed-stream API](design/stdlib/io-typed.md), legacy stream
-   bridges, and [fixed/chunked/close-delimited HTTP bodies](design/stdlib/http-typed.md)
-   preserve operation, cause and partial-progress information. Chunked decoding
-   includes bounded metadata, trailers and resumable interruptions. Parsed-head
-   constructors now validate framing and body limits and recover completed
-   persistent connections with buffered bytes intact. Next: typed head parsing
-   and complete HTTP client adoption; retain existing side channels until those
-   paths preserve their full causes.
-   These workflows supply acceptance checks, not another library foundation
-   project.
-2. **Measured compiler follow-up (B19/B17).** Use the phase profiler to choose
+1. **Measured compiler follow-up (B19/B17).** Use the phase profiler to choose
    bounded improvements and verify cold/warm build time, allocation and memory
    costs. Per-module caching is the next cache-design candidate; remote caching
    follows a useful local contract. Broader architecture changes need measured
-   benefit before scheduling. Independent performance work need not wait for
-   the error-composition batch.
+   benefit before scheduling.
 
 Keep the `compile_bench` precise-error template migration deferred while active
 performance comparisons rely on the unchanged workload. Floating-point report
@@ -199,7 +186,7 @@ record encountered language gaps in the issues register.
 
 | ID | Work item | Scope |
 | --- | --- | --- |
-| B71 | Error composition and presentation | The language/reporting foundation and precise-error migration are complete: `std.error.map_error`, general sums (including non-error values), enum methods, structural protocol satisfaction, `std.report.Formattable`, typed context and entrypoint reports, and typed HTTP handlers. `Failure` remains a last resort; explicit retained-job errors and `drop_job()` avoid erasing start/submission causes. Installed CLI/data and JSON-service workflows validate causes, reports, exit status, recovery and cleanup (local PR #472). [`std.io.typed`](design/stdlib/io-typed.md) supplies typed stream helpers and legacy bridges; [`std.http.typed`](design/stdlib/http-typed.md) supplies fixed-length, chunked and close-delimited body readers with concrete causes and partial progress, parsed-head framing validation and guarded recovery of completed persistent connections. Next: typed head parsing and full HTTP client adoption before removing legacy error side channels. Keep the benchmark template migration deferred during active performance comparisons. Floating-point report formatting remains an additive extension; f-strings retain `std.fmt.FormatError` (issue #334). Case guards, residual-set inference, empty sums, arbitrary protocol forwarding and dynamic error objects remain deferred. See the [composition evidence](proposals/error-composition/streams-and-evidence.md) for the original prototype and production boundaries. |
+| B71 | Error composition and presentation | The language/reporting foundation and precise-error migration are complete: `std.error.map_error`, general sums (including non-error values), enum methods, structural protocol satisfaction, `std.report.Formattable`, typed context and entrypoint reports, and typed HTTP handlers. `Failure` remains a last resort; explicit retained-job errors and `drop_job()` avoid erasing start/submission causes. Installed CLI/data and JSON-service workflows validate causes, reports, exit status, recovery and cleanup (local PR #472). [`std.io.typed`](design/stdlib/io-typed.md) supplies typed stream helpers and legacy bridges; [`std.http.typed`](design/stdlib/http-typed.md) supplies fixed-length, chunked and close-delimited body readers with concrete causes and partial progress, parsed-head framing validation and guarded recovery of completed persistent connections. Typed head parsing/writes and buffering now serve the complete HTTP client, including CONNECT, uploads, redirects and pooling. Internal stored-error retrieval is removed; the legacy response Reader bridge remains compatible, alongside typed response reads and partial body-collection progress. Keep the benchmark template migration deferred during active performance comparisons. Floating-point report formatting remains an additive extension; f-strings retain `std.fmt.FormatError` (issue #334). Case guards, residual-set inference, empty sums, arbitrary protocol forwarding and dynamic error objects remain deferred. See the [composition evidence](proposals/error-composition/streams-and-evidence.md) for the original prototype and production boundaries. |
 | B72 | State and ownership ergonomics | Explore [typestate at owned boundaries](proposals/typestate-and-owned-transitions.md) and payload enums for runtime state machines. Proposal assessment recorded for [linear obligations](proposals/linear-obligations.md), separate [resolution scopes](proposals/linear-scope-resolution.md), and their [effects/typestate boundaries](proposals/linear-integration.md) (issue #149); implementation and stdlib conversion remain unapproved. Completed cleanups: tuple-based HTTP response assembly removes placeholder heads (issue #134); ordinary string sharing replaces empty-string copies (issue #135); match-valued bindings replace dummy HTTP Results (issue #136). These use existing language facilities. Typestate experiments and runtime-state enum refactors remain; no blanket conversion or general partial-move feature approved. |
 | B73 | Checked arenas and linked-data ergonomics | [Assessment and prototype](proposals/arenas.md) exercise generation-checked slots, typed keys, scoped access, and failure-preserving insertion in ordinary Plenty. Before shipping `std.arena`, replace caller-supplied namespaces with an automatically safe arena-identity contract (including copying, concurrency and exhaustion), review callback ergonomics and movement costs, and qualify deletion/reuse, invalid handles, affine cleanup, OOM preservation and node lookup through tree/graph consumers. Keep general linked lists/trees as examples until a concrete collection workload justifies an API. Coordinate direct disjoint loans and borrowed worklists with B11; no stored-reference or pointer-intrusive extension is implied. |
 | B74 | User-defined dictionary keys and set members | [Proposal](proposals/user-type-hashing.md): admit tuples, classes and enums whose fields are all key types, using structural hashing and equality; add a built-in `KeyType` generic constraint; no user `__hash__`/`__eq__`. Stages: copyable enums, `KeyType`, classes. Collections use SipHash-2-4 with a per-process OS key (issue #329); record traversal uses linear field-offset work per pass (issue #330). |
