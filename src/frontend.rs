@@ -3014,13 +3014,10 @@ impl Lower<'_> {
         self.expr(e, ops)?
             .ok_or_else(|| e.at.error("expected a value, got ()"))
     }
-    fn propagate(
-        &mut self,
+    fn propagation_target(
+        &self,
         e: &Expr,
-        value: &Expr,
-        expected: Type,
-        ops: &mut Vec<Op>,
-    ) -> Result<Type> {
+    ) -> Result<crate::nominal::Nominal<crate::sum::EnumType>> {
         if self.yield_type.is_some() {
             return Err(e
                 .at
@@ -3036,6 +3033,17 @@ impl Lower<'_> {
                 .at
                 .error("`?` requires a function returning Result or Option"));
         }
+        Ok(target)
+    }
+
+    fn propagate(
+        &mut self,
+        e: &Expr,
+        value: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let target = self.propagation_target(e)?;
         // A collection literal's error is always AllocError, so its context keeps
         // that error and the mismatch is reported below rather than as a missing `?`.
         let literal = matches!(&ungroup(value).kind, Expression::Collection { kind, .. } if kind != "generator");
@@ -3057,6 +3065,33 @@ impl Lower<'_> {
         let Some(Ty::Enum(source)) = operand else {
             return Err(e.at.error("`?` requires a Result or Option operand"));
         };
+        let target = self.check_propagation(e, &source, target, literal)?;
+        let success = usize::from(source.is_option());
+        let payload = source.get().variants[success].fields[0].clone();
+        let mut cleanup = Vec::new();
+        if !self.contexts.is_empty() {
+            self.cleanup(0, &mut cleanup);
+        }
+        ops.push(Op::Try {
+            source: Box::new(source),
+            target: Box::new(target),
+            cleanup: cleanup.into(),
+        });
+        if payload == Ty::Unit {
+            ops.push(Op::Drop);
+            Ok(None)
+        } else {
+            Ok(Some(payload))
+        }
+    }
+
+    fn check_propagation(
+        &mut self,
+        e: &Expr,
+        source: &crate::nominal::Nominal<crate::sum::EnumType>,
+        target: crate::nominal::Nominal<crate::sum::EnumType>,
+        literal: bool,
+    ) -> Result<crate::nominal::Nominal<crate::sum::EnumType>> {
         if !source.propagatable() || source.is_option() != target.is_option() {
             let note = if literal {
                 "; a collection literal returns Result[collection, AllocError]"
@@ -3067,8 +3102,8 @@ impl Lower<'_> {
                 "`?` operand and function return must use the same Result or Option family{note}"
             )));
         }
-        let target = self.infer_propagated_producers(target, &source);
-        if !source.is_option() && !target.accepts_result_error(&source) {
+        let target = self.infer_propagated_producers(target, source);
+        if !source.is_option() && !target.accepts_result_error(source) {
             let target_error = &target.get().variants[1].fields[0];
             let source_error = &source.get().variants[1].fields[0];
             if matches!(target_error, Ty::Enum(t) if t.anonymous())
@@ -3096,23 +3131,7 @@ impl Lower<'_> {
                 "`?` requires identical Result error types; convert the error explicitly{hint}"
             )));
         }
-        let success = usize::from(source.is_option());
-        let payload = source.get().variants[success].fields[0].clone();
-        let mut cleanup = Vec::new();
-        if !self.contexts.is_empty() {
-            self.cleanup(0, &mut cleanup);
-        }
-        ops.push(Op::Try {
-            source: Box::new(source),
-            target: Box::new(target),
-            cleanup: cleanup.into(),
-        });
-        if payload == Ty::Unit {
-            ops.push(Op::Drop);
-            Ok(None)
-        } else {
-            Ok(Some(payload))
-        }
+        Ok(target)
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         if self.is_pipeline(e) {
