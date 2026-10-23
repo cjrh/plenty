@@ -1981,6 +1981,7 @@ fn keeps_slot_copies(op: &Op) -> bool {
             | Op::PushBool(_)
             | Op::Site(_)
             | Op::CallerSite(_)
+            | Op::Leaving
             | Op::Access(..)
             | Op::Loan(_)
             | Op::UseLoan(_)
@@ -2196,6 +2197,9 @@ impl Lowerer<'_, '_> {
         }
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
+        if self.gathering() && self.gather(op)? {
+            return Ok(());
+        }
         let fresh_load = self.fresh_load.take();
         // A copy is read in place only by an op in the same block as its
         // retain, never by one inside a nested body.
@@ -2240,6 +2244,7 @@ impl Lowerer<'_, '_> {
             | Op::Passes(_)
             | Op::Forwards(_)
             | Op::Tokens(_) => {}
+            Op::Leaving => self.start_leaving(),
             // Consumed by `tail_abi::prepare`, which decides whether the call
             // after it keeps this frame.
             Op::ForwardsReferences => {}
@@ -3318,9 +3323,14 @@ impl Lowerer<'_, '_> {
             self.tail_arguments(&sig, &mut args)?;
             let native = user_fn_signature(&sig);
             let reference = self.bcx.import_signature(native);
-            self.release_locals();
             // In std the site would be null, which changes nothing.
-            if !self.in_standard_library() {
+            let track_caller = !self.in_standard_library();
+            self.terminated = true;
+            if self.shared_tail_call_indirect(reference, callee, &args, track_caller)? {
+                return Ok(());
+            }
+            self.release_locals();
+            if track_caller {
                 self.enter_call()?;
             }
             self.bcx
@@ -3363,6 +3373,10 @@ impl Lowerer<'_, '_> {
         let sig = decl.sig.clone();
         self.tail_arguments(&sig, &mut args)?;
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
+        self.terminated = true;
+        if self.shared_tail_call(func_id, funcref, track_caller, &args)? {
+            return Ok(());
+        }
         self.release_locals();
         if track_caller {
             self.enter_call()?;

@@ -350,6 +350,16 @@ impl Lower<'_> {
             }
         }
     }
+    /// [`Self::cleanup`] for the `return` or `break` that follows, marked so
+    /// code generation can share it between exits (issue #417).
+    pub(super) fn leaving(&self, start: usize, ops: &mut Vec<Op>) {
+        let marker = ops.len();
+        ops.push(Op::Leaving);
+        self.cleanup(start, ops);
+        if ops.len() == marker + 1 {
+            ops.pop();
+        }
+    }
     pub(super) fn next(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<Type> {
         if let [arg] = args
             && let Expression::Unary(op, base) = &ungroup(arg).kind
