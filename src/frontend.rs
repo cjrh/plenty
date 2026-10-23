@@ -5280,6 +5280,10 @@ fn producer_conflict_hint(target: &Ty, source: &Ty) -> String {
         .unwrap_or_default()
 }
 
+const NO_ORIGIN: &str =
+    "returned references borrow from the first reference parameter; add a reference parameter";
+const IMMUTABLE_ORIGIN: &str =
+    "a mutable returned reference borrows from the first reference parameter, which must be `&mut`";
 const UNRESOLVED_SUM_MEMBER: &str = "a closure signature in an anonymous sum names no concrete environment; only a function's declared return type can infer it, from the closure the body returns or propagates; use a generic parameter bounded by OnceCallable or Callable";
 
 fn register_signature(
@@ -5358,19 +5362,13 @@ fn register_resolved(
         crate::exports::check_signature(&inputs, &output).map_err(|message| f.at.error(message))?;
     }
     if let Some(Ty::Ref(_, mutable)) = &output {
-        let references: Vec<_> = inputs
-            .iter()
-            .filter(|(_, ty)| matches!(ty, Ty::Ref(..)))
-            .collect();
-        if references.len() != 1 {
-            return Err(f
-                .at
-                .error("returned references require exactly one reference parameter"));
-        }
-        if *mutable && !matches!(&references[0].1, Ty::Ref(_, true)) {
-            return Err(f
-                .at
-                .error("mutable returned references require a mutable reference parameter"));
+        // The first reference parameter is the result's origin; later ones
+        // are ordinary inputs whose loans end with the call.
+        let Some((_, origin)) = inputs.iter().find(|(_, ty)| matches!(ty, Ty::Ref(..))) else {
+            return Err(f.at.error(NO_ORIGIN));
+        };
+        if *mutable && !matches!(origin, Ty::Ref(_, true)) {
+            return Err(f.at.error(IMMUTABLE_ORIGIN));
         }
     }
     if generators::yields(&f.body)

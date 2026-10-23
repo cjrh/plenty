@@ -1,8 +1,9 @@
 # Return a reference to a field
 
-Functions can return references when exactly one parameter is a reference. The
-returned value must borrow that parameter, never a local owner. The caller keeps
-the original value alive and borrowed until the result's last use.
+A function that returns a reference borrows it from its first reference
+parameter; for a method, that is `self`. The returned value must borrow that
+parameter, never a later one or a local owner. The caller keeps the original
+value alive and borrowed until the result's last use.
 
 ```plenty
 class Pair:
@@ -22,8 +23,32 @@ def main() -> Result[(), IoError]:
 8
 ```
 
-A mutable returned reference requires a mutable reference parameter. A temporary
-receiver cannot supply a reference that outlives it.
+A mutable returned reference requires the first reference parameter to be
+`&mut`. A temporary receiver cannot supply a reference that outlives it.
+
+Later reference parameters only lend their values for the call. A lookup can
+take its key by reference and still return a borrow of the collection:
+
+```plenty
+def score(scores: &dict[str, i64], name: &str) -> &i64:
+    &scores[*name]
+
+def main() -> Result[(), AllocError | IoError]:
+    scores = {"ada": 3, "bob": 5}?
+    mut name = "bob"
+    points = score(&scores, &name)
+    name = "eve"
+    print(*points)?
+    print(name)?
+    Ok(())
+```
+```output
+5
+eve
+```
+
+The key's loan ends when `score` returns, so `name` can change while `points`
+is live. To return a borrow of `name`, it would have to be the first parameter.
 
 Shared arguments can borrow temporaries, as in `size("ada")` for a `size(s: &str)`
 function. The temporary lives through the expression. A result borrowing it may

@@ -33,6 +33,11 @@ Preserve the installed CLI/data, JSON-service and mutual-TLS acceptance checks.
    costs. Per-module caching is the next cache-design candidate; remote caching
    follows a useful local contract. Broader architecture changes need measured
    benefit before scheduling.
+   The first bounded improvement omits unreachable `std` definitions from native
+   emission after checking (issue #400); [module-edit measurements](development/module-edits.md)
+   cover cold, unchanged, body, interface and generic-body builds. Parsing and
+   lowering still process all imported modules; module artifacts remain the
+   next cache-design investigation.
 
 Keep the `compile_bench` precise-error template migration deferred while active
 performance comparisons rely on the unchanged workload. Floating-point report
@@ -77,8 +82,10 @@ ownership. Table row order below remains a catalogue, not a second priority list
 ### Scope of follow-on work
 
 **B11 — broader reference relationships.** Borrowed enum matching and payload
-loans are implemented. Remaining slices include stored references, relationships
-among multiple reference parameters, and more precise collection loans. Preserve
+loans are implemented. Returned references borrow from the first reference
+parameter (local PR #488). Remaining slices include stored references, returning
+a borrow chosen among several reference parameters, and more precise collection
+loans. Preserve
 owner/variant stability and reject references into temporary storage as this
 subset expands; evaluate additional precision against compile-time cost.
 
@@ -160,7 +167,7 @@ record encountered language gaps in the issues register.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B11 | Broader borrowing | Borrowed enum matching and payload loans complete. A `mut` reference binding is reassigned only through itself (issue #1). Local-only dictionary key views hold whole-owner shared loans (issue #396); escaping/stored views remain deferred. Remaining: stored references, relationships among multiple reference parameters, more precise collection loans, retargeting a reference binding to another borrow of the same owner, and field-precise loans through `mut` reference bindings. Borrowed iteration now consistently yields references (issue #30, also B12). Mutable matching of copyable enum payloads (issue #41) is complete through B35. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/language/05-ownership/04-returned-references.md). |
+| B11 | Broader borrowing | Borrowed enum matching and payload loans complete. A `mut` reference binding is reassigned only through itself (issue #1). Local-only dictionary key views hold whole-owner shared loans (issue #396); escaping/stored views remain deferred. Remaining: stored references, returning a borrow chosen among several reference parameters, more precise collection loans, retargeting a reference binding to another borrow of the same owner, and field-precise loans through `mut` reference bindings. Borrowed iteration now consistently yields references (issue #30, also B12). Mutable matching of copyable enum payloads (issue #41) is complete through B35. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; Returned references borrow from the first reference parameter; later reference parameters are released at the call (local PR #488). Choosing between several reference arguments needs annotations and remains out of scope; the rule is documented in the [reference](design/language/05-ownership/04-returned-references.md). |
 | B12 | Practical I/O and iteration | Text-file iteration and a consistent borrowed-iteration rule are implemented (issue #30, also B11); borrowed temporary source owners survive through their loop scope (issue #75). Allocation-free `enumerate`, `zip`, and `reversed` loop/comprehension sources and short-circuiting boolean `any`/`all` reductions are implemented for issue #35 (also B38). Binary buffers, read/write and buffering are delivered by B39/B40; owned-generator adapters by B49. Lossless Unix arguments and binary I/O (issue #61) and native Linux `std.path` are implemented. Local-only dictionary `KeyView` set operations and allocation-free `values()` loop sources are implemented for issue #396; general storable/returnable views remain separate. B75 adds local borrowed-source pipeline adapters and reductions. Remaining: reusable iterator/view protocols, completing B75 [fluent pipelines](proposals/fluent-iterators.md), borrowed sub-range views (B11/B39), and portable path semantics (coordinate with B18). Further adapters need concrete use cases. |
 | B13 | Public allocator control | Global/default and per-container selection, allocator state/lifetimes, and buffer provenance. Internal object allocator identity already exists. Consider bounded/inline-capacity storage separately. [Memory design](proposals/memory-parallelism-and-simd.md). |
 | B14 | Typed error composition | [General anonymous sums](design/language/03-types/anonymous-sums.md) preserve payloads, normalize membership, and allow lossless injection/widening without user-defined conversions. B71 records shipped human-readable reporting. Builtin `Failure` and its erasure rule stay as a last resort for when no precise error can be written (issue #342). Allocation-free `Option.unwrap_or` and explicit `Option.ok_or` conversion to typed Result are implemented for the first slice of issue #35 (also B38). Additional Option/Result conveniences remain separate API work. |

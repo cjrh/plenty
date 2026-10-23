@@ -16,7 +16,7 @@ plenty --dump asm --dump-std app.plenty -o - | less
 | `-o DIR` | Write `index.txt` and one `STAGE.txt` per stage into `DIR`, creating it; stage files from an earlier dump that this one does not write are removed |
 | `-o -` | Print the files to standard output, each after a `#### NAME` line |
 | `--release` | Dump the code a release build produces |
-| `--dump-std` | Include standard-library functions; by default only the program's own modules are dumped |
+| `--dump-std` | Include retained standard-library functions; unreachable standard definitions are omitted before native emission. By default only the program's own modules are dumped |
 | `--dump-filter TEXT` | Dump only functions whose name or symbol contains `TEXT` |
 | `--module-root DIR` | Resolve imports as for the other file commands |
 

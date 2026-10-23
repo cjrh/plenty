@@ -5,7 +5,7 @@ bindings are shared references. With `match &mut value`, they are exclusive
 references and can change the original payload.
 
 An existing enum reference can be matched directly. A function can also return
-a payload reference when it comes from the function's single reference parameter:
+a payload reference when it comes from the function's first reference parameter:
 
 ```plenty
 def number(value: &Result[i64, i64]) -> &i64:

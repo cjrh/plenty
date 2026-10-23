@@ -392,7 +392,7 @@ fn the_locked_reference_stays_in_its_block() {
         &format!(
             "{HEADER}def keep(m: &mut Mutex[i64]) -> &mut i64:\n    with m.lock() as v:\n        return v\n\ndef main() -> ():\n    pass\n"
         ),
-        "returned reference must originate from the reference parameter",
+        "returned reference must originate from the first reference parameter",
     );
     rejects_body(
         "m = Mutex(1)\nwith m.lock() as v:\n    f = def() -> i64:\n        *v\n    f()",
