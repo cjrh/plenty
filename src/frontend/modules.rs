@@ -2213,22 +2213,23 @@ mod tests {
 
     /// Plenty files and the book's code fences under `dir`. Fences in other
     /// languages are kept: they are modules that fail to parse.
-    fn sources(dir: &Path, out: &mut Vec<String>) {
+    fn sources(dir: &Path, out: &mut Vec<(std::path::PathBuf, String)>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             let extension = path.extension().and_then(|e| e.to_str());
             if path.is_dir() {
                 sources(&path, out);
             } else if matches!(extension, Some("plenty" | "plentyi")) {
-                out.push(std::fs::read_to_string(path).unwrap());
+                let text = std::fs::read_to_string(&path).unwrap();
+                out.push((path, text));
             } else if extension == Some("md") {
-                let text = std::fs::read_to_string(path).unwrap();
+                let text = std::fs::read_to_string(&path).unwrap();
                 let mut fence: Option<String> = None;
                 for line in text.lines() {
                     let delimiter = line.trim_start().starts_with("```");
                     match &mut fence {
                         Some(code) if delimiter => {
-                            out.push(std::mem::take(code));
+                            out.push((path.clone(), std::mem::take(code)));
                             fence = None;
                         }
                         Some(code) => {
@@ -2243,15 +2244,25 @@ mod tests {
         }
     }
 
-    #[test]
-    fn parsing_item_by_item_matches_parsing_with_every_token() {
+    /// Every repository module goes to one of this many cases, which the
+    /// harness runs in parallel (issue #412). The `#[values]` list below
+    /// must name every shard from 0 to this count.
+    const PARSE_SHARDS: usize = 8;
+
+    #[rstest::rstest]
+    fn parsing_item_by_item_matches_parsing_with_every_token(
+        #[values(0, 1, 2, 3, 4, 5, 6, 7)] shard: usize,
+    ) {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut modules = Vec::new();
         for dir in ["examples", "stdlib", "tests", "book/src"] {
             sources(&root.join(dir), &mut modules);
         }
         assert!(modules.len() > 500, "found {} modules", modules.len());
-        for module in &modules {
+        // Sorting by path makes the split independent of directory order; a
+        // stable sort keeps one page's fences in order.
+        modules.sort_by(|a, b| a.0.cmp(&b.0));
+        for (_, module) in modules.iter().skip(shard).step_by(PARSE_SHARDS) {
             // A module cut off after a line is one that ends inside an item.
             let lines: Vec<usize> = module.match_indices('\n').map(|(i, _)| i + 1).collect();
             let step = lines.len() / 40 + 1;

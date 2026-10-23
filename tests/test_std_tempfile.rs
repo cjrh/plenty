@@ -1,18 +1,35 @@
 //! Native lifecycle tests for temporary resources.
 use std::process::Command;
 
+// The allocation-failure sweeps are split by constructor so the programs
+// compile in parallel (issue #408). Each run must leave no names behind.
+#[cfg(feature = "runtime-checks")]
+#[rstest::rstest]
+#[case::file("file")]
+#[case::named_file("named_file")]
+#[case::directory("directory")]
+fn allocation_failures_leave_no_names(#[case] constructor: &str) {
+    let mut body = String::new();
+    for budget in 0..64 {
+        body.push_str(&format!("print(\"probe {constructor} {budget}\")?\nprint(\"__test_fail_allocations_after_{budget}__\").unwrap()\nresult_{budget} = std.tempfile.{constructor}()\nprint(\"__test_restore_allocations__\").unwrap()\ndrop(result_{budget})\n"));
+    }
+    run(&body, &[]);
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn allocation_failures_leave_no_names_and_keep_failure_stays_armed() {
+fn keep_failure_stays_armed() {
     let mut body = String::new();
-    for constructor in ["file", "named_file", "directory"] {
-        for budget in 0..64 {
-            body.push_str(&format!("print(\"probe {constructor} {budget}\")?\nprint(\"__test_fail_allocations_after_{budget}__\").unwrap()\nresult_{constructor}_{budget} = std.tempfile.{constructor}()\nprint(\"__test_restore_allocations__\").unwrap()\ndrop(result_{constructor}_{budget})\n"));
-        }
-    }
     for constructor in ["named_file", "directory"] {
         body.push_str(&format!("mut owner_{constructor} = std.tempfile.{constructor}()?\nprint(\"__test_fail_allocations_after_0__\").unwrap()\nkept_{constructor} = owner_{constructor}.keep()\nprint(\"__test_restore_allocations__\").unwrap()\nstd.test.is_err(&kept_{constructor})?\ndrop(owner_{constructor})\n"));
     }
+    run(&body, &[]);
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn current_dir_allocation_failures_are_released() {
+    let mut body = String::new();
     for budget in 0..8 {
         body.push_str(&format!("print(\"__test_fail_allocations_after_{budget}__\").unwrap()\ncwd_{budget} = std.env.current_dir()\nprint(\"__test_restore_allocations__\").unwrap()\ndrop(cwd_{budget})\n"));
     }
