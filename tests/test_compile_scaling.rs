@@ -3,23 +3,19 @@
 //! (issue #53). The arms of one `if` must cost the same each (issue #70).
 //! Imported modules must not add a whole-program pass per function (issue #57).
 
+use std::error::Error;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-fn fastest(source: &str) -> Duration {
-    fastest_with(|| plenty::check_source(source))
-}
+type Check = Box<dyn Fn() -> Result<(), Box<dyn Error>>>;
 
-fn fastest_with(check: impl Fn() -> Result<(), Box<dyn std::error::Error>>) -> Duration {
-    // The minimum of a few runs discards scheduling noise from parallel tests.
-    (0..3)
-        .map(|_| {
-            let start = Instant::now();
-            check().unwrap_or_else(|error| panic!("{error}"));
-            start.elapsed()
-        })
-        .min()
-        .unwrap()
+/// Time `repeats` consecutive checks.
+fn time(check: &Check, repeats: u32) -> Duration {
+    let start = Instant::now();
+    for _ in 0..repeats {
+        check().unwrap_or_else(|error| panic!("{error}"));
+    }
+    start.elapsed()
 }
 
 fn program(units: usize, unit: impl Fn(usize) -> String) -> String {
@@ -28,28 +24,74 @@ fn program(units: usize, unit: impl Fn(usize) -> String) -> String {
     source
 }
 
-/// Quadratic checking takes sixteen times as long for four times the
-/// declarations; linear checking takes four. Eight separates the two with
-/// room for measurement noise on either side.
 fn assert_linear(shape: &str, unit: impl Fn(usize) -> String) {
     assert_linear_sources(shape, |units| program(units, &unit));
+}
+
+fn assert_linear_sources(shape: &str, source: impl Fn(usize) -> String) {
+    assert_linear_checks(shape, |units| {
+        let source = source(units);
+        Box::new(move || plenty::check_source(&source))
+    });
 }
 
 /// Checking uses every core, so a measurement that overlaps another is slowed
 /// by an amount that depends on what the other is checking.
 static MEASURING: Mutex<()> = Mutex::new(());
 
-fn assert_linear_sources(shape: &str, source: impl Fn(usize) -> String) {
-    const UNITS: usize = 1500;
-    let (small, large) = (source(UNITS), source(UNITS * 4));
+const UNITS: usize = 1500;
+/// Each timed sample of the small program lasts at least this long. An
+/// optimized compiler checks some 1500-unit programs in a few milliseconds,
+/// where one scheduling stall breaks the ratio (issue #418).
+const FLOOR: Duration = Duration::from_millis(30);
+const RUNS: usize = 3;
+const ATTEMPTS: usize = 3;
+
+/// Quadratic checking takes sixteen times as long for four times the
+/// declarations; linear checking takes four. Eight separates the two with
+/// room for measurement noise on either side.
+///
+/// `prepare(units)` builds a program of that many units and returns a check of
+/// it. When one check of the small program is shorter than `FLOOR`, each
+/// sample repeats both checks enough times to reach it, so the noise a sample
+/// absorbs does not depend on how fast the compiler under test was built.
+/// Growing the programs instead also measures memory effects: with an
+/// optimized compiler, 384 000 enum variants took 8.7 times as long to check
+/// here as 96 000, while 6000 to 24 000 took 4.0 times. Small and
+/// large samples alternate so that a burst of load slows both, and each keeps
+/// its fastest. A linear checker that fails from noise passes a repeat; a
+/// quadratic one fails every attempt.
+fn assert_linear_checks(shape: &str, prepare: impl Fn(usize) -> Check) {
+    let (small, large) = (prepare(UNITS), prepare(UNITS * 4));
     let measuring = MEASURING.lock().unwrap_or_else(PoisonError::into_inner);
-    let small = fastest(&small);
-    let large = fastest(&large);
+    // The first check also warms caches, so the estimate is refined until a
+    // sample reaches the floor.
+    let mut repeats = 1;
+    loop {
+        let sample = time(&small, repeats);
+        if sample >= FLOOR || repeats >= 100 {
+            break;
+        }
+        let estimate = repeats as f64 * FLOOR.as_secs_f64() / sample.as_secs_f64() * 1.2;
+        repeats = (estimate.ceil() as u32).clamp(repeats + 1, 100);
+    }
+    let mut failures = Vec::new();
+    for _ in 0..ATTEMPTS {
+        let (mut fastest_small, mut fastest_large) = (Duration::MAX, Duration::MAX);
+        for _ in 0..RUNS {
+            fastest_small = fastest_small.min(time(&small, repeats));
+            fastest_large = fastest_large.min(time(&large, repeats));
+        }
+        if fastest_large < fastest_small * 8 {
+            return;
+        }
+        failures.push(format!("{fastest_small:?} and {fastest_large:?}"));
+    }
     drop(measuring);
-    assert!(
-        large < small * 8,
-        "{shape}: {UNITS} units took {small:?}, {} took {large:?}",
-        UNITS * 4
+    panic!(
+        "{shape}: {repeats} checks of {UNITS} and {} units took {}",
+        UNITS * 4,
+        failures.join(", then ")
     );
 }
 
@@ -71,9 +113,9 @@ fn checking_functions_is_linear() {
 /// enable whole-program checks that a program without imports skips.
 #[test]
 fn checking_functions_with_imports_is_linear() {
-    const UNITS: usize = 1500;
     let workspace = tempfile::tempdir().unwrap();
-    let write = |units: usize| {
+    let directory = workspace.path().to_owned();
+    assert_linear_checks("functions with imports", move |units| {
         let mut source =
             String::from("import std.json\nimport std.math\nimport std.collections\n\n");
         for i in 0..units {
@@ -82,20 +124,10 @@ fn checking_functions_with_imports_is_linear() {
             ));
         }
         source.push_str("def main() -> ():\n    pass\n");
-        let path = workspace.path().join(format!("main{units}.plenty"));
+        let path = directory.join(format!("main{units}.plenty"));
         std::fs::write(&path, source).unwrap();
-        path
-    };
-    let (small, large) = (write(UNITS), write(UNITS * 4));
-    let measuring = MEASURING.lock().unwrap_or_else(PoisonError::into_inner);
-    let small = fastest_with(|| plenty::check_file(&small, None));
-    let large = fastest_with(|| plenty::check_file(&large, None));
-    drop(measuring);
-    assert!(
-        large < small * 8,
-        "functions with imports: {UNITS} units took {small:?}, {} took {large:?}",
-        UNITS * 4
-    );
+        Box::new(move || plenty::check_file(&path, None))
+    });
 }
 
 #[test]
