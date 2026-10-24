@@ -1166,6 +1166,11 @@ impl Engine {
         access: &modules::AccessMap,
         parent: &str,
     ) -> Result<(String, Option<(Function, String)>)> {
+        if self.retention.released(name) {
+            return Err(at.error(format!(
+                "internal error: `{name}` was released while a call to it remained"
+            )));
+        }
         let template = self
             .templates
             .get(name)
@@ -1179,11 +1184,6 @@ impl Engine {
         let mut key = (name.to_owned(), actual);
         if let Some(symbol) = self.cache.get(&key) {
             return Ok((symbol.clone(), None));
-        }
-        if self.retention.released(name) {
-            return Err(at.error(format!(
-                "internal error: the body of `{name}` was released while a call to it remained"
-            )));
         }
         // The cache keeps the type arguments, which callers collect with
         // spare capacity.

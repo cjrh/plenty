@@ -1,4 +1,4 @@
-//! Releases the bodies of generic function templates during lowering.
+//! Releases generic function templates during lowering.
 //!
 //! An ordinary function's tree is released once it is lowered, but a template
 //! is instantiated by any later call, so its tree used to stay alive until
@@ -9,12 +9,12 @@
 //! Every body that is still to be lowered, or that can itself still be
 //! instantiated, holds the templates it names. A body leaves the count when
 //! its function is lowered and its tree released, or when its template is
-//! released; a template held by nothing is released in turn. Only free
-//! functions of user modules are tracked. The standard library and generated
-//! code reach templates by synthesized names, and methods are reached through
-//! a receiver type, so those templates keep their bodies. Templates named by
-//! a body that is never counted, such as a default expression, a call wrapper
-//! or a generic class's methods, keep theirs as well. Counting a body that is
+//! released; a template held by nothing is removed in turn, since nothing
+//! left can name it. Only free functions of user modules are tracked. The
+//! standard library and generated code reach templates by synthesized names,
+//! and methods are reached through a receiver type, so those templates stay.
+//! Templates named by a body that is never counted, such as a default
+//! expression, a call wrapper or a generic class's methods, stay as well. Counting a body that is
 //! never lowered only keeps a template, never releases one early.
 use super::*;
 
@@ -158,15 +158,15 @@ impl Retention {
         }
     }
 
-    /// Whether `name` is a template whose body has been released.
+    /// Whether `name` is a template that has been released.
     pub(super) fn released(&self, name: &str) -> bool {
         self.ids
             .get(name)
             .is_some_and(|&id| self.templates[id as usize].released)
     }
 
-    /// Drops what `symbol`'s released tree held, releasing the template
-    /// bodies that nothing holds any longer.
+    /// Drops what `symbol`'s released tree held, removing the templates
+    /// that nothing holds any longer.
     pub(super) fn complete(
         &mut self,
         symbol: functions::Symbol,
@@ -184,35 +184,9 @@ impl Retention {
             }
             tracked.released = true;
             work.extend(std::mem::take(&mut tracked.names));
-            if let Some(template) = templates.get_mut(&*tracked.name) {
-                strip(template);
-            }
+            templates.remove(&*tracked.name);
         }
     }
-}
-
-/// Drops a template's body, keeping the signature that calls and bounds read.
-fn strip(template: &mut Arc<Function>) {
-    if let Some(f) = Arc::get_mut(template) {
-        f.body = Vec::new();
-        return;
-    }
-    let f = &**template;
-    *template = Arc::new(Function {
-        once: f.once,
-        captures: f.captures.clone(),
-        foreign: f.foreign.clone(),
-        export: f.export.clone(),
-        name: f.name.clone(),
-        type_params: f.type_params.clone(),
-        at: f.at.clone(),
-        inputs: f.inputs.clone(),
-        defaults: f.defaults.clone(),
-        output: f.output.clone(),
-        doc: f.doc.clone(),
-        doc_at: f.doc_at.clone(),
-        body: Vec::new(),
-    });
 }
 
 /// Calls `each` with every function name `body` can call or take as a value.
