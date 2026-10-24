@@ -25,6 +25,56 @@ fn passes(source: &str, release: bool) {
     assert_eq!(out.stdout, b"ok\n");
 }
 
+fn separate_integer_reductions() -> String {
+    let mut source = String::from("import std.simd as s\nfrom std.test import check\n");
+    for ty in ["i32", "u32"] {
+        source.push_str(&format!(
+            "def sum_pair_{ty}(a: &s.{ty}x4, b: &s.{ty}x4) -> {ty}:\n    a.wrapping_sum().wrapping_add(b.wrapping_sum())\ndef loop_{ty}(count: i64, seed: {ty}) -> {ty}:\n    mut a = s.splat_{ty}x4(seed)\n    mut b = s.splat_{ty}x4(seed.wrapping_add(1{ty}))\n    step = s.splat_{ty}x4(3{ty})\n    for i in range(count):\n        a = a.wrapping_mul(step).wrapping_add(step)\n        b = b.wrapping_mul(step).wrapping_add(step)\n    a.wrapping_sum().wrapping_add(b.wrapping_sum())\n"
+        ));
+    }
+    source.push_str("def main() -> ():\n");
+    for ty in ["i32", "u32"] {
+        source.push_str(&format!(
+            "    seeds_{ty} = [{ty}.MIN, {ty}.MAX, 0{ty}, 1{ty}].unwrap()\n    for seed in &seeds_{ty}:\n        a = s.splat_{ty}x4(*seed)\n        b = s.splat_{ty}x4(1{ty})\n        check(sum_pair_{ty}(a, b) == (*seed).wrapping_mul(4{ty}).wrapping_add(4{ty}), \"borrowed reductions\").unwrap()\n        for count in range(18):\n            mut left = *seed\n            mut right = (*seed).wrapping_add(1{ty})\n            for i in range(count):\n                left = left.wrapping_mul(3{ty}).wrapping_add(3{ty})\n                right = right.wrapping_mul(3{ty}).wrapping_add(3{ty})\n            expected = left.wrapping_mul(4{ty}).wrapping_add(right.wrapping_mul(4{ty}))\n            check(loop_{ty}(count, *seed) == expected, \"separate loop reductions\").unwrap()\n"
+        ));
+    }
+    source.push_str("    print(\"ok\").unwrap()\n");
+    source
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn separate_integer_reductions_preserve_wrapping_and_borrowed_values(#[case] release: bool) {
+    passes(&separate_integer_reductions(), release);
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn optimized_integer_reductions_have_no_scalar_abi_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("reductions.plenty");
+    std::fs::write(&path, separate_integer_reductions()).unwrap();
+    for ty in ["i32", "u32"] {
+        let out = Command::new(support::plenty_bin())
+            .env("PLENTY_CACHE", "off")
+            .args(["--release", "--dump", "clif-opt", "--dump-filter"])
+            .arg(format!("sum_pair_{ty}"))
+            .arg(&path)
+            .args(["-o", "-"])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let dump = String::from_utf8_lossy(&out.stdout);
+        assert!(dump.contains("iadd"), "{dump}");
+        assert!(!dump.contains("call "), "{dump}");
+    }
+}
+
 #[rstest]
 #[case(false)]
 #[case(true)]

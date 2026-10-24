@@ -1,0 +1,28 @@
+import std.simd as simd
+import std.time as time
+import integer_chains
+from std.test import check
+
+# Keep the separate reductions: this is the issue #444 regression shape.
+pub def separate_sums(rounds: i64, seed: u32, multiplier: u32) -> u32:
+    mut a = simd.u32x4.Lanes(seed, seed.wrapping_add(1u32), seed.wrapping_add(2u32), seed.wrapping_add(3u32))
+    mut b = simd.u32x4.Lanes(seed.wrapping_add(4u32), seed.wrapping_add(5u32), seed.wrapping_add(6u32), seed.wrapping_add(7u32))
+    factor = simd.splat_u32x4(multiplier)
+    increment = simd.splat_u32x4(1013904223u32)
+    for index in range(rounds):
+        a = a.wrapping_mul(factor).wrapping_add(increment)
+        b = b.wrapping_mul(factor).wrapping_add(increment)
+    a.wrapping_sum().wrapping_add(b.wrapping_sum())
+
+def main() -> Result[(), IoError | RangeError]:
+    for sample in range(7):
+        seed = u32(sample)
+        before = time.monotonic_now()
+        scalar = integer_chains.scalar2(1000000, seed, 1664525u32)
+        scalar_ns = time.monotonic_now().duration_since(before)?.as_nanoseconds()
+        start = time.monotonic_now()
+        vector = separate_sums(1000000, seed, 1664525u32)
+        vector_ns = time.monotonic_now().duration_since(start)?.as_nanoseconds()
+        check(scalar == vector, "separate reductions agree").unwrap()
+        print(sample, scalar_ns, vector_ns, scalar)?
+    Ok(())
