@@ -1,0 +1,614 @@
+# Portable logical vectors. Ordinary scalar bodies are the reference implementation;
+# optimized builds may replace supported operations with native SIMD instructions.
+
+pub enum i32x4:
+    Lanes(i32, i32, i32, i32)
+
+    pub def lane(self, index: i64) -> Option[i32]:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                if index == 0:
+                    return Some(*a0)
+                if index == 1:
+                    return Some(*a1)
+                if index == 2:
+                    return Some(*a2)
+                if index == 3:
+                    return Some(*a3)
+                Nothing
+
+    pub def to_tuple(self) -> (i32, i32, i32, i32):
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                (*a0, *a1, *a2, *a3)
+
+    pub def add(self, other: &i32x4) -> i32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        i32x4.Lanes(*a0 + *b0, *a1 + *b1, *a2 + *b2, *a3 + *b3)
+
+    pub def sub(self, other: &i32x4) -> i32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        i32x4.Lanes(*a0 - *b0, *a1 - *b1, *a2 - *b2, *a3 - *b3)
+
+    pub def mul(self, other: &i32x4) -> i32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        i32x4.Lanes(*a0 * *b0, *a1 * *b1, *a2 * *b2, *a3 * *b3)
+
+    pub def wrapping_add(self, other: &i32x4) -> i32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        i32x4.Lanes((*a0).wrapping_add(*b0), (*a1).wrapping_add(*b1), (*a2).wrapping_add(*b2), (*a3).wrapping_add(*b3))
+
+    pub def wrapping_sub(self, other: &i32x4) -> i32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        i32x4.Lanes((*a0).wrapping_sub(*b0), (*a1).wrapping_sub(*b1), (*a2).wrapping_sub(*b2), (*a3).wrapping_sub(*b3))
+
+    pub def wrapping_mul(self, other: &i32x4) -> i32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        i32x4.Lanes((*a0).wrapping_mul(*b0), (*a1).wrapping_mul(*b1), (*a2).wrapping_mul(*b2), (*a3).wrapping_mul(*b3))
+
+    pub def simd_eq(self, other: &i32x4) -> mask32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 == *b0, *a1 == *b1, *a2 == *b2, *a3 == *b3)
+
+    pub def simd_ne(self, other: &i32x4) -> mask32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 != *b0, *a1 != *b1, *a2 != *b2, *a3 != *b3)
+
+    pub def simd_lt(self, other: &i32x4) -> mask32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 < *b0, *a1 < *b1, *a2 < *b2, *a3 < *b3)
+
+    pub def simd_le(self, other: &i32x4) -> mask32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 <= *b0, *a1 <= *b1, *a2 <= *b2, *a3 <= *b3)
+
+    pub def simd_gt(self, other: &i32x4) -> mask32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 > *b0, *a1 > *b1, *a2 > *b2, *a3 > *b3)
+
+    pub def simd_ge(self, other: &i32x4) -> mask32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 >= *b0, *a1 >= *b1, *a2 >= *b2, *a3 >= *b3)
+
+    def selected(self, mask: &mask32x4, other: &i32x4) -> i32x4:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case i32x4.Lanes(b0, b1, b2, b3):
+                        match mask:
+                            case mask32x4.Lanes(m0, m1, m2, m3):
+                                i32x4.Lanes(*a0 if *m0 else *b0, *a1 if *m1 else *b1, *a2 if *m2 else *b2, *a3 if *m3 else *b3)
+
+    pub def wrapping_sum(self) -> i32:
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                (((*a0).wrapping_add(*a1)).wrapping_add(*a2)).wrapping_add(*a3)
+
+    pub def store(self, values: &mut list[i32], offset: i64) -> bool:
+        if offset < 0 or offset > len(values) or len(values) - offset < 4:
+            return False
+        match self:
+            case i32x4.Lanes(a0, a1, a2, a3):
+                values[offset] = *a0
+                values[offset + 1] = *a1
+                values[offset + 2] = *a2
+                values[offset + 3] = *a3
+        True
+
+pub def splat_i32x4(value: i32) -> i32x4:
+    i32x4.Lanes(value, value, value, value)
+
+pub def load_i32x4(values: &list[i32], offset: i64 = 0) -> Option[i32x4]:
+    if offset < 0 or offset > len(values) or len(values) - offset < 4:
+        return Nothing
+    Some(i32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
+
+pub enum u32x4:
+    Lanes(u32, u32, u32, u32)
+
+    pub def lane(self, index: i64) -> Option[u32]:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                if index == 0:
+                    return Some(*a0)
+                if index == 1:
+                    return Some(*a1)
+                if index == 2:
+                    return Some(*a2)
+                if index == 3:
+                    return Some(*a3)
+                Nothing
+
+    pub def to_tuple(self) -> (u32, u32, u32, u32):
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                (*a0, *a1, *a2, *a3)
+
+    pub def add(self, other: &u32x4) -> u32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        u32x4.Lanes(*a0 + *b0, *a1 + *b1, *a2 + *b2, *a3 + *b3)
+
+    pub def sub(self, other: &u32x4) -> u32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        u32x4.Lanes(*a0 - *b0, *a1 - *b1, *a2 - *b2, *a3 - *b3)
+
+    pub def mul(self, other: &u32x4) -> u32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        u32x4.Lanes(*a0 * *b0, *a1 * *b1, *a2 * *b2, *a3 * *b3)
+
+    pub def wrapping_add(self, other: &u32x4) -> u32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        u32x4.Lanes((*a0).wrapping_add(*b0), (*a1).wrapping_add(*b1), (*a2).wrapping_add(*b2), (*a3).wrapping_add(*b3))
+
+    pub def wrapping_sub(self, other: &u32x4) -> u32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        u32x4.Lanes((*a0).wrapping_sub(*b0), (*a1).wrapping_sub(*b1), (*a2).wrapping_sub(*b2), (*a3).wrapping_sub(*b3))
+
+    pub def wrapping_mul(self, other: &u32x4) -> u32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        u32x4.Lanes((*a0).wrapping_mul(*b0), (*a1).wrapping_mul(*b1), (*a2).wrapping_mul(*b2), (*a3).wrapping_mul(*b3))
+
+    pub def simd_eq(self, other: &u32x4) -> mask32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 == *b0, *a1 == *b1, *a2 == *b2, *a3 == *b3)
+
+    pub def simd_ne(self, other: &u32x4) -> mask32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 != *b0, *a1 != *b1, *a2 != *b2, *a3 != *b3)
+
+    pub def simd_lt(self, other: &u32x4) -> mask32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 < *b0, *a1 < *b1, *a2 < *b2, *a3 < *b3)
+
+    pub def simd_le(self, other: &u32x4) -> mask32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 <= *b0, *a1 <= *b1, *a2 <= *b2, *a3 <= *b3)
+
+    pub def simd_gt(self, other: &u32x4) -> mask32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 > *b0, *a1 > *b1, *a2 > *b2, *a3 > *b3)
+
+    pub def simd_ge(self, other: &u32x4) -> mask32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 >= *b0, *a1 >= *b1, *a2 >= *b2, *a3 >= *b3)
+
+    def selected(self, mask: &mask32x4, other: &u32x4) -> u32x4:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case u32x4.Lanes(b0, b1, b2, b3):
+                        match mask:
+                            case mask32x4.Lanes(m0, m1, m2, m3):
+                                u32x4.Lanes(*a0 if *m0 else *b0, *a1 if *m1 else *b1, *a2 if *m2 else *b2, *a3 if *m3 else *b3)
+
+    pub def wrapping_sum(self) -> u32:
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                (((*a0).wrapping_add(*a1)).wrapping_add(*a2)).wrapping_add(*a3)
+
+    pub def store(self, values: &mut list[u32], offset: i64) -> bool:
+        if offset < 0 or offset > len(values) or len(values) - offset < 4:
+            return False
+        match self:
+            case u32x4.Lanes(a0, a1, a2, a3):
+                values[offset] = *a0
+                values[offset + 1] = *a1
+                values[offset + 2] = *a2
+                values[offset + 3] = *a3
+        True
+
+pub def splat_u32x4(value: u32) -> u32x4:
+    u32x4.Lanes(value, value, value, value)
+
+pub def load_u32x4(values: &list[u32], offset: i64 = 0) -> Option[u32x4]:
+    if offset < 0 or offset > len(values) or len(values) - offset < 4:
+        return Nothing
+    Some(u32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
+
+pub enum f32x4:
+    Lanes(f32, f32, f32, f32)
+
+    pub def lane(self, index: i64) -> Option[f32]:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                if index == 0:
+                    return Some(*a0)
+                if index == 1:
+                    return Some(*a1)
+                if index == 2:
+                    return Some(*a2)
+                if index == 3:
+                    return Some(*a3)
+                Nothing
+
+    pub def to_tuple(self) -> (f32, f32, f32, f32):
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                (*a0, *a1, *a2, *a3)
+
+    pub def add(self, other: &f32x4) -> f32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        f32x4.Lanes(*a0 + *b0, *a1 + *b1, *a2 + *b2, *a3 + *b3)
+
+    pub def sub(self, other: &f32x4) -> f32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        f32x4.Lanes(*a0 - *b0, *a1 - *b1, *a2 - *b2, *a3 - *b3)
+
+    pub def mul(self, other: &f32x4) -> f32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        f32x4.Lanes(*a0 * *b0, *a1 * *b1, *a2 * *b2, *a3 * *b3)
+
+    pub def div(self, other: &f32x4) -> f32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        f32x4.Lanes(*a0 / *b0, *a1 / *b1, *a2 / *b2, *a3 / *b3)
+
+    pub def simd_eq(self, other: &f32x4) -> mask32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 == *b0, *a1 == *b1, *a2 == *b2, *a3 == *b3)
+
+    pub def simd_ne(self, other: &f32x4) -> mask32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 != *b0, *a1 != *b1, *a2 != *b2, *a3 != *b3)
+
+    pub def simd_lt(self, other: &f32x4) -> mask32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 < *b0, *a1 < *b1, *a2 < *b2, *a3 < *b3)
+
+    pub def simd_le(self, other: &f32x4) -> mask32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 <= *b0, *a1 <= *b1, *a2 <= *b2, *a3 <= *b3)
+
+    pub def simd_gt(self, other: &f32x4) -> mask32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 > *b0, *a1 > *b1, *a2 > *b2, *a3 > *b3)
+
+    pub def simd_ge(self, other: &f32x4) -> mask32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 >= *b0, *a1 >= *b1, *a2 >= *b2, *a3 >= *b3)
+
+    def selected(self, mask: &mask32x4, other: &f32x4) -> f32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f32x4.Lanes(b0, b1, b2, b3):
+                        match mask:
+                            case mask32x4.Lanes(m0, m1, m2, m3):
+                                f32x4.Lanes(*a0 if *m0 else *b0, *a1 if *m1 else *b1, *a2 if *m2 else *b2, *a3 if *m3 else *b3)
+
+    pub def sum_ordered(self, initial: f32) -> f32:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                ((((initial + *a0) + *a1) + *a2) + *a3)
+
+    pub def store(self, values: &mut list[f32], offset: i64) -> bool:
+        if offset < 0 or offset > len(values) or len(values) - offset < 4:
+            return False
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                values[offset] = *a0
+                values[offset + 1] = *a1
+                values[offset + 2] = *a2
+                values[offset + 3] = *a3
+        True
+
+pub def splat_f32x4(value: f32) -> f32x4:
+    f32x4.Lanes(value, value, value, value)
+
+pub def load_f32x4(values: &list[f32], offset: i64 = 0) -> Option[f32x4]:
+    if offset < 0 or offset > len(values) or len(values) - offset < 4:
+        return Nothing
+    Some(f32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
+
+pub enum f64x2:
+    Lanes(f64, f64)
+
+    pub def lane(self, index: i64) -> Option[f64]:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                if index == 0:
+                    return Some(*a0)
+                if index == 1:
+                    return Some(*a1)
+                Nothing
+
+    pub def to_tuple(self) -> (f64, f64):
+        match self:
+            case f64x2.Lanes(a0, a1):
+                (*a0, *a1)
+
+    pub def add(self, other: &f64x2) -> f64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        f64x2.Lanes(*a0 + *b0, *a1 + *b1)
+
+    pub def sub(self, other: &f64x2) -> f64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        f64x2.Lanes(*a0 - *b0, *a1 - *b1)
+
+    pub def mul(self, other: &f64x2) -> f64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        f64x2.Lanes(*a0 * *b0, *a1 * *b1)
+
+    pub def div(self, other: &f64x2) -> f64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        f64x2.Lanes(*a0 / *b0, *a1 / *b1)
+
+    pub def simd_eq(self, other: &f64x2) -> mask64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        mask64x2.Lanes(*a0 == *b0, *a1 == *b1)
+
+    pub def simd_ne(self, other: &f64x2) -> mask64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        mask64x2.Lanes(*a0 != *b0, *a1 != *b1)
+
+    pub def simd_lt(self, other: &f64x2) -> mask64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        mask64x2.Lanes(*a0 < *b0, *a1 < *b1)
+
+    pub def simd_le(self, other: &f64x2) -> mask64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        mask64x2.Lanes(*a0 <= *b0, *a1 <= *b1)
+
+    pub def simd_gt(self, other: &f64x2) -> mask64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        mask64x2.Lanes(*a0 > *b0, *a1 > *b1)
+
+    pub def simd_ge(self, other: &f64x2) -> mask64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        mask64x2.Lanes(*a0 >= *b0, *a1 >= *b1)
+
+    def selected(self, mask: &mask64x2, other: &f64x2) -> f64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match other:
+                    case f64x2.Lanes(b0, b1):
+                        match mask:
+                            case mask64x2.Lanes(m0, m1):
+                                f64x2.Lanes(*a0 if *m0 else *b0, *a1 if *m1 else *b1)
+
+    pub def sum_ordered(self, initial: f64) -> f64:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                ((initial + *a0) + *a1)
+
+    pub def store(self, values: &mut list[f64], offset: i64) -> bool:
+        if offset < 0 or offset > len(values) or len(values) - offset < 2:
+            return False
+        match self:
+            case f64x2.Lanes(a0, a1):
+                values[offset] = *a0
+                values[offset + 1] = *a1
+        True
+
+pub def splat_f64x2(value: f64) -> f64x2:
+    f64x2.Lanes(value, value)
+
+pub def load_f64x2(values: &list[f64], offset: i64 = 0) -> Option[f64x2]:
+    if offset < 0 or offset > len(values) or len(values) - offset < 2:
+        return Nothing
+    Some(f64x2.Lanes(values[offset], values[offset + 1]))
+
+pub enum mask32x4:
+    Lanes(bool, bool, bool, bool)
+
+    pub def any(self) -> bool:
+        match self:
+            case mask32x4.Lanes(a0, a1, a2, a3):
+                *a0 or *a1 or *a2 or *a3
+
+    pub def all(self) -> bool:
+        match self:
+            case mask32x4.Lanes(a0, a1, a2, a3):
+                *a0 and *a1 and *a2 and *a3
+
+    pub def count(self) -> i64:
+        match self:
+            case mask32x4.Lanes(a0, a1, a2, a3):
+                (1 if *a0 else 0) + (1 if *a1 else 0) + (1 if *a2 else 0) + (1 if *a3 else 0)
+
+    pub def select[T](self, yes: &T, no: &T) -> T:
+        yes.selected(self, no)
+
+    pub def invert(self) -> mask32x4:
+        match self:
+            case mask32x4.Lanes(a0, a1, a2, a3):
+                mask32x4.Lanes(not *a0, not *a1, not *a2, not *a3)
+
+    pub def and_mask(self, other: &mask32x4) -> mask32x4:
+        match self:
+            case mask32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case mask32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 and *b0, *a1 and *b1, *a2 and *b2, *a3 and *b3)
+
+    pub def or_mask(self, other: &mask32x4) -> mask32x4:
+        match self:
+            case mask32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case mask32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 or *b0, *a1 or *b1, *a2 or *b2, *a3 or *b3)
+
+    pub def xor_mask(self, other: &mask32x4) -> mask32x4:
+        match self:
+            case mask32x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case mask32x4.Lanes(b0, b1, b2, b3):
+                        mask32x4.Lanes(*a0 != *b0, *a1 != *b1, *a2 != *b2, *a3 != *b3)
+
+pub enum mask64x2:
+    Lanes(bool, bool)
+
+    pub def any(self) -> bool:
+        match self:
+            case mask64x2.Lanes(a0, a1):
+                *a0 or *a1
+
+    pub def all(self) -> bool:
+        match self:
+            case mask64x2.Lanes(a0, a1):
+                *a0 and *a1
+
+    pub def count(self) -> i64:
+        match self:
+            case mask64x2.Lanes(a0, a1):
+                (1 if *a0 else 0) + (1 if *a1 else 0)
+
+    pub def select[T](self, yes: &T, no: &T) -> T:
+        yes.selected(self, no)
+
+    pub def invert(self) -> mask64x2:
+        match self:
+            case mask64x2.Lanes(a0, a1):
+                mask64x2.Lanes(not *a0, not *a1)
+
+    pub def and_mask(self, other: &mask64x2) -> mask64x2:
+        match self:
+            case mask64x2.Lanes(a0, a1):
+                match other:
+                    case mask64x2.Lanes(b0, b1):
+                        mask64x2.Lanes(*a0 and *b0, *a1 and *b1)
+
+    pub def or_mask(self, other: &mask64x2) -> mask64x2:
+        match self:
+            case mask64x2.Lanes(a0, a1):
+                match other:
+                    case mask64x2.Lanes(b0, b1):
+                        mask64x2.Lanes(*a0 or *b0, *a1 or *b1)
+
+    pub def xor_mask(self, other: &mask64x2) -> mask64x2:
+        match self:
+            case mask64x2.Lanes(a0, a1):
+                match other:
+                    case mask64x2.Lanes(b0, b1):
+                        mask64x2.Lanes(*a0 != *b0, *a1 != *b1)

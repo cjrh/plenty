@@ -166,6 +166,15 @@ fn render(rows: &[Row], listings: &[Vec<String>], provided: &[Vec<&str>]) -> Str
 }
 
 #[test]
+fn unused_public_enum_methods_are_indexed() {
+    let dir = tempfile::tempdir().unwrap();
+    let lines = analyze("std.simd", dir.path());
+    assert!(lines.iter().any(|line| line.contains("def wrapping_add(")));
+    assert!(lines.iter().any(|line| line.contains("def select[")));
+    assert!(!lines.iter().any(|line| line.contains("def selected(")));
+}
+
+#[test]
 fn signature_index_matches_standard_sources() {
     let rows = module_table();
     let standard = ide::standard_modules();
