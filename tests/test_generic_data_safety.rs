@@ -188,10 +188,31 @@ def main() -> ():
 }
 
 #[test]
+fn data_specialization_limits_are_per_declaration() {
+    // Issue #430's reproductions: the former limit of 256 counted every
+    // declaration together.
+    use std::fmt::Write;
+    let mut breadth = String::new();
+    let mut arguments = String::from("class Cell[T]:\n    value: T\n");
+    for i in 0..257 {
+        writeln!(breadth, "class C{i}[T]:\n    value: T").unwrap();
+        writeln!(arguments, "class K{i}:\n    value: i64").unwrap();
+    }
+    breadth.push_str("def main() -> ():\n");
+    arguments.push_str("def main() -> ():\n");
+    for i in 0..257 {
+        writeln!(breadth, "    drop(C{i}(0))").unwrap();
+        writeln!(arguments, "    drop(Cell(K{i}(0)))").unwrap();
+    }
+    check_source(&breadth).unwrap();
+    check_source(&arguments).unwrap();
+}
+
+#[test]
 fn data_specialization_and_recursive_layouts_have_bounded_diagnostics() {
     let mut source = String::from("enum Marker[T]:\n    Empty\n");
-    for n in 0..257 {
-        let args = (0..9)
+    for n in 0..16_385 {
+        let args = (0..15)
             .map(|bit| if n & (1 << bit) == 0 { "u8" } else { "u16" })
             .collect::<Vec<_>>()
             .join(", ");
@@ -199,7 +220,10 @@ fn data_specialization_and_recursive_layouts_have_bounded_diagnostics() {
     }
     source.push_str("def main() -> ():\n    pass\n");
     let error = check_source(&source).unwrap_err().to_string();
-    assert!(error.contains("specialization limit of 256"), "{error}");
+    assert!(
+        error.contains("generic data specialization limit of 16384 instances of `Marker` exceeded"),
+        "{error}"
+    );
     let error = check_source(
         "class Recursive[T]:\n    value: Recursive[list[T]]\ntype Bad = Recursive[i64]\ndef main() -> ():\n    pass\n",
     )
@@ -226,7 +250,7 @@ fn endless_generic_expansion_names_the_growing_instances() {
             "A[str]",
             "`A[str]` requires `A[list[str]]`, which requires `A[list[list[str]]]`",
         ),
-        // Two growing fields reach the 256-instance limit before 64 levels.
+        // Two growing fields reach the per-declaration limit before 64 levels.
         (
             "class Node[T]:\n    a: Option[Node[list[T]]]\n    b: Option[Node[Box[T]]]\n",
             "Node[i64]",
