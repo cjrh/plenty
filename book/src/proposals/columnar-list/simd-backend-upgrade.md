@@ -37,7 +37,7 @@ attribute all elapsed-time differences to one optimizer pass.
 
 `examples/clist_simd_backend_probe.rs` compiles a load/compare/store function
 with the verifier enabled and the workspace's pinned dependencies. The
-[experiment instructions](../../../../experiments/simd/clist/README.md)
+experiment instructions (`experiments/simd/clist/README.md` in the repository)
 reproduce it. On the Ryzen 7 7840HS:
 
 | IR type | Baseline x86-64 | Detected native features |
