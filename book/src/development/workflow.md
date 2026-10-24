@@ -213,13 +213,24 @@ Proposal fences are illustrative and are not executed by the tutorial suite.
 Use `text` fences for proposed syntax; check implemented behavior with a complete
 program or an executable lesson.
 
-After documentation moves, run:
+Before handing off changes to book content, navigation, assets, configuration,
+or docs build/check scripts, run the same checks as documentation CI:
 
 ```sh
-cargo test --locked --test integration test_tutorial::
-mdbook build book
 python3 -B scripts/check_links.py book/src
+python3 -B -m unittest discover -s scripts -p 'test_*.py'
+python3 -B scripts/build_docs_site.py
 ```
+
+Use the mdBook version pinned in `book/releases.json`; installation is described
+below. Record the complete-site result in the PR. If a check is blocked, state
+which one and why rather than reporting documentation validation as complete.
+The assembled-site check includes generated chapter and print links and version
+navigation; a plain `mdbook build` is only a preview, not a substitute.
+
+For moved or changed executable lessons, also run
+`cargo test --locked --test integration test_tutorial::`. Prose-only changes
+need the docs checks above, not a compiler rebuild.
 
 The link checker uses Python's standard library. It checks local file targets in
 inline links, images, and reference definitions, ignoring code and comments.
