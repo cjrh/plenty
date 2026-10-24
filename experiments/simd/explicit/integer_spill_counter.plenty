@@ -1,0 +1,5 @@
+import integer_spill
+
+def main() -> Result[(), IoError]:
+    print(integer_spill.separate_sums(10000000, 0u32, 1664525u32))?
+    Ok(())

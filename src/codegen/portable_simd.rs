@@ -51,6 +51,7 @@ enum Action {
     Div,
     Compare(IntCC, FloatCC),
     Select,
+    WrappingSum,
 }
 
 pub(super) struct Operation {
@@ -198,6 +199,7 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
         "wrapping_add" if !float => Action::Add,
         "wrapping_sub" if !float => Action::Sub,
         "wrapping_mul" if !float => Action::Mul,
+        "wrapping_sum" if !float => Action::WrappingSum,
         "add" if float => Action::Add,
         "sub" if float => Action::Sub,
         "mul" if float => Action::Mul,
@@ -243,6 +245,16 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
     let [output] = decl.sig.outputs.as_slice() else {
         return None;
     };
+    if matches!(action, Action::WrappingSum) {
+        return (input.len() == 1
+            && borrowed(&input[0].1, name, &shape.lane(), shape.lanes())
+            && *output == shape.lane())
+        .then(|| Operation {
+            shape,
+            action,
+            output: output.clone(),
+        });
+    }
     let selected = matches!(action, Action::Select);
     let right = if selected { 2 } else { 1 };
     if input.len() != right + 1
@@ -443,6 +455,18 @@ impl Lowerer<'_, '_> {
 
     pub(super) fn lower_portable_simd(&mut self, op: &Operation, args: &[NativeValue]) {
         let left = self.simd_lanes(args[0], op.shape, false);
+        if matches!(op.action, Action::WrappingSum) {
+            // Keep the existing modular lane-order fold, without materializing
+            // an enum and calling its scalar body. In particular, a subsequent
+            // vector reduction need not survive this reduction's ABI call.
+            let mut sum = self.bcx.ins().extractlane(left, 0);
+            for index in 1..op.shape.lanes() {
+                let lane = self.bcx.ins().extractlane(left, index as u8);
+                sum = self.bcx.ins().iadd(sum, lane);
+            }
+            self.stack.push((sum, op.output.clone()));
+            return;
+        }
         let right = self.simd_lanes(
             args[if matches!(op.action, Action::Select) {
                 2
@@ -471,6 +495,7 @@ impl Lowerer<'_, '_> {
                     .bitcast(op.shape.vector(), MemFlagsData::new(), mask);
                 self.bcx.ins().bitselect(mask, left, right)
             }
+            Action::WrappingSum => unreachable!("unary reduction lowered above"),
         };
         let comparison = matches!(op.action, Action::Compare(..));
         if !comparison {

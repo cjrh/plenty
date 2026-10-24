@@ -27,6 +27,11 @@ using a closed table of 128-bit operations supported by the baseline backend.
 Other hosts retain the scalar bodies. This adds no supported target or runtime
 ISA dispatch. Checked integers and ordered float folds remain scalar.
 
+Integer `wrapping_sum` lowers directly to lane extraction and modular adds.
+This avoids both canonical argument materialization and an ABI call at loop
+exits; the second accumulator in separate reductions no longer has to remain
+live across the first reduction's call (issue #444).
+
 ## Keeping local values in registers
 
 A first prototype emitted vector instructions but materialized every result as
@@ -54,7 +59,7 @@ packed 16-byte representation, one register, or a foreign vector ABI.
 
 ## Evidence and limits
 
-The reproducible [experiments](../../../../experiments/simd/explicit/README.md)
+The reproducible experiments in `experiments/simd/explicit/README.md` in the repository
 exercise checked results, dependency chains, and throughput on the same host.
 They retain unfavorable cases rather than selecting only wins. On the initial
 Ryzen 7 7840HS runs, eliminating materialization reduced the integer recurrence

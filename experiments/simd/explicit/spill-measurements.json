@@ -1,0 +1,150 @@
+{
+  "date_utc": "2026-10-24T22:12:48.703753+00:00",
+  "cpu": "AMD Ryzen 7 7840HS",
+  "base_commit": "18196139cf2c6b8edc45a4911c011ea7b49a8d39",
+  "backend": "Cranelift 0.137.0, baseline x86-64 SSE2 unchanged",
+  "source": "integer_spill.plenty (same source before/after), integer_spill_counter.plenty for counters",
+  "method": "Seven scalar-first/vector-second 1M-iteration samples per build; three perf user-space instruction/cycle samples per 10M-iteration process, including startup. No pinning. Host cargo/rustc/plenty process counts zero before run; load average 4.41/5.05/5.29. Background system activity uncontrolled.",
+  "columns": [
+    "sample",
+    "scalar_ns",
+    "vector_ns",
+    "checksum"
+  ],
+  "results": {
+    "before": {
+      "rows": [
+        [
+          0,
+          1728790,
+          3409109,
+          1780340252
+        ],
+        [
+          1,
+          1693234,
+          3380515,
+          2179309092
+        ],
+        [
+          2,
+          1681421,
+          3380907,
+          2578277932
+        ],
+        [
+          3,
+          1671793,
+          3369185,
+          2977246772
+        ],
+        [
+          4,
+          1668498,
+          3357292,
+          3376215612
+        ],
+        [
+          5,
+          1668327,
+          3356231,
+          3775184452
+        ],
+        [
+          6,
+          1661303,
+          3341001,
+          4174153292
+        ]
+      ],
+      "scalar_median_ns": 1671793,
+      "vector_median_ns": 3369185,
+      "counter_checksum": 1826118684,
+      "counter_columns": [
+        "instructions:u",
+        "cycles:u"
+      ],
+      "counter_samples": [
+        [
+          240300838,
+          161869702
+        ],
+        [
+          240300838,
+          161940572
+        ],
+        [
+          240300831,
+          161973309
+        ]
+      ]
+    },
+    "after": {
+      "rows": [
+        [
+          0,
+          1670089,
+          1676472,
+          1780340252
+        ],
+        [
+          1,
+          1685509,
+          1670621,
+          2179309092
+        ],
+        [
+          2,
+          1689035,
+          1702020,
+          2578277932
+        ],
+        [
+          3,
+          1700267,
+          1689136,
+          2977246772
+        ],
+        [
+          4,
+          1668907,
+          1657186,
+          3376215612
+        ],
+        [
+          5,
+          1663989,
+          1691761,
+          3775184452
+        ],
+        [
+          6,
+          1670391,
+          1673597,
+          4174153292
+        ]
+      ],
+      "scalar_median_ns": 1670391,
+      "vector_median_ns": 1676472,
+      "counter_checksum": 1826118684,
+      "counter_columns": [
+        "instructions:u",
+        "cycles:u"
+      ],
+      "counter_samples": [
+        [
+          210300270,
+          81441496
+        ],
+        [
+          210300279,
+          81191647
+        ],
+        [
+          210300272,
+          80581855
+        ]
+      ]
+    }
+  }
+}

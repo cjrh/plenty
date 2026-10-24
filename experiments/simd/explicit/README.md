@@ -76,3 +76,17 @@ Only run that experimental compiler on hardware supporting SSE4.1.
 explains the assembly, cycles, instruction counts and limitations. In the clean
 two-vector case baseline SSE2 reaches scalar parity and SSE4.1 is about 1.9 times
 faster. One dependent vector remains slower on SSE2 and reaches parity on SSE4.1.
+
+`integer_spill.plenty` retains the original separate-sum exit for issue #444.
+Compile it with `--release --compile` for the scalar/vector timing comparison,
+or dump `separate_sums` with `--dump clif-opt,asm --dump-filter separate_sums`.
+The fixed baseline compiler lowers integer `wrapping_sum` without ABI calls,
+so both loop accumulators remain in registers. `spill-measurements.json` compares
+the identical source before and after this fix, without enabling a newer ISA.
+On the Ryzen 7 7840HS the original separate-sums kernel fell from 3.369 ms to
+1.676 ms per million iterations, matching its scalar baseline (1.670 ms).
+Median counters fell from 24.03 to 21.03 instructions and 16.19 to 8.12 cycles
+per iteration. Compile `integer_spill_counter.plenty` and run it with
+`perf stat -e instructions:u,cycles:u` to reproduce the ten-million-iteration
+counter probe. These results isolate the reproduced spill, not a general SIMD
+speedup or a guarantee about register allocation in other kernels.

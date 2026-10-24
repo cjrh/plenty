@@ -3,6 +3,7 @@
 
 Checks inline links, images, and reference definitions. Ignores code, comments,
 remote URLs, and fragment-only links; does not validate heading anchors or HTML.
+Local targets must stay within BOOK_SRC to be published with the book.
 """
 
 import argparse
@@ -108,7 +109,11 @@ def check(root, scope):
                 root / path.lstrip("/") if path.startswith("/") else page.parent / path
             )
             checked += 1
-            if not destination.exists():
+            if not destination.resolve().is_relative_to(root.resolve()):
+                missing.append(
+                    f"{page.relative_to(root)}:{line}: target outside book source {target}"
+                )
+            elif not destination.exists():
                 missing.append(f"{page.relative_to(root)}:{line}: missing target {target}")
     return len(files), checked, missing
 

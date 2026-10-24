@@ -132,12 +132,13 @@ register ABI. Mask variants expose logical booleans, not hardware masks. Neither
 vector nor mask layout is a C, serialization, Arrow or Parquet contract.
 
 On x86-64, `--release` lowers wrapping arithmetic, float arithmetic, comparisons
-and selection to baseline 128-bit SIMD. Numeric vector locals without mutable
+and selection to baseline 128-bit SIMD. Integer `wrapping_sum` reduces lanes
+directly without calling the scalar module body. Numeric vector locals without mutable
 borrows stay in vector registers across supported operations and loops. Values
 materialize in ordinary tagged storage at calls, containers and observable
 borrows; parameters, masks, generators and mutable-borrowed locals retain that
 storage path. This is an internal optimization, not a different ownership rule.
-Checked integer arithmetic, summaries, ordered reductions and list access keep
+Checked integer arithmetic, mask summaries, ordered float reductions and list access keep
 their ordinary scalar implementations. On other compiler hosts, the module's
 scalar bodies remain available; this does not add a new supported Plenty target.
 The same source semantics apply with and without optimization. No runtime ISA
