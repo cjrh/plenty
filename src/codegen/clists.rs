@@ -141,7 +141,11 @@ impl Lowerer<'_, '_> {
             self.bcx.ins().trap(TrapCode::unwrap_user(3));
         } else {
             // A missing row returns Nothing without touching any row storage.
-            let zero = self.bcx.ins().iconst(clif_type(output.clone()), 0);
+            // Only `copy_row` reaches here; its `Option` is an I128 slot, and
+            // `iconst` accepts at most I64.
+            debug_assert_eq!(clif_type(output.clone()), types::I128);
+            let zero = self.bcx.ins().iconst(types::I64, 0);
+            let zero = self.bcx.ins().uextend(types::I128, zero);
             self.bcx.ins().jump(done, &[zero.into()]);
         }
         self.bcx.switch_to_block(done);
