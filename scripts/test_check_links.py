@@ -64,6 +64,21 @@ class CheckLinksTests(unittest.TestCase):
             ]),
         )
 
+    def test_existing_repository_file_outside_book_is_rejected(self):
+        book = self.root / "book"
+        book.mkdir()
+        page = book / "page.md"
+        page.write_text(
+            '[outside](../target.md)\n'
+            '[encoded](%2e%2e/target.md)\n'
+            '[root escape](/../target.md)\n', encoding="utf-8"
+        )
+        self.assertEqual(check_links.check(book, page), (1, 3, [
+            'page.md:1: target outside book source ../target.md',
+            'page.md:2: target outside book source %2e%2e/target.md',
+            'page.md:3: target outside book source /../target.md',
+        ]))
+
     def test_missing_targets_keep_original_line_numbers(self):
         page = self.page('```\n[code](ignored.md)\n```\n\n[broken](gone.md)\n')
         self.assertEqual(

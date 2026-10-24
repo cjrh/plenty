@@ -59,7 +59,7 @@ packed 16-byte representation, one register, or a foreign vector ABI.
 
 ## Evidence and limits
 
-The reproducible [experiments](../../../../experiments/simd/explicit/README.md)
+The reproducible experiments in `experiments/simd/explicit/README.md` in the repository
 exercise checked results, dependency chains, and throughput on the same host.
 They retain unfavorable cases rather than selecting only wins. On the initial
 Ryzen 7 7840HS runs, eliminating materialization reduced the integer recurrence

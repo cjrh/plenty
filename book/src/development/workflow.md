@@ -273,8 +273,8 @@ alone cannot catch a malformed `SUMMARY.md` that leaves a chapter unrendered.
 Neither checker validates external URLs or heading anchors.
 
 Book links must target published pages or assets. A relative link to a repository
-file outside `book/src` can pass the source check but fail the site build because
-mdBook does not publish that file. Refer to such files with a repository-relative
+file outside `book/src` is rejected by the source checker even when it exists,
+because mdBook does not publish that file. Refer to such files with a repository-relative
 code path (for example, `experiments/rust-crates/README.md`), or include the needed
 content in a book page. Run the complete site helper after adding links; a
 successful `mdbook build` alone does not validate generated links, including
