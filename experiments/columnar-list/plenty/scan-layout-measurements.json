@@ -1,0 +1,412 @@
+{
+  "scope": "Bounded issue #437 investigation; no compiler changes. Reused compiler binary copied from claude/generic-instance-cost worktree (observed branch head 30c88568), not rebuilt here. Exact compiler and object hashes below. Two independent runs used the same emitted object bytes.",
+  "host": "AMD Ryzen 7 7840HS, Linux x86-64, CPU 8",
+  "runs": [
+    {
+      "compiler_sha256": "508cb2b00d817bf06b586c737c29d69cf7c17aa8701f0d85e08716f1f43fe183",
+      "object_sha256": "3fe8bbe78b97fbe0ef6c5b0765be29c62e176e3dbddbc59a987f208c275dbc74",
+      "rows": 8192,
+      "repeats": 20000,
+      "samples": 3,
+      "cpu": 8,
+      "method": "One object, GNU ld text starts 0x10000000+[0,8,...,56]; shuffled order seed 437; warmup excluded; perf counters include construction/startup, internal timing covers repeated folds.",
+      "variants": {
+        "0": {
+          "binary": "/tmp/issue-437-layout/scan_0",
+          "function_address": 268459241,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.7455971984863281,
+              "instructions:u": 1330076423,
+              "cycles:u": 502375961
+            },
+            {
+              "ns_per_row": 0.7469882263183594,
+              "instructions:u": 1330076423,
+              "cycles:u": 502326611
+            },
+            {
+              "ns_per_row": 0.7509608032226562,
+              "instructions:u": 1330076429,
+              "cycles:u": 504676940
+            }
+          ],
+          "median_ns_per_row": 0.7469882263183594,
+          "median_cycles_per_row": 3.0662595275878908
+        },
+        "8": {
+          "binary": "/tmp/issue-437-layout/scan_8",
+          "function_address": 268459241,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.7485803771972657,
+              "instructions:u": 1330076417,
+              "cycles:u": 503495419
+            },
+            {
+              "ns_per_row": 0.74650576171875,
+              "instructions:u": 1330076430,
+              "cycles:u": 502947021
+            },
+            {
+              "ns_per_row": 0.7462674621582032,
+              "instructions:u": 1330076426,
+              "cycles:u": 502026102
+            }
+          ],
+          "median_ns_per_row": 0.74650576171875,
+          "median_cycles_per_row": 3.0697450012207033
+        },
+        "16": {
+          "binary": "/tmp/issue-437-layout/scan_16",
+          "function_address": 268459257,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.9970936401367188,
+              "instructions:u": 1330076454,
+              "cycles:u": 669192501
+            },
+            {
+              "ns_per_row": 0.9952993286132813,
+              "instructions:u": 1330076474,
+              "cycles:u": 668709146
+            },
+            {
+              "ns_per_row": 1.0035680786132812,
+              "instructions:u": 1330076484,
+              "cycles:u": 673907425
+            }
+          ],
+          "median_ns_per_row": 0.9970936401367188,
+          "median_cycles_per_row": 4.084426885986328
+        },
+        "24": {
+          "binary": "/tmp/issue-437-layout/scan_24",
+          "function_address": 268459257,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 1.0012403076171874,
+              "instructions:u": 1330076458,
+              "cycles:u": 670858724
+            },
+            {
+              "ns_per_row": 0.9964470458984375,
+              "instructions:u": 1330076476,
+              "cycles:u": 663781854
+            },
+            {
+              "ns_per_row": 0.9928124450683594,
+              "instructions:u": 1330076473,
+              "cycles:u": 666416344
+            }
+          ],
+          "median_ns_per_row": 0.9964470458984375,
+          "median_cycles_per_row": 4.067482568359375
+        },
+        "32": {
+          "binary": "/tmp/issue-437-layout/scan_32",
+          "function_address": 268459273,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.4965142761230469,
+              "instructions:u": 1330076374,
+              "cycles:u": 336082283
+            },
+            {
+              "ns_per_row": 0.5003804992675781,
+              "instructions:u": 1330076387,
+              "cycles:u": 338413349
+            },
+            {
+              "ns_per_row": 0.499554931640625,
+              "instructions:u": 1330076377,
+              "cycles:u": 337341362
+            }
+          ],
+          "median_ns_per_row": 0.499554931640625,
+          "median_cycles_per_row": 2.0589682739257813
+        },
+        "40": {
+          "binary": "/tmp/issue-437-layout/scan_40",
+          "function_address": 268459273,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.5092780456542969,
+              "instructions:u": 1330076377,
+              "cycles:u": 338546613
+            },
+            {
+              "ns_per_row": 0.49959779663085935,
+              "instructions:u": 1330076373,
+              "cycles:u": 337432266
+            },
+            {
+              "ns_per_row": 0.5024085266113282,
+              "instructions:u": 1330076368,
+              "cycles:u": 339193954
+            }
+          ],
+          "median_ns_per_row": 0.5024085266113282,
+          "median_cycles_per_row": 2.066324542236328
+        },
+        "48": {
+          "binary": "/tmp/issue-437-layout/scan_48",
+          "function_address": 268459289,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.5070791809082031,
+              "instructions:u": 1330076376,
+              "cycles:u": 336919747
+            },
+            {
+              "ns_per_row": 0.501103662109375,
+              "instructions:u": 1330076370,
+              "cycles:u": 338492256
+            },
+            {
+              "ns_per_row": 0.5072459350585937,
+              "instructions:u": 1330076405,
+              "cycles:u": 336949627
+            }
+          ],
+          "median_ns_per_row": 0.5070791809082031,
+          "median_cycles_per_row": 2.0565773132324217
+        },
+        "56": {
+          "binary": "/tmp/issue-437-layout/scan_56",
+          "function_address": 268459289,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.5047888305664062,
+              "instructions:u": 1330076375,
+              "cycles:u": 340133471
+            },
+            {
+              "ns_per_row": 0.49696121826171874,
+              "instructions:u": 1330076384,
+              "cycles:u": 336520346
+            },
+            {
+              "ns_per_row": 0.5078242248535156,
+              "instructions:u": 1330076371,
+              "cycles:u": 337243515
+            }
+          ],
+          "median_ns_per_row": 0.5047888305664062,
+          "median_cycles_per_row": 2.0583710632324217
+        }
+      }
+    },
+    {
+      "compiler_sha256": "508cb2b00d817bf06b586c737c29d69cf7c17aa8701f0d85e08716f1f43fe183",
+      "object_sha256": "3fe8bbe78b97fbe0ef6c5b0765be29c62e176e3dbddbc59a987f208c275dbc74",
+      "rows": 8192,
+      "repeats": 20000,
+      "samples": 3,
+      "cpu": 8,
+      "method": "One object, GNU ld text starts 0x10000000+[0,8,...,56]; shuffled order seed 437; warmup excluded; perf counters include construction/startup, internal timing covers repeated folds.",
+      "variants": {
+        "0": {
+          "binary": "/tmp/issue-437-layout/scan_0",
+          "function_address": 268459241,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 1.4373901428222655,
+              "instructions:u": 1330076493,
+              "cycles:u": 499388331
+            },
+            {
+              "ns_per_row": 0.6218246276855469,
+              "instructions:u": 1330076424,
+              "cycles:u": 498174788
+            },
+            {
+              "ns_per_row": 0.6249666687011719,
+              "instructions:u": 1330076419,
+              "cycles:u": 501742548
+            }
+          ],
+          "median_ns_per_row": 0.6249666687011719,
+          "median_cycles_per_row": 3.048024481201172
+        },
+        "8": {
+          "binary": "/tmp/issue-437-layout/scan_8",
+          "function_address": 268459241,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 1.3984003051757812,
+              "instructions:u": 1330076478,
+              "cycles:u": 499614458
+            },
+            {
+              "ns_per_row": 0.6508442443847656,
+              "instructions:u": 1330076431,
+              "cycles:u": 501072562
+            },
+            {
+              "ns_per_row": 0.6478947021484375,
+              "instructions:u": 1330076422,
+              "cycles:u": 500754086
+            }
+          ],
+          "median_ns_per_row": 0.6508442443847656,
+          "median_cycles_per_row": 3.056360388183594
+        },
+        "16": {
+          "binary": "/tmp/issue-437-layout/scan_16",
+          "function_address": 268459257,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 1.8726648803710937,
+              "instructions:u": 1330076519,
+              "cycles:u": 663259005
+            },
+            {
+              "ns_per_row": 0.8350560241699219,
+              "instructions:u": 1330076469,
+              "cycles:u": 666181755
+            },
+            {
+              "ns_per_row": 0.8447599548339844,
+              "instructions:u": 1330076493,
+              "cycles:u": 666021659
+            }
+          ],
+          "median_ns_per_row": 0.8447599548339844,
+          "median_cycles_per_row": 4.065073602294922
+        },
+        "24": {
+          "binary": "/tmp/issue-437-layout/scan_24",
+          "function_address": 268459257,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 1.6380930053710938,
+              "instructions:u": 1330076544,
+              "cycles:u": 662896154
+            },
+            {
+              "ns_per_row": 0.8214167175292969,
+              "instructions:u": 1330076477,
+              "cycles:u": 664362495
+            },
+            {
+              "ns_per_row": 0.8252899230957031,
+              "instructions:u": 1330076502,
+              "cycles:u": 664849443
+            }
+          ],
+          "median_ns_per_row": 0.8252899230957031,
+          "median_cycles_per_row": 4.054946868896485
+        },
+        "32": {
+          "binary": "/tmp/issue-437-layout/scan_32",
+          "function_address": 268459273,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.9261110412597656,
+              "instructions:u": 1330076415,
+              "cycles:u": 334097634
+            },
+            {
+              "ns_per_row": 0.46597510375976564,
+              "instructions:u": 1330076391,
+              "cycles:u": 335030071
+            },
+            {
+              "ns_per_row": 0.4413122009277344,
+              "instructions:u": 1330076386,
+              "cycles:u": 335536934
+            }
+          ],
+          "median_ns_per_row": 0.46597510375976564,
+          "median_cycles_per_row": 2.0448612731933595
+        },
+        "40": {
+          "binary": "/tmp/issue-437-layout/scan_40",
+          "function_address": 268459273,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.9687039245605469,
+              "instructions:u": 1330076406,
+              "cycles:u": 334081974
+            },
+            {
+              "ns_per_row": 0.4463214416503906,
+              "instructions:u": 1330076386,
+              "cycles:u": 336966475
+            },
+            {
+              "ns_per_row": 0.4361834167480469,
+              "instructions:u": 1330076370,
+              "cycles:u": 335662559
+            }
+          ],
+          "median_ns_per_row": 0.4463214416503906,
+          "median_cycles_per_row": 2.048721673583984
+        },
+        "48": {
+          "binary": "/tmp/issue-437-layout/scan_48",
+          "function_address": 268459289,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.9670358276367188,
+              "instructions:u": 1330076410,
+              "cycles:u": 334567460
+            },
+            {
+              "ns_per_row": 0.534007666015625,
+              "instructions:u": 1330076396,
+              "cycles:u": 390257025
+            },
+            {
+              "ns_per_row": 0.44089515991210937,
+              "instructions:u": 1330076389,
+              "cycles:u": 338281404
+            }
+          ],
+          "median_ns_per_row": 0.534007666015625,
+          "median_cycles_per_row": 2.0647058349609373
+        },
+        "56": {
+          "binary": "/tmp/issue-437-layout/scan_56",
+          "function_address": 268459289,
+          "function_bytes": 294,
+          "samples": [
+            {
+              "ns_per_row": 0.9443282409667969,
+              "instructions:u": 1330076397,
+              "cycles:u": 334259368
+            },
+            {
+              "ns_per_row": 0.9730806335449219,
+              "instructions:u": 1330076389,
+              "cycles:u": 335589209
+            },
+            {
+              "ns_per_row": 0.42266511840820314,
+              "instructions:u": 1330076366,
+              "cycles:u": 336325109
+            }
+          ],
+          "median_ns_per_row": 0.9443282409667969,
+          "median_cycles_per_row": 2.0482739807128905
+        }
+      }
+    }
+  ]
+}

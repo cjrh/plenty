@@ -13,6 +13,10 @@ paths, with a construction-only control. See the
 [direct-access report](../../../book/src/proposals/columnar-list/indexed-access.md)
 for commands, evidence and measurement limits.
 
+`probe_scan_layout.py COMPILER --out DIR` is the bounded issue #437 follow-up:
+it relinks one unchanged object at several text addresses and records elapsed
+times and hardware counters. It changes no compiler policy.
+
 Accepted schema: exactly one public nongeneric class, with public `bool`,
 `i8/i16/i32/i64`, `u8/u16/u32/u64`, `f32`, or `f64` fields. All methods,
 destructors, custom constructors, reference/owned/nested fields, and empty

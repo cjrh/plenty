@@ -114,6 +114,46 @@ observation is why instruction counts alone do not justify a universal speedup
 claim. The target indexed/copy improvements remain clear in both counters and
 elapsed time. Issue #437 records the scan-throughput follow-up separately.
 
+### Bounded placement check (issue #437)
+
+The follow-up found reproducible address sensitivity, so the observation cannot
+be dismissed as timing noise alone. `probe_scan_layout.py` compiles the one-field
+workload once and relinks that **same object** with GNU ld at eight text-section
+addresses. Linker alignment produces four distinct function placements. Each
+binary performs 20,000 scans of 8,192 rows; checksums are checked, order is shuffled
+with seed 437, and one warmup precedes three measured samples per placement.
+Two independent runs produced the same object hash and 294-byte scan function.
+
+| Function address modulo 64 | Cycles/row across the two runs | First-run time, ns/row |
+| ---: | ---: | ---: |
+| 9 | 2.045–2.066 | 0.500–0.502 |
+| 25 | 2.048–2.065 | 0.505–0.507 |
+| 41 | 3.048–3.070 | 0.747 |
+| 57 | 4.055–4.084 | 0.996–0.997 |
+
+Retired instruction counts remain essentially identical. Hardware counters cover
+the whole process; internal elapsed timing covers the repeated folds. The second
+run has noisier elapsed times, while the cycle groups remain distinct. Modulo 64
+is an address label here, not a claim about the CPU's exact fetch-block size.
+Instruction-fetch/decode alignment is a plausible mechanism, but the probe moves
+the whole text section and does not isolate a specific CPU front-end effect or
+prove the precise cause in the original two binaries.
+
+The probe reused an available compiler executable instead of rebuilding Rust;
+its hash, the object hash and all samples are retained in
+`experiments/columnar-list/plenty/scan-layout-measurements.json`. Reproduce on
+x86-64 Linux with GNU ld, `nm`, and access to user-mode `perf` counters:
+
+```sh
+python3 -B experiments/columnar-list/plenty/probe_scan_layout.py \
+  /path/to/plenty --out /tmp/clist-scan-placement
+```
+
+This completes the bounded investigation. **No compiler change is proposed.**
+A universal padding/alignment policy would need broader benchmarks and code-size
+tradeoffs; issue #437 remains a low-priority performance concern. The placement
+experiment is evidence, not a hard-coded alignment recommendation.
+
 Reproduce the timing programs on each compiler, without competing builds:
 
 ```sh
