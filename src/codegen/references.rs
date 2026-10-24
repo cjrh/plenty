@@ -1,6 +1,11 @@
 //! Internal references carry a slot address and an inline-sum tag offset.
 //! A payload projection keeps the original storage alive through its loan;
 //! it never manufactures a pointer to a temporary unpacked value.
+//!
+//! A reference may address a frame slot, a list row, a class field or a
+//! payload inside another slot, so these accesses set no Cranelift alias
+//! region: any partition would let a load move past a store to the same
+//! bytes (issue #440, `tests/test_memory_order.rs`).
 use super::*;
 use cranelift_codegen::ir::{
     InstructionData, MemFlagsData, Opcode, Value as NativeValue, ValueDef,
@@ -57,11 +62,12 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn write_reference(&mut self, reference: NativeValue, value: NativeValue, ty: &Ty) {
-        let (address, shift) = self.bcx.ins().isplit(reference);
-        let old = self
-            .bcx
-            .ins()
-            .load(types::I128, MemFlagsData::trusted(), address, 0);
+        let (address, shift) = self.reference_parts(reference);
+        let old = shift.map(|_| {
+            self.bcx
+                .ins()
+                .load(types::I128, MemFlagsData::trusted(), address, 0)
+        });
         let value = if ty.has_inline_storage() {
             let destination = self.bcx.ins().iadd_imm_s(address, 16);
             self.copy_inline_to(value, ty, destination)
@@ -69,6 +75,15 @@ impl Lowerer<'_, '_> {
             value
         };
         let packed = self.pack(value, ty);
+        // A reference made from an address projects nothing and owns every
+        // tag bit of its slot: the general path, with a zero shift, would
+        // keep no old bits, so the slot takes the packed value as is.
+        let (Some(shift), Some(old)) = (shift, old) else {
+            self.bcx
+                .ins()
+                .store(MemFlagsData::trusted(), packed, address, 0);
+            return;
+        };
         let (word, tags) = self.bcx.ins().isplit(packed);
         // At the deepest projection (64) every old tag bit is an ancestor's.
         let projected = self
