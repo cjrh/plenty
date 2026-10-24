@@ -13,6 +13,7 @@ import platform
 import random
 import statistics
 import subprocess
+import tomllib
 
 HERE = Path(__file__).resolve().parent
 
@@ -102,7 +103,10 @@ subprocess.run(["cc", "-fuse-ld=bfd", *sys.argv[1:]], check=True)
         for metric in ["ns", "instructions:u", "cycles:u"]:
             v[f"median_{metric}_per_row"] = statistics.median(s[metric] for s in v["samples"]) / work
         print(key, round(v["median_ns_per_row"], 3), "ns/row", flush=True)
+    lock = tomllib.loads((HERE.parents[2] / "Cargo.lock").read_text())
+    cranelift = next(p["version"] for p in lock["package"] if p["name"] == "cranelift-codegen")
     report = dict(platform=platform.platform(), cpu=args.cpu, samples=args.samples,
+        cranelift_version=cranelift,
         compiler_sha256=hashlib.sha256(compiler.read_bytes()).hexdigest(),
         object_sha256=hashlib.sha256((out / "scan.o").read_bytes()).hexdigest(),
         method="One object; Plenty function sections moved together to four verified text starts 16 bytes apart; randomized order seed 23; one warmup excluded. Internal timings cover repeated calls; perf includes process setup and input construction. Captured threshold forces the scalar reference path; both thresholds equal 5.",

@@ -22,12 +22,13 @@ promise. Comparison masks widen to two 64-bit accumulators before summing, so
 large columns cannot overflow 32-bit lane counters. The final scalar item local
 is preserved as well as index and count.
 
-Cranelift 0.131.1 emits 128-bit SSE2 instructions for this pattern. The current
+Cranelift 0.137.0 emits 128-bit SSE2 instructions for this pattern. The current
 machine (AMD Ryzen 7 7840HS) has AVX2 and several AVX-512 features, but this slice
 does not need them. Using the existing target baseline keeps binaries portable
 among supported x86-64 machines and avoids runtime dispatch overhead and policy.
 This is not a claim that Cranelift can exploit all this CPU's wider vector
-features; the earlier [backend evidence](../std-simd/evidence.md) still applies.
+features; fresh [backend upgrade probes](simd-backend-upgrade.md) establish the
+current width boundary and distinguish useful new backend features.
 
 ## Validation and reproduction
 
@@ -65,7 +66,8 @@ demonstrated; do not select just the best scalar/SIMD address pair.
 ## Final measurements
 
 Measured on 2026-10-24 on the Ryzen 7 7840HS, pinned to logical CPU 8, with a
-fresh release compiler based on `f625d54d`. Host process monitoring sampled
+fresh Cranelift 0.137.0 release compiler incorporating main `539f7ee4`.
+Host process monitoring sampled 15 times at half-second intervals
 throughout the final run and observed no concurrent `cargo`/`rustc` work.
 The retained `experiments/simd/clist/measurements.json` records all 72 measured
 executions, checksums, actual function addresses, instruction/cycle counts,
@@ -75,16 +77,22 @@ Each cell below spans the four placement medians, not individual samples:
 
 | Rows per call | Scalar ns/row | SIMD ns/row | Scalar instructions/row | SIMD instructions/row |
 | ---: | ---: | ---: | ---: | ---: |
-| 7 | 2.036–2.332 | 1.735–2.050 | 42.724 | 38.438 |
-| 8,192 | 0.625–0.939 | 0.155–0.162 | 13.037 | 3.287 |
-| 262,144 | 0.636–0.931 | 0.156–0.159 | 13.058 | 3.308 |
+| 7 | 2.023–2.382 | 1.652–1.945 | 42.724 | 38.010 |
+| 8,192 | 0.635–0.976 | 0.105–0.212 | 13.037 | 3.037 |
+| 262,144 | 0.635–0.972 | 0.104–0.212 | 13.058 | 3.058 |
 
-At matched link placements, the two larger sizes improve **3.87–6.05×** in
-elapsed time with roughly **four times fewer instructions**. SIMD uses about
-0.77–0.80 cycles/row, while the scalar control varies between about 3.0 and 4.6.
-The small case improves only 1.02–1.34×; setup costs dominate and the captured
+At matched link placements, the two larger sizes improve **3.00–6.16×** in
+elapsed time with roughly **4.3 times fewer instructions**. SIMD uses about
+0.52–1.04 cycles/row, while the scalar control varies between about 3.0 and 4.8.
+The small case improves only 1.05–1.44×; setup costs dominate and the captured
 scalar threshold has extra fixed setup. This compares two paths in the same
 compiler, not identical source compiled before and after the change.
+
+The previous 0.131.1 run is retained as
+`experiments/simd/clist/measurements-cranelift-0.131.json`. The new vector loop
+retains its comparison constant in a register and executes about 0.25 fewer
+instructions per row on the larger inputs. Placement sensitivity is stronger
+in this run, so the upgrade does not imply a uniform elapsed-time improvement.
 
 The SIMD function occupies 608 bytes including its constant pool; the scalar
 control occupies 525 bytes. Assembly contains unaligned `movdqu`, `pcmpgtd`,

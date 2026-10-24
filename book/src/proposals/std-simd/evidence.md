@@ -5,6 +5,10 @@ Evidence for the [portable SIMD proposal](../std-simd.md), collected on
 proposed module. They separate current-language semantics, explicit backend
 lowering, and another optimizer's recognition of equivalent scalar loops.
 
+This page retains the original 0.131.1 experiment. The implemented clist slice
+has separate [Cranelift 0.137 validation](../columnar-list/simd-backend-upgrade.md)
+and current measurements; use those for the production backend's present limits.
+
 ## Reproduce
 
 The checked-in experiment (`experiments/simd/README.md` in the repository) contains a

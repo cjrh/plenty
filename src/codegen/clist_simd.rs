@@ -5,7 +5,7 @@ use crate::clist::ClistOp;
 use crate::collection::CollectionOp;
 use crate::op::{IntegerOp, Pattern};
 use crate::value::Value as Literal;
-use cranelift_codegen::ir::MemFlags;
+use cranelift_codegen::ir::MemFlagsData;
 
 fn operations(ops: &[Op]) -> Vec<&Op> {
     ops.iter()
@@ -154,7 +154,7 @@ impl Lowerer<'_, '_> {
         }
         let address = self.read_local(scan.address);
         let length = self.read_local(scan.length);
-        let end = self.bcx.ins().band_imm(length, -4);
+        let end = self.bcx.ins().band_imm_s(length, -4);
         let threshold = self.bcx.ins().iconst(types::I32, scan.constant);
         let threshold = self.bcx.ins().splat(types::I32X4, threshold);
         let zero = self.bcx.ins().iconst(types::I64, 0);
@@ -172,21 +172,22 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().brif(more, iteration, &[], exit, &[]);
         self.bcx.switch_to_block(iteration);
         self.bcx.seal_block(iteration);
-        let offset = self.bcx.ins().ishl_imm(index, 2);
+        let offset = self.bcx.ins().ishl_imm_s(index, 2);
         let pointer = self.bcx.ins().iadd(address, offset);
         // A column need not be 16-byte aligned. The guard admits only four
         // live rows, so this never reads padding, another column or a tail.
-        let values = self
-            .bcx
-            .ins()
-            .load(types::I32X4, MemFlags::new().with_notrap(), pointer, 0);
+        let values =
+            self.bcx
+                .ins()
+                .load(types::I32X4, MemFlagsData::new().with_notrap(), pointer, 0);
         let mask = self.bcx.ins().icmp(scan.comparison, values, threshold);
         // Widen -1/0 masks before summing: 32-bit lane counters would wrap on
         // a valid large column. Each i64 lane counts at most half its rows.
         // Comparison lanes are all-zero or all-one bits, so duplicating each
         // 32-bit lane sign-extends it without a second vector comparison.
         let widen = |this: &mut Self, lanes: [u8; 16]| {
-            let endian = MemFlags::new().with_endianness(cranelift_codegen::ir::Endianness::Little);
+            let endian =
+                MemFlagsData::new().with_endianness(cranelift_codegen::ir::Endianness::Little);
             let bytes = this.bcx.ins().bitcast(types::I8X16, endian, mask);
             let immediate = this.bcx.func.dfg.immediates.push(lanes.to_vec().into());
             let shuffled = this.bcx.ins().shuffle(bytes, bytes, immediate);
@@ -199,7 +200,7 @@ impl Lowerer<'_, '_> {
         );
         let pair = self.bcx.ins().iadd(low, high);
         let sum = self.bcx.ins().isub(sum, pair);
-        let next = self.bcx.ins().iadd_imm(index, 4);
+        let next = self.bcx.ins().iadd_imm_s(index, 4);
         self.bcx.ins().jump(header, &[next.into(), sum.into()]);
         self.bcx.seal_block(header);
         self.bcx.switch_to_block(exit);
@@ -214,16 +215,19 @@ impl Lowerer<'_, '_> {
         // assumptions about this local merely because pipelines generate it.
         let save = self.bcx.create_block();
         let done = self.bcx.create_block();
-        let ran = self.bcx.ins().icmp_imm(IntCC::SignedGreaterThan, index, 0);
+        let ran = self
+            .bcx
+            .ins()
+            .icmp_imm_s(IntCC::SignedGreaterThan, index, 0);
         self.bcx.ins().brif(ran, save, &[], done, &[]);
         self.bcx.switch_to_block(save);
         self.bcx.seal_block(save);
-        let offset = self.bcx.ins().ishl_imm(index, 2);
+        let offset = self.bcx.ins().ishl_imm_s(index, 2);
         let pointer = self.bcx.ins().iadd(address, offset);
         let last = self
             .bcx
             .ins()
-            .load(types::I32, MemFlags::new().with_notrap(), pointer, -4);
+            .load(types::I32, MemFlagsData::new().with_notrap(), pointer, -4);
         self.write_local(scan.item, last);
         self.bcx.ins().jump(done, &[]);
         self.bcx.switch_to_block(done);

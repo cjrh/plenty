@@ -32,6 +32,24 @@ samples after a warmup. Internal wall timing covers repeated scans; performance
 counters include process startup and constructing the fixture. Do not run it
 alongside compiler builds. Raw reports, dumps, objects and executables remain
 in the output directory; the retained final report is `measurements.json`.
+The earlier 0.131.1 report is preserved separately as
+`measurements-cranelift-0.131.json`; it is not the current compiler's result.
+
+To check the pinned backend's vector-width boundary independently of Plenty's
+pattern recognition, compile the small workspace example and run each mode:
+
+```sh
+cargo build --locked --release --example clist_simd_backend_probe
+target/release/examples/clist_simd_backend_probe 4 baseline /tmp/width4.o
+target/release/examples/clist_simd_backend_probe 4 native /tmp/width4-native.o
+target/release/examples/clist_simd_backend_probe 8 native /tmp/width8-native.o
+```
+
+This is a compile-only load/compare/store probe with the verifier enabled.
+`native` enables detected host features for that probe only. Repeat with 8 and
+16 lanes in both modes to distinguish 128-bit support from 256/512-bit support;
+unsupported widths return a compilation error. It does not change Plenty's
+target policy or claim execution support for a rejected width.
 
 See [the report](../../../book/src/proposals/columnar-list/simd-counts.md)
 for results and interpretation.
