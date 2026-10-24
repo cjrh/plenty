@@ -217,6 +217,9 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        if self.clist_projection(target)?.is_some() {
+            return self.augment_clist_field(target, op, value, ops);
+        }
         if let Expression::Index(base, index) = &ungroup(target).kind
             && let Some(class) = self.byte_place(base)
         {
@@ -1211,6 +1214,9 @@ impl Lower<'_> {
         hint: Option<Ty>,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
+        if self.is_clist_column(iterable) {
+            return self.clist_iteration(names, iterable, ops);
+        }
         if let Expression::Call(function, args) = &ungroup(iterable).kind
             && matches!(function.as_str(), "enumerate" | "zip" | "reversed")
             && !self.names.contains_key(function)
@@ -2158,6 +2164,13 @@ impl Lower<'_> {
     }
 
     pub(super) fn index(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
+        if let Expression::Index(base, _) = &ungroup(e).kind
+            && matches!(self.place_type(base), Some(Ty::Clist(_)))
+        {
+            return Err(e.at.error(
+                "clist rows are not contiguous objects; use items[i].field or items.copy_row(i)",
+            ));
+        }
         let Expression::Index(base, index) = &e.kind else {
             unreachable!()
         };
@@ -2534,6 +2547,9 @@ impl Lower<'_> {
         {
             return self.pipeline_terminal(base, name, args, ops);
         }
+        if matches!(self.place_type(base), Some(Ty::Clist(_))) {
+            return self.clist_method(base, name, args, ops);
+        }
         if matches!(self.place_type(base), Some(Ty::Shared(_))) {
             return self.shared_method(base, name, args, ops);
         }
@@ -2638,6 +2654,25 @@ impl Lower<'_> {
             }
         }
         if let Some(ty) = self.qualified_type(base)? {
+            if matches!(ty, Ty::Clist(_)) {
+                self.check_clist_access(&ty, &base.at)?;
+                let operation = match (name, args) {
+                    ("new", []) => crate::clist::ClistOp::New(ty),
+                    ("with_capacity", [capacity]) => {
+                        let actual = self.expr_expected(capacity, Some(Ty::I64), ops)?;
+                        self.same(actual, Some(Ty::I64), &capacity.at)?;
+                        crate::clist::ClistOp::WithCapacity(ty)
+                    }
+                    _ => {
+                        return Err(base
+                            .at
+                            .error("clist type methods are new() and with_capacity(i64)"));
+                    }
+                };
+                let output = operation.signature().1;
+                ops.push(Op::Collection(CollectionOp::Clist(operation)));
+                return Ok(Some(output));
+            }
             if let Ty::Class(class) = &ty {
                 if name != "new" {
                     return Err(base
@@ -3804,6 +3839,14 @@ impl Lower<'_> {
             return Err(at.error(format!("{name} requires one iterable; empty collections need a type annotation or typed constructor")));
         }
         if name == "len" {
+            if let Some(ty @ Ty::Clist(_)) = self.place_type(&args[0]) {
+                let (_, loan) = self.borrow(&args[0], false, ops)?;
+                ops.push(Op::Collection(CollectionOp::Clist(
+                    crate::clist::ClistOp::Len(ty),
+                )));
+                Self::end_reads(vec![loan], ops);
+                return Ok(Ty::I64);
+            }
             if let Some(ty @ Ty::List(_)) = self.place_type(&args[0]) {
                 let (_, loan) = self.borrow(&args[0], false, ops)?;
                 ops.push(Op::Collection(CollectionOp::ListLenRef(ty)));
@@ -3848,6 +3891,18 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
+        if matches!(ty, Ty::Clist(_)) {
+            if !args.is_empty() {
+                return Err(
+                    at.error("clist construction takes no arguments; use reserve for capacity")
+                );
+            }
+            self.check_clist_access(&ty, at)?;
+            ops.push(Op::Collection(CollectionOp::Clist(
+                crate::clist::ClistOp::New(ty.clone()),
+            )));
+            return Ok(ty);
+        }
         if let Ty::Class(class) = &ty {
             if Ty::Class(class.clone()).layout_depth() >= 64 {
                 return Err(at.error("type nesting exceeds the implementation limit of 64"));

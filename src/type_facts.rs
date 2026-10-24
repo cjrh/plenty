@@ -45,7 +45,7 @@ impl Ty {
                     && !matches!(self, Self::Ref(..) | Self::KeyView(_) | Self::Atomic(_)),
                 destructor: resource,
                 complete: true,
-                reflexive: !self.is_float(),
+                reflexive: !self.is_float() && !matches!(self, Self::Clist(_)),
                 closure: matches!(self, Self::Closure(_) | Self::BoxedCallable(_)),
                 concurrent_handle: self.is_concurrent_handle(),
                 atomic: matches!(self, Self::Atomic(_)),
@@ -91,6 +91,7 @@ impl Ty {
                 | Self::FsDirEntry
                 | Self::FsMetadata
                 | Self::ByteStorage
+                | Self::Clist(_)
                 | Self::Generator(_)
                 | Self::Closure(_)
                 | Self::BoxedCallable(_)
@@ -168,7 +169,7 @@ impl Ty {
             facts.concurrent_handle |= nodes[i].is_concurrent_handle();
             facts.atomic |= matches!(nodes[i], Self::Atomic(_));
             facts.shared |= matches!(nodes[i], Self::Shared(_));
-            facts.reflexive &= !nodes[i].is_float();
+            facts.reflexive &= !nodes[i].is_float() && !matches!(nodes[i], Self::Clist(_));
             let weight = match &nodes[i] {
                 Self::Enum(t) => t.try_get().map_or(0, |definition| {
                     if t.propagatable() {

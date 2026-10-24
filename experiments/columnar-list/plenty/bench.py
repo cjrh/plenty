@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure generated Plenty columns against Plenty list[Particle], not Rust AoS."""
+"""Measure generated and optional native Plenty columns against list[Particle]."""
 import argparse
 import hashlib
 import json
@@ -15,13 +15,25 @@ HERE = Path(__file__).resolve().parent
 FIELDS = ("x", "y", "z", "vx", "vy", "vz", "mass", "tag")
 
 
-def program(rows, repeats, samples):
+def program(rows, repeats, samples, native=False):
     kernels = []
     full = "row.x * row.y + row.z * row.vx + row.vy * row.vz + row.mass * row.tag"
-    for layout, ty in [("aos", "list[Particle]"), ("soa", "ClistParticle")]:
+    layouts = [("aos", "list[Particle]"), ("soa", "ClistParticle")]
+    if native:
+        layouts.append(("native", "clist[Particle]"))
+    for layout, ty in layouts:
         for kind in ["one", "two", "stream", "whole", "random"]:
             lines = [f"def {layout}_{kind}(items: &{ty}) -> i64:"]
-            if layout == "soa" and kind in {"one", "two"}:
+            if layout == "native" and kind in {"one", "two"}:
+                if kind == "one":
+                    lines += ["    items.column(Particle.x).fold(0, add_value)"]
+                else:
+                    lines += ["    items.column(Particle.x).zip(items.column(Particle.y)).fold(0, filtered_value)"]
+            elif layout == "native" and kind == "stream":
+                expression = full.replace("row.", "items[i].")
+                lines += ["    mut total = 0", f"    for i in range({rows}):",
+                          f"        total += {expression}", "    total"]
+            elif layout == "soa" and kind in {"one", "two"}:
                 lines += ["    xs = items.column_x()"]
                 if kind == "one":
                     lines += ["    iter(xs).fold(0, add)"]
@@ -36,11 +48,11 @@ def program(rows, repeats, samples):
                 lines += ["    mut total = 0"]
                 if kind == "random":
                     lines += [f"    for i in range({rows}):", f"        index = (i * 65537) % {rows}"]
-                elif layout == "soa":
+                elif layout in {"soa", "native"}:
                     lines += [f"    for index in range({rows}):"]
                 else:
                     lines += ["    for row in items:"]
-                if layout == "soa":
+                if layout in {"soa", "native"}:
                     lines += ["        row = items.copy_row(index).unwrap()"]
                 elif kind == "random":
                     lines += ["        row = &items[index]"]
@@ -64,10 +76,17 @@ def add(total: i64, value: &i64) -> i64:
 def filtered(total: i64, x: &i64, y: &i64) -> i64:
     total + *y if *x % 2 == 0 else total
 
+def add_value(total: i64, value: i64) -> i64:
+    total + value
+
+def filtered_value(total: i64, x: i64, y: i64) -> i64:
+    total + y if x % 2 == 0 else total
+
 """ + "\n\n".join(kernels)
+    extra_error = " | AppendError[Particle]" if native else ""
     source += f"""
 
-def main() -> Result[(), AllocError | IoError | AppendParticleError]:
+def main() -> Result[(), AllocError | IoError | AppendParticleError{extra_error}]:
     start_aos = monotonic_now()
     mut aos = list[Particle].with_capacity({rows})?
     for i in range({rows}):
@@ -84,14 +103,23 @@ def main() -> Result[(), AllocError | IoError | AppendParticleError]:
     end_soa = monotonic_now()
     print("build_soa", end_soa.saturating_duration_since(&start_soa).as_nanoseconds(), soa.len())?
 """
-    # Both owners remain allocated. Alternate layout order for every sample.
+    if native:
+        source += f"""    start_native = monotonic_now()
+    mut native = clist[Particle].with_capacity({rows})?
+    for i in range({rows}):
+        n = i % 1024
+        native.append(Particle(n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7))?
+    end_native = monotonic_now()
+    print("build_native", end_native.saturating_duration_since(&start_native).as_nanoseconds(), len(native))?
+"""
+    # All owners remain allocated. Alternate layout order for every sample.
     source += f"    for sample in range({samples + 1}):\n"
     for kind in ["one", "two", "stream", "whole", "random"]:
         source += "        if sample % 2 == 0:\n"
-        for layout in ["aos", "soa"]:
+        for layout, _ in layouts:
             source += f"            measure_{layout}_{kind}(&{layout}, sample)?\n"
         source += "        else:\n"
-        for layout in ["soa", "aos"]:
+        for layout, _ in reversed(layouts):
             source += f"            measure_{layout}_{kind}(&{layout}, sample)?\n"
     return source + "    Ok(())\n"
 
@@ -117,6 +145,7 @@ def main():
     parser.add_argument("--repeats", type=int, default=20)
     parser.add_argument("--samples", type=int, default=7)
     parser.add_argument("--cpu", type=int)
+    parser.add_argument("--native-clist", action="store_true", help="also measure the compiler-supported packed clist")
     args = parser.parse_args()
     assert args.repeats > 0 and args.samples > 0
     compiler = args.compiler.resolve()
@@ -124,14 +153,14 @@ def main():
     (args.out / "columns.plenty").write_text(generate((HERE / "particle.plenty").read_text()))
     report = {"compiler": str(compiler), "compiler_sha256": hashlib.sha256(compiler.read_bytes()).hexdigest(),
               "platform": platform.platform(), "cpu": args.cpu, "samples": args.samples,
-              "repeats": args.repeats, "release": True, "results": [], "construction": []}
+              "repeats": args.repeats, "release": True, "native_clist": args.native_clist, "results": [], "construction": []}
     report["lscpu"] = subprocess.run(["lscpu"], text=True, capture_output=True, check=True).stdout
     env = {**os.environ, "PLENTY_CACHE": "off", "PLENTY_LINKER_THREADS": "1"}
     for rows in args.rows:
         assert rows > 0 and rows & (rows - 1) == 0, "permutation requires power-of-two row count"
         source = args.out / f"bench_{rows}.plenty"
         binary = args.out / f"bench_{rows}"
-        source.write_text(program(rows, args.repeats, args.samples))
+        source.write_text(program(rows, args.repeats, args.samples, args.native_clist))
         subprocess.run([str(compiler), "--release", "--compile", str(source), "-o", str(binary)], env=env, check=True)
         command = [str(binary.resolve())]
         if args.cpu is not None:

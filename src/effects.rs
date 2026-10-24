@@ -160,6 +160,7 @@ impl CollectionOp {
             | TryCopy(_)
             | Next(_)
             | TryNew(_)
+            | Clist(_)
             | Insert(_)
             | TryReserve(_)
             | TryInsert(_)

@@ -1653,6 +1653,7 @@ fn canonical_facility_expression(e: &mut Expr) {
         && matches!(
             name.as_str(),
             "SpawnError"
+                | "AppendError"
                 | "SendError"
                 | "SendTimeoutError"
                 | "Selected"
@@ -2136,6 +2137,7 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
                 }
             }
             Ty::List(t)
+            | Ty::Clist(t)
             | Ty::Set(t)
             | Ty::Ref(t, _)
             | Ty::Channel(t, _)

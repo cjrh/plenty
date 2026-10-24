@@ -23,6 +23,9 @@ pub(super) struct DataTypes {
     pending_enums: RefCell<Vec<enums::EnumDecl>>,
     definitions: Arc<crate::nominal::Types>,
     pending_types: RefCell<std::collections::VecDeque<DefinitionJob>>,
+    /// Column eligibility depends on the complete class schema, including
+    /// generic instances whose definitions are still in the queue.
+    pending_clists: RefCell<Vec<(Ty, Token)>>,
     deferred: Cell<bool>,
     depth: Cell<usize>,
     /// The instance being defined, whose fields request further instances.
@@ -631,6 +634,9 @@ impl TypeAliases {
                     self.data.pending.borrow_mut().push(class);
                 }
             }
+            for (row, at) in std::mem::take(&mut *self.data.pending_clists.borrow_mut()) {
+                super::clists::check_row(&row, &at)?;
+            }
             for ((name, _), ty) in self.data.instances.borrow().iter() {
                 let at = || {
                     self.data
@@ -655,6 +661,20 @@ impl TypeAliases {
         *self.data.requirer.borrow_mut() = None;
         *self.data.requiring.borrow_mut() = attributed;
         result
+    }
+
+    pub(super) fn clist_type(&self, row: Ty, at: &Token) -> Result<Ty> {
+        if !self.data.shapes_only {
+            if matches!(&row, Ty::Class(class) if class.try_get().is_none()) {
+                self.data
+                    .pending_clists
+                    .borrow_mut()
+                    .push((row.clone(), at.clone()));
+            } else {
+                super::clists::check_row(&row, at)?;
+            }
+        }
+        Ok(Ty::Clist(Arc::new(row)))
     }
 
     fn resolve_enum(&self, declaration: &enums::EnumDecl) -> Result<Ty> {

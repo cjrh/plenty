@@ -423,6 +423,9 @@ impl Lower<'_> {
         mutable: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        if self.clist_projection(e)?.is_some() {
+            return Err(e.at.error("packed clist fields cannot be borrowed; read the scalar value or use column iteration"));
+        }
         if self.is_pipeline(e) {
             return Err(e.at.error(
                 "iterator pipeline lending is not implemented; consume it in its creating scope",

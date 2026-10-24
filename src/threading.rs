@@ -234,6 +234,7 @@ fn check_type(
             return Err("generator worker eligibility is not implemented yet".into())
         }
         Ty::Ref(t, _)
+        | Ty::Clist(t)
         | Ty::List(t)
         | Ty::Set(t)
         | Ty::Range(t)
@@ -292,6 +293,7 @@ fn receiver_cycle(message: &Ty, receiver: &Ty) -> bool {
 pub fn contained(ty: &Ty, pending: &mut Vec<Ty>) {
     match ty {
         Ty::Channel(t, _)
+        | Ty::Clist(t)
         | Ty::Future(t)
         | Ty::List(t)
         | Ty::Set(t)
