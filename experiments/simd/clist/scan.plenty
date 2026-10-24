@@ -1,0 +1,13 @@
+class Row:
+    value: i32
+
+def simd_count(rows: &clist[Row]) -> i64:
+    rows.column(Row.value).filter(def(x: &i32) -> bool: *x > 5i32).count()
+
+def scalar_count(rows: &clist[Row], limit: i32) -> i64:
+    rows.column(Row.value).filter(def [limit](x: &i32) -> bool: *x > limit).count()
+
+def main() -> Result[(), IoError]:
+    rows = clist[Row]()
+    print(simd_count(&rows), scalar_count(&rows, 5i32))?
+    Ok(())

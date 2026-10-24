@@ -70,6 +70,7 @@ use crate::lexer;
 mod atomic;
 mod casts;
 mod channels;
+mod clist_simd;
 mod clists;
 mod closures;
 mod collections;

@@ -920,6 +920,7 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn lower_loop(&mut self, condition: &[Op], body: &[Op]) -> Result<()> {
+        self.lower_clist_simd_prefix(condition, body);
         let initial = self.stack.clone();
         let types: Vec<Ty> = self.locals.iter().map(|(_, ty)| ty.clone()).collect();
         let counter = super::induction::analyze(condition, body, &types)

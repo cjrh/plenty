@@ -76,8 +76,7 @@ Capacity rounding aligns column starts; this is an internal layout, not an
 Arrow, Parquet, C ABI or serialization contract. Growth copies all columns,
 and can temporarily hold both old and new allocations.
 
-Column loops load the pointer and length before iteration and issue native
-scalar loads inside the loop. Checked arithmetic and floating-point rules are
+Column loops load the pointer and length before iteration. Checked arithmetic and floating-point rules are
 unchanged. Indexed field reads and writes use checked native-width loads and
 stores. `copy_row` checks its index once, then gathers the known fields directly
 into fresh ordinary row storage without runtime schema dispatch. Each access
@@ -85,9 +84,30 @@ observes the current owner, so growth and mutation between accesses are safe.
 Whole-row workloads can still cost more than ordinary lists: gathering separated
 fields and moving the reconstructed object have costs of their own. The
 [access measurements](../../../proposals/columnar-list/indexed-access.md)
-compare these paths with the initial implementation. The layout makes future
-SIMD and parallel scans possible, but choosing `clist` does not automatically
-vectorize or parallelize a calculation.
+compare these paths with the initial implementation.
+
+## Automatic SIMD counts
+
+With `--release`, a column of `i32` or `u32` followed by one `filter` and
+`count()` uses four-lane SIMD when the predicate is a comparison of its borrowed
+argument against a constant of the same type (`==`, `!=`, `<`, `<=`, `>`, `>=`).
+Both a named function and a closure without captures are recognized. For example:
+`items.column(T.score).filter(def(x: &i32) -> bool: *x > 5i32).count()`.
+The ordinary scalar program remains valid without `--release`.
+
+The compiler proves this small pattern from the checked operations; it requires
+no user annotation, temporary collection, allocation, aligned column start or
+lane-count bookkeeping. Full groups use unaligned-safe vector loads; the scalar
+loop handles the remaining zero to three rows. Counts use 64-bit accumulators,
+including for columns larger than a 32-bit lane counter could represent.
+The generated instructions use the existing x86-64 SSE2 baseline, so this slice
+needs neither a newer CPU nor runtime feature dispatch.
+
+Captures, checked arithmetic in predicates, additional adapters, other scalar
+types and other terminals retain scalar execution. Side effects, traps and
+floating-point order are unchanged. This is a bounded optimization, not general
+auto-vectorization; parallel scans remain unimplemented. See the
+[validation and measurements](../../../proposals/columnar-list/simd-counts.md).
 
 See the [tutorial](../../../tutorial/06-data/11-columnar-records.md) and the
 [design rationale and measurements](../../../proposals/columnar-list.md).
