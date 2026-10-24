@@ -470,7 +470,6 @@
     - [Owned structures and checked node identities](proposals/arenas.md)
         - [Arena prototype assessment](proposals/arenas/prototype.md)
     - [Typed ranges, generic calls, and expression-local inference](proposals/typed-ranges-and-expression-inference.md)
-    - [Explicit applications, modules, and executable lessons](proposals/entrypoints-modules-and-tutorials.md)
     - [Single-file scripts with embedded manifests](proposals/single-file-scripts.md)
     - [Package language editions](proposals/language-editions.md)
     - [C interop and dynamic libraries](proposals/ffi-and-dynamic-libraries.md)
@@ -498,6 +497,7 @@
         - [Why identical scan code can run at different speeds](proposals/columnar-list/placement-research.md)
         - [Automatic SIMD filter/count](proposals/columnar-list/simd-counts.md)
         - [SIMD after Cranelift 0.137](proposals/columnar-list/simd-backend-upgrade.md)
+        - [SIMD counts with runtime bounds](proposals/columnar-list/simd-runtime-bounds.md)
     - [Exploring async/await without exposed pinning](proposals/async-await.md)
         - [Async suspension, allocation and cleanup](proposals/async-await/ownership.md)
         - [Native async/await spike evidence](proposals/async-await/evidence.md)
@@ -505,7 +505,6 @@
     - [Exploring Go-style scoped tasks](proposals/stackful-tasks.md)
         - [Stack, scheduler and allocation choices](proposals/stackful-tasks/runtime.md)
         - [Native stackful-task spike evidence](proposals/stackful-tasks/evidence.md)
-    - [Plenty's next language phase](proposals/next-language-phase.md)
     - [Keyword arguments, defaults, and static unpacking](proposals/keyword-arguments-and-unpacking.md)
     - [Typestate and owned transitions](proposals/typestate-and-owned-transitions.md)
     - [Linear obligations](proposals/linear-obligations.md)
@@ -541,6 +540,8 @@
             - [Experiments and typed streams](proposals/completed/error-composition/streams-and-evidence.md)
         - [Finite error sets as anonymous sums](proposals/completed/error-sets.md)
         - [Bundled HTTP acceptance](proposals/completed/standard-http.md)
+        - [Explicit applications, modules, and executable lessons](proposals/completed/entrypoints-modules-and-tutorials.md)
+        - [Plenty's next language phase](proposals/completed/next-language-phase.md)
 
 # Development
 

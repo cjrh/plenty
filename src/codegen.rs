@@ -697,6 +697,7 @@ fn object_module(
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
     if build.optimize {
         leaf_calls::prepare(&bodies, &mut user_fns);
+        clist_simd::prepare(&bodies, &mut user_fns);
     }
     sites::mark_context_preserving(&bodies, &mut user_fns);
     runtime.drop_hooks = user_fns
@@ -1507,6 +1508,7 @@ fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, (
 struct UserFn {
     /// Small scalar leaf body, retained only for optimized call substitution.
     inline: Option<Arc<leaf_calls::Leaf>>,
+    column_predicate: Option<Arc<clist_simd::Predicate>>,
     standard_library: bool,
     drop_callback: Option<FuncId>,
     generator: Option<Ty>,
@@ -1572,6 +1574,7 @@ fn collect_user_fns(
                     name.clone(),
                     UserFn {
                         inline: None,
+                        column_predicate: None,
                         drop_callback: if name.starts_with("__plenty_class_")
                             && name.ends_with(".__del__")
                         {

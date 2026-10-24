@@ -20,7 +20,8 @@ protocol DocumentStorage:
     pub def write(self: &mut DocumentStorage, document: &str) -> Result[(), SaveError]:
         pass
 
-    pub final def save(self: &mut DocumentStorage, document: &str) -> Result[(), SaveError]:
+    @final
+    pub def save(self: &mut DocumentStorage, document: &str) -> Result[(), SaveError]:
         if document.byte_len() == 0:
             return Err(SaveError.Empty)
         self.write(document)?
@@ -74,7 +75,8 @@ protocol Scored:
     pub def score(self) -> i64:
         self.base_score()
 
-    pub final def eligible(self) -> bool:
+    @final
+    pub def eligible(self) -> bool:
         self.score() >= 10
 
 class Basic:
@@ -119,14 +121,16 @@ protocol Celsius:
     pub def celsius(self) -> i64:
         pass
 
-    pub final def display(self) -> i64:
+    @final
+    pub def display(self) -> i64:
         self.celsius()
 
 protocol Fahrenheit:
     pub def celsius(self) -> i64:
         pass
 
-    pub final def display(self) -> i64:
+    @final
+    pub def display(self) -> i64:
         self.celsius() * 9 // 5 + 32
 
 class Sensor:
@@ -166,7 +170,8 @@ pub protocol DocumentStorage:
     def write(self: &mut DocumentStorage, document: &str) -> Result[(), IoError]:
         pass
 
-    pub final def save(self: &mut DocumentStorage, document: &str) -> Result[(), IoError]:
+    @final
+    pub def save(self: &mut DocumentStorage, document: &str) -> Result[(), IoError]:
         # Validate, call self.write(document), record success.
         ...
 
@@ -174,8 +179,7 @@ pub protocol DocumentStorage:
 from library import DocumentStorage
 
 pub class FileStorage:
-    allow DocumentStorage.write  # Agreed access-grant syntax; not implemented.
-
+    @protocol.DocumentStorage  # Agreed access-grant syntax; not implemented.
     def write(self: &mut FileStorage, document: &str) -> Result[(), IoError]:
         # Perform the actual file operation.
         ...
@@ -188,7 +192,12 @@ def persist[S: DocumentStorage](storage: &mut S, document: &str) -> Result[(), I
 
 Here the class author explicitly permits the real library's protocol to call
 `write`; the application cannot create an equivalent protocol to acquire that
-permission. No separate implementation block is required. Ordinary module
+permission. The compiler checks the annotation where `FileStorage` is defined:
+`DocumentStorage` must declare a non-public `write` with the same signature. No separate implementation block is required. Ordinary module
 privacy still lets code inside `backend.plenty` call its own hook. All methods
 defined in `DocumentStorage` may use the grant, but standalone helpers in
 `library.plenty` do not inherit it. Class-only privacy was not selected.
+
+The imports run one way: `backend.plenty` imports `library.plenty`, and the
+application imports both. `library.plenty` never names `FileStorage`, because
+protocol bodies are checked against the protocol's own contract.

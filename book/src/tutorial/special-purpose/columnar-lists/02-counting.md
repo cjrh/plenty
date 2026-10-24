@@ -20,8 +20,37 @@ def main() -> Result[(), AppendError[Sample] | IoError]:
 3
 ```
 
-This is the same program in normal and optimized builds. The first SIMD slice
-recognizes one comparison against a constant, with no captures or extra adapters.
+## Use runtime bounds
+
+Bounds do not need to be constants. Capture their scalar values to count a range:
+
+```plenty
+class Sample:
+    score: i32
+
+def count_between(samples: &clist[Sample], low: i32, high: i32) -> i64:
+    samples.column(Sample.score).filter(def [low, high](x: &i32) -> bool: *x >= low and *x < high).count()
+
+def main() -> Result[(), AppendError[Sample] | IoError]:
+    mut samples = clist[Sample]()
+    for score in range(9):
+        samples.append(Sample(i32(score)))?
+    print(count_between(&samples, 2i32, 7i32))?
+    Ok(())
+```
+```output
+5
+```
+
+`[low, high]` captures copies of the bounds. They can come from function
+arguments or parsed input. The closure keeps those values even if an original
+binding later changes. Write two comparisons with `and`; Plenty does not use
+chained comparison syntax.
+
+This is the same program in normal and optimized builds. The SIMD path recognizes
+one comparison, or two comparisons joined by `and`, against constants or up to
+two immutable scalar captures of the column's type. Borrowed captures, arithmetic
+inside the predicate, `or`, and extra adapters keep scalar execution.
 Other calculations, including the floating-point average in
 [the previous lesson](01-scanning.md), keep ordinary scalar execution.
 All scans still run on one thread. See the

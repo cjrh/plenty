@@ -1,26 +1,52 @@
 # Explicit applications, modules, and executable lessons
 
-> **Status: Partly implemented.** The baseline below is `b690afe`, when the
+> **Status: Implemented.** The baseline below is `b690afe`, when the
 > tutorial was one file, `TUTORIAL.md`.
 >
 > - **Entry point: implemented.** A parameterless `main` returns `()`, `i32`,
 >   `Result[(), E]`, or `Result[i32, E]`; see
->   [entry point](../design/language/02-source/entrypoint.md) and
->   [entry reports](../design/toolchain/01-building/entry-report.md).
+>   [entry point](../../design/language/02-source/entrypoint.md) and
+>   [entry reports](../../design/toolchain/01-building/entry-report.md).
 > - **Modules: implemented.** Absolute imports, aliases, `pub` visibility, and
->   library checking; see [modules](../design/language/02-source/modules.md) and
->   [visibility](../design/language/02-source/visibility.md). The source root
+>   library checking; see [modules](../../design/language/02-source/modules.md) and
+>   [visibility](../../design/language/02-source/visibility.md). The source root
 >   flag is `--module-root DIR`.
-> - **Executable lessons: partly implemented.** `tests/test_tutorial.rs` runs
->   the Markdown fences under `book/src/tutorial/`, including multi-file
->   examples. Literate `.plenty` sources, a manifest, and generated Markdown are
->   B21.
+> - **Executable lessons: implemented as executable Markdown; literate sources
+>   not adopted.** `tests/test_tutorial.rs` runs every `plenty` and
+>   `plenty-error` fence in the tutorial and `design/examples/` pages, in
+>   `SUMMARY.md` order; see
+>   [runnable documentation](../../development/workflow.md#runnable-documentation).
 >
-> **Shipped since this proposal:** [packages](../design/toolchain/01-building/packages.md)
+> **Literate lesson sources (B21): not adopted.** Reviewed on 2026-10-24 against
+> the tutorial at `161e1c63`: 213 tutorial pages plus `design/examples/`, with
+> 420 run-pass and 57 compile-fail examples. The Markdown harness already meets
+> the goals the literate design below sets out:
+>
+> - Every executed fence is a complete program, compiled as written. No lesson
+>   hides setup, so every displayed example is copyable and runnable.
+> - Expectations are reviewed, hand-written `output` and `error` fences. Nothing
+>   regenerates them, so a compiler regression fails instead of rewriting the book.
+> - Each runnable example is checked as an AOT binary; compile-fail examples must
+>   produce the expected diagnostic without running.
+> - Multi-file examples are first-class: `plenty-file` companion modules,
+>   `sh plenty-build` library builds, and `project-file` packages run with
+>   `sh plenty-project`. The harness rejects orphan expectations and companions
+>   on another page.
+> - A failure names the page and line of the Markdown the author edits.
+>
+> Literate sources would add a manifest, a renderer, a `--check` comparison of
+> generated pages, and a migration of every page, and authors would edit one file
+> while reviewers read another. The one clear gain, editor and
+> [language server](../../design/toolchain/01-building/language-server.md)
+> diagnostics while drafting, does not require generating the book: a draft can
+> be written in a scratch `.plenty` file and pasted into its fence. The question
+> of comment blocks versus sidecar expectation files is therefore closed.
+>
+> **Shipped since this proposal:** [packages](../../design/toolchain/01-building/packages.md)
 > provide manifests, locked path/Git dependencies, workspaces, package commands,
 > and per-target build reuse. Import cycles are rejected.
-> **Remaining:** re-exports and finer module caching/reuse (B17); literate
-> lesson sources (B21). Registry resolution remains separate package scope.
+> **Remaining (B17):** re-exports and finer module caching/reuse. Registry
+> resolution remains separate package scope.
 
 ## Current behavior and the proposed entry point
 
@@ -252,6 +278,6 @@ and [formatter configuration](https://docs.rs/tinytemplate/latest/tinytemplate/s
    Markdown. This can happen alongside step 2 if the migration is easier once.
 
 Steps 1-3 are complete, except that builtins stay in a prelude that needs no
-import. Step 4 is B21. Declarations are private to their module, `main` accepts `()` and `i32`, and the source root flag is
-`--module-root`. Whether lesson output expectations are comment blocks or
-sidecar files remains open with B21.
+import. Step 4 was not adopted; the status block gives the reasons. Declarations
+are private to their module, `main` accepts `()`, `i32`, and both `Result`
+forms, and the source root flag is `--module-root`.

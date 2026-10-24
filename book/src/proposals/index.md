@@ -39,12 +39,15 @@ for current behavior. Statuses were last scanned against local `main` at
 coverage. This is a status review, not a fresh execution of every feature test.
 HTTP acceptance, error composition and anonymous sums were reconciled separately
 against local `main` at `4e40c4fc` on 2026-10-23 and moved to `completed/`.
+Entry points and modules, with the executable-lessons decision, and the next
+language phase review were reconciled against `161e1c63` on 2026-10-24 and
+moved to `completed/`.
 
 ## Find a design by topic
 
 | Topic | Start here | Related decisions |
 | --- | --- | --- |
-| Executable scripts and embedded metadata | [Single-file scripts](single-file-scripts.md) | [Modules and entry points](entrypoints-modules-and-tutorials.md), [current packages](../design/toolchain/01-building/packages.md) |
+| Executable scripts and embedded metadata | [Single-file scripts](single-file-scripts.md) | [Modules and entry points](completed/entrypoints-modules-and-tutorials.md), [current packages](../design/toolchain/01-building/packages.md) |
 | Mixed-edition packages and language evolution | [Package language editions](language-editions.md) | [Current packages](../design/toolchain/01-building/packages.md), [script metadata](single-file-scripts.md) |
 | Protocol bodies, defaults, `final`, and private hooks | [Protocol method bodies](protocol-method-bodies.md) | [Agreed rules](protocol-method-bodies/final-and-visibility.md), [short programs](protocol-method-bodies/examples.md), [existing wrappers and capabilities](library-owned-operations.md) |
 | Error composition | [Composition overview](completed/error-composition.md) | [Anonymous sums and the `Failure` policy](completed/error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](completed/error-composition/streams-and-evidence.md) |
@@ -74,11 +77,9 @@ reference pages. Further extensions remain tracked in the backlog.
 | --- | --- | --- |
 | [Recursive owned data](recursive-data.md) | [Recursive storage](../design/language/03-types/recursive-data.md) through `Box[T]` | B11, B33 |
 | [Typed ranges, generic calls, and expression-local inference](typed-ranges-and-expression-inference.md) | [Typed ranges](../design/facilities/01-builtins/ranges.md), contextual literals, explicit type arguments | B12, B16, B32 |
-| [Explicit applications, modules, and executable lessons](entrypoints-modules-and-tutorials.md) | [Entry point](../design/language/02-source/entrypoint.md), [modules](../design/language/02-source/modules.md), executed Markdown fences | B17, B21 |
 | [C interop and dynamic libraries](ffi-and-dynamic-libraries.md) | [Imports, linking, exports, and resident loading](../design/facilities/04-interop/index.md) | B18, B27, B28 |
 | [Generated library contracts and C headers](ffi-export-contracts.md) | [Exports](../design/facilities/04-interop/exports.md), [contracts](../design/facilities/04-interop/contracts.md) | B27, B28 |
 | [Fallible memory, parallel execution, and SIMD](memory-parallelism-and-simd.md) | [Fallible allocation](../design/language/08-errors/02-allocation-and-traps.md), [concurrency](../design/facilities/03-concurrency/index.md) | B13, B23, B24 |
-| [Plenty's next language phase](next-language-phase.md) | Nine of eleven recommendations, at least in part | B13, B23, and others |
 | [Standard library scope](standard-library-scope.md) | [Embedded library](../design/stdlib/index.md), including data formats, TLS, HTTP, SQLite, signals and testing | Remaining B38–B70 scope |
 | [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | [Named calls and fresh defaults](completed/named-arguments-and-fresh-defaults.md) under the narrower design | B36: splats and signature markers remain separate candidates |
 

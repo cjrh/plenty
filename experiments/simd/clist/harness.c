@@ -11,8 +11,14 @@
 #include <time.h>
 #include <unistd.h>
 
-extern int64_t __plenty_fn_simd_count(unsigned __int128);
-extern int64_t __plenty_fn_scalar_count(unsigned __int128, int32_t);
+extern int64_t __plenty_fn_simd_count(unsigned __int128, int32_t, int32_t);
+extern int64_t __plenty_fn_scalar_count(unsigned __int128, int32_t, int32_t);
+
+#ifdef SCAN_RANGE
+static const int32_t low = -1073741824, high = 1073741824;
+#else
+static const int32_t low = 5, high = INT32_MAX;
+#endif
 
 static void header(unsigned char *owner, size_t length) {
     memset(owner, 0, 40);
@@ -29,7 +35,11 @@ static int64_t fill(unsigned char *owner, size_t length) {
         int32_t value;
         memcpy(&value, &bits, 4);
         memcpy(owner + 40 + i * 4, &value, 4);
-        expected += value > 5;
+#ifdef SCAN_RANGE
+        expected += value >= low && value < high;
+#else
+        expected += value > low;
+#endif
     }
     return expected;
 }
@@ -37,8 +47,8 @@ static int64_t fill(unsigned char *owner, size_t length) {
 static int64_t call(unsigned char *owner, int scalar) {
     unsigned __int128 slot = (uintptr_t)owner;
     unsigned __int128 reference = (uintptr_t)&slot;
-    return scalar ? __plenty_fn_scalar_count(reference, 5)
-                  : __plenty_fn_simd_count(reference);
+    return scalar ? __plenty_fn_scalar_count(reference, low, high)
+                  : __plenty_fn_simd_count(reference, low, high);
 }
 
 static void guarded(void) {

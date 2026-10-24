@@ -25,10 +25,12 @@ def main():
     parser.add_argument("--cpu", type=int, default=8)
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("--scenario", choices=["constant", "threshold", "range"], default="constant")
     args = parser.parse_args()
     out, compiler = args.out.resolve(), args.compiler.resolve()
     out.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "PLENTY_CACHE": "off", "LC_ALL": "C"}
+    source = HERE / ("scan.plenty" if args.scenario == "constant" else f"{args.scenario}.plenty")
     wrapper = out / "capture.py"
     wrapper.write_text('''#!/usr/bin/env python3
 import json, shutil, subprocess, sys
@@ -41,9 +43,9 @@ assert sys.argv[-2] == "-o"
 subprocess.run(["cc", "-fuse-ld=bfd", *sys.argv[1:]], check=True)
 ''')
     wrapper.chmod(0o755)
-    subprocess.run([str(compiler), "--release", "--compile", str(HERE / "scan.plenty"),
+    subprocess.run([str(compiler), "--release", "--compile", str(source),
                     "--linker", str(wrapper), "-o", str(out / "seed")], env=env, check=True)
-    subprocess.run([str(compiler), "--release", "--dump", "clif,asm", str(HERE / "scan.plenty"),
+    subprocess.run([str(compiler), "--release", "--dump", "clif,asm", str(source),
                     "-o", str(out / "dump")], env=env, check=True)
     clif = (out / "dump/clif.txt").read_text()
     vector = clif.split("==== simd_count ")[1].split("==== ")[0]
@@ -57,6 +59,7 @@ subprocess.run(["cc", "-fuse-ld=bfd", *sys.argv[1:]], check=True)
     subprocess.run(["objcopy", "--redefine-sym", "main=unused_runtime_main",
                     str(out / "runtime.a"), str(out / "harness-runtime.a")], check=True)
     subprocess.run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-c",
+                    *(["-DSCAN_RANGE"] if args.scenario == "range" else []),
                     str(HERE / "harness.c"), "-o", str(out / "harness.o")], check=True)
     link = json.loads((out / "link.json").read_text())
     variants = {}
@@ -109,7 +112,8 @@ subprocess.run(["cc", "-fuse-ld=bfd", *sys.argv[1:]], check=True)
         cranelift_version=cranelift,
         compiler_sha256=hashlib.sha256(compiler.read_bytes()).hexdigest(),
         object_sha256=hashlib.sha256((out / "scan.o").read_bytes()).hexdigest(),
-        method="One object; Plenty function sections moved together to four verified text starts 16 bytes apart; randomized order seed 23; one warmup excluded. Internal timings cover repeated calls; perf includes process setup and input construction. Captured threshold forces the scalar reference path; both thresholds equal 5.",
+        scenario=args.scenario,
+        method="One object; Plenty function sections moved together to four verified text starts 16 bytes apart; randomized order seed 23; one warmup excluded. Internal timings cover repeated calls; perf includes process setup and input construction. Explicit scalar column loop is the reference; thresholds are runtime arguments in threshold/range scenarios. Constant scenario compares against 5; threshold against runtime 5; range is [-1073741824,1073741824).",
         variants=variants)
     (out / "report.json").write_text(json.dumps(report, indent=2) + "\n")
 

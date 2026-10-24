@@ -3,8 +3,11 @@ mod support;
 use rstest::rstest;
 use support::assert_visible_stdout as native;
 
-#[test]
-fn filter_count_does_not_read_past_guard_page() {
+#[rstest]
+#[case("constant")]
+#[case("threshold")]
+#[case("range")]
+fn filter_count_does_not_read_past_guard_page(#[case] scenario: &str) {
     let dir = tempfile::tempdir().unwrap();
     let output = std::process::Command::new("python3")
         .arg(concat!(
@@ -15,6 +18,7 @@ fn filter_count_does_not_read_past_guard_page() {
         .arg("--out")
         .arg(dir.path())
         .arg("--verify-only")
+        .args(["--scenario", scenario])
         .output()
         .unwrap();
     assert!(
@@ -88,6 +92,88 @@ print("ok").unwrap()
     assert_eq!(output.stdout, b"0\n1\n2\n3\n4\n5\n6\nok\n");
 }
 
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn filter_count_runtime_thresholds_and_ranges(#[case] release: bool) {
+    let mut source = String::from("class Row:\n    signed: i32\n    unsigned: u32\n");
+    let predicates = [
+        "*x == low",
+        "*x != low",
+        "*x < low",
+        "*x <= low",
+        "*x > low",
+        "*x >= low",
+        "low < *x and *x < high",
+        "low <= *x and *x < high",
+        "*x > low and high >= *x",
+        "*x >= low and *x <= high",
+    ];
+    for (field, ty) in [("signed", "i32"), ("unsigned", "u32")] {
+        for (i, predicate) in predicates.iter().enumerate() {
+            source.push_str(&format!(
+                "def scan_{field}_{i}(rows: &clist[Row], low: {ty}, high: {ty}) -> i64:\n    rows.column(Row.{field}).filter(def [low, high](x: &{ty}) -> bool: {predicate}).count()\n"
+            ));
+        }
+    }
+    source.push_str("endpoints = [0u32, 1u32, 2147483647u32, 2147483648u32, u32.MAX, 2u32, 4294967294u32].unwrap()\nfor length in range(34):\n    mut rows = clist[Row]()\n    for n in range(length):\n        bits = endpoints[n % len(endpoints)]\n        rows.append(Row(i32.wrapping_from(bits), bits)).unwrap()\n");
+    for (field, bounds) in [
+        ("signed", ["i32.MIN", "-1i32", "0i32", "1i32", "i32.MAX"]),
+        (
+            "unsigned",
+            ["0u32", "1u32", "2147483647u32", "2147483648u32", "u32.MAX"],
+        ),
+    ] {
+        source.push_str(&format!("    for low in [{0}, {1}, {2}, {3}, {4}].unwrap():\n        for high in [{0}, {1}, {2}, {3}, {4}].unwrap():\n", bounds[0], bounds[1], bounds[2], bounds[3], bounds[4]));
+        for (i, predicate) in predicates.iter().enumerate() {
+            let expected = predicate.replace("*x", &format!("rows[n].{field}"));
+            source.push_str(&format!(
+                "            mut expected_{i} = 0\n            for n in range(length):\n                if {expected}:\n                    expected_{i} += 1\n            check(scan_{field}_{i}(&rows, low, high) == expected_{i}, \"{field} {i}\").unwrap()\n"
+            ));
+        }
+    }
+    source.push_str("print(\"ok\").unwrap()\n");
+    let output = run_mode(&source, release);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"ok\n");
+}
+
+#[test]
+fn filter_count_preserves_capture_snapshot_and_short_circuit_effects() {
+    let source = r#"
+class Row:
+    x: i32
+def scan(rows: &clist[Row], low: i32, high: i32) -> i64:
+    mut original = low
+    predicate = def [original, high](x: &i32) -> bool:
+        *x >= original and *x < high
+    original = 100i32
+    rows.column(Row.x).filter(predicate).count()
+def effect(x: &i32) -> bool:
+    print(*x).unwrap()
+    True
+mut rows = clist[Row]()
+for n in range(9):
+    rows.append(Row(i32(n))).unwrap()
+check(scan(&rows, 2i32, 7i32) == 5, "snapshot").unwrap()
+check(scan(&rows, 3i32, 8i32) == 5, "new snapshot on another call").unwrap()
+check(rows.column(Row.x).filter(def(x: &i32) -> bool: *x > 6i32 and effect(x)).count() == 2, "short circuit").unwrap()
+check(rows.column(Row.x).filter(def(x: &i32) -> bool: *x < 0i32 and *x + i32.MAX > 0i32).count() == 0, "skipped overflow").unwrap()
+print("ok").unwrap()
+"#;
+    let output = run_mode(source, true);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"7\n8\nok\n");
+}
+
 #[test]
 fn filter_count_emits_vectors_only_for_the_bounded_predicate() {
     let dir = tempfile::tempdir().unwrap();
@@ -105,14 +191,43 @@ def named(rows: &clist[Row]) -> i64:
     rows.column(Row.x).filter(predicate).count()
 def checked(rows: &clist[Row]) -> i64:
     rows.column(Row.x).filter(def(x: &i32) -> bool: *x + 1i32 > 5i32).count()
+def runtime(rows: &clist[Row], limit: i32) -> i64:
+    rows.column(Row.x).filter(def [limit](x: &i32) -> bool: limit < *x).count()
+def interval(rows: &clist[Row], low: i32, high: i32) -> i64:
+    rows.column(Row.x).filter(def [low, high](x: &i32) -> bool: low <= *x and *x < high).count()
+def constant_range(x: &i32) -> bool:
+    *x >= 1i32 and *x < 4i32
+def named_range(rows: &clist[Row]) -> i64:
+    rows.column(Row.x).filter(constant_range).count()
+def mixed_range(rows: &clist[Row], low: i32) -> i64:
+    rows.column(Row.x).filter(def [low](x: &i32) -> bool: *x >= low and *x < 4i32).count()
+def borrowed(rows: &clist[Row], limit: i32) -> i64:
+    rows.column(Row.x).filter(def [&limit](x: &i32) -> bool: *x > limit).count()
+def checked_range(rows: &clist[Row], low: i32) -> i64:
+    rows.column(Row.x).filter(def [low](x: &i32) -> bool: *x > low and *x + 1i32 < 5i32).count()
+def disjunction(rows: &clist[Row], low: i32) -> i64:
+    rows.column(Row.x).filter(def [low](x: &i32) -> bool: *x < low or *x > 5i32).count()
 def main() -> Result[(), IoError]:
     rows = clist[Row]()
     print(eligible(&rows), named(&rows), checked(&rows))?
+    print(runtime(&rows, 2i32), interval(&rows, 1i32, 4i32), borrowed(&rows, 2i32), checked_range(&rows, 2i32), disjunction(&rows, 2i32))?
+    print(named_range(&rows), mixed_range(&rows, 1i32))?
     Ok(())
 "#,
     )
     .unwrap();
-    for (function, vectorized) in [("eligible", true), ("named", true), ("checked", false)] {
+    for (function, vectorized) in [
+        ("eligible", true),
+        ("named", true),
+        ("checked", false),
+        ("runtime", true),
+        ("interval", true),
+        ("named_range", true),
+        ("mixed_range", true),
+        ("borrowed", false),
+        ("checked_range", false),
+        ("disjunction", false),
+    ] {
         let output = std::process::Command::new(support::plenty_bin())
             .args(["--release", "--dump", "clif,asm", "--dump-filter", function])
             .arg(&path)
