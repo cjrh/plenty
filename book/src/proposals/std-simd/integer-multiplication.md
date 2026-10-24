@@ -61,7 +61,7 @@ All variants check identical modular results. Reproduction sources, raw samples,
 counter output and load context live in the
 [experiment directory](../../../../experiments/simd/explicit/README.md).
 
-## An independent code-shape limitation
+## The original exit-shape spill and its fix
 
 The first eight-lane variant finished with
 `v0.wrapping_sum().wrapping_add(v1.wrapping_sum())`. Its generated loop spills
@@ -71,11 +71,23 @@ or 13.0 SSE4.1 cycles. Changing only that final expression to
 This rearrangement is valid for modular addition; it is not a license to
 reassociate checked or floating arithmetic.
 
-The spill-free loop uses only six XMM registers. This is avoidable code-shape
-sensitivity, not unavoidable hardware register pressure. The exact contribution
-of exit materialization, live ranges, block ordering and register allocation is
-not isolated. Issue #444 records the bounded follow-up; both shapes' measurements
-are retained. No optimizer workaround is added here.
+The spill-free loop uses only six XMM registers. Issue #444 traced the important
+distinction: the second vector remained live across the first reduction's scalar
+ABI call and caller-location hooks. On the tested System V target, XMM registers
+are caller-clobbered, and the
+allocator placed that vector's spill across the loop. The combined reduction
+had no second live vector at its single reduction call.
+
+The fix lowers the existing integer `wrapping_sum` directly to lane extraction
+and modular additions. It removes the reduction calls and their argument
+materialization, so the original separate-sums spelling also keeps both vectors
+in registers. It does not change floating reductions, arithmetic order, ABI or
+ISA policy, or claim to fix general register-allocation heuristics. The
+`integer_spill.plenty` probe retains the original source shape; before/after
+measurements are in `spill-measurements.json` in the experiment directory.
+With the baseline ISA unchanged, the separate-sums kernel improves from about
+16.2 to 8.1 cycles per iteration (3.369 to 1.676 ms per million iterations),
+reaching scalar parity. The single-vector multiply dependency cost remains.
 
 The recommendation is to accept the portable baseline with these measured
 limits. The original slowdown is explained by its instruction set and dependent

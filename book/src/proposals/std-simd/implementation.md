@@ -27,6 +27,11 @@ using a closed table of 128-bit operations supported by the baseline backend.
 Other hosts retain the scalar bodies. This adds no supported target or runtime
 ISA dispatch. Checked integers and ordered float folds remain scalar.
 
+Integer `wrapping_sum` lowers directly to lane extraction and modular adds.
+This avoids both canonical argument materialization and an ABI call at loop
+exits; the second accumulator in separate reductions no longer has to remain
+live across the first reduction's call (issue #444).
+
 ## Keeping local values in registers
 
 A first prototype emitted vector instructions but materialized every result as

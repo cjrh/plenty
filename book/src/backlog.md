@@ -46,7 +46,8 @@ Immutable runtime scalar captures and two total comparisons joined by `and`
 are supported, including inclusive/exclusive ranges and reversed operands.
 The first [public `std.simd` module](design/stdlib/simd.md) provides concrete
 portable lanes and masks, scalar fallback, baseline native operations and
-bounded vector-local promotion. Packed views and wider shapes remain deferred.
+bounded vector-local promotion. Direct integer wrapping reductions avoid the
+reduction-call spill reproduced in issue #444. Packed views and wider shapes remain deferred.
 Broader predicates, maps/folds,
 runtime ISA selection and parallel scans need their own bounded evidence before
 scheduling. Issue #437 is closed as investigated/deferred: its retained
