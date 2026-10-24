@@ -508,3 +508,35 @@ fn standard_indirect_calls_still_restore_the_caller_context() {
         .unwrap_or_else(|| panic!("{calls:?}"));
     assert_eq!(fold.1, 1, "{calls:?}");
 }
+
+/// An executable's check ends in a `ud2` that the runtime's `SIGILL` handler
+/// maps back to its site (issue #425); a worker thread's failure takes the
+/// same path on its own stack.
+#[test]
+fn a_check_failing_in_a_worker_thread_names_its_site() {
+    let error = trap(&[(
+        "main.plenty",
+        "def worker(big: i8) -> i8:\n    big + 1i8\ndef main() -> Result[(), AllocError | IoError | ThreadError]:\n    with spawn(worker, 127i8)? as task:\n        print(task.join())?\n    Ok(())\n",
+    )]);
+    assert_eq!(error, "error: main.plenty:2:5: integer overflow\n");
+}
+
+/// A function has 247 trap codes for its checks; later checks call their
+/// helper. Starting at `start`, the increment on line `line` overflows.
+#[rstest]
+#[case::last_code(-119, 249)]
+#[case::past_the_codes(-120, 250)]
+fn checks_past_a_functions_trap_codes_still_name_their_site(
+    #[case] start: i8,
+    #[case] line: usize,
+) {
+    let increments = "    t += 1i8\n".repeat(255);
+    let source = format!(
+        "def climb(x: i8) -> i8:\n    mut t = x\n{increments}    t\ndef main() -> Result[(), AllocError | IoError]:\n    print(climb({start}i8))?\n    Ok(())\n"
+    );
+    let error = trap(&[("main.plenty", &source)]);
+    assert_eq!(
+        error,
+        format!("error: main.plenty:{line}:5: integer overflow\n")
+    );
+}

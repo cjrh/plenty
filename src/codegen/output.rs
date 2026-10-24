@@ -20,6 +20,7 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 use super::dump::{Capture, Entry, Plan};
 use super::sites;
 use super::symbols::{self, Declared, Request, Symbols};
+use super::traps;
 use super::{Result, Runtime};
 use crate::cache::{Cache, MachineCode};
 
@@ -82,12 +83,17 @@ pub(super) struct Output {
     pub dumped: Vec<Entry>,
     /// Every placed function's trap-site records, defined by [`Self::finish`].
     sites: sites::Table,
+    /// Every placed function's checks that trap through the runtime's
+    /// handler, in an executable ([`traps`]).
+    traps: Option<traps::Table>,
 }
 
 struct Code {
     alignment: u64,
     bytes: CodeBytes,
     relocs: Vec<ModuleReloc>,
+    /// `(offset, code)` of each `ud2` whose code may be a check's.
+    traps: Vec<(u32, u8)>,
 }
 
 enum CodeBytes {
@@ -114,6 +120,7 @@ struct Built {
     id: FuncId,
     code: Compiled,
     requests: Vec<Request>,
+    checks: traps::Checks,
     capture: Option<Box<Capture>>,
 }
 
@@ -150,7 +157,21 @@ impl Output {
             dump: None,
             dumped: Vec::new(),
             sites: sites::Table::default(),
+            traps: None,
         })
+    }
+
+    /// Record that data refers to `function`, which keeps its checks listed.
+    pub(super) fn root_traps(&mut self, function: FuncId) {
+        if let Some(table) = &mut self.traps {
+            table.root(function);
+        }
+    }
+
+    /// Declare the table of checks that trap, so bodies can refer to it.
+    pub(super) fn declare_traps(&mut self) -> Result<cranelift_module::DataId> {
+        let table = traps::Table::declare(&mut self.module)?;
+        Ok(self.traps.insert(table).data())
     }
 
     /// Compile `func` on this thread as the body of the declared function
@@ -172,7 +193,8 @@ impl Output {
             self.cache.as_deref(),
             capture.as_deref_mut(),
         );
-        self.place(id, code, &[], capture, |_, _, _| Ok(Vec::new()))
+        let checks = traps::Checks::default();
+        self.place(id, code, (&[], &checks), capture, |_, _, _| Ok(Vec::new()))
     }
 
     #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -181,7 +203,11 @@ impl Output {
         if let Some(cache) = &self.cache {
             cache.finish();
         }
+        let sites = self.sites.data();
         self.sites.define(&mut self.module)?;
+        if let Some(traps) = self.traps {
+            traps.define(&mut self.module, sites)?;
+        }
         let mut product = self.module.finish();
         // GNU ld honours SHF_GNU_RETAIN, which keeps a library's interface
         // section through `--gc-sections`, only in GNU OSABI objects, as GNU
@@ -283,7 +309,7 @@ impl Output {
                 self.place(
                     built.id,
                     built.code,
-                    &built.requests,
+                    (&built.requests, &built.checks),
                     built.capture,
                     |module, sites, relocs| {
                         symbols::resolve(module, sites, runtime, built.id, &built.requests, relocs)
@@ -295,12 +321,13 @@ impl Output {
     }
 
     /// Define `id` with `code`, after `relocate` names the symbols the body
-    /// requested, returning what each request became.
+    /// requested, returning what each request became. `checks` names the
+    /// checks among the code's traps.
     fn place(
         &mut self,
         id: FuncId,
         code: Compiled,
-        requests: &[Request],
+        (requests, checks): (&[Request], &traps::Checks),
         capture: Option<Box<Capture>>,
         relocate: impl FnOnce(
             &mut ObjectModule,
@@ -312,14 +339,22 @@ impl Output {
             let declaration = self.module.declarations().get_function_decl(id);
             format!("compiling `{}`: {error}", declaration.linkage_name(id))
         })?;
+        // `relocate` appends the function's site records here.
+        let site_base = self.sites.next_offset();
         let targets = relocate(&mut self.module, &mut self.sites, &mut code.relocs)?;
+        if let Some(table) = &mut self.traps {
+            table.refer(id, &code.relocs);
+            table.add(id, checks, &code.traps, site_base)?;
+        } else if !code.traps.is_empty() {
+            return Err("a check traps in an object without a check table".into());
+        }
         if let (Some(plan), Some(capture)) = (&self.dump, capture) {
             let entry = plan.entry(
                 &self.module,
                 id,
                 *capture,
-                (code.bytes.as_slice(), &code.relocs),
-                (requests, &targets),
+                (code.bytes.as_slice(), &code.relocs, &code.traps),
+                (requests, &targets, checks),
             );
             self.dumped.push(entry);
         }
@@ -438,10 +473,12 @@ impl Worker {
             self.cache.as_deref(),
             capture.as_deref_mut(),
         );
+        let (requests, checks) = symbols.finish();
         self.built.push(Built {
             id,
             code,
-            requests: symbols.into_requests(),
+            requests,
+            checks,
             capture,
         });
     }
@@ -493,10 +530,11 @@ fn compile(
                     .collect()
             };
             // Cached code was relaxed when the cache made it.
-            let (alignment, bytes, relocs) = match compiled {
+            let (alignment, bytes, relocs, traps) = match compiled {
                 Some(code) => {
                     let relocs = to_module(&code.relocs);
-                    (code.alignment, CodeBytes::Cached(code), relocs)
+                    let traps = code.traps.clone();
+                    (code.alignment, CodeBytes::Cached(code), relocs, traps)
                 }
                 None => {
                     let buffer = &context.compiled_code().unwrap().buffer;
@@ -508,6 +546,7 @@ fn compile(
                         u64::from(buffer.min_alignment),
                         CodeBytes::Owned(bytes),
                         relocs,
+                        super::trap_checks(buffer.traps()),
                     )
                 }
             };
@@ -515,6 +554,7 @@ fn compile(
                 alignment,
                 bytes,
                 relocs,
+                traps,
             }
         })
     });

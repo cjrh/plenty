@@ -105,10 +105,12 @@ mod symbols;
 mod tail_tests;
 mod threading;
 mod threads;
+mod traps;
 use crate::op::{self, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
 use output::{Output, Worker};
+pub(crate) use traps::checks as trap_checks;
 
 // ---- Cranelift API reference ----
 //
@@ -672,6 +674,18 @@ fn object_module(
     out.coverage = build.coverage;
 
     let mut runtime = declare_runtime(&mut out.module, build.test_hooks)?;
+    if entry.is_some() && !build.coverage {
+        let table = out.declare_traps()?;
+        let register = out
+            .module
+            .declare_function("plenty_traps_register", Linkage::Import, &{
+                let mut sig = out.module.make_signature();
+                sig.call_conv = CallConv::SystemV;
+                sig.params.push(AbiParam::new(PTR_TY));
+                sig
+            })?;
+        runtime.signal_traps = Some((register, table));
+    }
 
     // Every symbol a body refers to by name is declared before any body is
     // built, so forward references and mutual recursion resolve, and the
@@ -687,6 +701,9 @@ fn object_module(
         .iter()
         .filter_map(|(name, f)| Some((name.clone(), f.drop_callback?)))
         .collect();
+    for &hook in runtime.drop_hooks.values() {
+        out.root_traps(hook);
+    }
     runtime.standard_calls = user_fns.values().any(|f| f.standard_library);
     let threads =
         threads::declare_adapters(&ops, workers, &mut out.module, &mut runtime.thread_adapters)?;
@@ -992,6 +1009,10 @@ struct Runtime {
     /// from the range-check branch of a bare numeric cast.
     trap_cast_range: FuncId,
     trap_clist_index: FuncId,
+    /// In an executable whose failed checks trap ([`traps`]):
+    /// `plenty_traps_register(table)` and the object's check table. `None`
+    /// keeps the helper calls.
+    signal_traps: Option<(FuncId, DataId)>,
     /// `plenty_readline() -> *const u8` — read one newline-terminated
     /// line from stdin, strip its newline, validate UTF-8, and return an owned
     /// counted string. NULL is internal EOF, never a language string.
@@ -1348,6 +1369,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         },
         trap_cast_range: one_arg(module, "plenty_trap_cast_range", PTR_TY)?,
         trap_clist_index: one_arg(module, "plenty_trap_clist_index", PTR_TY)?,
+        signal_traps: None,
         readline: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;
@@ -1896,6 +1918,12 @@ fn build_main(
             position: Default::default(),
             trap_blocks: HashMap::default(),
         };
+        if let Some((register, table)) = runtime.signal_traps {
+            let table = lower.module.declare_data_in_func(table, lower.bcx.func);
+            let table = lower.bcx.ins().symbol_value(PTR_TY, table);
+            let register = lower.module.declare_func_in_func(register, lower.bcx.func);
+            lower.bcx.ins().call(register, &[table]);
+        }
         for op in ops {
             lower.lower(op)?;
         }
@@ -2897,7 +2925,9 @@ impl Lowerer<'_, '_> {
     /// Bool true); otherwise fall through into a sealed successor
     /// block which becomes the new current block. The trap block
     /// calls the runtime helper for `kind` (which `_Noreturn`s) and
-    /// ends with a CLIF `trap` to satisfy the verifier.
+    /// ends with a CLIF `trap` to satisfy the verifier. In an executable,
+    /// a block whose site is fixed holds only a `trap` with a code of its
+    /// own, which the runtime's handler maps to the same helper ([`traps`]).
     ///
     /// Checks of one kind at one source position share a trap block: it
     /// reads no SSA variable, only the position's record address, so every
@@ -2929,20 +2959,18 @@ impl Lowerer<'_, '_> {
             // previous block, so this switch is legal.
             self.bcx.switch_to_block(trap_block);
             self.bcx.set_cold_block(trap_block);
-            let site = self.trap_site()?;
-            let (helper, arguments) = match kind {
-                TrapKind::Overflow => (self.runtime.trap_overflow, vec![site]),
-                TrapKind::DivZero => (self.runtime.trap_div_zero, vec![site]),
-                TrapKind::Shift => (self.runtime.trap_shift, vec![site]),
-                TrapKind::CastRange => (self.runtime.trap_cast_range, vec![site]),
-                TrapKind::Unwrap { option } => {
-                    let option = self.bcx.ins().iconst(types::I64, i64::from(option));
-                    (self.runtime.trap_unwrap, vec![site, option])
+            let code = match key {
+                Some((_, site)) if self.runtime.signal_traps.is_some() => {
+                    self.module.check_code(traps::kind(kind), site)
                 }
+                _ => None,
             };
-            let local = self.module.declare_func_in_func(helper, self.bcx.func);
-            self.bcx.ins().call(local, &arguments);
-            self.bcx.ins().trap(TrapCode::unwrap_user(3));
+            match code {
+                Some(code) => {
+                    self.bcx.ins().trap(code);
+                }
+                None => self.call_trap_helper(kind)?,
+            }
             match key {
                 Some(key) => {
                     self.trap_blocks.insert(key, trap_block);
@@ -2963,6 +2991,25 @@ impl Lowerer<'_, '_> {
         for block in std::mem::take(&mut self.trap_blocks).into_values() {
             self.bcx.seal_block(block);
         }
+    }
+
+    /// End the current block with a call to the runtime helper for `kind`.
+    fn call_trap_helper(&mut self, kind: TrapKind) -> Result<()> {
+        let site = self.trap_site()?;
+        let (helper, arguments) = match kind {
+            TrapKind::Overflow => (self.runtime.trap_overflow, vec![site]),
+            TrapKind::DivZero => (self.runtime.trap_div_zero, vec![site]),
+            TrapKind::Shift => (self.runtime.trap_shift, vec![site]),
+            TrapKind::CastRange => (self.runtime.trap_cast_range, vec![site]),
+            TrapKind::Unwrap { option } => {
+                let option = self.bcx.ins().iconst(types::I64, i64::from(option));
+                (self.runtime.trap_unwrap, vec![site, option])
+            }
+        };
+        let local = self.module.declare_func_in_func(helper, self.bcx.func);
+        self.bcx.ins().call(local, &arguments);
+        self.bcx.ins().trap(TrapCode::unwrap_user(3));
+        Ok(())
     }
 
     /// Tuples share sorting's lexicographic total order. Scalar floats retain

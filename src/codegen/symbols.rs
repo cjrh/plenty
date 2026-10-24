@@ -88,6 +88,7 @@ pub(super) struct Symbols {
     /// The trap-site table's request number and global value, once used.
     site_table: Option<(u32, GlobalValue)>,
     sites: sites::Sites,
+    checks: traps::Checks,
 }
 
 impl Symbols {
@@ -98,14 +99,22 @@ impl Symbols {
             numbers: HashMap::default(),
             site_table: None,
             sites: sites::Sites::default(),
+            checks: traps::Checks::default(),
         }
     }
 
-    pub(super) fn into_requests(mut self) -> Vec<Request> {
+    /// The requests, and the checks that trap through the runtime's handler.
+    pub(super) fn finish(mut self) -> (Vec<Request>, traps::Checks) {
         if let Some((number, _)) = self.site_table {
             self.requests[number as usize] = Request::Sites(self.sites.into_records());
         }
-        self.requests
+        (self.requests, self.checks)
+    }
+
+    /// A trap code for a check of `kind` at the site record `site`
+    /// ([`traps::Checks::code`]).
+    pub(super) fn check_code(&mut self, kind: u32, site: Option<i64>) -> Option<ir::TrapCode> {
+        self.checks.code(kind, site)
     }
 
     /// Whether to record source lines in the IR ([`Declared::lines`]).
@@ -236,7 +245,7 @@ impl Symbols {
         let table = match self.site_table {
             Some((_, table)) => table,
             None => {
-                // Filled in by `into_requests`, once every record is known.
+                // Filled in by `finish`, once every record is known.
                 let number = self.requests.len() as u32;
                 self.requests.push(Request::Sites(Vec::new()));
                 let table = symbol(

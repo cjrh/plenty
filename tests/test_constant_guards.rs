@@ -291,12 +291,11 @@ fn constant_false_guards_emit_no_branch() {
                             );
                         }
                     }
-                    // After lowering, `loop_div` still branches to its trap
-                    // calls; the built function no longer reaches them (the
-                    // helpers stay declared).
+                    // After lowering, `loop_div` still branches to its
+                    // checks' traps; the built function no longer reaches them.
                     let body = section(dir.path(), &stage, "loop_div");
                     assert_eq!(
-                        body.contains("call "),
+                        body.contains("plenty_trap"),
                         stage == "clif.txt",
                         "{mode:?} {stage} loop_div:\n{body}"
                     );
