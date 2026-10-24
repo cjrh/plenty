@@ -97,6 +97,7 @@ issue ownership, discussion, and PR review state live in the database.
 | `target/release/plenty FILE` | Run probes with a compiler already built by `cargo build --release` in this worktree; rebuild after compiler/runtime changes |
 | `python3 -B scripts/check_links.py book/src [SUBDIR_OR_FILE]` | Check local Markdown link targets across the book, or only e.g. `proposals`; no remote or heading-anchor checks |
 | `python3 -B -m unittest discover -s scripts -p 'test_*.py'` | Check shared workflow helpers |
+| `python3 -B scripts/build_docs_site.py` | Required for book/docs-pipeline changes: assemble and validate the complete versioned site, including generated links and print pages; requires the mdBook version pinned in `book/releases.json` |
 | `mdbook serve book --open` | Read the docs in a browser |
 
 Running with no arguments prints all options.
@@ -179,7 +180,21 @@ A learner-visible language change updates, in the same change:
 Tutorial and `design/examples/` code fences are executable tests, so stale
 lessons fail the suite. Proposal fences are not executed; use `text` for
 illustrative syntax and verify claims about implemented behavior separately.
-Run the local link checker after documentation edits, especially moves.
+Before handing off changes to book content, navigation, assets, configuration,
+or docs build/check scripts, run all three docs CI commands:
+
+```sh
+python3 -B scripts/check_links.py book/src
+python3 -B -m unittest discover -s scripts -p 'test_*.py'
+python3 -B scripts/build_docs_site.py
+```
+
+Use the mdBook version pinned in `book/releases.json`. Source links and a plain
+`mdbook build` can pass while generated chapter/print links or versioned site
+assembly fail. Include the complete-site result in the PR description. If a
+required check cannot run, report the missing check and cause explicitly; do
+not report documentation validation as complete. These checks need no Plenty
+compiler and complement the executable-example tests below.
 
 ### Tutorial maintenance
 
@@ -214,10 +229,9 @@ When adding or changing a learner-visible feature:
 For changed executable examples, run
 `cargo test --locked --test integration test_tutorial::`.
 Keep `plenty-file` companions on the page that uses them, and retain checks for
-expected output and diagnostics. Run
-`python3 -B scripts/check_links.py book/src` after documentation edits; build the
-book when changing page organization. Prose-only edits do not require rerunning
-the compiler suite.
+expected output and diagnostics. Run the three docs CI commands above after
+documentation edits, including page reorganization. Prose-only edits do not
+require rerunning the compiler suite.
 
 In the PR, explain which patterns improved and why, which teaching
 simplifications or limitations remain intentional, and what was actually
