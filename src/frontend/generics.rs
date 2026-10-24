@@ -165,7 +165,8 @@ pub(super) fn prepare(
         call_wrappers: HashMap::default(),
         deferred_reporting: HashMap::default(),
         cache: HashMap::default(),
-        template_instances: HashMap::default(),
+        template_ids: HashMap::default(),
+        instantiated: Vec::new(),
         instances: 0,
         specializable: 0,
         specialization_depths: HashMap::default(),
@@ -178,6 +179,7 @@ pub(super) fn prepare(
         frames: HashMap::default(),
         frame_instances: HashMap::default(),
         required: HashMap::default(),
+        unsubstituted: HashMap::default(),
         protocol_instances: HashSet::default(),
         source_root: None,
         standard_sources: HashSet::default(),
@@ -229,13 +231,17 @@ pub(super) struct Engine {
     /// Conditional Context methods retain their declarations without lowering
     /// an unsupported cause's formatting body merely by constructing Context.
     deferred_reporting: HashMap<String, (functions::Symbol, Arc<Function>)>,
-    /// Function instance symbols by template and type arguments.
-    cache: HashMap<(String, Vec<Ty>), String>,
-    /// Instances of each template, which `MAX_TEMPLATE_INSTANCES` limits.
-    /// Counted here rather than by keying the cache by template: most
-    /// templates have one instance, and a table per template costs more
-    /// than that instance.
-    template_instances: HashMap<String, usize>,
+    /// Function instance symbols by template (its index in `instantiated`)
+    /// and type arguments.
+    cache: HashMap<(u32, Vec<Ty>), String>,
+    /// Indices of templates with instances in `instantiated`. Numbering
+    /// them spares the cache a name copy per call (issue #436).
+    template_ids: HashMap<Arc<str>, u32>,
+    /// Each template with instances, and how many it has, which
+    /// `MAX_TEMPLATE_INSTANCES` limits. Counted here rather than by keying
+    /// the cache by template: most templates have one instance, and a table
+    /// per template costs more than that instance.
+    instantiated: Vec<(Arc<str>, usize)>,
     /// Function instances created, which number their symbols.
     instances: usize,
     /// Generic functions and methods declared so far, and generator consumers
@@ -256,6 +262,9 @@ pub(super) struct Engine {
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
     pub(super) required: HashMap<String, Arc<Instantiation>>,
+    /// Queued instances whose bodies are still their templates' bodies,
+    /// with the replacements for their type parameters.
+    unsubstituted: HashMap<functions::Symbol, (Arc<Function>, Substitution)>,
     /// Specializations checked under protocol contracts, including lifted code.
     /// Method calls in these bodies cannot inherit implementation-only defaults.
     pub(super) protocol_instances: HashSet<String>,
@@ -741,8 +750,8 @@ impl Lower<'_> {
             self.access,
             &self.function_name,
         )?;
-        if let Some((f, instance)) = function {
-            let instance: Arc<str> = crate::record::method_display(&instance).into();
+        if let Some(new) = function {
+            let instance: Arc<str> = crate::record::method_display(&new.display).into();
             let required = Arc::new(match self.generics.required.get(&self.function_name) {
                 Some(outer) => Instantiation {
                     instance,
@@ -762,17 +771,30 @@ impl Lower<'_> {
                 .aliases
                 .data
                 .attribute_within(|| data::Requiring::Instance(required.clone()));
-            let registered = register_signature(&f, self.aliases, self.sigs);
+            // Substitution changes only types, so the template body says
+            // whether the instance yields and what reference it returns.
+            let symbol_id = self.sigs.intern(&new.function.name);
+            let registered = register_with_body(
+                symbol_id,
+                &new.function,
+                new.template_body(),
+                None,
+                self.aliases,
+                self.sigs,
+            );
             self.aliases.data.attribute(outer);
             registered?;
-            let f = Arc::new(f);
-            let id = self.generics.record(&f, self.sigs);
-            if !self.sigs[&f.name]
+            if self.sigs[&symbol]
                 .inputs
                 .iter()
                 .any(|(_, t)| t.unresolved_generator())
             {
-                self.generics.pending.push_back((id, f));
+                // Each frame specialization copies this declaration, which
+                // therefore needs its body now, and it is never queued.
+                let f = Arc::new(new.complete()?);
+                self.generics.record(&f, self.sigs);
+            } else {
+                self.generics.defer_instance(new, self.sigs);
             }
         }
         Ok(symbol)
@@ -978,8 +1000,13 @@ impl Engine {
     pub(super) fn diagnostic_name(&self, symbol: &str) -> String {
         self.cache
             .iter()
-            .chain(self.frames.iter())
-            .find_map(|((name, types), instance)| {
+            .map(|((id, types), instance)| (&*self.instantiated[*id as usize].0, types, instance))
+            .chain(
+                self.frames
+                    .iter()
+                    .map(|((name, types), instance)| (name.as_str(), types, instance)),
+            )
+            .find_map(|(name, types, instance)| {
                 (instance == symbol).then(|| instance_name(name, types))
             })
             .unwrap_or_else(|| symbol.into())
@@ -1165,7 +1192,7 @@ impl Engine {
         aliases: &TypeAliases,
         access: &modules::AccessMap,
         parent: &str,
-    ) -> Result<(String, Option<(Function, String)>)> {
+    ) -> Result<(String, Option<Instance>)> {
         if self.retention.released(name) {
             return Err(at.error(format!(
                 "internal error: `{name}` was released while a call to it remained"
@@ -1181,15 +1208,18 @@ impl Engine {
                 template.type_params.len()
             )));
         }
-        let mut key = (name.to_owned(), actual);
-        if let Some(symbol) = self.cache.get(&key) {
+        let id = self.template_ids.get(name).copied();
+        let mut key = (id.unwrap_or(u32::MAX), actual);
+        if id.is_some()
+            && let Some(symbol) = self.cache.get(&key)
+        {
             return Ok((symbol.clone(), None));
         }
         // The cache keeps the type arguments, which callers collect with
         // spare capacity.
         key.1.shrink_to_fit();
         let actual = &key.1;
-        let count = self.template_instances.get(name).copied().unwrap_or(0);
+        let count = id.map_or(0, |id| self.instantiated[id as usize].1);
         let replacements: Substitution = template
             .type_params
             .iter()
@@ -1269,7 +1299,8 @@ impl Engine {
             self.protocol_instances.insert(symbol.clone());
         }
         // Every field but the name and type parameters, which the instance
-        // replaces: cloning those would allocate only to free.
+        // replaces, and the body, which `Instance` fills: cloning those here
+        // would allocate only to free.
         let mut f = Function {
             once: template.once,
             captures: template.captures.clone(),
@@ -1283,7 +1314,7 @@ impl Engine {
             output: template.output.clone(),
             doc: template.doc.clone(),
             doc_at: template.doc_at.clone(),
-            body: template.body.clone(),
+            body: Vec::new(),
         };
         for (_, ty) in &mut f.inputs {
             substitute(ty, &replacements)?;
@@ -1293,18 +1324,116 @@ impl Engine {
             substitute_expr(default, &replacements)?;
         }
         let display = instance_name(name, actual);
+        key.0 = match id {
+            Some(id) => id,
+            None => {
+                let id = u32::try_from(self.instantiated.len())
+                    .expect("instances are limited to fewer than 2^32");
+                let name: Arc<str> = name.into();
+                self.template_ids.insert(Arc::clone(&name), id);
+                self.instantiated.push((name, 0));
+                id
+            }
+        };
+        self.instantiated[key.0 as usize].1 += 1;
         // Cache before queueing the body, so recursive calls share this instance.
         self.cache.insert(key, symbol.clone());
-        match self.template_instances.get_mut(name) {
-            Some(count) => *count += 1,
-            None => {
-                self.template_instances.insert(name.to_owned(), 1);
-            }
-        }
         self.instances += 1;
         self.specialization_depths.insert(symbol.clone(), depth);
-        substitute_block(&mut f.body, &replacements)?;
-        Ok((symbol, Some((f, display))))
+        let instance = Instance {
+            function: f,
+            template: Arc::clone(template),
+            replacements,
+            display,
+        };
+        Ok((symbol, Some(instance)))
+    }
+
+    /// Records a new instance and queues it for lowering. Its body is
+    /// substituted when it is lowered (`complete_instance`), not here: by
+    /// then the template has usually been released, so the body is moved
+    /// rather than copied (issue #436). The template handle stays with the
+    /// instance until then.
+    pub(super) fn defer_instance(
+        &mut self,
+        instance: Instance,
+        table: &mut functions::Functions,
+    ) -> functions::Symbol {
+        let Instance {
+            function,
+            template,
+            replacements,
+            ..
+        } = instance;
+        let f = Arc::new(function);
+        self.record_defaults(&f);
+        let symbol = table.intern(&f.name);
+        // The instance body names what the template body names.
+        self.retention.instance(symbol, &template);
+        table.declare(
+            symbol,
+            Declared {
+                yields: generators::yields(&template.body),
+                function: Some(Arc::clone(&f)),
+                lowered: false,
+            },
+        );
+        self.unsubstituted.insert(symbol, (template, replacements));
+        self.pending.push_back((symbol, f));
+        symbol
+    }
+
+    /// `f` with its body, if it is an instance queued by `defer_instance`.
+    pub(super) fn complete_instance(
+        &mut self,
+        symbol: functions::Symbol,
+        f: Arc<Function>,
+        table: &mut functions::Functions,
+    ) -> Result<Arc<Function>> {
+        if self.unsubstituted.is_empty() {
+            return Ok(f);
+        }
+        let Some((template, replacements)) = self.unsubstituted.remove(&symbol) else {
+            return Ok(f);
+        };
+        let mut body =
+            Arc::try_unwrap(template).map_or_else(|shared| shared.body.clone(), |t| t.body);
+        substitute_block(&mut body, &replacements)?;
+        let declared = table
+            .declared_mut(symbol)
+            .expect("a queued instance is declared");
+        // Dropping the table's handle first leaves `f` unshared, unless the
+        // instance is also still queued.
+        declared.function = None;
+        let mut function = Arc::unwrap_or_clone(f);
+        function.body = body;
+        let f = Arc::new(function);
+        declared.function = Some(Arc::clone(&f));
+        Ok(f)
+    }
+}
+
+/// A new function instance whose body is still the template's.
+pub(super) struct Instance {
+    /// The instance declaration, without a body.
+    pub(super) function: Function,
+    template: Arc<Function>,
+    replacements: Substitution,
+    /// The instance name in diagnostics, such as `f[i64]`.
+    pub(super) display: String,
+}
+
+impl Instance {
+    pub(super) fn template_body(&self) -> &[Stmt] {
+        &self.template.body
+    }
+
+    /// The declaration with its body, copied from the template now.
+    pub(super) fn complete(self) -> Result<Function> {
+        let mut f = self.function;
+        f.body = self.template.body.clone();
+        substitute_block(&mut f.body, &self.replacements)?;
+        Ok(f)
     }
 }
 

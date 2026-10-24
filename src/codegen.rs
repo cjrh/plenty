@@ -115,7 +115,7 @@ use output::{Output, Worker};
 //
 // Cranelift's user-facing API is not indexed by context7; these notes
 // record gotchas paid for during phases c.2–c.5.5 so the next agent does
-// not pay for them again. Source under `~/.cargo/registry/src/.../cranelift-*-0.131.*/`.
+// not pay for them again. Source under `~/.cargo/registry/src/.../cranelift-*-0.137.*/`.
 //
 // * **Crate split.** The `cranelift` umbrella crate's `module` and `object`
 //   sub-crates are opt-in features absent from its default feature set
@@ -146,7 +146,7 @@ use output::{Output, Worker};
 //   (a single `DataId`, **not** a tuple — the inner `module.rs` returns
 //   `(DataId, Linkage)` but the public trait wraps that). To use the data
 //   inside a function body, call `module.declare_data_in_func(data_id,
-//   func) -> GlobalValue` and then `builder.ins().global_value(ty, gv)`.
+//   func) -> GlobalValue` and then `builder.ins().symbol_value(ty, gv)`.
 //
 // * **Checked arithmetic results.** The `*_overflow` instructions
 //   (`sadd_overflow`, `uadd_overflow`, `ssub_overflow`, `usub_overflow`,
@@ -1382,6 +1382,15 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
 /// Managed values use one pointer on the current native 64-bit host target.
 const PTR_TY: types::Type = types::I64;
 
+/// `FunctionBuilder::finalize` reads only the pointer type, to spill values
+/// declared for stack maps; Plenty declares none.
+pub(crate) const FRONTEND: cranelift_codegen::isa::TargetFrontendConfig =
+    cranelift_codegen::isa::TargetFrontendConfig {
+        default_call_conv: CallConv::SystemV,
+        pointer_width: target_lexicon::PointerWidth::U64,
+        page_size_align_log2: 12,
+    };
+
 /// Serialize the runtime's 32-byte immortal string prefix and exact UTF-8 bytes.
 /// AOT targets the host, so serialization uses native byte order.
 fn string_literal_bytes((data, scalars): (&[u8], usize)) -> Vec<u8> {
@@ -1496,7 +1505,7 @@ struct UserFn {
 
 /// Build a Cranelift `Signature` from a Plenty `FnSig`. User functions
 /// always use `CallConv::Tail`: that is the only call convention in
-/// Cranelift 0.131 that supports `return_call`, which is how we lower
+/// Cranelift 0.137 that supports `return_call`, which is how we lower
 /// Plenty's tail-call op. Tail-convention functions can still be called
 /// non-tail (the verifier only requires matching conventions on
 /// `return_call`), so `plenty_main` — which has SystemV convention,
@@ -1731,7 +1740,7 @@ fn build_user_function(
                     bcx.ins().uextend(types::I128, zero)
                 };
                 bcx.ins().store(
-                    cranelift_codegen::ir::MemFlags::trusted(),
+                    cranelift_codegen::ir::MemFlagsData::trusted(),
                     packed,
                     base,
                     *offset,
@@ -1801,7 +1810,7 @@ fn build_user_function(
             .finish_exits()
             .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         lower.seal_trap_blocks();
-        bcx.finalize();
+        bcx.finalize(crate::codegen::FRONTEND);
     }
     out.define(decl.id, func, module);
     if let Some(id) = decl.drop_callback {
@@ -1819,7 +1828,7 @@ fn build_user_function(
         let callee = module.declare_func_in_func(decl.id, b.func);
         b.ins().call(callee, &[receiver]);
         b.ins().return_(&[]);
-        b.finalize();
+        b.finalize(crate::codegen::FRONTEND);
         out.define(id, func, module);
     }
     Ok(())
@@ -1901,7 +1910,7 @@ fn build_main(
         lower.release_stack();
         lower.bcx.ins().return_(&[status]);
         lower.seal_trap_blocks();
-        bcx.finalize();
+        bcx.finalize(crate::codegen::FRONTEND);
     }
     out.define(main_id, func, module);
     Ok(())
@@ -1954,7 +1963,7 @@ type StackEntry = (cranelift_codegen::ir::Value, Ty);
 /// Which checked-overflow CLIF instruction family to emit. The signed
 /// variants are picked by the `Ty` tag at the call site, so this enum
 /// only distinguishes the three ops, not their signedness.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum ArithKind {
     Add,
     Sub,
@@ -2176,7 +2185,7 @@ impl Lowerer<'_, '_> {
         let value = if let Some((frame, offset)) = self.local_address(i) {
             let value = self.bcx.ins().load(
                 types::I128,
-                cranelift_codegen::ir::MemFlags::trusted(),
+                cranelift_codegen::ir::MemFlagsData::trusted(),
                 frame,
                 offset as i32,
             );
@@ -2191,7 +2200,7 @@ impl Lowerer<'_, '_> {
         self.save_capture_local(i, value);
         let (var, ty) = self.locals[i as usize].clone();
         if let Some((frame, offset)) = self.local_address(i) {
-            let slot = self.bcx.ins().iadd_imm(frame, offset);
+            let slot = self.bcx.ins().iadd_imm_s(frame, offset);
             self.store_slot(slot, value, &ty);
         } else {
             self.bcx.def_var(var, value);
@@ -2265,7 +2274,7 @@ impl Lowerer<'_, '_> {
             Op::ForwardsReferences => {}
             Op::BorrowLocal(i, mutable) => {
                 let (frame, offset) = self.local_address(*i).expect("addressable local");
-                let ptr = self.bcx.ins().iadd_imm(frame, offset);
+                let ptr = self.bcx.ins().iadd_imm_s(frame, offset);
                 let ptr = self.bcx.ins().uextend(types::I128, ptr);
                 self.borrow_capture_local(*i, ptr);
                 self.stack.push((
@@ -2566,7 +2575,7 @@ impl Lowerer<'_, '_> {
         let eof_gv = self
             .module
             .declare_data_in_func(self.eof_empty_str, self.bcx.func);
-        let eof_addr = self.bcx.ins().global_value(PTR_TY, eof_gv);
+        let eof_addr = self.bcx.ins().symbol_value(PTR_TY, eof_gv);
         let safe_ptr = self.bcx.ins().select(got_line, ptr, eof_addr);
         self.stack.push((safe_ptr, Ty::Str));
         self.stack.push((got_line, Ty::Bool));
@@ -2669,17 +2678,79 @@ impl Lowerer<'_, '_> {
             return Ok(());
         }
         let signed = is_signed(ty.clone());
-        let (result, of) = match (kind, signed) {
-            (ArithKind::Add, true) => self.bcx.ins().sadd_overflow(a, b),
-            (ArithKind::Add, false) => self.bcx.ins().uadd_overflow(a, b),
-            (ArithKind::Sub, true) => self.bcx.ins().ssub_overflow(a, b),
-            (ArithKind::Sub, false) => self.bcx.ins().usub_overflow(a, b),
-            (ArithKind::Mul, true) => self.bcx.ins().smul_overflow(a, b),
-            (ArithKind::Mul, false) => self.bcx.ins().umul_overflow(a, b),
+        let (result, of) = match self.compared_add_sub(kind, signed, a, b) {
+            Some(checked) => checked,
+            None => match (kind, signed) {
+                (ArithKind::Add, true) => self.bcx.ins().sadd_overflow(a, b),
+                (ArithKind::Add, false) => self.bcx.ins().uadd_overflow(a, b),
+                (ArithKind::Sub, true) => self.bcx.ins().ssub_overflow(a, b),
+                (ArithKind::Sub, false) => self.bcx.ins().usub_overflow(a, b),
+                (ArithKind::Mul, true) => self.bcx.ins().smul_overflow(a, b),
+                (ArithKind::Mul, false) => self.bcx.ins().umul_overflow(a, b),
+            },
         };
         self.trap_if(of, TrapKind::Overflow)?;
         self.stack.push((result, ty));
         Ok(())
+    }
+
+    /// Checked add or subtract with an overflow flag that is an `icmp`,
+    /// where one exists: unsigned subtraction, and signed operations with a
+    /// constant right operand (or left, for addition). `None` leaves the
+    /// operation to the `*_overflow` instruction.
+    ///
+    /// Cranelift 0.137's x86-64 backend fuses `brif` with the flag of
+    /// `uadd_overflow` (`add; jb`), `umul_overflow` and `smul_overflow`
+    /// (`jo`), but materializes the others (`seto; test; jne`, 13 bytes)
+    /// where an `icmp` becomes `cmp; jcc` (9 bytes). In a large program
+    /// every check's bytes stream through the instruction cache (issue #425).
+    ///
+    /// The optimizer rematerializes an add or subtract of a constant in each
+    /// block that uses it, so a comparison of such a result would compute it
+    /// a second time after the branch. Optimized code keeps the flag there.
+    fn compared_add_sub(
+        &mut self,
+        kind: ArithKind,
+        signed: bool,
+        a: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+    ) -> Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> {
+        let dfg = &self.bcx.func.dfg;
+        let constant_operand =
+            known::known_int(dfg, a).is_some() || known::known_int(dfg, b).is_some();
+        let rematerialized = self.module.optimizes() && constant_operand;
+        match (kind, signed) {
+            // A borrow happens exactly when the subtrahend is larger. The
+            // comparison reads only the operands.
+            (ArithKind::Sub, false) => {
+                let of = self.bcx.ins().icmp(IntCC::UnsignedLessThan, a, b);
+                let difference = self.bcx.ins().isub(a, b);
+                Some((difference, of))
+            }
+            // Adding a positive constant (or subtracting a negative one)
+            // overflows exactly when the wrapped result falls below `x`;
+            // the opposite sign, exactly when it rises above.
+            (ArithKind::Add | ArithKind::Sub, true) if !rematerialized => {
+                let (x, c, constant) = match known::known_signed(dfg, b) {
+                    Some(constant) => (a, b, constant),
+                    None if kind == ArithKind::Add => (b, a, known::known_signed(dfg, a)?),
+                    None => return None,
+                };
+                let result = match kind {
+                    ArithKind::Add => self.bcx.ins().iadd(x, c),
+                    _ => self.bcx.ins().isub(x, c),
+                };
+                let of = match (constant.signum(), kind) {
+                    (0, _) => self.bcx.ins().iconst(types::I8, 0),
+                    (1, ArithKind::Add) | (-1, ArithKind::Sub) => {
+                        self.bcx.ins().icmp(IntCC::SignedLessThan, result, x)
+                    }
+                    _ => self.bcx.ins().icmp(IntCC::SignedGreaterThan, result, x),
+                };
+                Some((result, of))
+            }
+            _ => None,
+        }
     }
 
     /// Lower a loop counter step that [`induction`] proved cannot overflow.
@@ -2723,7 +2794,7 @@ impl Lowerer<'_, '_> {
             let invalid =
                 self.bcx
                     .ins()
-                    .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, b, i64::from(width));
+                    .icmp_imm_s(IntCC::UnsignedGreaterThanOrEqual, b, i64::from(width));
             self.trap_if(invalid, TrapKind::Shift)?;
         }
         let result = match kind {
@@ -2787,11 +2858,11 @@ impl Lowerer<'_, '_> {
         };
         if floor && signed {
             let remainder = self.bcx.ins().srem(a, b);
-            let nonzero = self.bcx.ins().icmp_imm(IntCC::NotEqual, remainder, 0);
+            let nonzero = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, remainder, 0);
             let signs = self.bcx.ins().bxor(a, b);
-            let different = self.bcx.ins().icmp_imm(IntCC::SignedLessThan, signs, 0);
+            let different = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, signs, 0);
             let round_down = self.bcx.ins().band(nonzero, different);
-            let below = self.bcx.ins().iadd_imm(v, -1);
+            let below = self.bcx.ins().iadd_imm_s(v, -1);
             v = self.bcx.ins().select(round_down, below, v);
         }
         self.stack.push((v, ty));
@@ -2806,13 +2877,13 @@ impl Lowerer<'_, '_> {
         self.trap_if(is_zero, TrapKind::DivZero)?;
         let result = if is_signed(ty.clone()) && !self.nonnegative_operands(a, b) {
             // INT_MIN % -1 is zero, so avoid a hardware division overflow.
-            let minus_one = self.bcx.ins().icmp_imm(IntCC::Equal, b, -1);
+            let minus_one = self.bcx.ins().icmp_imm_s(IntCC::Equal, b, -1);
             let one = self.bcx.ins().iconst(clif_type(ty.clone()), 1);
             let divisor = self.bcx.ins().select(minus_one, one, b);
             let rem = self.bcx.ins().srem(a, divisor);
-            let nonzero = self.bcx.ins().icmp_imm(IntCC::NotEqual, rem, 0);
+            let nonzero = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, rem, 0);
             let signs = self.bcx.ins().bxor(rem, b);
-            let different = self.bcx.ins().icmp_imm(IntCC::SignedLessThan, signs, 0);
+            let different = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, signs, 0);
             let adjust = self.bcx.ins().band(nonzero, different);
             let corrected = self.bcx.ins().iadd(rem, b);
             self.bcx.ins().select(adjust, corrected, rem)
@@ -2915,7 +2986,7 @@ impl Lowerer<'_, '_> {
                     self.bcx.ins().ireduce(types::I64, order)
                 }
             };
-            let value = self.bcx.ins().icmp_imm(signed, order, 0);
+            let value = self.bcx.ins().icmp_imm_s(signed, order, 0);
             for operand in [a, b] {
                 if !(ty == Ty::Str && self.forget_slot_copy(operand)) {
                     self.release(operand, &ty);
@@ -3112,7 +3183,7 @@ impl Lowerer<'_, '_> {
             format!("AOT: PushStr({id:?}) without a declared data symbol").into()
         })?;
         let gv = self.module.declare_data_in_func(data_id, self.bcx.func);
-        let addr = self.bcx.ins().global_value(PTR_TY, gv);
+        let addr = self.bcx.ins().symbol_value(PTR_TY, gv);
         self.stack.push((addr, ty));
         Ok(())
     }
@@ -3159,7 +3230,7 @@ impl Lowerer<'_, '_> {
             self.release(b, &ty);
             let mut value = self.bcx.ins().ireduce(types::I8, eq);
             if negate_string_result {
-                value = self.bcx.ins().bxor_imm(value, 1);
+                value = self.bcx.ins().bxor_imm_s(value, 1);
             }
             self.stack.push((value, Ty::Bool));
             return Ok(());
@@ -3643,7 +3714,7 @@ impl Lowerer<'_, '_> {
                         format!("AOT: Pattern::Str({id:?}) without declared data").into()
                     })?;
                     let gv = self.module.declare_data_in_func(data_id, self.bcx.func);
-                    let pat_addr = self.bcx.ins().global_value(PTR_TY, gv);
+                    let pat_addr = self.bcx.ins().symbol_value(PTR_TY, gv);
                     let str_eq = self
                         .module
                         .declare_func_in_func(self.runtime.str_eq, self.bcx.func);

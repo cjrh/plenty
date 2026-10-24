@@ -1,6 +1,6 @@
 use super::*;
 use crate::control::ControlOp;
-use cranelift_codegen::ir::MemFlags;
+use cranelift_codegen::ir::MemFlagsData;
 
 impl Lowerer<'_, '_> {
     pub(super) fn lower_control(&mut self, operation: &ControlOp) -> Result<()> {
@@ -15,7 +15,7 @@ impl Lowerer<'_, '_> {
         for (i, value) in values.iter().enumerate() {
             self.bcx
                 .ins()
-                .store(MemFlags::trusted(), *value, args, (i * 16) as i32);
+                .store(MemFlagsData::trusted(), *value, args, (i * 16) as i32);
         }
         let out = self.inline_storage(output.slot_bytes());
         let code = self.bcx.ins().iconst(types::I64, operation.opcode());
@@ -26,7 +26,7 @@ impl Lowerer<'_, '_> {
         let value = self
             .bcx
             .ins()
-            .load(types::I128, MemFlags::trusted(), out, 0);
+            .load(types::I128, MemFlagsData::trusted(), out, 0);
         let value = self.unpack(value, &output);
         if !matches!(operation, ControlOp::New) {
             self.release(values[0], &inputs[0]);

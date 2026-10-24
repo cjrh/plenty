@@ -1,7 +1,7 @@
 //! Native environments use the same typed owner-local slots as generator frames.
 use super::*;
 use crate::closure::ClosureType;
-use cranelift_codegen::ir::MemFlags;
+use cranelift_codegen::ir::MemFlagsData;
 
 impl Lowerer<'_, '_> {
     pub(super) fn lower_boxed_callable_new(
@@ -43,9 +43,12 @@ impl Lowerer<'_, '_> {
         let boxed = self
             .bcx
             .ins()
-            .load(PTR_TY, MemFlags::trusted(), reference, 0);
-        let code = self.bcx.ins().load(PTR_TY, MemFlags::trusted(), boxed, 24);
-        let slot = self.bcx.ins().iadd_imm(boxed, 32);
+            .load(PTR_TY, MemFlagsData::trusted(), reference, 0);
+        let code = self
+            .bcx
+            .ins()
+            .load(PTR_TY, MemFlagsData::trusted(), boxed, 24);
+        let slot = self.bcx.ins().iadd_imm_s(boxed, 32);
         let environment = self.bcx.ins().uextend(types::I128, slot);
         // All environment references use the same native ABI; the adapter knows
         // the concrete type while this call site knows only the public signature.
@@ -64,10 +67,10 @@ impl Lowerer<'_, '_> {
         let storage = self.inline_storage(t.bytes());
         let id = self.module.metadata(&ty);
         let gv = self.module.declare_data_in_func(id, self.bcx.func);
-        let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
+        let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
         self.bcx
             .ins()
-            .store(MemFlags::trusted(), descriptor, storage, 0);
+            .store(MemFlagsData::trusted(), descriptor, storage, 0);
         let track = self.scalar_captures.enabled()
             && !t.mutable
             && !t.once
@@ -80,7 +83,7 @@ impl Lowerer<'_, '_> {
             if track {
                 captured.push(value);
             }
-            let slot = self.bcx.ins().iadd_imm(storage, t.offset(i) as i64);
+            let slot = self.bcx.ins().iadd_imm_s(storage, t.offset(i) as i64);
             self.store_slot(slot, value, field);
         }
         if track {
@@ -115,20 +118,20 @@ impl Lowerer<'_, '_> {
             let reference = self.raw_word(reference);
             self.bcx
                 .ins()
-                .load(PTR_TY, MemFlags::trusted(), reference, 0)
+                .load(PTR_TY, MemFlagsData::trusted(), reference, 0)
         };
         for (i, (_, field)) in t.captures.iter().enumerate() {
-            let slot = self.bcx.ins().iadd_imm(storage, t.offset(i) as i64);
+            let slot = self.bcx.ins().iadd_imm_s(storage, t.offset(i) as i64);
             let pointer = if t.once {
                 let packed = self
                     .bcx
                     .ins()
-                    .load(types::I128, MemFlags::trusted(), slot, 0);
+                    .load(types::I128, MemFlagsData::trusted(), slot, 0);
                 self.unpack(packed, field)
             } else if matches!(field, Ty::Ref(..)) {
                 self.bcx
                     .ins()
-                    .load(types::I128, MemFlags::trusted(), slot, 0)
+                    .load(types::I128, MemFlagsData::trusted(), slot, 0)
             } else {
                 self.bcx.ins().uextend(types::I128, slot)
             };

@@ -1,7 +1,7 @@
 //! Lower resumable bodies directly to native basic blocks. Every yield is a
 //! checked empty-stack boundary; locals live in the owned frame, never stale SSA.
 use super::*;
-use cranelift_codegen::ir::{MemFlags, Value as NativeValue};
+use cranelift_codegen::ir::{MemFlagsData, Value as NativeValue};
 
 pub(super) struct GeneratorContext {
     pub frame: NativeValue,
@@ -83,7 +83,7 @@ pub(super) fn build_generator(
         let resume = module.declare_func_in_func(resume_id, b.func);
         let callback = b.ins().func_addr(PTR_TY, resume);
         let mask = module.declare_data_in_func(mask_id, b.func);
-        let mask = b.ins().global_value(PTR_TY, mask);
+        let mask = b.ins().symbol_value(PTR_TY, mask);
         let count = b.ins().iconst(types::I64, slot_types.len() as i64);
         let n = decl.sig.inputs.len();
         let slot = b.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
@@ -96,7 +96,7 @@ pub(super) fn build_generator(
             let value = b.block_params(entry)[i];
             let value = enums::pack_value(&mut b, value, ty);
             b.ins()
-                .store(MemFlags::trusted(), value, captures, i as i32 * 16);
+                .store(MemFlagsData::trusted(), value, captures, i as i32 * 16);
         }
         let frame = b.block_params(entry)[n];
         let n = b.ins().iconst(types::I64, n as i64);
@@ -104,7 +104,7 @@ pub(super) fn build_generator(
         b.ins()
             .call(init, &[frame, callback, count, mask, captures, n]);
         b.ins().return_(&[frame]);
-        b.finalize();
+        b.finalize(crate::codegen::FRONTEND);
     }
     out.define(decl.id, func, module);
     let mut module = out.symbols();
@@ -169,16 +169,16 @@ pub(super) fn build_generator(
         lower.seal_trap_blocks();
         let continuations = lower.generator.take().unwrap().continuations;
         b.switch_to_block(choose_state);
-        let state = b.ins().load(types::I64, MemFlags::trusted(), frame, 24);
+        let state = b.ins().load(types::I64, MemFlagsData::trusted(), frame, 24);
         for (i, block) in continuations.into_iter().enumerate() {
-            let yes = b.ins().icmp_imm(IntCC::Equal, state, i as i64);
+            let yes = b.ins().icmp_imm_s(IntCC::Equal, state, i as i64);
             let next = b.create_block();
             b.ins().brif(yes, block, &[], next, &[]);
             b.switch_to_block(next);
         }
         b.ins().trap(TrapCode::unwrap_user(1));
         b.seal_all_blocks();
-        b.finalize();
+        b.finalize(crate::codegen::FRONTEND);
     }
     out.define(resume_id, func, module);
     Ok(())
@@ -206,12 +206,14 @@ impl Lowerer<'_, '_> {
         let next = self.bcx.create_block();
         let state_index = g.continuations.len() as i64;
         g.continuations.push(next);
-        let destination = self.bcx.ins().iadd_imm(out, 16);
+        let destination = self.bcx.ins().iadd_imm_s(out, 16);
         let value = self.copy_inline_to(value, ty, destination);
         let value = self.pack(value, ty);
         let state = self.bcx.ins().iconst(types::I64, state_index);
-        self.bcx.ins().store(MemFlags::trusted(), state, frame, 24);
-        self.bcx.ins().store(MemFlags::trusted(), value, out, 0);
+        self.bcx
+            .ins()
+            .store(MemFlagsData::trusted(), state, frame, 24);
+        self.bcx.ins().store(MemFlagsData::trusted(), value, out, 0);
         let ready = self.bcx.ins().iconst(types::I8, 1);
         self.bcx.ins().return_(&[ready]);
         self.bcx.switch_to_block(next);

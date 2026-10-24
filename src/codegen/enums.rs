@@ -17,7 +17,7 @@ pub(super) fn pack_value(
             } else {
                 types::I64
             },
-            cranelift_codegen::ir::MemFlags::new(),
+            cranelift_codegen::ir::MemFlagsData::new(),
             value,
         );
         if *ty == Ty::F32 {
@@ -73,7 +73,7 @@ impl Lowerer<'_, '_> {
             0,
             bytes as u64,
             8,
-            cranelift_codegen::ir::MemFlags::trusted(),
+            cranelift_codegen::ir::MemFlagsData::trusted(),
         );
         storage
     }
@@ -87,10 +87,10 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
     ) -> (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value) {
         let storage = self.raw_word(record);
-        let slot = self.bcx.ins().iadd_imm(storage, offset);
+        let slot = self.bcx.ins().iadd_imm_s(storage, offset);
         let value = self.bcx.ins().load(
             types::I128,
-            cranelift_codegen::ir::MemFlags::trusted(),
+            cranelift_codegen::ir::MemFlagsData::trusted(),
             slot,
             0,
         );
@@ -114,13 +114,13 @@ impl Lowerer<'_, '_> {
                     let address = self.raw_word(reference);
                     let storage = self.bcx.ins().load(
                         PTR_TY,
-                        cranelift_codegen::ir::MemFlags::trusted(),
+                        cranelift_codegen::ir::MemFlagsData::trusted(),
                         address,
                         0,
                     );
                     let one = self.bcx.ins().iconst(types::I64, 1);
                     self.bcx.ins().store(
-                        cranelift_codegen::ir::MemFlags::trusted(),
+                        cranelift_codegen::ir::MemFlagsData::trusted(),
                         one,
                         storage,
                         0,
@@ -142,13 +142,13 @@ impl Lowerer<'_, '_> {
                 let address = self.raw_word(address);
                 let owner = self.bcx.ins().load(
                     PTR_TY,
-                    cranelift_codegen::ir::MemFlags::trusted(),
+                    cranelift_codegen::ir::MemFlagsData::trusted(),
                     address,
                     0,
                 );
                 let offset = t.get().state_bytes() as i64
                     + Self::record_offset(t.get().fields[..*i].iter().map(|(_, t)| t));
-                self.bcx.ins().iadd_imm(owner, offset)
+                self.bcx.ins().iadd_imm_s(owner, offset)
             }
         };
         let result = self.unpack(result, &output);
@@ -212,25 +212,25 @@ impl Lowerer<'_, '_> {
                     let packed = self.read_reference(reference);
                     let tags = self.high_word(packed);
                     let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
-                    self.bcx.ins().band_imm(tags, mask as i64)
+                    self.bcx.ins().band_imm_s(tags, mask as i64)
                 }
                 EnumOp::FieldRef(_, tag, field, _) => {
                     let fields = &t.get().variants[*tag].fields;
                     if fields.len() == 1 {
                         let (address, shift) = self.bcx.ins().isplit(reference);
-                        let shift = self.bcx.ins().iadd_imm(shift, t.tag_bits() as i64);
+                        let shift = self.bcx.ins().iadd_imm_s(shift, t.tag_bits() as i64);
                         self.bcx.ins().iconcat(address, shift)
                     } else {
                         // The payload word in the slot addresses the record.
                         let address = self.raw_word(reference);
                         let storage = self.bcx.ins().load(
                             PTR_TY,
-                            cranelift_codegen::ir::MemFlags::trusted(),
+                            cranelift_codegen::ir::MemFlagsData::trusted(),
                             address,
                             0,
                         );
                         let offset = Self::record_offset(fields[..*field].iter());
-                        let slot = self.bcx.ins().iadd_imm(storage, offset);
+                        let slot = self.bcx.ins().iadd_imm_s(storage, offset);
                         self.bcx.ins().uextend(types::I128, slot)
                     }
                 }
@@ -255,7 +255,7 @@ impl Lowerer<'_, '_> {
                 let failed =
                     self.bcx
                         .ins()
-                        .icmp_imm(IntCC::NotEqual, tag, i64::from(t.is_option()));
+                        .icmp_imm_s(IntCC::NotEqual, tag, i64::from(t.is_option()));
                 self.trap_if(
                     failed,
                     TrapKind::Unwrap {
@@ -285,7 +285,7 @@ impl Lowerer<'_, '_> {
                         let storage = self.inline_storage(bytes);
                         let mut offset = 0;
                         for (value, ty) in values.into_iter().zip(fields) {
-                            let slot = self.bcx.ins().iadd_imm(storage, offset);
+                            let slot = self.bcx.ins().iadd_imm_s(storage, offset);
                             self.store_slot(slot, value, ty);
                             offset += ty.slot_bytes() as i64;
                         }
@@ -298,7 +298,7 @@ impl Lowerer<'_, '_> {
                 let (value, _) = self.pop_typed(inputs[0].clone())?;
                 let tags = self.high_word(value);
                 let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
-                let tag = self.bcx.ins().band_imm(tags, mask as i64);
+                let tag = self.bcx.ins().band_imm_s(tags, mask as i64);
                 if !self.forget_counted_copy(value) {
                     self.release(value, &inputs[0]);
                 }
@@ -319,7 +319,7 @@ impl Lowerer<'_, '_> {
                         let zero = self.bcx.ins().iconst(types::I64, 0);
                         let zero = self.bcx.ins().uextend(types::I128, zero);
                         self.bcx.ins().store(
-                            cranelift_codegen::ir::MemFlags::trusted(),
+                            cranelift_codegen::ir::MemFlagsData::trusted(),
                             zero,
                             slot,
                             0,
@@ -356,11 +356,14 @@ impl Lowerer<'_, '_> {
             {
                 let tags = self.high_word(value);
                 let mask = (from.get().variants.len().next_power_of_two() - 1).max(1);
-                let old_tag = self.bcx.ins().band_imm(tags, mask as i64);
+                let old_tag = self.bcx.ins().band_imm_s(tags, mask as i64);
                 let mut tag = self.bcx.ins().iconst(types::I64, 0);
                 for (index, member) in crate::sum::members(source).iter().enumerate() {
                     let destination = targets.iter().position(|t| t == member).unwrap();
-                    let selected = self.bcx.ins().icmp_imm(IntCC::Equal, old_tag, index as i64);
+                    let selected = self
+                        .bcx
+                        .ins()
+                        .icmp_imm_s(IntCC::Equal, old_tag, index as i64);
                     let new_tag = self.bcx.ins().iconst(types::I64, destination as i64);
                     tag = self.bcx.ins().select(selected, new_tag, tag);
                 }
@@ -385,7 +388,7 @@ impl Lowerer<'_, '_> {
         let done = self.bcx.create_block();
         self.bcx.append_block_param(done, types::I128);
         let tag = self.sum_tag(value);
-        let ok = self.bcx.ins().icmp_imm(IntCC::Equal, tag, 0);
+        let ok = self.bcx.ins().icmp_imm_s(IntCC::Equal, tag, 0);
         self.bcx.ins().brif(ok, success, &[], failure, &[]);
         self.bcx.switch_to_block(success);
         self.bcx.seal_block(success);
@@ -432,10 +435,11 @@ impl Lowerer<'_, '_> {
             } else {
                 value
             };
-            return self
-                .bcx
-                .ins()
-                .bitcast(target, cranelift_codegen::ir::MemFlags::new(), bits);
+            return self.bcx.ins().bitcast(
+                target,
+                cranelift_codegen::ir::MemFlagsData::new(),
+                bits,
+            );
         }
         if target == types::I64 {
             value
@@ -459,7 +463,7 @@ impl Lowerer<'_, '_> {
         value: cranelift_codegen::ir::Value,
     ) -> cranelift_codegen::ir::Value {
         let tags = self.high_word(value);
-        self.bcx.ins().band_imm(tags, 1)
+        self.bcx.ins().band_imm_s(tags, 1)
     }
     fn sum_payload(&mut self, value: cranelift_codegen::ir::Value) -> cranelift_codegen::ir::Value {
         self.tagged_payload(value, 1)
@@ -470,7 +474,7 @@ impl Lowerer<'_, '_> {
         bits: u32,
     ) -> cranelift_codegen::ir::Value {
         let (word, tags) = self.bcx.ins().isplit(value);
-        let tags = self.bcx.ins().ushr_imm(tags, bits as i64);
+        let tags = self.bcx.ins().ushr_imm_s(tags, bits as i64);
         self.bcx.ins().iconcat(word, tags)
     }
     pub(super) fn wrap_sum(
@@ -487,8 +491,8 @@ impl Lowerer<'_, '_> {
         bits: u32,
     ) -> cranelift_codegen::ir::Value {
         let (word, tags) = self.bcx.ins().isplit(value);
-        let tags = self.bcx.ins().ishl_imm(tags, bits as i64);
-        let tags = self.bcx.ins().bor_imm(tags, tag as i64);
+        let tags = self.bcx.ins().ishl_imm_s(tags, bits as i64);
+        let tags = self.bcx.ins().bor_imm_s(tags, tag as i64);
         self.bcx.ins().iconcat(word, tags)
     }
     pub(super) fn lower_try(
@@ -506,7 +510,7 @@ impl Lowerer<'_, '_> {
         let ready = self
             .bcx
             .ins()
-            .icmp_imm(IntCC::Equal, tag, success_tag as i64);
+            .icmp_imm_s(IntCC::Equal, tag, success_tag as i64);
         self.bcx.ins().brif(ready, success, &[], failure, &[]);
         self.bcx.switch_to_block(failure);
         self.bcx.seal_block(failure);
@@ -626,10 +630,10 @@ impl Lowerer<'_, '_> {
                 self.collection_call(119, &[value], Some(&boxed))?
             }
             BoxOp::Take(t) => {
-                let slot = self.bcx.ins().iadd_imm(operand, 32);
+                let slot = self.bcx.ins().iadd_imm_s(operand, 32);
                 let value = self.bcx.ins().load(
                     types::I128,
-                    cranelift_codegen::ir::MemFlags::trusted(),
+                    cranelift_codegen::ir::MemFlagsData::trusted(),
                     slot,
                     0,
                 );
@@ -643,11 +647,11 @@ impl Lowerer<'_, '_> {
                 let address = self.raw_word(operand);
                 let boxed = self.bcx.ins().load(
                     PTR_TY,
-                    cranelift_codegen::ir::MemFlags::trusted(),
+                    cranelift_codegen::ir::MemFlagsData::trusted(),
                     address,
                     0,
                 );
-                let slot = self.bcx.ins().iadd_imm(boxed, 32);
+                let slot = self.bcx.ins().iadd_imm_s(boxed, 32);
                 self.bcx.ins().uextend(types::I128, slot)
             }
         };

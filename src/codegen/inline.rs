@@ -1,7 +1,7 @@
 //! Inline value storage. Runtime operands carry scalar-sized addresses, while
 //! escaping ranges and generator frames live in storage belonging to their owner.
 use super::*;
-use cranelift_codegen::ir::{MemFlags, Value as NativeValue};
+use cranelift_codegen::ir::{MemFlagsData, Value as NativeValue};
 
 impl Lowerer<'_, '_> {
     pub(super) fn inline_storage(&mut self, bytes: usize) -> NativeValue {
@@ -75,14 +75,14 @@ impl Lowerer<'_, '_> {
         variants: &[(usize, u64)],
     ) -> NativeValue {
         let (word, tags) = self.bcx.ins().isplit(packed);
-        let tag = self.bcx.ins().band_imm(tags, (1i64 << tag_bits) - 1);
+        let tag = self.bcx.ins().band_imm_s(tags, (1i64 << tag_bits) - 1);
         let done = self.bcx.create_block();
         self.bcx.append_block_param(done, types::I128);
         let config = self.module.target_config();
         for &(variant, bytes) in variants {
             let copy = self.bcx.create_block();
             let next = self.bcx.create_block();
-            let matches = self.bcx.ins().icmp_imm(IntCC::Equal, tag, variant as i64);
+            let matches = self.bcx.ins().icmp_imm_s(IntCC::Equal, tag, variant as i64);
             self.bcx.ins().brif(matches, copy, &[], next, &[]);
             self.bcx.switch_to_block(copy);
             self.bcx.seal_block(copy);
@@ -94,7 +94,7 @@ impl Lowerer<'_, '_> {
                 8,
                 8,
                 false,
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
             );
             let moved = self.bcx.ins().iconcat(destination, tags);
             self.bcx.ins().jump(done, &[moved.into()]);
@@ -133,7 +133,7 @@ impl Lowerer<'_, '_> {
             8,
             8,
             false,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
         );
         let tags = self.high_word(value);
         let moved = self.bcx.ins().iconcat(destination, tags);
@@ -168,7 +168,7 @@ impl Lowerer<'_, '_> {
             8,
             8,
             false,
-            MemFlags::trusted(),
+            MemFlagsData::trusted(),
         );
         self.bcx.ins().jump(done, &[destination.into()]);
         self.bcx.switch_to_block(done);
@@ -186,13 +186,15 @@ impl Lowerer<'_, '_> {
 
     pub(super) fn store_slot(&mut self, slot: NativeValue, value: NativeValue, ty: &Ty) {
         let value = if ty.has_inline_storage() {
-            let destination = self.bcx.ins().iadd_imm(slot, 16);
+            let destination = self.bcx.ins().iadd_imm_s(slot, 16);
             self.copy_inline_to(value, ty, destination)
         } else {
             value
         };
         let packed = self.pack(value, ty);
-        self.bcx.ins().store(MemFlags::trusted(), packed, slot, 0);
+        self.bcx
+            .ins()
+            .store(MemFlagsData::trusted(), packed, slot, 0);
     }
 
     pub(super) fn local_offset(&self, index: usize) -> i64 {
@@ -216,7 +218,7 @@ impl Lowerer<'_, '_> {
                 let base = self
                     .return_storage
                     .expect("caller-owned inline return storage");
-                let destination = self.bcx.ins().iadd_imm(base, offset);
+                let destination = self.bcx.ins().iadd_imm_s(base, offset);
                 offset += ty.inline_bytes() as i64;
                 self.copy_inline_to(value, &ty, destination)
             } else {

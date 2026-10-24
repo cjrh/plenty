@@ -5461,10 +5461,24 @@ fn register_signature(
 /// `generics::prepare` already resolved, or that resolves them when
 /// `resolved` is `None`. Resolving a type again would find the same type, so
 /// only the cost differs.
-#[cfg_attr(feature = "profile", hotpath::measure)]
 fn register_resolved(
     symbol: functions::Symbol,
     f: &Function,
+    resolved: Option<generics::Signature>,
+    aliases: &TypeAliases,
+    sigs: &mut functions::Functions,
+) -> Result<Arc<FnSig>> {
+    register_with_body(symbol, f, &f.body, resolved, aliases, sigs)
+}
+
+/// [`register_resolved`] reading whether `f` yields, and what reference it
+/// returns, from `body`: a generic instance's template body until the
+/// instance is lowered.
+#[cfg_attr(feature = "profile", hotpath::measure)]
+fn register_with_body(
+    symbol: functions::Symbol,
+    f: &Function,
+    body: &[Stmt],
     resolved: Option<generics::Signature>,
     aliases: &TypeAliases,
     sigs: &mut functions::Functions,
@@ -5533,7 +5547,7 @@ fn register_resolved(
             return Err(f.at.error(IMMUTABLE_ORIGIN));
         }
     }
-    if generators::yields(&f.body)
+    if generators::yields(body)
         && let Some(Ty::Generator(t)) = &output
     {
         output = Some(crate::generator::ty(
@@ -5543,7 +5557,7 @@ fn register_resolved(
     }
     let outputs = output.into_iter().collect();
     let sig = Arc::new(FnSig { inputs, outputs });
-    if let Some(fields) = references::returned_fields(f, &sig) {
+    if let Some(fields) = references::returned_fields(body, &sig) {
         sigs.set_returned_fields(symbol, fields);
     }
     sigs.register(symbol, &sig);
@@ -5570,7 +5584,9 @@ fn lower_function(
     let outer = aliases
         .data
         .attribute(required.clone().map(data::Requiring::Instance));
-    let lowered = lower_body(symbol, f, heap, sigs, generics, aliases, access);
+    let lowered = generics
+        .complete_instance(symbol, f, sigs)
+        .and_then(|f| lower_body(symbol, f, heap, sigs, generics, aliases, access));
     aliases.data.attribute(outer);
     lowered.map_err(|error| {
         if error.is::<Attributed>() {
@@ -6042,7 +6058,8 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                         &access,
                         "main",
                     )?;
-                    if let Some((function, _)) = function {
+                    if let Some(instance) = function {
+                        let function = instance.complete()?;
                         register_signature(&function, &aliases, &mut sigs)?;
                         generics.declare(function, &mut sigs);
                     }

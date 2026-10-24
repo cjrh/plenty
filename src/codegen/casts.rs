@@ -46,11 +46,11 @@ impl Lowerer<'_, '_> {
                 .map(|(min, end)| self.float_out_of_range(value, &source, min, end))
         } else {
             range_check(&source, target).map(|check| match check {
-                RangeCheck::Negative => self.bcx.ins().icmp_imm(IntCC::SignedLessThan, value, 0),
+                RangeCheck::Negative => self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, value, 0),
                 RangeCheck::Above(max) => {
                     self.bcx
                         .ins()
-                        .icmp_imm(IntCC::UnsignedGreaterThan, value, max)
+                        .icmp_imm_s(IntCC::UnsignedGreaterThan, value, max)
                 }
                 RangeCheck::SignedNarrowing => {
                     let low = self.bcx.ins().ireduce(clif_type(target.clone()), value);

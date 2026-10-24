@@ -17,7 +17,7 @@
 //! buckets of loops are unaffected.
 use super::*;
 use cranelift_codegen::cursor::{Cursor, FuncCursor};
-use cranelift_codegen::ir::MemFlags;
+use cranelift_codegen::ir::MemFlagsData;
 
 pub(super) const COUNTERS: &str = "__sancov_cntrs";
 pub(super) const PCS: &str = "__sancov_pcs";
@@ -32,15 +32,17 @@ pub(super) fn instrument(func: &mut Function, symbols: &mut symbols::Symbols) {
     let mut cursor = FuncCursor::new(func);
     for (index, block) in blocks.into_iter().enumerate() {
         cursor.goto_first_insertion_point(block);
-        let base = cursor.ins().global_value(PTR_TY, counters);
+        let base = cursor.ins().symbol_value(PTR_TY, counters);
         let offset = index as i32;
         // Wrapping and unsynchronized, as clang's counters are: a lost or
         // wrapped count only blurs libFuzzer's hit-count buckets.
         let count = cursor
             .ins()
-            .load(types::I8, MemFlags::trusted(), base, offset);
-        let count = cursor.ins().iadd_imm(count, 1);
-        cursor.ins().store(MemFlags::trusted(), count, base, offset);
+            .load(types::I8, MemFlagsData::trusted(), base, offset);
+        let count = cursor.ins().iadd_imm_s(count, 1);
+        cursor
+            .ins()
+            .store(MemFlagsData::trusted(), count, base, offset);
     }
 }
 
@@ -49,7 +51,7 @@ pub(super) fn instrument(func: &mut Function, symbols: &mut symbols::Symbols) {
 pub(super) fn define(module: &mut ObjectModule, function: FuncId, counters: u32) -> Result<DataId> {
     let mut description = DataDescription::new();
     description.define(vec![0; counters as usize].into_boxed_slice());
-    description.set_segment_section("", COUNTERS);
+    description.set_custom_section(COUNTERS);
     description.set_used(true);
     let data = module.declare_anonymous_data(true, false)?;
     module.define_data(data, &description)?;
@@ -58,7 +60,7 @@ pub(super) fn define(module: &mut ObjectModule, function: FuncId, counters: u32)
     let mut flags = vec![0; counters as usize * 16];
     flags[8] = 1;
     table.define(flags.into_boxed_slice());
-    table.set_segment_section("", PCS);
+    table.set_custom_section(PCS);
     table.set_align(8);
     table.set_used(true);
     let reference = table.import_function(cranelift_module::ModuleRelocTarget::user(

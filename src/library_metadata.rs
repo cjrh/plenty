@@ -216,7 +216,7 @@ fn read_object(
             if interfaces.len() >= MAX_CONTRACTS || section.size() > MAX_CONTRACT as u64 {
                 return Err("embedded interface count or size exceeds inspection limits".into());
             }
-            if matches!(section.flags(), object::SectionFlags::Elf { sh_flags } if sh_flags & u64::from(object::elf::SHF_COMPRESSED) != 0)
+            if matches!(section.flags(), object::SectionFlags::Elf { sh_flags, .. } if sh_flags.contains(object::elf::SHF_COMPRESSED))
             {
                 return Err("compressed interface sections are not supported".into());
             }

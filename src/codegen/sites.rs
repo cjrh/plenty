@@ -216,11 +216,11 @@ impl Lowerer<'_, '_> {
         };
         let key = self.site_key(line, column);
         let (table, offset) = self.module.site(key, self.bcx.func);
-        let base = self.bcx.ins().global_value(PTR_TY, table);
+        let base = self.bcx.ins().symbol_value(PTR_TY, table);
         Ok(if offset == 0 {
             base
         } else {
-            self.bcx.ins().iadd_imm(base, offset)
+            self.bcx.ins().iadd_imm_s(base, offset)
         })
     }
 

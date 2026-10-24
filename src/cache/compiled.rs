@@ -1,4 +1,4 @@
-//! The adapter to Cranelift 0.131's incremental-cache protocol. Keep the key
+//! The adapter to Cranelift 0.137's incremental-cache protocol. Keep the key
 //! parity tests when upgrading Cranelift: its Hash byte stream is not an API.
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -11,7 +11,7 @@ use cranelift_codegen::incremental_cache::{
 };
 use cranelift_codegen::ir::Function;
 use cranelift_codegen::isa::TargetIsa;
-use cranelift_codegen::{CompiledCode, Context, FinalizedMachReloc};
+use cranelift_codegen::{CompiledCode, Context, MachReloc};
 use sha2::{Digest, Sha256};
 
 use super::Cache;
@@ -23,13 +23,13 @@ use super::Cache;
 pub(crate) struct MachineCode {
     pub alignment: u64,
     pub bytes: Vec<u8>,
-    pub relocs: Vec<FinalizedMachReloc>,
+    pub relocs: Vec<MachReloc>,
 }
 
 impl From<&CompiledCode> for MachineCode {
     fn from(code: &CompiledCode) -> Self {
         Self {
-            alignment: code.buffer.alignment as u64,
+            alignment: u64::from(code.buffer.min_alignment),
             bytes: code.buffer.data().to_vec(),
             relocs: code.buffer.relocs().to_vec(),
         }
@@ -184,7 +184,7 @@ mod tests {
         let value = builder.ins().iconst(types::I64, 42);
         builder.ins().return_(&[value]);
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(crate::codegen::FRONTEND);
 
         // `key` checks upstream parity in test builds, including changes to
         // settings that cannot share a compiled stencil.

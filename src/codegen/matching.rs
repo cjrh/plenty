@@ -72,12 +72,12 @@ impl Lowerer<'_, '_> {
         let index = if base == 0 {
             scrut
         } else {
-            self.bcx.ins().iadd_imm(scrut, base.wrapping_neg())
+            self.bcx.ins().iadd_imm_s(scrut, base.wrapping_neg())
         };
         // Check BEFORE narrowing to i32: a distant i64/u64 must not alias a
         // table entry. Use an inclusive upper bound so a full u8 table does
         // not truncate the length 256 to zero in an i8 comparison.
-        let inside = self.bcx.ins().icmp_imm(
+        let inside = self.bcx.ins().icmp_imm_s(
             IntCC::UnsignedLessThanOrEqual,
             index,
             (entries.len() - 1) as i64,
