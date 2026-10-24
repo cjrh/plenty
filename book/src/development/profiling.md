@@ -385,7 +385,7 @@ roughly 10% between runs.
 
 `scripts/bench_pipeline_generators.py` measures the same filter/map/fold workload
 with range and generator sources, local fused consumption, explicit `.generator()`
-conversion, and a `std.iter` adapter chain. The compiler executable requests
+conversion. The compiler executable requests
 optimized native output, disables caches, checks equal results, and alternates
 execution order as above:
 
@@ -405,13 +405,15 @@ A quiet run on this host measured the following medians. Every execution returne
 | Direct fluent generator source | 0.044454 s |
 | Range pipeline converted with `.generator()` | 0.027202 s |
 | Generator-source pipeline converted with `.generator()` | 0.065896 s |
-| `std.iter` chain with the same generator source | 0.105389 s |
+| `std.iter` chain with the same generator source (removed module; see below) | 0.105389 s |
 
 Direct fluent syntax has the same cost as wrapping the source in `iter(...)`
 (0.997 times here), and costs 1.057 times the inline generator loop. Explicit
 conversion adds a resumable frame: the converted range pipeline costs 2.781 times
-local consumption. With the same generator source, the converted pipeline takes
-0.625 times the `std.iter` chain's runtime. Internal filter/map adapters are fused
+local consumption. With the same generator source, the converted pipeline took
+0.625 times the runtime of a nested `std.iter` adapter chain. That row was
+measured at commit `57982e0f`; `std.iter` has since been removed, and the script
+no longer runs it. Internal filter/map adapters are fused
 into one frame; resuming the source generator and the converted frame still has
 a cost. Keep local consumers fused when the stream does not need to escape.
 

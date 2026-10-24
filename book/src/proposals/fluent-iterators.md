@@ -1,19 +1,20 @@
 # Fluent iterator pipelines
 
-**Status: Serial core, pair callbacks, dictionary collection, generator fluent
-methods, explicit owned `.generator()` conversion, `chain` and `flat_map`
-implemented; the rest of composition, lending and parallel stages remain
-proposed.** Bounded native
+**Status: Stages 1 and 2 implemented: the serial core, pair callbacks,
+dictionary collection, generator fluent methods, explicit owned `.generator()`
+conversion, `chain`, `flat_map`, closure-literal splicing and comprehensions
+lowered through the plan. `std.iter` was removed rather than deprecated. The
+lending and parallel stages remain proposed.** Bounded native
 substitution of scalar leaf callbacks also covers named functions and immutable
 scalar captures; it addresses the original performance gap (issue #399).
 The [pipeline reference](../design/language/09-iteration/06-pipelines.md)
 lists the supported adapters, terminals, ownership rules and current limits.
 Current iteration is defined by
 [iteration and generators](../design/language/09-iteration/index.md),
-[`std.iter`](../design/stdlib/iter.md), [closures](../design/language/06-functions/03-closures.md)
+[closures](../design/language/06-functions/03-closures.md)
 and [ordered parallel mapping](../design/facilities/03-concurrency/parallel-map.md).
 Related backlog entries are B12 (iterator/view protocols, borrowed adapters),
-B49 (`std.iter`), B22 (broader parallel mapping) and B24 (automatic
+B49 (collections; its `std.iter` part was removed), B22 (broader parallel mapping) and B24 (automatic
 parallelization). B75 schedules this design. Code blocks on this
 page are proposed syntax unless they are labelled as current.
 
@@ -399,8 +400,7 @@ For serial pipeline machinery, `collect` and `try_collect` are the only
 terminals that allocate. The `try_` prefix means stopping at the first error,
 but the error source differs: `try_collect` consumes `Result` items, whereas
 `try_fold` and `try_for_each` consume ordinary items and call a fallible callback.
-This preserves the current [`std.iter.try_fold`](../design/stdlib/iter.md)
-contract; these callback terminals do not implicitly unwrap `Result` items.
+This preserves the contract of the former `std.iter.try_fold`; these callback terminals do not implicitly unwrap `Result` items.
 
 Early-exit terminals drop the remaining state when consuming an owned pipeline.
 Through `&mut Iter[T]`, they leave the unvisited remainder with the caller,
@@ -733,13 +733,20 @@ benefit and whether effect checks are sufficient.
 
 ## Migration
 
+**Status: complete for stage 2.** `std.iter` was removed outright instead of
+deprecated: it had no users outside the repository's tests, and there is no
+deprecation-warning mechanism. Its tests now exercise fluent generator
+pipelines and `std.error.map_error`. The tutorial lesson moved to
+[Transform a stream of values](../tutorial/10-functions/streams.md), after the
+borrowed-collection pipeline lesson. The items below record the original plan.
+
 - **`std.iter`.** Mark `map`, `filter`, `take`, `fold` and `try_fold`
   deprecated in a deliberate compatibility change after migration review.
   Fluent methods plus `.generator()` now cover their cross-function use cases;
   keep existing functions working until removal is separately approved. Internal uses are limited to
   `tests/test_std_collections.rs` and `tests/test_trap_locations.rs`.
 - **Tutorial.** Rewrite
-  [Transform a stream of values](../tutorial/07-modules/06-iterator-adapters.md)
+  Transform a stream of values (then in the modules chapter)
   around pipelines (implemented, including explicit returning conversion).
   A later organization pass can move it out of the modules chapter, since `iter` needs no
   import; it belongs after comprehensions and closures in the iteration
@@ -832,7 +839,9 @@ scope, with lending for helpers, ships the useful part now.
    nested closure, and closures held in locals, keep the call. Single-`for`
    comprehensions lower through the plan and produce the same operations as
    the equivalent `filter`/`map`/`collect` chain; multi-`for` comprehensions
-   and generator expressions keep their own lowering.
+   and generator expressions keep their own lowering. **Complete:** the
+   tutorial teaches pipelines, and `std.iter` was removed rather than
+   deprecated (see [Migration](#migration)).
 3. **Stage 3 — lending.** `&mut Iter[T]` parameters specialized per pipeline
    type, `next(p)`, resumable slot state for every adapter, store-back only for
    lent pipelines, and partial consumption followed by collection in the

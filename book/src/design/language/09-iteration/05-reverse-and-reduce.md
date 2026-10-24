@@ -16,7 +16,8 @@ alive until the loop scope exits. `continue` advances backward once, and
 item. Flat tuple unpacking and comprehensions work as in forward iteration.
 
 Use `reversed` as an input to [enumerate or zip](04-adapters.md), including
-borrowed inputs. Its own input must be a concrete list, string, byte literal,
+borrowed inputs, or as a [pipeline](06-pipelines.md) source:
+`iter(reversed(&values))`. Pipelines have no `reversed` method. Its own input must be a concrete list, string, byte literal,
 byte buffer, or range; it cannot reverse `enumerate`, `zip`, a generator,
 or a hash collection.
 It does not create a stored iterator or dispatch to a user iterator protocol.

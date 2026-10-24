@@ -14,6 +14,8 @@ also use [type parameters and constraints](../09-generics/index.md).
 - [Transform a cell with a generic method](generic-method-callbacks.md)
 - [Store stateful callbacks](explicit-state-callbacks.md)
 - [Store owned closures](callback-records.md)
+- [Reduce a borrowed collection with a pipeline](pipelines.md)
+- [Transform a stream of values](streams.md)
 - [Keep callbacks in tuples and lists](callback-collections.md)
 - [Name stored callbacks](named-callback-registry.md)
 - [Store different captured callbacks](boxed-callbacks.md)

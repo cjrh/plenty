@@ -55,7 +55,6 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         "std.collections",
         include_str!("../../stdlib/std/collections.plenty"),
     ),
-    ("std.iter", include_str!("../../stdlib/std/iter.plenty")),
     ("std.url", include_str!("../../stdlib/std/url.plenty")),
     ("std.csv", include_str!("../../stdlib/std/csv.plenty")),
     ("std.random", include_str!("../../stdlib/std/random.plenty")),

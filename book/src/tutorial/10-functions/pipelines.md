@@ -140,8 +140,7 @@ per item.
 
 Keep a plain loop for several statements or error propagation, and use a
 comprehension when building a list is the clearest form. Pipelines are local:
-return an owned collection or call `.generator()` on a pipeline with owned
-sources and owned captures when values must cross a function boundary.
-The borrowed examples above cannot be converted merely by mapping their items
-to owned values. See the [pipeline reference](../../design/language/09-iteration/06-pipelines.md)
+the next lesson applies them to generators and shows how to
+[return a stream](streams.md#return-a-stream) from a function. See the
+[pipeline reference](../../design/language/09-iteration/06-pipelines.md)
 for terminals and the current limits.

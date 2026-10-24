@@ -430,6 +430,7 @@ def main() -> Result[(), IoError]:
 | `a < b < c` | `a < b and b < c` |
 | `xs[1:3]`, `s[1:3]` | `xs.slice(1, 3)?`, `s.slice(1, 3)?` |
 | `lambda x: x + 1` | `def(x: i64) -> i64: x + 1` inside brackets |
+| `map(f, xs)`, `filter(p, xs)`, `reduce(f, xs, init)` | `iter(&xs).filter(p).map(f)`, `.fold(init, f)`; no import |
 | `d[k] = v` for a new key | `d.insert(k, v)?` |
 | `case x if x > 0:` | Test inside the arm |
 | `class B(A):` | Composition or a [protocol](../language/07-generics/protocols.md) |

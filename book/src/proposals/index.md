@@ -82,6 +82,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Fallible memory, parallel execution, and SIMD](memory-parallelism-and-simd.md) | [Fallible allocation](../design/language/08-errors/02-allocation-and-traps.md), [concurrency](../design/facilities/03-concurrency/index.md) | B13, B23, B24 |
 | [Standard library scope](standard-library-scope.md) | [Embedded library](../design/stdlib/index.md), including data formats, TLS, HTTP, SQLite, signals and testing | Remaining B38–B70 scope |
 | [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | [Named calls and fresh defaults](completed/named-arguments-and-fresh-defaults.md) under the narrower design | B36: splats and signature markers remain separate candidates |
+| [Fluent iterator pipelines](fluent-iterators.md) | [Serial and composed pipelines](../design/language/09-iteration/06-pipelines.md) with `.generator()` conversion; replaces the removed `std.iter` | B75 lending and `.par(&pool)` stages; relates to B12, B22, B24 |
 
 ## Not implemented
 
@@ -101,7 +102,6 @@ reference pages. Further extensions remain tracked in the backlog.
 | [User-defined ordering](user-type-ordering.md) — one three-way `__cmp__` hook | B37 |
 | [Timsort for stable, adaptive sorting](timsort.md) — fallible workspace, stability, and compatibility choices | B37 (issue #331) |
 | [User-defined dictionary keys and set members](user-type-hashing.md) — derived structural hashing and a `KeyType` bound | None yet |
-| [Fluent iterator pipelines](fluent-iterators.md) — `iter(...)` chains fused into one loop, with an explicit `.par(&pool)` boundary | None yet (relates to B12, B22, B24, B49) |
 | [Go-style scoped tasks](stackful-tasks.md), with [runtime choices](stackful-tasks/runtime.md) and [native spike evidence](stackful-tasks/evidence.md) — exploratory fixed-stack alternative; no lightweight scheduler adopted | B22 investigation; implementation uncommitted |
 
 ## Completed investigations

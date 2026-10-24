@@ -42,7 +42,6 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.http.typed`](http-typed.md) | Typed head parsing and writes, fixed/chunked/close-delimited bodies, and guarded connection recovery with concrete causes and progress | `FramingError[E]`, `Partial[E]` |
 | [`std.io`](io.md) | Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters | `StreamError`, `Partial`, `CopyError`, `CloseError` |
 | [`std.io.typed`](io-typed.md) | Byte stream protocols that carry a caller-chosen error type, buffering, adapters for `std.io` streams, and exact read, write, and copy helpers | `StepError[E]`, `Partial[E]`, `CopyFailure[R, W]` |
-| [`std.iter`](iter.md) | Allocation-free `map`, `filter`, `take`, `fold`, and `try_fold` over generators | None |
 | [`std.json`](json.md) | Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree | `JsonError` |
 | [`std.log`](log.md) | Leveled events with typed fields, delivered to caller-chosen sinks: logfmt lines, bounded memory, or a nonblocking channel | `LogError` |
 | [`std.math`](math.md) | Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants | `MathError` |

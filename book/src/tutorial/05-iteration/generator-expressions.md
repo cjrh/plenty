@@ -30,7 +30,8 @@ The outer source evaluates when the generator is created. Filters, elements,
 and inner `for` sources evaluate on demand. The generator owns its sources
 and copies or moves any enclosing local values it uses; copied captures are
 snapshots. Borrowed inputs are unsupported because a suspended frame cannot
-retain a reference into its caller. Use `copy(values)?` to preserve an owned list.
+retain a reference into its caller. Use `copy(values)?` to preserve an owned list,
+or consume a borrowing [pipeline](../10-functions/pipelines.md) locally instead.
 
 Parentheses can be omitted for a sole argument. With additional arguments,
 write `consume((n for n in source), other)`. Generator expressions follow the

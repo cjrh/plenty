@@ -34,3 +34,10 @@ protocols, or implement zip strictness. Pipeline enumeration also accepts the
 `start` keyword. [Reverse traversal](05-reverse-and-reduce.md)
 can supply either input. A user function or callable
 binding named `enumerate` or `zip` retains its normal call behavior.
+
+The free forms and methods yield the same items: `enumerate(&names, 1)` and
+`iter(&names).enumerate(1)` are interchangeable as a loop source or pipeline
+start. Use the method form to enumerate or zip partway
+through a chain, after a `filter` or `skip`, where it counts or pairs only the
+items that reach it. `reversed` is not a pipeline adapter: reverse the source
+instead, as in `iter(reversed(&values))` or `zip(reversed(&values), &values)`.

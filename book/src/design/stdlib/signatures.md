@@ -1230,18 +1230,6 @@ def write_all[E, W: Writer[E]](writer: &mut W, buffer: &Bytes, start: i64, stop:
 def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut W, scratch: &mut Bytes) -> Result[i64, CopyFailure[E, G]]
 ```
 
-## `std.iter`
-
-Allocation-free `map`, `filter`, `take`, `fold`, and `try_fold` over generators. [Reference](iter.md).
-
-```text
-def map[T, U, F: Callable[[T], U]](source: Generator[T], f: F) -> Generator[U]
-def filter[T, F: Callable[[&T], bool]](source: Generator[T], keep: F) -> Generator[T]
-def take[T](source: Generator[T], count: i64) -> Generator[T]
-def fold[T, A, F: Callable[[A, T], A]](source: Generator[T], initial: A, f: F) -> A
-def try_fold[T, A, E, F: Callable[[A, T], Result[A, E]]](source: Generator[T], initial: A, f: F) -> Result[A, E]
-```
-
 ## `std.json`
 
 Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree. Errors: `JsonError`. [Reference](json.md).
