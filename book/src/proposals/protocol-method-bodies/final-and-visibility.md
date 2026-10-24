@@ -1,8 +1,8 @@
 # Final methods and hidden hooks
 
 **Status: core design agreed; not implemented.** This refines the
-[feasibility sketch](../protocol-method-bodies.md) following the proposed
-`pub final def` spelling. [Short programs](examples.md) explore the resulting
+[feasibility sketch](../protocol-method-bodies.md) using `@final` and
+`@protocol.Name` method annotations. [Short programs](examples.md) explore the resulting
 programming model. Future prioritization remains in [B29](../../backlog.md).
 
 ## Separate implementation policy from call visibility
@@ -13,16 +13,18 @@ The agreed design has three implementation policies:
 | --- | --- |
 | `def operation(...): pass` | Supply an inherent method matching the signature and visibility. |
 | `def operation(...): <body>` | Supply an override matching the signature and visibility, or use the protocol body. |
-| `final def operation(...): <body>` | Do not declare an inherent method of that name; use the protocol body. |
+| `@final` above `def operation(...): <body>` | Do not declare an inherent method of that name; use the protocol body. |
 
 Visibility is independent: `pub` permits application calls through the bound;
 a non-public hook is available to authorized protocol code. A final method
-requires a body; `final` with only `pass` is contradictory and should be rejected.
+requires a body; `@final` on a `pass` body is contradictory and is rejected.
 An explicit unit-returning body can represent an implemented no-op.
 
-`final` is a reasonable working keyword. It communicates that an implementation
-cannot be replaced. `fixed` would emphasize ownership of the algorithm, but
-does not resolve any additional semantic issue. Choose semantics first.
+`@final` is written on the line above the method, like Python's
+`typing.final`. `final` communicates that an implementation cannot be
+replaced; `fixed` would emphasize ownership of the algorithm, but resolves no
+additional semantic issue. [Method annotations](#method-annotations) defines
+the `@` syntax.
 
 ## Enforce final at the structural boundary
 
@@ -95,7 +97,8 @@ pub protocol DocumentStorage:
     def write(self: &mut DocumentStorage, document: &str) -> Result[(), IoError]:
         pass
 
-    pub final def save(self: &mut DocumentStorage, document: &str) -> Result[(), IoError]:
+    @final
+    pub def save(self: &mut DocumentStorage, document: &str) -> Result[(), IoError]:
         validate(document)?
         self.write(document)?
         record_success()
@@ -121,18 +124,26 @@ protocol with a private `write` requirement and a public forwarding method,
 then use matching to obtain the same access. This would defeat existing
 module privacy.
 
-The agreed class-side declaration is:
+The agreed class-side declaration annotates the hook itself:
 
 ```text
 pub class FileStorage:
-    allow DocumentStorage.write
-
+    @protocol.DocumentStorage
     def write(...):
         ...
 ```
 
 This grants methods defined inside the named protocol access to this specific
-hook. It grants no access to other private methods or fields. Any method defined
+hook. It grants no access to other private methods or fields. A hook used by
+two protocols carries two annotations, one per line, in any order.
+
+The compiler checks the annotation where the class is defined. The named
+protocol must declare a non-public requirement with the method's name, and the
+method must match that requirement's signature and visibility exactly;
+otherwise the annotation is an error at the method. This reports a mismatched
+hook at its declaration instead of at a later bound. The annotation grants
+access only: it does not declare conformance, and classes without private hooks
+still match structurally with no annotation. Any method defined
 inside `DocumentStorage`, including a later addition, may call `write`.
 Unrelated protocols with identical signatures receive no permission.
 
@@ -145,12 +156,37 @@ that ordinary access remains available independently of the grant.
 
 Broad grants to any protocol, module-wide switches, and a grant to all of one
 protocol's requirements were considered and not selected. Member-specific
-permission makes expansion deliberate. The class knows the protocol's identity;
-putting the contract in a module independent of concrete backends avoids a cycle
-in the usual library/backend/application arrangement.
+permission makes expansion deliberate. An earlier class-level
+`allow DocumentStorage.write` declaration was replaced by the method annotation,
+which keeps the grant beside the hook and needs no repeated method name.
+
+The grant is the one place a class must import a protocol: its module imports
+the protocol's module. Import cycles are compile errors that name the dependency
+chain, and imports run no code, so Plenty has no partially initialized modules.
+A cycle would need the protocol's module to import the class's module. Protocol
+bodies are checked against the protocol's own contract, so they never name a
+concrete class. Keep the contract in a module independent of concrete backends;
+anything that names a backend, such as a default factory, belongs in a third
+module. Public hooks still need no import.
 
 No access scheme prevents an implementation from exposing a separate operation
 or performing its own I/O; the guarantee concerns the declared interface.
+
+## Method annotations
+
+`@` introduces a compiler annotation on the line above a `def`. The set is
+closed: `@final` on protocol methods and `@protocol.Name` on class methods,
+where `Name` resolves as a protocol in the class's module (for example
+`@protocol.DocumentStorage` or `@protocol.library.DocumentStorage`). Any other
+annotation is an error. Annotations change no signature, body or call; they
+state facts the compiler checks, so their order does not matter.
+
+`final` and `protocol` are reserved words, so annotation names cannot collide
+with user declarations. User-defined decorators are deferred and may never be
+added: generic wrappers need variadic generics (B36), Plenty runs no code at
+import, and a wrapper closure could allocate and change the signature. A later
+decorator design must keep the wrapped signature unchanged and must not alter
+the meaning of these annotations.
 
 ## Check provided bodies against the contract
 
@@ -199,8 +235,8 @@ remain outside this design; qualification selects a protocol without global
 discovery. Rules for underdetermined type arguments and receiver aliases need
 precise specification and regression cases.
 
-**Access and collision edge cases:** specify validation of an `allow` target,
-access in closures lexically nested inside protocol methods, and fields sharing
+**Access and collision edge cases:** specify access in closures lexically
+nested inside protocol methods, and fields sharing
 a provided method name. These should be resolved explicitly rather than left to
 accidental behavior of generated functions.
 
@@ -209,5 +245,5 @@ contracts still define partial failure, side effects, and reentrancy. Persistent
 accounting/state must live in the object or a wrapper; a protocol supplies no
 new storage.
 
-`final` remains the working keyword. The semantic choice is settled; its final
-spelling and diagnostic wording can be decided without reopening dispatch.
+The `@final` and `@protocol.Name` spellings are agreed. Diagnostic wording can
+be decided without reopening dispatch.
