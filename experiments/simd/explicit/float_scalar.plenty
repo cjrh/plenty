@@ -1,0 +1,5 @@
+import float_rounds
+
+def main() -> Result[(), IoError]:
+    print(float_rounds.scalar_rounds(10000000, 0.0f32))?
+    Ok(())

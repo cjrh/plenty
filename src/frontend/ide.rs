@@ -528,6 +528,11 @@ pub(super) fn declare_program(resolved: &modules::Resolved) {
                 "",
             );
         }
+        for f in &e.methods {
+            let symbol = crate::record::method(&e.name, &f.name);
+            let name = format!("{}.{}", e.name, f.name);
+            declare_function(&global(&symbol), SymbolKind::Method, &name, f);
+        }
     }
     for p in &resolved.protocols {
         declare(

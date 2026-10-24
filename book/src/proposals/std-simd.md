@@ -1,11 +1,14 @@
 # Portable SIMD without everyday SIMD bookkeeping
 
-> **Status: Not implemented.** Proposal for B23, researched against Plenty
+> **Status: Initial slices implemented; broader design remains proposed.**
+> The [explicit module](../design/stdlib/simd.md) now supplies concrete portable
+> lanes, masks, scalar fallback and bounded native lowering. See its
+> [implementation evidence](std-simd/implementation.md) for API differences and
+> representation limits. This proposal for B23 was researched against Plenty
 > `7654ecca` on 2026-10-23. The [current pipeline contract](../design/language/09-iteration/06-pipelines.md)
-> implements serial fusion and bounded scalar callback substitution, not SIMD.
-> This proposal adds no `std.simd` module. The first implemented automatic SIMD
+> implements serial fusion and bounded scalar callback substitution. The first implemented automatic SIMD
 > slice is [integer-column filter/count](columnar-list/simd-counts.md); the broader
-> API and recognition patterns below remain proposals.
+> API extensions and recognition patterns below remain proposals.
 > This refines the SIMD portion of the earlier
 > [memory and parallelism proposal](memory-parallelism-and-simd.md).
 

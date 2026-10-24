@@ -92,6 +92,7 @@ mod metadata;
 mod mutex;
 mod numeric;
 mod output;
+mod portable_simd;
 mod references;
 mod relax;
 pub(crate) use output::describe_error;
@@ -1736,7 +1737,19 @@ fn build_user_function(
             locals.push((var, ty.clone()));
         }
 
-        let addressed = addressed_locals(body, &locals);
+        let portable_simd = portable_simd::State::new(
+            body,
+            &locals,
+            decl.sig.inputs.len(),
+            &mut bcx,
+            module.optimizes(),
+        );
+        let mut addressed = addressed_locals(body, &locals);
+        for (index, addressed) in addressed.iter_mut().enumerate() {
+            if portable_simd.promoted(index as u8) {
+                *addressed = false;
+            }
+        }
         let local_frame = addressed.contains(&true).then(|| {
             let mut size = 0;
             let offsets: Vec<Option<i32>> = locals
@@ -1800,6 +1813,7 @@ fn build_user_function(
             collection_scratch: None,
             fresh_load: None,
             scalar_captures,
+            portable_simd,
             slot_copies: Vec::new(),
             empty_slot: Some((empty_word, empty_double)),
             exits: Some(Default::default()),
@@ -1815,7 +1829,14 @@ fn build_user_function(
                 lower.write_local(i as u8, value);
             }
         }
-        for op in body {
+        let simd = portable_simd::operation(name, decl, lower.module.optimizes());
+        if let Some(simd) = &simd {
+            let args = (0..decl.sig.inputs.len())
+                .map(|index| lower.read_local(index as u8))
+                .collect::<Vec<_>>();
+            lower.lower_portable_simd(simd, &args);
+        }
+        for op in if simd.is_some() { &[] } else { body } {
             if lower.terminated {
                 // A `TailCall` already terminated this block; any
                 // trailing op is dead. `op::compile` only emits
@@ -1836,6 +1857,7 @@ fn build_user_function(
             .finish_exits()
             .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         lower.seal_trap_blocks();
+        lower.finish_portable_simd();
         bcx.finalize(crate::codegen::FRONTEND);
     }
     out.define(decl.id, func, module);
@@ -1916,6 +1938,7 @@ fn build_main(
             collection_scratch: None,
             fresh_load: None,
             scalar_captures: Default::default(),
+            portable_simd: Default::default(),
             slot_copies: Vec::new(),
             empty_slot: None,
             exits: None,
@@ -2089,6 +2112,7 @@ struct Lowerer<'a, 'b> {
     /// The copy the op just lowered with a `LoadLocal`, if it was counted.
     fresh_load: Option<FreshLoad>,
     scalar_captures: scalar_captures::Captures,
+    portable_simd: portable_simd::State,
     /// Counted one-word copies pushed since the last op that could run code
     /// or write a slot, with the `plenty_retain` call that counted each, and
     /// string literals, which are immortal and need none. Their sources hold
@@ -2213,6 +2237,9 @@ impl Lowerer<'_, '_> {
         frame.offsets[i as usize].map(|offset| (frame.base, offset as i64))
     }
     fn read_local(&mut self, i: u8) -> cranelift_codegen::ir::Value {
+        if let Some(value) = self.read_simd_local(i) {
+            return value;
+        }
         let (var, ty) = self.locals[i as usize].clone();
         let value = if let Some((frame, offset)) = self.local_address(i) {
             let value = self.bcx.ins().load(
@@ -2229,6 +2256,9 @@ impl Lowerer<'_, '_> {
         value
     }
     fn write_local(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
+        if self.write_simd_local(i, value) {
+            return;
+        }
         self.save_capture_local(i, value);
         let (var, ty) = self.locals[i as usize].clone();
         if let Some((frame, offset)) = self.local_address(i) {
@@ -2305,6 +2335,14 @@ impl Lowerer<'_, '_> {
             // after it keeps this frame.
             Op::ForwardsReferences => {}
             Op::BorrowLocal(i, mutable) => {
+                if let Some(reference) = self.borrow_simd_local(*i) {
+                    debug_assert!(!mutable);
+                    self.stack.push((
+                        reference,
+                        Ty::Ref(Arc::new(self.locals[*i as usize].1.clone()), false),
+                    ));
+                    return Ok(());
+                }
                 let (frame, offset) = self.local_address(*i).expect("addressable local");
                 let ptr = self.bcx.ins().iadd_imm_s(frame, offset);
                 let ptr = self.bcx.ins().uextend(types::I128, ptr);
@@ -3425,7 +3463,12 @@ impl Lowerer<'_, '_> {
         captures: &[cranelift_codegen::ir::Value],
     ) -> Result<()> {
         let caller_standard = self.in_standard_library();
+        let optimize = self.module.optimizes();
         let (decl, mut args) = self.pop_call_args(name)?;
+        if let Some(simd) = portable_simd::operation(name, decl, optimize) {
+            self.lower_portable_simd(&simd, &args);
+            return Ok(());
+        }
         // User code names itself as the caller of std. Std restores the
         // enclosing user site after a callee that may change it, such as one
         // that tail-calls through user code before it returns.

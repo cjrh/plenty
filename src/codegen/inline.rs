@@ -177,6 +177,9 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn snapshot_inline(&mut self, value: NativeValue, ty: &Ty) -> NativeValue {
+        if self.portable_simd.fresh(value) {
+            return value;
+        }
         if !ty.has_inline_storage() {
             return value;
         }

@@ -1,0 +1,5 @@
+import rounds
+
+def main() -> Result[(), IoError]:
+    print(rounds.vector_rounds(10000000, 0u32))?
+    Ok(())

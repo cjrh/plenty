@@ -22,6 +22,7 @@ enum ModuleSource {
 /// the unknown-module diagnostic lists them.
 const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.math", include_str!("../../stdlib/std/math.plenty")),
+    ("std.simd", include_str!("../../stdlib/std/simd.plenty")),
     ("std.fs", include_str!("../../stdlib/std/fs.plenty")),
     ("std.path", include_str!("../../stdlib/std/path.plenty")),
     ("std.deque", include_str!("../../stdlib/std/deque.plenty")),

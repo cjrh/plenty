@@ -1757,6 +1757,109 @@ def listen() -> Result[Signals, SignalError]
 def cancel_on(signals: Signals, stop: CancellationToken) -> Result[Option[Signal], WaitError]
 ```
 
+## `std.simd`
+
+Portable fixed-lane values, masks, checked and wrapping arithmetic, selection, and bounded list loads/stores. [Reference](simd.md).
+
+```text
+enum i32x4
+    Lanes(i32, i32, i32, i32)
+    def lane(self, index: i64) -> Option[i32]
+    def to_tuple(self) -> (i32, i32, i32, i32)
+    def add(self, other: &i32x4) -> i32x4
+    def sub(self, other: &i32x4) -> i32x4
+    def mul(self, other: &i32x4) -> i32x4
+    def wrapping_add(self, other: &i32x4) -> i32x4
+    def wrapping_sub(self, other: &i32x4) -> i32x4
+    def wrapping_mul(self, other: &i32x4) -> i32x4
+    def simd_eq(self, other: &i32x4) -> mask32x4
+    def simd_ne(self, other: &i32x4) -> mask32x4
+    def simd_lt(self, other: &i32x4) -> mask32x4
+    def simd_le(self, other: &i32x4) -> mask32x4
+    def simd_gt(self, other: &i32x4) -> mask32x4
+    def simd_ge(self, other: &i32x4) -> mask32x4
+    def wrapping_sum(self) -> i32
+    def store(self, values: &mut list[i32], offset: i64) -> bool
+def splat_i32x4(value: i32) -> i32x4
+def load_i32x4(values: &list[i32], offset: i64 = 0) -> Option[i32x4]
+enum u32x4
+    Lanes(u32, u32, u32, u32)
+    def lane(self, index: i64) -> Option[u32]
+    def to_tuple(self) -> (u32, u32, u32, u32)
+    def add(self, other: &u32x4) -> u32x4
+    def sub(self, other: &u32x4) -> u32x4
+    def mul(self, other: &u32x4) -> u32x4
+    def wrapping_add(self, other: &u32x4) -> u32x4
+    def wrapping_sub(self, other: &u32x4) -> u32x4
+    def wrapping_mul(self, other: &u32x4) -> u32x4
+    def simd_eq(self, other: &u32x4) -> mask32x4
+    def simd_ne(self, other: &u32x4) -> mask32x4
+    def simd_lt(self, other: &u32x4) -> mask32x4
+    def simd_le(self, other: &u32x4) -> mask32x4
+    def simd_gt(self, other: &u32x4) -> mask32x4
+    def simd_ge(self, other: &u32x4) -> mask32x4
+    def wrapping_sum(self) -> u32
+    def store(self, values: &mut list[u32], offset: i64) -> bool
+def splat_u32x4(value: u32) -> u32x4
+def load_u32x4(values: &list[u32], offset: i64 = 0) -> Option[u32x4]
+enum f32x4
+    Lanes(f32, f32, f32, f32)
+    def lane(self, index: i64) -> Option[f32]
+    def to_tuple(self) -> (f32, f32, f32, f32)
+    def add(self, other: &f32x4) -> f32x4
+    def sub(self, other: &f32x4) -> f32x4
+    def mul(self, other: &f32x4) -> f32x4
+    def div(self, other: &f32x4) -> f32x4
+    def simd_eq(self, other: &f32x4) -> mask32x4
+    def simd_ne(self, other: &f32x4) -> mask32x4
+    def simd_lt(self, other: &f32x4) -> mask32x4
+    def simd_le(self, other: &f32x4) -> mask32x4
+    def simd_gt(self, other: &f32x4) -> mask32x4
+    def simd_ge(self, other: &f32x4) -> mask32x4
+    def sum_ordered(self, initial: f32) -> f32
+    def store(self, values: &mut list[f32], offset: i64) -> bool
+def splat_f32x4(value: f32) -> f32x4
+def load_f32x4(values: &list[f32], offset: i64 = 0) -> Option[f32x4]
+enum f64x2
+    Lanes(f64, f64)
+    def lane(self, index: i64) -> Option[f64]
+    def to_tuple(self) -> (f64, f64)
+    def add(self, other: &f64x2) -> f64x2
+    def sub(self, other: &f64x2) -> f64x2
+    def mul(self, other: &f64x2) -> f64x2
+    def div(self, other: &f64x2) -> f64x2
+    def simd_eq(self, other: &f64x2) -> mask64x2
+    def simd_ne(self, other: &f64x2) -> mask64x2
+    def simd_lt(self, other: &f64x2) -> mask64x2
+    def simd_le(self, other: &f64x2) -> mask64x2
+    def simd_gt(self, other: &f64x2) -> mask64x2
+    def simd_ge(self, other: &f64x2) -> mask64x2
+    def sum_ordered(self, initial: f64) -> f64
+    def store(self, values: &mut list[f64], offset: i64) -> bool
+def splat_f64x2(value: f64) -> f64x2
+def load_f64x2(values: &list[f64], offset: i64 = 0) -> Option[f64x2]
+enum mask32x4
+    Lanes(bool, bool, bool, bool)
+    def any(self) -> bool
+    def all(self) -> bool
+    def count(self) -> i64
+    def select[T](self, yes: &T, no: &T) -> T
+    def invert(self) -> mask32x4
+    def and_mask(self, other: &mask32x4) -> mask32x4
+    def or_mask(self, other: &mask32x4) -> mask32x4
+    def xor_mask(self, other: &mask32x4) -> mask32x4
+enum mask64x2
+    Lanes(bool, bool)
+    def any(self) -> bool
+    def all(self) -> bool
+    def count(self) -> i64
+    def select[T](self, yes: &T, no: &T) -> T
+    def invert(self) -> mask64x2
+    def and_mask(self, other: &mask64x2) -> mask64x2
+    def or_mask(self, other: &mask64x2) -> mask64x2
+    def xor_mask(self, other: &mask64x2) -> mask64x2
+```
+
 ## `std.sync`
 
 Shared cooperative cancellation tokens. Errors: `AllocError`. [Reference](sync.md).

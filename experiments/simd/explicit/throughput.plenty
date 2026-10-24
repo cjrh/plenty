@@ -1,0 +1,67 @@
+import std.simd as simd
+import std.time as time
+from std.test import check
+
+pub def vector_rounds(rounds: i64, seed: f32) -> f32:
+    mut v0 = simd.f32x4.Lanes(seed + 0.0f32, seed + 1.0f32, seed + 2.0f32, seed + 3.0f32)
+    mut v1 = simd.f32x4.Lanes(seed + 4.0f32, seed + 5.0f32, seed + 6.0f32, seed + 7.0f32)
+    mut v2 = simd.f32x4.Lanes(seed + 8.0f32, seed + 9.0f32, seed + 10.0f32, seed + 11.0f32)
+    mut v3 = simd.f32x4.Lanes(seed + 12.0f32, seed + 13.0f32, seed + 14.0f32, seed + 15.0f32)
+    factor = simd.splat_f32x4(1.000001f32)
+    increment = simd.splat_f32x4(0.01f32)
+    for index in range(rounds):
+        v0 = v0.div(factor).add(increment)
+        v1 = v1.div(factor).add(increment)
+        v2 = v2.div(factor).add(increment)
+        v3 = v3.div(factor).add(increment)
+    v3.sum_ordered(v2.sum_ordered(v1.sum_ordered(v0.sum_ordered(0.0f32))))
+
+pub def scalar_rounds(rounds: i64, seed: f32) -> f32:
+    mut v0 = seed + 0.0f32
+    mut v1 = seed + 1.0f32
+    mut v2 = seed + 2.0f32
+    mut v3 = seed + 3.0f32
+    mut v4 = seed + 4.0f32
+    mut v5 = seed + 5.0f32
+    mut v6 = seed + 6.0f32
+    mut v7 = seed + 7.0f32
+    mut v8 = seed + 8.0f32
+    mut v9 = seed + 9.0f32
+    mut v10 = seed + 10.0f32
+    mut v11 = seed + 11.0f32
+    mut v12 = seed + 12.0f32
+    mut v13 = seed + 13.0f32
+    mut v14 = seed + 14.0f32
+    mut v15 = seed + 15.0f32
+    for index in range(rounds):
+        v0 = v0 / 1.000001f32 + 0.01f32
+        v1 = v1 / 1.000001f32 + 0.01f32
+        v2 = v2 / 1.000001f32 + 0.01f32
+        v3 = v3 / 1.000001f32 + 0.01f32
+        v4 = v4 / 1.000001f32 + 0.01f32
+        v5 = v5 / 1.000001f32 + 0.01f32
+        v6 = v6 / 1.000001f32 + 0.01f32
+        v7 = v7 / 1.000001f32 + 0.01f32
+        v8 = v8 / 1.000001f32 + 0.01f32
+        v9 = v9 / 1.000001f32 + 0.01f32
+        v10 = v10 / 1.000001f32 + 0.01f32
+        v11 = v11 / 1.000001f32 + 0.01f32
+        v12 = v12 / 1.000001f32 + 0.01f32
+        v13 = v13 / 1.000001f32 + 0.01f32
+        v14 = v14 / 1.000001f32 + 0.01f32
+        v15 = v15 / 1.000001f32 + 0.01f32
+    ((((((((((((((((0.0f32 + v0) + v1) + v2) + v3) + v4) + v5) + v6) + v7) + v8) + v9) + v10) + v11) + v12) + v13) + v14) + v15)
+
+def main() -> Result[(), IoError | RangeError]:
+    for sample in range(7):
+        rounds = 1000000
+        seed = f32(sample)
+        start = time.monotonic_now()
+        scalar = scalar_rounds(rounds, seed)
+        scalar_ns = time.monotonic_now().duration_since(start)?.as_nanoseconds()
+        before = time.monotonic_now()
+        vector = vector_rounds(rounds, seed)
+        vector_ns = time.monotonic_now().duration_since(before)?.as_nanoseconds()
+        check(scalar == vector, "checksums agree").unwrap()
+        print(sample, scalar_ns, vector_ns, scalar)?
+    Ok(())

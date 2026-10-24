@@ -430,6 +430,8 @@ mod test_std_report_sums;
 mod test_std_secrets;
 #[path = "test_std_signal.rs"]
 mod test_std_signal;
+#[path = "test_std_simd.rs"]
+mod test_std_simd;
 #[path = "test_std_sqlite.rs"]
 mod test_std_sqlite;
 #[path = "test_std_sync_mutex.rs"]
