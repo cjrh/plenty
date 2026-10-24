@@ -58,8 +58,8 @@ chains. Fewer instructions alone are not a speedup guarantee.
 Instructions per iteration for the runtime-factor case are approximately
 13/14/8 for four lanes and 21/22/10 for eight lanes (scalar/baseline/SSE4.1).
 All variants check identical modular results. Reproduction sources, raw samples,
-counter output and load context live in the
-[experiment directory](../../../../experiments/simd/explicit/README.md).
+counter output and load context live in the repository's
+`experiments/simd/explicit/` directory; start with its `README.md`.
 
 ## The original exit-shape spill and its fix
 
