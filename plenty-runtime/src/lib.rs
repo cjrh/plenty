@@ -12,6 +12,7 @@
 mod accounting;
 mod aggregates;
 mod channels;
+mod clist_layout;
 mod closures;
 mod collection_opcodes;
 mod control;

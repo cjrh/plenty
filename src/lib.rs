@@ -50,6 +50,8 @@ mod bytes;
 pub mod cache;
 mod channel;
 mod clist;
+#[path = "../plenty-runtime/src/clist_layout.rs"]
+mod clist_layout;
 mod closure;
 mod codegen;
 mod collection;

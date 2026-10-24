@@ -70,6 +70,7 @@ use crate::lexer;
 mod atomic;
 mod casts;
 mod channels;
+mod clists;
 mod closures;
 mod collections;
 mod control;
@@ -990,6 +991,7 @@ struct Runtime {
     /// of range` with the site's position to stderr and `exit(1)`s. Called
     /// from the range-check branch of a bare numeric cast.
     trap_cast_range: FuncId,
+    trap_clist_index: FuncId,
     /// `plenty_readline() -> *const u8` — read one newline-terminated
     /// line from stdin, strip its newline, validate UTF-8, and return an owned
     /// counted string. NULL is internal EOF, never a language string.
@@ -1345,6 +1347,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             module.declare_function("plenty_trap_unwrap", Linkage::Import, &sig)?
         },
         trap_cast_range: one_arg(module, "plenty_trap_cast_range", PTR_TY)?,
+        trap_clist_index: one_arg(module, "plenty_trap_clist_index", PTR_TY)?,
         readline: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;

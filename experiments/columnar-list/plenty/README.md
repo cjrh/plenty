@@ -6,6 +6,13 @@ and performance without adding production `clist` syntax or a compiler intrinsic
 The generated `ClistParticle` owns one private `list[T]` per field. These are
 contiguous **16-byte runtime slots**, not tightly packed primitive arrays.
 
+The later compiler-supported implementation can be measured with
+`bench.py --native-clist --skip-generated`. `count_access.py BEFORE AFTER --out DIR`
+compares user-mode hardware instruction counts for its indexed and row-copy
+paths, with a construction-only control. See the
+[direct-access report](../../../book/src/proposals/columnar-list/indexed-access.md)
+for commands, evidence and measurement limits.
+
 Accepted schema: exactly one public nongeneric class, with public `bool`,
 `i8/i16/i32/i64`, `u8/u16/u32/u64`, `f32`, or `f64` fields. All methods,
 destructors, custom constructors, reference/owned/nested fields, and empty

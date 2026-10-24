@@ -78,10 +78,14 @@ and can temporarily hold both old and new allocations.
 
 Column loops load the pointer and length before iteration and issue native
 scalar loads inside the loop. Checked arithmetic and floating-point rules are
-unchanged. Indexed field access and row copying currently use runtime helpers;
-whole-row workloads can be much slower than ordinary lists. The current helper
-overhead is tracked in issue #432; the [measurements](../../../proposals/columnar-list/native-implementation.md)
-include indexed and reconstructed whole-row comparisons. The layout makes future
+unchanged. Indexed field reads and writes use checked native-width loads and
+stores. `copy_row` checks its index once, then gathers the known fields directly
+into fresh ordinary row storage without runtime schema dispatch. Each access
+observes the current owner, so growth and mutation between accesses are safe.
+Whole-row workloads can still cost more than ordinary lists: gathering separated
+fields and moving the reconstructed object have costs of their own. The
+[access measurements](../../../proposals/columnar-list/indexed-access.md)
+compare these paths with the initial implementation. The layout makes future
 SIMD and parallel scans possible, but choosing `clist` does not automatically
 vectorize or parallelize a calculation.
 

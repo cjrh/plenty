@@ -803,6 +803,12 @@ impl Lowerer<'_, '_> {
             self.stack.push((value, ty.clone()));
             return Ok(());
         }
+        if matches!(
+            op,
+            ClistOp::Get(..) | ClistOp::Set(..) | ClistOp::CopyRow(_)
+        ) {
+            return self.lower_clist_access(op);
+        }
         let (inputs, output) = op.signature();
         let mut args = Vec::new();
         for ty in inputs.iter().rev() {
@@ -810,19 +816,10 @@ impl Lowerer<'_, '_> {
             args.push(self.pack(value, ty));
         }
         args.reverse();
-        match op {
-            ClistOp::Get(_, field) | ClistOp::Set(_, field) | ClistOp::Column(_, field) => {
-                args.push(self.bcx.ins().iconst(types::I64, *field as i64));
-            }
-            ClistOp::CopyRow(_) => args.push(self.inline_storage(output.inline_bytes())),
-            _ => {}
+        if let ClistOp::Column(_, field) = op {
+            args.push(self.bcx.ins().iconst(types::I64, *field as i64));
         }
-        let site = if op.traps() {
-            Some(self.trap_site()?)
-        } else {
-            None
-        };
-        let result = self.collection_call_at(op.opcode(), &args, Some(op.owner()), site)?;
+        let result = self.collection_call(op.opcode(), &args, Some(op.owner()))?;
         let result = self.unpack(result, &output);
         let result = self.snapshot_inline(result, &output);
         // Row inputs have no managed fields or destructor. On failed append,
