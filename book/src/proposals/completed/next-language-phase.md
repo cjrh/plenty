@@ -1,26 +1,29 @@
 # Plenty's next language phase
 
-> **Status: Partly implemented.** This design review consolidated the
+> **Status: Investigation complete.** This design review consolidated the
 > entry-point and module investigation and three research proposals against
-> baseline `b690afe`. Nine of its eleven recommendations shipped at least in
-> part, several differently. The text below the outcome table describes that
-> baseline and its recommendations, not the current language.
+> baseline `b690afe`. The review is complete: ten of its eleven recommendations
+> shipped at least in part, several differently, and the one that did not,
+> allocators, is B13. Every remaining extension in the table below has a backlog
+> entry. Outcomes were checked against the reference at `161e1c63` on
+> 2026-10-24. The text below the outcome table describes the baseline and its
+> recommendations, not the current language.
 
 ## Outcome
 
 | Topic | Outcome | Reference or backlog |
 | --- | --- | --- |
-| Entry point | Implemented; `main` also returns `Result[(), E]` or `Result[i32, E]` | [Entry point](../design/language/02-source/entrypoint.md) |
-| Modules and visibility | Implemented | [Modules](../design/language/02-source/modules.md), [visibility](../design/language/02-source/visibility.md); B17 |
-| C interoperation | Implemented: `.plentyi` interfaces, adapters, exports, runtime loading | [Interop](../design/facilities/04-interop/index.md); B27, B28 |
-| Context managers | Implemented, with `with &mut existing` | [Resource scopes](../design/language/08-errors/03-resource-scopes.md) |
-| Generics | Implemented; bodies are checked per instance, not against bounds | [Generics](../design/language/07-generics/index.md); B29 |
-| Allocation | Implemented: allocating operations return `Result`. Class, tuple, enum, generator, and range values are inline and cannot fail | [Allocation and traps](../design/language/08-errors/02-allocation-and-traps.md) |
+| Entry point | Implemented; `main` also returns `Result[(), E]` or `Result[i32, E]` | [Entry point](../../design/language/02-source/entrypoint.md) |
+| Modules and visibility | Implemented | [Modules](../../design/language/02-source/modules.md), [visibility](../../design/language/02-source/visibility.md); B17 |
+| C interoperation | Implemented: `.plentyi` interfaces, adapters, exports, runtime loading | [Interop](../../design/facilities/04-interop/index.md); B27, B28 |
+| Context managers | Implemented, with `with &mut existing` | [Resource scopes](../../design/language/08-errors/03-resource-scopes.md) |
+| Generics | Implemented; bodies are checked per instance, not against bounds | [Generics](../../design/language/07-generics/index.md); B29 |
+| Allocation | Implemented: allocating operations return `Result`. Class, tuple, enum, generator, and range values are inline and construct without allocation; a fallible class initializer returns `Result` | [Allocation and traps](../../design/language/08-errors/02-allocation-and-traps.md) |
 | Allocators | Not implemented; objects only record an internal allocator | B13 |
-| Error propagation | Implemented, including anonymous-sum widening; `Failure` erasure remains a deliberate last resort | [Error composition](completed/error-composition.md), [sums and propagation](../design/language/08-errors/01-sums-and-propagation.md); B14/B71 |
-| Parallelism | Implemented | [Concurrency](../design/facilities/03-concurrency/index.md); B24 |
-| SIMD | Not implemented | B23 |
-| Runnable lessons | Partly: Markdown fences are executed; standalone lesson sources are not | B21 |
+| Error propagation | Implemented, including anonymous-sum widening; `Failure` erasure remains a deliberate last resort | [Error composition](error-composition.md), [sums and propagation](../../design/language/08-errors/01-sums-and-propagation.md); B14/B71 |
+| Parallelism | Implemented: scoped threads, bounded channels, ordered `pool.map` and fixed-tree reduction; automatic parallelization deferred | [Concurrency](../../design/facilities/03-concurrency/index.md); B24 |
+| SIMD | Partly: optimized builds vectorize one constant-comparison `filter` and `count()` on `i32`/`u32` `clist` columns; portable `std.simd` remains a [proposal](../std-simd.md) | [Automatic SIMD counts](../../design/facilities/01-builtins/clists.md#automatic-simd-counts); B23 |
+| Runnable lessons | Implemented as executable Markdown; literate lesson sources not adopted | [Runnable documentation](../../development/workflow.md#runnable-documentation), [decision](entrypoints-modules-and-tutorials.md) |
 
 ## Recommendations at the baseline
 
@@ -111,7 +114,7 @@ and measure generated-code growth. This costs some compile time, but remains a
 tractable first design without specialization, blanket implementations, or a large
 trait-resolution engine.
 
-The [protocols, generics, and context managers proposal](completed/protocols-generics-and-context-managers.md)
+The [protocols, generics, and context managers proposal](protocols-generics-and-context-managers.md)
 contains the proposed matching and specialization rules.
 
 ## Context managers and `?`
@@ -179,7 +182,7 @@ this does not require reviving the JIT. Initially retain loaded libraries for th
 process lifetime, and defer retained or foreign-thread callbacks until their
 ownership and synchronization rules exist.
 
-The [FFI and dynamic libraries proposal](ffi-and-dynamic-libraries.md) documents
+The [FFI and dynamic libraries proposal](../ffi-and-dynamic-libraries.md) documents
 the contract fields, current backend assumptions, and staged delivery plan.
 
 ## Recoverable allocation is an architectural commitment
@@ -227,7 +230,7 @@ make predictable service-level refusal practical, although operating-system
 overcommit means no language can guarantee recovery from every physical-memory
 exhaustion event.
 
-The [memory, parallelism, and SIMD proposal](memory-parallelism-and-simd.md) gives
+The [memory, parallelism, and SIMD proposal](../memory-parallelism-and-simd.md) gives
 the allocation audit, failure guarantees, allocator design, and sources.
 
 ## Parallelism and SIMD
@@ -287,7 +290,7 @@ references are in the [tutorial workflow proposal](entrypoints-modules-and-tutor
 ## Work tracking
 
 The original cross-feature implementation sequence has been retired. The
-[backlog](../backlog.md) is the single maintained list of remaining work and
-proposed order; the [implementation status](../design/toolchain/02-architecture/support.md)
+[backlog](../../backlog.md) is the single maintained list of remaining work and
+proposed order; the [implementation status](../../design/toolchain/02-architecture/support.md)
 records the result. The sections above preserve the design reasoning and open
 questions from this review, not a current task queue.
