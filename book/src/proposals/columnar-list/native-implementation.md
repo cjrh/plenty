@@ -5,6 +5,10 @@ the bounded primitive-field version of `clist[T]`. The earlier
 [generated-container experiment](implementation-spike.md) supplied the ownership
 and performance baseline; its eight ordinary lists are not the native layout.
 
+This page preserves the initial implementation's measurements. The subsequent
+[indexed-access work](indexed-access.md) removes generic dispatch from field
+access and row reconstruction; consult that report for the current comparison.
+
 ## Decisions at the representation boundary
 
 One allocation holds a header and a contiguous buffer for each field. Native
@@ -23,7 +27,7 @@ map/filter/reduce methods. A live plan prevents owner mutation or movement.
 
 `copy_row` materializes an ordinary scalar-field object without allocation.
 There is no general `&T` row view, no packed field reference, and no mutable
-column plan. Direct indexed field access is checked and uses runtime helpers.
+column plan. The initial indexed field access was checked through runtime helpers.
 Strings, nested classes, enums, custom destructors and fallible initializers
 are rejected. These restrictions make ownership and failure cleanup explicit
 without committing to a future reference representation.
@@ -100,7 +104,7 @@ sequential row copying was about 24× slower, and indexed eight-field work about
 generic dispatcher calls per row. Reconstruction walks the schema, recomputes
 column prefixes and snapshots tagged row slots. These are current lowering
 costs, not inherent costs of columnar storage. **Issue #432** records this
-performance concern; it remains open after the initial implementation.
+performance concern; the [follow-up](indexed-access.md) addresses that dispatch overhead.
 
 Reserved construction took about 174 / 145 ns per row for the large
 ordinary / native collections. These are single construction
@@ -130,4 +134,4 @@ schemas, module privacy, owner loans, nested enum storage, source evaluation
 order, overflow/allocation failure recovery, and allocation-free reserved work.
 The full workspace suite with all features, Clippy with all targets/features,
 tutorial examples, Markdown links and the book build pass. The whole-row
-performance limitation remains a follow-up concern.
+performance limitation motivated the subsequent indexed-access work.

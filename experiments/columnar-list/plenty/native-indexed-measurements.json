@@ -1,0 +1,2812 @@
+{
+  "base_commit": "697aedb5626d74b7f97f1a51bcd3334823df5744",
+  "method": "Rerun bench.py executables after compilation. Wait for no cargo/rustc/cc1/integration processes; discard any run detecting them before/during/after execution. Same warmup, checksums and alternating layout order as bench.py.",
+  "attempts": [
+    {
+      "case": "before",
+      "rows": 8192,
+      "attempt": 1,
+      "interference": []
+    },
+    {
+      "case": "after",
+      "rows": 8192,
+      "attempt": 1,
+      "interference": []
+    },
+    {
+      "case": "after",
+      "rows": 262144,
+      "attempt": 1,
+      "interference": [
+        "cargo",
+        "rustc"
+      ]
+    },
+    {
+      "case": "after",
+      "rows": 262144,
+      "attempt": 2,
+      "interference": []
+    },
+    {
+      "case": "before",
+      "rows": 262144,
+      "attempt": 1,
+      "interference": []
+    },
+    {
+      "case": "small_before",
+      "rows": 1,
+      "attempt": 1,
+      "interference": []
+    },
+    {
+      "case": "small_after",
+      "rows": 1,
+      "attempt": 1,
+      "interference": []
+    },
+    {
+      "case": "small_after",
+      "rows": 8,
+      "attempt": 1,
+      "interference": []
+    },
+    {
+      "case": "small_before",
+      "rows": 8,
+      "attempt": 1,
+      "interference": []
+    },
+    {
+      "case": "small_before",
+      "rows": 64,
+      "attempt": 1,
+      "interference": []
+    },
+    {
+      "case": "small_after",
+      "rows": 64,
+      "attempt": 1,
+      "interference": []
+    }
+  ],
+  "comparisons": {
+    "before": {
+      "compiler": "/home/caleb/Documents/repos/plenty/target/issue-432-base/release/plenty",
+      "compiler_sha256": "beff90f8dcbacfd9e3b2a409c1168254cc05a40ae50317b73474e649ed6b12fd",
+      "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+      "cpu": 8,
+      "samples": 7,
+      "repeats": 20,
+      "release": true,
+      "native_clist": true,
+      "skip_generated": true,
+      "results": [
+        {
+          "rows": 8192,
+          "layout": "native",
+          "kernel": "one",
+          "median_ns_per_row": 0.494207763671875,
+          "samples_ns_per_row": [
+            0.5029541015625,
+            0.542333984375,
+            0.494207763671875,
+            0.492926025390625,
+            0.4925537109375,
+            0.55303955078125,
+            0.49200439453125
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "kernel": "one",
+          "median_ns_per_row": 1.36510009765625,
+          "samples_ns_per_row": [
+            1.458111572265625,
+            1.0014404296875,
+            1.41151123046875,
+            1.272454833984375,
+            1.36510009765625,
+            1.27471923828125,
+            1.367547607421875
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "native",
+          "kernel": "two",
+          "median_ns_per_row": 2.694970703125,
+          "samples_ns_per_row": [
+            2.72554931640625,
+            2.905999755859375,
+            2.694970703125,
+            2.69454345703125,
+            2.726898193359375,
+            2.69417724609375,
+            2.69356689453125
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "kernel": "two",
+          "median_ns_per_row": 2.2593505859375,
+          "samples_ns_per_row": [
+            2.251214599609375,
+            3.4576904296875,
+            2.257086181640625,
+            2.296282958984375,
+            2.2593505859375,
+            2.220574951171875,
+            2.640185546875
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "native",
+          "kernel": "stream",
+          "median_ns_per_row": 115.95060424804687,
+          "samples_ns_per_row": [
+            120.72642822265625,
+            123.26944580078126,
+            118.78848876953126,
+            115.4783447265625,
+            115.563037109375,
+            115.74183959960938,
+            115.95060424804687
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "kernel": "stream",
+          "median_ns_per_row": 2.89132080078125,
+          "samples_ns_per_row": [
+            3.44833984375,
+            2.885516357421875,
+            2.896038818359375,
+            2.89132080078125,
+            3.14234619140625,
+            2.825775146484375,
+            2.861541748046875
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "native",
+          "kernel": "whole",
+          "median_ns_per_row": 94.51561889648437,
+          "samples_ns_per_row": [
+            112.85974731445313,
+            95.92957153320313,
+            104.22980346679688,
+            94.51561889648437,
+            94.0955810546875,
+            94.21005859375,
+            94.4389404296875
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "kernel": "whole",
+          "median_ns_per_row": 2.998394775390625,
+          "samples_ns_per_row": [
+            3.585064697265625,
+            2.998394775390625,
+            3.01075439453125,
+            2.84259033203125,
+            3.00029296875,
+            2.80626220703125,
+            2.843017578125
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "native",
+          "kernel": "random",
+          "median_ns_per_row": 94.4040771484375,
+          "samples_ns_per_row": [
+            108.09645385742188,
+            96.04539184570312,
+            95.27784423828125,
+            94.32794799804688,
+            94.02727661132812,
+            94.34507446289062,
+            94.4040771484375
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "kernel": "random",
+          "median_ns_per_row": 7.31297607421875,
+          "samples_ns_per_row": [
+            7.919873046875,
+            7.30037841796875,
+            7.31297607421875,
+            7.49073486328125,
+            7.2491943359375,
+            7.339385986328125,
+            7.2884521484375
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "kernel": "one",
+          "median_ns_per_row": 0.4967449188232422,
+          "samples_ns_per_row": [
+            0.5178050994873047,
+            0.7744318008422851,
+            0.4944480895996094,
+            0.49496002197265626,
+            0.4967449188232422,
+            0.49407520294189455,
+            0.503289794921875
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "kernel": "one",
+          "median_ns_per_row": 5.069839096069336,
+          "samples_ns_per_row": [
+            4.842856597900391,
+            6.186751174926758,
+            5.935083389282227,
+            4.910506820678711,
+            4.928601264953613,
+            5.077496147155761,
+            5.069839096069336
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "kernel": "two",
+          "median_ns_per_row": 3.6502857208251953,
+          "samples_ns_per_row": [
+            3.5089426040649414,
+            3.4727174758911135,
+            3.5524965286254884,
+            3.6947641372680664,
+            3.7498214721679686,
+            3.6502857208251953,
+            3.672685432434082
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "kernel": "two",
+          "median_ns_per_row": 4.292749404907227,
+          "samples_ns_per_row": [
+            4.1347606658935545,
+            5.32574348449707,
+            4.447484016418457,
+            4.151960754394532,
+            4.345939826965332,
+            3.900986671447754,
+            4.292749404907227
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "kernel": "stream",
+          "median_ns_per_row": 117.98346462249756,
+          "samples_ns_per_row": [
+            111.54039268493652,
+            118.48342552185059,
+            109.21737079620361,
+            117.98346462249756,
+            119.65289726257325,
+            120.62305850982666,
+            116.38510856628417
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "kernel": "stream",
+          "median_ns_per_row": 4.065464782714844,
+          "samples_ns_per_row": [
+            5.7694910049438475,
+            4.16125717163086,
+            4.065464782714844,
+            4.017949867248535,
+            4.022761535644531,
+            3.9450847625732424,
+            4.099893951416016
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "kernel": "whole",
+          "median_ns_per_row": 96.0285623550415,
+          "samples_ns_per_row": [
+            97.31996383666993,
+            96.0285623550415,
+            95.71076316833496,
+            97.23475227355956,
+            97.36034526824952,
+            95.44776763916016,
+            95.49315376281739
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "kernel": "whole",
+          "median_ns_per_row": 4.10870132446289,
+          "samples_ns_per_row": [
+            5.303758239746093,
+            4.395562362670899,
+            4.10870132446289,
+            3.9931480407714846,
+            4.040741348266602,
+            4.024731636047363,
+            4.440079116821289
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "kernel": "random",
+          "median_ns_per_row": 129.3021713256836,
+          "samples_ns_per_row": [
+            135.55212612152098,
+            131.06394329071045,
+            129.15301265716553,
+            128.9704189300537,
+            128.79895992279052,
+            129.7008840560913,
+            129.3021713256836
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "kernel": "random",
+          "median_ns_per_row": 55.19176063537598,
+          "samples_ns_per_row": [
+            58.22454681396484,
+            56.685820960998534,
+            55.03954677581787,
+            55.03676815032959,
+            56.84608001708985,
+            55.19176063537598,
+            54.4937255859375
+          ]
+        }
+      ],
+      "construction": [
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "ns_per_row": 255.60791015625
+        },
+        {
+          "rows": 8192,
+          "layout": "native",
+          "ns_per_row": 220.92529296875
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "ns_per_row": 175.29714965820312
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "ns_per_row": 144.62268447875977
+        }
+      ],
+      "frequency_khz": [
+        {
+          "rows": 8192,
+          "phase": "before",
+          "khz": 3035392
+        },
+        {
+          "rows": 8192,
+          "phase": "during",
+          "khz": 4092634
+        },
+        {
+          "rows": 8192,
+          "phase": "after",
+          "khz": 3270836
+        },
+        {
+          "rows": 262144,
+          "phase": "before",
+          "khz": 3271835
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092606
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092407
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092493
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092381
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092481
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092562
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4090360
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092288
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092515
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092461
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091766
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092465
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092495
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4087832
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4088607
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092522
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091695
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092499
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092376
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092500
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092584
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092311
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091332
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4089100
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092224
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092601
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4090931
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091503
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092535
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092219
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4089892
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092523
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092581
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092146
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092306
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092353
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092577
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092447
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4090928
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092441
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4090440
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092248
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 544474
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092133
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092100
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091193
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4089625
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091386
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4090926
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091222
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092160
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092294
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4090783
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092545
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092339
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091623
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092143
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4090782
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091161
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092396
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092219
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092108
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091954
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091372
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091896
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4090424
+        },
+        {
+          "rows": 262144,
+          "phase": "after",
+          "khz": 3268585
+        }
+      ],
+      "lscpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           48 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  16\nOn-line CPU(s) list:                     0-15\nVendor ID:                               AuthenticAMD\nModel name:                              AMD Ryzen 7 7840HS w/ Radeon 780M Graphics\nCPU family:                              25\nModel:                                   116\nThread(s) per core:                      2\nCore(s) per socket:                      8\nSocket(s):                               1\nStepping:                                1\nFrequency boost:                         enabled\nCPU(s) scaling MHz:                      65%\nCPU max MHz:                             5137.9038\nCPU min MHz:                             419.4210\nBogoMIPS:                                7586.27\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good amd_lbr_v2 nopl xtopology nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw ibs skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpuid_fault cpb cat_l3 cdp_l3 hw_pstate ssbd mba perfmon_v2 ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local user_shstk avx512_bf16 clzero irperf xsaveerptr rdpru wbnoinvd cppc arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold vgif x2avic v_spec_ctrl vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid overflow_recov succor smca fsrm flush_l1d amd_lbr_pmc_freeze\nVirtualization:                          AMD-V\nL1d cache:                               256 KiB (8 instances)\nL1i cache:                               256 KiB (8 instances)\nL2 cache:                                8 MiB (8 instances)\nL3 cache:                                16 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-15\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Mitigation; Safe RET\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; STIBP always-on; PBRSB-eIBRS Not affected; BHI Not affected\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Mitigation; Clear CPU buffers\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+      "binaries": [
+        {
+          "rows": 8192,
+          "sha256": "79e02b360e005eb88a9083e8c330706052ca30f21379d980fadd960177c1b7b6",
+          "source_sha256": "c8c5bdca4968d9c657e5e307b23520d3c94a7028302e47bd817bd2f204dc897d",
+          "kernel_bytes": {
+            "__plenty_fn_aos_one": 161,
+            "__plenty_fn_aos_random": 560,
+            "__plenty_fn_aos_stream": 362,
+            "__plenty_fn_aos_two": 235,
+            "__plenty_fn_aos_whole": 362,
+            "__plenty_fn_native_one": 294,
+            "__plenty_fn_native_random": 936,
+            "__plenty_fn_native_stream": 1269,
+            "__plenty_fn_native_two": 620,
+            "__plenty_fn_native_whole": 831
+          }
+        },
+        {
+          "rows": 262144,
+          "sha256": "414a235b1e5e36321e61ebac3850cf2fa411ee1b9aadce9a5f4059aab425ef92",
+          "source_sha256": "6123cba856082677529accac994a08eff1bf57cf31f89db65e5ecca609f9cb23",
+          "kernel_bytes": {
+            "__plenty_fn_aos_one": 161,
+            "__plenty_fn_aos_random": 560,
+            "__plenty_fn_aos_stream": 362,
+            "__plenty_fn_aos_two": 235,
+            "__plenty_fn_aos_whole": 362,
+            "__plenty_fn_native_one": 294,
+            "__plenty_fn_native_random": 936,
+            "__plenty_fn_native_stream": 1269,
+            "__plenty_fn_native_two": 620,
+            "__plenty_fn_native_whole": 831
+          }
+        }
+      ]
+    },
+    "after": {
+      "compiler": "/tmp/issue-432-final-plenty",
+      "compiler_sha256": "3ae82f647c97dd65f9e100515ec23b8d77ce7f0286ddc5de020d76a85c525623",
+      "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+      "cpu": 8,
+      "samples": 7,
+      "repeats": 20,
+      "release": true,
+      "native_clist": true,
+      "skip_generated": true,
+      "results": [
+        {
+          "rows": 8192,
+          "layout": "native",
+          "kernel": "one",
+          "median_ns_per_row": 0.735687255859375,
+          "samples_ns_per_row": [
+            0.735870361328125,
+            0.736053466796875,
+            0.735687255859375,
+            0.735626220703125,
+            0.7382568359375,
+            0.735626220703125,
+            0.735565185546875
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "kernel": "one",
+          "median_ns_per_row": 1.30107421875,
+          "samples_ns_per_row": [
+            1.316851806640625,
+            1.369439697265625,
+            1.352679443359375,
+            1.265850830078125,
+            1.30107421875,
+            1.263958740234375,
+            1.273681640625
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "native",
+          "kernel": "two",
+          "median_ns_per_row": 2.762603759765625,
+          "samples_ns_per_row": [
+            2.6947265625,
+            2.720965576171875,
+            2.78480224609375,
+            2.7884765625,
+            2.782171630859375,
+            2.694970703125,
+            2.762603759765625
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "kernel": "two",
+          "median_ns_per_row": 2.30068359375,
+          "samples_ns_per_row": [
+            2.38385009765625,
+            2.27530517578125,
+            2.232684326171875,
+            2.24356689453125,
+            11.6356201171875,
+            2.37100830078125,
+            2.30068359375
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "native",
+          "kernel": "stream",
+          "median_ns_per_row": 6.41866455078125,
+          "samples_ns_per_row": [
+            6.3913330078125,
+            6.41866455078125,
+            6.48035888671875,
+            6.432177734375,
+            6.38570556640625,
+            6.4156005859375,
+            6.451617431640625
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "kernel": "stream",
+          "median_ns_per_row": 2.8911376953125,
+          "samples_ns_per_row": [
+            3.10987548828125,
+            2.819415283203125,
+            2.838372802734375,
+            2.86490478515625,
+            2.892730712890625,
+            2.94776611328125,
+            2.8911376953125
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "native",
+          "kernel": "whole",
+          "median_ns_per_row": 12.330584716796874,
+          "samples_ns_per_row": [
+            12.381396484375,
+            12.32373046875,
+            12.31456298828125,
+            12.343792724609376,
+            12.3274658203125,
+            12.35498046875,
+            12.330584716796874
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "kernel": "whole",
+          "median_ns_per_row": 2.85078125,
+          "samples_ns_per_row": [
+            2.8357421875,
+            2.866619873046875,
+            2.8568359375,
+            2.883251953125,
+            2.8424072265625,
+            2.85078125,
+            2.838983154296875
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "native",
+          "kernel": "random",
+          "median_ns_per_row": 12.618231201171875,
+          "samples_ns_per_row": [
+            12.7542236328125,
+            12.613275146484375,
+            12.61578369140625,
+            12.61951904296875,
+            12.618231201171875,
+            12.613397216796875,
+            12.762298583984375
+          ]
+        },
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "kernel": "random",
+          "median_ns_per_row": 7.318353271484375,
+          "samples_ns_per_row": [
+            7.344708251953125,
+            7.305023193359375,
+            7.3274658203125,
+            7.30355224609375,
+            7.310345458984375,
+            7.407147216796875,
+            7.318353271484375
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "kernel": "one",
+          "median_ns_per_row": 0.7428518295288086,
+          "samples_ns_per_row": [
+            0.7442277908325196,
+            0.7392536163330078,
+            0.7395381927490234,
+            0.7431499481201171,
+            0.7580072402954101,
+            0.7428518295288086,
+            0.7404823303222656
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "kernel": "one",
+          "median_ns_per_row": 4.225722122192383,
+          "samples_ns_per_row": [
+            4.354032516479492,
+            4.131192779541015,
+            4.440149879455566,
+            3.8459941864013674,
+            4.658905982971191,
+            3.817257881164551,
+            4.225722122192383
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "kernel": "two",
+          "median_ns_per_row": 3.3692012786865235,
+          "samples_ns_per_row": [
+            3.3791399002075195,
+            3.3692012786865235,
+            3.422231101989746,
+            3.4431365966796874,
+            3.2388936996459963,
+            3.2819982528686524,
+            3.3060625076293944
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "kernel": "two",
+          "median_ns_per_row": 3.8052915573120116,
+          "samples_ns_per_row": [
+            3.823665237426758,
+            3.565287971496582,
+            3.765462303161621,
+            4.032755661010742,
+            3.9406286239624024,
+            3.629714775085449,
+            3.8052915573120116
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "kernel": "stream",
+          "median_ns_per_row": 6.526439666748047,
+          "samples_ns_per_row": [
+            6.505486488342285,
+            6.49437255859375,
+            6.778376770019531,
+            6.526439666748047,
+            6.529237174987793,
+            6.509375190734863,
+            6.542151260375976
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "kernel": "stream",
+          "median_ns_per_row": 3.9846426010131837,
+          "samples_ns_per_row": [
+            4.277742958068847,
+            3.958025360107422,
+            3.9243741989135743,
+            4.312084007263183,
+            4.739279174804688,
+            3.9846426010131837,
+            3.9446989059448243
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "kernel": "whole",
+          "median_ns_per_row": 12.557764625549316,
+          "samples_ns_per_row": [
+            12.407073402404786,
+            12.396288108825683,
+            12.654032707214355,
+            12.381782341003419,
+            12.557764625549316,
+            12.648760414123535,
+            12.647682571411133
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "kernel": "whole",
+          "median_ns_per_row": 4.0306001663208,
+          "samples_ns_per_row": [
+            4.0110210418701175,
+            4.0306001663208,
+            4.000444030761718,
+            4.075214385986328,
+            4.122773170471191,
+            4.125054740905762,
+            3.9157329559326173
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "kernel": "random",
+          "median_ns_per_row": 22.93053455352783,
+          "samples_ns_per_row": [
+            23.05107707977295,
+            22.659428977966307,
+            22.77825756072998,
+            24.921030044555664,
+            23.831061935424806,
+            22.730085182189942,
+            22.93053455352783
+          ]
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "kernel": "random",
+          "median_ns_per_row": 54.81404495239258,
+          "samples_ns_per_row": [
+            54.60577220916748,
+            54.81404495239258,
+            54.26345806121826,
+            57.51643543243408,
+            55.81931552886963,
+            54.66493797302246,
+            54.84899387359619
+          ]
+        }
+      ],
+      "construction": [
+        {
+          "rows": 8192,
+          "layout": "aos",
+          "ns_per_row": 168.46533203125
+        },
+        {
+          "rows": 8192,
+          "layout": "native",
+          "ns_per_row": 135.16455078125
+        },
+        {
+          "rows": 262144,
+          "layout": "aos",
+          "ns_per_row": 163.98344802856445
+        },
+        {
+          "rows": 262144,
+          "layout": "native",
+          "ns_per_row": 140.69384002685547
+        }
+      ],
+      "frequency_khz": [
+        {
+          "rows": 8192,
+          "phase": "before",
+          "khz": 3267549
+        },
+        {
+          "rows": 8192,
+          "phase": "after",
+          "khz": 3273512
+        },
+        {
+          "rows": 262144,
+          "phase": "before",
+          "khz": 3269433
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092476
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092420
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092208
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092599
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4090111
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092522
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092577
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091895
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091252
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091592
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 3339322
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092068
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4090316
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092582
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092605
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091757
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4091795
+        },
+        {
+          "rows": 262144,
+          "phase": "during",
+          "khz": 4092524
+        },
+        {
+          "rows": 262144,
+          "phase": "after",
+          "khz": 3269646
+        }
+      ],
+      "lscpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           48 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  16\nOn-line CPU(s) list:                     0-15\nVendor ID:                               AuthenticAMD\nModel name:                              AMD Ryzen 7 7840HS w/ Radeon 780M Graphics\nCPU family:                              25\nModel:                                   116\nThread(s) per core:                      2\nCore(s) per socket:                      8\nSocket(s):                               1\nStepping:                                1\nFrequency boost:                         enabled\nCPU(s) scaling MHz:                      80%\nCPU max MHz:                             5137.9038\nCPU min MHz:                             419.4210\nBogoMIPS:                                7586.27\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good amd_lbr_v2 nopl xtopology nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw ibs skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpuid_fault cpb cat_l3 cdp_l3 hw_pstate ssbd mba perfmon_v2 ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local user_shstk avx512_bf16 clzero irperf xsaveerptr rdpru wbnoinvd cppc arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold vgif x2avic v_spec_ctrl vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid overflow_recov succor smca fsrm flush_l1d amd_lbr_pmc_freeze\nVirtualization:                          AMD-V\nL1d cache:                               256 KiB (8 instances)\nL1i cache:                               256 KiB (8 instances)\nL2 cache:                                8 MiB (8 instances)\nL3 cache:                                16 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-15\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Mitigation; Safe RET\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; STIBP always-on; PBRSB-eIBRS Not affected; BHI Not affected\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Mitigation; Clear CPU buffers\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+      "binaries": [
+        {
+          "rows": 8192,
+          "sha256": "7488101eb3c630b8df24bd761c4553015576f605d925dc0b9e3b6648b5d8ea50",
+          "source_sha256": "c8c5bdca4968d9c657e5e307b23520d3c94a7028302e47bd817bd2f204dc897d",
+          "kernel_bytes": {
+            "__plenty_fn_aos_one": 161,
+            "__plenty_fn_aos_random": 560,
+            "__plenty_fn_aos_stream": 362,
+            "__plenty_fn_aos_two": 235,
+            "__plenty_fn_aos_whole": 362,
+            "__plenty_fn_native_one": 294,
+            "__plenty_fn_native_random": 1072,
+            "__plenty_fn_native_stream": 991,
+            "__plenty_fn_native_two": 620,
+            "__plenty_fn_native_whole": 961
+          }
+        },
+        {
+          "rows": 262144,
+          "sha256": "3000866abebfd70d2e81eb8a74a199d6fb7ea9ab6802faeec3af9628f2fb78e7",
+          "source_sha256": "6123cba856082677529accac994a08eff1bf57cf31f89db65e5ecca609f9cb23",
+          "kernel_bytes": {
+            "__plenty_fn_aos_one": 161,
+            "__plenty_fn_aos_random": 560,
+            "__plenty_fn_aos_stream": 362,
+            "__plenty_fn_aos_two": 235,
+            "__plenty_fn_aos_whole": 362,
+            "__plenty_fn_native_one": 294,
+            "__plenty_fn_native_random": 1072,
+            "__plenty_fn_native_stream": 991,
+            "__plenty_fn_native_two": 620,
+            "__plenty_fn_native_whole": 961
+          }
+        }
+      ]
+    },
+    "small_before": {
+      "compiler": "/home/caleb/Documents/repos/plenty/target/issue-432-base/release/plenty",
+      "compiler_sha256": "beff90f8dcbacfd9e3b2a409c1168254cc05a40ae50317b73474e649ed6b12fd",
+      "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+      "cpu": 8,
+      "samples": 7,
+      "repeats": 100000,
+      "release": true,
+      "native_clist": true,
+      "skip_generated": true,
+      "results": [
+        {
+          "rows": 1,
+          "layout": "native",
+          "kernel": "one",
+          "median_ns_per_row": 10.79596,
+          "samples_ns_per_row": [
+            10.79716,
+            10.79456,
+            10.79295,
+            10.79125,
+            10.79596,
+            10.79907,
+            10.84535
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "aos",
+          "kernel": "one",
+          "median_ns_per_row": 5.41652,
+          "samples_ns_per_row": [
+            5.37954,
+            5.4107,
+            5.41651,
+            5.41652,
+            6.08727,
+            5.47432,
+            5.71337
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "native",
+          "kernel": "two",
+          "median_ns_per_row": 23.80646,
+          "samples_ns_per_row": [
+            23.80646,
+            23.81417,
+            23.78392,
+            23.82158,
+            23.79905,
+            23.80105,
+            23.8795
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "aos",
+          "kernel": "two",
+          "median_ns_per_row": 5.9396,
+          "samples_ns_per_row": [
+            5.86716,
+            5.86685,
+            5.9396,
+            5.86646,
+            6.13416,
+            6.1579,
+            6.15379
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "native",
+          "kernel": "stream",
+          "median_ns_per_row": 119.77828,
+          "samples_ns_per_row": [
+            119.77828,
+            119.71877,
+            119.82387,
+            121.10396,
+            119.17826,
+            118.92859,
+            119.86625
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "aos",
+          "kernel": "stream",
+          "median_ns_per_row": 5.73831,
+          "samples_ns_per_row": [
+            5.80535,
+            5.73831,
+            5.64084,
+            5.76106,
+            5.67329,
+            5.82117,
+            5.68051
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "native",
+          "kernel": "whole",
+          "median_ns_per_row": 97.59606,
+          "samples_ns_per_row": [
+            97.59606,
+            97.65527,
+            97.03661,
+            98.17985,
+            96.90016,
+            111.15698,
+            97.11075
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "aos",
+          "kernel": "whole",
+          "median_ns_per_row": 5.90573,
+          "samples_ns_per_row": [
+            5.86806,
+            5.95792,
+            5.90433,
+            5.99029,
+            5.90573,
+            5.90132,
+            5.91775
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "native",
+          "kernel": "random",
+          "median_ns_per_row": 97.67941,
+          "samples_ns_per_row": [
+            98.30378,
+            97.67941,
+            97.73201,
+            97.19881,
+            97.39999,
+            101.74871,
+            97.40039
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "aos",
+          "kernel": "random",
+          "median_ns_per_row": 7.89163,
+          "samples_ns_per_row": [
+            7.83383,
+            7.8704,
+            7.81329,
+            7.89163,
+            7.94734,
+            7.89654,
+            7.94283
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "kernel": "one",
+          "median_ns_per_row": 1.62859125,
+          "samples_ns_per_row": [
+            1.62382,
+            1.65154625,
+            1.62859125,
+            1.62960625,
+            1.6330125,
+            1.627915,
+            1.62696375
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "kernel": "one",
+          "median_ns_per_row": 1.22732875,
+          "samples_ns_per_row": [
+            1.227255,
+            1.28585125,
+            1.2226325,
+            1.22732875,
+            1.22775625,
+            1.24401125,
+            1.22697875
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "kernel": "two",
+          "median_ns_per_row": 5.5849675,
+          "samples_ns_per_row": [
+            5.68543,
+            5.5995325,
+            5.5677725,
+            5.583615,
+            5.6078475,
+            5.58463,
+            5.5849675
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "kernel": "two",
+          "median_ns_per_row": 1.96587,
+          "samples_ns_per_row": [
+            1.9608625,
+            2.04364125,
+            1.96309,
+            2.02751125,
+            1.96723625,
+            1.96001,
+            1.96587
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "kernel": "stream",
+          "median_ns_per_row": 105.7034225,
+          "samples_ns_per_row": [
+            106.91809125,
+            102.45344125,
+            105.23138,
+            105.07052875,
+            107.48269625,
+            105.7034225,
+            107.41078625
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "kernel": "stream",
+          "median_ns_per_row": 3.17707,
+          "samples_ns_per_row": [
+            3.16787875,
+            3.17707,
+            4.83692125,
+            3.17558,
+            3.221855,
+            3.17186125,
+            3.19032
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "kernel": "whole",
+          "median_ns_per_row": 80.81338,
+          "samples_ns_per_row": [
+            80.49345625,
+            80.32018375,
+            81.00181875,
+            80.13432375,
+            82.19353125,
+            80.81338,
+            85.1703775
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "kernel": "whole",
+          "median_ns_per_row": 3.1860875,
+          "samples_ns_per_row": [
+            3.19677,
+            3.1859875,
+            3.13141,
+            3.2025675,
+            3.1970575,
+            3.176895,
+            3.1860875
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "kernel": "random",
+          "median_ns_per_row": 81.2899825,
+          "samples_ns_per_row": [
+            80.26490375,
+            81.596955,
+            82.15187875,
+            80.46474125,
+            80.56714375,
+            81.2899825,
+            82.19438375
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "kernel": "random",
+          "median_ns_per_row": 7.3202575,
+          "samples_ns_per_row": [
+            7.3107025,
+            7.3473825,
+            7.3202575,
+            7.5014825,
+            7.394245,
+            7.2384175,
+            7.29026375
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "kernel": "one",
+          "median_ns_per_row": 0.6362490625,
+          "samples_ns_per_row": [
+            0.651641875,
+            0.63661234375,
+            0.63615984375,
+            0.6362490625,
+            0.64945515625,
+            0.63386484375,
+            0.6323621875
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "kernel": "one",
+          "median_ns_per_row": 0.8085271875,
+          "samples_ns_per_row": [
+            0.81856609375,
+            0.79965265625,
+            0.8020915625,
+            0.81941609375,
+            0.82191765625,
+            0.8085271875,
+            0.80044328125
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "kernel": "two",
+          "median_ns_per_row": 3.28192265625,
+          "samples_ns_per_row": [
+            3.30598953125,
+            3.280659375,
+            3.34081546875,
+            3.27606484375,
+            3.31663125,
+            3.25534171875,
+            3.28192265625
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "kernel": "two",
+          "median_ns_per_row": 1.65076875,
+          "samples_ns_per_row": [
+            1.8666609375,
+            1.6498153125,
+            1.70750421875,
+            1.64350515625,
+            1.6588415625,
+            1.65076875,
+            1.6478584375
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "kernel": "stream",
+          "median_ns_per_row": 99.22335609375,
+          "samples_ns_per_row": [
+            97.96102375,
+            99.22335609375,
+            96.6547375,
+            98.7727803125,
+            104.744970625,
+            105.478035,
+            104.76682234375
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "kernel": "stream",
+          "median_ns_per_row": 2.680269375,
+          "samples_ns_per_row": [
+            2.67836734375,
+            2.6887978125,
+            2.6920728125,
+            2.680269375,
+            2.69386203125,
+            2.6584709375,
+            2.6721559375
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "kernel": "whole",
+          "median_ns_per_row": 80.05968421875,
+          "samples_ns_per_row": [
+            79.9866634375,
+            80.564893125,
+            80.2304059375,
+            80.05968421875,
+            80.6592084375,
+            79.30668109375,
+            79.22659703125
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "kernel": "whole",
+          "median_ns_per_row": 2.68104734375,
+          "samples_ns_per_row": [
+            2.67298859375,
+            2.6750846875,
+            2.89505171875,
+            2.67537109375,
+            2.68104734375,
+            2.69423453125,
+            2.68348484375
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "kernel": "random",
+          "median_ns_per_row": 79.6262371875,
+          "samples_ns_per_row": [
+            79.68675015625,
+            80.24012109375,
+            80.7648071875,
+            79.42056390625,
+            79.13005265625,
+            79.37978328125,
+            79.6262371875
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "kernel": "random",
+          "median_ns_per_row": 7.139825625,
+          "samples_ns_per_row": [
+            7.139825625,
+            7.16494296875,
+            7.12282359375,
+            7.36283125,
+            7.112721875,
+            7.11977578125,
+            7.14008375
+          ]
+        }
+      ],
+      "construction": [
+        {
+          "rows": 1,
+          "layout": "aos",
+          "ns_per_row": 18885.0
+        },
+        {
+          "rows": 1,
+          "layout": "native",
+          "ns_per_row": 1403.0
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "ns_per_row": 2144.0
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "ns_per_row": 383.25
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "ns_per_row": 543.515625
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "ns_per_row": 183.3125
+        }
+      ],
+      "frequency_khz": [
+        {
+          "rows": 1,
+          "phase": "before",
+          "khz": 1100980
+        },
+        {
+          "rows": 1,
+          "phase": "during",
+          "khz": 4091851
+        },
+        {
+          "rows": 1,
+          "phase": "after",
+          "khz": 4019737
+        },
+        {
+          "rows": 8,
+          "phase": "before",
+          "khz": 3304505
+        },
+        {
+          "rows": 8,
+          "phase": "during",
+          "khz": 4092046
+        },
+        {
+          "rows": 8,
+          "phase": "during",
+          "khz": 4092481
+        },
+        {
+          "rows": 8,
+          "phase": "during",
+          "khz": 4092583
+        },
+        {
+          "rows": 8,
+          "phase": "during",
+          "khz": 4092185
+        },
+        {
+          "rows": 8,
+          "phase": "during",
+          "khz": 4092214
+        },
+        {
+          "rows": 8,
+          "phase": "during",
+          "khz": 4092058
+        },
+        {
+          "rows": 8,
+          "phase": "during",
+          "khz": 4092459
+        },
+        {
+          "rows": 8,
+          "phase": "after",
+          "khz": 3274612
+        },
+        {
+          "rows": 64,
+          "phase": "before",
+          "khz": 1100980
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4090194
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092122
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092475
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092617
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092346
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092412
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4091421
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092488
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092552
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092536
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092685
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4091242
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092523
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092394
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092590
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092424
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4091403
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092464
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4091746
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4091472
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092598
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092054
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4091740
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092233
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092034
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092218
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092040
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092568
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092570
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092652
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092561
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092578
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092297
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092470
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092337
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092488
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092540
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4091348
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092565
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092612
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092518
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4091972
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092537
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4091565
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092589
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092586
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092587
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092560
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092615
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092627
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092531
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092581
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092634
+        },
+        {
+          "rows": 64,
+          "phase": "after",
+          "khz": 3271399
+        }
+      ],
+      "lscpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           48 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  16\nOn-line CPU(s) list:                     0-15\nVendor ID:                               AuthenticAMD\nModel name:                              AMD Ryzen 7 7840HS w/ Radeon 780M Graphics\nCPU family:                              25\nModel:                                   116\nThread(s) per core:                      2\nCore(s) per socket:                      8\nSocket(s):                               1\nStepping:                                1\nFrequency boost:                         enabled\nCPU(s) scaling MHz:                      74%\nCPU max MHz:                             5137.9038\nCPU min MHz:                             419.4210\nBogoMIPS:                                7586.27\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good amd_lbr_v2 nopl xtopology nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw ibs skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpuid_fault cpb cat_l3 cdp_l3 hw_pstate ssbd mba perfmon_v2 ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local user_shstk avx512_bf16 clzero irperf xsaveerptr rdpru wbnoinvd cppc arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold vgif x2avic v_spec_ctrl vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid overflow_recov succor smca fsrm flush_l1d amd_lbr_pmc_freeze\nVirtualization:                          AMD-V\nL1d cache:                               256 KiB (8 instances)\nL1i cache:                               256 KiB (8 instances)\nL2 cache:                                8 MiB (8 instances)\nL3 cache:                                16 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-15\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Mitigation; Safe RET\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; STIBP always-on; PBRSB-eIBRS Not affected; BHI Not affected\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Mitigation; Clear CPU buffers\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+      "binaries": [
+        {
+          "rows": 1,
+          "sha256": "ad011d66c9d8611a796121f58100af4b192750dfa8d3914ca9d7a3cc6d80669d",
+          "source_sha256": "04d73a38ae96c3604e707861b5534c2665b520ebf5fad4103e4fac4962aa6105",
+          "kernel_bytes": {
+            "__plenty_fn_aos_one": 161,
+            "__plenty_fn_aos_random": 496,
+            "__plenty_fn_aos_stream": 362,
+            "__plenty_fn_aos_two": 235,
+            "__plenty_fn_aos_whole": 362,
+            "__plenty_fn_native_one": 294,
+            "__plenty_fn_native_random": 920,
+            "__plenty_fn_native_stream": 1260,
+            "__plenty_fn_native_two": 620,
+            "__plenty_fn_native_whole": 828
+          }
+        },
+        {
+          "rows": 8,
+          "sha256": "f9eb86de58d0a0c3a43a9bcd7f86bc7c99adc263644dfd12b968dad4acdf4325",
+          "source_sha256": "74bfdc2f62bf7de42f4bc967e9aec52b48e7a599b969b9fa8baa86796885c314",
+          "kernel_bytes": {
+            "__plenty_fn_aos_one": 161,
+            "__plenty_fn_aos_random": 552,
+            "__plenty_fn_aos_stream": 362,
+            "__plenty_fn_aos_two": 235,
+            "__plenty_fn_aos_whole": 362,
+            "__plenty_fn_native_one": 294,
+            "__plenty_fn_native_random": 928,
+            "__plenty_fn_native_stream": 1269,
+            "__plenty_fn_native_two": 620,
+            "__plenty_fn_native_whole": 831
+          }
+        },
+        {
+          "rows": 64,
+          "sha256": "f8f93437e6c65b696959d382a0fe09e92810593cc80e284045b8fdef0b80650f",
+          "source_sha256": "9767a08f017fc0b590d36b0098fd93e75a0676165f079ffa33de32e9565eacbb",
+          "kernel_bytes": {
+            "__plenty_fn_aos_one": 161,
+            "__plenty_fn_aos_random": 552,
+            "__plenty_fn_aos_stream": 362,
+            "__plenty_fn_aos_two": 235,
+            "__plenty_fn_aos_whole": 362,
+            "__plenty_fn_native_one": 294,
+            "__plenty_fn_native_random": 928,
+            "__plenty_fn_native_stream": 1269,
+            "__plenty_fn_native_two": 620,
+            "__plenty_fn_native_whole": 831
+          }
+        }
+      ]
+    },
+    "small_after": {
+      "compiler": "/tmp/issue-432-final-plenty",
+      "compiler_sha256": "3ae82f647c97dd65f9e100515ec23b8d77ce7f0286ddc5de020d76a85c525623",
+      "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+      "cpu": 8,
+      "samples": 7,
+      "repeats": 100000,
+      "release": true,
+      "native_clist": true,
+      "skip_generated": true,
+      "results": [
+        {
+          "rows": 1,
+          "layout": "native",
+          "kernel": "one",
+          "median_ns_per_row": 10.0687,
+          "samples_ns_per_row": [
+            10.0687,
+            10.05979,
+            10.11219,
+            10.0669,
+            10.07641,
+            10.10908,
+            10.06049
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "aos",
+          "kernel": "one",
+          "median_ns_per_row": 5.62771,
+          "samples_ns_per_row": [
+            5.62561,
+            5.6229,
+            5.62771,
+            5.6229,
+            5.86755,
+            5.66839,
+            5.67279
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "native",
+          "kernel": "two",
+          "median_ns_per_row": 22.47346,
+          "samples_ns_per_row": [
+            22.33911,
+            22.45884,
+            22.77904,
+            23.12498,
+            22.59841,
+            22.47346,
+            22.41977
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "aos",
+          "kernel": "two",
+          "median_ns_per_row": 5.37995,
+          "samples_ns_per_row": [
+            5.37995,
+            5.4076,
+            5.37955,
+            5.41041,
+            5.38005,
+            5.37975,
+            5.37745
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "native",
+          "kernel": "stream",
+          "median_ns_per_row": 7.4961,
+          "samples_ns_per_row": [
+            7.52325,
+            7.39942,
+            7.47826,
+            7.58136,
+            7.56833,
+            7.4961,
+            7.41795
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "aos",
+          "kernel": "stream",
+          "median_ns_per_row": 5.6786,
+          "samples_ns_per_row": [
+            5.83039,
+            5.65716,
+            5.62871,
+            5.86495,
+            5.6786,
+            5.67009,
+            5.82558
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "native",
+          "kernel": "whole",
+          "median_ns_per_row": 14.83019,
+          "samples_ns_per_row": [
+            14.83019,
+            14.18269,
+            14.07208,
+            15.15731,
+            15.17714,
+            15.58129,
+            13.97319
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "aos",
+          "kernel": "whole",
+          "median_ns_per_row": 5.90523,
+          "samples_ns_per_row": [
+            5.90883,
+            5.90523,
+            6.11792,
+            6.24065,
+            5.90343,
+            5.86636,
+            5.90163
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "native",
+          "kernel": "random",
+          "median_ns_per_row": 14.3025,
+          "samples_ns_per_row": [
+            14.3025,
+            14.6767,
+            13.84115,
+            14.12308,
+            15.4259,
+            14.50689,
+            14.12758
+          ]
+        },
+        {
+          "rows": 1,
+          "layout": "aos",
+          "kernel": "random",
+          "median_ns_per_row": 7.84586,
+          "samples_ns_per_row": [
+            7.91287,
+            7.82872,
+            7.94914,
+            7.78384,
+            7.82652,
+            7.84586,
+            8.11575
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "kernel": "one",
+          "median_ns_per_row": 1.8016775,
+          "samples_ns_per_row": [
+            1.91698,
+            1.81395,
+            1.8016775,
+            1.75605375,
+            1.81255875,
+            1.7543625,
+            1.75281
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "kernel": "one",
+          "median_ns_per_row": 1.22742875,
+          "samples_ns_per_row": [
+            1.22861875,
+            1.22589,
+            1.22692875,
+            1.22568875,
+            1.22742875,
+            1.2338425,
+            1.22940875
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "kernel": "two",
+          "median_ns_per_row": 4.91992625,
+          "samples_ns_per_row": [
+            4.91992625,
+            4.91525375,
+            4.89143375,
+            4.98385625,
+            4.92298125,
+            4.97484,
+            4.9143775
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "kernel": "two",
+          "median_ns_per_row": 1.81328625,
+          "samples_ns_per_row": [
+            1.82147625,
+            1.80831375,
+            1.81328625,
+            1.86579625,
+            1.80810125,
+            1.816905,
+            1.81135875
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "kernel": "stream",
+          "median_ns_per_row": 6.4767325,
+          "samples_ns_per_row": [
+            6.4767325,
+            6.4418675,
+            6.60047625,
+            6.64644875,
+            6.42776625,
+            6.4393625,
+            6.5652725
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "kernel": "stream",
+          "median_ns_per_row": 3.1485175,
+          "samples_ns_per_row": [
+            3.1796125,
+            3.14523625,
+            3.15213625,
+            3.1485175,
+            3.09132375,
+            3.12724,
+            3.14884375
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "kernel": "whole",
+          "median_ns_per_row": 12.45666375,
+          "samples_ns_per_row": [
+            12.45666375,
+            12.46747,
+            12.3360625,
+            14.28183375,
+            12.41387,
+            12.50710625,
+            12.4150725
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "kernel": "whole",
+          "median_ns_per_row": 3.16307,
+          "samples_ns_per_row": [
+            3.147365,
+            3.16375875,
+            3.20637625,
+            3.16307,
+            3.14931875,
+            3.1416675,
+            3.25216
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "kernel": "random",
+          "median_ns_per_row": 12.85213875,
+          "samples_ns_per_row": [
+            12.8249625,
+            12.9198775,
+            12.85213875,
+            12.99638375,
+            12.76748125,
+            12.89428,
+            12.80126875
+          ]
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "kernel": "random",
+          "median_ns_per_row": 7.25948125,
+          "samples_ns_per_row": [
+            7.25948125,
+            7.26687,
+            7.20225125,
+            7.54061875,
+            8.00126625,
+            7.20876125,
+            7.22781
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "kernel": "one",
+          "median_ns_per_row": 0.86677015625,
+          "samples_ns_per_row": [
+            0.86677015625,
+            1.6956665625,
+            0.8781040625,
+            0.8663334375,
+            0.86481359375,
+            0.8655146875,
+            0.86720234375
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "kernel": "one",
+          "median_ns_per_row": 0.80526953125,
+          "samples_ns_per_row": [
+            0.80553234375,
+            1.6034365625,
+            0.807595625,
+            0.80526953125,
+            0.800058125,
+            0.8021496875,
+            0.8040109375
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "kernel": "two",
+          "median_ns_per_row": 2.9867934375,
+          "samples_ns_per_row": [
+            3.01520734375,
+            5.1688965625,
+            2.99534046875,
+            2.9867934375,
+            2.97951421875,
+            2.981665,
+            2.97523421875
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "kernel": "two",
+          "median_ns_per_row": 1.6358878125,
+          "samples_ns_per_row": [
+            1.5852478125,
+            2.78071015625,
+            1.5717915625,
+            1.64133703125,
+            1.57141109375,
+            1.6358878125,
+            1.63775703125
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "kernel": "stream",
+          "median_ns_per_row": 6.518805,
+          "samples_ns_per_row": [
+            6.47827609375,
+            6.50436234375,
+            6.5824190625,
+            6.518805,
+            6.5632221875,
+            6.4962096875,
+            6.606249375
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "kernel": "stream",
+          "median_ns_per_row": 2.68867875,
+          "samples_ns_per_row": [
+            2.66749859375,
+            2.69023328125,
+            2.7028475,
+            2.893556875,
+            2.67700546875,
+            2.68867875,
+            2.68134328125
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "kernel": "whole",
+          "median_ns_per_row": 12.77951859375,
+          "samples_ns_per_row": [
+            13.2021859375,
+            13.32252625,
+            12.77951859375,
+            13.03526015625,
+            12.7216025,
+            12.69157921875,
+            12.71511234375
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "kernel": "whole",
+          "median_ns_per_row": 2.68700390625,
+          "samples_ns_per_row": [
+            2.7098871875,
+            2.71830609375,
+            2.67328921875,
+            2.67921265625,
+            2.89880875,
+            2.6665765625,
+            2.68700390625
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "kernel": "random",
+          "median_ns_per_row": 13.08530671875,
+          "samples_ns_per_row": [
+            13.8084775,
+            13.18603546875,
+            13.03390765625,
+            12.98866828125,
+            13.20258515625,
+            13.059413125,
+            13.08530671875
+          ]
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "kernel": "random",
+          "median_ns_per_row": 7.1316025,
+          "samples_ns_per_row": [
+            10.98785390625,
+            7.2005390625,
+            7.1316025,
+            7.09723671875,
+            7.14203921875,
+            7.11039875,
+            7.12873453125
+          ]
+        }
+      ],
+      "construction": [
+        {
+          "rows": 1,
+          "layout": "aos",
+          "ns_per_row": 15289.0
+        },
+        {
+          "rows": 1,
+          "layout": "native",
+          "ns_per_row": 1483.0
+        },
+        {
+          "rows": 8,
+          "layout": "aos",
+          "ns_per_row": 2221.625
+        },
+        {
+          "rows": 8,
+          "layout": "native",
+          "ns_per_row": 344.375
+        },
+        {
+          "rows": 64,
+          "layout": "aos",
+          "ns_per_row": 554.9375
+        },
+        {
+          "rows": 64,
+          "layout": "native",
+          "ns_per_row": 248.90625
+        }
+      ],
+      "frequency_khz": [
+        {
+          "rows": 1,
+          "phase": "before",
+          "khz": 3272110
+        },
+        {
+          "rows": 1,
+          "phase": "after",
+          "khz": 3266742
+        },
+        {
+          "rows": 8,
+          "phase": "before",
+          "khz": 1100980
+        },
+        {
+          "rows": 8,
+          "phase": "during",
+          "khz": 4091299
+        },
+        {
+          "rows": 8,
+          "phase": "after",
+          "khz": 3273374
+        },
+        {
+          "rows": 64,
+          "phase": "before",
+          "khz": 4087692
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092439
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092519
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092340
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092526
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092542
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092532
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092477
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092524
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092498
+        },
+        {
+          "rows": 64,
+          "phase": "during",
+          "khz": 4092524
+        },
+        {
+          "rows": 64,
+          "phase": "after",
+          "khz": 3278088
+        }
+      ],
+      "lscpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           48 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  16\nOn-line CPU(s) list:                     0-15\nVendor ID:                               AuthenticAMD\nModel name:                              AMD Ryzen 7 7840HS w/ Radeon 780M Graphics\nCPU family:                              25\nModel:                                   116\nThread(s) per core:                      2\nCore(s) per socket:                      8\nSocket(s):                               1\nStepping:                                1\nFrequency boost:                         enabled\nCPU(s) scaling MHz:                      77%\nCPU max MHz:                             5137.9038\nCPU min MHz:                             419.4210\nBogoMIPS:                                7586.27\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good amd_lbr_v2 nopl xtopology nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw ibs skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpuid_fault cpb cat_l3 cdp_l3 hw_pstate ssbd mba perfmon_v2 ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local user_shstk avx512_bf16 clzero irperf xsaveerptr rdpru wbnoinvd cppc arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold vgif x2avic v_spec_ctrl vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid overflow_recov succor smca fsrm flush_l1d amd_lbr_pmc_freeze\nVirtualization:                          AMD-V\nL1d cache:                               256 KiB (8 instances)\nL1i cache:                               256 KiB (8 instances)\nL2 cache:                                8 MiB (8 instances)\nL3 cache:                                16 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-15\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Mitigation; Safe RET\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; STIBP always-on; PBRSB-eIBRS Not affected; BHI Not affected\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Mitigation; Clear CPU buffers\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+      "binaries": [
+        {
+          "rows": 1,
+          "sha256": "42023fedf656f1cdc99bdd6f8e0e31bce4221f0e2b0b7c1d28935eaa90c90696",
+          "source_sha256": "04d73a38ae96c3604e707861b5534c2665b520ebf5fad4103e4fac4962aa6105",
+          "kernel_bytes": {
+            "__plenty_fn_aos_one": 161,
+            "__plenty_fn_aos_random": 496,
+            "__plenty_fn_aos_stream": 362,
+            "__plenty_fn_aos_two": 235,
+            "__plenty_fn_aos_whole": 362,
+            "__plenty_fn_native_one": 294,
+            "__plenty_fn_native_random": 952,
+            "__plenty_fn_native_stream": 982,
+            "__plenty_fn_native_two": 620,
+            "__plenty_fn_native_whole": 939
+          }
+        },
+        {
+          "rows": 8,
+          "sha256": "977b9b03d1294bf9a64759234a3577ff746402dceec284d7d4246120a086da8f",
+          "source_sha256": "74bfdc2f62bf7de42f4bc967e9aec52b48e7a599b969b9fa8baa86796885c314",
+          "kernel_bytes": {
+            "__plenty_fn_aos_one": 161,
+            "__plenty_fn_aos_random": 552,
+            "__plenty_fn_aos_stream": 362,
+            "__plenty_fn_aos_two": 235,
+            "__plenty_fn_aos_whole": 362,
+            "__plenty_fn_native_one": 294,
+            "__plenty_fn_native_random": 1064,
+            "__plenty_fn_native_stream": 991,
+            "__plenty_fn_native_two": 620,
+            "__plenty_fn_native_whole": 961
+          }
+        },
+        {
+          "rows": 64,
+          "sha256": "95e5d91bed07d17b77b524f4047633326f56a68345c0f31dbdb09ace5825a98b",
+          "source_sha256": "9767a08f017fc0b590d36b0098fd93e75a0676165f079ffa33de32e9565eacbb",
+          "kernel_bytes": {
+            "__plenty_fn_aos_one": 161,
+            "__plenty_fn_aos_random": 552,
+            "__plenty_fn_aos_stream": 362,
+            "__plenty_fn_aos_two": 235,
+            "__plenty_fn_aos_whole": 362,
+            "__plenty_fn_native_one": 294,
+            "__plenty_fn_native_random": 1064,
+            "__plenty_fn_native_stream": 991,
+            "__plenty_fn_native_two": 620,
+            "__plenty_fn_native_whole": 961
+          }
+        }
+      ]
+    }
+  }
+}
