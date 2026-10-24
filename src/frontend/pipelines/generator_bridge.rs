@@ -69,10 +69,12 @@ impl Lower<'_> {
         loop_body.extend(self.pipeline_value_ops(&plan));
         loop_body.push(Op::Yield(plan.item.ty.clone()));
         loop_body.extend(plan.iteration.step.iter().cloned());
-        let mut body = vec![Op::Loop {
+        // Plan state that starts empty is frame state, not a capture.
+        let mut body: Vec<Op> = plan.empty.iter().copied().map(Op::EmptyLocal).collect();
+        body.push(Op::Loop {
             condition: plan.iteration.condition.clone().into(),
             body: loop_body.into(),
-        }];
+        });
         body.extend(plan.iteration.cleanup.iter().cloned());
         for &slot in plan.resources.iter().rev() {
             if self.locals[slot as usize - self.parameters].managed() {
@@ -244,6 +246,7 @@ fn relocate(
             Op::MoveLocal(i) => Op::MoveLocal(slot(i)?),
             Op::StoreLocal(i) => Op::StoreLocal(slot(i)?),
             Op::DropLocal(i) => Op::DropLocal(slot(i)?),
+            Op::EmptyLocal(i) => Op::EmptyLocal(slot(i)?),
             Op::BorrowLocal(i, mutable) => Op::BorrowLocal(slot(i)?, *mutable),
             Op::Next(i) => Op::Next(slot(i)?),
             Op::Access(i, mutable, loan) => Op::Access(slot(i)?, *mutable, *loan),

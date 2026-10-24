@@ -1,8 +1,9 @@
 # Fluent iterator pipelines
 
 **Status: Serial core, pair callbacks, dictionary collection, generator fluent
-methods and explicit owned `.generator()` conversion implemented;
-composition, lending and parallel stages remain proposed.** Bounded native
+methods, explicit owned `.generator()` conversion, `chain` and `flat_map`
+implemented; the rest of composition, lending and parallel stages remain
+proposed.** Bounded native
 substitution of scalar leaf callbacks also covers named functions and immutable
 scalar captures; it addresses the original performance gap (issue #399).
 The [pipeline reference](../design/language/09-iteration/06-pipelines.md)

@@ -21,6 +21,8 @@ pub(super) struct Pipeline {
     pair: Option<[Local; 2]>,
     resources: Vec<u8>,
     initialized: std::collections::BTreeSet<u8>,
+    // Slots that construction leaves empty, such as `flat_map` inner state.
+    empty: Vec<u8>,
     owned: bool,
     loans: Vec<usize>,
     depth: usize,
@@ -110,7 +112,15 @@ impl Lower<'_> {
                 }
                 matches!(
                     name.as_str(),
-                    "map" | "filter" | "take" | "skip" | "take_while" | "enumerate" | "zip"
+                    "map"
+                        | "filter"
+                        | "take"
+                        | "skip"
+                        | "take_while"
+                        | "enumerate"
+                        | "zip"
+                        | "chain"
+                        | "flat_map"
                 ) && (self.is_pipeline(base) || self.is_generator_source(base))
             }
             _ => false,
@@ -177,6 +187,10 @@ impl Lower<'_> {
                 plan.depth += 1;
                 if matches!(method.as_str(), "enumerate" | "zip") {
                     plan = self.pipeline_pair_adapter(plan, method, args, &e.at, ops)?;
+                } else if method == "chain" {
+                    plan = self.pipeline_chain(plan, args, &e.at, ops)?;
+                } else if method == "flat_map" {
+                    plan = self.pipeline_flat_map(plan, args, &e.at, ops)?;
                 } else {
                     let [argument] = args.as_slice() else {
                         return Err(e.at.error(format!("{method} requires one argument")));
@@ -354,6 +368,7 @@ impl Lower<'_> {
             pair,
             resources: vec![],
             initialized: Default::default(),
+            empty: vec![],
             owned,
             loans: vec![],
             depth: 0,
@@ -586,6 +601,7 @@ impl Lower<'_> {
             left.iteration.exact_len = None;
             left.resources.extend(right.resources);
             left.initialized.extend(right.initialized);
+            left.empty.extend(right.empty);
             left.owned &= right.owned;
             left.loans.extend(right.loans);
             [left.item.clone(), right.item]
@@ -598,6 +614,269 @@ impl Lower<'_> {
         left.item.ty = crate::sum::tuple(types);
         left.pair = Some(fields);
         Ok(left)
+    }
+
+    /// One loop over both sides: a `second` flag selects which side's
+    /// condition, body, and step run. Each side's item moves into shared
+    /// slots, so the consumer's body is emitted once.
+    fn pipeline_chain(
+        &mut self,
+        mut left: Pipeline,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Pipeline> {
+        let [other] = args else {
+            return Err(at.error("chain requires one other iterable"));
+        };
+        let second = self.slot(Ty::Bool, at)?;
+        ops.extend([Op::PushBool(false), Op::StoreLocal(second)]);
+        let mut right = self.pipeline_source(other, ops)?;
+        if right.item.ty != left.item.ty {
+            return Err(other.at.error(format!(
+                "chain requires both sides to yield the same item type; the first yields {}, the second yields {}",
+                type_name(Some(left.item.ty.clone())),
+                type_name(Some(right.item.ty.clone())),
+            )));
+        }
+        self.pipeline_split_pair(&mut left, at)?;
+        self.pipeline_split_pair(&mut right, at)?;
+        let fields = |plan: &Pipeline| {
+            plan.pair
+                .as_ref()
+                .map_or_else(|| vec![plan.item.clone()], |pair| pair.to_vec())
+        };
+        let (left_fields, right_fields) = (fields(&left), fields(&right));
+        let mut shared = Vec::new();
+        let mut left_moves = Vec::new();
+        let mut right_moves = Vec::new();
+        let mut step = Vec::new();
+        let mut chained_loans = Vec::new();
+        for (l, r) in left_fields.iter().zip(&right_fields) {
+            let slot = self.slot(l.ty.clone(), at)?;
+            let load = |local: &Local| {
+                if local.ty.affine() {
+                    Op::MoveLocal(local.slot)
+                } else {
+                    Op::LoadLocal(local.slot)
+                }
+            };
+            left_moves.extend([load(l), Op::StoreLocal(slot)]);
+            right_moves.extend([load(r), Op::StoreLocal(slot)]);
+            if l.ty.managed() {
+                step.push(Op::DropLocal(slot));
+            }
+            // A borrowed item keeps both sources' loans live wherever it is used.
+            let origins: Vec<usize> = [l.slot, r.slot]
+                .iter()
+                .filter_map(|slot| self.reference_locals.get(slot).copied())
+                .collect();
+            if let Some(&first) = origins.first() {
+                // A reborrow of the first origin, not a loan of the shared
+                // slot, so the slot can be reassigned for the next item.
+                let mut marker = Vec::new();
+                let (root, mutable) = (self.loans[first].root, self.loans[first].mutable);
+                let loan = self.new_loan(root, mutable, Some(first), &mut marker);
+                self.loans[loan].precise = false;
+                for origin in origins.into_iter().skip(1) {
+                    let inherited = self.loans[origin].dependencies.clone();
+                    self.loans[loan].dependencies.push(origin);
+                    self.loans[loan].dependencies.extend(inherited);
+                }
+                let Some(Op::Loan(fact)) = marker.last_mut() else {
+                    unreachable!()
+                };
+                *fact = self.loans[loan].clone();
+                ops.extend(marker);
+                chained_loans.push(loan);
+                self.reference_locals.insert(slot, loan);
+            }
+            shared.push(Local {
+                slot,
+                ty: l.ty.clone(),
+                mutable: false,
+            });
+        }
+        let switch = [Op::PushBool(true), Op::StoreLocal(second)];
+        let mut left_ended = left.iteration.step.clone();
+        left_ended.extend(switch.clone());
+        left_ended.push(Op::Continue);
+        let (l, r) = (left.iteration, right.iteration);
+        let mut first_ended = r.absent.clone();
+        first_ended.push(Op::PushBool(true));
+        let mut first_exhausted = switch.to_vec();
+        first_exhausted.extend(r.condition.iter().cloned());
+        let mut first = l.condition;
+        first.push(branch(first_ended, first_exhausted));
+        let mut later = l.absent.clone();
+        later.extend(r.condition);
+        let mut left_body = redirect_breaks(l.body, &left_ended);
+        left_body.extend(left_moves);
+        let mut right_body = r.body;
+        right_body.extend(right_moves);
+        let mut absent = l.absent;
+        absent.extend(r.absent);
+        let mut cleanup = l.cleanup;
+        cleanup.extend(r.cleanup);
+        let mut steps = vec![Op::LoadLocal(second), branch(r.step, l.step)];
+        steps.extend(step);
+        // Saturate: a later `take` may still bound a sum above i64.MAX.
+        let exact_len = l.exact_len.zip(r.exact_len).map(|(a, b)| {
+            let mut fits = b.clone();
+            fits.push(Op::PushInt(Value::I64(i64::MAX)));
+            fits.extend(a.clone());
+            fits.extend([Op::Sub, Op::Gt]);
+            let mut sum = a;
+            sum.extend(b);
+            sum.push(Op::Add);
+            fits.push(branch(vec![Op::PushInt(Value::I64(i64::MAX))], sum));
+            fits
+        });
+        left.iteration = Iteration {
+            exact_len,
+            cleanup,
+            condition: vec![Op::LoadLocal(second), branch(later, first)],
+            absent,
+            body: vec![Op::LoadLocal(second), branch(right_body, left_body)],
+            step: steps,
+            target: shared[0].slot,
+        };
+        left.item = if shared.len() == 2 {
+            Local {
+                slot: shared[0].slot,
+                ty: left.item.ty.clone(),
+                mutable: false,
+            }
+        } else {
+            shared[0].clone()
+        };
+        left.pair = (shared.len() == 2).then(|| [shared[0].clone(), shared[1].clone()]);
+        left.resources.extend(right.resources);
+        left.initialized.extend(right.initialized);
+        left.empty.extend(right.empty);
+        left.owned &= right.owned;
+        left.loans.extend(right.loans);
+        left.loans.extend(chained_loans);
+        left.depth = left.depth.max(right.depth + 1);
+        Ok(left)
+    }
+
+    /// One loop whose condition pulls outer items until the callback's
+    /// source yields one. `active` says whether the inner source's state
+    /// holds a value; between outer items those slots are empty.
+    fn pipeline_flat_map(
+        &mut self,
+        mut outer: Pipeline,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Pipeline> {
+        let [argument] = args else {
+            return Err(at.error("flat_map requires one argument"));
+        };
+        let callback = self.pipeline_callback(argument, ops)?;
+        outer.owned &= !self
+            .expression_type_hint(&callback)
+            .is_some_and(|ty| ty.contains_reference());
+        let active = self.slot(Ty::Bool, at)?;
+        ops.extend([Op::PushBool(false), Op::StoreLocal(active)]);
+        let items = self.pipeline_arguments(&outer, false, at);
+        let Expression::Name(function) = &callback.kind else {
+            unreachable!()
+        };
+        let call = Expr {
+            at: argument.at.clone(),
+            kind: Expression::Call(function.clone(), items),
+        };
+        let not_a_source = || {
+            argument.at.error(
+                "flat_map callbacks must return an owned list, set, dict, str, bytes, range, or generator",
+            )
+        };
+        if self.expression_type_hint(&call).is_some_and(|ty| {
+            ty.contains_reference()
+                || (ty.element().is_none() && super::byte_buffers::byte_buffer(&ty).is_none())
+        }) {
+            return Err(not_a_source());
+        }
+        let inner_start = self.parameters + self.locals.len();
+        let mut fetch = Vec::new();
+        let inner = self.pipeline_raw_source(&call, &mut fetch)?;
+        let inner_fields = inner
+            .pair
+            .as_ref()
+            .map_or_else(|| vec![inner.item.clone()], |pair| pair.to_vec());
+        if inner_fields
+            .iter()
+            .any(|field| field.ty.contains_reference())
+            || !inner.owned
+        {
+            return Err(not_a_source());
+        }
+        // State the fetch initializes persists across items: it starts empty
+        // and is emptied again once the inner source is exhausted.
+        let state: Vec<u8> = inner
+            .initialized
+            .iter()
+            .copied()
+            .filter(|&slot| slot as usize >= inner_start)
+            .collect();
+        ops.extend(state.iter().copied().map(Op::EmptyLocal));
+        outer.empty.extend(state.iter().copied());
+        let mut release = inner.iteration.cleanup.clone();
+        for &slot in &state {
+            if self.locals[slot as usize - self.parameters].managed() {
+                release.push(Op::DropLocal(slot));
+            }
+            release.push(Op::EmptyLocal(slot));
+        }
+        release.extend([Op::PushBool(false), Op::StoreLocal(active)]);
+        let ready = self.slot(Ty::Bool, at)?;
+        let o = outer.iteration;
+        let i = inner.iteration;
+        let mut produced = i.condition;
+        produced.push(branch(
+            vec![Op::PushBool(true), Op::StoreLocal(ready), Op::Break],
+            release,
+        ));
+        let mut pull = vec![Op::LoadLocal(active), branch(produced, vec![])];
+        pull.extend(o.condition);
+        pull.push(branch(vec![], vec![Op::Break]));
+        pull.extend(o.body);
+        pull.extend(fetch);
+        pull.extend(o.step);
+        pull.extend([Op::PushBool(true), Op::StoreLocal(active)]);
+        // Inner condition state is initialized on every exit from the pull.
+        let mut condition = i.absent.clone();
+        condition.extend([
+            Op::PushBool(false),
+            Op::StoreLocal(ready),
+            Op::Loop {
+                condition: vec![Op::PushBool(true)].into(),
+                body: pull.into(),
+            },
+            Op::LoadLocal(ready),
+        ]);
+        let mut absent = i.absent;
+        absent.extend(o.absent);
+        let mut cleanup = o.cleanup;
+        if !i.cleanup.is_empty() {
+            cleanup.extend([Op::LoadLocal(active), branch(i.cleanup, vec![])]);
+        }
+        outer.iteration = Iteration {
+            exact_len: None,
+            cleanup,
+            condition,
+            absent,
+            body: i.body,
+            step: i.step,
+            target: i.target,
+        };
+        outer.item = inner.item;
+        outer.pair = inner.pair;
+        outer.resources.extend(inner.resources);
+        outer.owned &= inner.owned;
+        Ok(outer)
     }
 
     fn pipeline_value_ops(&self, plan: &Pipeline) -> Vec<Op> {
@@ -1057,4 +1336,41 @@ impl Lower<'_> {
         self.cleanup(start, ops);
         Ok(result)
     }
+}
+
+/// Replace each `break` of `ops` that targets the enclosing loop. Breaks in
+/// nested loops belong to those loops.
+fn redirect_breaks(ops: Vec<Op>, replacement: &[Op]) -> Vec<Op> {
+    let nested = |ops: &[Op]| -> Arc<[Op]> { redirect_breaks(ops.to_vec(), replacement).into() };
+    let mut out = Vec::with_capacity(ops.len());
+    for op in ops {
+        match op {
+            Op::Break => out.extend(replacement.iter().cloned()),
+            Op::Match(arms) => out.push(Op::Match(
+                arms.iter()
+                    .map(|arm| MatchArm {
+                        pattern: arm.pattern,
+                        body: nested(&arm.body),
+                    })
+                    .collect(),
+            )),
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => out.push(Op::If {
+                then: nested(&then),
+                elifs: elifs
+                    .iter()
+                    .map(|arm| crate::op::ElifArm {
+                        condition: nested(&arm.condition),
+                        body: nested(&arm.body),
+                    })
+                    .collect(),
+                otherwise: nested(&otherwise),
+            }),
+            op => out.push(op),
+        }
+    }
+    out
 }

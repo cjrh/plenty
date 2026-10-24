@@ -1067,3 +1067,249 @@ def main() -> ():
         assert!(!dump.contains(absent), "{absent}\n{dump}");
     }
 }
+
+#[test]
+fn chain_yields_both_sides_in_order() {
+    output(
+        r#"
+def add(a: i64, b: i64) -> i64:
+    a + b
+def small(n: &i64) -> bool:
+    *n < 3
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2]?
+    ys = [3]?
+    for x in iter(&xs).chain(&ys):
+        print(*x)?
+    print(iter(range(3)).chain(range(10, 12)).fold(0, add))?
+    for n in iter(range(10)).take_while(small).chain(range(100, 102)).take(4):
+        print(n)?
+    for n in iter(range(6)).filter(def(n: &i64) -> bool: *n % 2 == 1).chain(range(0)):
+        print(n)?
+    print(iter(range(0)).chain(range(0)).count())?
+    Ok(())
+"#,
+        "1\n2\n3\n24\n0\n1\n2\n100\n1\n3\n5\n0\n",
+    );
+}
+
+#[test]
+fn chain_pairs_borrows_and_mutable_references() {
+    output(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2]?
+    mut ys = [3]?
+    for x in iter(&mut xs).chain(&mut ys):
+        *x += 10
+    print(xs, ys)?
+    names = ["a", "b"]?
+    more = ["c"]?
+    for i, s in iter(&names).enumerate().chain(iter(&more).enumerate(start=5)):
+        print(i, s)?
+    for a, b in zip(iter(range(2)).chain(range(7, 9)), iter(&names).chain(&more)):
+        print(a, b)?
+    counted: list[i64] = iter(range(3)).chain(range(7, 9)).map(def(n: i64) -> i64: n + 1).collect()?
+    print(counted)?
+    bounded: list[i64] = iter(range(9223372036854775807)).chain(range(10)).take(3).collect()?
+    print(bounded)?
+    rows = [[1, 2]?, [3]?]?
+    firsts: list[i64] = iter(&rows).flat_map(def(r: &list[i64]) -> list[i64]: [r[0]].unwrap()).collect()?
+    print(firsts)?
+    Ok(())
+"#,
+        "[11, 12] [13]\n0 a\n1 b\n5 c\n0 a\n1 b\n7 c\n[1, 2, 3, 8, 9]\n[0, 1, 2]\n[1, 3]\n",
+    );
+}
+
+#[test]
+fn chain_requires_the_same_item_type_and_keeps_both_loans() {
+    let error = support::check_source(
+        r#"
+def main() -> ():
+    print(iter(range(3)).chain(["a"].unwrap()).count()).unwrap()
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("chain requires both sides to yield the same item type"),
+        "{error}"
+    );
+    let error = support::check_source(
+        r#"
+def main() -> ():
+    mut xs = [1, 2].unwrap()
+    ys = [3].unwrap()
+    for x in iter(&ys).chain(&xs):
+        xs.append(*x).unwrap()
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("borrow"), "{error}");
+}
+
+#[test]
+fn flat_map_yields_each_inner_source_in_order() {
+    output(
+        r#"
+def twice(n: i64) -> list[i64]:
+    [n, n * 10].unwrap()
+def numbers(n: i64) -> Generator[i64]:
+    for i in range(n):
+        yield i * 100
+def words(n: i64) -> list[str]:
+    mut out = list[str]().unwrap()
+    for i in range(n):
+        out.append(f"w{n}.{i}".unwrap()).unwrap()
+    out
+def main() -> Result[(), AllocError | IoError]:
+    for n in iter(range(3)).flat_map(twice):
+        print(n)?
+    for n in iter(range(4)).flat_map(def(n: i64) -> range[i64]: range(n)).take(4):
+        print(n)?
+    print(iter(range(4)).flat_map(numbers).count())?
+    print(iter(range(5)).filter(def(n: &i64) -> bool: *n % 2 == 0).flat_map(words).count())?
+    for i, s in enumerate(iter(range(3)).flat_map(words).chain(["end"]?)):
+        print(i, s)?
+    for a, b in zip(iter(range(3)).flat_map(twice), iter(range(2)).flat_map(twice).skip(1)):
+        print(a, b)?
+    print(iter(range(10)).take(2).flat_map(twice).flat_map(twice).count())?
+    print(iter(range(5)).flat_map(numbers).find(def(n: &i64) -> bool: *n == 200))?
+    Ok(())
+"#,
+        "0\n0\n1\n10\n2\n20\n0\n0\n1\n0\n6\n6\n0 w1.0\n1 w2.0\n2 w2.1\n3 end\n0 0\n0 1\n1 10\n8\nOption[i64].Some(200)\n",
+    );
+}
+
+#[test]
+fn flat_map_releases_inner_sources_on_exhaustion_break_and_drop() {
+    output(
+        r#"
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print("drop", self.n).unwrap()
+def guards(n: i64) -> list[Guard]:
+    mut out = list[Guard]().unwrap()
+    for i in range(2):
+        out.append(Guard(n * 10 + i)).unwrap()
+    out
+def main() -> ():
+    for g in iter(range(1, 4)).flat_map(guards):
+        print("got", g.n).unwrap()
+        if g.n == 20:
+            break
+    print("after").unwrap()
+    p = iter(range(1, 3)).flat_map(guards)
+    drop(p)
+    print(iter(range(1, 3)).flat_map(guards).take(1).count()).unwrap()
+    print("done").unwrap()
+"#,
+        "got 10\ndrop 10\ngot 11\ndrop 11\ngot 20\ndrop 20\ndrop 21\nafter\ndrop 10\ndrop 11\n1\ndone\n",
+    );
+}
+
+#[test]
+fn flat_map_callbacks_must_return_owned_sources() {
+    for source in [
+        "def main() -> ():\n    print(iter(range(3)).flat_map(def(n: i64) -> i64: n).count()).unwrap()\n",
+        "def main() -> ():\n    print(iter(range(3)).flat_map(def(n: i64) -> Result[list[i64], AllocError]: [n]).count()).unwrap()\n",
+        "def same(row: &list[i64]) -> &list[i64]:\n    row\ndef main() -> ():\n    xs = [[1].unwrap()].unwrap()\n    print(iter(&xs).flat_map(same).count()).unwrap()\n",
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(
+            error.contains("flat_map callbacks must return an owned"),
+            "{source}\n{error}"
+        );
+    }
+}
+
+#[test]
+fn chain_and_flat_map_convert_to_generators() {
+    output(
+        r#"
+def twice(n: i64) -> list[i64]:
+    [n, n].unwrap()
+def build(n: i64) -> Generator[i64]:
+    iter(range(n)).flat_map(twice).chain(range(50, 52)).generator()
+def main() -> Result[(), AllocError | IoError]:
+    for n in build(2):
+        print(n)?
+    mut partial = build(3)
+    print(next(partial))?
+    drop(partial)
+    Ok(())
+"#,
+        "0\n0\n1\n1\n50\n51\nOption[i64].Some(0)\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn chain_and_flat_map_terminals_do_not_allocate() {
+    output(
+        r#"
+def add(a: i64, b: i64) -> i64:
+    a + b
+def main() -> ():
+    values = [1, 2, 3].unwrap()
+    more = [4].unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+    print("__test_begin_no_allocations__").unwrap()
+    a = iter(&values).chain(&more).map(def(n: &i64) -> i64: *n).fold(0, add)
+    b = iter(range(4)).flat_map(def(n: i64) -> range[i64]: range(n)).fold(0, add)
+    c = iter(range(3)).chain(range(5)).any(def(n: &i64) -> bool: *n == 4)
+    print("__test_end_no_allocations__").unwrap()
+    print("__test_restore_allocations__").unwrap()
+    print(a, b, c).unwrap()
+"#,
+        "__test_fail_allocations_after_0__\n__test_begin_no_allocations__\n__test_end_no_allocations__\n__test_restore_allocations__\n10 4 True\n",
+    );
+}
+
+#[test]
+fn chain_and_flat_map_have_no_adapter_dispatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("compose.plenty");
+    std::fs::write(
+        &source,
+        r#"
+def add(a: i64, b: i64) -> i64:
+    a + b
+def spread(n: i64) -> range[i64]:
+    range(n)
+def chained(values: &list[i64], n: i64) -> i64:
+    iter(values).map(def(v: &i64) -> i64: *v).chain(range(n)).fold(0, add)
+def flattened(n: i64) -> i64:
+    iter(range(n)).flat_map(spread).fold(0, add)
+def main() -> ():
+    values = [1, 2, 3].unwrap()
+    print(chained(&values, 4), flattened(5)).unwrap()
+"#,
+    )
+    .unwrap();
+    for function in ["chained", "flattened"] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .args(["--release", "--dump", "clif,asm", "--dump-filter", function])
+            .arg(&source)
+            .args(["-o", "-"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let dump = String::from_utf8(output.stdout).unwrap();
+        for absent in [
+            "call_indirect",
+            "plenty_collection_call",
+            "plenty_generator_resume",
+            "__plenty_fn_add",
+        ] {
+            assert!(!dump.contains(absent), "{function}: {absent}\n{dump}");
+        }
+    }
+}
