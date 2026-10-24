@@ -1313,3 +1313,40 @@ def main() -> ():
         }
     }
 }
+
+#[test]
+fn chain_terminals_split_per_side_and_keep_early_exits() {
+    // A terminal runs one loop per chain side; an early exit in the first
+    // loop must skip the second.
+    output(
+        r#"
+def add(a: i64, b: i64) -> i64:
+    a + b
+def small(n: &i64) -> bool:
+    *n < 3
+def check(n: i64) -> Result[(), str]:
+    if n == 11:
+        return Err("eleven")
+    Ok(())
+def main() -> Result[(), AllocError | IoError]:
+    print(iter(range(5)).chain(range(10, 15)).any(def(n: &i64) -> bool: *n == 2))?
+    print(iter(range(5)).chain(range(10, 15)).any(def(n: &i64) -> bool: *n == 12))?
+    print(iter(range(5)).chain(range(10, 15)).all(def(n: &i64) -> bool: *n < 12))?
+    print(iter(range(5)).chain(range(10, 15)).find(def(n: &i64) -> bool: *n > 3))?
+    print(iter(range(5)).chain(range(10, 15)).find(def(n: &i64) -> bool: *n > 13))?
+    print(iter(range(10)).take_while(small).chain(range(100, 103)).fold(0, add))?
+    print(iter(range(3)).chain(range(10, 13)).take(4).fold(0, add))?
+    print(iter(range(3)).chain(range(10, 13)).take(2).count())?
+    print(iter(range(2)).chain(range(5, 7)).chain(range(20, 22)).fold(0, add))?
+    print(iter(range(2)).chain(range(5, 7)).enumerate().map(def(i: i64, n: i64) -> i64: i * 100 + n).fold(0, add))?
+    words = ["a", "bb"]?
+    more = ["ccc"]?
+    print(iter(words).chain(more).map(def(s: str) -> i64: s.byte_len()).fold(0, add))?
+    print(iter(range(3)).chain(range(10, 13)).try_for_each(check).is_err())?
+    print(iter(range(3)).chain(range(10, 13)).reduce(add))?
+    print(iter(range(0)).chain(range(0)).reduce(add))?
+    Ok(())
+"#,
+        "True\nTrue\nFalse\nOption[i64].Some(4)\nOption[i64].Some(14)\n306\n13\n2\n53\n612\n6\nTrue\nOption[i64].Some(36)\nOption[i64].Nothing\n",
+    );
+}

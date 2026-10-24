@@ -281,8 +281,9 @@ Rules that keep callbacks predictable:
 - `zip` stops at the shorter input and tests the left side first, as today.
   `chain` requires both sides to have exactly the same item type.
 - `take_while` drops the first rejected item; there is no peeking.
-- `flat_map`'s callback must return an owned pipeline source (a list, range,
-  or generator). Returning a nested `Iter` is rejected by the same no-return
+- `flat_map`'s callback may return any owned iterable: a list, set,
+  dictionary, `str`, `bytes`, range, or generator, with the items a `for` loop
+  over it would yield. There are no per-type exceptions. Returning a nested `Iter` is rejected by the same no-return
   rule as any other pipeline. A callback may use an eligible explicit generator
   conversion, with the frame cost and ownership restrictions described above.
 

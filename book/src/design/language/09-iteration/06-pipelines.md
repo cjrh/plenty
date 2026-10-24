@@ -117,10 +117,11 @@ source is evaluated at construction but not advanced until the first ends. A
 the chain. An item borrowed from either side keeps both sources borrowed.
 
 `flat_map(f)` calls `f` for an outer item only when the previous inner source
-has ended. The callback must return an owned source: a list, set, dictionary,
-`str`, `bytes`, range, or generator. A reference, a `Result`, a non-iterable
-value, or a nested `Iter` is rejected; borrowed outer items are allowed, but
-the returned source may not borrow them. Each inner source is released as
+has ended. One rule applies: the callback returns any owned iterable (a list,
+set, dictionary, `str`, `bytes`, range, or generator), and `flat_map` emits its
+items as a `for` loop over that value would. A reference, a `Result`, a
+non-iterable value, or a nested `Iter` is rejected; borrowed outer items are
+allowed, but the returned source may not borrow them. Each inner source is released as
 soon as it ends, and an unfinished one is released when the consumer exits or
 the pipeline is dropped. Inner items are owned, so `flat_map` adds no loan.
 
@@ -168,7 +169,10 @@ generator source still pays its normal resume cost. Collecting reserves once
 for a known-length range or list pipeline containing only `map`, `take`,
 `skip`, `enumerate`, or `chain` of two known-length sides; a filter, zip,
 `flat_map`, or unknown-length source grows like a comprehension.
-`chain` adds one flag test per item. `flat_map` adds the callback call and
+A terminal over a `chain` runs one loop per side, so it tests no flag per
+item; when `zip` or `flat_map` follows the `chain`, and in `for` loops,
+`collect`, comprehensions, and generator conversion, one loop tests a flag per
+item. `flat_map` adds the callback call and
 the inner source's own setup per outer item: a list-returning callback
 allocates one list per outer item, while a range-returning callback allocates
 nothing.

@@ -23,6 +23,10 @@ pub(super) struct Pipeline {
     initialized: std::collections::BTreeSet<u8>,
     // Slots that construction leaves empty, such as `flat_map` inner state.
     empty: Vec<u8>,
+    // A `chain` flag that a terminal may split into one loop per side. Only
+    // single-source adapters may follow it: a `zip` or `flat_map` pull runs
+    // other side effects before the chain's condition.
+    split: Option<u8>,
     owned: bool,
     loans: Vec<usize>,
     depth: usize,
@@ -369,6 +373,7 @@ impl Lower<'_> {
             resources: vec![],
             initialized: Default::default(),
             empty: vec![],
+            split: None,
             owned,
             loans: vec![],
             depth: 0,
@@ -489,6 +494,7 @@ impl Lower<'_> {
     /// Adapter continues belong to this pull loop, not to the outer zip loop.
     /// Pair-valued arms must be packed before calling this helper.
     fn pipeline_pull(&mut self, plan: &mut Pipeline, at: &Token) -> Result<()> {
+        plan.split = None;
         let ready = self.slot(Ty::Bool, at)?;
         // The pending slot is initialized even on exhaustion. Extract the item
         // only in the outer body's successful path, just like generator next().
@@ -700,12 +706,19 @@ impl Lower<'_> {
         let switch = [Op::PushBool(true), Op::StoreLocal(second)];
         let mut left_ended = left.iteration.step.clone();
         left_ended.extend(switch.clone());
-        left_ended.push(Op::Continue);
+        // The flag is true here; a split first loop reads false and ends.
+        left_ended.extend([
+            Op::LoadLocal(second),
+            branch(vec![Op::Continue], vec![Op::Break]),
+        ]);
         let (l, r) = (left.iteration, right.iteration);
         let mut first_ended = r.absent.clone();
         first_ended.push(Op::PushBool(true));
         let mut first_exhausted = switch.to_vec();
-        first_exhausted.extend(r.condition.iter().cloned());
+        first_exhausted.extend([
+            Op::LoadLocal(second),
+            branch(r.condition.clone(), vec![Op::PushBool(false)]),
+        ]);
         let mut first = l.condition;
         first.push(branch(first_ended, first_exhausted));
         let mut later = l.absent.clone();
@@ -754,6 +767,7 @@ impl Lower<'_> {
         left.resources.extend(right.resources);
         left.initialized.extend(right.initialized);
         left.empty.extend(right.empty);
+        left.split = Some(second);
         left.owned &= right.owned;
         left.loans.extend(right.loans);
         left.loans.extend(chained_loans);
@@ -823,6 +837,7 @@ impl Lower<'_> {
             .collect();
         ops.extend(state.iter().copied().map(Op::EmptyLocal));
         outer.empty.extend(state.iter().copied());
+        outer.split = None;
         let mut release = inner.iteration.cleanup.clone();
         for &slot in &state {
             if self.locals[slot as usize - self.parameters].managed() {
@@ -1275,10 +1290,7 @@ impl Lower<'_> {
             }
         };
         body.extend(plan.iteration.step.clone());
-        ops.push(Op::Loop {
-            condition: plan.iteration.condition.clone().into(),
-            body: body.into(),
-        });
+        pipeline_loop(&plan, body, ops);
         if let Some((ty, slot)) = &output {
             ops.push(if ty.affine() {
                 Op::MoveLocal(*slot)
@@ -1336,6 +1348,75 @@ impl Lower<'_> {
         self.cleanup(start, ops);
         Ok(result)
     }
+}
+
+/// Emit the consumer loop. A split `chain` runs one loop per side, so neither
+/// tests the flag per item. The first loop ends with the flag set when its side
+/// is exhausted; a consumer `break` leaves it clear and skips the second loop.
+fn pipeline_loop(plan: &Pipeline, body: Vec<Op>, ops: &mut Vec<Op>) {
+    let condition = &plan.iteration.condition;
+    let Some(flag) = plan.split else {
+        ops.push(Op::Loop {
+            condition: condition.clone().into(),
+            body: body.into(),
+        });
+        return;
+    };
+    let side = |value| Op::Loop {
+        condition: specialize(condition, flag, value).into(),
+        body: specialize(&body, flag, value).into(),
+    };
+    ops.push(side(false));
+    ops.extend([Op::LoadLocal(flag), branch(vec![side(true)], vec![])]);
+}
+
+/// Resolve each `branch` on `flag` to its `value` arm.
+fn specialize(ops: &[Op], flag: u8, value: bool) -> Vec<Op> {
+    let nested = |ops: &[Op]| -> Arc<[Op]> { specialize(ops, flag, value).into() };
+    let mut out = Vec::with_capacity(ops.len());
+    let mut i = 0;
+    while i < ops.len() {
+        if let (Op::LoadLocal(slot), Some(Op::Match(arms))) = (&ops[i], ops.get(i + 1))
+            && *slot == flag
+            && let Some(arm) = arms.iter().find(|arm| arm.pattern == Pattern::Bool(value))
+        {
+            out.extend(specialize(&arm.body, flag, value));
+            i += 2;
+            continue;
+        }
+        out.push(match &ops[i] {
+            Op::Match(arms) => Op::Match(
+                arms.iter()
+                    .map(|arm| MatchArm {
+                        pattern: arm.pattern,
+                        body: nested(&arm.body),
+                    })
+                    .collect(),
+            ),
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => Op::If {
+                then: nested(then),
+                elifs: elifs
+                    .iter()
+                    .map(|arm| crate::op::ElifArm {
+                        condition: nested(&arm.condition),
+                        body: nested(&arm.body),
+                    })
+                    .collect(),
+                otherwise: nested(otherwise),
+            },
+            Op::Loop { condition, body } => Op::Loop {
+                condition: nested(condition),
+                body: nested(body),
+            },
+            op => op.clone(),
+        });
+        i += 1;
+    }
+    out
 }
 
 /// Replace each `break` of `ops` that targets the enclosing loop. Breaks in

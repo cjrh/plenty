@@ -132,8 +132,8 @@ def main() -> Result[(), AllocError | IoError]:
 
 Both lists stay borrowed until the fold ends. The `flat_map` callback runs
 once per batch, only after the previous batch's tickets are used up, and
-returns a range, so nothing is allocated. A callback must return an owned
-source such as a list, range or generator; returning a list allocates one list
+returns a range, so nothing is allocated. A callback may return any owned
+iterable, such as a list, range or generator; returning a list allocates one list
 per item.
 
 Keep a plain loop for several statements or error propagation, and use a
