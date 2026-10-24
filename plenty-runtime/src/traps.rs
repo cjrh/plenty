@@ -26,11 +26,21 @@ const REG_RIP: usize = 16;
 
 /// The header of the compiler's table, followed by `count` `ud2` addresses
 /// and then `count` `u32`s: each check's site record offset, with its kind in
-/// the low four bits.
+/// the low four bits. `sites` and the addresses are offsets from the field
+/// holding them, which the linker resolves; `sites` is zero for none.
 #[repr(C)]
 struct Table {
-    count: u64,
-    sites: *const u8,
+    count: u32,
+    sites: i32,
+}
+
+/// The address `field` holds as an offset from itself.
+///
+/// # Safety
+/// `field` must be readable.
+unsafe fn resolve(field: *const i32) -> usize {
+    // SAFETY: as the caller guarantees.
+    (field as usize).wrapping_add_signed(unsafe { *field } as isize)
 }
 
 const KIND_MASK: u32 = 15;
@@ -61,7 +71,7 @@ struct Context {
 
 const _: () = {
     assert!(size_of::<Action>() == 152);
-    assert!(size_of::<Table>() == 16);
+    assert!(size_of::<Table>() == 8);
     assert!(std::mem::offset_of!(Context, registers) == 40);
 };
 
@@ -108,22 +118,21 @@ pub(crate) unsafe extern "C" fn plenty_traps_register(table: *const c_void) {
 /// `table` must point to a header followed by its arrays.
 unsafe fn lookup(table: *const Table, address: usize) -> Option<(usize, *const Site, u64)> {
     // SAFETY: as the caller guarantees.
-    let (sites, addresses, entries) = unsafe {
+    let (sites, index, entries) = unsafe {
         let count = (*table).count as usize;
-        let addresses = table.add(1).cast::<usize>();
+        let addresses = table.add(1).cast::<i32>();
+        let sites = &raw const (*table).sites;
         (
-            (*table).sites,
-            std::slice::from_raw_parts(addresses, count),
-            std::slice::from_raw_parts(addresses.add(count).cast::<u32>(), count),
+            (*sites != 0).then(|| resolve(sites)),
+            (0..count).position(|i| resolve(addresses.add(i)) == address)?,
+            addresses.add(count).cast::<u32>(),
         )
     };
-    let index = addresses.iter().position(|&at| at == address)?;
-    let entry = entries[index];
-    let site = entry & !KIND_MASK;
-    let site = if site == NO_SITE || sites.is_null() {
-        std::ptr::null()
-    } else {
-        sites.wrapping_add(site as usize).cast()
+    // SAFETY: `index` is below the table's count.
+    let entry = unsafe { *entries.add(index) };
+    let site = match (entry & !KIND_MASK, sites) {
+        (NO_SITE, _) | (_, None) => std::ptr::null(),
+        (site, Some(sites)) => sites.wrapping_add(site as usize) as *const Site,
     };
     let kind = entry & KIND_MASK;
     let helper = match kind {
@@ -175,36 +184,44 @@ mod tests {
     #[repr(C)]
     struct Fixture {
         table: Table,
-        addresses: [usize; 3],
+        addresses: [i32; 3],
         entries: [u32; 3],
+    }
+
+    /// `target` as an offset from `field`.
+    fn offset(field: *const i32, target: usize) -> i32 {
+        i32::try_from(target.wrapping_sub(field as usize) as isize).unwrap()
     }
 
     #[test]
     fn lookup_maps_each_kind_and_site() {
         let sites = [0u8; 64];
-        let fixture = Fixture {
-            table: Table {
-                count: 3,
-                sites: sites.as_ptr(),
-            },
-            addresses: [0x1000, 0x2000, 0x3000],
+        let code = [0u8; 3];
+        let at = |i: usize| code.as_ptr() as usize + i;
+        let mut fixture = Box::new(Fixture {
+            table: Table { count: 3, sites: 0 },
+            addresses: [0; 3],
             entries: [16, NO_SITE | 5, 4],
-        };
-        let table = (&raw const fixture).cast::<Table>();
+        });
+        fixture.table.sites = offset(&raw const fixture.table.sites, sites.as_ptr() as usize);
+        for i in 0..3 {
+            fixture.addresses[i] = offset(&raw const fixture.addresses[i], at(i));
+        }
+        let table = (&raw const *fixture).cast::<Table>();
         // SAFETY: the fixture is a header followed by its arrays.
         let lookup = |address| unsafe { lookup(table, address) };
-        let (helper, site, option) = lookup(0x1000).unwrap();
+        let (helper, site, option) = lookup(at(0)).unwrap();
         assert_eq!(
             helper,
             crate::io::plenty_trap_overflow as *const () as usize
         );
         assert_eq!(site.cast::<u8>(), sites.as_ptr().wrapping_add(16));
         assert_eq!(option, 0);
-        let (helper, site, option) = lookup(0x2000).unwrap();
+        let (helper, site, option) = lookup(at(1)).unwrap();
         assert_eq!(helper, crate::io::plenty_trap_unwrap as *const () as usize);
         assert!(site.is_null());
         assert_eq!(option, 1);
-        assert_eq!(lookup(0x3000).unwrap().2, 0);
-        assert!(lookup(0x1001).is_none());
+        assert_eq!(lookup(at(2)).unwrap().2, 0);
+        assert!(lookup(at(2) + 1).is_none());
     }
 }

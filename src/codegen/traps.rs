@@ -20,12 +20,14 @@
 //! Libraries and `--fuzz` builds keep the calls: a library leaves signal
 //! dispositions to its host, and libFuzzer claims `SIGILL` itself.
 //!
-//! Layout, matching `Table` in the runtime's `traps.rs`: a `u64` entry count,
-//! the address of the object's site table (or zero), each entry's `ud2`
-//! address, then each entry's `u32` site record offset in the site table
-//! ([`NO_SITE`] for none) with its [`kind`] in the low four bits, which a
-//! record's sixteen-byte alignment leaves free. Twelve bytes per check, never
-//! read unless a check fails.
+//! Layout, matching `Table` in the runtime's `traps.rs`: a `u32` entry count,
+//! the object's site table (or zero), each entry's `ud2`, then each entry's
+//! `u32` site record offset in the site table ([`NO_SITE`] for none) with its
+//! [`kind`] in the low four bits, which a record's sixteen-byte alignment
+//! leaves free. The site table and `ud2` fields are `i32` offsets from the
+//! field itself. Eight bytes per `ud2`, never read unless a check fails.
+//! Release builds give each conditional trap its own `ud2`, so checks that
+//! share a block in CLIF can have several entries.
 use super::*;
 use crate::hash::HashSet;
 use cranelift_codegen::MachTrap;
@@ -37,7 +39,7 @@ use cranelift_module::{ModuleReloc, ModuleRelocTarget};
 const FIRST_CODE: u8 = 4;
 /// Cranelift reserves the codes above this.
 const LAST_CODE: u8 = 250;
-const HEADER: usize = 16;
+const HEADER: usize = 8;
 pub(super) const NO_SITE: u32 = !KIND_MASK;
 const KIND_MASK: u32 = 15;
 
@@ -200,30 +202,83 @@ impl Table {
 
     /// Defines the table, once every function is placed. `sites` is the
     /// object's site table, if it has one.
-    pub(super) fn define(mut self, module: &mut ObjectModule, sites: Option<DataId>) -> Result<()> {
+    /// Writes the table's bytes; [`Placed::relocate`] fills in its
+    /// addresses once the object holds every symbol.
+    pub(super) fn define(
+        mut self,
+        module: &mut ObjectModule,
+        sites: Option<DataId>,
+    ) -> Result<Placed> {
         let reached = self.reachable(module);
         self.entries
             .retain(|(function, _, _)| reached.contains(function));
-        let mut bytes = Vec::with_capacity(HEADER + self.entries.len() * 12);
-        bytes.extend((self.entries.len() as u64).to_ne_bytes());
-        bytes.extend(0u64.to_ne_bytes());
-        let mut description = DataDescription::new();
-        if let Some(sites) = sites {
-            let table = description.import_global_value(ModuleRelocTarget::user(1, sites.as_u32()));
-            description.write_data_addr(8, table, 0);
-        }
+        let count = u32::try_from(self.entries.len())?;
+        let mut bytes = Vec::with_capacity(HEADER + self.entries.len() * 8);
+        bytes.extend(count.to_ne_bytes());
+        bytes.extend(0u32.to_ne_bytes());
+        let mut addresses = Vec::with_capacity(self.entries.len());
         for (i, &(function, offset, _)) in self.entries.iter().enumerate() {
-            bytes.extend(0u64.to_ne_bytes());
-            let target =
-                description.import_global_value(ModuleRelocTarget::user(0, function.as_u32()));
-            description.write_data_addr(u32::try_from(HEADER + i * 8)?, target, i64::from(offset));
+            bytes.extend(0u32.to_ne_bytes());
+            addresses.push((u64::try_from(HEADER + i * 4)?, function, i64::from(offset)));
         }
         for &(_, _, site) in &self.entries {
             bytes.extend(site.to_ne_bytes());
         }
+        let mut description = DataDescription::new();
         description.define(bytes.into_boxed_slice());
-        description.set_align(8);
+        description.set_align(4);
         module.define_data(self.data, &description)?;
+        Ok(Placed {
+            data: self.data,
+            sites,
+            addresses,
+        })
+    }
+}
+
+/// A defined table whose addresses still need relocations.
+pub(super) struct Placed {
+    data: DataId,
+    sites: Option<DataId>,
+    /// `(field offset, function, ud2 offset in it)`.
+    addresses: Vec<(u64, FuncId, i64)>,
+}
+
+impl Placed {
+    /// Adds a 32-bit PC-relative relocation for each address. Cranelift's
+    /// data descriptions only write absolute addresses, which a PIE would
+    /// relocate at every start; these resolve at link time, so the table
+    /// stays in `.rodata` and is never touched unless a check fails.
+    pub(super) fn relocate(self, product: &mut cranelift_object::ObjectProduct) -> Result<()> {
+        use cranelift_object::object::write::{Relocation, SymbolSection};
+        use cranelift_object::object::{RelocationEncoding, RelocationFlags, RelocationKind};
+        let table = product.object.symbol(product.data_symbol(self.data));
+        let SymbolSection::Section(section) = table.section else {
+            return Err("the check table has no section".into());
+        };
+        let base = table.value;
+        let flags = RelocationFlags::Generic {
+            kind: RelocationKind::Relative,
+            encoding: RelocationEncoding::Generic,
+            size: 32,
+        };
+        let sites = self.sites.map(|sites| (4, product.data_symbol(sites), 0));
+        let addresses = self
+            .addresses
+            .into_iter()
+            .map(|(field, function, offset)| (field, product.function_symbol(function), offset));
+        let relocations: Vec<_> = sites.into_iter().chain(addresses).collect();
+        for (field, symbol, addend) in relocations {
+            product.object.add_relocation(
+                section,
+                Relocation {
+                    offset: base + field,
+                    symbol,
+                    addend,
+                    flags,
+                },
+            )?;
+        }
         Ok(())
     }
 }

@@ -205,10 +205,14 @@ impl Output {
         }
         let sites = self.sites.data();
         self.sites.define(&mut self.module)?;
-        if let Some(traps) = self.traps {
-            traps.define(&mut self.module, sites)?;
-        }
+        let traps = match self.traps {
+            Some(traps) => Some(traps.define(&mut self.module, sites)?),
+            None => None,
+        };
         let mut product = self.module.finish();
+        if let Some(traps) = traps {
+            traps.relocate(&mut product)?;
+        }
         // GNU ld honours SHF_GNU_RETAIN, which keeps a library's interface
         // section through `--gc-sections`, only in GNU OSABI objects, as GNU
         // as marks them. Cranelift writes the System V OSABI.
