@@ -92,10 +92,15 @@ pub(super) fn prepare(
     mut functions: Vec<Function>,
     aliases: &TypeAliases,
     protocols: Vec<protocols::Protocol>,
+    kept: &[&Function],
     table: &mut functions::Functions,
 ) -> Result<(Engine, Vec<Signature>)> {
     aliases.validate_data_bounds()?;
     functions.extend(aliases.data.factories());
+    let mut retention = retention::Retention::new(&functions, aliases);
+    for f in kept {
+        retention.keep(&f.body);
+    }
     let mut declarations = HashMap::default();
     let conflict = |protocol: &protocols::Protocol| {
         protocol.at.error(format!(
@@ -177,6 +182,7 @@ pub(super) fn prepare(
         source_root: None,
         standard_sources: HashSet::default(),
         source_facts: None,
+        retention,
     };
     for f in functions {
         if table.declared(&f.name).is_some()
@@ -196,6 +202,7 @@ pub(super) fn prepare(
             }
             engine.validate_template(&f, aliases)?;
             engine.record_defaults(&f);
+            engine.retention.template(&f);
             engine.templates.insert(f.name.clone(), Arc::new(f));
             engine.specializable += 1;
         }
@@ -258,6 +265,7 @@ pub(super) struct Engine {
     /// arrive module by module, so this spares a path copy and a path hash
     /// per function.
     source_facts: Option<(Arc<str>, Arc<str>, bool)>,
+    pub(super) retention: retention::Retention,
 }
 
 /// What later calls need from a concrete function after it joined the queue.
@@ -299,6 +307,7 @@ impl Engine {
     }
     fn record_defaults(&mut self, f: &Function) {
         if f.defaults.iter().any(Option::is_some) {
+            self.retention.keep_defaults(&f.defaults);
             self.defaults.insert(f.name.clone(), f.defaults.clone());
         }
     }
@@ -310,6 +319,7 @@ impl Engine {
     ) -> functions::Symbol {
         self.record_defaults(f);
         let symbol = table.intern(&f.name);
+        self.retention.record(symbol, f);
         table.declare(
             symbol,
             Declared {
@@ -1156,6 +1166,11 @@ impl Engine {
         access: &modules::AccessMap,
         parent: &str,
     ) -> Result<(String, Option<(Function, String)>)> {
+        if self.retention.released(name) {
+            return Err(at.error(format!(
+                "internal error: `{name}` was released while a call to it remained"
+            )));
+        }
         let template = self
             .templates
             .get(name)

@@ -49,6 +49,7 @@ mod patterns;
 mod pipelines;
 mod protocols;
 mod references;
+mod retention;
 mod shared;
 mod sorting;
 mod tail_calls;
@@ -1236,6 +1237,7 @@ struct Parser {
     scratch_stmts: Vec<Stmt>,
     scratch_exprs: Vec<Expr>,
     scratch_inputs: Vec<(String, TypeRef)>,
+    scratch_type_params: Vec<(String, Option<TypeRef>)>,
 }
 impl Parser {
     /// A parser for a module whose tokens name `origin` as their source file.
@@ -1261,6 +1263,7 @@ impl Parser {
             scratch_stmts: Vec::new(),
             scratch_exprs: Vec::new(),
             scratch_inputs: Vec::new(),
+            scratch_type_params: Vec::new(),
         }
     }
     /// Runs `parse`, which pushes a list's elements onto the scratch stack
@@ -1555,27 +1558,32 @@ impl Parser {
         })
     }
     fn type_parameters(&mut self) -> Result<Vec<(String, Option<TypeRef>)>> {
-        let mut params = Vec::new();
-        if self.eat("[") {
-            loop {
-                let at = self.peek().clone();
-                let name = self.name()?;
-                if builtin(&name) || params.iter().any(|(n, _)| n == &name) {
-                    return Err(at.error("duplicate or builtin type parameter"));
-                }
-                let bound = if self.eat(":") {
-                    Some(self.ty()?)
-                } else {
-                    None
-                };
-                params.push((name, bound));
-                if self.eat("]") {
-                    break;
-                }
-                self.expect(",")?;
-            }
+        if !self.eat("[") {
+            return Ok(Vec::new());
         }
-        Ok(params)
+        self.exact_list(
+            |p| &mut p.scratch_type_params,
+            |p| {
+                let base = p.scratch_type_params.len();
+                loop {
+                    let at = p.peek().clone();
+                    let name = p.name()?;
+                    if builtin(&name)
+                        || p.scratch_type_params[base..]
+                            .iter()
+                            .any(|(n, _)| n == &name)
+                    {
+                        return Err(at.error("duplicate or builtin type parameter"));
+                    }
+                    let bound = if p.eat(":") { Some(p.ty()?) } else { None };
+                    p.scratch_type_params.push((name, bound));
+                    if p.eat("]") {
+                        return Ok(());
+                    }
+                    p.expect(",")?;
+                }
+            },
+        )
     }
     fn alias(&mut self) -> Result<TypeAlias> {
         let at = self.take(); // type
@@ -1629,29 +1637,17 @@ impl Parser {
                 self.expect(",")?;
             }
         }
-        let mut type_params = Vec::new();
-        if !anonymous && self.eat("[") {
-            if class.is_some() && matches!(name.as_str(), "__init__" | "__del__") {
+        let type_params = if anonymous {
+            Vec::new()
+        } else {
+            if class.is_some()
+                && matches!(name.as_str(), "__init__" | "__del__")
+                && self.peek().is("[")
+            {
                 return Err(at.error("lifecycle methods cannot declare their own type parameters"));
             }
-            loop {
-                let param_at = self.peek().clone();
-                let param = self.name()?;
-                if builtin(&param) || type_params.iter().any(|(n, _)| n == &param) {
-                    return Err(param_at.error("duplicate or builtin type parameter"));
-                }
-                let bound = if self.eat(":") {
-                    Some(self.ty()?)
-                } else {
-                    None
-                };
-                type_params.push((param, bound));
-                if self.eat("]") {
-                    break;
-                }
-                self.expect(",")?;
-            }
-        }
+            self.type_parameters()?
+        };
         self.expect("(")?;
         // Empty unless a parameter has a default; then aligned with inputs.
         let mut defaults = Vec::new();
@@ -5625,7 +5621,9 @@ fn lower_body(
                     .map(|(_, t)| t.clone())
                     .collect::<Vec<_>>();
                 generics.active.remove(&symbol);
-                sigs.complete(symbol, &sig);
+                if sigs.complete(symbol, &sig) {
+                    generics.retention.complete(symbol, &mut generics.templates);
+                }
                 generics.compiled.push(Op::DefineFn(
                     f.name.clone(),
                     Box::new(CompiledFn {
@@ -5851,7 +5849,9 @@ fn lower_body(
             locals: lower.locals.into(),
         };
         generics.active.remove(&symbol);
-        sigs.complete(symbol, &compiled.sig);
+        if sigs.complete(symbol, &compiled.sig) {
+            generics.retention.complete(symbol, &mut generics.templates);
+        }
         generics
             .compiled
             .push(Op::DefineFn(f.name.clone(), Box::new(compiled)));
@@ -5909,24 +5909,27 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     } = resolved;
     let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
     modules::check_api(&public_api, &aliases, &access)?;
-    functions.extend(enums::expand(
-        enums
-            .into_iter()
-            .filter(|e| e.type_params.is_empty())
-            .collect(),
-        &aliases,
-    )?);
-    functions.extend(classes::expand(
-        classes
-            .into_iter()
-            .filter(|c| c.type_params.is_empty())
-            .collect(),
-        &aliases,
-    )?);
+    let (concrete_enums, generic_enums): (Vec<_>, Vec<_>) =
+        enums.into_iter().partition(|e| e.type_params.is_empty());
+    let (concrete_classes, generic_classes): (Vec<_>, Vec<_>) =
+        classes.into_iter().partition(|c| c.type_params.is_empty());
+    functions.extend(enums::expand(concrete_enums, &aliases)?);
+    functions.extend(classes::expand(concrete_classes, &aliases)?);
     // One entry per function: sized up front, the table is not rehashed key by
     // key at every doubling while the program is lowered (issue #57).
     let mut sigs = functions::Functions::with_capacity(functions.len());
-    let (mut generics, prepared) = generics::prepare(functions, &aliases, protocols, &mut sigs)?;
+    // Generic data methods are expanded from the type tables' copies of these
+    // declarations whenever an instance is created, so the generic functions
+    // they call keep their bodies.
+    let kept: Vec<&Function> = generic_enums
+        .iter()
+        .flat_map(|e| &e.methods)
+        .chain(generic_classes.iter().flat_map(|c| &c.methods))
+        .collect();
+    let (mut generics, prepared) =
+        generics::prepare(functions, &aliases, protocols, &kept, &mut sigs)?;
+    drop(kept);
+    drop((generic_enums, generic_classes));
     generics.source_root = source_root;
     generics.standard_sources = standard_sources;
     while !generics.expand_data(&aliases, &mut sigs)?.is_empty() {}

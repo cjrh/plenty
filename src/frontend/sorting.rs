@@ -10,6 +10,7 @@ impl Lower<'_> {
             let mut function = modules::generated_interface(source)?.functions.remove(0);
             function.name = name.into();
             self.generics.validate_template(&function, self.aliases)?;
+            self.generics.retention.keep(&function.body);
             self.generics
                 .templates
                 .insert(name.into(), Arc::new(function));
