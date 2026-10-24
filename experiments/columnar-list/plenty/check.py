@@ -128,12 +128,18 @@ def main() -> Result[(), AllocError]:
     run(compiler, directory, "pipeline_blocks_set", """
 def main() -> Result[(), AllocError]:
     mut items = ClistParticle()?
-    column = items.column_x()
-    values = iter(column)
+    values = iter(items.column_x())
     items.set_x(0, 10)
     drop(values.count())
     Ok(())
 """, rejection="borrow")
+    run(compiler, directory, "direct_column", """
+def main() -> Result[(), AllocError | IoError | AppendParticleError]:
+    mut items = ClistParticle()?
+    items.append(Particle(1, 2, 3, 4, 5, 6, 7, 8))?
+    print(iter(items.column_x()).count())?
+    Ok(())
+""", "1")
     run(compiler, directory, "private_storage", """
 def main() -> Result[(), AllocError]:
     mut items = ClistParticle()?

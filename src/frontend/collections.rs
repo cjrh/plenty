@@ -4,6 +4,15 @@ use crate::collection_opcodes as opcode;
 
 const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowed KeyView values; use view.to_set(), dictionary.keys_snapshot(), or [*key for key in view]";
 
+/// Per-loop metadata for immutable shared list references already in scope.
+/// Owned lists, exclusive references and retargetable bindings deliberately
+/// keep ordinary indexed access: their storage can change inside the loop.
+pub(super) struct IndexedLists {
+    before: usize,
+    views: HashMap<u8, [u8; 3]>,
+    setup: Vec<Op>,
+}
+
 /// Only literal i64 progressions: evaluating or skipping these elements has no
 /// effects, traps, borrows, or destructors. Reuse counted loops without building
 /// a collection or a stack array. Other displays retain eager materialization.
@@ -1310,7 +1319,7 @@ impl Lower<'_> {
         let iterable = ungroup(iterable);
         let mut borrowed = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(..))));
-        let mutable = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&mut")
+        let mut mutable = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&mut")
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(_, true))));
         let range_expr = match &iterable.kind {
             Expression::Try(inner) => ungroup(inner),
@@ -1380,7 +1389,20 @@ impl Lower<'_> {
             }
             ((*ty).clone(), vec![loan])
         } else {
-            (self.value(iterable, ops)?, vec![])
+            let (ty, loan) = self.binding_value(iterable, None, ops)?;
+            if let Ty::Ref(inner, writable) = ty {
+                borrowed = true;
+                mutable = writable;
+                if !matches!(*inner, Ty::List(_)) {
+                    ops.push(Op::ReadRef((*inner).clone()));
+                }
+                (
+                    (*inner).clone(),
+                    vec![loan.expect("reference value has an origin")],
+                )
+            } else {
+                (ty, loan.into_iter().collect())
+            }
         };
         if matches!(ty, Ty::KeyView(_)) {
             borrowed = true;
@@ -2060,9 +2082,15 @@ impl Lower<'_> {
             ..
         } = self.iteration(name, iterable, None, ops)?;
         self.building(&iterable.at, iterable_start, ops, false);
+        self.indexed_lists.push(IndexedLists {
+            before: self.parameters + start,
+            views: HashMap::default(),
+            setup: Vec::new(),
+        });
         self.loop_steps.push(step.clone());
         self.loop_scopes.push(self.locals.len());
         let result = self.block(statements, &mut body, &Tail::Discard);
+        ops.extend(self.indexed_lists.pop().unwrap().setup);
         self.loop_steps.pop();
         self.loop_scopes.pop();
         self.names = saved;
@@ -2076,6 +2104,57 @@ impl Lower<'_> {
         ops.extend(cleanup);
         self.cleanup(start, ops);
         Ok(())
+    }
+
+    fn indexed_list_view(&mut self, base: &Expr, ty: &Ty) -> Result<Option<[u8; 3]>> {
+        let Expression::Name(name) = &ungroup(base).kind else {
+            return Ok(None);
+        };
+        let Some(local) = self.names.get(name) else {
+            return Ok(None);
+        };
+        let source = local.slot;
+        let Some(context) = self.indexed_lists.last() else {
+            return Ok(None);
+        };
+        if usize::from(source) >= context.before
+            || local.mutable
+            || self.captures.contains(name)
+            || self.yield_type.is_some()
+            || !matches!(&local.ty, Ty::Ref(inner, false) if matches!(&**inner, Ty::List(element) if element.is_numeric() || **element == Ty::Bool))
+        {
+            return Ok(None);
+        }
+        if let Some(view) = context.views.get(&source) {
+            return Ok(Some(*view));
+        }
+        let view = [
+            self.slot(Ty::I64, &base.at)?,
+            self.slot(Ty::I64, &base.at)?,
+            self.slot(Ty::I64, &base.at)?,
+        ];
+        let mut setup = Vec::new();
+        self.mark(&base.at, &mut setup);
+        let (_, loan) = self.borrow(base, false, &mut setup)?;
+        setup.extend([
+            Op::Collection(CollectionOp::ListLenRef(ty.clone())),
+            Op::StoreLocal(view[0]),
+            Op::UseLoan(loan),
+        ]);
+        for (operation, slot) in [
+            (CollectionOp::ListRowsRef(ty.clone()), view[1]),
+            (CollectionOp::ListRowBytesRef(ty.clone()), view[2]),
+        ] {
+            setup.extend([
+                Op::LoadLocal(source),
+                Op::Collection(operation),
+                Op::StoreLocal(slot),
+            ]);
+        }
+        let context = self.indexed_lists.last_mut().unwrap();
+        context.views.insert(source, view);
+        context.setup.extend(setup);
+        Ok(Some(view))
     }
 
     pub(super) fn index(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
@@ -2116,11 +2195,19 @@ impl Lower<'_> {
         if let Some(ty @ Ty::List(_)) = self.place_type(base) {
             let value = ty.element().unwrap();
             if value.is_numeric() || value == Ty::Bool {
+                let view = self.indexed_list_view(base, &ty)?;
                 let (_, loan) = self.borrow(base, false, ops)?;
+                if let Some(view) = view {
+                    ops.extend(view.into_iter().map(Op::LoadLocal));
+                }
                 let (got, mut reads) = self.observe_expected(index, Some(Ty::I64), ops)?;
                 self.same(Some(got), Some(Ty::I64), &index.at)?;
                 self.mark(&e.at, ops);
-                ops.push(Op::Collection(CollectionOp::ListScalarGetRef(ty)));
+                ops.push(Op::Collection(if view.is_some() {
+                    CollectionOp::ListScalarGetView(ty)
+                } else {
+                    CollectionOp::ListScalarGetRef(ty)
+                }));
                 reads.push(loan);
                 Self::end_reads(reads, ops);
                 return Ok(value);

@@ -443,6 +443,50 @@ impl Lowerer<'_, '_> {
             self.stack.push((armed, Ty::Bool));
             return Ok(());
         }
+        if let CollectionOp::ListScalarGetView(ty) = operation {
+            let (index, _) = self.pop_typed(Ty::I64)?;
+            let (stride, _) = self.pop_typed(Ty::I64)?;
+            let (rows, _) = self.pop_typed(Ty::I64)?;
+            let (length, _) = self.pop_typed(Ty::I64)?;
+            let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
+            // Length is nonnegative and at most isize::MAX. Adding it to a
+            // negative i64 cannot overflow; unsigned comparison rejects both
+            // still-negative indices and positive indices past the end.
+            let negative = self.bcx.ins().icmp_imm(IntCC::SignedLessThan, index, 0);
+            let adjusted = self.bcx.ins().iadd(index, length);
+            let normalized = self.bcx.ins().select(negative, adjusted, index);
+            let invalid =
+                self.bcx
+                    .ins()
+                    .icmp(IntCC::UnsignedGreaterThanOrEqual, normalized, length);
+            let failure = self.bcx.create_block();
+            let valid = self.bcx.create_block();
+            self.bcx.ins().brif(invalid, failure, &[], valid, &[]);
+            self.bcx.switch_to_block(failure);
+            self.bcx.set_cold_block(failure);
+            let owner = self.reference_word(receiver);
+            let site = self.trap_site()?;
+            let helper = self
+                .module
+                .declare_func_in_func(self.runtime.list_scalar_get, self.bcx.func);
+            self.bcx.ins().call(helper, &[owner, index, site]);
+            self.bcx.ins().trap(TrapCode::unwrap_user(3));
+            self.bcx.seal_block(failure);
+            self.bcx.switch_to_block(valid);
+            self.bcx.seal_block(valid);
+            let offset = self.bcx.ins().imul(normalized, stride);
+            let address = self.bcx.ins().iadd(rows, offset);
+            let bits = self.bcx.ins().load(
+                types::I64,
+                cranelift_codegen::ir::MemFlags::trusted(),
+                address,
+                0,
+            );
+            let element = ty.element().unwrap();
+            let result = self.unpack(bits, &element);
+            self.stack.push((result, element));
+            return Ok(());
+        }
         if let CollectionOp::ListScalarSetRef(ty) = operation {
             let element = ty.element().unwrap();
             let (value, _) = self.pop_typed(element.clone())?;

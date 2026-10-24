@@ -27,6 +27,26 @@ consumes the pipeline, in source order. `fold` starts at zero and passes the
 accumulator and each amount to `add`. The payments remain available afterwards.
 Trying to consume `selected` again is an ownership error.
 
+A method returning a borrowed list can be used directly as the source. Its
+owner remains borrowed while the pipeline is in use:
+
+```plenty
+class Readings:
+    values: list[i64]
+
+    def samples(self) -> &list[i64]:
+        &self.values
+
+def main() -> Result[(), AllocError | IoError]:
+    readings = Readings([10, 20, 30]?)
+    total = iter(readings.samples()).fold(0, def(acc: i64, n: &i64) -> i64: acc + *n)
+    print(total)?
+    Ok(())
+```
+```output
+60
+```
+
 Predicates borrow each item; `map` receives whatever the source yields. A
 borrowed list yields references, so the map above takes `&Payment`. A range
 yields integers by value:

@@ -1,4 +1,4 @@
-# Known iteration limitation: bind result = column(&values), then iter(result).
+# Regression for issue #427: consume a returned list reference directly.
 def column(values: &list[i64]) -> &list[i64]:
     values
 

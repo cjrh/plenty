@@ -14,7 +14,7 @@ for arbitrary Plenty source. Source field names and declaration order survive.
 
 The generated operations are `len`, `reserve(additional)`, `append(row)`,
 `copy_row(index)`, and `get_FIELD`, `set_FIELD`, `column_FIELD`. Column methods
-return ordinary shared list references; bind these to locals before `iter`.
+return ordinary shared list references, usable directly with `iter` or a loop.
 They borrow the entire container, so mutation through its methods is forbidden
 until the loan ends. Storage fields are private to the generated module.
 There is no fabricated row reference, direct object indexing, field selector,
@@ -59,9 +59,12 @@ indexes them directly, separating reconstruction from indexed-access overhead.
 No SIMD, LLVM, hardware counters, cache flushing or non-x86 execution is used.
 
 `measurements.json` preserves the 2026-10-24 samples reported in the proposal.
-`reject-direct-column.plenty` reproduces issue #427; it is a current limitation,
-not a permanent rejection contract. Issue #429 records the indexed-loop
-runtime-call cost found in `stream`.
+`direct-column.plenty` is the positive regression for issue #427. Issue #429's
+follow-up adds checked direct indexing for immutable borrowed scalar columns
+inside ordinary `for` loops; the original measurements remain historical.
+`indexed-measurements.json` preserves the sequential before/after follow-up:
+the large `stream` scan improved about 4.2×, with a larger generated function.
+Bounds remain per-column; this does not optimize `copy_row` reconstruction.
 
 For a standalone generated module:
 

@@ -30,8 +30,11 @@ one frame resume.
 Consuming list iteration transfers affine elements. `for item in &list`
 preserves the list and always yields `&T`, including scalars and strings.
 `for item in &mut list` yields `&mut T`, including scalar elements.
-Existing collection references follow the same access mode. Loans last
-through the loop, including backedges, and protect the source against
+Existing collection references follow the same access mode. This includes
+direct reference-returning calls: `for item in owner.column()`
+and `iter(owner.column())` need no intermediate reference binding. The call
+runs once when the source is prepared, and its returned loan protects the owner
+through the loop, including backedges, against
 invalidating mutation, movement, or destruction. Element loans follow the
 [borrowing rules](../05-ownership/02-borrowing.md): only distinct literal list
 indices are disjoint. Iteration

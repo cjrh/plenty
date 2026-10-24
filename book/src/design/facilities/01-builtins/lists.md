@@ -5,6 +5,12 @@ Lists use the [common collection rules](collections.md). Growth through
 nothing and traps on a missing index. Lists have no `*` repetition; a
 comprehension such as `[0.0 for _ in range(count)]?` builds repeated elements.
 
+Inside ordinary `for` loops, scalar indexing through immutable shared list
+references already in scope uses cached row metadata and checked direct loads.
+Each list keeps its own bounds check, including negative-index normalization;
+unrelated lists need not have equal lengths. Owned lists, exclusive or
+retargetable references, and generator bodies keep ordinary indexed access.
+
 ## Lookup and removal
 
 | Operation | Result | Behavior |

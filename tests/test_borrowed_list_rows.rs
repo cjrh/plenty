@@ -4,6 +4,66 @@
 //! through `&mut`, returning an element, and nested and non-scalar rows.
 mod support;
 
+#[test]
+fn returned_list_references_are_direct_iteration_sources() {
+    support::assert_visible_stdout(
+        r#"
+class Columns:
+    values: list[i64]
+    def column(self) -> &list[i64]:
+        &self.values
+def column(values: &list[i64]) -> &list[i64]:
+    values
+def writable(values: &mut list[i64]) -> &mut list[i64]:
+    values
+def make() -> list[i64]:
+    [8, 9].unwrap()
+mut values = [1, 2, 3].unwrap()
+print(iter(column(&values)).count()).unwrap()
+for value in writable(&mut values):
+    *value *= 2
+for value in reversed(column(&values)):
+    print(*value).unwrap()
+items = Columns([4, 5].unwrap())
+print(iter(items.column()).fold(0, def(a: i64, b: &i64) -> i64: a + *b)).unwrap()
+for a, b in zip(column(&values), items.column()):
+    print(*a + *b).unwrap()
+for value in column(&make()):
+    print(*value).unwrap()
+"#,
+        "3\n6\n4\n2\n9\n6\n9\n8\n9",
+    );
+}
+
+#[test]
+fn returned_iterator_sources_hold_the_owner_loan() {
+    for action in ["values.append(4).unwrap()", "drop(values)"] {
+        let source = format!(
+            r#"
+def column(values: &list[i64]) -> &list[i64]:
+    values
+mut values = [1, 2, 3].unwrap()
+pipeline = iter(column(&values))
+{action}
+print(pipeline.count()).unwrap()
+"#
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("borrow"), "{error}");
+    }
+    support::assert_visible_stdout(
+        r#"
+def column(values: &list[i64]) -> &list[i64]:
+    values
+def make() -> list[i64]:
+    [1].unwrap()
+pipeline = iter(column(&make()))
+print(pipeline.count()).unwrap()
+"#,
+        "1",
+    );
+}
+
 use std::path::Path;
 use std::process::Command;
 
