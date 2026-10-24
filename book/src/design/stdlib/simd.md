@@ -19,6 +19,19 @@ collections under the ordinary enum rules.
 order, without allocation. Ordinary `==` compares complete values; use the
 `simd_*` methods below when each lane needs its own comparison result.
 
+Construct distinct lanes, then add the same value to each with explicit wrapping:
+
+```plenty
+import std.simd as simd
+def main() -> Result[(), IoError]:
+    values = simd.u32x4.Lanes(0u32, 1u32, 2u32, u32.MAX)
+    print(values.wrapping_add(simd.splat_u32x4(1u32)).to_tuple())?
+    Ok(())
+```
+```output
+(1, 2, 3, 0)
+```
+
 ## Arithmetic and masks
 
 | Operation | Contract |
@@ -45,6 +58,21 @@ not suppress side effects, allocation failures or traps while computing them.
 `any()`, `all()` and `count()` summarize a mask. `invert()`, `and_mask(other)`,
 `or_mask(other)` and `xor_mask(other)` combine logical lanes.
 
+Select a floor for the lanes below it; the input stays unchanged:
+
+```plenty
+import std.simd as simd
+def main() -> Result[(), IoError]:
+    values = simd.f32x4.Lanes(18.0f32, 21.0f32, 16.0f32, 24.0f32)
+    floor = simd.splat_f32x4(20.0f32)
+    below = values.simd_lt(floor)
+    print(below.count(), below.select(floor, values).to_tuple())?
+    Ok(())
+```
+```output
+2 (20.0, 21.0, 20.0, 24.0)
+```
+
 Like other generic Plenty helpers, `select[T]` forwards structurally to
 `yes.selected(mask, no)`. The module's vector implementations of that helper
 are private. A user-defined type may supply its own public `selected` method;
@@ -65,6 +93,27 @@ elements individually; lists are not packed native arrays. Returned vectors own
 copies of their scalar lanes, so no borrow persists after loading. Stores take
 an exclusive borrow and preserve length and capacity. Process full groups and
 then the scalar tail explicitly when writing a manual kernel.
+
+Handle a load that may not fit. A failed store leaves every element unchanged:
+
+```plenty
+import std.simd as simd
+def main() -> Result[(), AllocError | IoError]:
+    mut values = [1i32, 2i32, 3i32, 4i32]?
+    match simd.load_i32x4(values):
+        case Some(lanes):
+            print(lanes.store(&mut values, 1))?
+            print(lanes.add(simd.splat_i32x4(10i32)).store(&mut values, 0))?
+        case Nothing:
+            print("A full vector does not fit")?
+    print(values)?
+    Ok(())
+```
+```output
+False
+True
+[11, 12, 13, 14]
+```
 
 ## Rust relationship and initial limits
 
