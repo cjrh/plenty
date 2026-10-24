@@ -1,0 +1,756 @@
+{
+  "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "cpu": 8,
+  "samples": 3,
+  "cranelift_version": "0.137.0",
+  "compiler_sha256": "7cae7425b18326c83bc7b6b7ce0e25dc364552401ddd2ea8c015e2ed3fbe462a",
+  "object_sha256": "d611c8419c770842f74a1e30f068c9ce8b4660c8a41e550ec7abfa635a4be4ad",
+  "scenario": "threshold",
+  "method": "One object; Plenty function sections moved together to four verified text starts 16 bytes apart; randomized order seed 23; one warmup excluded. Internal timings cover repeated calls; perf includes process setup and input construction. Explicit scalar column loop is the reference; thresholds are runtime arguments in threshold/range scenarios. Constant scenario compares against 5; threshold against runtime 5; range is [-1073741824,1073741824).",
+  "variants": {
+    "simd-7-0": {
+      "kind": "simd",
+      "rows": 7,
+      "repeats": 7142857,
+      "offset": 0,
+      "address": 268435456,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 21428571,
+          "ns": 107614508,
+          "instructions:u": 2000486634,
+          "cycles:u": 516246654
+        },
+        {
+          "checksum": 21428571,
+          "ns": 106476070,
+          "instructions:u": 2000486630,
+          "cycles:u": 509216062
+        },
+        {
+          "checksum": 21428571,
+          "ns": 109929123,
+          "instructions:u": 2000486637,
+          "cycles:u": 517442071
+        }
+      ],
+      "median_ns_per_row": 2.152290203045804,
+      "median_instructions:u_per_row": 40.00973348019467,
+      "median_cycles:u_per_row": 10.324933286498666
+    },
+    "simd-8192-0": {
+      "kind": "simd",
+      "rows": 8192,
+      "repeats": 6103,
+      "offset": 0,
+      "address": 268435456,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 24997888,
+          "ns": 5369022,
+          "instructions:u": 151957111,
+          "cycles:u": 26130135
+        },
+        {
+          "checksum": 24997888,
+          "ns": 5346620,
+          "instructions:u": 151957108,
+          "cycles:u": 26247398
+        },
+        {
+          "checksum": 24997888,
+          "ns": 5816288,
+          "instructions:u": 151957110,
+          "cycles:u": 26468702
+        }
+      ],
+      "median_ns_per_row": 0.10738951226599623,
+      "median_instructions:u_per_row": 3.0393989684248526,
+      "median_cycles:u_per_row": 0.5249923113504629
+    },
+    "simd-262144-0": {
+      "kind": "simd",
+      "rows": 262144,
+      "repeats": 190,
+      "offset": 0,
+      "address": 268435456,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 24903680,
+          "ns": 5366277,
+          "instructions:u": 152311940,
+          "cycles:u": 26555657
+        },
+        {
+          "checksum": 24903680,
+          "ns": 5341861,
+          "instructions:u": 152311941,
+          "cycles:u": 26679247
+        },
+        {
+          "checksum": 24903680,
+          "ns": 5355747,
+          "instructions:u": 152311936,
+          "cycles:u": 26967460
+        }
+      ],
+      "median_ns_per_row": 0.1075292286119963,
+      "median_instructions:u_per_row": 3.058020742315995,
+      "median_cycles:u_per_row": 0.5356486872622841
+    },
+    "scalar-7-0": {
+      "kind": "scalar",
+      "rows": 7,
+      "repeats": 7142857,
+      "offset": 0,
+      "address": 268436096,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 21428571,
+          "ns": 80667298,
+          "instructions:u": 1843343730,
+          "cycles:u": 385648207
+        },
+        {
+          "checksum": 21428571,
+          "ns": 81046526,
+          "instructions:u": 1843343733,
+          "cycles:u": 386274958
+        },
+        {
+          "checksum": 21428571,
+          "ns": 80427709,
+          "instructions:u": 1843343734,
+          "cycles:u": 385076722
+        }
+      ],
+      "median_ns_per_row": 1.6133459922669198,
+      "median_instructions:u_per_row": 36.86687539733751,
+      "median_cycles:u_per_row": 7.712964294259286
+    },
+    "scalar-8192-0": {
+      "kind": "scalar",
+      "rows": 8192,
+      "repeats": 6103,
+      "offset": 0,
+      "address": 268436096,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 24997888,
+          "ns": 30887613,
+          "instructions:u": 551630419,
+          "cycles:u": 151283287
+        },
+        {
+          "checksum": 24997888,
+          "ns": 32250670,
+          "instructions:u": 551630416,
+          "cycles:u": 151805684
+        },
+        {
+          "checksum": 24997888,
+          "ns": 31239440,
+          "instructions:u": 551630414,
+          "cycles:u": 152338329
+        }
+      ],
+      "median_ns_per_row": 0.6248415866172374,
+      "median_instructions:u_per_row": 11.033540433495821,
+      "median_cycles:u_per_row": 3.036370192553867
+    },
+    "scalar-262144-0": {
+      "kind": "scalar",
+      "rows": 262144,
+      "repeats": 190,
+      "offset": 0,
+      "address": 268436096,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 24903680,
+          "ns": 30584317,
+          "instructions:u": 550761749,
+          "cycles:u": 151101330
+        },
+        {
+          "checksum": 24903680,
+          "ns": 31040369,
+          "instructions:u": 550761745,
+          "cycles:u": 151408169
+        },
+        {
+          "checksum": 24903680,
+          "ns": 31639198,
+          "instructions:u": 550761743,
+          "cycles:u": 150977732
+        }
+      ],
+      "median_ns_per_row": 0.6232084776225842,
+      "median_instructions:u_per_row": 11.057838540328177,
+      "median_cycles:u_per_row": 3.0337148967542147
+    },
+    "simd-7-16": {
+      "kind": "simd",
+      "rows": 7,
+      "repeats": 7142857,
+      "offset": 16,
+      "address": 268435472,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 21428571,
+          "ns": 110934642,
+          "instructions:u": 2000486650,
+          "cycles:u": 516500587
+        },
+        {
+          "checksum": 21428571,
+          "ns": 107324756,
+          "instructions:u": 2000486642,
+          "cycles:u": 515736781
+        },
+        {
+          "checksum": 21428571,
+          "ns": 107913477,
+          "instructions:u": 2000486638,
+          "cycles:u": 516168874
+        }
+      ],
+      "median_ns_per_row": 2.1582695831653917,
+      "median_instructions:u_per_row": 40.009733640194675,
+      "median_cycles:u_per_row": 10.323377686467554
+    },
+    "simd-8192-16": {
+      "kind": "simd",
+      "rows": 8192,
+      "repeats": 6103,
+      "offset": 16,
+      "address": 268435472,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 24997888,
+          "ns": 7865346,
+          "instructions:u": 151957109,
+          "cycles:u": 39432267
+        },
+        {
+          "checksum": 24997888,
+          "ns": 8067154,
+          "instructions:u": 151957110,
+          "cycles:u": 39140592
+        },
+        {
+          "checksum": 24997888,
+          "ns": 8175737,
+          "instructions:u": 151957109,
+          "cycles:u": 38872357
+        }
+      ],
+      "median_ns_per_row": 0.16135671141498034,
+      "median_instructions:u_per_row": 3.039398948423163,
+      "median_cycles:u_per_row": 0.7828779775315419
+    },
+    "simd-262144-16": {
+      "kind": "simd",
+      "rows": 262144,
+      "repeats": 190,
+      "offset": 16,
+      "address": 268435472,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 24903680,
+          "ns": 8042567,
+          "instructions:u": 152311939,
+          "cycles:u": 38934824
+        },
+        {
+          "checksum": 24903680,
+          "ns": 7640597,
+          "instructions:u": 152311940,
+          "cycles:u": 38877646
+        },
+        {
+          "checksum": 24903680,
+          "ns": 14892547,
+          "instructions:u": 152311961,
+          "cycles:u": 71623512
+        }
+      ],
+      "median_ns_per_row": 0.16147346496582032,
+      "median_instructions:u_per_row": 3.058020742315995,
+      "median_cycles:u_per_row": 0.7817082455283717
+    },
+    "scalar-7-16": {
+      "kind": "scalar",
+      "rows": 7,
+      "repeats": 7142857,
+      "offset": 16,
+      "address": 268436112,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 21428571,
+          "ns": 89570904,
+          "instructions:u": 1843343747,
+          "cycles:u": 420776895
+        },
+        {
+          "checksum": 21428571,
+          "ns": 87391041,
+          "instructions:u": 1843343742,
+          "cycles:u": 421046959
+        },
+        {
+          "checksum": 21428571,
+          "ns": 89909315,
+          "instructions:u": 1843343744,
+          "cycles:u": 420970182
+        }
+      ],
+      "median_ns_per_row": 1.7914181158283624,
+      "median_instructions:u_per_row": 36.86687561733751,
+      "median_cycles:u_per_row": 8.419403808388076
+    },
+    "scalar-8192-16": {
+      "kind": "scalar",
+      "rows": 8192,
+      "repeats": 6103,
+      "offset": 16,
+      "address": 268436112,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 24997888,
+          "ns": 37399922,
+          "instructions:u": 551630421,
+          "cycles:u": 177480436
+        },
+        {
+          "checksum": 24997888,
+          "ns": 36195843,
+          "instructions:u": 551630431,
+          "cycles:u": 177036555
+        },
+        {
+          "checksum": 24997888,
+          "ns": 37196682,
+          "instructions:u": 551630427,
+          "cycles:u": 176530652
+        }
+      ],
+      "median_ns_per_row": 0.7439964928237137,
+      "median_instructions:u_per_row": 11.03354065351441,
+      "median_cycles:u_per_row": 3.541030246235202
+    },
+    "scalar-262144-16": {
+      "kind": "scalar",
+      "rows": 262144,
+      "repeats": 190,
+      "offset": 16,
+      "address": 268436112,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 24903680,
+          "ns": 36097258,
+          "instructions:u": 550761749,
+          "cycles:u": 176964557
+        },
+        {
+          "checksum": 24903680,
+          "ns": 37849191,
+          "instructions:u": 550761747,
+          "cycles:u": 176970492
+        },
+        {
+          "checksum": 24903680,
+          "ns": 37040069,
+          "instructions:u": 550761747,
+          "cycles:u": 176448342
+        }
+      ],
+      "median_ns_per_row": 0.743666578594007,
+      "median_instructions:u_per_row": 11.057838580482885,
+      "median_cycles:u_per_row": 3.5529800615812603
+    },
+    "simd-7-32": {
+      "kind": "simd",
+      "rows": 7,
+      "repeats": 7142857,
+      "offset": 32,
+      "address": 268435488,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 21428571,
+          "ns": 109629404,
+          "instructions:u": 2000486642,
+          "cycles:u": 517198741
+        },
+        {
+          "checksum": 21428571,
+          "ns": 108025747,
+          "instructions:u": 2000486643,
+          "cycles:u": 516440124
+        },
+        {
+          "checksum": 21428571,
+          "ns": 108414372,
+          "instructions:u": 2000486629,
+          "cycles:u": 517413496
+        }
+      ],
+      "median_ns_per_row": 2.1682874833657495,
+      "median_instructions:u_per_row": 40.009733640194675,
+      "median_cycles:u_per_row": 10.3439750268795
+    },
+    "simd-8192-32": {
+      "kind": "simd",
+      "rows": 8192,
+      "repeats": 6103,
+      "offset": 32,
+      "address": 268435488,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 24997888,
+          "ns": 10766507,
+          "instructions:u": 151957131,
+          "cycles:u": 52124948
+        },
+        {
+          "checksum": 24997888,
+          "ns": 10276192,
+          "instructions:u": 151957136,
+          "cycles:u": 51318107
+        },
+        {
+          "checksum": 24997888,
+          "ns": 10708629,
+          "instructions:u": 151957135,
+          "cycles:u": 51222764
+        }
+      ],
+      "median_ns_per_row": 0.2141906748282095,
+      "median_instructions:u_per_row": 3.039399468467096,
+      "median_cycles:u_per_row": 1.0264488543992196
+    },
+    "simd-262144-32": {
+      "kind": "simd",
+      "rows": 262144,
+      "repeats": 190,
+      "offset": 32,
+      "address": 268435488,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 24903680,
+          "ns": 10163340,
+          "instructions:u": 152311969,
+          "cycles:u": 51793662
+        },
+        {
+          "checksum": 24903680,
+          "ns": 10717406,
+          "instructions:u": 152311961,
+          "cycles:u": 52000997
+        },
+        {
+          "checksum": 24903680,
+          "ns": 12127380,
+          "instructions:u": 152311961,
+          "cycles:u": 52210430
+        }
+      ],
+      "median_ns_per_row": 0.21517715454101563,
+      "median_instructions:u_per_row": 3.0580211639404298,
+      "median_cycles:u_per_row": 1.0440424266614412
+    },
+    "scalar-7-32": {
+      "kind": "scalar",
+      "rows": 7,
+      "repeats": 7142857,
+      "offset": 32,
+      "address": 268436128,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 21428571,
+          "ns": 81764227,
+          "instructions:u": 1843343725,
+          "cycles:u": 393187232
+        },
+        {
+          "checksum": 21428571,
+          "ns": 81892296,
+          "instructions:u": 1843343733,
+          "cycles:u": 393921448
+        },
+        {
+          "checksum": 21428571,
+          "ns": 84629831,
+          "instructions:u": 1843343726,
+          "cycles:u": 395146107
+        }
+      ],
+      "median_ns_per_row": 1.6378459527569191,
+      "median_instructions:u_per_row": 36.866875257337504,
+      "median_cycles:u_per_row": 7.878429117568582
+    },
+    "scalar-8192-32": {
+      "kind": "scalar",
+      "rows": 8192,
+      "repeats": 6103,
+      "offset": 32,
+      "address": 268436128,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 24997888,
+          "ns": 30894626,
+          "instructions:u": 551630423,
+          "cycles:u": 151220185
+        },
+        {
+          "checksum": 24997888,
+          "ns": 32003148,
+          "instructions:u": 551630418,
+          "cycles:u": 151870252
+        },
+        {
+          "checksum": 24997888,
+          "ns": 31944940,
+          "instructions:u": 551630423,
+          "cycles:u": 151789340
+        }
+      ],
+      "median_ns_per_row": 0.6389527787307472,
+      "median_instructions:u_per_row": 11.03354057350765,
+      "median_cycles:u_per_row": 3.0360432849367114
+    },
+    "scalar-262144-32": {
+      "kind": "scalar",
+      "rows": 262144,
+      "repeats": 190,
+      "offset": 32,
+      "address": 268436128,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 24903680,
+          "ns": 30721643,
+          "instructions:u": 550761738,
+          "cycles:u": 151286542
+        },
+        {
+          "checksum": 24903680,
+          "ns": 31147849,
+          "instructions:u": 550761741,
+          "cycles:u": 152586363
+        },
+        {
+          "checksum": 24903680,
+          "ns": 31959336,
+          "instructions:u": 550761743,
+          "cycles:u": 152345527
+        }
+      ],
+      "median_ns_per_row": 0.6253663916336862,
+      "median_instructions:u_per_row": 11.057838460018761,
+      "median_cycles:u_per_row": 3.0586950804057875
+    },
+    "simd-7-48": {
+      "kind": "simd",
+      "rows": 7,
+      "repeats": 7142857,
+      "offset": 48,
+      "address": 268435504,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 21428571,
+          "ns": 107796638,
+          "instructions:u": 2000486648,
+          "cycles:u": 516745211
+        },
+        {
+          "checksum": 21428571,
+          "ns": 110610666,
+          "instructions:u": 2000486651,
+          "cycles:u": 516826608
+        },
+        {
+          "checksum": 21428571,
+          "ns": 110980367,
+          "instructions:u": 2000486625,
+          "cycles:u": 518068609
+        }
+      ],
+      "median_ns_per_row": 2.2122133642442674,
+      "median_instructions:u_per_row": 40.00973376019468,
+      "median_cycles:u_per_row": 10.336532366730648
+    },
+    "simd-8192-48": {
+      "kind": "simd",
+      "rows": 8192,
+      "repeats": 6103,
+      "offset": 48,
+      "address": 268435504,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 24997888,
+          "ns": 5199555,
+          "instructions:u": 151957108,
+          "cycles:u": 26107425
+        },
+        {
+          "checksum": 24997888,
+          "ns": 5434765,
+          "instructions:u": 151957107,
+          "cycles:u": 26162140
+        },
+        {
+          "checksum": 24997888,
+          "ns": 5531776,
+          "instructions:u": 151957109,
+          "cycles:u": 26390182
+        }
+      ],
+      "median_ns_per_row": 0.10870448335475381,
+      "median_instructions:u_per_row": 3.039398928421473,
+      "median_cycles:u_per_row": 0.5232870072863756
+    },
+    "simd-262144-48": {
+      "kind": "simd",
+      "rows": 262144,
+      "repeats": 190,
+      "offset": 48,
+      "address": 268435504,
+      "bytes": 640,
+      "samples": [
+        {
+          "checksum": 24903680,
+          "ns": 5077688,
+          "instructions:u": 152311937,
+          "cycles:u": 26499263
+        },
+        {
+          "checksum": 24903680,
+          "ns": 6955597,
+          "instructions:u": 152311938,
+          "cycles:u": 26939750
+        },
+        {
+          "checksum": 24903680,
+          "ns": 5391764,
+          "instructions:u": 152311940,
+          "cycles:u": 26910750
+        }
+      ],
+      "median_ns_per_row": 0.1082523546720806,
+      "median_instructions:u_per_row": 3.058020702161287,
+      "median_cycles:u_per_row": 0.5402966549521998
+    },
+    "scalar-7-48": {
+      "kind": "scalar",
+      "rows": 7,
+      "repeats": 7142857,
+      "offset": 48,
+      "address": 268436144,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 21428571,
+          "ns": 101853875,
+          "instructions:u": 1843343784,
+          "cycles:u": 482399099
+        },
+        {
+          "checksum": 21428571,
+          "ns": 98981748,
+          "instructions:u": 1843343758,
+          "cycles:u": 468574451
+        },
+        {
+          "checksum": 21428571,
+          "ns": 95526481,
+          "instructions:u": 1843343748,
+          "cycles:u": 459445675
+        }
+      ],
+      "median_ns_per_row": 1.9796349995927,
+      "median_instructions:u_per_row": 36.866875897337515,
+      "median_cycles:u_per_row": 9.371489207429784
+    },
+    "scalar-8192-48": {
+      "kind": "scalar",
+      "rows": 8192,
+      "repeats": 6103,
+      "offset": 48,
+      "address": 268436144,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 24997888,
+          "ns": 46187702,
+          "instructions:u": 551630440,
+          "cycles:u": 227497635
+        },
+        {
+          "checksum": 24997888,
+          "ns": 46556240,
+          "instructions:u": 551630444,
+          "cycles:u": 227060483
+        },
+        {
+          "checksum": 24997888,
+          "ns": 48137956,
+          "instructions:u": 551630447,
+          "cycles:u": 227926448
+        }
+      ],
+      "median_ns_per_row": 0.9312034680689825,
+      "median_instructions:u_per_row": 11.033540993543134,
+      "median_cycles:u_per_row": 4.550337112479262
+    },
+    "scalar-262144-48": {
+      "kind": "scalar",
+      "rows": 262144,
+      "repeats": 190,
+      "offset": 48,
+      "address": 268436144,
+      "bytes": 309,
+      "samples": [
+        {
+          "checksum": 24903680,
+          "ns": 46971016,
+          "instructions:u": 550761760,
+          "cycles:u": 226434440
+        },
+        {
+          "checksum": 24903680,
+          "ns": 46283271,
+          "instructions:u": 550761765,
+          "cycles:u": 226722172
+        },
+        {
+          "checksum": 24903680,
+          "ns": 47734162,
+          "instructions:u": 550761761,
+          "cycles:u": 226436605
+        }
+      ],
+      "median_ns_per_row": 0.9430537173622533,
+      "median_instructions:u_per_row": 11.057838861565841,
+      "median_cycles:u_per_row": 4.546247883846886
+    }
+  }
+}

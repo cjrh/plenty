@@ -24,6 +24,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         "callee".into(),
         UserFn {
             inline: None,
+            column_predicate: None,
             standard_library: false,
             drop_callback: None,
             generator: None,

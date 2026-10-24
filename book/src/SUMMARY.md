@@ -497,6 +497,7 @@
         - [Why identical scan code can run at different speeds](proposals/columnar-list/placement-research.md)
         - [Automatic SIMD filter/count](proposals/columnar-list/simd-counts.md)
         - [SIMD after Cranelift 0.137](proposals/columnar-list/simd-backend-upgrade.md)
+        - [SIMD counts with runtime bounds](proposals/columnar-list/simd-runtime-bounds.md)
     - [Exploring async/await without exposed pinning](proposals/async-await.md)
         - [Async suspension, allocation and cleanup](proposals/async-await/ownership.md)
         - [Native async/await spike evidence](proposals/async-await/evidence.md)
