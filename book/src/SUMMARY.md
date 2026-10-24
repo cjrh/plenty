@@ -356,7 +356,6 @@
         - [`std.http.typed`](design/stdlib/http-typed.md)
         - [`std.io`](design/stdlib/io.md)
         - [`std.io.typed`](design/stdlib/io-typed.md)
-        - [`std.iter` (removed)](design/stdlib/iter.md)
         - [`std.json`](design/stdlib/json.md)
         - [`std.log`](design/stdlib/log.md)
         - [`std.math`](design/stdlib/math.md)
