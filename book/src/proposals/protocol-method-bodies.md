@@ -178,12 +178,13 @@ cost, not a lookup model Plenty can copy unchanged.
 
 ## Suggested direction
 
-The selected direction uses overridable defaults and `final` bodies, selected
+The selected direction uses overridable defaults and `@final` bodies, selected
 through a bound or protocol qualification. Both forms honor overrides for
 non-final methods, including calls inside other protocol methods. Objects do
 not acquire inherent methods automatically. Matching requires signature and
-visibility equality, and cross-module private hooks require
-`allow Protocol.method`; module privacy otherwise stays unchanged.
+visibility equality, and cross-module private hooks require a
+`@protocol.Protocol` annotation on the hook method; module privacy otherwise
+stays unchanged. Final methods are annotated `@final`.
 
 The earlier qualified-call alternative that always invokes the original body
 is not selected. The [design page](protocol-method-bodies/final-and-visibility.md)
