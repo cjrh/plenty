@@ -1,14 +1,19 @@
 # Actual Plenty column filter/count
 
 `scan.plenty` compares the same `i32 > 5` operation with an eligible constant
-predicate and a captured threshold that retains scalar execution. Both use
-the production compiler and `--release`. The scalar threshold is held in a
-register in the loop; its capture adds fixed setup, which matters for tiny scans.
+predicate and an explicit scalar column loop. `threshold.plenty` uses a runtime
+captured threshold, and `range.plenty` uses two runtime captured bounds joined
+by `and`. All use the production compiler and `--release`. The scalar reference
+has no per-row callback call, so it does not inflate gains with callback overhead.
+The original reports used a captured threshold to force scalar execution; that
+is now eligible for SIMD, so the current runner deliberately uses a loop instead.
 
 ```sh
 cargo build --locked --release --bin plenty
 python3 experiments/simd/clist/run.py target/release/plenty --out /tmp/clist-simd --verify-only
 python3 experiments/simd/clist/run.py target/release/plenty --out /tmp/clist-simd
+python3 experiments/simd/clist/run.py target/release/plenty --scenario threshold --out /tmp/clist-threshold
+python3 experiments/simd/clist/run.py target/release/plenty --scenario range --out /tmp/clist-range
 ```
 
 Requires Linux x86-64, Python, a C compiler, GNU binutils and (for timings) `perf`
@@ -53,3 +58,9 @@ target policy or claim execution support for a rejected width.
 
 See [the report](../../../book/src/proposals/columnar-list/simd-counts.md)
 for results and interpretation.
+
+The [runtime-bound extension report](../../../book/src/proposals/columnar-list/simd-runtime-bounds.md)
+describes the new scenarios. Their retained reports are
+`measurements-runtime-threshold.json` and `measurements-runtime-range.json`;
+they use the explicit-loop reference and must not be mixed with the earlier
+constant-only results.

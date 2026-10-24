@@ -7,9 +7,13 @@ It runs in optimized (`--release`) native builds. The
 defines the supported pattern; the [tutorial](../../tutorial/special-purpose/columnar-lists/02-counting.md)
 shows ordinary source code. There is no public SIMD API or new syntax.
 
+The subsequent [runtime-bound extension](simd-runtime-bounds.md) accepts immutable scalar captures and
+two total comparisons joined by `and`. The reference above describes current
+behavior; the measurements below retain the original constant-only slice.
+
 ## Why this boundary
 
-Recognition inspects the checked loop and a bounded scalar leaf predicate. It
+The initial recognition inspected the checked loop and a bounded scalar leaf predicate. It
 accepts exactly one comparison, either in a named function or a closure without
 captures. Calls, arithmetic, extra adapters and other shapes keep their existing
 scalar path. The original scalar loop is retained for the tail. No callback
@@ -53,7 +57,7 @@ python3 experiments/simd/clist/run.py target/release/plenty --out /tmp/clist-sim
 python3 experiments/simd/clist/run.py target/release/plenty --out /tmp/clist-simd-bench
 ```
 
-The benchmark uses a captured threshold to retain the scalar pipeline and a
+The retained benchmark measurements used a captured threshold to retain the scalar pipeline and a
 constant threshold to enable SIMD, both comparing against five. It builds one
 object and relinks it at four text addresses, 16 bytes apart, then shuffles
 scalar/SIMD executions. Each variant has one warmup and three measured samples.
@@ -61,7 +65,9 @@ Internal timings exclude input construction; `perf` instructions/cycles include
 startup and construction. Tiny calls therefore include substantial fixed scan
 setup. This is a hot repeated microbenchmark, not an application or memory-
 bandwidth claim. Code placement matters, as [issue #437's research](placement-research.md)
-demonstrated; do not select just the best scalar/SIMD address pair.
+demonstrated; do not select just the best scalar/SIMD address pair. The current
+runner uses an explicit scalar column loop as its reference, since captured
+thresholds now qualify for SIMD; rerunning it measures that updated comparison.
 
 ## Final measurements
 
