@@ -50,7 +50,7 @@ pub(super) fn emit(
             let boxed = Ty::Box(std::sync::Arc::new(ok.clone()));
             let handle = collection(&mut b, module, runtime, 121, &[], Some(&boxed))?;
             let tags = enums::high_word(&mut b, handle);
-            let failed = b.ins().band_imm(tags, 1);
+            let failed = b.ins().band_imm_s(tags, 1);
             let failed = b.ins().ireduce(types::I8, failed);
             let failure = b.create_block();
             let ready = b.create_block();
@@ -65,10 +65,10 @@ pub(super) fn emit(
                 }
             }
             let code = enums::high_word(&mut b, handle);
-            let code = b.ins().ushr_imm(code, 1);
+            let code = b.ins().ushr_imm_s(code, 1);
             let code = b.ins().ireduce(types::I32, code);
             b.ins().store(
-                cranelift_codegen::ir::MemFlags::new(),
+                cranelift_codegen::ir::MemFlagsData::new(),
                 code,
                 *outputs.last().unwrap(),
                 0,
@@ -89,7 +89,7 @@ pub(super) fn emit(
             if let Ty::Ref(inner, _) = ty
                 && matches!(inner.as_ref(), Ty::Class(_))
             {
-                let slot = b.ins().iadd_imm(*argument, 32);
+                let slot = b.ins().iadd_imm_s(*argument, 32);
                 *argument = b.ins().uextend(types::I128, slot);
                 continue;
             }
@@ -97,7 +97,7 @@ pub(super) fn emit(
                 let storage = stack_storage(&mut b, ty.inline_bytes());
                 let value = b.ins().load(
                     types::I128,
-                    cranelift_codegen::ir::MemFlags::trusted(),
+                    cranelift_codegen::ir::MemFlagsData::trusted(),
                     *argument,
                     32,
                 );
@@ -113,7 +113,7 @@ pub(super) fn emit(
                 let scalar_type = clif_type(inner.as_ref().clone());
                 let value = b.ins().load(
                     scalar_type,
-                    cranelift_codegen::ir::MemFlags::new(),
+                    cranelift_codegen::ir::MemFlagsData::new(),
                     *argument,
                     0,
                 );
@@ -125,7 +125,7 @@ pub(super) fn emit(
                 let temporary = b.ins().stack_addr(PTR_TY, slot, 0);
                 let packed = enums::pack_value(&mut b, value, inner);
                 b.ins().store(
-                    cranelift_codegen::ir::MemFlags::trusted(),
+                    cranelift_codegen::ir::MemFlagsData::trusted(),
                     packed,
                     temporary,
                     0,
@@ -149,7 +149,7 @@ pub(super) fn emit(
             // the still-empty handle.
             let value = results[0];
             let tags = enums::high_word(&mut b, value);
-            let failed = b.ins().band_imm(tags, 1);
+            let failed = b.ins().band_imm_s(tags, 1);
             let failed = b.ins().ireduce(types::I8, failed);
             let filling = b.create_block();
             let empty = b.create_block();
@@ -164,14 +164,14 @@ pub(super) fn emit(
             b.switch_to_block(filling);
             b.seal_block(filling);
             let (word, tags) = b.ins().isplit(value);
-            let tags = b.ins().ushr_imm(tags, 1);
+            let tags = b.ins().ushr_imm_s(tags, 1);
             let instance = b.ins().iconcat(word, tags);
-            let slot = b.ins().iadd_imm(handle, 32);
-            let storage = b.ins().iadd_imm(handle, 48);
+            let slot = b.ins().iadd_imm_s(handle, 32);
+            let storage = b.ins().iadd_imm_s(handle, 48);
             let instance =
                 collection(&mut b, module, runtime, 117, &[instance, storage], Some(ok))?;
             b.ins().store(
-                cranelift_codegen::ir::MemFlags::trusted(),
+                cranelift_codegen::ir::MemFlagsData::trusted(),
                 instance,
                 slot,
                 0,
@@ -185,12 +185,12 @@ pub(super) fn emit(
         for (destination, temporary, scalar_type) in writebacks {
             let value = b.ins().load(
                 scalar_type,
-                cranelift_codegen::ir::MemFlags::new(),
+                cranelift_codegen::ir::MemFlagsData::new(),
                 temporary,
                 0,
             );
             b.ins().store(
-                cranelift_codegen::ir::MemFlags::new(),
+                cranelift_codegen::ir::MemFlagsData::new(),
                 value,
                 destination,
                 0,
@@ -200,7 +200,7 @@ pub(super) fn emit(
             let value = results[0];
             let tags = enums::high_word(&mut b, value);
             let tag = b.ins().ireduce(types::I32, tags);
-            let tag = b.ins().band_imm(tag, 1);
+            let tag = b.ins().band_imm_s(tag, 1);
             let success = b.create_block();
             let failure = b.create_block();
             b.ins().brif(tag, failure, &[], success, &[]);
@@ -214,7 +214,7 @@ pub(super) fn emit(
                     let marker = crate::exports::error_variants(ty).is_some();
                     let value = if marker {
                         let tags = enums::high_word(&mut b, value);
-                        b.ins().ushr_imm(tags, 1)
+                        b.ins().ushr_imm_s(tags, 1)
                     } else {
                         value
                     };
@@ -240,12 +240,12 @@ pub(super) fn emit(
                     );
                     let scalar = if ty.is_float() {
                         b.ins()
-                            .bitcast(target, cranelift_codegen::ir::MemFlags::new(), bits)
+                            .bitcast(target, cranelift_codegen::ir::MemFlagsData::new(), bits)
                     } else {
                         bits
                     };
                     b.ins().store(
-                        cranelift_codegen::ir::MemFlags::new(),
+                        cranelift_codegen::ir::MemFlagsData::new(),
                         scalar,
                         destination.unwrap(),
                         0,
@@ -258,7 +258,7 @@ pub(super) fn emit(
             restore_caller(&mut b, module, runtime, caller);
             b.ins().return_(&results);
         }
-        b.finalize();
+        b.finalize(crate::codegen::FRONTEND);
         out.define(id, func)?;
     }
     if let Some(interface) = interface {
@@ -293,7 +293,7 @@ fn collection(
         Some(ty) => {
             let id = metadata::declare(module, runtime, ty)?;
             let gv = module.declare_data_in_func(id, b.func);
-            b.ins().global_value(PTR_TY, gv)
+            b.ins().symbol_value(PTR_TY, gv)
         }
         None => b.ins().iconst(PTR_TY, 0),
     };
@@ -308,7 +308,7 @@ fn collection(
             }
         };
         b.ins().store(
-            cranelift_codegen::ir::MemFlags::trusted(),
+            cranelift_codegen::ir::MemFlagsData::trusted(),
             value,
             args,
             (i * 16) as i32,
@@ -321,7 +321,7 @@ fn collection(
     b.ins().call(f, &[code, args, descriptor, site]);
     Ok(b.ins().load(
         types::I128,
-        cranelift_codegen::ir::MemFlags::trusted(),
+        cranelift_codegen::ir::MemFlagsData::trusted(),
         args,
         48,
     ))
@@ -337,7 +337,7 @@ fn emit_guard(symbol: &str, out: &mut Output) -> Result<()> {
     b.switch_to_block(block);
     b.seal_block(block);
     b.ins().return_(&[]);
-    b.finalize();
+    b.finalize(crate::codegen::FRONTEND);
     out.define(id, func)?;
     Ok(())
 }
@@ -363,7 +363,7 @@ fn emit_destroy(
     b.ins().call(release, &[owner]);
     restore_caller(&mut b, module, runtime, caller);
     b.ins().return_(&[]);
-    b.finalize();
+    b.finalize(crate::codegen::FRONTEND);
     out.define(id, func)?;
     Ok(())
 }
@@ -407,7 +407,7 @@ fn emit_interface(interface: &crate::exports::Interface, out: &mut Output) -> Re
     )?;
     let mut description = DataDescription::new();
     description.define(interface.source.as_bytes().to_vec().into_boxed_slice());
-    description.set_segment_section("", &format!(".plenty.interface.{}", interface.name));
+    description.set_custom_section(&format!(".plenty.interface.{}", interface.name));
     description.set_used(true);
     module.define_data(data, &description)?;
     let mut signature = module.make_signature();
@@ -422,12 +422,16 @@ fn emit_interface(interface: &crate::exports::Interface, out: &mut Output) -> Re
     b.seal_block(block);
     let output = b.block_params(block)[0];
     let length = b.ins().iconst(types::I64, interface.source.len() as i64);
-    b.ins()
-        .store(cranelift_codegen::ir::MemFlags::new(), length, output, 0);
+    b.ins().store(
+        cranelift_codegen::ir::MemFlagsData::new(),
+        length,
+        output,
+        0,
+    );
     let global = module.declare_data_in_func(data, b.func);
-    let pointer = b.ins().global_value(PTR_TY, global);
+    let pointer = b.ins().symbol_value(PTR_TY, global);
     b.ins().return_(&[pointer]);
-    b.finalize();
+    b.finalize(crate::codegen::FRONTEND);
     out.define(id, func)?;
     Ok(())
 }

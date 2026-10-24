@@ -2,7 +2,7 @@
 //! Every assignment defines the mirror, preserving loop and branch joins.
 //! Exclusive borrows disable it: an alias could replace the whole closure.
 use super::*;
-use cranelift_codegen::ir::{MemFlags, Value as NativeValue};
+use cranelift_codegen::ir::{MemFlagsData, Value as NativeValue};
 
 #[derive(Default)]
 pub(super) struct Captures {
@@ -104,7 +104,7 @@ impl Lowerer<'_, '_> {
             } else {
                 let packed = self.bcx.ins().load(
                     types::I128,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     value,
                     closure.offset(i) as i32,
                 );

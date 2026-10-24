@@ -1,7 +1,7 @@
 //! C entry adapters and pinned parent-frame storage for scoped tasks.
 use super::*;
 use crate::threading::{Task, ThreadOp};
-use cranelift_codegen::ir::{MemFlags, StackSlotData, StackSlotKind};
+use cranelift_codegen::ir::{MemFlagsData, StackSlotData, StackSlotKind};
 
 /// Declare one adapter per scoped task's entry, in name order.
 pub(super) fn declare_adapters(
@@ -81,7 +81,7 @@ pub(super) fn build_adapter(
         for (i, ty) in task.inputs.iter().enumerate() {
             let packed = lower.bcx.ins().load(
                 types::I128,
-                MemFlags::trusted(),
+                MemFlagsData::trusted(),
                 storage,
                 task.argument_offset(i) as i32,
             );
@@ -94,7 +94,7 @@ pub(super) fn build_adapter(
                 let slot = lower
                     .bcx
                     .ins()
-                    .iadd_imm(storage, task.argument_offset(0) as i64);
+                    .iadd_imm_s(storage, task.argument_offset(0) as i64);
                 let reference = lower.bcx.ins().uextend(types::I128, slot);
                 lower.stack.push((
                     reference,
@@ -105,7 +105,7 @@ pub(super) fn build_adapter(
             if task.owned_job().is_some() && !closure.once {
                 let environment = lower.bcx.ins().load(
                     PTR_TY,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     storage,
                     task.argument_offset(0) as i32,
                 );
@@ -119,12 +119,12 @@ pub(super) fn build_adapter(
         } else {
             lower.stack.pop().ok_or("missing worker result")?.0
         };
-        let result_slot = lower.bcx.ins().iadd_imm(storage, 16);
+        let result_slot = lower.bcx.ins().iadd_imm_s(storage, 16);
         lower.store_slot(result_slot, value, &task.output);
         let zero = lower.bcx.ins().iconst(PTR_TY, 0);
         lower.bcx.ins().return_(&[zero]);
         lower.seal_trap_blocks();
-        bcx.finalize();
+        bcx.finalize(crate::codegen::FRONTEND);
         out.define(id, func, module);
     }
     Ok(())
@@ -150,7 +150,7 @@ impl Lowerer<'_, '_> {
                     let dest = self
                         .bcx
                         .ins()
-                        .iadd_imm(storage, task.argument_offset(i) as i64);
+                        .iadd_imm_s(storage, task.argument_offset(i) as i64);
                     self.store_slot(dest, *value, ty);
                 }
                 let id = self.runtime.thread_adapters[&task.adapter];
@@ -161,7 +161,7 @@ impl Lowerer<'_, '_> {
                     .declare_func_in_func(self.runtime.thread_start, self.bcx.func);
                 let call = self.bcx.ins().call(start, &[storage, callback]);
                 let status = self.bcx.inst_results(call)[0];
-                let failed = self.bcx.ins().icmp_imm(IntCC::NotEqual, status, 0);
+                let failed = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, status, 0);
                 let zero = self.bcx.ins().iconst(PTR_TY, 0);
                 let token = self.bcx.ins().select(failed, zero, storage);
                 self.write_local(*slot, token);
@@ -210,7 +210,7 @@ impl Lowerer<'_, '_> {
             }
             ThreadOp::Finish(task, slot) => {
                 let storage = self.read_local(*slot);
-                let live = self.bcx.ins().icmp_imm(IntCC::NotEqual, storage, 0);
+                let live = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, storage, 0);
                 let join = self.bcx.create_block();
                 let done = self.bcx.create_block();
                 self.bcx.ins().brif(live, join, &[], done, &[]);
@@ -240,7 +240,7 @@ impl Lowerer<'_, '_> {
         let packed = self
             .bcx
             .ins()
-            .load(types::I128, MemFlags::trusted(), storage, 16);
+            .load(types::I128, MemFlagsData::trusted(), storage, 16);
         self.unpack(packed, &task.output)
     }
 }

@@ -59,7 +59,7 @@ version of itself.
 
 Plenty buffers the key's `Hash` byte stream before feeding it to SHA-256.
 The byte stream and serialized entries remain compatible with the pinned
-Cranelift version (0.131.1); unit tests compare buffered keys to Cranelift's
+Cranelift version (0.137.0); unit tests compare buffered keys to Cranelift's
 keys and exercise entry exchange in both directions. Dependency upgrades
 must retain these checks: the upstream key implementation is not a stable
 serialization format.

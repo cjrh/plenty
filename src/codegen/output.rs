@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::{Function, Signature, UserFuncName};
 use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
-use cranelift_codegen::{Context, FinalizedMachReloc};
+use cranelift_codegen::{Context, MachReloc};
 use cranelift_frontend::FunctionBuilderContext;
 use cranelift_module::{FuncId, Module, ModuleReloc, ModuleRelocTarget};
 use cranelift_object::{ObjectBuilder, ObjectModule};
@@ -190,7 +190,7 @@ impl Output {
             product.object.flags = FileFlags::Elf {
                 os_abi: elf::ELFOSABI_GNU,
                 abi_version: 0,
-                e_flags: 0,
+                e_flags: elf::FileFlags(0),
             };
         }
         Ok(product)
@@ -486,7 +486,7 @@ fn compile(
     );
     let code = compiled.map(|compiled| {
         crate::profile_block!("output::collect_code", {
-            let to_module = |relocs: &[FinalizedMachReloc]| {
+            let to_module = |relocs: &[MachReloc]| {
                 relocs
                     .iter()
                     .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &context.func, id))
@@ -504,7 +504,11 @@ fn compile(
                     let mut relocs = buffer.relocs().to_vec();
                     super::relax_local_addresses(&context.func, &mut bytes, &mut relocs);
                     let relocs = to_module(&relocs);
-                    (buffer.alignment as u64, CodeBytes::Owned(bytes), relocs)
+                    (
+                        u64::from(buffer.min_alignment),
+                        CodeBytes::Owned(bytes),
+                        relocs,
+                    )
                 }
             };
             Code {
@@ -521,8 +525,10 @@ fn compile(
                 .buffer
                 .get_srclocs_sorted()
                 .iter()
-                .filter(|range| !range.loc.is_default())
-                .map(|range| (range.start, range.end, range.loc.bits()))
+                // `compile` applies the function's base location, so each is absolute.
+                .map(|range| (range.start, range.end, range.loc.as_abs()))
+                .filter(|(_, _, loc)| !loc.is_default())
+                .map(|(start, end, loc)| (start, end, loc.bits()))
                 .collect();
         }
     }
@@ -655,17 +661,17 @@ mod tests {
             let merged = builder.append_block_param(merge, types::I64);
             let above = builder
                 .ins()
-                .icmp_imm(IntCC::SignedGreaterThan, y, i as i64);
+                .icmp_imm_s(IntCC::SignedGreaterThan, y, i as i64);
             builder.ins().brif(above, assign, &[], merge, &[y.into()]);
             builder.switch_to_block(assign);
-            let assigned = builder.ins().iadd_imm(y, 3);
+            let assigned = builder.ins().iadd_imm_s(y, 3);
             builder.ins().jump(merge, &[assigned.into()]);
             builder.switch_to_block(merge);
             y = merged;
         }
         builder.ins().return_(&[y]);
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(crate::codegen::FRONTEND);
         func
     }
 
@@ -993,7 +999,7 @@ def main() -> ():
         let result = builder.ins().iconst(ty, value);
         builder.ins().return_(&[result]);
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(crate::codegen::FRONTEND);
         func
     }
 

@@ -1,7 +1,7 @@
 //! Monomorphic worker callbacks with input, output, and shared-environment slots.
 use super::*;
 use crate::executor::{ExecutorOp, Job};
-use cranelift_codegen::ir::MemFlags;
+use cranelift_codegen::ir::MemFlagsData;
 
 /// Declare one adapter per executor job, in name order.
 pub(super) fn declare_adapters(
@@ -89,7 +89,7 @@ pub(super) fn build_adapter(
         let packed = lower
             .bcx
             .ins()
-            .load(types::I128, MemFlags::trusted(), input, 0);
+            .load(types::I128, MemFlagsData::trusted(), input, 0);
         let value = lower.unpack(packed, &job.input);
         if let Some(closure) = &job.shared {
             let reference = lower.bcx.ins().uextend(types::I128, shared);
@@ -125,7 +125,7 @@ pub(super) fn build_adapter(
         lower.store_slot(output, value, &job.output);
         lower.bcx.ins().return_(&[]);
         lower.seal_trap_blocks();
-        bcx.finalize();
+        bcx.finalize(crate::codegen::FRONTEND);
         out.define(id, func, module);
     }
     Ok(())
@@ -144,7 +144,7 @@ impl Lowerer<'_, '_> {
         for (i, value) in values.iter().enumerate() {
             self.bcx
                 .ins()
-                .store(MemFlags::trusted(), *value, args, (i * 16) as i32);
+                .store(MemFlagsData::trusted(), *value, args, (i * 16) as i32);
         }
         if let Some(job) = operation.job() {
             let id = self.runtime.thread_adapters[&job.adapter];
@@ -153,33 +153,35 @@ impl Lowerer<'_, '_> {
             let callback = self.bcx.ins().uextend(types::I128, callback);
             self.bcx
                 .ins()
-                .store(MemFlags::trusted(), callback, args, 32);
+                .store(MemFlagsData::trusted(), callback, args, 32);
         }
         if let ExecutorOp::Map(job, _, _) = operation {
             let shared = if job.shared.is_some() {
-                self.bcx.ins().iadd_imm(args, 80)
+                self.bcx.ins().iadd_imm_s(args, 80)
             } else {
                 self.bcx.ins().iconst(PTR_TY, 0)
             };
             if job.shared.is_some() {
                 self.bcx
                     .ins()
-                    .store(MemFlags::trusted(), values[1], args, 80);
+                    .store(MemFlagsData::trusted(), values[1], args, 80);
                 self.bcx
                     .ins()
-                    .store(MemFlags::trusted(), values[2], args, 16);
+                    .store(MemFlagsData::trusted(), values[2], args, 16);
             }
             let shared = self.bcx.ins().uextend(types::I128, shared);
-            self.bcx.ins().store(MemFlags::trusted(), shared, args, 96);
+            self.bcx
+                .ins()
+                .store(MemFlagsData::trusted(), shared, args, 96);
         }
         if let ExecutorOp::Map(job, input, _) | ExecutorOp::Reduce(job, input) = operation {
             let id = self.module.metadata(input);
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
-            let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
+            let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
             let descriptor = self.bcx.ins().uextend(types::I128, descriptor);
             self.bcx
                 .ins()
-                .store(MemFlags::trusted(), descriptor, args, 48);
+                .store(MemFlagsData::trusted(), descriptor, args, 48);
             let job_type = if matches!(operation, ExecutorOp::Reduce(..)) {
                 &job.input
             } else {
@@ -187,16 +189,16 @@ impl Lowerer<'_, '_> {
             };
             let id = self.module.metadata(job_type);
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
-            let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
+            let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
             let descriptor = self.bcx.ins().uextend(types::I128, descriptor);
             self.bcx
                 .ins()
-                .store(MemFlags::trusted(), descriptor, args, 64);
+                .store(MemFlagsData::trusted(), descriptor, args, 64);
         }
         let out = self.inline_storage(output.slot_bytes());
         let id = self.module.metadata(&output);
         let gv = self.module.declare_data_in_func(id, self.bcx.func);
-        let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
+        let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
         let code = self.bcx.ins().iconst(types::I64, operation.opcode());
         let function = self
             .module
@@ -207,7 +209,7 @@ impl Lowerer<'_, '_> {
         let value = self
             .bcx
             .ins()
-            .load(types::I128, MemFlags::trusted(), out, 0);
+            .load(types::I128, MemFlagsData::trusted(), out, 0);
         let value = self.unpack(value, &output);
         if !matches!(operation, ExecutorOp::New) {
             self.release(values[0], &inputs[0]);

@@ -1,6 +1,6 @@
 use super::*;
 use crate::channel::ChannelOp;
-use cranelift_codegen::ir::MemFlags;
+use cranelift_codegen::ir::MemFlagsData;
 
 impl Lowerer<'_, '_> {
     pub(super) fn lower_channel(&mut self, operation: &ChannelOp) -> Result<()> {
@@ -15,12 +15,12 @@ impl Lowerer<'_, '_> {
         for (i, value) in values.iter().enumerate() {
             self.bcx
                 .ins()
-                .store(MemFlags::trusted(), *value, args, (i * 16) as i32);
+                .store(MemFlagsData::trusted(), *value, args, (i * 16) as i32);
         }
         let out = self.inline_storage(output.slot_bytes());
         let id = self.module.metadata(&output);
         let gv = self.module.declare_data_in_func(id, self.bcx.func);
-        let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
+        let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
         let code = self.bcx.ins().iconst(types::I64, operation.opcode());
         let function = self
             .module
@@ -31,7 +31,7 @@ impl Lowerer<'_, '_> {
         let result = self
             .bcx
             .ins()
-            .load(types::I128, MemFlags::trusted(), out, 0);
+            .load(types::I128, MemFlagsData::trusted(), out, 0);
         let result = self.unpack(result, &output);
         if !matches!(operation, ChannelOp::New(_)) {
             // The observed endpoint is temporary ownership. Message ownership

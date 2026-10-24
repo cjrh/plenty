@@ -22,7 +22,7 @@ impl Lowerer<'_, '_> {
         sig: &FnSig,
     ) -> Result<()> {
         use crate::foreign::Argument;
-        use cranelift_codegen::ir::MemFlags;
+        use cranelift_codegen::ir::MemFlagsData;
         let mut signature = self.module.make_signature();
         let address_index = match declaration.target {
             crate::foreign::Target::Parameter(index) => Some(index),
@@ -69,21 +69,21 @@ impl Lowerer<'_, '_> {
                     let text = self
                         .bcx
                         .ins()
-                        .load(PTR_TY, MemFlags::trusted(), argument, 0);
+                        .load(PTR_TY, MemFlagsData::trusted(), argument, 0);
                     if *mode == Argument::Utf8 {
                         // Inline strings keep their bytes after the length byte
                         // of the borrowed slot; heap texts after a 32-byte prefix.
-                        let inline = self.bcx.ins().band_imm(text, 1);
-                        let heap_len = self.bcx.ins().iadd_imm(text, 16);
+                        let inline = self.bcx.ins().band_imm_s(text, 1);
+                        let heap_len = self.bcx.ins().iadd_imm_s(text, 16);
                         let len_word = self.bcx.ins().select(inline, argument, heap_len);
-                        let raw = self
-                            .bcx
-                            .ins()
-                            .load(types::I64, MemFlags::trusted(), len_word, 0);
-                        let low = self.bcx.ins().band_imm(raw, 0xff);
-                        let inline_len = self.bcx.ins().ushr_imm(low, 1);
-                        let inline_data = self.bcx.ins().iadd_imm(argument, 1);
-                        let heap_data = self.bcx.ins().iadd_imm(text, 32);
+                        let raw =
+                            self.bcx
+                                .ins()
+                                .load(types::I64, MemFlagsData::trusted(), len_word, 0);
+                        let low = self.bcx.ins().band_imm_s(raw, 0xff);
+                        let inline_len = self.bcx.ins().ushr_imm_s(low, 1);
+                        let inline_data = self.bcx.ins().iadd_imm_s(argument, 1);
+                        let heap_data = self.bcx.ins().iadd_imm_s(text, 32);
                         native_arguments.push(self.bcx.ins().select(
                             inline,
                             inline_data,
@@ -113,7 +113,7 @@ impl Lowerer<'_, '_> {
                     } else {
                         text
                     };
-                    native_arguments.push(self.bcx.ins().iadd_imm(text, 32));
+                    native_arguments.push(self.bcx.ins().iadd_imm_s(text, 32));
                 }
             }
         }

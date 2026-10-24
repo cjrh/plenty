@@ -12,8 +12,8 @@
 //! The rewrite depends only on the code and the function's stencil, so the
 //! compiled-function cache key, which covers the stencil, still identifies
 //! the result.
-use cranelift_codegen::FinalizedMachReloc;
-use cranelift_codegen::FinalizedRelocTarget;
+use cranelift_codegen::MachReloc;
+use cranelift_codegen::RelocTarget;
 use cranelift_codegen::binemit::Reloc;
 use cranelift_codegen::ir::{ExternalName, Function, GlobalValueData};
 
@@ -24,11 +24,7 @@ const LEA: u8 = 0x8D;
 
 /// Rewrite each GOT load of a colocated data symbol in `bytes`, compiled from
 /// `func`, into a PC-relative address computation.
-pub(crate) fn relax_local_addresses(
-    func: &Function,
-    bytes: &mut [u8],
-    relocs: &mut [FinalizedMachReloc],
-) {
+pub(crate) fn relax_local_addresses(func: &Function, bytes: &mut [u8], relocs: &mut [MachReloc]) {
     let local: Vec<&ExternalName> = func
         .global_values
         .values()
@@ -49,7 +45,7 @@ pub(crate) fn relax_local_addresses(
         if reloc.kind != Reloc::X86GOTPCRel4 {
             continue;
         }
-        let FinalizedRelocTarget::ExternalName(name) = &reloc.target else {
+        let RelocTarget::ExternalName(name) = &reloc.target else {
             continue;
         };
         if !local.contains(&name) {
@@ -92,11 +88,11 @@ mod tests {
         name
     }
 
-    fn got_load(offset: u32, name: ExternalName) -> FinalizedMachReloc {
-        FinalizedMachReloc {
+    fn got_load(offset: u32, name: ExternalName) -> MachReloc {
+        MachReloc {
             offset,
             kind: Reloc::X86GOTPCRel4,
-            target: FinalizedRelocTarget::ExternalName(name),
+            target: RelocTarget::ExternalName(name),
             addend: -4,
         }
     }

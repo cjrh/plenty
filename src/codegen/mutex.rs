@@ -4,7 +4,7 @@
 //! runtime. State 0 is unlocked, 1 locked, 2 locked with possible waiters.
 use super::*;
 use crate::mutex::MutexOp;
-use cranelift_codegen::ir::{AtomicRmwOp, MemFlags};
+use cranelift_codegen::ir::{AtomicRmwOp, MemFlagsData};
 
 impl Lowerer<'_, '_> {
     pub(super) fn lower_mutex(&mut self, operation: &MutexOp) -> Result<()> {
@@ -28,8 +28,8 @@ impl Lowerer<'_, '_> {
                 let previous =
                     self.bcx
                         .ins()
-                        .atomic_cas(MemFlags::trusted(), address, unlocked, locked);
-                let contended = self.bcx.ins().icmp_imm(IntCC::NotEqual, previous, 0);
+                        .atomic_cas(MemFlagsData::trusted(), address, unlocked, locked);
+                let contended = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, previous, 0);
                 let slow = self.runtime.mutex_lock_slow;
                 self.call_if(contended, slow, address);
                 self.bcx.ins().iconst(types::I64, 0)
@@ -39,12 +39,12 @@ impl Lowerer<'_, '_> {
                 let unlocked = self.bcx.ins().iconst(types::I32, 0);
                 let previous = self.bcx.ins().atomic_rmw(
                     types::I32,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     AtomicRmwOp::Xchg,
                     address,
                     unlocked,
                 );
-                let waiters = self.bcx.ins().icmp_imm(IntCC::Equal, previous, 2);
+                let waiters = self.bcx.ins().icmp_imm_s(IntCC::Equal, previous, 2);
                 let wake = self.runtime.mutex_wake;
                 self.call_if(waiters, wake, address);
                 self.bcx.ins().iconst(types::I64, 0)

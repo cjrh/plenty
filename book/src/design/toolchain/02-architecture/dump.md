@@ -45,17 +45,15 @@ places functions in the object, which does not depend on the worker count:
      1:  mov     %rsp,%rbp
      4:  mov     %rdi,%rax
     # line 2
-     7:  imulq   0x30
-     e:  seto    %sil
-    12:  test    %sil,%sil
-    15:  jne     0x0000000000000020
-    1b:  mov     %rbp,%rsp
-    1e:  pop     %rbp
-    1f:  ret
-    20:  lea     0x27,%rdi  # .Ldata1 (trap sites: 1)
-    27:  call    0x000000000000002C  # plenty_trap_overflow
-    2c:  ud2
-    2e:  .byte   0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+     7:  imulq   0x28
+     e:  jo      0x0000000000000019
+    14:  mov     %rbp,%rsp
+    17:  pop     %rbp
+    18:  ret
+    19:  lea     0x20,%rdi  # .Ldata1 (trap sites: 1)
+    20:  call    0x0000000000000025  # plenty_trap_overflow
+    25:  ud2
+    27:  .byte   0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00
 ```
 
 The header names the function as source shows it (`Point.length`,
