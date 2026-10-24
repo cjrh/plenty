@@ -86,6 +86,8 @@ stream does not need to cross a function boundary.
 | `take_while(f)` | Stop at the first false shared-reference predicate, dropping that item |
 | `enumerate(start=0)` | Emit the checked `i64` index and item; count accepted items at this point in the chain |
 | `zip(right)` | Pull one accepted item from each input, left first; stop when either ends |
+| `chain(other)` | Emit every item of this pipeline, then every item of `other` |
+| `flat_map(f)` | Call `(Item) -> source` once per item; emit each item of the returned source |
 
 Predicates receive `&T` for owned `T`, borrowed `&T`, and mutable `&mut T`
 items. Mapping receives the item itself. Callback parameters and results require
@@ -107,6 +109,21 @@ arm ends, a left item may already have been consumed; that unmatched item is
 dropped. Ending a consumer drops both arms and their pending items. Enumeration
 permits a final index of `i64.MAX`, trapping only if another item is available.
 There is a 64-adapter/type-depth limit, alongside expression nesting limits.
+
+`chain(other)` accepts any pipeline source, including another pipeline. Both
+sides must yield exactly the same item type, pair shape included. The second
+source is evaluated at construction but not advanced until the first ends. A
+`take_while` that stops the first side moves on to the second; it does not end
+the chain. An item borrowed from either side keeps both sources borrowed.
+
+`flat_map(f)` calls `f` for an outer item only when the previous inner source
+has ended. One rule applies: the callback returns any owned iterable (a list,
+set, dictionary, `str`, `bytes`, range, or generator), and `flat_map` emits its
+items as a `for` loop over that value would. A reference, a `Result`, a
+non-iterable value, or a nested `Iter` is rejected; borrowed outer items are
+allowed, but the returned source may not borrow them. Each inner source is released as
+soon as it ends, and an unfinished one is released when the consumer exits or
+the pipeline is dropped. Inner items are owned, so `flat_map` adds no loan.
 
 ## Terminals
 
@@ -150,7 +167,15 @@ The pipeline itself adds no heap allocation or per-adapter generator frame.
 Source expressions, callbacks, and destructors retain their own costs. A
 generator source still pays its normal resume cost. Collecting reserves once
 for a known-length range or list pipeline containing only `map`, `take`,
-`skip`, or `enumerate`; a filter, zip, or unknown-length source grows like a comprehension.
+`skip`, `enumerate`, or `chain` of two known-length sides; a filter, zip,
+`flat_map`, or unknown-length source grows like a comprehension.
+A terminal over a `chain` runs one loop per side, so it tests no flag per
+item; when `zip` or `flat_map` follows the `chain`, and in `for` loops,
+`collect`, comprehensions, and generator conversion, one loop tests a flag per
+item. `flat_map` adds the callback call and
+the inner source's own setup per outer item: a list-returning callback
+allocates one list per outer item, while a range-returning callback allocates
+nothing.
 Optimized native code substitutes small, straight-line scalar leaf functions
 and closures at their call sites (at most 24 meaningful operations). Immutable
 scalar captures can stay in registers, including through local copies and

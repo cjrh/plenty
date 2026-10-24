@@ -391,7 +391,9 @@ owned captures into one resumable frame that can be passed or returned. See
 [local iterator pipelines](../language/09-iteration/06-pipelines.md).
 `enumerate` and `zip` produce pair items: mapping takes two parameters,
 predicates borrow both, and folds take the accumulator followed by the pair's
-components. Collect owned pairs into an expected `dict[K, V]` with `collect()`.
+components. Collect owned pairs into an expected `dict[K, V]` with `collect()`. `a.chain(b)` continues with a
+second source of the same item type; `flat_map(f)` emits the items of the owned
+source `f` returns for each item.
 
 ```plenty
 def add(total: i64, value: i64) -> i64:

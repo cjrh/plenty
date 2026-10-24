@@ -167,7 +167,7 @@ impl Liveness {
                 return (live, None);
             }
             // A release of an emptied slot does nothing.
-            Op::StoreLocal(slot) | Op::DropLocal(slot) => {
+            Op::StoreLocal(slot) | Op::DropLocal(slot) | Op::EmptyLocal(slot) => {
                 live.remove(*slot);
                 return (live, None);
             }

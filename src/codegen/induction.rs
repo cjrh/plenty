@@ -149,7 +149,11 @@ fn analyze_counter(
 fn writes_are_steps(ops: &[Op], local: u8, only_grows: &mut bool) -> bool {
     for (index, op) in ops.iter().enumerate() {
         let nested_ok = match op {
-            Op::BorrowLocal(i, _) | Op::MoveLocal(i) | Op::DropLocal(i) | Op::Next(i)
+            Op::BorrowLocal(i, _)
+            | Op::MoveLocal(i)
+            | Op::DropLocal(i)
+            | Op::EmptyLocal(i)
+            | Op::Next(i)
                 if *i == local =>
             {
                 return false;
@@ -225,7 +229,7 @@ fn writes_nested(op: &Op, local: u8) -> bool {
 }
 
 fn writes(op: &Op, local: u8) -> bool {
-    matches!(op, Op::StoreLocal(i) if *i == local) || writes_nested(op, local)
+    matches!(op, Op::StoreLocal(i) | Op::EmptyLocal(i) if *i == local) || writes_nested(op, local)
 }
 
 /// Match `local = local + k`, `local = k + local` or `local = local - k`
