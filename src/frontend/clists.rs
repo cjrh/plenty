@@ -74,11 +74,13 @@ impl Lower<'_> {
         self.same(actual, Some(ty.clone()), &value.at)?;
         let input = self.slot(ty, &value.at)?;
         ops.push(Op::StoreLocal(input));
+        let mut indices = Vec::new();
+        self.access_indices(base, &mut indices, ops, false)?;
         let actual = self.expr_expected(index, Some(Ty::I64), ops)?;
         self.same(actual, Some(Ty::I64), &index.at)?;
         let position = self.slot(Ty::I64, &index.at)?;
         ops.push(Op::StoreLocal(position));
-        let (_, loan) = self.borrow(base, true, ops)?;
+        let (_, loan) = self.borrow_with_indices(base, true, &mut Some(indices.iter()), ops)?;
         self.mark(&target.at, ops);
         ops.extend([
             Op::MoveLocal(position),
@@ -115,6 +117,13 @@ impl Lower<'_> {
                 .at
                 .error(format!("{name} requires {} argument(s)", inputs.len() - 1)));
         }
+        let Ty::Ref(_, mutable) = &inputs[0] else {
+            unreachable!()
+        };
+        let mut indices = Vec::new();
+        if !mutable {
+            self.access_indices(base, &mut indices, ops, false)?;
+        }
         let mut slots = Vec::new();
         for (arg, expected) in args.iter().zip(&inputs[1..]) {
             let actual = self.expr_expected(arg, Some(expected.clone()), ops)?;
@@ -123,10 +132,10 @@ impl Lower<'_> {
             ops.push(Op::StoreLocal(slot));
             slots.push(slot);
         }
-        let Ty::Ref(_, mutable) = &inputs[0] else {
-            unreachable!()
-        };
-        let (_, loan) = self.borrow(base, *mutable, ops)?;
+        if *mutable {
+            self.access_indices(base, &mut indices, ops, false)?;
+        }
+        let (_, loan) = self.borrow_with_indices(base, *mutable, &mut Some(indices.iter()), ops)?;
         for slot in slots {
             ops.push(Op::MoveLocal(slot));
         }
@@ -148,11 +157,21 @@ impl Lower<'_> {
                 .at
                 .error("augmented assignment requires a numeric destination"));
         }
+        let mut indices = Vec::new();
+        self.access_indices(base, &mut indices, ops, false)?;
+        let mut read_indices = Vec::new();
+        for index in &indices {
+            let key = self.locals[*index as usize - self.parameters].clone();
+            let slot = self.slot(key, &target.at)?;
+            ops.extend([Op::LoadLocal(*index), Op::StoreLocal(slot)]);
+            read_indices.push(slot);
+        }
         let actual = self.expr_expected(index, Some(Ty::I64), ops)?;
         self.same(actual, Some(Ty::I64), &index.at)?;
         let position = self.slot(Ty::I64, &index.at)?;
         ops.push(Op::StoreLocal(position));
-        let (_, loan) = self.borrow(base, false, ops)?;
+        let (_, loan) =
+            self.borrow_with_indices(base, false, &mut Some(read_indices.iter()), ops)?;
         self.mark(&target.at, ops);
         ops.extend([
             Op::LoadLocal(position),
@@ -164,7 +183,7 @@ impl Lower<'_> {
         Self::numeric_operation(operator, ty.clone(), &target.at, ops)?;
         let result = self.slot(ty, &target.at)?;
         ops.extend([Op::StoreLocal(result), Op::UseLoan(loan)]);
-        let (_, loan) = self.borrow(base, true, ops)?;
+        let (_, loan) = self.borrow_with_indices(base, true, &mut Some(indices.iter()), ops)?;
         self.mark(&target.at, ops);
         ops.extend([
             Op::MoveLocal(position),
@@ -185,7 +204,7 @@ impl Lower<'_> {
         if self.yield_type.is_some() {
             return Err(expression
                 .at
-                .error("borrowed column pipelines cannot be held across yield"));
+                .error("column iteration is not supported inside generator functions"));
         }
         let [name] = names else {
             return Err(expression.at.error("column iteration requires one binding"));

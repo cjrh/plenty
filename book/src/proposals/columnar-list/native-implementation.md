@@ -62,6 +62,8 @@ and paused the other worker's compilation. The host nevertheless remained
 frequency-limited: CPU 8 reported about 544 MHz with the performance governor.
 Treat the following as same-run comparisons, not representative peak throughput
 or a direct comparison with the earlier experiment's absolute timings.
+These measurements describe commit `d083fc1f`; the subsequent review fixes
+preserve the measured kernels and correct nested-owner evaluation order.
 
 Median nanoseconds per row, over seven measured samples:
 
@@ -119,7 +121,7 @@ eight-byte indexed load/add and the existing overflow check. There is no helper
 call per element and no SIMD instruction in that loop. Its larger setup code
 is another reason not to assume a win for tiny collections.
 
-Nineteen focused cases cover scalar widths and floating-point bits, generic
+Twenty-one focused cases cover scalar widths and floating-point bits, generic
 schemas, module privacy, owner loans, nested enum storage, source evaluation
 order, overflow/allocation failure recovery, and allocation-free reserved work.
 The full workspace suite with all features, Clippy with all targets/features,

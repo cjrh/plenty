@@ -37,8 +37,9 @@ into the columns without rerunning an initializer. An append within reserved
 capacity allocates nothing. The empty owner and all live rows are cleaned up on
 every ordinary exit; moving a clist transfers its storage.
 
-Field replacement evaluates the RHS before its index, following ordinary
-assignment. Augmented assignment evaluates the index, reads its current value,
+Field replacement evaluates the RHS before its indices, following ordinary
+assignment. Enclosing owner indices precede the row index, and each is evaluated
+once. Augmented assignment evaluates these indices, reads its current value,
 then evaluates the RHS under a shared owner loan before writing. Out-of-bounds
 indices trap at the source position; `copy_row` returns `Nothing` instead.
 
@@ -57,6 +58,8 @@ those slots would be invalid. Use scalar callback parameters with existing
 `map`, `filter`, `fold`, `zip` and other [local pipeline operations](../../language/09-iteration/06-pipelines.md).
 Recreate a column plan for a second traversal. Plans cannot escape into stored
 values or suspended generators.
+Column iteration is currently rejected inside generator functions, even if the
+scan would finish before a `yield`.
 
 `items[i]`, `&items[i]`, packed field references and direct row-method calls are
 unsupported: there is no contiguous `T` at that row position. `copy_row` creates

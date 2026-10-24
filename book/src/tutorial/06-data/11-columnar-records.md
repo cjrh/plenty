@@ -64,6 +64,9 @@ The primitive-only restriction keeps this first version's ownership and packed
 storage model simple and sound. Prefer an ordinary list for strings, nested
 objects, removal, row references, or workloads that usually access whole
 objects.
+Indexed field access and row copying currently use runtime helpers, so repeated
+whole-row processing can be much slower. Use column pipelines for the hot scan
+when the calculation needs selected fields.
 
 Contiguous columns and explicit scans also give the compiler a useful foundation
 for future SIMD and automatic parallel execution. Today these pipelines run

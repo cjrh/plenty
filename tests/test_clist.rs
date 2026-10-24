@@ -4,6 +4,40 @@ use rstest::rstest;
 use support::assert_visible_stdout as native;
 
 #[test]
+fn nested_owner_indices_are_evaluated_in_order_and_only_once() {
+    native(
+        r#"
+class Point:
+    x: i64
+def outer() -> i64:
+    print("owner").unwrap()
+    0
+def inner() -> i64:
+    print("row").unwrap()
+    0
+def rhs() -> i64:
+    print("rhs").unwrap()
+    3
+mut rows = clist[Point]()
+rows.append(Point(4)).unwrap()
+mut groups = [rows].unwrap()
+print(groups[outer()][inner()].x).unwrap()
+print(groups[outer()].copy_row(inner()).unwrap().x).unwrap()
+groups[outer()][inner()].x = rhs()
+groups[outer()][inner()].x += rhs()
+print(groups[0][0].x).unwrap()
+mut wrapped = (clist[Point](), 7)
+wrapped[0].append(Point(8)).unwrap()
+wrapped[0][0].x += 2
+print(wrapped[0][0].x).unwrap()
+shared = Shared(groups).unwrap()
+print(shared[outer()][inner()].x).unwrap()
+"#,
+        "owner\nrow\n4\nowner\nrow\n4\nrhs\nowner\nrow\nowner\nrow\nrhs\n6\n10\nowner\nrow\n6",
+    );
+}
+
+#[test]
 fn primitive_columns_rows_and_pipelines() {
     native(
         r#"
@@ -192,6 +226,27 @@ escaped = items.column(Point.x).generator()
     .to_string();
     assert!(
         error.contains("borrowed state cannot be suspended"),
+        "{error}"
+    );
+}
+
+// B76: relax this conservative boundary only with generator-frame loan support.
+#[test]
+fn column_iteration_in_generator_functions_is_explicitly_rejected() {
+    let error = support::check_source(
+        r#"
+class Point:
+    x: i64
+def values() -> Generator[i64]:
+    items = clist[Point]()
+    for value in items.column(Point.x):
+        yield value
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("column iteration is not supported inside generator functions"),
         "{error}"
     );
 }

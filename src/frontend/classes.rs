@@ -714,11 +714,14 @@ impl Lower<'_> {
     }
     pub(super) fn field(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
         if let Some((base, index, owner, field)) = self.clist_projection(e)? {
+            let mut indices = Vec::new();
+            self.access_indices(base, &mut indices, ops, false)?;
             let actual = self.expr_expected(index, Some(Ty::I64), ops)?;
             self.same(actual, Some(Ty::I64), &index.at)?;
             let slot = self.slot(Ty::I64, &index.at)?;
             ops.push(Op::StoreLocal(slot));
-            let (_, loan) = self.borrow(base, false, ops)?;
+            let (_, loan) =
+                self.borrow_with_indices(base, false, &mut Some(indices.iter()), ops)?;
             ops.push(Op::MoveLocal(slot));
             let operation = crate::clist::ClistOp::Get(owner, field);
             let ty = operation.signature().1;
