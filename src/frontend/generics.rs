@@ -155,6 +155,7 @@ pub(super) fn prepare(
         call_wrappers: HashMap::default(),
         deferred_reporting: HashMap::default(),
         cache: HashMap::default(),
+        template_instances: HashMap::default(),
         instances: 0,
         specialization_depths: HashMap::default(),
         // One entry per function: sized up front, these are not rehashed
@@ -213,8 +214,13 @@ pub(super) struct Engine {
     /// Conditional Context methods retain their declarations without lowering
     /// an unsupported cause's formatting body merely by constructing Context.
     deferred_reporting: HashMap<String, (functions::Symbol, Arc<Function>)>,
-    /// Function instance symbols by template, then by type arguments.
-    cache: HashMap<String, HashMap<Vec<Ty>, String>>,
+    /// Function instance symbols by template and type arguments.
+    cache: HashMap<(String, Vec<Ty>), String>,
+    /// Instances of each template, which `MAX_TEMPLATE_INSTANCES` limits.
+    /// Counted here rather than by keying the cache by template: most
+    /// templates have one instance, and a table per template costs more
+    /// than that instance.
+    template_instances: HashMap<String, usize>,
     /// Function instances created, which number their symbols.
     instances: usize,
     /// First-requiring dependency depth, also inherited by lifted code.
@@ -942,17 +948,8 @@ impl Engine {
     pub(super) fn diagnostic_name(&self, symbol: &str) -> String {
         self.cache
             .iter()
-            .flat_map(|(name, instances)| {
-                instances
-                    .iter()
-                    .map(move |(types, instance)| (name, types, instance))
-            })
-            .chain(
-                self.frames
-                    .iter()
-                    .map(|((name, types), instance)| (name, types, instance)),
-            )
-            .find_map(|(name, types, instance)| {
+            .chain(self.frames.iter())
+            .find_map(|((name, types), instance)| {
                 (instance == symbol).then(|| instance_name(name, types))
             })
             .unwrap_or_else(|| symbol.into())
@@ -1136,18 +1133,22 @@ impl Engine {
                 template.type_params.len()
             )));
         }
-        let instances = self.cache.get(name);
-        if let Some(symbol) = instances.and_then(|i| i.get(actual.as_slice())) {
+        let mut key = (name.to_owned(), actual);
+        if let Some(symbol) = self.cache.get(&key) {
             return Ok((symbol.clone(), None));
         }
-        let count = instances.map_or(0, HashMap::len);
+        // The cache keeps the type arguments, which callers collect with
+        // spare capacity.
+        key.1.shrink_to_fit();
+        let actual = &key.1;
+        let count = self.template_instances.get(name).copied().unwrap_or(0);
         let replacements: Substitution = template
             .type_params
             .iter()
             .map(|(n, _)| n.clone())
             .zip(actual.iter().map(|ty| type_ref(ty, at)))
             .collect();
-        for ((_, bound), ty) in template.type_params.iter().zip(&actual) {
+        for ((_, bound), ty) in template.type_params.iter().zip(actual) {
             if ty.key_view() {
                 return Err(at.error("dictionary key views are local-only and cannot be user-function type arguments; materialise keys_snapshot() or to_set()"));
             }
@@ -1248,17 +1249,13 @@ impl Engine {
         for default in f.defaults.iter_mut().flatten() {
             substitute_expr(default, &replacements)?;
         }
-        let display = instance_name(name, &actual);
+        let display = instance_name(name, actual);
         // Cache before queueing the body, so recursive calls share this instance.
-        match self.cache.get_mut(name) {
-            Some(instances) => {
-                instances.insert(actual, symbol.clone());
-            }
+        self.cache.insert(key, symbol.clone());
+        match self.template_instances.get_mut(name) {
+            Some(count) => *count += 1,
             None => {
-                self.cache.insert(
-                    name.to_owned(),
-                    HashMap::from_iter([(actual, symbol.clone())]),
-                );
+                self.template_instances.insert(name.to_owned(), 1);
             }
         }
         self.instances += 1;
