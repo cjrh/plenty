@@ -487,6 +487,7 @@
     - [Portable SIMD without everyday bookkeeping](proposals/std-simd.md)
         - [A small portable API](proposals/std-simd/api.md)
         - [Initial explicit SIMD implementation](proposals/std-simd/implementation.md)
+        - [Integer multiplication costs](proposals/std-simd/integer-multiplication.md)
         - [Automatic SIMD for pipelines](proposals/std-simd/automatic.md)
         - [SIMD spike evidence and backend decision](proposals/std-simd/evidence.md)
     - [Columnar lists with an object-shaped interface](proposals/columnar-list.md)

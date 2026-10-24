@@ -1,0 +1,74 @@
+import std.simd as simd
+import std.time as time
+from std.test import check
+
+pub def vector1(rounds: i64, seed: u32, multiplier: u32) -> u32:
+    mut v0 = simd.u32x4.Lanes(seed.wrapping_add(0u32), seed.wrapping_add(1u32), seed.wrapping_add(2u32), seed.wrapping_add(3u32))
+    factor = simd.splat_u32x4(multiplier)
+    increment = simd.splat_u32x4(1013904223u32)
+    for index in range(rounds):
+        v0 = v0.wrapping_mul(factor).wrapping_add(increment)
+    v0.wrapping_sum()
+
+pub def scalar1(rounds: i64, seed: u32, multiplier: u32) -> u32:
+    mut v0 = seed.wrapping_add(0u32)
+    mut v1 = seed.wrapping_add(1u32)
+    mut v2 = seed.wrapping_add(2u32)
+    mut v3 = seed.wrapping_add(3u32)
+    for index in range(rounds):
+        v0 = v0.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+        v1 = v1.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+        v2 = v2.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+        v3 = v3.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+    v0.wrapping_add(v1).wrapping_add(v2).wrapping_add(v3)
+
+pub def vector2(rounds: i64, seed: u32, multiplier: u32) -> u32:
+    mut v0 = simd.u32x4.Lanes(seed.wrapping_add(0u32), seed.wrapping_add(1u32), seed.wrapping_add(2u32), seed.wrapping_add(3u32))
+    mut v1 = simd.u32x4.Lanes(seed.wrapping_add(4u32), seed.wrapping_add(5u32), seed.wrapping_add(6u32), seed.wrapping_add(7u32))
+    factor = simd.splat_u32x4(multiplier)
+    increment = simd.splat_u32x4(1013904223u32)
+    for index in range(rounds):
+        v0 = v0.wrapping_mul(factor).wrapping_add(increment)
+        v1 = v1.wrapping_mul(factor).wrapping_add(increment)
+    v0.wrapping_add(v1).wrapping_sum()
+
+pub def scalar2(rounds: i64, seed: u32, multiplier: u32) -> u32:
+    mut v0 = seed.wrapping_add(0u32)
+    mut v1 = seed.wrapping_add(1u32)
+    mut v2 = seed.wrapping_add(2u32)
+    mut v3 = seed.wrapping_add(3u32)
+    mut v4 = seed.wrapping_add(4u32)
+    mut v5 = seed.wrapping_add(5u32)
+    mut v6 = seed.wrapping_add(6u32)
+    mut v7 = seed.wrapping_add(7u32)
+    for index in range(rounds):
+        v0 = v0.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+        v1 = v1.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+        v2 = v2.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+        v3 = v3.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+        v4 = v4.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+        v5 = v5.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+        v6 = v6.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+        v7 = v7.wrapping_mul(multiplier).wrapping_add(1013904223u32)
+    v0.wrapping_add(v1).wrapping_add(v2).wrapping_add(v3).wrapping_add(v4).wrapping_add(v5).wrapping_add(v6).wrapping_add(v7)
+
+def main() -> Result[(), IoError | RangeError]:
+    for sample in range(7):
+        seed = u32(sample)
+        before1 = time.monotonic_now()
+        s1 = scalar1(1000000, seed, 1664525u32)
+        scalar_ns1 = time.monotonic_now().duration_since(before1)?.as_nanoseconds()
+        start1 = time.monotonic_now()
+        v1 = vector1(1000000, seed, 1664525u32)
+        vector_ns1 = time.monotonic_now().duration_since(start1)?.as_nanoseconds()
+        check(s1 == v1, "matching integer results").unwrap()
+        print(sample, 1, scalar_ns1, vector_ns1, s1)?
+        before2 = time.monotonic_now()
+        s2 = scalar2(1000000, seed, 1664525u32)
+        scalar_ns2 = time.monotonic_now().duration_since(before2)?.as_nanoseconds()
+        start2 = time.monotonic_now()
+        v2 = vector2(1000000, seed, 1664525u32)
+        vector_ns2 = time.monotonic_now().duration_since(start2)?.as_nanoseconds()
+        check(s2 == v2, "matching integer results").unwrap()
+        print(sample, 2, scalar_ns2, vector_ns2, s2)?
+    Ok(())

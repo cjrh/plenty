@@ -54,3 +54,25 @@ counts per iteration were approximately 13/14, 13/7 and 37/13 respectively.
 The JSON retains the earlier run with another host build present as well as
 the quiet verification. These measurements support a bounded throughput win,
 and show why vector instructions alone do not guarantee one.
+
+## Integer multiplication follow-up
+
+`integer_chains.plenty` compares one and two independent vectors against four
+and eight scalar accumulators, with the same runtime multiplier and increment.
+The final vector reduction combines lanes before summing. To reproduce the
+exit-shape spill, replace its final `v0.wrapping_add(v1).wrapping_sum()` with
+`v0.wrapping_sum().wrapping_add(v1.wrapping_sum())`.
+
+Run `python3 integer_chains.py BASELINE_COMPILER SSE41_COMPILER` to compile both
+sets and collect seven timing samples plus three counter samples per kernel.
+The second compiler used for this investigation was built with only
+`isa_builder.set("has_sse41", "true")` added after
+`cranelift_native::builder_with_options(false)` in `src/codegen.rs`. That temporary
+change was restored; it is not part of Plenty's production configuration.
+Only run that experimental compiler on hardware supporting SSE4.1.
+
+`integer-measurements.json` retains both reduction shapes. The
+[causal assessment](../../../book/src/proposals/std-simd/integer-multiplication.md)
+explains the assembly, cycles, instruction counts and limitations. In the clean
+two-vector case baseline SSE2 reaches scalar parity and SSE4.1 is about 1.9 times
+faster. One dependent vector remains slower on SSE2 and reaches parity on SSE4.1.

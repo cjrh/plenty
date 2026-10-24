@@ -64,6 +64,10 @@ was close to scalar speed; four independent vectors of divide/add work showed
 a useful throughput gain. Retained final timings and counter samples live with
 the experiment.
 
+The [integer multiplication assessment](integer-multiplication.md) isolates
+baseline instruction synthesis, dependency chains, newer-ISA behavior and an
+independent exit-shape spill limitation with the same integer workload.
+
 The module is useful for explicit lane algorithms, but it does not make generic
 lists packed or remove all ABI costs. Measure the actual algorithm. Packed
 views, wider vectors and more capable target lowering remain separate decisions;
