@@ -1,0 +1,146 @@
+{
+  "rows": 8192,
+  "repeats": 200,
+  "samples": 3,
+  "cpu": 8,
+  "events": "instructions:u,cycles:u",
+  "scope": "entire process, including construction and teardown",
+  "compilers": {
+    "before": {
+      "path": "/home/caleb/Documents/repos/plenty/target/issue-432-base/release/plenty",
+      "sha256": "beff90f8dcbacfd9e3b2a409c1168254cc05a40ae50317b73474e649ed6b12fd"
+    },
+    "after": {
+      "path": "/tmp/issue-432-final-plenty",
+      "sha256": "3ae82f647c97dd65f9e100515ec23b8d77ce7f0286ddc5de020d76a85c525623"
+    }
+  },
+  "results": [
+    {
+      "version": "before",
+      "kernel": "control",
+      "samples": [
+        {
+          "instructions:u": 15870334,
+          "cycles:u": 5260959
+        },
+        {
+          "instructions:u": 15870284,
+          "cycles:u": 5932072
+        },
+        {
+          "instructions:u": 15870296,
+          "cycles:u": 6596835
+        }
+      ],
+      "source_sha256": "b5f14bbddf3e3bcb2e8f418edf53f05912be8d964df0452a764eb3e49f0bad92",
+      "binary_sha256": "4791adcf65899dec0685bb24e67d8f1eb7c0aeaaf96cbf2a7be7d9a55aeef4ab",
+      "median_instructions": 15870296
+    },
+    {
+      "version": "before",
+      "kernel": "stream",
+      "samples": [
+        {
+          "instructions:u": 3043642962,
+          "cycles:u": 1080040679
+        },
+        {
+          "instructions:u": 3043642716,
+          "cycles:u": 821857540
+        },
+        {
+          "instructions:u": 3043643091,
+          "cycles:u": 1145095269
+        }
+      ],
+      "source_sha256": "845282c2e5384da17469c77851967852b56537061fb2d70d5ae2535c10cfd58a",
+      "binary_sha256": "abf8eb2fdce301828523e0603286f2c7fa1126590acb078e24a8586a5101c2cc",
+      "median_instructions": 3043642962
+    },
+    {
+      "version": "before",
+      "kernel": "whole",
+      "samples": [
+        {
+          "instructions:u": 2391559687,
+          "cycles:u": 747260031
+        },
+        {
+          "instructions:u": 2391559850,
+          "cycles:u": 709582307
+        },
+        {
+          "instructions:u": 2391559593,
+          "cycles:u": 658123920
+        }
+      ],
+      "source_sha256": "68ffe691e6cfe7f5c1827e16e119d04a6b772ae95f276a52c558c7d2d76ff995",
+      "binary_sha256": "7ef1cb43584b1797feff98c215996d9c2b4be33ca8e3dd510515446d15fc9b03",
+      "median_instructions": 2391559687
+    },
+    {
+      "version": "after",
+      "kernel": "control",
+      "samples": [
+        {
+          "instructions:u": 15870567,
+          "cycles:u": 6856492
+        },
+        {
+          "instructions:u": 15870633,
+          "cycles:u": 7851857
+        },
+        {
+          "instructions:u": 15870402,
+          "cycles:u": 7492037
+        }
+      ],
+      "source_sha256": "b5f14bbddf3e3bcb2e8f418edf53f05912be8d964df0452a764eb3e49f0bad92",
+      "binary_sha256": "6d45740936f9ecae0f534caf5901feb6b2e3ecfc38a82aaf2ed67a8bb4090ce2",
+      "median_instructions": 15870567
+    },
+    {
+      "version": "after",
+      "kernel": "stream",
+      "samples": [
+        {
+          "instructions:u": 255083597,
+          "cycles:u": 79009720
+        },
+        {
+          "instructions:u": 255083611,
+          "cycles:u": 78826458
+        },
+        {
+          "instructions:u": 255083621,
+          "cycles:u": 78938689
+        }
+      ],
+      "source_sha256": "845282c2e5384da17469c77851967852b56537061fb2d70d5ae2535c10cfd58a",
+      "binary_sha256": "ac99e4b02fecdf8d0fdd304b4dd38dcbd3c0bbe92aaf04b900d652381a36a83a",
+      "median_instructions": 255083611
+    },
+    {
+      "version": "after",
+      "kernel": "whole",
+      "samples": [
+        {
+          "instructions:u": 240339982,
+          "cycles:u": 115354491
+        },
+        {
+          "instructions:u": 240339956,
+          "cycles:u": 90568522
+        },
+        {
+          "instructions:u": 240340258,
+          "cycles:u": 107139923
+        }
+      ],
+      "source_sha256": "68ffe691e6cfe7f5c1827e16e119d04a6b772ae95f276a52c558c7d2d76ff995",
+      "binary_sha256": "c5fecdec1b43e6ed86f5895f65e9894b5f3bcd91209478e3b6be74cd76fcda7d",
+      "median_instructions": 240339982
+    }
+  ]
+}

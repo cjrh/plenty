@@ -3,6 +3,155 @@ mod support;
 use rstest::rstest;
 use support::assert_visible_stdout as native;
 
+fn run_mode(source: &str, release: bool) -> std::process::Output {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("clist.plenty");
+    std::fs::write(
+        &path,
+        format!("from std.test import check\n{}", support::program(source)),
+    )
+    .unwrap();
+    let mut command = std::process::Command::new(support::plenty_bin());
+    command.current_dir(dir.path()).env("PLENTY_CACHE", "off");
+    if release {
+        command.arg("--release");
+    }
+    command.arg(path).output().unwrap()
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn direct_access_survives_growth_and_copies_stay_independent(#[case] release: bool) {
+    let output = run_mode(
+        r#"
+class Values:
+    flag: bool
+    a: i8
+    b: u8
+    c: i16
+    d: u16
+    e: i32
+    f: u32
+    g: i64
+    h: u64
+    i: f32
+    j: f64
+def gather(rows: &clist[Values], index: i64) -> Option[Values]:
+    rows.copy_row(index)
+mut rows = clist[Values]()
+for n in range(17):
+    rows.append(Values(False, 0i8, 0u8, 0i16, 0u16, 0i32, 0u32, 0, 0u64, 0.0f32, 0.0)).unwrap()
+    rows[-1].flag = True
+    rows[-1].a = -128i8
+    rows[-1].b = 255u8
+    rows[-1].c = -32768i16
+    rows[-1].d = 65535u16
+    rows[-1].e = -2147483648i32
+    rows[-1].f = 4294967295u32
+    rows[-1].g = -9223372036854775808
+    rows[-1].h = 18446744073709551615u64
+    rows[-1].i = -0.0f32
+    rows[-1].j = -0.0
+    check(rows[n].flag and rows[n].a == -128i8 and rows[n].b == 255u8, "byte fields").unwrap()
+    check(rows[n].c == -32768i16 and rows[n].d == 65535u16, "16-bit fields").unwrap()
+    check(rows[n].e == -2147483648i32 and rows[n].f == 4294967295u32, "32-bit fields").unwrap()
+    check(rows[n].g == -9223372036854775808 and rows[n].h == 18446744073709551615u64, "64-bit fields").unwrap()
+saved = gather(&rows, -17).unwrap()
+for n in range(17):
+    check(rows.copy_row(n).unwrap() == rows.copy_row(n - 17).unwrap(), "negative indices").unwrap()
+rows.reserve(100).unwrap()
+rows[0].a = 1i8
+check(saved.a == -128i8 and rows[0].a == 1i8, "independent copy").unwrap()
+check(rows.copy_row(-18).is_none() and rows.copy_row(17).is_none(), "bounds").unwrap()
+check(rows.copy_row(i64.MIN).is_none() and rows.copy_row(i64.MAX).is_none(), "extreme indices").unwrap()
+print(saved.i, saved.j, rows[-1].i, rows[-1].j).unwrap()
+drop(rows)
+print(saved.h).unwrap()
+"#,
+        release,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "-0.0 -0.0 -0.0 -0.0\n18446744073709551615\n"
+    );
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn indexed_access_keeps_bounds_traps(#[case] release: bool) {
+    for (setup, index) in [
+        ("", "0"),
+        ("rows.reserve(8).unwrap()", "-1"),
+        ("rows.append(Point(1)).unwrap()", "1"),
+        ("rows.append(Point(1)).unwrap()", "-2"),
+        ("rows.append(Point(1)).unwrap()", "i64.MIN"),
+        ("rows.append(Point(1)).unwrap()", "i64.MAX"),
+    ] {
+        for access in [
+            format!("print(rows[{index}].x).unwrap()"),
+            format!("rows[{index}].x = 9"),
+        ] {
+            let output = run_mode(
+                &format!(
+                    "class Point:\n    x: i64\nmut rows = clist[Point]()\n{setup}\n{access}\n"
+                ),
+                release,
+            );
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(!output.status.success(), "{setup}: {access}");
+            assert!(
+                error.contains("clist.plenty:") && error.contains("clist index out of bounds"),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[test]
+fn row_reconstruction_has_no_generic_dispatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gather.plenty");
+    std::fs::write(
+        &path,
+        support::program(
+            r#"
+class Point:
+    x: i64
+    y: f32
+def gather(rows: &clist[Point], index: i64) -> Option[Point]:
+    rows.copy_row(index)
+mut rows = clist[Point]()
+rows.append(Point(1, 2.0f32)).unwrap()
+print(gather(&rows, 0)).unwrap()
+"#,
+        ),
+    )
+    .unwrap();
+    let output = std::process::Command::new(support::plenty_bin())
+        .current_dir(dir.path())
+        .env("PLENTY_CACHE", "off")
+        .args(["--release", "--dump", "asm", "--dump-filter", "gather"])
+        .arg(path)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let assembly = String::from_utf8(output.stdout).unwrap();
+    assert!(assembly.contains("gather"), "{assembly}");
+    assert!(!assembly.contains("plenty_collection"), "{assembly}");
+}
+
 #[test]
 fn nested_owner_indices_are_evaluated_in_order_and_only_once() {
     native(

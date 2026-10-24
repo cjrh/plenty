@@ -11,6 +11,17 @@ struct Columns {
     bytes: usize,
 }
 
+const _: () = {
+    assert!(std::mem::offset_of!(Columns, len) == crate::clist_layout::LEN as usize);
+    assert!(std::mem::offset_of!(Columns, capacity) == crate::clist_layout::CAPACITY as usize);
+    assert!(size_of::<Columns>() == crate::clist_layout::DATA as usize);
+};
+
+#[unsafe(no_mangle)]
+extern "C" fn plenty_trap_clist_index(site: *const crate::Site) -> ! {
+    crate::fail_at(site, format_args!("clist index out of bounds"))
+}
+
 fn width(kind: u8) -> usize {
     match kind {
         b'1' | b'5' | b'b' => 1,
@@ -188,9 +199,8 @@ pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crat
                 wrap(c, 1)
             }
             526 | 527 => {
-                let index = position(owner, b as i64).unwrap_or_else(|| {
-                    crate::fail_at(site, format_args!("clist index out of bounds"))
-                });
+                let index =
+                    position(owner, b as i64).unwrap_or_else(|| plenty_trap_clist_index(site));
                 if op == 526 {
                     read(owner, ty, c as usize, index)
                 } else {
