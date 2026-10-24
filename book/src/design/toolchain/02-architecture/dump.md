@@ -45,15 +45,13 @@ places functions in the object, which does not depend on the worker count:
      1:  mov     %rsp,%rbp
      4:  mov     %rdi,%rax
     # line 2
-     7:  imulq   0x28
+     7:  imulq   0x20
      e:  jo      0x0000000000000019
     14:  mov     %rbp,%rsp
     17:  pop     %rbp
     18:  ret
-    19:  lea     0x20,%rdi  # .Ldata1 (trap sites: 1)
-    20:  call    0x0000000000000025  # plenty_trap_overflow
-    25:  ud2
-    27:  .byte   0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+    19:  ud2  # plenty_trap_overflow
+    1b:  .byte   0x00,0x00,0x00,0x00,0x00,0x28,0x00,0x00,0x00,0x00,0x00,0x00,0x00
 ```
 
 The header names the function as source shows it (`Point.length`,
@@ -66,6 +64,9 @@ a `#N` suffix.
 
 - `clif` and `clif-opt` mark each change of source line with `; line N`, and
   name each external function and data symbol on its declaration line.
+- A check's trap in an executable names the runtime helper its
+  [trap table](runtime.md#trap-sites) entry reaches: `trap user4  ;
+  plenty_trap_div_zero` in CLIF, `ud2  # plenty_trap_overflow` in `asm`.
 - `asm` marks source lines with `# line N`, names the symbol each relocated
   operand refers to, and shows the constants Cranelift places after the code
   as `.byte` rows. RIP-relative addresses are offsets within the function.

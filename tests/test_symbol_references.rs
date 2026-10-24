@@ -76,7 +76,7 @@ fn runtime_calls_and_local_data_are_pc_relative_and_native_libraries_use_the_got
         for helper in [
             "plenty_collection",
             "plenty_release",
-            "plenty_trap_overflow",
+            "plenty_traps_register",
         ] {
             assert!(
                 relocations
