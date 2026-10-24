@@ -52,17 +52,28 @@ fn isolated_target(target: &Path) -> Command {
 /// `source` as `main.plenty` beside the input module, built with `--fuzz`
 /// and `libfuzzer` into `dir/target`.
 fn build(dir: &Path, source: &str, libfuzzer: &Path) -> PathBuf {
+    build_with(dir, source, libfuzzer, &[])
+}
+
+/// [`build`] with extra compiler `options`.
+fn build_with(dir: &Path, source: &str, libfuzzer: &Path, options: &[&str]) -> PathBuf {
     std::fs::write(dir.join("fuzz_input.plentyi"), INPUT).unwrap();
     std::fs::write(dir.join("main.plenty"), source).unwrap();
     let target = dir.join("target");
-    let built = plenty(&[
-        "--fuzz",
-        dir.join("main.plenty").to_str().unwrap(),
-        "-o",
-        target.to_str().unwrap(),
-        "--libfuzzer",
-        libfuzzer.to_str().unwrap(),
-    ]);
+    let built = plenty(
+        &[
+            options,
+            &[
+                "--fuzz",
+                dir.join("main.plenty").to_str().unwrap(),
+                "-o",
+                target.to_str().unwrap(),
+                "--libfuzzer",
+                libfuzzer.to_str().unwrap(),
+            ],
+        ]
+        .concat(),
+    );
     assert!(
         built.status.success(),
         "{}",
@@ -395,28 +406,7 @@ int LLVMFuzzerRunDriver(int *argc, char ***argv, int (*one)(const uint8_t *, siz
 #[test]
 fn counters_and_pc_tables_reach_the_driver() {
     let dir = tempfile::tempdir().unwrap();
-    let stub = dir.path().join("stub.c");
-    std::fs::write(&stub, STUB).unwrap();
-    let object = dir.path().join("stub.o");
-    let archive = dir.path().join("libstub.a");
-    assert!(
-        Command::new("cc")
-            .args(["-c", "-o"])
-            .arg(&object)
-            .arg(&stub)
-            .status()
-            .unwrap()
-            .success()
-    );
-    assert!(
-        Command::new("ar")
-            .arg("rcs")
-            .arg(&archive)
-            .arg(&object)
-            .status()
-            .unwrap()
-            .success()
-    );
+    let archive = stub_archive(dir.path(), STUB);
     let target = build(
         dir.path(),
         r#"import fuzz_input
@@ -442,6 +432,87 @@ def main() -> Result[(), IoError]:
     assert_eq!(lines.next(), Some("121"), "{text}");
     let hits = numbers(lines.next().unwrap());
     assert!(hits[0] > 0 && hits[1] > hits[0], "{text}");
+}
+
+/// `source` compiled into `dir/libstub.a`, linked in place of libFuzzer.
+fn stub_archive(dir: &Path, source: &str) -> PathBuf {
+    let stub = dir.join("stub.c");
+    std::fs::write(&stub, source).unwrap();
+    let object = dir.join("stub.o");
+    let archive = dir.join("libstub.a");
+    assert!(
+        Command::new("cc")
+            .args(["-c", "-o"])
+            .arg(&object)
+            .arg(&stub)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        Command::new("ar")
+            .arg("rcs")
+            .arg(&archive)
+            .arg(&object)
+            .status()
+            .unwrap()
+            .success()
+    );
+    archive
+}
+
+/// A driver that runs the target once and prints the largest counter.
+const MAX_COUNTER_STUB: &str = r#"#include <stdint.h>
+#include <stdio.h>
+
+static uint8_t *counters, *counters_end;
+
+void __sanitizer_cov_8bit_counters_init(uint8_t *start, uint8_t *stop) {
+    counters = start;
+    counters_end = stop;
+}
+
+void __sanitizer_cov_pcs_init(const uintptr_t *start, const uintptr_t *stop) {}
+
+int LLVMFuzzerRunDriver(int *argc, char ***argv, int (*one)(const uint8_t *, size_t)) {
+    one((const uint8_t *)"x", 1);
+    unsigned max = 0;
+    for (uint8_t *at = counters; at < counters_end; at++) max = *at > max ? *at : max;
+    printf("max=%u\n", max);
+    fflush(stdout);
+    return 0;
+}
+"#;
+
+/// In a release build Cranelift's store elimination must keep each block's
+/// counter increment: a 200-iteration loop leaves a counter of at least 200.
+/// Counters are 8 bits, so the loop stays under 256 (issue #441).
+#[test]
+fn release_counters_count_every_iteration() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = stub_archive(dir.path(), MAX_COUNTER_STUB);
+    let target = build_with(
+        dir.path(),
+        r#"import fuzz_input
+
+def main() -> Result[(), IoError]:
+    mut total = 0u64
+    for i in range(200):
+        if fuzz_input.byte(0u64) == 120u8:
+            total = total + u64(i)
+    print(total)?
+    Ok(())
+"#,
+        &archive,
+        &["--release"],
+    );
+    let output = Command::new(&target).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    let mut lines = text.lines();
+    assert_eq!(lines.next(), Some("19900"), "{text}");
+    let max = numbers(lines.next().unwrap())[0];
+    assert!((200..=201).contains(&max), "{text}");
 }
 
 /// The `name=N` values of `line`, in order.

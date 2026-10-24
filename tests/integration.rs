@@ -335,6 +335,8 @@ mod test_recursive_tail_errors;
 mod test_reference_rebinding;
 #[path = "test_reference_tail_calls.rs"]
 mod test_reference_tail_calls;
+#[path = "test_release_stores.rs"]
+mod test_release_stores;
 #[path = "test_result_handling.rs"]
 mod test_result_handling;
 #[path = "test_retained_job_errors.rs"]

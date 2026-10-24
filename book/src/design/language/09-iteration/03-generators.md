@@ -96,7 +96,9 @@ Dropping an unstarted frame releases its captures without evaluating filters
 or elements; short-circuit consumers destroy the remaining frame immediately.
 
 Recursive inline layouts are rejected. Nested frame layouts are limited to
-64 levels, native frame offsets to signed 32-bit sizes, and concrete consumer
+64 levels, native frame offsets to signed 32-bit sizes, a function's native
+stack frame (which holds the inline frames it owns) to Cranelift's 1 GiB, a
+compile-time error naming the function, and concrete consumer
 specializations to 16,384 per consumer and 65,536 per compilation, with the
 dependency depth limit of generic functions guarding expanding recursion (see
 [specialization](../../toolchain/02-architecture/emission.md)). These are implementation limits, not

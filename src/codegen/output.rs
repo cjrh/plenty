@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::{Function, Signature, UserFuncName};
 use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
-use cranelift_codegen::{Context, MachReloc};
+use cranelift_codegen::{CodegenError, Context, MachReloc};
 use cranelift_frontend::FunctionBuilderContext;
 use cranelift_module::{FuncId, Module, ModuleReloc, ModuleRelocTarget};
 use cranelift_object::{ObjectBuilder, ObjectModule};
@@ -310,7 +310,9 @@ impl Output {
     ) -> Result<()> {
         let mut code = code.map_err(|error| {
             let declaration = self.module.declarations().get_function_decl(id);
-            format!("compiling `{}`: {error}", declaration.linkage_name(id))
+            let symbol = declaration.linkage_name(id);
+            let name = symbol.strip_prefix("__plenty_fn_").unwrap_or(&symbol);
+            format!("compiling `{name}`: {error}")
         })?;
         let targets = relocate(&mut self.module, &mut self.sites, &mut code.relocs)?;
         if let (Some(plan), Some(capture)) = (&self.dump, capture) {
@@ -447,6 +449,19 @@ impl Worker {
     }
 }
 
+/// Describe a Cranelift failure to compile one function. Plenty does not use
+/// Cranelift's inliner, so `ImplLimitExceeded` comes from frame layout: since
+/// 0.137 a frame over 1 GiB is rejected. Large inline temporaries each get
+/// their own stack slot, so a long enough function reaches it.
+pub(crate) fn describe_error(error: &CodegenError) -> String {
+    match error {
+        CodegenError::ImplLimitExceeded => "its native stack frame exceeds the 1 GiB limit; \
+             store large values in a `Box` or split the function"
+            .into(),
+        error => format!("{error:?}"),
+    }
+}
+
 /// [`compile`] without a capture.
 #[cfg(test)]
 fn compile_uncaptured(
@@ -481,7 +496,7 @@ fn compile(
             None => context
                 .compile(isa, &mut ControlPlane::default())
                 .map(|_| None)
-                .map_err(|error| format!("{:?}", error.inner)),
+                .map_err(|error| describe_error(&error.inner)),
         }
     );
     let code = compiled.map(|compiled| {

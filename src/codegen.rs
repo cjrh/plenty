@@ -93,6 +93,7 @@ mod numeric;
 mod output;
 mod references;
 mod relax;
+pub(crate) use output::describe_error;
 pub(crate) use relax::relax_local_addresses;
 mod leaf_calls;
 mod reachability;
