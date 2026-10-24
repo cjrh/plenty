@@ -40,6 +40,8 @@ mod functions;
 mod generators;
 mod generics;
 pub(crate) mod ide;
+#[cfg(test)]
+mod lexer_tests;
 mod modules;
 mod mutex;
 mod numeric;
@@ -74,6 +76,77 @@ const SYMBOLS: [&str; 37] = [
     "|", "^", "~", "?", "->", "==", "!=", "<=", ">=", "//", "<<", ">>", "+=", "-=", "*=", "/=",
     "//=", "%=",
 ];
+
+/// The bytes that continue a word: ASCII letters, digits and `_`.
+const WORD_BYTES: [bool; 256] = {
+    let mut table = [false; 256];
+    let mut c = 0;
+    while c < 256 {
+        table[c] = (c as u8).is_ascii_alphanumeric() || c == b'_' as usize;
+        c += 1;
+    }
+    table
+};
+
+/// The longest listed symbol starting with `c`, given the two bytes after it.
+/// Matching the bytes directly avoids searching `SYMBOLS` (issue #431).
+fn symbol(c: u8, next: Option<&u8>, after: Option<&u8>) -> &'static str {
+    match (c, next) {
+        (b'-', Some(b'>')) => "->",
+        (b'=', Some(b'=')) => "==",
+        (b'!', Some(b'=')) => "!=",
+        (b'<', Some(b'=')) => "<=",
+        (b'>', Some(b'=')) => ">=",
+        (b'<', Some(b'<')) => "<<",
+        (b'>', Some(b'>')) => ">>",
+        (b'/', Some(b'/')) if after == Some(&b'=') => "//=",
+        (b'/', Some(b'/')) => "//",
+        (b'+', Some(b'=')) => "+=",
+        (b'-', Some(b'=')) => "-=",
+        (b'*', Some(b'=')) => "*=",
+        (b'/', Some(b'=')) => "/=",
+        (b'%', Some(b'=')) => "%=",
+        (b'(', _) => "(",
+        (b')', _) => ")",
+        (b'[', _) => "[",
+        (b']', _) => "]",
+        (b'{', _) => "{",
+        (b'}', _) => "}",
+        (b'.', _) => ".",
+        (b':', _) => ":",
+        (b',', _) => ",",
+        (b'+', _) => "+",
+        (b'-', _) => "-",
+        (b'*', _) => "*",
+        (b'%', _) => "%",
+        (b'/', _) => "/",
+        (b'=', _) => "=",
+        (b'!', _) => "!",
+        (b'<', _) => "<",
+        (b'>', _) => ">",
+        (b'&', _) => "&",
+        (b'|', _) => "|",
+        (b'^', _) => "^",
+        (b'~', _) => "~",
+        (b'?', _) => "?",
+        _ => unreachable!("the lexer calls this only for symbol characters"),
+    }
+}
+
+/// The string prefix spelled by a word directly followed by a quote. Any
+/// other word before a quote stays a word.
+fn literal_prefix(word: &[u8]) -> Option<std::result::Result<Prefix, &'static str>> {
+    Some(match word {
+        b"b" => Ok(Prefix::Bytes),
+        b"B" => Err("byte literals use a lowercase `b` prefix"),
+        b"f" => Ok(Prefix::Format),
+        b"F" => Err("f-strings use a lowercase `f` prefix"),
+        b"bf" | b"fb" | b"Bf" | b"bF" | b"fB" | b"Fb" | b"BF" | b"FB" => Err(
+            "byte f-strings are not supported; build text with an f-string, then convert it to bytes",
+        ),
+        _ => return None,
+    })
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
@@ -286,31 +359,6 @@ impl<'a> Lexer<'a> {
         });
     }
 
-    /// The string prefix at the cursor, when a known spelling is directly
-    /// followed by a quote, and its width. Any other word before a quote stays
-    /// a word.
-    fn literal_prefix(&self) -> Option<(std::result::Result<Prefix, &'static str>, usize)> {
-        let bytes = self.source.as_bytes();
-        let width = bytes[self.pos..]
-            .iter()
-            .take_while(|c| c.is_ascii_alphabetic())
-            .count();
-        if !matches!(bytes.get(self.pos + width), Some(b'\'' | b'"')) {
-            return None;
-        }
-        let prefix = match &bytes[self.pos..self.pos + width] {
-            b"b" => Ok(Prefix::Bytes),
-            b"B" => Err("byte literals use a lowercase `b` prefix"),
-            b"f" => Ok(Prefix::Format),
-            b"F" => Err("f-strings use a lowercase `f` prefix"),
-            b"bf" | b"fb" | b"Bf" | b"bF" | b"fB" | b"Fb" | b"BF" | b"FB" => Err(
-                "byte f-strings are not supported; build text with an f-string, then convert it to bytes",
-            ),
-            _ => return None,
-        };
-        Some((prefix, width))
-    }
-
     /// The body of `b"..."` from its opening quote. Only ASCII characters and
     /// escapes may appear, so each byte has exactly one spelling.
     fn byte_literal(&mut self, start: &Token) -> Result<Vec<u8>> {
@@ -498,36 +546,35 @@ impl<'a> Lexer<'a> {
                     }
                     self.push(out, Kind::Text(text.into()), line, column);
                 }
-                c if c.is_ascii_alphabetic() && self.literal_prefix().is_some() => {
-                    let (prefix, width) = self.literal_prefix().expect("checked prefix");
-                    self.pos += width;
-                    self.skip_columns(width);
-                    match prefix.map_err(|message| start.error(message))? {
-                        Prefix::Bytes => {
+                c if c.is_ascii_alphabetic() || c == b'_' => {
+                    let begin = self.pos;
+                    self.pos += bytes[begin..]
+                        .iter()
+                        .position(|&c| !WORD_BYTES[c as usize])
+                        .unwrap_or(bytes.len() - begin);
+                    self.skip_columns(self.pos - begin);
+                    let prefix = if matches!(bytes.get(self.pos), Some(b'\'' | b'"')) {
+                        literal_prefix(&bytes[begin..self.pos])
+                    } else {
+                        None
+                    };
+                    match prefix {
+                        None => self.push(
+                            out,
+                            Kind::Word(source[begin..self.pos].into()),
+                            line,
+                            column,
+                        ),
+                        Some(Err(message)) => return Err(start.error(message)),
+                        Some(Ok(Prefix::Bytes)) => {
                             let value = self.byte_literal(&start)?;
                             self.push(out, Kind::Bytes(value.into()), line, column);
                         }
-                        Prefix::Format => {
+                        Some(Ok(Prefix::Format)) => {
                             let kind = self.format_string(&start)?;
                             self.push(out, kind, line, column);
                         }
                     }
-                }
-                c if c.is_ascii_alphabetic() || c == b'_' => {
-                    let begin = self.pos;
-                    while bytes
-                        .get(self.pos)
-                        .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
-                    {
-                        self.pos += 1;
-                    }
-                    self.skip_columns(self.pos - begin);
-                    self.push(
-                        out,
-                        Kind::Word(source[begin..self.pos].into()),
-                        line,
-                        column,
-                    );
                 }
                 c if c.is_ascii_digit()
                     || (c == b'.' && bytes.get(self.pos + 1).is_some_and(u8::is_ascii_digit)) =>
@@ -568,31 +615,8 @@ impl<'a> Lexer<'a> {
                 b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'.' | b':' | b',' | b'+' | b'-'
                 | b'*' | b'%' | b'/' | b'=' | b'!' | b'<' | b'>' | b'&' | b'|' | b'^' | b'~'
                 | b'?' => {
-                    let begin = self.pos;
-                    if let Some(next) = bytes.get(self.pos + 1)
-                        && matches!(
-                            (c, *next),
-                            (b'-', b'>')
-                                | (b'=', b'=')
-                                | (b'!', b'=')
-                                | (b'<', b'=')
-                                | (b'>', b'=')
-                                | (b'/', b'/')
-                                | (b'<', b'<')
-                                | (b'>', b'>')
-                        )
-                    {
-                        self.pos += 1;
-                        self.column += 1;
-                    }
-                    if matches!(
-                        &source[begin..=self.pos],
-                        "+" | "-" | "*" | "/" | "//" | "%"
-                    ) && bytes.get(self.pos + 1) == Some(&b'=')
-                    {
-                        self.pos += 1;
-                        self.column += 1;
-                    }
+                    let symbol = symbol(c, bytes.get(self.pos + 1), bytes.get(self.pos + 2));
+                    debug_assert!(SYMBOLS.contains(&symbol));
                     if matches!(c, b'(' | b'[' | b'{') {
                         self.delimiters.push((c, start.clone()));
                     }
@@ -608,13 +632,8 @@ impl<'a> Lexer<'a> {
                             );
                         }
                     }
-                    let text = &source[begin..=self.pos];
-                    let symbol = SYMBOLS
-                        .iter()
-                        .find(|symbol| **symbol == text)
-                        .expect("the lexer accepts only listed symbols");
-                    self.pos += 1;
-                    self.column += 1;
+                    self.pos += symbol.len();
+                    self.skip_columns(symbol.len());
                     self.push(out, Kind::Symbol(symbol), line, column);
                 }
                 _ => {
@@ -2484,7 +2503,7 @@ impl Parser {
 }
 
 /// A string prefix. Each has exactly one spelling, matched in
-/// `Lexer::literal_prefix`.
+/// `literal_prefix`.
 #[derive(Clone, Copy, Debug)]
 enum Prefix {
     Bytes,
