@@ -66,8 +66,8 @@ demonstrated; do not select just the best scalar/SIMD address pair.
 ## Final measurements
 
 Measured on 2026-10-24 on the Ryzen 7 7840HS, pinned to logical CPU 8, with a
-fresh Cranelift 0.137.0 release compiler incorporating main `539f7ee4`.
-Host process monitoring sampled 15 times at half-second intervals
+fresh Cranelift 0.137.0 release compiler incorporating main `c6e3f8b9`, including
+the executable trap-table changes. Host process monitoring sampled 16 times at half-second intervals
 throughout the final run and observed no concurrent `cargo`/`rustc` work.
 The retained `experiments/simd/clist/measurements.json` records all 72 measured
 executions, checksums, actual function addresses, instruction/cycle counts,
@@ -77,14 +77,14 @@ Each cell below spans the four placement medians, not individual samples:
 
 | Rows per call | Scalar ns/row | SIMD ns/row | Scalar instructions/row | SIMD instructions/row |
 | ---: | ---: | ---: | ---: | ---: |
-| 7 | 2.023–2.382 | 1.652–1.945 | 42.724 | 38.010 |
-| 8,192 | 0.635–0.976 | 0.105–0.212 | 13.037 | 3.037 |
-| 262,144 | 0.635–0.972 | 0.104–0.212 | 13.058 | 3.058 |
+| 7 | 2.157–2.480 | 1.745–2.034 | 42.724 | 38.010 |
+| 8,192 | 0.668–1.001 | 0.116–0.224 | 13.037 | 3.037 |
+| 262,144 | 0.682–1.007 | 0.115–0.224 | 13.058 | 3.058 |
 
-At matched link placements, the two larger sizes improve **3.00–6.16×** in
+At matched link placements, the two larger sizes improve **3.94–5.93×** in
 elapsed time with roughly **4.3 times fewer instructions**. SIMD uses about
-0.52–1.04 cycles/row, while the scalar control varies between about 3.0 and 4.8.
-The small case improves only 1.05–1.44×; setup costs dominate and the captured
+0.54–1.03 cycles/row, while the scalar control varies between about 3.0 and 4.6.
+The small case improves only 1.19–1.24×; setup costs dominate and the captured
 scalar threshold has extra fixed setup. This compares two paths in the same
 compiler, not identical source compiled before and after the change.
 
@@ -94,8 +94,8 @@ retains its comparison constant in a register and executes about 0.25 fewer
 instructions per row on the larger inputs. Placement sensitivity is stronger
 in this run, so the upgrade does not imply a uniform elapsed-time improvement.
 
-The SIMD function occupies 608 bytes including its constant pool; the scalar
-control occupies 525 bytes. Assembly contains unaligned `movdqu`, `pcmpgtd`,
+The SIMD function occupies 592 bytes including its constant pool; the scalar
+control occupies 513 bytes. Assembly contains unaligned `movdqu`, `pcmpgtd`,
 mask shuffles and `paddq`/`psubq`, followed by the scalar tail. The comparison
 does not call a predicate per row. The gains justify this small recognition
 slice; they do not establish a general backend ranking, wider-vector benefit,

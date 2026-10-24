@@ -186,6 +186,8 @@ mod tests {
         table: Table,
         addresses: [i32; 3],
         entries: [u32; 3],
+        sites: [u8; 64],
+        code: [u8; 3],
     }
 
     /// `target` as an offset from `field`.
@@ -195,15 +197,19 @@ mod tests {
 
     #[test]
     fn lookup_maps_each_kind_and_site() {
-        let sites = [0u8; 64];
-        let code = [0u8; 3];
-        let at = |i: usize| code.as_ptr() as usize + i;
+        // Keep every relative target in the same allocation. Heap-to-stack
+        // distances depend on address-space placement and can exceed i32.
         let mut fixture = Box::new(Fixture {
             table: Table { count: 3, sites: 0 },
             addresses: [0; 3],
             entries: [16, NO_SITE | 5, 4],
+            sites: [0; 64],
+            code: [0; 3],
         });
-        fixture.table.sites = offset(&raw const fixture.table.sites, sites.as_ptr() as usize);
+        let sites = fixture.sites.as_ptr();
+        let code = fixture.code.as_ptr() as usize;
+        let at = |i: usize| code + i;
+        fixture.table.sites = offset(&raw const fixture.table.sites, sites as usize);
         for i in 0..3 {
             fixture.addresses[i] = offset(&raw const fixture.addresses[i], at(i));
         }
@@ -215,7 +221,7 @@ mod tests {
             helper,
             crate::io::plenty_trap_overflow as *const () as usize
         );
-        assert_eq!(site.cast::<u8>(), sites.as_ptr().wrapping_add(16));
+        assert_eq!(site.cast::<u8>(), sites.wrapping_add(16));
         assert_eq!(option, 0);
         let (helper, site, option) = lookup(at(1)).unwrap();
         assert_eq!(helper, crate::io::plenty_trap_unwrap as *const () as usize);

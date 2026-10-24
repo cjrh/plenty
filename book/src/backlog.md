@@ -15,7 +15,7 @@ stages describe technical dependencies, not a second priority list.
 Full reconciliation on 2026-10-22 covered local `main` and merged local PRs
 through #477, the reference and tutorial, and the shared issues register.
 Compiler and columnar follow-ups were checked again on 2026-10-24 against merged
-work through #528; the entries below also record the first automatic SIMD count
+work through #531; the entries below also record the first automatic SIMD count
 slice. **B34's bounded
 cleanup and review batch is complete.** Its ownership, diagnostics, compiler
 performance, collection conveniences, and documentation fixes have landed.

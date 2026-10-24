@@ -1,7 +1,7 @@
 # SIMD after the Cranelift 0.137 upgrade
 
 The automatic column filter/count slice was rebuilt and revalidated against
-Cranelift **0.137.0**, after merging local main `539f7ee4`. The original PR used
+Cranelift **0.137.0**, after merging local main through `c6e3f8b9`. The original PR used
 0.131.1. Production lowering needed only the new `MemFlagsData` type and the
 explicit signed-immediate builder methods (`band_imm_s`, `iadd_imm_s`,
 `ishl_imm_s`, `icmp_imm_s`). The loop's legality checks, four-lane width, baseline
@@ -9,9 +9,13 @@ target and scalar tail are unchanged.
 
 ## Fresh evidence
 
-The full workspace/all-features suite passed: 145 compiler tests, 3,773
-integration tests (two ignored), 182 runtime tests (four ignored) and five
-example tests. This includes signed/unsigned comparison and fallback tests,
+Post-integration validation passed 145 compiler tests, 3,787 integration tests
+(two ignored), 183 runtime tests (four ignored) and five example tests. The
+full workspace/all-features run exposed issue #442 in the newly merged
+trap-table test: heap-to-stack offsets can exceed its signed 32-bit range.
+Keeping its synthetic code/sites/table in one allocation fixes the test without
+changing production behavior; the entire runtime suite then passed in both
+default and all-features configurations. This includes signed/unsigned comparison and fallback tests,
 generated-code checks and protected-page scans at lengths 0–129. Clippy passed
 for all workspace targets with warnings denied. Both compiler profiles were
 rebuilt from an empty task target directory; compiler debug information was
@@ -20,8 +24,13 @@ disabled to keep build storage bounded.
 The final [four-placement measurements](simd-counts.md#final-measurements)
 use the new release compiler. Its SIMD loop keeps the comparison constant in
 a register instead of reloading it each four-row iteration. The measured large
-scans execute about 0.25 fewer instructions per row. Scalar control assembly
-is unchanged; SIMD register allocation and block layout changed. We do not
+scans execute about 0.25 fewer instructions per row. At the initial backend
+upgrade, scalar control assembly was unchanged while SIMD register allocation
+and block layout changed. Subsequent main changes replace executable trap
+helpers with PC-relative trap tables, shrinking the SIMD/scalar functions from
+608/525 to 592/513 bytes. Measurements were repeated after integration; retired
+instructions per scanned row remain the same. Direct reference-store changes
+introduce no new alias-region assumptions. We do not
 attribute all elapsed-time differences to one optimizer pass.
 
 ## Vector-width probe
