@@ -154,6 +154,11 @@ A universal padding/alignment policy would need broader benchmarks and code-size
 tradeoffs; issue #437 remains a low-priority performance concern. The placement
 experiment is evidence, not a hard-coded alignment recommendation.
 
+The subsequent [function-alignment evaluation](alignment-policy.md) tests
+16-, 32- and 64-byte boundaries against short scans, a two-column fold and an
+unrelated scalar loop. It rejects a blanket alignment change: some placements
+improve while others regress.
+
 Reproduce the timing programs on each compiler, without competing builds:
 
 ```sh

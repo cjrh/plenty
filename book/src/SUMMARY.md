@@ -491,6 +491,7 @@
         - [Generated Plenty column-container spike](proposals/columnar-list/implementation-spike.md)
         - [Initial native column implementation](proposals/columnar-list/native-implementation.md)
         - [Direct indexed column access](proposals/columnar-list/indexed-access.md)
+        - [Function-alignment follow-up](proposals/columnar-list/alignment-policy.md)
     - [Exploring async/await without exposed pinning](proposals/async-await.md)
         - [Async suspension, allocation and cleanup](proposals/async-await/ownership.md)
         - [Native async/await spike evidence](proposals/async-await/evidence.md)
