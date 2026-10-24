@@ -95,6 +95,14 @@ explicit types. Named functions and reusable closures are accepted; captures
 may be owned or borrowed. One-shot closures and indirect function values are
 rejected. `map` cannot currently return references.
 
+A closure literal written directly as a callback is lowered into the consumer's
+loop instead of being called. It behaves as the call would: captures are
+evaluated once, when the chain is built; borrowed captures stay borrowed until
+the pipeline is consumed or dropped; owned captures are dropped with the
+pipeline; and a `mut` capture keeps its state across items. A closure stored in
+a local, and a literal whose body is more than one expression or contains `?`,
+`match`, or another closure literal, is called as before.
+
 Free `enumerate(source[, start])` and `zip(left, right)` also start pipelines.
 `dictionary.items()` can be used directly in a chain or through `iter`.
 A pair item spreads into two callback parameters: `map` and `for_each` receive
@@ -168,22 +176,23 @@ Source expressions, callbacks, and destructors retain their own costs. A
 generator source still pays its normal resume cost. Collecting reserves once
 for a known-length range or list pipeline containing only `map`, `take`,
 `skip`, `enumerate`, or `chain` of two known-length sides; a filter, zip,
-`flat_map`, or unknown-length source grows like a comprehension.
+`flat_map`, or unknown-length source grows as it goes.
 A terminal over a `chain` runs one loop per side, so it tests no flag per
 item; when `zip` or `flat_map` follows the `chain`, and in `for` loops,
 `collect`, comprehensions, and generator conversion, one loop tests a flag per
-item. `flat_map` adds the callback call and
+item. `flat_map` adds the callback and
 the inner source's own setup per outer item: a list-returning callback
 allocates one list per outer item, while a range-returning callback allocates
 nothing.
-Optimized native code substitutes small, straight-line scalar leaf functions
-and closures at their call sites (at most 24 meaningful operations). Immutable
-scalar captures can stay in registers, including through local copies and
-assignments. Arithmetic checks and source locations are preserved. Larger
-callbacks, control flow, mutable captures and other capture types retain direct
-calls; fusion alone does not guarantee inline-loop performance for every body.
+Closure literals in a chain add no call. Optimized native code also
+substitutes small, straight-line scalar leaf functions and stored closures at
+their call sites (at most 24 meaningful operations). Immutable scalar captures
+can stay in registers. Arithmetic checks and source locations are preserved.
+Larger named callbacks and stored closures retain direct calls; fusion alone
+does not guarantee inline-loop performance for every body.
 The reproducible [benchmark](../../../development/profiling.md#serial-pipeline-callbacks)
-covers named callbacks, closure literals and scalar captures.
+covers named callbacks, closure literals, scalar captures and a branching
+callback.
 
 Explicit conversion adds one suspension boundary for the whole pipeline,
 rather than one frame per adapter. A generator source inside that frame still

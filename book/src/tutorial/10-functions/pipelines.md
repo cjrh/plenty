@@ -24,7 +24,9 @@ def main() -> Result[(), AllocError | IoError]:
 
 `selected` holds a loan of `payments`. The filter and map run when `fold`
 consumes the pipeline, in source order. `fold` starts at zero and passes the
-accumulator and each amount to `add`. The payments remain available afterwards.
+accumulator and each amount to `add`. A closure written directly in the chain,
+like the filter and map here, is compiled into that loop rather than called.
+The payments remain available afterwards.
 Trying to consume `selected` again is an ownership error.
 
 A method returning a borrowed list can be used directly as the source. Its

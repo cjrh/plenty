@@ -32,7 +32,10 @@ fn step(ops: &[&Op], index: u8) -> bool {
 #[derive(Clone)]
 enum Threshold {
     Constant(i64),
+    /// A hidden-function parameter: `&T` pointing into the closure environment.
     Capture(u8),
+    /// An immutable scalar local of a predicate spliced into the loop.
+    Local(u8),
 }
 
 #[derive(Clone)]
@@ -48,7 +51,9 @@ pub(super) struct Predicate {
     comparisons: Vec<Comparison>,
 }
 
-fn comparison(ops: &[&Op], ty: &Ty, item: u8) -> Option<Comparison> {
+type Operand<'a> = &'a dyn Fn(&[&Op]) -> Option<Threshold>;
+
+fn comparison(ops: &[&Op], ty: &Ty, item: u8, operand: Operand) -> Option<Comparison> {
     let (compare, operands) = ops.split_last()?;
     let signed = *ty == Ty::I32;
     let condition = match compare {
@@ -72,10 +77,7 @@ fn comparison(ops: &[&Op], ty: &Ty, item: u8) -> Option<Comparison> {
         [Op::PushInt(Literal::U32(n))] if *ty == Ty::U32 => {
             Some(Threshold::Constant(i64::from(*n)))
         }
-        [Op::LoadLocal(slot), Op::ReadRef(t)] if *slot < item && t == ty => {
-            Some(Threshold::Capture(*slot))
-        }
-        _ => None,
+        _ => operand(ops),
     };
     if operands.len() >= 2 && reads_item(&operands[..2]) {
         Some(Comparison {
@@ -89,6 +91,32 @@ fn comparison(ops: &[&Op], ty: &Ty, item: u8) -> Option<Comparison> {
         })
     } else {
         None
+    }
+}
+
+/// The comparisons of a predicate body that reads its item through `item`.
+fn comparisons(ops: &[&Op], ty: &Ty, item: u8, operand: Operand) -> Option<Vec<Comparison>> {
+    if let Some(Op::Match(arms)) = ops.last().copied() {
+        // Source `and` short-circuits through this exact branch. Both accepted
+        // comparisons only read immutable scalar values, so evaluating their
+        // masks eagerly cannot add calls, traps, effects or observable reads.
+        let [yes, no] = arms.as_ref() else {
+            return None;
+        };
+        if yes.body.len() > 24
+            || no.body.len() > 8
+            || yes.pattern != Pattern::Bool(true)
+            || no.pattern != Pattern::Bool(false)
+            || !matches!(operations(&no.body).as_slice(), [Op::PushBool(false)])
+        {
+            return None;
+        }
+        Some(vec![
+            comparison(&ops[..ops.len() - 1], ty, item, operand)?,
+            comparison(&operations(&yes.body), ty, item, operand)?,
+        ])
+    } else {
+        Some(vec![comparison(ops, ty, item, operand)?])
     }
 }
 
@@ -110,29 +138,14 @@ fn predicate(body: &[Op], function: &UserFn) -> Option<Predicate> {
     {
         return None;
     }
-    let ops = operations(body);
-    let comparisons = if let Some(Op::Match(arms)) = ops.last().copied() {
-        // Source `and` short-circuits through this exact branch. Both accepted
-        // comparisons only read immutable scalar values, so evaluating their
-        // masks eagerly cannot add calls, traps, effects or observable reads.
-        let [yes, no] = arms.as_ref() else {
-            return None;
-        };
-        if yes.body.len() > 24
-            || no.body.len() > 8
-            || yes.pattern != Pattern::Bool(true)
-            || no.pattern != Pattern::Bool(false)
-            || !matches!(operations(&no.body).as_slice(), [Op::PushBool(false)])
-        {
-            return None;
+    let item = captures as u8;
+    let capture = |ops: &[&Op]| match ops {
+        [Op::LoadLocal(slot), Op::ReadRef(t)] if *slot < item && t == ty.as_ref() => {
+            Some(Threshold::Capture(*slot))
         }
-        vec![
-            comparison(&ops[..ops.len() - 1], ty, captures as u8)?,
-            comparison(&operations(&yes.body), ty, captures as u8)?,
-        ]
-    } else {
-        vec![comparison(&ops, ty, captures as u8)?]
+        _ => None,
     };
+    let comparisons = comparisons(&operations(body), ty, item, &capture)?;
     Some(Predicate {
         ty: ty.as_ref().clone(),
         captures,
@@ -179,7 +192,66 @@ impl Lowerer<'_, '_> {
         else {
             return None;
         };
+        if position != index || !matches!(ty, Ty::I32 | Ty::U32) {
+            return None;
+        }
         let (call, tail) = tail.split_at_checked(tail.len().checked_sub(9)?)?;
+        let count = self.count_tail(*index, tail)?;
+        let slots = [*address, *index, *length, *item, count];
+        for (i, slot) in slots.iter().enumerate() {
+            if slots[..i].contains(slot) {
+                return None;
+            }
+        }
+        // No alias may change the source bounds, index or count behind our back.
+        for slot in [*address, *index, *length, count] {
+            if self.locals[slot as usize].1 != Ty::I64 || self.local_address(slot).is_some() {
+                return None;
+            }
+        }
+        let scan = |environment, predicate| Scan {
+            address: *address,
+            index: *index,
+            length: *length,
+            item: *item,
+            count,
+            environment,
+            predicate,
+        };
+        // A closure literal spliced into the pipeline binds its `&T` parameter
+        // to the item and reads immutable scalar captures as plain locals.
+        if let [
+            Op::BorrowLocal(arg, false),
+            Op::StoreLocal(parameter),
+            body @ ..,
+        ] = call
+        {
+            let reference = Ty::Ref(Arc::new(ty.clone()), false);
+            if *arg != *item
+                || body.len() > 48
+                || slots.contains(parameter)
+                || self.locals[*parameter as usize].1 != reference
+            {
+                return None;
+            }
+            let local = |ops: &[&Op]| match ops {
+                [Op::LoadLocal(slot)]
+                    if !slots.contains(slot)
+                        && slot != parameter
+                        && self.locals[*slot as usize].1 == *ty =>
+                {
+                    Some(Threshold::Local(*slot))
+                }
+                _ => None,
+            };
+            let comparisons = comparisons(body, ty, *parameter, &local)?;
+            let predicate = Predicate {
+                ty: ty.clone(),
+                captures: 0,
+                comparisons,
+            };
+            return Some(scan(None, Arc::new(predicate)));
+        }
         let (callee, environment, argument) = match call {
             [
                 Op::BorrowLocal(env, false),
@@ -196,6 +268,25 @@ impl Lowerer<'_, '_> {
             [Op::BorrowLocal(arg, false), Op::Call(name)] => (name.as_str(), None, *arg),
             _ => return None,
         };
+        if argument != *item
+            || environment
+                .as_ref()
+                .is_some_and(|(env, _)| slots.contains(env))
+        {
+            return None;
+        }
+        let predicate = self.user_fns.get(callee)?.column_predicate.as_ref()?;
+        if predicate.ty != *ty
+            || predicate.captures != environment.as_ref().map_or(0, |(_, t)| t.captures.len())
+        {
+            return None;
+        }
+        Some(scan(environment, predicate.clone()))
+    }
+
+    /// The count of a filter/count loop tail: the filter branch, the count
+    /// increment and the index step. Returns the count local.
+    fn count_tail(&self, index: u8, tail: &[&Op]) -> Option<u8> {
         let [
             Op::Match(arms),
             Op::LoadLocal(count),
@@ -207,12 +298,7 @@ impl Lowerer<'_, '_> {
         else {
             return None;
         };
-        if !matches!(ty, Ty::I32 | Ty::U32)
-            || position != index
-            || argument != *item
-            || result != count
-            || !step(rest, *index)
-        {
+        if result != count || !step(rest, index) {
             return None;
         }
         let [accepted, rejected] = arms.as_ref() else {
@@ -224,43 +310,11 @@ impl Lowerer<'_, '_> {
             || rejected.pattern != Pattern::Bool(false)
             || rejected_body.len() != 5
             || !matches!(rejected_body[4], Op::Continue)
-            || !step(&rejected_body[..4], *index)
+            || !step(&rejected_body[..4], index)
         {
             return None;
         }
-        let slots = [*address, *index, *length, *item, *count];
-        if environment
-            .as_ref()
-            .is_some_and(|(env, _)| slots.contains(env))
-        {
-            return None;
-        }
-        for (i, slot) in slots.iter().enumerate() {
-            if slots[..i].contains(slot) {
-                return None;
-            }
-        }
-        // No alias may change the source bounds, index or count behind our back.
-        for slot in [*address, *index, *length, *count] {
-            if self.locals[slot as usize].1 != Ty::I64 || self.local_address(slot).is_some() {
-                return None;
-            }
-        }
-        let predicate = self.user_fns.get(callee)?.column_predicate.as_ref()?;
-        if predicate.ty != *ty
-            || predicate.captures != environment.as_ref().map_or(0, |(_, t)| t.captures.len())
-        {
-            return None;
-        }
-        Some(Scan {
-            address: *address,
-            index: *index,
-            length: *length,
-            item: *item,
-            count: *count,
-            environment,
-            predicate: predicate.clone(),
-        })
+        Some(*count)
     }
 
     pub(super) fn lower_clist_simd_prefix(&mut self, condition: &[Op], body: &[Op]) {
@@ -293,6 +347,7 @@ impl Lowerer<'_, '_> {
             .map(|comparison| {
                 let threshold = match comparison.threshold {
                     Threshold::Constant(value) => self.bcx.ins().iconst(types::I32, value),
+                    Threshold::Local(slot) => self.read_local(slot),
                     Threshold::Capture(slot) => {
                         let (storage, ty) =
                             environment.as_ref().expect("validated capture environment");

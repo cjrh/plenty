@@ -4,6 +4,8 @@ use super::collections::Iteration;
 use super::*;
 
 mod generator_bridge;
+mod splice;
+pub(super) use splice::Callback;
 
 fn result_payload(ty: &Ty) -> Option<Ty> {
     match ty {
@@ -201,9 +203,7 @@ impl Lower<'_> {
                     };
                     if matches!(method.as_str(), "map" | "filter" | "take_while") {
                         let callback = self.pipeline_callback(argument, ops)?;
-                        plan.owned &= !self
-                            .expression_type_hint(&callback)
-                            .is_some_and(|ty| ty.contains_reference());
+                        plan.owned &= !self.callback_borrows(&callback);
                         let items = self.pipeline_arguments(&plan, method != "map", &e.at);
                         let output =
                             self.pipeline_call(&callback, &items, &mut plan.iteration.body)?;
@@ -789,32 +789,64 @@ impl Lower<'_> {
             return Err(at.error("flat_map requires one argument"));
         };
         let callback = self.pipeline_callback(argument, ops)?;
-        outer.owned &= !self
-            .expression_type_hint(&callback)
-            .is_some_and(|ty| ty.contains_reference());
+        outer.owned &= !self.callback_borrows(&callback);
         let active = self.slot(Ty::Bool, at)?;
         ops.extend([Op::PushBool(false), Op::StoreLocal(active)]);
         let items = self.pipeline_arguments(&outer, false, at);
-        let Expression::Name(function) = &callback.kind else {
-            unreachable!()
-        };
-        let call = Expr {
-            at: argument.at.clone(),
-            kind: Expression::Call(function.clone(), items),
-        };
         let not_a_source = || {
             argument.at.error(
                 "flat_map callbacks must return an owned list, set, dict, str, bytes, range, or generator",
             )
         };
-        if self.expression_type_hint(&call).is_some_and(|ty| {
+        let not_iterable = |ty: &Ty| {
             ty.contains_reference()
-                || (ty.element().is_none() && super::byte_buffers::byte_buffer(&ty).is_none())
-        }) {
-            return Err(not_a_source());
-        }
-        let inner_start = self.parameters + self.locals.len();
+                || (ty.element().is_none() && super::byte_buffers::byte_buffer(ty).is_none())
+        };
         let mut fetch = Vec::new();
+        let call = match &callback {
+            Callback::Value(callee) => {
+                let Expression::Name(function) = &callee.kind else {
+                    unreachable!()
+                };
+                let call = Expr {
+                    at: argument.at.clone(),
+                    kind: Expression::Call(function.clone(), items),
+                };
+                if self
+                    .expression_type_hint(&call)
+                    .is_some_and(|ty| not_iterable(&ty))
+                {
+                    return Err(not_a_source());
+                }
+                call
+            }
+            // The spliced body yields the inner source, which the inner
+            // iteration then moves out of its slot like an owned local.
+            Callback::Spliced(splice) => {
+                let ty = self
+                    .splice_call(splice, &items, &mut fetch)?
+                    .ok_or_else(not_a_source)?;
+                if not_iterable(&ty) {
+                    return Err(not_a_source());
+                }
+                let slot = self.slot(ty.clone(), &argument.at)?;
+                fetch.push(Op::StoreLocal(slot));
+                let name = format!("<pipeline inner source {slot}>");
+                self.bind(
+                    name.clone(),
+                    Local {
+                        slot,
+                        ty,
+                        mutable: false,
+                    },
+                );
+                Expr {
+                    at: argument.at.clone(),
+                    kind: Expression::Name(name),
+                }
+            }
+        };
+        let inner_start = self.parameters + self.locals.len();
         let inner = self.pipeline_raw_source(&call, &mut fetch)?;
         let inner_fields = inner
             .pair
@@ -916,14 +948,17 @@ impl Lower<'_> {
         }
     }
 
-    fn pipeline_callback(&mut self, callback: &Expr, ops: &mut Vec<Op>) -> Result<Expr> {
+    fn pipeline_callback(&mut self, callback: &Expr, ops: &mut Vec<Op>) -> Result<Callback> {
         if let Expression::Name(n) = &ungroup(callback).kind
             && self.sigs.contains_key(n)
             && !self.names.contains_key(n)
         {
-            return Ok(callback.clone());
+            return Ok(Callback::Value(callback.clone()));
         }
         let ty = if let Expression::Anonymous(function) = &ungroup(callback).kind {
+            if let Some(body) = splice::spliceable(function, &self.names) {
+                return self.splice_callback(function, body, &callback.at, ops);
+            }
             self.closure_value(function, &callback.at, ops)?
         } else {
             self.value(callback, ops)?
@@ -944,13 +979,22 @@ impl Lower<'_> {
                 mutable: true,
             },
         );
-        Ok(Expr {
+        Ok(Callback::Value(Expr {
             at: callback.at.clone(),
             kind: Expression::Name(name),
-        })
+        }))
     }
 
-    fn pipeline_call(&mut self, callback: &Expr, args: &[Expr], ops: &mut Vec<Op>) -> Result<Type> {
+    fn pipeline_call(
+        &mut self,
+        callback: &Callback,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let callback = match callback {
+            Callback::Spliced(splice) => return self.splice_call(splice, args, ops),
+            Callback::Value(callback) => callback,
+        };
         if let Expression::Name(n) = &callback.kind
             && self.sigs.contains_key(n)
             && !self.names.contains_key(n)
@@ -1065,7 +1109,7 @@ impl Lower<'_> {
                     .collect::<Vec<_>>(),
                     &mut body,
                 )?;
-                self.same(actual, Some(ty.clone()), &callback.at)?;
+                self.same(actual, Some(ty.clone()), callback.at())?;
                 body.push(Op::StoreLocal(slot));
                 Some((ty, slot))
             }
@@ -1097,15 +1141,15 @@ impl Lower<'_> {
                 )?;
                 let Some(ty @ Ty::Enum(_)) = result else {
                     return Err(callback
-                        .at
+                        .at()
                         .error("try_fold callbacks must return Result[Accumulator, Error]"));
                 };
                 let success = result_payload(&ty).ok_or_else(|| {
                     callback
-                        .at
+                        .at()
                         .error("try_fold callbacks must return Result[Accumulator, Error]")
                 })?;
-                self.same(Some(success), Some(accumulator_ty.clone()), &callback.at)?;
+                self.same(Some(success), Some(accumulator_ty.clone()), callback.at())?;
                 let Ty::Enum(result_type) = &ty else {
                     unreachable!()
                 };
@@ -1140,15 +1184,15 @@ impl Lower<'_> {
                 let result = self.pipeline_call(&callback, &items, &mut body)?;
                 let Some(ty @ Ty::Enum(_)) = result else {
                     return Err(callback
-                        .at
+                        .at()
                         .error("try_for_each callbacks must return Result[(), Error]"));
                 };
                 let success = result_payload(&ty).ok_or_else(|| {
                     callback
-                        .at
+                        .at()
                         .error("try_for_each callbacks must return Result[(), Error]")
                 })?;
-                self.same(Some(success), Some(Ty::Unit), &callback.at)?;
+                self.same(Some(success), Some(Ty::Unit), callback.at())?;
                 let Ty::Enum(result_type) = &ty else {
                     unreachable!()
                 };
@@ -1183,7 +1227,7 @@ impl Lower<'_> {
                 let callback = self.pipeline_callback(callback, ops)?;
                 let predicate_items = self.pipeline_arguments(&plan, true, &base.at);
                 let actual = self.pipeline_call(&callback, &predicate_items, &mut body)?;
-                self.same(actual, Some(Ty::Bool), &callback.at)?;
+                self.same(actual, Some(Ty::Bool), callback.at())?;
                 if name == "find" {
                     if let Some(barrier) = plan.item.ty.storage_barrier() {
                         return Err(base
@@ -1269,7 +1313,7 @@ impl Lower<'_> {
                     .collect::<Vec<_>>(),
                     &mut combine,
                 )?;
-                self.same(actual, Some(plan.item.ty.clone()), &callback.at)?;
+                self.same(actual, Some(plan.item.ty.clone()), callback.at())?;
                 body.push(branch(combine, self.pipeline_value_ops(&plan)));
                 body.extend([
                     Op::Enum(crate::sum::EnumOp::New(option.clone(), 1)),
@@ -1280,7 +1324,7 @@ impl Lower<'_> {
             ("for_each", [callback]) => {
                 let callback = self.pipeline_callback(callback, ops)?;
                 let actual = self.pipeline_call(&callback, &items, &mut body)?;
-                self.same(actual, None, &callback.at)?;
+                self.same(actual, None, callback.at())?;
                 None
             }
             _ => {

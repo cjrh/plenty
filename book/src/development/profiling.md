@@ -298,7 +298,9 @@ policy.
 `scripts/bench_pipelines.py` compares an inline range/filter/map/fold loop with
 fused pipelines using named callbacks, closure literals, and immutable scalar
 captures. All variants do the same checked arithmetic: filter even values,
-square each accepted value modulo 1,000, and add the results. Run:
+square each accepted value modulo 1,000, and add the results. A second pair
+compares a loop with a closure-literal `map` whose body is a conditional
+expression, against its own inline loop. Run:
 
 ```sh
 python3 -B scripts/bench_pipelines.py target/debug/plenty --items 100000000 --runs 7
@@ -340,6 +342,44 @@ the named-function variant. Single-program compilation is one observation per
 variant, not evidence of a compilation speedup. The machine was not frequency-
 locked or CPU-pinned; small runtime differences around parity are noise. These
 results do not promise the same ratios for larger, branching or mutable callbacks.
+
+### Closure-literal splicing
+
+Closure literals written in a chain are now lowered in the consumer's loop
+rather than as hidden functions (B75 stage 2). Before timing, `--dump ops` showed
+no `ClosureNew` or `ClosureCall` in the fused functions, and the optimized asm of
+the filter/map/fold closure variant has no call inside the loop. The branching
+variant's asm has 107 instructions against 108 for its inline loop.
+
+Both compilers were measured on this host back to back, pinned with
+`taskset -c 0,2,4,6,8,10,12,14`, over 100 million items with seven interleaved
+executions per variant:
+
+| Variant | Before: median | Before: ratio | After: median | After: ratio |
+|---|---:|---:|---:|---:|
+| Inline loop | 0.155813 s | 1.000 | 0.157660 s | 1.000 |
+| Named callbacks | 0.157610 s | 1.012 | 0.156564 s | 0.993 |
+| Closure literals | 0.159477 s | 1.024 | 0.156964 s | 0.996 |
+| Scalar captures | 0.159048 s | 1.021 | 0.156939 s | 0.995 |
+| Branching loop | 0.223247 s | 1.000 | 0.222619 s | 1.000 |
+| Branching closure | 0.234639 s | 1.051 | 0.225732 s | 1.014 |
+
+Cold checks of 100 functions, medians of seven runs:
+
+| Variant | Before | After |
+|---|---:|---:|
+| Inline loop | 0.003607 s | 0.004034 s |
+| Named callbacks | 0.003654 s | 0.003728 s |
+| Closure literals | 0.005867 s | 0.005057 s |
+| Scalar captures | 0.007005 s | 0.004893 s |
+| Branching loop | 0.004116 s | 0.003629 s |
+| Branching closure | 0.005514 s | 0.004041 s |
+
+All runs returned `24500000000` and `16850000993`. Closure literals now run
+within 1.5% of their inline loops. Checking closure-heavy functions fell from
+about 1.6 to 1.4 times the named variant; the remainder is per-literal capture
+and splice lowering. Cold-check numbers are one series per compiler and vary by
+roughly 10% between runs.
 
 ## Fluent generators and explicit conversion
 
