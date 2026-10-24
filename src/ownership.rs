@@ -1558,6 +1558,7 @@ impl Checker<'_, '_> {
                     }
                     state[*i as usize] = Slot::Owned
                 }
+                Op::EmptyLocal(i) => state[*i as usize] = Slot::Owned,
                 Op::DropLocal(i) => {
                     if self.closes(*i as usize, state) {
                         self.shutdown(Some(*i as usize), state, site)

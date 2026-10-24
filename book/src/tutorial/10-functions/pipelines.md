@@ -105,6 +105,37 @@ keep the last value. A pair fold takes the accumulator followed by both item
 components; a tuple accumulator stays a single parameter. Zip stops at the
 shorter input, pulling the left first, so it may consume one extra left item.
 
+Use `chain` to continue with a second source of the same item type, and
+`flat_map` when each item expands into a source of its own:
+
+```plenty
+class Batch:
+    first: i64
+    count: i64
+
+def main() -> Result[(), AllocError | IoError]:
+    morning = [3, 1]?
+    evening = [4]?
+    total = iter(&morning).chain(&evening).fold(0, def(acc: i64, n: &i64) -> i64: acc + *n)
+    print(total)?
+    batches = [Batch(100, 2), Batch(200, 1)]?
+    for ticket in iter(&batches).flat_map(def(b: &Batch) -> range[i64]: range(b.first, b.first + b.count)):
+        print(ticket)?
+    Ok(())
+```
+```output
+8
+100
+101
+200
+```
+
+Both lists stay borrowed until the fold ends. The `flat_map` callback runs
+once per batch, only after the previous batch's tickets are used up, and
+returns a range, so nothing is allocated. A callback may return any owned
+iterable, such as a list, range or generator; returning a list allocates one list
+per item.
+
 Keep a plain loop for several statements or error propagation, and use a
 comprehension when building a list is the clearest form. Pipelines are local:
 return an owned collection or call `.generator()` on a pipeline with owned

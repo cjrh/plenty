@@ -2422,6 +2422,11 @@ impl Lowerer<'_, '_> {
             Op::Yield(ty) => self.lower_yield(ty)?,
             Op::Next(i) => self.lower_next(*i)?,
             Op::DropLocal(i) => self.drop_local(*i),
+            Op::EmptyLocal(i) => {
+                let ty = self.locals[*i as usize].1.clone();
+                let zero = self.empty_slot(&ty);
+                self.write_local(*i, zero);
+            }
             Op::MoveLocal(i) => {
                 let value = self.read_local(*i);
                 let ty = self.locals[*i as usize].1.clone();

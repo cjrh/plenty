@@ -833,6 +833,11 @@ pub enum Op {
     Next(u8),
     MoveLocal(u8),
     DropLocal(u8),
+    /// Write the empty value, which owns nothing, to a local. The ownership
+    /// check treats the slot as initialized; the frontend emits this only
+    /// for plan state that is read under a flag saying it holds a value,
+    /// such as a `flat_map` inner source between outer items.
+    EmptyLocal(u8),
     Enum(crate::sum::EnumOp),
     Box(crate::boxed::BoxOp),
     /// Move every field out of a multi-field variant or tuple, in field order.
@@ -2072,6 +2077,9 @@ fn step(
         }
         Op::DropLocal(i) => {
             locals.get(*i as usize).ok_or("invalid drop local")?;
+        }
+        Op::EmptyLocal(i) => {
+            locals.get(*i as usize).ok_or("invalid empty local")?;
         }
         Op::Loop { condition, body } => {
             let initial = stack.clone();
