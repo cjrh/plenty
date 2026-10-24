@@ -95,8 +95,8 @@ The same source semantics apply with and without optimization. No runtime ISA
 selection or newer CPU feature is required.
 
 Storage boundaries, copying and lane assembly can dominate short operations.
-Explicit SIMD is not a blanket speedup over scalar code, and this module does not replace the
-packed-column lowering used by `clist`. Wider vectors, packed views, generic
+Explicit SIMD is not a blanket speedup over scalar code, and this module does
+not replace the packed-column lowering used by `clist`. Wider vectors, packed views, generic
 lane counts, gathers/scatters, casts, shifts and integer division are not in this
 initial surface. See the [tutorial](../../tutorial/07-modules/19-portable-simd.md)
 and the [implementation evidence](../../proposals/std-simd/implementation.md).

@@ -27,7 +27,8 @@ suite or a precise hardware attribution.
   Independent vectors exercise throughput without changing arithmetic order.
 
 For instruction counters, compile `scalar.plenty`, `vector.plenty`,
-`float_scalar.plenty` and `float_vector.plenty` the same way and run, for example,
+`float_scalar.plenty`, `float_vector.plenty`, `throughput_scalar.plenty` and
+`throughput_vector.plenty` the same way and run, for example,
 `perf stat -e instructions:u,cycles:u /tmp/simd-vector`. These wrappers run ten
 million iterations and print a checksum. Counters include process startup and
 printing; that fixed overhead is small at this size. Do not run the timing probes
@@ -44,3 +45,12 @@ prototype's per-operation tagged-lane snapshots. Public storage/ABI boundaries
 remain ordinary inline enums. See the
 [implementation assessment](../../../book/src/proposals/std-simd/implementation.md)
 and `measurements.json` for retained results and limits.
+
+On the Ryzen 7 7840HS, final verification after builds stopped gave median
+scalar/vector times of 0.821/1.451 ms for the integer recurrence,
+3.002/2.771 ms for one floating vector, and 9.897/2.982 ms for four independent
+floating vectors (about 3.32 times faster in that throughput case). Instruction
+counts per iteration were approximately 13/14, 13/7 and 37/13 respectively.
+The JSON retains the earlier run with another host build present as well as
+the quiet verification. These measurements support a bounded throughput win,
+and show why vector instructions alone do not guarantee one.
