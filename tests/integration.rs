@@ -259,6 +259,8 @@ mod test_loops;
 mod test_lsp;
 #[path = "test_match_values.rs"]
 mod test_match_values;
+#[path = "test_memory_order.rs"]
+mod test_memory_order;
 #[path = "test_modern.rs"]
 mod test_modern;
 #[path = "test_module_constants.rs"]
@@ -335,6 +337,8 @@ mod test_recursive_tail_errors;
 mod test_reference_rebinding;
 #[path = "test_reference_tail_calls.rs"]
 mod test_reference_tail_calls;
+#[path = "test_release_stores.rs"]
+mod test_release_stores;
 #[path = "test_result_handling.rs"]
 mod test_result_handling;
 #[path = "test_retained_job_errors.rs"]

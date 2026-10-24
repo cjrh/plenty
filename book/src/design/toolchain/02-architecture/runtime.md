@@ -75,9 +75,23 @@ are relative to the source root, which keeps objects
 is a local symbol with no relocations, so each Plenty library in a program keeps
 its own.
 
-Inline checks (integer overflow, division by zero, shift counts, `unwrap`) compute the pointer
-in their cold trap block, so the passing path gains nothing; checks of one
-kind at one position share the block. A check whose
+Inline checks (integer overflow, division by zero, shift counts, float-to-integer
+casts, `unwrap`) branch to a cold trap block; checks of one kind at one
+position share the block. In an executable the block is a single `ud2`
+with its own Cranelift trap code, and the object holds a trap table mapping
+each such address to the check's kind and site record. Its addresses are
+32-bit offsets the linker resolves, so a PIE applies no relocations to it
+and its pages stay unread until a check fails. `plenty_main`
+registers the table, and startup installs a `SIGILL` handler on the
+alternate signal stack. On a kernel-raised `SIGILL` at a listed address the
+handler resumes the thread in the check's helper with the site as its
+argument, so the report, exit status and thread behaviour match a direct
+call; any other `SIGILL` goes to the previous action. The table lists only
+functions reachable from exported functions and destructors, so linker
+garbage collection still removes the rest. A function has 247 trap codes;
+later checks, and every check in a library, `--fuzz` or `--coverage` build,
+compute the pointer in the cold block and call the helper. Either way the
+passing path gains nothing. A check whose
 condition the compiler computes from constants and finds false, such as the
 divisor's zero test in `x // 10` or the count test in `x >> 13`, emits no branch
 or trap call, in debug and release builds. A check that may fire, or always

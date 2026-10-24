@@ -281,8 +281,8 @@ impl Plan {
         module: &ObjectModule,
         id: FuncId,
         capture: Capture,
-        (bytes, relocs): (&[u8], &[ModuleReloc]),
-        (requests, targets): (&[Request], &[ModuleRelocTarget]),
+        (bytes, relocs, traps): (&[u8], &[ModuleReloc], &[(u32, u8)]),
+        (requests, targets, checks): (&[Request], &[ModuleRelocTarget], &super::traps::Checks),
     ) -> Entry {
         let symbol = module
             .declarations()
@@ -305,6 +305,7 @@ impl Plan {
             plan: self,
             requests,
             targets,
+            checks,
         };
         let clif = |func: &Function| {
             let mut text = String::new();
@@ -328,7 +329,7 @@ impl Plan {
                 .flatten(),
             asm: options
                 .has(DumpStage::Asm)
-                .then(|| asm(bytes, relocs, &capture.srclocs, &names)),
+                .then(|| asm(bytes, (relocs, traps), &capture.srclocs, &names)),
             bytes: bytes.len(),
             instructions: capture.instructions,
             optimized_instructions: capture.after.as_ref().map(instructions).unwrap_or(0),
@@ -651,6 +652,7 @@ struct Names<'a> {
     plan: &'a Plan,
     requests: &'a [Request],
     targets: &'a [ModuleRelocTarget],
+    checks: &'a super::traps::Checks,
 }
 
 impl Names<'_> {
@@ -776,7 +778,14 @@ impl FuncWriter for ClifWriter<'_> {
                 Some(rest) => rest.split_once(' ').map_or(rest, |(_, rest)| rest),
                 None => line,
             };
-            writeln!(w, "    {}", line.trim_start())?;
+            write!(w, "    {}", line.trim_start())?;
+            if let ir::InstructionData::Trap { code, .. }
+            | ir::InstructionData::CondTrap { code, .. } = func.dfg.insts[inst]
+                && let Some(helper) = self.names.checks.helper(code.as_raw().get())
+            {
+                write!(w, "  ; {helper}")?;
+            }
+            writeln!(w)?;
         }
         Ok(())
     }
@@ -815,7 +824,13 @@ impl FuncWriter for ClifWriter<'_> {
 /// Machine code as AT&T assembly: the byte offset of each instruction,
 /// relocated operands' symbols as comments, and source lines where they
 /// change. The constants Cranelift places after the code are shown as bytes.
-fn asm(bytes: &[u8], relocs: &[ModuleReloc], srclocs: &[(u32, u32, u32)], names: &Names) -> String {
+/// `traps` are the `(offset, code)` of the checks' `ud2`s.
+fn asm(
+    bytes: &[u8],
+    (relocs, traps): (&[ModuleReloc], &[(u32, u8)]),
+    srclocs: &[(u32, u32, u32)],
+    names: &Names,
+) -> String {
     let code = &bytes[..code_length(bytes, relocs)];
     let mut decoder = Decoder::with_ip(64, code, 0, DecoderOptions::NONE);
     let mut formatter = GasFormatter::new();
@@ -857,6 +872,13 @@ fn asm(bytes: &[u8], relocs: &[ModuleReloc], srclocs: &[(u32, u32, u32)], names:
                 let _ = write!(out, "{:+}", reloc.addend);
             }
             first = false;
+        }
+        if let Some(helper) = traps
+            .iter()
+            .find(|(offset, _)| *offset == start)
+            .and_then(|(_, code)| names.checks.helper(*code))
+        {
+            let _ = write!(out, "  # {helper}");
         }
         out.push('\n');
     }

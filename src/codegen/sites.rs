@@ -85,6 +85,16 @@ impl Table {
         Ok((data, base))
     }
 
+    /// The offset the next appended function's records start at.
+    pub(super) fn next_offset(&self) -> i64 {
+        (self.records.len() * RECORD) as i64
+    }
+
+    /// The table's symbol, once a function has a record.
+    pub(super) fn data(&self) -> Option<DataId> {
+        self.data
+    }
+
     /// Defines the table in `module`, once every function is placed.
     pub(super) fn define(self, module: &mut ObjectModule) -> Result<()> {
         let Some(data) = self.data else {

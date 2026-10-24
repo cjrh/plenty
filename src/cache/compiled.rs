@@ -24,6 +24,9 @@ pub(crate) struct MachineCode {
     pub alignment: u64,
     pub bytes: Vec<u8>,
     pub relocs: Vec<MachReloc>,
+    /// `(offset, code)` of the traps that may be checks reported through the
+    /// runtime's handler (`codegen::traps`).
+    pub traps: Vec<(u32, u8)>,
 }
 
 impl From<&CompiledCode> for MachineCode {
@@ -32,6 +35,7 @@ impl From<&CompiledCode> for MachineCode {
             alignment: u64::from(code.buffer.min_alignment),
             bytes: code.buffer.data().to_vec(),
             relocs: code.buffer.relocs().to_vec(),
+            traps: crate::codegen::trap_checks(code.buffer.traps()),
         }
     }
 }
@@ -96,7 +100,7 @@ impl Cache {
             let mut store = self.store();
             let (compiled, hit) = context
                 .compile_with_cache(isa, &mut store, &mut ControlPlane::default())
-                .map_err(|error| format!("{:?}", error.inner))?;
+                .map_err(|error| crate::codegen::describe_error(&error.inner))?;
             let mut code = MachineCode::from(compiled);
             code.relax(&context.func);
             store.finish(hit);
@@ -130,7 +134,7 @@ impl Cache {
             }
             let stencil = context
                 .compile_stencil(isa, &mut ControlPlane::default())
-                .map_err(|error| format!("{error:?}"))?;
+                .map_err(|error| crate::codegen::describe_error(&error))?;
             let (stencil, serialized) = serialize_compiled(stencil);
             if let Ok(blob) = serialized {
                 store.insert(&key, blob);
