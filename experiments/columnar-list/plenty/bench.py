@@ -15,10 +15,12 @@ HERE = Path(__file__).resolve().parent
 FIELDS = ("x", "y", "z", "vx", "vy", "vz", "mass", "tag")
 
 
-def program(rows, repeats, samples, native=False):
+def program(rows, repeats, samples, native=False, skip_generated=False):
     kernels = []
     full = "row.x * row.y + row.z * row.vx + row.vy * row.vz + row.mass * row.tag"
-    layouts = [("aos", "list[Particle]"), ("soa", "ClistParticle")]
+    layouts = [("aos", "list[Particle]")]
+    if not skip_generated:
+        layouts.append(("soa", "ClistParticle"))
     if native:
         layouts.append(("native", "clist[Particle]"))
     for layout, ty in layouts:
@@ -94,7 +96,9 @@ def main() -> Result[(), AllocError | IoError | AppendParticleError{extra_error}
         aos.append(Particle(n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7))?
     end_aos = monotonic_now()
     print("build_aos", end_aos.saturating_duration_since(&start_aos).as_nanoseconds(), len(aos))?
-    start_soa = monotonic_now()
+"""
+    if not skip_generated:
+        source += f"""    start_soa = monotonic_now()
     mut soa = ClistParticle()?
     soa.reserve({rows})?
     for i in range({rows}):
@@ -146,6 +150,7 @@ def main():
     parser.add_argument("--samples", type=int, default=7)
     parser.add_argument("--cpu", type=int)
     parser.add_argument("--native-clist", action="store_true", help="also measure the compiler-supported packed clist")
+    parser.add_argument("--skip-generated", action="store_true", help="omit the earlier generated-container spike from final comparisons")
     args = parser.parse_args()
     assert args.repeats > 0 and args.samples > 0
     compiler = args.compiler.resolve()
@@ -153,19 +158,34 @@ def main():
     (args.out / "columns.plenty").write_text(generate((HERE / "particle.plenty").read_text()))
     report = {"compiler": str(compiler), "compiler_sha256": hashlib.sha256(compiler.read_bytes()).hexdigest(),
               "platform": platform.platform(), "cpu": args.cpu, "samples": args.samples,
-              "repeats": args.repeats, "release": True, "native_clist": args.native_clist, "results": [], "construction": []}
+              "repeats": args.repeats, "release": True, "native_clist": args.native_clist,
+              "skip_generated": args.skip_generated, "results": [], "construction": [], "frequency_khz": []}
     report["lscpu"] = subprocess.run(["lscpu"], text=True, capture_output=True, check=True).stdout
     env = {**os.environ, "PLENTY_CACHE": "off", "PLENTY_LINKER_THREADS": "1"}
     for rows in args.rows:
         assert rows > 0 and rows & (rows - 1) == 0, "permutation requires power-of-two row count"
         source = args.out / f"bench_{rows}.plenty"
         binary = args.out / f"bench_{rows}"
-        source.write_text(program(rows, args.repeats, args.samples, args.native_clist))
+        source.write_text(program(rows, args.repeats, args.samples, args.native_clist, args.skip_generated))
         subprocess.run([str(compiler), "--release", "--compile", str(source), "-o", str(binary)], env=env, check=True)
         command = [str(binary.resolve())]
         if args.cpu is not None:
             command = ["taskset", "-c", str(args.cpu), *command]
-        result = subprocess.run(command, env=env, text=True, capture_output=True, check=True)
+        frequency = None if args.cpu is None else Path(f"/sys/devices/system/cpu/cpu{args.cpu}/cpufreq/scaling_cur_freq")
+        def sample_frequency(phase):
+            if frequency is not None and frequency.exists():
+                report["frequency_khz"].append({"rows": rows, "phase": phase, "khz": int(frequency.read_text())})
+        sample_frequency("before")
+        process = subprocess.Popen(command, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=0.25)
+                break
+            except subprocess.TimeoutExpired:
+                sample_frequency("during")
+        sample_frequency("after")
+        result = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+        result.check_returncode()
         (args.out / f"raw_{rows}.txt").write_text(result.stdout)
         timings = {}
         for line in result.stdout.splitlines():
