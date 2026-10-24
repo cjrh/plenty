@@ -5,17 +5,22 @@ operations are resolved before Cranelift receives IR; runtime metadata describes
 known storage and operations, not dynamic inference.
 
 Placeholder identities and queued concrete signatures break recursive checking
-dependencies. A compilation allows 16,384 generic function/method instances in
-total, with at most 256 newly required instances along a dependency chain.
-Independent calls start at depth one, even when they specialize the same
-template with different types. A new instance inherits its first requiring
-caller's depth plus one; lifted closures and generated call wrappers preserve
-that depth. Repeated calls, ordinary recursion, and alias-equivalent arguments
-reuse cached specializations without spending either budget. The depth check
-guards expansion, rather than counting the unrelated generics in a library.
-It is a conservative implementation bound, not a proof of infinite recursion;
-an unusually long finite dependency chain can also reach it. The separate total
-budget bounds broad expansion and reports a resource-budget diagnostic.
+dependencies. Each generic function or method allows 16,384 instances, with at
+most 256 newly required instances along a dependency chain. A program has
+finitely many generic declarations, so expansion without end must grow the
+instances of one of them without end. Independent calls start at depth one, even
+when they specialize the same template with different types. A new instance
+inherits its first requiring caller's depth plus one; lifted closures and
+generated call wrappers preserve that depth. Repeated calls, ordinary recursion,
+and alias-equivalent arguments reuse cached specializations without spending
+any limit. The depth check guards expansion, rather than counting the unrelated
+generics in a library. It is a conservative implementation bound, not a proof of
+infinite recursion; an unusually long finite dependency chain can also reach it.
+The per-template limit bounds expansion that branches within the depth limit,
+such as `f[T]` requiring both `f[list[T]]` and `f[Box[T]]`. A separate budget
+of 262,144 instances per compilation bounds the resources of expansion that
+drags other generic functions along, and reports a resource-budget diagnostic
+(issue #428).
 
 The independent limits of 256 generic data instances and 256 concrete generator
 consumer specializations per compilation are unchanged. Type nesting is still

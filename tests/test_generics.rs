@@ -19,13 +19,45 @@ fn unrelated_templates_do_not_share_the_expansion_limit() {
 }
 
 #[test]
+fn a_program_can_have_more_instances_than_one_template() {
+    // The total budget formerly equalled the per-template limit (issue #428).
+    plenty::check_source(&independent_templates(16_385)).unwrap();
+}
+
+#[test]
+#[ignore = "creates 262,144 instances, about 1.3 GB and several seconds; run with --ignored"]
 fn total_specialization_budget_has_a_resource_diagnostic() {
-    let error = rejection(&independent_templates(16_385));
+    // Seventeen runaways grow together, so the total runs out before any one
+    // template reaches its own limit.
+    use std::fmt::Write;
+    let mut source = String::new();
+    for i in 0..17 {
+        writeln!(
+            source,
+            "def f{i}[T]() -> ():\n    f{i}[list[T]]()\n    f{i}[Box[T]]()"
+        )
+        .unwrap();
+    }
+    source.push_str("def main() -> ():\n");
+    for i in 0..17 {
+        writeln!(source, "    f{i}[i64]()").unwrap();
+    }
+    let error = rejection(&source);
     assert!(
-        error.contains("total generic function specialization budget of 16384 exceeded"),
+        error.contains("total generic function specialization budget of 262144 exceeded"),
         "{error}"
     );
-    assert!(!error.contains("expanding recursion"), "{error}");
+}
+
+#[test]
+fn branching_expansion_reaches_the_per_template_limit_within_the_depth_limit() {
+    let error = rejection(
+        "def f[T]() -> ():\n    f[list[T]]()\n    f[Box[T]]()\ndef main() -> ():\n    f[i64]()\n",
+    );
+    assert!(
+        error.contains("generic specialization limit of 16384 instances of `f` exceeded"),
+        "{error}"
+    );
 }
 
 #[test]

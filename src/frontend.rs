@@ -5997,7 +5997,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                         &access,
                         "main",
                     )?;
-                    if let Some(function) = function {
+                    if let Some((function, _)) = function {
                         register_signature(&function, &aliases, &mut sigs)?;
                         generics.declare(function, &mut sigs);
                     }
