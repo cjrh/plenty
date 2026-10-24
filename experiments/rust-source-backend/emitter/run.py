@@ -98,8 +98,11 @@ def check(args, out):
         "overflow": "9223372036854775807 + 1",
         "zero": "3 // 0",
         "division_overflow": "-9223372036854775808 // -1",
+        "narrow_division_overflow": "i64(-128i8 // -1i8)",
+        "narrow_overflow": "i64(127i8 + 1i8)",
         "modulo_zero": "3 % 0",
         "cast": "i64(u8(n))",
+        "negative_unsigned_cast": "i64(u8(n - 257))",
     }
     for name, expression in traps.items():
         source = out / f"trap_{name}.plenty"
@@ -135,6 +138,49 @@ def check(args, out):
     proc, _ = run(["rustc", "--edition=2024", "--crate-type=lib", out / "generated.rs", "-o", out / "unwind.rlib"], ok=False)
     assert proc.returncode and "requires panic=abort" in proc.stderr
     checks.append("rejected unwinding Rust build")
+    # Independent Python floor/modulo oracle over every nonzero i8 divisor.
+    # MIN // -1 is a trap (covered above), whereas MIN % -1 must return zero.
+    exhaustive = out / "exhaustive.plenty"
+    exhaustive.write_text('''def quotient(a: i8, b: i8) -> i8:
+    a // b
+def remainder(a: i8, b: i8) -> i8:
+    a % b
+def main() -> Result[(), IoError]:
+    mut a = -128
+    while a < 128:
+        mut b = -128
+        while b < 128:
+            if b != 0:
+                q = 0 if a == -128 and b == -1 else i64(quotient(i8(a), i8(b)))
+                print(q, remainder(i8(a), i8(b)))?
+            b += 1
+        a += 1
+    Ok(())
+''')
+    expected_pairs = ''.join(f"{0 if a == -128 and b == -1 else a // b} {a % b}\n"
+                             for a in range(-128, 128) for b in range(-128, 128) if b)
+    for release in [False, True]:
+        native(args, exhaustive, out / "native-exhaustive", release)
+        assert run([out / "native-exhaustive"])[0].stdout == expected_pairs
+    host = out / "exhaustive.rs"
+    host.write_text('''mod generated;
+fn main() {
+    for a in -128i16..128 {
+        for b in -128i16..128 {
+            if b != 0 {
+                let q = if a == -128 && b == -1 { 0 } else { generated::quotient(a as i8, b as i8) };
+                println!("{} {}", q, generated::remainder(a as i8, b as i8));
+            }
+        }
+    }
+}
+''')
+    for helpers in [False, True]:
+        emit(args, exhaustive, out / "generated.rs", ["quotient", "remainder"], helpers, module_size=1)
+        for level in [0, 3]:
+            rustc(host, out / "rust-exhaustive", level)
+            assert run([out / "rust-exhaustive"])[0].stdout == expected_pairs
+    checks.append("all 65280 nonzero-divisor i8 pairs against independent Python oracle")
     return checks
 
 

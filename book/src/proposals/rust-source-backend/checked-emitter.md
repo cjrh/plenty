@@ -82,9 +82,13 @@ Recorded 2026-10-24 on a Ryzen 7 7840HS, Linux x86_64, rustc 1.99.0
 Three samples per cell; compiler processes were restricted to CPUs 0–7
 (four physical cores). The small/flat development runs were quiet. During the
 large optimized/grouped runs, another worker performed validation on separate
-cores 4–7 (CPUs 8–15); shared package thermals/memory remain a limitation.
-Treat small differences cautiously. The large shape effects are much larger
-than the sample spread. Raw samples are `flat-measurements.json` and
+cores 4–7 (CPUs 8–15). Later validation exposed substantial tmpfs occupancy
+(roughly 32 GB) and a full 8 GB swap allocation; completed build artifacts were
+moved off tmpfs before the final measurements. Per-sample memory pressure and
+frequencies were not recorded for these exploratory snapshots, so shared
+thermals and memory contention can confound their ratios. The shape effects
+exceed sample spread, but that alone does not rule out changing machine load.
+Raw samples are `flat-measurements.json` and
 `grouped-measurements.json` in the experiment directory.
 
 | Functions | Native dev compile/link | Rust inline-check library, opt 0 | Rust helper library, opt 0 | Rust host compile/link after helper library |
@@ -124,8 +128,9 @@ material, are in the snapshots; they are not generated `.text` sizes.
 
 Grouping and inlining control offer a credible way to avoid pathological
 optimized build costs without sacrificing this workload's runtime. The exact
-LLVM attribution was not profiled; the controlled emission changes establish
-the effect, not a claim about one specific optimizer pass. Grouping made the
+LLVM attribution was not profiled; these emission comparisons suggest a useful
+direction, but the machine conditions prevent attributing the full ratio to
+one change or a specific optimizer pass. Grouping made the
 development build slower here, so there is no single winning configuration.
 
 For the 1,000-function development library, explicit incremental reuse reduced
@@ -168,6 +173,10 @@ The differential suite covers all admitted integer widths, narrowing/widening,
 wrapping arithmetic, negative floor/modulo and `MIN % -1`, branch values,
 short-circuit skipped traps, loop exits, scalar pattern matching, specialized
 generics, unit calls and a 100,001-step self-tail recursion with swapped arguments.
+An independent Python oracle additionally checks every one of the 65,280
+nonzero-divisor i8 pairs for floor/modulo, in native dev/release and generated
+Rust opt 0/3 with both helper shapes. The sole overflowing quotient is skipped
+there and checked separately as a fatal case; its modulo is still checked.
 Overflow, zero division/modulo, division overflow and checked casts fail in both
 native and generated debug/release builds. Exact signal numbers are not compared.
 
