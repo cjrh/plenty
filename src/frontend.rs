@@ -24,6 +24,7 @@ mod calls;
 mod casts;
 mod channels;
 mod classes;
+mod clists;
 mod closures;
 mod collections;
 mod contexts;
@@ -898,6 +899,7 @@ impl TypeRef {
             "Result" => Some(SumCtor::Two(crate::sum::result)),
             "SpawnError" => Some(SumCtor::One(crate::sum::spawn_error)),
             "SendError" => Some(SumCtor::One(crate::sum::send_error)),
+            "AppendError" => Some(SumCtor::One(crate::sum::append_error)),
             "SendTimeoutError" => Some(SumCtor::One(crate::sum::send_timeout_error)),
             "Selected" => Some(SumCtor::Two(crate::sum::selected)),
             "SubmitError" => Some(SumCtor::One(crate::sum::submit_error)),
@@ -946,6 +948,17 @@ impl TypeRef {
                     make(first, next())
                 }
             }));
+        }
+        if name == "clist" {
+            if self.args.len() != 1 {
+                return Err(self
+                    .at
+                    .error("clist requires one primitive-field class type"));
+            }
+            let row = self.args[0]
+                .resolve(aliases)?
+                .ok_or_else(|| self.at.error("clist requires a class"))?;
+            return aliases.clist_type(row, &self.at).map(Some);
         }
         if name == "KeyView" {
             if self.args.len() != 1 {
@@ -2271,6 +2284,7 @@ impl Parser {
                         | "Result"
                         | "SpawnError"
                         | "SendError"
+                        | "AppendError"
                         | "SendTimeoutError"
                         | "Selected"
                         | "SubmitError"
@@ -2282,8 +2296,10 @@ impl Parser {
                 {
                     self.pos -= 1;
                     Expression::Type(Box::new(self.ty()?))
-                } else if matches!(&**s, "list" | "dict" | "set" | "range" | "channel")
-                    && self.peek().is("[")
+                } else if matches!(
+                    &**s,
+                    "list" | "dict" | "set" | "range" | "channel" | "clist"
+                ) && self.peek().is("[")
                 {
                     self.pos -= 1;
                     let ty = self.ty()?;
@@ -2604,6 +2620,8 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "list"
                 | "dict"
                 | "KeyView"
+                | "clist"
+                | "AppendError"
                 | "set"
                 | "len"
                 | "sorted"
@@ -4119,7 +4137,10 @@ impl Lower<'_> {
                 }
                 match lookup_type(name, self.aliases) {
                     Some(target) => {
-                        if let Some(target) = target.as_ref().filter(|t| t.is_collection()) {
+                        if let Some(target) = target
+                            .as_ref()
+                            .filter(|t| t.is_collection() || matches!(t, Ty::Clist(_)))
+                        {
                             return self.construct(target.clone(), args, &e.at, ops).map(Some);
                         }
                         let target = target.filter(|ty| ty.is_numeric()).ok_or_else(|| {

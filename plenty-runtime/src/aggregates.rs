@@ -11,6 +11,7 @@ use std::io::Write;
 mod byte_scan;
 mod byte_storage;
 mod bytes;
+mod clist;
 mod compress;
 mod crypto;
 mod entry_error;
@@ -65,6 +66,7 @@ impl Type {
             || matches!(
                 self.kind,
                 b's' | b'L'
+                    | b'Q'
                     | b'S'
                     | b'D'
                     | b'E'
@@ -751,6 +753,7 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
                 strings::bytes(&(a as *const Text)) == strings::bytes(&(b as *const Text))
             }
             b'U' => byte_storage::equal(a, b),
+            b'Q' => clist::equal(a, b, ty),
             b'O' => {
                 let (a, b) = (a as *const Boxed, b as *const Boxed);
                 let slot =
@@ -1312,6 +1315,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'I' => out.extend_from_slice(b"DirEntry"),
             b'M' => out.extend_from_slice(b"Metadata"),
             b'U' => byte_storage::render(value, out),
+            b'Q' => write!(out, "clist(len={})", clist::len(value)).unwrap(),
             b'y' => byte_storage::render_slice(strings::bytes(&(value as *const Text)), out),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(
@@ -1575,6 +1579,14 @@ pub(crate) unsafe extern "C" fn plenty_collection(
                 site,
             ));
             out.write(range as u128);
+            return;
+        }
+        if (521..=529).contains(&op) {
+            // Only Set carries a fourth operand. Other calls do not initialize
+            // the scratch word beyond the fixed three arguments and result.
+            let field = if op == 527 { *args.add(4) } else { 0 };
+            let operands = [*args, *args.add(1), *args.add(2), field];
+            out.write(clist::call(op, operands, &*descriptor, site));
             return;
         }
         if matches!(op, 170..=183 | 188..=191 | 230..=239 | 248 | 280 | 281) {

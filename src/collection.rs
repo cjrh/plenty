@@ -98,6 +98,7 @@ impl Query {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
+    Clist(crate::clist::ClistOp),
     Filesystem(crate::filesystem::FsOp),
     Bytes(crate::bytes::BytesOp),
     Stream(crate::stream::StreamOp),
@@ -276,6 +277,7 @@ impl Ty {
             || matches!(
                 self,
                 Self::Enum(_)
+                    | Self::Clist(_)
                     | Self::Class(_)
                     | Self::Box(_)
                     | Self::Shared(_)
@@ -330,6 +332,7 @@ impl CollectionOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         use CollectionOp::*;
         match self {
+            Clist(op) => op.signature(),
             KeyView(t) => {
                 let Ty::Dict(key, _) = t else { unreachable!() };
                 (
@@ -736,10 +739,12 @@ impl CollectionOp {
                 | Self::TextTrySplit
                 | Self::QueryRef(Query::TextAt)
         ) || matches!(self, Self::Bytes(op) if op.traps())
+            || matches!(self, Self::Clist(op) if op.traps())
     }
 
     pub fn opcode(&self) -> i64 {
         match self {
+            Self::Clist(op) => op.opcode(),
             Self::Filesystem(op) => op.opcode(),
             Self::Bytes(op) => op.opcode(),
             Self::Stream(op) => op.opcode(),

@@ -413,6 +413,9 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn lower_collection(&mut self, operation: &CollectionOp) -> Result<()> {
+        if let CollectionOp::Clist(op) = operation {
+            return self.lower_clist(op);
+        }
         if let CollectionOp::KeyView(owner) = operation {
             let (reference, _) = self.pop_typed(Ty::Ref(Arc::new(owner.clone()), false))?;
             let value = self.reference_word(reference);
@@ -772,6 +775,58 @@ impl Lowerer<'_, '_> {
                 self.release(*value, ty);
             }
         }
+        self.stack.push((result, output));
+        Ok(())
+    }
+
+    fn lower_clist(&mut self, op: &crate::clist::ClistOp) -> Result<()> {
+        use crate::clist::ClistOp;
+        if let ClistOp::Load(ty) = op {
+            let (index, _) = self.pop_typed(Ty::I64)?;
+            let (base, _) = self.pop_typed(Ty::I64)?;
+            let offset = self
+                .bcx
+                .ins()
+                .imul_imm(index, crate::clist::width(ty) as i64);
+            let address = self.bcx.ins().iadd(base, offset);
+            let value = self.bcx.ins().load(
+                clif_type(ty.clone()),
+                cranelift_codegen::ir::MemFlags::trusted(),
+                address,
+                0,
+            );
+            self.stack.push((value, ty.clone()));
+            return Ok(());
+        }
+        if let ClistOp::New(ty) = op {
+            let value = self.bcx.ins().iconst(PTR_TY, 0);
+            self.stack.push((value, ty.clone()));
+            return Ok(());
+        }
+        let (inputs, output) = op.signature();
+        let mut args = Vec::new();
+        for ty in inputs.iter().rev() {
+            let (value, _) = self.pop_typed(ty.clone())?;
+            args.push(self.pack(value, ty));
+        }
+        args.reverse();
+        match op {
+            ClistOp::Get(_, field) | ClistOp::Set(_, field) | ClistOp::Column(_, field) => {
+                args.push(self.bcx.ins().iconst(types::I64, *field as i64));
+            }
+            ClistOp::CopyRow(_) => args.push(self.inline_storage(output.inline_bytes())),
+            _ => {}
+        }
+        let site = if op.traps() {
+            Some(self.trap_site()?)
+        } else {
+            None
+        };
+        let result = self.collection_call_at(op.opcode(), &args, Some(op.owner()), site)?;
+        let result = self.unpack(result, &output);
+        let result = self.snapshot_inline(result, &output);
+        // Row inputs have no managed fields or destructor. On failed append,
+        // snapshot_inline preserves the intact row before its local expires.
         self.stack.push((result, output));
         Ok(())
     }

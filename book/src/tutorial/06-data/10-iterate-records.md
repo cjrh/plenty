@@ -22,3 +22,7 @@ def main() -> Result[(), AllocError | IoError]:
 [3, 6]
 [12, 22]
 ```
+
+For large primitive-field records scanned a few fields at a time, consider
+[columnar storage](11-columnar-records.md). Ordinary lists retain the full
+record-borrowing interface used here.

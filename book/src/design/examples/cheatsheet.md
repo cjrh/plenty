@@ -224,6 +224,13 @@ with `&F`, which takes both named functions and closures. See
 
 ## Classes and enums
 
+For primitive-field classes, `clist[T]()` creates allocation-free empty
+[columnar storage](../facilities/01-builtins/clists.md).
+`items.append(row)` returns `Result[(), AppendError[T]]`; `items[i].field`
+reads a scalar, `items.copy_row(i)` returns `Option[T]`, and
+`items.column(T.field)` is a borrowed local pipeline yielding scalar values.
+Whole-row and packed-field references are unsupported.
+
 ```plenty
 class Counter:
     name: str

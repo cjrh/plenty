@@ -49,6 +49,7 @@ mod boxed;
 mod bytes;
 pub mod cache;
 mod channel;
+mod clist;
 mod closure;
 mod codegen;
 mod collection;

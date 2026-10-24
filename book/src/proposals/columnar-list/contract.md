@@ -1,7 +1,9 @@
 # Columnar-list ownership and API boundary
 
-This is the proposed contract for [columnar lists](../columnar-list.md), not
-implemented Plenty. Names below are design candidates, not stdlib signatures.
+This records the original proposed contract for [columnar lists](../columnar-list.md).
+The [implemented subset](../../design/facilities/01-builtins/clists.md) uses
+scalar-valued column pipelines, does not expose packed field references, and
+does not yet provide removal. The alternatives below remain design rationale.
 
 ## An honest object facade
 

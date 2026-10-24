@@ -63,6 +63,8 @@ pub enum Ty {
     ForeignPtr(Arc<str>),
     Bool,
     List(Arc<Ty>),
+    /// Dense native-width columns for a primitive-field class.
+    Clist(Arc<Ty>),
     Set(Arc<Ty>),
     /// Local-only shared dictionary-key projection. The owner carries its
     /// complete row descriptor; the view never owns or retains that owner.
@@ -159,6 +161,7 @@ impl Ty {
                     .unwrap_or(0)
             }
             Self::List(t)
+            | Self::Clist(t)
             | Self::Set(t)
             | Self::Channel(t, _)
             | Self::Future(t)
@@ -175,6 +178,7 @@ impl Ty {
             self,
             Self::Iter(..)
                 | Self::List(_)
+                | Self::Clist(_)
                 | Self::Task(_)
                 | Self::Channel(..)
                 | Self::CancellationToken
@@ -376,6 +380,7 @@ impl Ty {
                 | Self::FsMetadata
                 | Self::ByteStorage
                 | Self::Channel(..)
+                | Self::Clist(_)
                 | Self::CancellationToken
                 | Self::Executor
                 | Self::Future(_)
@@ -452,6 +457,7 @@ impl Ty {
             Ty::Enum(t) => t.name.to_string(),
             Ty::Class(t) => t.name.to_string(),
             Ty::List(t) => format!("list[{}]", t.identity_name()),
+            Ty::Clist(t) => format!("clist[{}]", t.identity_name()),
             Ty::Set(t) => format!("set[{}]", t.identity_name()),
             Ty::Dict(k, v) => format!("dict[{}, {}]", k.identity_name(), v.identity_name()),
             Ty::Box(t) => format!("Box[{}]", t.identity_name()),
@@ -584,6 +590,7 @@ impl fmt::Display for Ty {
             Ty::List(t) => return write!(f, "list[{t}]"),
             Ty::Set(t) => return write!(f, "set[{t}]"),
             Ty::KeyView(t) => return write!(f, "KeyView[{t}]"),
+            Ty::Clist(t) => return write!(f, "clist[{t}]"),
             Ty::Dict(k, v) => return write!(f, "dict[{k}, {v}]"),
             Ty::Box(t) => return write!(f, "Box[{t}]"),
             Ty::Shared(t) => return write!(f, "Shared[{t}]"),

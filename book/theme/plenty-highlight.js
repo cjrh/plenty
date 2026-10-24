@@ -21,7 +21,7 @@
     const LITERALS = ["True", "False", "None", "Ok", "Err", "Some", "Nothing"];
     // Lower-case built-in type names. Every capitalized name is shown as a type.
     const TYPES = [
-        "bool", "bytes", "dict", "f32", "f64", "i8", "i16", "i32", "i64",
+        "bool", "bytes", "clist", "dict", "f32", "f64", "i8", "i16", "i32", "i64",
         "list", "range", "set", "str", "tuple", "u8", "u16", "u32", "u64",
     ];
     // Lower-case built-in functions from the prelude.

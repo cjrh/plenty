@@ -102,6 +102,7 @@ fn define_type(
         Ty::FsMetadata => b'M',
         Ty::ByteStorage => b'U',
         Ty::List(_) => b'L',
+        Ty::Clist(_) => b'Q',
         Ty::Set(_) => b'S',
         Ty::Dict(..) => b'D',
         Ty::Range(_) => b'R',
@@ -120,6 +121,7 @@ fn define_type(
     let mut links = Vec::new();
     match ty {
         Ty::List(t)
+        | Ty::Clist(t)
         | Ty::Set(t)
         | Ty::Range(t)
         | Ty::Channel(t, _)
