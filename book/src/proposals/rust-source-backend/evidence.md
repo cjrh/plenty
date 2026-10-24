@@ -4,6 +4,10 @@ This accompanies the [proposal](../rust-source-backend.md) and
 [semantic contract](contract.md). Results are bounded evidence, not a completed
 backend or a performance comparison.
 
+The subsequent [checked-emitter spike](checked-emitter.md) adds actual checked-IR
+generation and compile/link measurements. The hand-lowered ownership results
+below remain separate evidence; they are not implemented by that scalar emitter.
+
 ## What is already generated
 
 The [Rust dependency experiment](../rust-crate-dependencies/evidence.md) has
@@ -49,9 +53,10 @@ no cross-target or performance result is claimed.
 
 ## Decision gate for a first backend slice
 
-The evidence supports one focused next experiment: emit a small Rust library
-**from the real checked frontend**, not a second parser or handwritten output.
-Admit scalar functions, simple move-only scalar records, named enums/Results,
+The [checked-emitter experiment](checked-emitter.md) now satisfies the scalar
+part of the original gate: real checked-frontend emission, native companion
+calls, source mapping and build measurements. The remaining ownership-bearing
+gate is to admit simple move-only scalar records, named enums/Results,
 structured branches/loops, local borrows and a returned first-parameter borrow.
 Expose monomorphic exports and a small explicitly declared Rust companion API.
 Exercise a genuine Rust host that calls an exported Plenty function which in
