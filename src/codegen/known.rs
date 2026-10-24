@@ -44,6 +44,11 @@ pub(super) fn known_int(dfg: &DataFlowGraph, value: Value) -> Option<u64> {
     evaluate(dfg, value, DEPTH, &|_| None)
 }
 
+/// [`known_int`] sign-extended from the value's width.
+pub(super) fn known_signed(dfg: &DataFlowGraph, value: Value) -> Option<i64> {
+    Some(signed(known_int(dfg, value)?, width(dfg, value)?))
+}
+
 /// Whether `value` is known to be zero. Unlike [`known_int`], this also
 /// accepts a two-word value zero-extended from a known zero word.
 pub(super) fn known_zero(dfg: &DataFlowGraph, value: Value) -> bool {

@@ -1953,7 +1953,7 @@ type StackEntry = (cranelift_codegen::ir::Value, Ty);
 /// Which checked-overflow CLIF instruction family to emit. The signed
 /// variants are picked by the `Ty` tag at the call site, so this enum
 /// only distinguishes the three ops, not their signedness.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum ArithKind {
     Add,
     Sub,
@@ -2668,17 +2668,84 @@ impl Lowerer<'_, '_> {
             return Ok(());
         }
         let signed = is_signed(ty.clone());
-        let (result, of) = match (kind, signed) {
-            (ArithKind::Add, true) => self.bcx.ins().sadd_overflow(a, b),
-            (ArithKind::Add, false) => self.bcx.ins().uadd_overflow(a, b),
-            (ArithKind::Sub, true) => self.bcx.ins().ssub_overflow(a, b),
-            (ArithKind::Sub, false) => self.bcx.ins().usub_overflow(a, b),
-            (ArithKind::Mul, true) => self.bcx.ins().smul_overflow(a, b),
-            (ArithKind::Mul, false) => self.bcx.ins().umul_overflow(a, b),
+        let (result, of) = match self.compared_add_sub(kind, signed, a, b) {
+            Some(checked) => checked,
+            None => match (kind, signed) {
+                (ArithKind::Add, true) => self.bcx.ins().sadd_overflow(a, b),
+                (ArithKind::Add, false) => self.bcx.ins().uadd_overflow(a, b),
+                (ArithKind::Sub, true) => self.bcx.ins().ssub_overflow(a, b),
+                (ArithKind::Sub, false) => self.bcx.ins().usub_overflow(a, b),
+                (ArithKind::Mul, true) => self.bcx.ins().smul_overflow(a, b),
+                (ArithKind::Mul, false) => self.bcx.ins().umul_overflow(a, b),
+            },
         };
         self.trap_if(of, TrapKind::Overflow)?;
         self.stack.push((result, ty));
         Ok(())
+    }
+
+    /// Checked add or subtract with an overflow flag that is an `icmp`,
+    /// where one exists: unsigned operations, and signed ones with a
+    /// constant right operand (or left, for addition). `None` leaves the
+    /// operation to the `*_overflow` instruction.
+    ///
+    /// Cranelift 0.131's x86-64 backend materializes a `*_overflow` flag
+    /// (`seto; test; jne`, 13 bytes) because `brif` fuses only with an
+    /// `icmp`, which becomes `cmp; jcc` (9 bytes). In a large program every
+    /// check's bytes stream through the instruction cache (issue #425).
+    ///
+    /// The optimizer rematerializes an add or subtract of a constant in each
+    /// block that uses it, so a comparison of such a result would compute it
+    /// a second time after the branch. Optimized code keeps the flag there.
+    fn compared_add_sub(
+        &mut self,
+        kind: ArithKind,
+        signed: bool,
+        a: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+    ) -> Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> {
+        let dfg = &self.bcx.func.dfg;
+        let constant_operand =
+            known::known_int(dfg, a).is_some() || known::known_int(dfg, b).is_some();
+        let rematerialized = self.module.optimizes() && constant_operand;
+        match (kind, signed) {
+            // A borrow happens exactly when the subtrahend is larger. The
+            // comparison reads only the operands.
+            (ArithKind::Sub, false) => {
+                let of = self.bcx.ins().icmp(IntCC::UnsignedLessThan, a, b);
+                let difference = self.bcx.ins().isub(a, b);
+                Some((difference, of))
+            }
+            // A carry wraps the sum below either operand.
+            (ArithKind::Add, false) if !rematerialized => {
+                let sum = self.bcx.ins().iadd(a, b);
+                let of = self.bcx.ins().icmp(IntCC::UnsignedLessThan, sum, a);
+                Some((sum, of))
+            }
+            // Adding a positive constant (or subtracting a negative one)
+            // overflows exactly when the wrapped result falls below `x`;
+            // the opposite sign, exactly when it rises above.
+            (ArithKind::Add | ArithKind::Sub, true) if !rematerialized => {
+                let (x, c, constant) = match known::known_signed(dfg, b) {
+                    Some(constant) => (a, b, constant),
+                    None if kind == ArithKind::Add => (b, a, known::known_signed(dfg, a)?),
+                    None => return None,
+                };
+                let result = match kind {
+                    ArithKind::Add => self.bcx.ins().iadd(x, c),
+                    _ => self.bcx.ins().isub(x, c),
+                };
+                let of = match (constant.signum(), kind) {
+                    (0, _) => self.bcx.ins().iconst(types::I8, 0),
+                    (1, ArithKind::Add) | (-1, ArithKind::Sub) => {
+                        self.bcx.ins().icmp(IntCC::SignedLessThan, result, x)
+                    }
+                    _ => self.bcx.ins().icmp(IntCC::SignedGreaterThan, result, x),
+                };
+                Some((result, of))
+            }
+            _ => None,
+        }
     }
 
     /// Lower a loop counter step that [`induction`] proved cannot overflow.
