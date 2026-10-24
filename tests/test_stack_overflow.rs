@@ -83,6 +83,9 @@ fn assert_reported(output: &Output) {
     assert_eq!(output.status.signal(), Some(SIGABRT), "{:?}", output.status);
 }
 
+/// The explicit limit makes the overflow independent of the runner's default
+/// stack limit: a `length` frame can be as small as 16 bytes, so a million
+/// frames fit in a 16 MiB stack.
 #[test]
 fn recursion_over_a_long_chain_reports_on_the_main_thread() {
     let output = run(
@@ -106,7 +109,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(length(&head))?
     Ok(())
 "#,
-        None,
+        Some(256),
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "built\n");
     assert_reported(&output);
