@@ -259,6 +259,8 @@ mod test_loops;
 mod test_lsp;
 #[path = "test_match_values.rs"]
 mod test_match_values;
+#[path = "test_memory_order.rs"]
+mod test_memory_order;
 #[path = "test_modern.rs"]
 mod test_modern;
 #[path = "test_module_constants.rs"]
