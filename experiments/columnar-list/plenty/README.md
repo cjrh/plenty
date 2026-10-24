@@ -16,6 +16,11 @@ for commands, evidence and measurement limits.
 `probe_scan_layout.py COMPILER --out DIR` is the bounded issue #437 follow-up:
 it relinks one unchanged object at several text addresses and records elapsed
 times and hardware counters. It changes no compiler policy.
+Use `--alignments 1 16 32 64` to compare function-section alignment (`1` keeps
+the original), and `--kernel two` or `--kernel scalar` for controls. The probe
+checks function bytes, checksums and addresses, and records linked text size.
+See the [alignment evaluation](../../../book/src/proposals/columnar-list/alignment-policy.md)
+and `alignment-policy-measurements.json` for the follow-up's results and limits.
 
 Accepted schema: exactly one public nongeneric class, with public `bool`,
 `i8/i16/i32/i64`, `u8/u16/u32/u64`, `f32`, or `f64` fields. All methods,
