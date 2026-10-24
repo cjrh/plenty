@@ -4,7 +4,7 @@ The first automatic SIMD implementation recognizes one `i32` or `u32` column,
 one filter comparing its borrowed item with a same-type constant, and `count()`.
 It runs in optimized (`--release`) native builds. The
 [reference](../../design/facilities/01-builtins/clists.md#automatic-simd-counts)
-defines the supported pattern; the [tutorial](../../tutorial/06-data/11-columnar-records.md)
+defines the supported pattern; the [tutorial](../../tutorial/special-purpose/columnar-lists/02-counting.md)
 shows ordinary source code. There is no public SIMD API or new syntax.
 
 ## Why this boundary
