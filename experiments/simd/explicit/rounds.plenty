@@ -1,0 +1,37 @@
+import std.simd as simd
+import std.time as time
+from std.test import check
+
+pub def vector_rounds(rounds: i64, seed: u32) -> u32:
+    mut value = simd.u32x4.Lanes(seed, seed.wrapping_add(1u32), seed.wrapping_add(2u32), seed.wrapping_add(3u32))
+    factor = simd.splat_u32x4(1664525u32)
+    increment = simd.splat_u32x4(1013904223u32)
+    for index in range(rounds):
+        value = value.wrapping_mul(factor).wrapping_add(increment)
+    value.wrapping_sum()
+
+pub def scalar_rounds(rounds: i64, seed: u32) -> u32:
+    mut a = seed
+    mut b = seed.wrapping_add(1u32)
+    mut c = seed.wrapping_add(2u32)
+    mut d = seed.wrapping_add(3u32)
+    for index in range(rounds):
+        a = a.wrapping_mul(1664525u32).wrapping_add(1013904223u32)
+        b = b.wrapping_mul(1664525u32).wrapping_add(1013904223u32)
+        c = c.wrapping_mul(1664525u32).wrapping_add(1013904223u32)
+        d = d.wrapping_mul(1664525u32).wrapping_add(1013904223u32)
+    a.wrapping_add(b).wrapping_add(c).wrapping_add(d)
+
+def main() -> Result[(), IoError | RangeError]:
+    for sample in range(7):
+        rounds = 1000000
+        seed = u32(sample)
+        start = time.monotonic_now()
+        scalar = scalar_rounds(rounds, seed)
+        scalar_ns = time.monotonic_now().duration_since(start)?.as_nanoseconds()
+        before = time.monotonic_now()
+        vector = vector_rounds(rounds, seed)
+        vector_ns = time.monotonic_now().duration_since(before)?.as_nanoseconds()
+        check(scalar == vector, "checksums agree").unwrap()
+        print(sample, scalar_ns, vector_ns, scalar)?
+    Ok(())

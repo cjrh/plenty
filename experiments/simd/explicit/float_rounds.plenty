@@ -1,0 +1,37 @@
+import std.simd as simd
+import std.time as time
+from std.test import check
+
+pub def vector_rounds(rounds: i64, seed: f32) -> f32:
+    mut value = simd.f32x4.Lanes(seed, seed + 1.0f32, seed + 2.0f32, seed + 3.0f32)
+    factor = simd.splat_f32x4(1.000001f32)
+    increment = simd.splat_f32x4(0.01f32)
+    for index in range(rounds):
+        value = value.div(factor).add(increment)
+    value.sum_ordered(0.0f32)
+
+pub def scalar_rounds(rounds: i64, seed: f32) -> f32:
+    mut a = seed
+    mut b = seed + 1.0f32
+    mut c = seed + 2.0f32
+    mut d = seed + 3.0f32
+    for index in range(rounds):
+        a = a / 1.000001f32 + 0.01f32
+        b = b / 1.000001f32 + 0.01f32
+        c = c / 1.000001f32 + 0.01f32
+        d = d / 1.000001f32 + 0.01f32
+    (((0.0f32 + a) + b) + c) + d
+
+def main() -> Result[(), IoError | RangeError]:
+    for sample in range(7):
+        rounds = 1000000
+        seed = f32(sample)
+        start = time.monotonic_now()
+        scalar = scalar_rounds(rounds, seed)
+        scalar_ns = time.monotonic_now().duration_since(start)?.as_nanoseconds()
+        before = time.monotonic_now()
+        vector = vector_rounds(rounds, seed)
+        vector_ns = time.monotonic_now().duration_since(before)?.as_nanoseconds()
+        check(scalar == vector, "checksums agree").unwrap()
+        print(sample, scalar_ns, vector_ns, scalar)?
+    Ok(())

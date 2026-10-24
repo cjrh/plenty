@@ -1,0 +1,352 @@
+{
+  "date_utc": "2026-10-24T21:40:41.450535+00:00",
+  "commit": "cd68f0013f77f116e50e5ee8c60672415fa1e765",
+  "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+  "backend": "Cranelift 0.137.0, Plenty --release, baseline x86-64",
+  "method": "Seven scalar-first/vector-second samples, one million iterations each. Counters: one process each, ten million iterations; include startup/printing. No affinity pinning. Own builds/tests completed; another host cargo/rustc process was present. Load average immediately before run: 24.96, 15.86, 8.17. These timings may include CPU interference. Timing is a bounded probe, not a general speedup guarantee.",
+  "samples": {
+    "rounds": {
+      "rows": [
+        [
+          0,
+          859416,
+          1548152,
+          "2638684934"
+        ],
+        [
+          1,
+          1311079,
+          1689496,
+          "690685706"
+        ],
+        [
+          2,
+          1231680,
+          1700466,
+          "3037653774"
+        ],
+        [
+          3,
+          1347888,
+          1759667,
+          "1089654546"
+        ],
+        [
+          4,
+          1465127,
+          1828545,
+          "3436622614"
+        ],
+        [
+          5,
+          1249704,
+          1778672,
+          "1488623386"
+        ],
+        [
+          6,
+          989128,
+          1719242,
+          "3835591454"
+        ]
+      ],
+      "columns": [
+        "sample",
+        "scalar_ns",
+        "vector_ns",
+        "checked_result"
+      ],
+      "scalar_median_ns": 1249704,
+      "vector_median_ns": 1719242,
+      "scalar_over_vector": 0.7268924328279556
+    },
+    "float_rounds": {
+      "rows": [
+        [
+          0,
+          3650038,
+          3306176,
+          "25441.79"
+        ],
+        [
+          1,
+          3702466,
+          3381727,
+          "25443.352"
+        ],
+        [
+          2,
+          3669505,
+          3351661,
+          "25444.914"
+        ],
+        [
+          3,
+          3655678,
+          3318829,
+          "25446.477"
+        ],
+        [
+          4,
+          3634980,
+          3304202,
+          "25448.043"
+        ],
+        [
+          5,
+          3515386,
+          3181954,
+          "25449.605"
+        ],
+        [
+          6,
+          3365847,
+          3082789,
+          "25451.17"
+        ]
+      ],
+      "columns": [
+        "sample",
+        "scalar_ns",
+        "vector_ns",
+        "checked_result"
+      ],
+      "scalar_median_ns": 3650038,
+      "vector_median_ns": 3306176,
+      "scalar_over_vector": 1.1040059573356047
+    },
+    "throughput": {
+      "rows": [
+        [
+          0,
+          10957579,
+          3191431,
+          "101804.695"
+        ],
+        [
+          1,
+          10670121,
+          3195579,
+          "101810.945"
+        ],
+        [
+          2,
+          10696230,
+          3159361,
+          "101817.2"
+        ],
+        [
+          3,
+          10430734,
+          3169871,
+          "101823.45"
+        ],
+        [
+          4,
+          10450481,
+          3098528,
+          "101829.7"
+        ],
+        [
+          5,
+          10111969,
+          3047242,
+          "101835.95"
+        ],
+        [
+          6,
+          10634936,
+          3154793,
+          "101842.21"
+        ]
+      ],
+      "columns": [
+        "sample",
+        "scalar_ns",
+        "vector_ns",
+        "checked_result"
+      ],
+      "scalar_median_ns": 10634936,
+      "vector_median_ns": 3159361,
+      "scalar_over_vector": 3.3661667660010997
+    }
+  },
+  "counters": {
+    "scalar": {
+      "stdout": "1941331462",
+      "perf_csv": "130300364,,instructions:u,10506865,100.00,,\n40700619,,cycles:u,10506865,100.00,,"
+    },
+    "vector": {
+      "stdout": "1941331462",
+      "perf_csv": "140300685,,instructions:u,17491796,100.00,,\n71451781,,cycles:u,17491796,100.00,,"
+    },
+    "float_scalar": {
+      "stdout": "38912.04",
+      "perf_csv": "130300947,,instructions:u,34865551,100.00,,\n147663064,,cycles:u,34865551,100.00,,"
+    },
+    "float_vector": {
+      "stdout": "38912.04",
+      "perf_csv": "70301267,,instructions:u,31561635,100.00,,\n136864554,,cycles:u,31561635,100.00,,"
+    },
+    "throughput_scalar": {
+      "stdout": "155648.16",
+      "perf_csv": "370301145,,instructions:u,111098917,100.00,,\n485865689,,cycles:u,111098917,100.00,,"
+    },
+    "throughput_vector": {
+      "stdout": "155648.16",
+      "perf_csv": "130301751,,instructions:u,31937118,100.00,,\n147587213,,cycles:u,31937118,100.00,,"
+    }
+  },
+  "quiet_verification": {
+    "context": "Repeated immediately after host process inspection showed no cargo/rustc builds; same binaries and seven-sample method. Background system activity remains uncontrolled.",
+    "samples": {
+      "rounds": {
+        "rows": [
+          [
+            0,
+            1160287,
+            1491947,
+            "2638684934"
+          ],
+          [
+            1,
+            832535,
+            1439459,
+            "690685706"
+          ],
+          [
+            2,
+            820112,
+            1457733,
+            "3037653774"
+          ],
+          [
+            3,
+            820973,
+            1443477,
+            "1089654546"
+          ],
+          [
+            4,
+            816195,
+            1457793,
+            "3436622614"
+          ],
+          [
+            5,
+            821444,
+            1447324,
+            "1488623386"
+          ],
+          [
+            6,
+            816826,
+            1450790,
+            "3835591454"
+          ]
+        ],
+        "scalar_median_ns": 820973,
+        "vector_median_ns": 1450790,
+        "scalar_over_vector": 0.5658799688445606
+      },
+      "float_rounds": {
+        "rows": [
+          [
+            0,
+            3003861,
+            2746891,
+            "25441.79"
+          ],
+          [
+            1,
+            3002640,
+            2756438,
+            "25443.352"
+          ],
+          [
+            2,
+            3005524,
+            2782838,
+            "25444.914"
+          ],
+          [
+            3,
+            3001808,
+            2770735,
+            "25446.477"
+          ],
+          [
+            4,
+            3000225,
+            2707186,
+            "25448.043"
+          ],
+          [
+            5,
+            2991618,
+            2787286,
+            "25449.605"
+          ],
+          [
+            6,
+            2990536,
+            2786425,
+            "25451.17"
+          ]
+        ],
+        "scalar_median_ns": 3001808,
+        "vector_median_ns": 2770735,
+        "scalar_over_vector": 1.0833977265960115
+      },
+      "throughput": {
+        "rows": [
+          [
+            0,
+            9968952,
+            3002057,
+            "101804.695"
+          ],
+          [
+            1,
+            9897428,
+            2981359,
+            "101810.945"
+          ],
+          [
+            2,
+            9851331,
+            2983424,
+            "101817.2"
+          ],
+          [
+            3,
+            9897548,
+            2981650,
+            "101823.45"
+          ],
+          [
+            4,
+            9917596,
+            2981790,
+            "101829.7"
+          ],
+          [
+            5,
+            9838167,
+            2981148,
+            "101835.95"
+          ],
+          [
+            6,
+            9852965,
+            2984275,
+            "101842.21"
+          ]
+        ],
+        "scalar_median_ns": 9897428,
+        "vector_median_ns": 2981790,
+        "scalar_over_vector": 3.319290761589515
+      }
+    }
+  }
+}

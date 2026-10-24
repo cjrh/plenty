@@ -1,0 +1,5 @@
+import throughput
+
+def main() -> Result[(), IoError]:
+    print(throughput.scalar_rounds(10000000, 0.0f32))?
+    Ok(())

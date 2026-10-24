@@ -1,8 +1,11 @@
 # A small portable `std.simd` surface
 
-This is the proposed explicit API for [portable SIMD](../std-simd.md), not an
-implemented module. Names below are sketches; no new syntax is required merely
-to name a vector.
+This records the proposed explicit API for [portable SIMD](../std-simd.md).
+The [initial module](../../design/stdlib/simd.md) implements a subset using
+existing copyable enums, module factories and named operations; its
+[implementation assessment](implementation.md) explains differences from this
+sketch. Packed views, static type factories, operator syntax and fully opaque
+logical masks below remain proposed.
 
 ## Values users can understand
 
