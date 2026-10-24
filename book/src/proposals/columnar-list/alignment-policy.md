@@ -11,6 +11,11 @@ makes the one-column scan consistently slower than its best unaligned placement.
 This follow-up changes the experiment and documentation, not compiler behavior.
 Issue #437 remains open at low priority.
 
+The subsequent [online research](placement-research.md) connects the observed
+cycle groups to documented fetch-block constraints and a closely matching
+upstream incident. It finds no verified small remedy and recommends deferring
+further optimization rather than applying blanket alignment.
+
 ## Available backend control
 
 The pinned Cranelift 0.131.1 exposes `log2_min_function_alignment`. Its x86-64
