@@ -371,3 +371,107 @@ fn only_checks_of_an_instance_body_move_to_the_use() {
         "5:9: str does not satisfy IntType"
     );
 }
+
+// Templates are released during lowering once nothing left to lower names
+// them (issue #434). Each template here is reached only after some of its
+// callers are lowered, or through a path the release count must follow:
+// template chains, mutual recursion, function values, named arguments,
+// defaults, generic class methods, closures, f-strings, and a local
+// indexed by a name that could read as a type argument.
+const RELEASE_PROGRAM: &str = r#"from std.fmt import FormatError
+
+def ident[T](value: T) -> T:
+    value
+
+def twice[T](value: T) -> (T, T):
+    (ident(value), ident(value))
+
+def deep[T](value: T) -> T:
+    shallow(value)
+
+def shallow[T](value: T) -> T:
+    ident(value)
+
+def is_even[T](n: i64, tag: T) -> bool:
+    if n == 0:
+        return True
+    is_odd(n - 1, tag)
+
+def is_odd[T](n: i64, tag: T) -> bool:
+    if n == 0:
+        return False
+    is_even(n - 1, tag)
+
+def apply[F: Callable[[i64], i64]](f: &F, value: i64) -> i64:
+    f(value)
+
+def pick[T](first: T, second: T, take_second: bool = False) -> T:
+    if take_second:
+        return second
+    first
+
+def offset(value: i64 = ident(40)) -> i64:
+    value + 2
+
+def describe[T](value: T) -> i64:
+    add = def [value](extra: i64) -> i64:
+        ident(extra)
+    add(1)
+
+class Holder[T]:
+    item: T
+
+    def get(self) -> T:
+        ident(self.item)
+
+def early() -> i64:
+    deep(5)
+
+def main() -> Result[(), AllocError | IoError | FormatError]:
+    print(early())?
+    print(twice(3))?
+    print(is_even(10, "x"), is_odd(7, 1.5))?
+    print(apply(&ident[i64], 9))?
+    f = ident[i64]
+    print(f(11))?
+    print(pick(1, 2, take_second=True), pick(second="b", first="a"))?
+    print(offset(), offset(1))?
+    print(describe("s"))?
+    print(Holder(7).get())?
+    T = 3
+    xs = [10, 20, 30, 40]?
+    print(xs[T], f"{ident(4)} {deep('d')}"?)?
+    print(deep(6))?
+    Ok(())
+"#;
+
+#[test]
+fn templates_reached_after_their_callers_are_lowered_still_instantiate() {
+    let output = support::assert_success(support::run_file(RELEASE_PROGRAM));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "5\n(3, 3)\nTrue True\n9\n11\n2 a\n42 3\n1\n7\n40 4 d\n6\n"
+    );
+}
+
+#[test]
+fn templates_of_an_imported_module_instantiate_after_its_functions_are_lowered() {
+    let dir = tempfile::tempdir().unwrap();
+    support::write_file(
+        &dir.path().join("pairs.plenty"),
+        "pub def wrap[T](value: T) -> (T, T):\n    (inner(value), inner(value))\n\n\
+         pub def inner[T](value: T) -> T:\n    value\n\n\
+         pub def later() -> i64:\n    inner(8)\n",
+    );
+    let executable = support::compile_file(
+        dir.path(),
+        "import pairs\n\n\
+         def main() -> Result[(), IoError]:\n    print(pairs.later())?\n    \
+         print(pairs.wrap(\"w\"))?\n    print(pairs.inner(2.5))?\n    Ok(())\n",
+    );
+    let output = support::assert_success(std::process::Command::new(executable).output().unwrap());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "8\n(\"w\", \"w\")\n2.5\n"
+    );
+}
