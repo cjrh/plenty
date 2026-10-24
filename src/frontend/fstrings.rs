@@ -967,6 +967,7 @@ impl Lower<'_> {
         if !self.generics.templates.contains_key(&name) {
             let function = format_function(&name, template, target.is_some(), at);
             self.generics.validate_template(&function, self.aliases)?;
+            self.generics.retention.keep(&function.body);
             self.generics
                 .templates
                 .insert(name.clone(), Arc::new(function));

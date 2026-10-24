@@ -119,15 +119,17 @@ impl Functions {
 
     /// Marks a function lowered and releases its syntax tree. A function with
     /// a generator parameter keeps its tree: each frame specialization copies
-    /// its declaration.
-    pub(super) fn complete(&mut self, symbol: Symbol, sig: &FnSig) {
+    /// its declaration. Returns whether the tree was released.
+    pub(super) fn complete(&mut self, symbol: Symbol, sig: &FnSig) -> bool {
         let declared = self
             .declared_mut(symbol)
             .expect("a lowered function is declared");
         declared.lowered = true;
-        if !sig.inputs.iter().any(|(_, t)| t.unresolved_generator()) {
+        let release = !sig.inputs.iter().any(|(_, t)| t.unresolved_generator());
+        if release {
             declared.function = None;
         }
+        release
     }
 
     /// How many functions are declared.

@@ -272,6 +272,7 @@ impl Lower<'_> {
             }
             self.generics.declare(wrapper, self.sigs);
         } else {
+            self.generics.retention.keep(&wrapper.body);
             self.generics
                 .templates
                 .insert(symbol.clone(), Arc::new(wrapper));
