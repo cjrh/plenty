@@ -36,6 +36,8 @@ struct Tracked {
     released: bool,
     /// The templates this template's body names, other than itself.
     names: Box<[u32]>,
+    /// Whether this template's body names itself.
+    recursive: bool,
 }
 
 impl Retention {
@@ -62,6 +64,7 @@ impl Retention {
                         pinned: false,
                         released: false,
                         names: Box::default(),
+                        recursive: false,
                     });
                 }
             }
@@ -100,11 +103,14 @@ impl Retention {
         match self.ids.get(f.name.as_str()).copied() {
             Some(own) => {
                 // A recursive call is reached only through another holder.
+                let recursive = named.contains(&own);
                 named.retain(|&id| id != own);
                 for &id in &named {
                     self.templates[id as usize].holders += 1;
                 }
-                self.templates[own as usize].names = named.into();
+                let tracked = &mut self.templates[own as usize];
+                tracked.names = named.into();
+                tracked.recursive = recursive;
             }
             None => self.pin(&named),
         }
@@ -139,6 +145,31 @@ impl Retention {
             return;
         }
         let named = self.named(&f.body, &[]);
+        self.hold(symbol, named);
+    }
+
+    /// Counts the templates a new instance of `template` names until it is
+    /// released. Substitution replaces only types, so the instance names
+    /// what its template names; a tracked template's are already known.
+    pub(super) fn instance(&mut self, symbol: functions::Symbol, template: &Function) {
+        if !self.active() {
+            return;
+        }
+        let named = match self.ids.get(template.name.as_str()) {
+            Some(&own) => {
+                let tracked = &self.templates[own as usize];
+                let mut named = tracked.names.to_vec();
+                if tracked.recursive {
+                    named.push(own);
+                }
+                named
+            }
+            None => self.named(&template.body, &[]),
+        };
+        self.hold(symbol, named);
+    }
+
+    fn hold(&mut self, symbol: functions::Symbol, named: Vec<u32>) {
         if named.is_empty() {
             return;
         }
