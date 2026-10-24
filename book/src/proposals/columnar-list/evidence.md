@@ -5,6 +5,10 @@ and reproduction commands live in `experiments/columnar-list/README.md` in
 the repository. These are bounded feasibility experiments, not a production
 container, Plenty performance results, or a backend comparison.
 
+This page records the original 2026-10-23 experiment. The subsequent
+[generated Plenty implementation spike](implementation-spike.md) tests real
+runtime failure paths, borrowing, and Cranelift-generated scans separately.
+
 ## Layout experiment
 
 The dependency-free Rust program compares an array of 64-byte records (eight
