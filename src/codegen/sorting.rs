@@ -105,7 +105,7 @@ pub(super) fn build_adapter(
     let (order, _) = lower.pop_typed(Ty::I64)?;
     lower.bcx.ins().return_(&[order]);
     lower.seal_trap_blocks();
-    bcx.finalize();
+    bcx.finalize(crate::codegen::FRONTEND);
     out.define(id, func, module);
     Ok(())
 }

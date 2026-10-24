@@ -279,13 +279,16 @@ constants passed as arguments; in a loop bounded by a dependency chain the
 `movabs` was off the chain and the cycles do not change.
 
 `x.fabs()` and `x.copysign(y)` are bit masks rather than runtime calls: `band`
-with the magnitude mask, and `bor` of that with `band(y, sign mask)`. Every
-mask and constant is a right operand, which x86-64 reads from the constant
-pool; Cranelift's own `fabs` and `fcopysign` build their masks with `movabs`.
+with the magnitude mask, and `bor` of that with `band(y, sign mask)`. Each
+mask is lane 0 of a `vconst`, loaded from the constant pool with one `movupd`;
+Cranelift's own `fabs` and `fcopysign` build their masks with `movabs` + `movq`.
+Since Cranelift 0.137 the x86-64 backend keeps both operands of a scalar float
+`band`, `bor` or `bxor` in registers, because a memory operand reads 128 bits,
+so an `f64const` mask would also be built with `movabs` (issue #439).
 Like Rust's `abs` and `copysign`, they keep a NaN payload. A constant receiver
 or sign argument is folded into the masks while lowering.
 
-Float negation `-x` is `bxor` with the sign mask rather than Cranelift's
+Float negation `-x` is `bxor` with the pooled sign mask rather than Cranelift's
 `fneg`, whose x86-64 lowering builds the mask with `movabs` + `movq` at each
 use (issue #385). Both flip only the sign bit, NaN payload included. Lowering
 folds a constant operand and `-(-x)`; Cranelift's other `fneg` rewrites, such

@@ -29,13 +29,13 @@ fn or(body: impl FnOnce(&mut FunctionBuilder, Value) -> Value) -> Or {
     let flag = b.append_block_param(join, types::I8);
     b.switch_to_block(entry);
     let x = b.block_params(entry)[0];
-    let a = b.ins().icmp_imm(IntCC::SignedGreaterThan, x, 3);
+    let a = b.ins().icmp_imm_s(IntCC::SignedGreaterThan, x, 3);
     b.ins().brif(a, left, &[], right, &[]);
     b.switch_to_block(left);
     let one = b.ins().iconst(types::I8, 1);
     b.ins().jump(join, &[one.into()]);
     b.switch_to_block(right);
-    let c = b.ins().icmp_imm(IntCC::SignedGreaterThan, x, 4);
+    let c = b.ins().icmp_imm_s(IntCC::SignedGreaterThan, x, 4);
     b.ins().jump(join, &[c.into()]);
     b.switch_to_block(join);
     let condition = body(&mut b, flag);
@@ -46,7 +46,7 @@ fn or(body: impl FnOnce(&mut FunctionBuilder, Value) -> Value) -> Or {
         b.ins().return_(&[value]);
     }
     b.seal_all_blocks();
-    b.finalize();
+    b.finalize(crate::codegen::FRONTEND);
     Or {
         func,
         left,
@@ -158,8 +158,8 @@ fn constant_computed_in_a_skipped_block_is_rebuilt_on_the_edge() {
     let join_branch = func.layout.last_inst(or.join).unwrap();
     let flag = func.dfg.block_params(or.join)[0];
     let mut cursor = FuncCursor::new(func).at_inst(join_branch);
-    let sum = cursor.ins().iadd_imm(flag, 1);
-    let one = cursor.ins().icmp_imm(IntCC::Equal, flag, 1);
+    let sum = cursor.ins().iadd_imm_s(flag, 1);
+    let one = cursor.ins().icmp_imm_s(IntCC::Equal, flag, 1);
     let blocks = [
         cursor.func.dfg.block_call(out, &[BlockArg::Value(sum)]),
         cursor.func.dfg.block_call(or.no, &[]),
@@ -203,7 +203,7 @@ fn constant_infinite_loop_terminates() {
     b.ins()
         .brif(p, looping, &[zero.into()], looping, &[one.into()]);
     b.seal_all_blocks();
-    b.finalize();
+    b.finalize(crate::codegen::FRONTEND);
     thread_branches(&mut func);
     verify(&func);
 }

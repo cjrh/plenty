@@ -2,7 +2,9 @@
 //! A payload projection keeps the original storage alive through its loan;
 //! it never manufactures a pointer to a temporary unpacked value.
 use super::*;
-use cranelift_codegen::ir::{InstructionData, MemFlags, Opcode, Value as NativeValue, ValueDef};
+use cranelift_codegen::ir::{
+    InstructionData, MemFlagsData, Opcode, Value as NativeValue, ValueDef,
+};
 
 impl Lowerer<'_, '_> {
     /// The slot address, and the tag shift unless the reference was just
@@ -29,7 +31,7 @@ impl Lowerer<'_, '_> {
         let (address, _) = self.reference_parts(reference);
         self.bcx
             .ins()
-            .load(types::I64, MemFlags::trusted(), address, 0)
+            .load(types::I64, MemFlagsData::trusted(), address, 0)
     }
 
     pub(super) fn read_reference(&mut self, reference: NativeValue) -> NativeValue {
@@ -37,7 +39,7 @@ impl Lowerer<'_, '_> {
         let packed = self
             .bcx
             .ins()
-            .load(types::I128, MemFlags::trusted(), address, 0);
+            .load(types::I128, MemFlagsData::trusted(), address, 0);
         let Some(shift) = shift else {
             return packed;
         };
@@ -45,7 +47,10 @@ impl Lowerer<'_, '_> {
         // The deepest legal projection (64) produces zero, which a 64-bit
         // shift, masked to 0, would not.
         let tags = self.bcx.ins().ushr(tags, shift);
-        let projected = self.bcx.ins().icmp_imm(IntCC::UnsignedLessThan, shift, 64);
+        let projected = self
+            .bcx
+            .ins()
+            .icmp_imm_s(IntCC::UnsignedLessThan, shift, 64);
         let zero = self.bcx.ins().iconst(types::I64, 0);
         let tags = self.bcx.ins().select(projected, tags, zero);
         self.bcx.ins().iconcat(word, tags)
@@ -56,9 +61,9 @@ impl Lowerer<'_, '_> {
         let old = self
             .bcx
             .ins()
-            .load(types::I128, MemFlags::trusted(), address, 0);
+            .load(types::I128, MemFlagsData::trusted(), address, 0);
         let value = if ty.has_inline_storage() {
-            let destination = self.bcx.ins().iadd_imm(address, 16);
+            let destination = self.bcx.ins().iadd_imm_s(address, 16);
             self.copy_inline_to(value, ty, destination)
         } else {
             value
@@ -66,13 +71,16 @@ impl Lowerer<'_, '_> {
         let packed = self.pack(value, ty);
         let (word, tags) = self.bcx.ins().isplit(packed);
         // At the deepest projection (64) every old tag bit is an ancestor's.
-        let projected = self.bcx.ins().icmp_imm(IntCC::UnsignedLessThan, shift, 64);
+        let projected = self
+            .bcx
+            .ins()
+            .icmp_imm_s(IntCC::UnsignedLessThan, shift, 64);
         let tags = self.bcx.ins().ishl(tags, shift);
         let zero = self.bcx.ins().iconst(types::I64, 0);
         let tags = self.bcx.ins().select(projected, tags, zero);
         let one = self.bcx.ins().iconst(types::I64, 1);
         let mask = self.bcx.ins().ishl(one, shift);
-        let mask = self.bcx.ins().iadd_imm(mask, -1);
+        let mask = self.bcx.ins().iadd_imm_s(mask, -1);
         let all = self.bcx.ins().iconst(types::I64, -1);
         let mask = self.bcx.ins().select(projected, mask, all);
         let (_, old_tags) = self.bcx.ins().isplit(old);
@@ -81,6 +89,6 @@ impl Lowerer<'_, '_> {
         let packed = self.bcx.ins().iconcat(word, tags);
         self.bcx
             .ins()
-            .store(MemFlags::trusted(), packed, address, 0);
+            .store(MemFlagsData::trusted(), packed, address, 0);
     }
 }

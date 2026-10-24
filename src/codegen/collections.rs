@@ -136,10 +136,10 @@ impl Lowerer<'_, '_> {
         let result = match operation {
             CollectionOp::TextFind | CollectionOp::TextRFind => {
                 let b = &mut self.bcx;
-                let missing = b.ins().icmp_imm(IntCC::Equal, found, -1);
+                let missing = b.ins().icmp_imm_s(IntCC::Equal, found, -1);
                 let zero = b.ins().iconst(types::I64, 0);
                 let low = b.ins().select(missing, zero, found);
-                let some = b.ins().icmp_imm(IntCC::NotEqual, found, -1);
+                let some = b.ins().icmp_imm_s(IntCC::NotEqual, found, -1);
                 let high = b.ins().uextend(types::I64, some);
                 let result = b.ins().iconcat(low, high);
                 self.unpack(result, &output)
@@ -173,7 +173,7 @@ impl Lowerer<'_, '_> {
             self.release(receiver, &ty);
         }
         let b = &mut self.bcx;
-        let failed = b.ins().icmp_imm(IntCC::Equal, code, -1);
+        let failed = b.ins().icmp_imm_s(IntCC::Equal, code, -1);
         let zero = b.ins().iconst(types::I64, 0);
         let low = b.ins().select(failed, zero, code);
         let high = b.ins().uextend(types::I64, failed);
@@ -231,7 +231,7 @@ impl Lowerer<'_, '_> {
         };
         let first = widen(b, start);
         let bound = widen(b, stop);
-        let forward = b.ins().icmp_imm(IntCC::SignedGreaterThan, step, 0);
+        let forward = b.ins().icmp_imm_s(IntCC::SignedGreaterThan, step, 0);
         let low = b.ins().select(forward, first, bound);
         let high = b.ins().select(forward, bound, first);
         let order = if signed {
@@ -245,7 +245,7 @@ impl Lowerer<'_, '_> {
         let distance = b.ins().isub(high, low);
         let negated = b.ins().ineg(step);
         let magnitude = b.ins().select(forward, step, negated);
-        let zero_step = b.ins().icmp_imm(IntCC::Equal, step, 0);
+        let zero_step = b.ins().icmp_imm_s(IntCC::Equal, step, 0);
         let one = b.ins().iconst(types::I64, 1);
         // Cranelift keeps a division by a constant 1, and most loops use the
         // default step.
@@ -269,7 +269,7 @@ impl Lowerer<'_, '_> {
         };
         let zero = b.ins().iconst(types::I64, 0);
         let length = b.ins().select(nonempty, count, zero);
-        let oversized = b.ins().icmp_imm(IntCC::SignedLessThan, length, 0);
+        let oversized = b.ins().icmp_imm_s(IntCC::SignedLessThan, length, 0);
         let invalid = b.ins().bor(zero_step, oversized);
         let cold = b.create_block();
         let after = b.create_block();
@@ -300,7 +300,7 @@ impl Lowerer<'_, '_> {
     /// element.
     pub(super) fn lower_range_parts(&mut self, element: &Ty) -> Result<()> {
         let (range, _) = self.pop_typed(Ty::Range(Arc::new(element.clone())))?;
-        let flags = cranelift_codegen::ir::MemFlags::trusted();
+        let flags = cranelift_codegen::ir::MemFlagsData::trusted();
         let b = &mut self.bcx;
         let start = b.ins().load(types::I64, flags, range, 0);
         let step = b.ins().load(types::I64, flags, range, 16);
@@ -330,7 +330,7 @@ impl Lowerer<'_, '_> {
         let descriptor = if let Some(ty) = ty {
             let id = self.module.metadata(ty);
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
-            self.bcx.ins().global_value(PTR_TY, gv)
+            self.bcx.ins().symbol_value(PTR_TY, gv)
         } else {
             zero
         };
@@ -356,7 +356,7 @@ impl Lowerer<'_, '_> {
                 self.bcx.ins().uextend(types::I128, value)
             };
             self.bcx.ins().store(
-                cranelift_codegen::ir::MemFlags::trusted(),
+                cranelift_codegen::ir::MemFlagsData::trusted(),
                 value,
                 args,
                 (i * 16) as i32,
@@ -371,7 +371,7 @@ impl Lowerer<'_, '_> {
                 self.bcx.ins().uextend(types::I128, *value)
             };
             self.bcx.ins().store(
-                cranelift_codegen::ir::MemFlags::trusted(),
+                cranelift_codegen::ir::MemFlagsData::trusted(),
                 value,
                 args,
                 ((i + 1) * 16) as i32,
@@ -406,7 +406,7 @@ impl Lowerer<'_, '_> {
         self.leave_call(saved);
         Ok(self.bcx.ins().load(
             types::I128,
-            cranelift_codegen::ir::MemFlags::trusted(),
+            cranelift_codegen::ir::MemFlagsData::trusted(),
             args,
             48,
         ))
@@ -455,7 +455,7 @@ impl Lowerer<'_, '_> {
             // Length is nonnegative and at most isize::MAX. Adding it to a
             // negative i64 cannot overflow; unsigned comparison rejects both
             // still-negative indices and positive indices past the end.
-            let negative = self.bcx.ins().icmp_imm(IntCC::SignedLessThan, index, 0);
+            let negative = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, index, 0);
             let adjusted = self.bcx.ins().iadd(index, length);
             let normalized = self.bcx.ins().select(negative, adjusted, index);
             let invalid =
@@ -481,7 +481,7 @@ impl Lowerer<'_, '_> {
             let address = self.bcx.ins().iadd(rows, offset);
             let bits = self.bcx.ins().load(
                 types::I64,
-                cranelift_codegen::ir::MemFlags::trusted(),
+                cranelift_codegen::ir::MemFlagsData::trusted(),
                 address,
                 0,
             );
@@ -660,7 +660,7 @@ impl Lowerer<'_, '_> {
             let address = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
             for (i, value) in values.iter().enumerate() {
                 self.bcx.ins().store(
-                    cranelift_codegen::ir::MemFlags::trusted(),
+                    cranelift_codegen::ir::MemFlagsData::trusted(),
                     *value,
                     address,
                     (i * 16) as i32,
@@ -787,11 +787,11 @@ impl Lowerer<'_, '_> {
             let offset = self
                 .bcx
                 .ins()
-                .imul_imm(index, crate::clist::width(ty) as i64);
+                .imul_imm_s(index, crate::clist::width(ty) as i64);
             let address = self.bcx.ins().iadd(base, offset);
             let value = self.bcx.ins().load(
                 clif_type(ty.clone()),
-                cranelift_codegen::ir::MemFlags::trusted(),
+                cranelift_codegen::ir::MemFlagsData::trusted(),
                 address,
                 0,
             );
@@ -843,7 +843,7 @@ impl Lowerer<'_, '_> {
         let (b_low, b_high) = self.bcx.ins().isplit(b);
         let id = self.module.metadata(ty);
         let gv = self.module.declare_data_in_func(id, self.bcx.func);
-        let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
+        let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
         let function = self
             .module
             .declare_func_in_func(self.runtime.order_compare, self.bcx.func);
@@ -890,9 +890,13 @@ impl Lowerer<'_, '_> {
             // signed integer order matches.
             let mut total = |value| {
                 let ins = self.bcx.ins();
-                let bits = ins.bitcast(types::I64, cranelift_codegen::ir::MemFlags::new(), value);
-                let sign = self.bcx.ins().sshr_imm(bits, 63);
-                let mask = self.bcx.ins().ushr_imm(sign, 1);
+                let bits = ins.bitcast(
+                    types::I64,
+                    cranelift_codegen::ir::MemFlagsData::new(),
+                    value,
+                );
+                let sign = self.bcx.ins().sshr_imm_s(bits, 63);
+                let mask = self.bcx.ins().ushr_imm_s(sign, 1);
                 self.bcx.ins().bxor(bits, mask)
             };
             let (a, b) = (total(a), total(b));

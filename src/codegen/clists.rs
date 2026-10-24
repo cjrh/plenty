@@ -3,7 +3,7 @@
 use super::*;
 use crate::clist::{self, ClistOp};
 use crate::clist_layout;
-use cranelift_codegen::ir::{MemFlags, Value as NativeValue};
+use cranelift_codegen::ir::{MemFlagsData, Value as NativeValue};
 
 impl Lowerer<'_, '_> {
     fn clist_column_address(
@@ -14,9 +14,11 @@ impl Lowerer<'_, '_> {
     ) -> NativeValue {
         // Reserve checks the total byte count and rounds capacity to eight;
         // every primitive column is naturally aligned, even after byte fields.
-        let offset = self.bcx.ins().imul_imm(capacity, prefix as i64);
+        let offset = self.bcx.ins().imul_imm_s(capacity, prefix as i64);
         let base = self.bcx.ins().iadd(owner, offset);
-        self.bcx.ins().iadd_imm(base, i64::from(clist_layout::DATA))
+        self.bcx
+            .ins()
+            .iadd_imm_s(base, i64::from(clist_layout::DATA))
     }
 
     fn clist_field_address(
@@ -28,7 +30,7 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
     ) -> NativeValue {
         let base = self.clist_column_address(owner, capacity, prefix);
-        let offset = self.bcx.ins().imul_imm(index, clist::width(ty) as i64);
+        let offset = self.bcx.ins().imul_imm_s(index, clist::width(ty) as i64);
         self.bcx.ins().iadd(base, offset)
     }
 
@@ -55,14 +57,16 @@ impl Lowerer<'_, '_> {
         let prefix = |field: usize| fields[..field].iter().map(|(_, t)| clist::width(t)).sum();
         let result = match op {
             ClistOp::Get(..) | ClistOp::Set(..) | ClistOp::CopyRow(_) => {
-                let length =
-                    self.bcx
-                        .ins()
-                        .load(types::I64, MemFlags::trusted(), owner, clist_layout::LEN);
+                let length = self.bcx.ins().load(
+                    types::I64,
+                    MemFlagsData::trusted(),
+                    owner,
+                    clist_layout::LEN,
+                );
                 let index = args[1];
                 // Length <= isize::MAX; adding it to a negative index cannot
                 // overflow. One unsigned comparison also rejects i64::MIN.
-                let negative = self.bcx.ins().icmp_imm(IntCC::SignedLessThan, index, 0);
+                let negative = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, index, 0);
                 let adjusted = self.bcx.ins().iadd(index, length);
                 let index = self.bcx.ins().select(negative, adjusted, index);
                 let valid = self.bcx.ins().icmp(IntCC::UnsignedLessThan, index, length);
@@ -72,7 +76,7 @@ impl Lowerer<'_, '_> {
                 self.bcx.seal_block(access);
                 let capacity = self.bcx.ins().load(
                     types::I64,
-                    MemFlags::trusted(),
+                    MemFlagsData::trusted(),
                     owner,
                     clist_layout::CAPACITY,
                 );
@@ -84,14 +88,14 @@ impl Lowerer<'_, '_> {
                         if matches!(op, ClistOp::Get(..)) {
                             self.bcx.ins().load(
                                 clif_type(ty.clone()),
-                                MemFlags::trusted(),
+                                MemFlagsData::trusted(),
                                 address,
                                 0,
                             )
                         } else {
                             self.bcx
                                 .ins()
-                                .store(MemFlags::trusted(), args[2], address, 0);
+                                .store(MemFlagsData::trusted(), args[2], address, 0);
                             self.bcx.ins().iconst(clif_type(Ty::Unit), 0)
                         }
                     }
@@ -105,13 +109,13 @@ impl Lowerer<'_, '_> {
                                 self.clist_field_address(owner, capacity, prefix, index, ty);
                             let value = self.bcx.ins().load(
                                 clif_type(ty.clone()),
-                                MemFlags::trusted(),
+                                MemFlagsData::trusted(),
                                 address,
                                 0,
                             );
                             let packed = self.pack(value, ty);
                             self.bcx.ins().store(
-                                MemFlags::trusted(),
+                                MemFlagsData::trusted(),
                                 packed,
                                 storage,
                                 (field * 16) as i32,

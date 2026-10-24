@@ -7,7 +7,7 @@
 //! every requested `Ordering`.
 use super::*;
 use crate::atomic::{AtomicOp, Modify};
-use cranelift_codegen::ir::{AtomicRmwOp, MemFlags, Value as NativeValue};
+use cranelift_codegen::ir::{AtomicRmwOp, MemFlagsData, Value as NativeValue};
 
 impl Lowerer<'_, '_> {
     pub(super) fn lower_atomic(&mut self, operation: &AtomicOp) -> Result<()> {
@@ -17,7 +17,7 @@ impl Lowerer<'_, '_> {
             values.push(self.pop_typed(input.clone())?.0);
         }
         values.reverse();
-        let flags = MemFlags::trusted();
+        let flags = MemFlagsData::trusted();
         let result = match operation {
             AtomicOp::New(_) | AtomicOp::IntoInner(_) => values[0],
             AtomicOp::Fence => {
@@ -97,7 +97,7 @@ impl Lowerer<'_, '_> {
         operand: NativeValue,
     ) -> Result<NativeValue> {
         let width = clif_type(ty.clone());
-        let flags = MemFlags::trusted();
+        let flags = MemFlagsData::trusted();
         let first = self.bcx.ins().atomic_load(width, flags, address);
         let retry = self.bcx.create_block();
         let done = self.bcx.create_block();
@@ -127,7 +127,7 @@ impl Lowerer<'_, '_> {
     /// Bitwise nand would set a bool's seven high bits. `!(old & true)` is
     /// `!old`, and `!(old & false)` is `true`.
     fn bool_nand(&mut self, address: NativeValue, operand: NativeValue) -> NativeValue {
-        let flags = MemFlags::trusted();
+        let flags = MemFlagsData::trusted();
         let invert = self.bcx.create_block();
         let set = self.bcx.create_block();
         let done = self.bcx.create_block();

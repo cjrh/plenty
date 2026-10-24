@@ -103,6 +103,40 @@ pub(super) fn known_float_bits(dfg: &DataFlowGraph, value: Value) -> Option<u64>
     }
 }
 
+/// The lane-0 bits of `extractlane(vconst, 0)`, the pooled float constant
+/// that lowering emits for a mask or a left operand, zero-extended to 64.
+pub(super) fn known_pooled_float_bits(dfg: &DataFlowGraph, value: Value) -> Option<u64> {
+    let ValueDef::Result(inst, _) = dfg.value_def(dfg.resolve_aliases(value)) else {
+        return None;
+    };
+    let InstructionData::BinaryImm8 {
+        opcode: Opcode::Extractlane,
+        arg,
+        imm,
+    } = dfg.insts[inst]
+    else {
+        return None;
+    };
+    let ValueDef::Result(inst, _) = dfg.value_def(dfg.resolve_aliases(arg)) else {
+        return None;
+    };
+    let InstructionData::UnaryConst {
+        opcode: Opcode::Vconst,
+        constant_handle,
+    } = dfg.insts[inst]
+    else {
+        return None;
+    };
+    let width = dfg.value_type(value).bytes() as usize;
+    if imm != 0 || width > 8 {
+        return None;
+    }
+    let lane = dfg.constants.get(constant_handle).as_slice().get(..width)?;
+    let mut bytes = [0u8; 8];
+    bytes[..width].copy_from_slice(lane);
+    Some(u64::from_le_bytes(bytes))
+}
+
 fn evaluate(
     dfg: &DataFlowGraph,
     value: Value,
@@ -126,11 +160,6 @@ fn evaluate(
         InstructionData::IntCompare {
             args: [a, b], cond, ..
         } => u64::from(compare(cond, operand(a)?, operand(b)?, width(dfg, a)?)),
-        InstructionData::IntCompareImm { arg, cond, imm, .. } => {
-            let arg_bits = width(dfg, arg)?;
-            let imm = truncate(imm.bits() as u64, arg_bits);
-            u64::from(compare(cond, operand(arg)?, imm, arg_bits))
-        }
         InstructionData::Binary {
             opcode: Opcode::Band,
             args: [a, b],
@@ -147,11 +176,6 @@ fn evaluate(
             opcode,
             args: [a, b],
         } => binary(opcode, index, operand(a)?, operand(b)?, width(dfg, a)?)?,
-        InstructionData::BinaryImm64 {
-            opcode: Opcode::IaddImm,
-            arg,
-            imm,
-        } => operand(arg)?.wrapping_add(imm.bits() as u64),
         InstructionData::Unary { opcode, arg } => {
             let x = operand(arg)?;
             match opcode {
@@ -276,7 +300,7 @@ mod tests {
             known(|b, _| {
                 let count = b.ins().iconst(types::I64, 13);
                 b.ins()
-                    .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, count, 64)
+                    .icmp_imm_s(IntCC::UnsignedGreaterThanOrEqual, count, 64)
             }),
             Some(0)
         );
@@ -284,7 +308,7 @@ mod tests {
             known(|b, _| {
                 let count = b.ins().iconst(types::I8, -1);
                 b.ins()
-                    .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, count, 8)
+                    .icmp_imm_s(IntCC::UnsignedGreaterThanOrEqual, count, 8)
             }),
             Some(1)
         );
@@ -395,7 +419,7 @@ mod tests {
         }
         builder.switch_to_block(entry);
         let seven = builder.ins().iconst(types::I64, 7);
-        let other = builder.ins().iadd_imm(seven, offset);
+        let other = builder.ins().iadd_imm_s(seven, offset);
         let condition = builder.ins().icmp(IntCC::Equal, seven, other);
         let one = builder.ins().iconst(types::I64, 1);
         let two = builder.ins().iconst(types::I64, 2);
@@ -408,7 +432,7 @@ mod tests {
             builder.ins().return_(&[value]);
         }
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(crate::codegen::FRONTEND);
         fold_constant_branches(&mut func);
         let last = func.layout.last_inst(entry).unwrap();
         (func.dfg.insts[last], then, otherwise, func)
@@ -459,7 +483,7 @@ mod tests {
     #[test]
     fn unknown_inputs_stay_unknown() {
         assert_eq!(
-            known(|b, x| b.ins().icmp_imm(IntCC::UnsignedGreaterThanOrEqual, x, 64)),
+            known(|b, x| b.ins().icmp_imm_s(IntCC::UnsignedGreaterThanOrEqual, x, 64)),
             None
         );
         assert_eq!(

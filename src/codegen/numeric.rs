@@ -5,7 +5,7 @@ use super::*;
 use crate::numeric::{FloatOp, NumericOp};
 use cranelift_codegen::ir::Value as NativeValue;
 use cranelift_codegen::ir::immediates::{Ieee32, Ieee64};
-use cranelift_codegen::ir::{ConstantData, InstructionData, MemFlags, Opcode, ValueDef};
+use cranelift_codegen::ir::{ConstantData, InstructionData, MemFlagsData, Opcode, ValueDef};
 
 impl Lowerer<'_, '_> {
     pub(super) fn lower_numeric(&mut self, operation: &NumericOp) -> Result<()> {
@@ -69,7 +69,18 @@ impl Lowerer<'_, '_> {
         if known::known_float_bits(dfg, right).is_some() {
             return value;
         }
-        let (vector, width) = if dfg.value_type(value) == types::F32 {
+        self.pooled_float(value, bits)
+    }
+
+    /// A float constant with the type of `value` as lane 0 of a `vconst`,
+    /// which x86-64 loads from the constant pool with one `movupd` and no
+    /// general-purpose register. Cranelift does not rematerialize it per
+    /// block. Masks for scalar float `band`, `bor` and `bxor` use it too:
+    /// since Cranelift 0.137 the x86-64 backend keeps both operands of those
+    /// in registers, because a memory `andpd` reads 128 bits, so an
+    /// `f64const` mask would be built with `movabs` + `movq` (issue #439).
+    fn pooled_float(&mut self, value: NativeValue, bits: u64) -> NativeValue {
+        let (vector, width) = if self.bcx.func.dfg.value_type(value) == types::F32 {
             (types::F32X4, 4)
         } else {
             (types::F64X2, 8)
@@ -104,21 +115,21 @@ impl Lowerer<'_, '_> {
     }
 
     /// `x.fabs()` clears the sign bit, as Rust's `abs` does, NaN payload
-    /// included. The mask is the right operand of `band`, so x86-64 reads it
-    /// from the constant pool; Cranelift's `fabs` builds it with `movabs`.
+    /// included. The mask is a pooled constant operand of `band` (see
+    /// `pooled_float`); a constant `x` folds.
     fn float_abs(&mut self, x: NativeValue) -> NativeValue {
         let (_, magnitude) = self.float_masks(x);
         if let Some(bits) = known::known_float_bits(&self.bcx.func.dfg, x) {
             return self.float_bits(x, bits & magnitude);
         }
-        let mask = self.float_bits(x, magnitude);
+        let mask = self.pooled_float(x, magnitude);
         self.bcx.ins().band(x, mask)
     }
 
     /// `-x` flips the sign bit, NaN payload included, as Cranelift's `fneg`
-    /// does. The mask is the right operand of `bxor`, so x86-64 reads it from
-    /// the constant pool; `fneg` builds it with `movabs` + `movq` at each use
-    /// (issue #385). A constant folds here, and so does `-(-x)`, which
+    /// does. The mask is a pooled constant operand of `bxor` (see
+    /// `pooled_float`), where `fneg` builds it with `movabs` + `movq` (issue
+    /// #385). A constant folds here, and so does `-(-x)`, which
     /// Cranelift's `fneg(fneg x)` rule no longer sees.
     pub(super) fn float_neg(&mut self, x: NativeValue) -> NativeValue {
         let (sign, _) = self.float_masks(x);
@@ -131,18 +142,17 @@ impl Lowerer<'_, '_> {
                 opcode: Opcode::Bxor,
                 args: [inner, mask],
             } = dfg.insts[inst]
-            && known::known_float_bits(dfg, mask) == Some(sign)
+            && known::known_pooled_float_bits(dfg, mask) == Some(sign)
         {
             return inner;
         }
-        let mask = self.float_bits(x, sign);
+        let mask = self.pooled_float(x, sign);
         self.bcx.ins().bxor(x, mask)
     }
 
     /// `x.copysign(y)`: the magnitude bits of `x` with the sign bit of `y`,
-    /// as Rust's `copysign`, NaN payload included. Each mask or constant is
-    /// a right operand, read from the constant pool on x86-64; Cranelift's
-    /// `fcopysign` builds its mask and a constant `x` in registers.
+    /// as Rust's `copysign`, NaN payload included. The masks are pooled
+    /// constants (see `pooled_float`); constant operands fold.
     fn float_copysign(&mut self, x: NativeValue, y: NativeValue) -> NativeValue {
         let (sign, magnitude) = self.float_masks(x);
         let dfg = &self.bcx.func.dfg;
@@ -153,28 +163,28 @@ impl Lowerer<'_, '_> {
                 self.float_bits(x, (x_bits & magnitude) | (y_bits & sign))
             }
             (Some(x_bits), None) => {
-                let mask = self.float_bits(y, sign);
+                let mask = self.pooled_float(y, sign);
                 let sign_of_y = self.bcx.ins().band(y, mask);
                 if x_bits & magnitude == 0 {
                     return sign_of_y;
                 }
-                let magnitude_of_x = self.float_bits(x, x_bits & magnitude);
+                let magnitude_of_x = self.pooled_float(x, x_bits & magnitude);
                 self.bcx.ins().bor(sign_of_y, magnitude_of_x)
             }
             (None, Some(y_bits)) => {
-                let mask = self.float_bits(x, magnitude);
+                let mask = self.pooled_float(x, magnitude);
                 let magnitude_of_x = self.bcx.ins().band(x, mask);
                 if y_bits & sign == 0 {
                     magnitude_of_x
                 } else {
-                    let sign = self.float_bits(x, sign);
+                    let sign = self.pooled_float(x, sign);
                     self.bcx.ins().bor(magnitude_of_x, sign)
                 }
             }
             (None, None) => {
-                let mask = self.float_bits(x, magnitude);
+                let mask = self.pooled_float(x, magnitude);
                 let magnitude_of_x = self.bcx.ins().band(x, mask);
-                let mask = self.float_bits(y, sign);
+                let mask = self.pooled_float(y, sign);
                 let sign_of_y = self.bcx.ins().band(y, mask);
                 self.bcx.ins().bor(magnitude_of_x, sign_of_y)
             }
@@ -226,9 +236,9 @@ impl Lowerer<'_, '_> {
         } else {
             (4_503_599_627_370_496f64.to_bits(), 1f64.to_bits())
         };
-        let mask = self.float_bits(x, magnitude_mask);
+        let mask = self.pooled_float(x, magnitude_mask);
         let a = self.bcx.ins().band(x, mask);
-        let mask = self.float_bits(x, sign_mask);
+        let mask = self.pooled_float(x, sign_mask);
         let sign = self.bcx.ins().band(x, mask);
         let shift = self.float_bits(x, big);
         let shifted = self.bcx.ins().fadd(a, shift);
@@ -285,7 +295,7 @@ impl Lowerer<'_, '_> {
         let value_lanes = self.bcx.ins().scalar_to_vector(vector, value);
         let target_lanes = self.bcx.ins().scalar_to_vector(vector, target);
         let past = self.bcx.ins().fcmp(cc, value_lanes, target_lanes);
-        let past = self.bcx.ins().bitcast(vector, MemFlags::new(), past);
+        let past = self.bcx.ins().bitcast(vector, MemFlagsData::new(), past);
         let step = self.bcx.ins().band(past, ones);
         let moved = if cc == FloatCC::GreaterThan {
             self.bcx.ins().fsub(value_lanes, step)
