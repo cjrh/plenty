@@ -25,7 +25,7 @@ fn a_program_can_have_more_instances_than_one_template() {
 }
 
 #[test]
-#[ignore = "creates 262,144 instances, about 1.3 GB and several seconds; run with --ignored"]
+#[ignore = "creates 262,144 instances: about 1.4 GB and 11 s in a debug build; run with --ignored"]
 fn total_specialization_budget_has_a_resource_diagnostic() {
     // Seventeen runaways grow together, so the total runs out before any one
     // template reaches its own limit.
