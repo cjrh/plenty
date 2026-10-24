@@ -184,7 +184,7 @@ beside scripts improves discoverability but breaks read-only directories.
 To grow into a package, move the body to `src/main.plenty` and the header to
 `plenty.toml`, filling required fields and adjusting relative dependency paths.
 No language rewrite is needed. Existing module and entry-point rationale is
-recorded in [Explicit applications and modules](entrypoints-modules-and-tutorials.md).
+recorded in [Explicit applications and modules](completed/entrypoints-modules-and-tutorials.md).
 
 ## Implementation assessment and acceptance
 
