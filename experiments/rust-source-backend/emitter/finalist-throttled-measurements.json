@@ -1,0 +1,683 @@
+{
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "affinity": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "repeats": 3,
+  "flags": "edition=2024 panic=abort debuginfo=0 embed-bitcode=no; default installed linker; no external crates",
+  "cache_note": "artifact-cold unless incremental_dev; OS pages warm; prebuilt installed sysroot",
+  "workloads": [
+    {
+      "functions": 1,
+      "iterations": 100,
+      "plenty_bytes": 744,
+      "variants": {
+        "helpers-dev": {
+          "helpers": true,
+          "opt_level": 0,
+          "codegen_units": 16,
+          "module_size": 0,
+          "no_inline": false,
+          "emission_samples": [
+            {
+              "check_ms": 6.551661,
+              "emit_ms": 0.761202,
+              "rust_bytes": 3894,
+              "process_ms": 17.625589
+            },
+            {
+              "check_ms": 5.411981,
+              "emit_ms": 0.713072,
+              "rust_bytes": 3894,
+              "process_ms": 15.498455
+            },
+            {
+              "check_ms": 6.689457,
+              "emit_ms": 0.748499,
+              "rust_bytes": 3894,
+              "process_ms": 17.803361
+            }
+          ],
+          "library_compile": {
+            "median_ms": 251.571538,
+            "samples_ms": [
+              251.571538,
+              231.467558,
+              252.616069
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 445.449017,
+            "samples_ms": [
+              487.269369,
+              435.761458,
+              445.449017
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 205.862941,
+            "samples_ms": [
+              205.862941,
+              187.453677,
+              213.447862
+            ]
+          },
+          "run": {
+            "median_ms": 7.275833,
+            "samples_ms": [
+              9.245593,
+              7.032218,
+              7.275833
+            ]
+          },
+          "rlib_bytes": 13802,
+          "binary_bytes": 4527480,
+          "frequency_start_khz": {
+            "0": 544414,
+            "1": 544469,
+            "2": 544493,
+            "3": 544111,
+            "4": 544404,
+            "5": 543854,
+            "6": 544447,
+            "7": 544599
+          },
+          "end_to_end": {
+            "median_ms": 707.020949,
+            "samples_ms": [
+              747.682014,
+              652.740797,
+              707.020949
+            ]
+          },
+          "frequency_end_khz": {
+            "0": 544450,
+            "1": 544421,
+            "2": 544464,
+            "3": 544442,
+            "4": 544458,
+            "5": 544483,
+            "6": 544474,
+            "7": 544412
+          }
+        },
+        "helpers-release-groups-noinline": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "module_size": 32,
+          "no_inline": true,
+          "emission_samples": [
+            {
+              "check_ms": 5.81255,
+              "emit_ms": 0.708032,
+              "rust_bytes": 3965,
+              "process_ms": 14.448314
+            },
+            {
+              "check_ms": 6.23046,
+              "emit_ms": 0.655995,
+              "rust_bytes": 3965,
+              "process_ms": 15.306517
+            },
+            {
+              "check_ms": 5.789105999999999,
+              "emit_ms": 0.666676,
+              "rust_bytes": 3965,
+              "process_ms": 16.308609
+            }
+          ],
+          "library_compile": {
+            "median_ms": 286.726197,
+            "samples_ms": [
+              340.222874,
+              286.726197,
+              272.279385
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 482.851435,
+            "samples_ms": [
+              423.937337,
+              482.851435,
+              524.061788
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 223.791326,
+            "samples_ms": [
+              235.15171,
+              203.732461,
+              223.791326
+            ]
+          },
+          "run": {
+            "median_ms": 7.06549,
+            "samples_ms": [
+              7.144317,
+              6.632782,
+              7.06549
+            ]
+          },
+          "rlib_bytes": 10028,
+          "binary_bytes": 4525320,
+          "frequency_start_khz": {
+            "0": 544420,
+            "1": 544444,
+            "2": 544489,
+            "3": 544402,
+            "4": 544489,
+            "5": 544454,
+            "6": 544490,
+            "7": 544468
+          },
+          "end_to_end": {
+            "median_ms": 736.173653,
+            "samples_ms": [
+              835.259795,
+              736.173653,
+              727.175192
+            ]
+          },
+          "frequency_end_khz": {
+            "0": 544466,
+            "1": 544278,
+            "2": 544466,
+            "3": 544460,
+            "4": 544490,
+            "5": 544448,
+            "6": 543577,
+            "7": 544444
+          }
+        }
+      },
+      "plenty_dev_compile_link": {
+        "median_ms": 427.006761,
+        "samples_ms": [
+          318.658295,
+          428.220859,
+          427.006761
+        ]
+      },
+      "expected_status": 65,
+      "plenty_dev_run": {
+        "median_ms": 6.765019,
+        "samples_ms": [
+          6.765019,
+          6.638322,
+          9.562135
+        ]
+      },
+      "plenty_release_compile_link": {
+        "median_ms": 368.908227,
+        "samples_ms": [
+          436.495218,
+          368.908227,
+          358.490323
+        ]
+      },
+      "plenty_release_run": {
+        "median_ms": 9.146729,
+        "samples_ms": [
+          10.960928,
+          6.813099,
+          9.146729
+        ]
+      },
+      "incremental_dev": {
+        "module_size": 32,
+        "first_ms": 273.670415,
+        "unchanged": {
+          "median_ms": 201.977472,
+          "samples_ms": [
+            209.254838,
+            178.670858,
+            201.977472
+          ]
+        },
+        "body_edit_ms": 217.390648,
+        "body_edit_emission": {
+          "check_ms": 4.851635,
+          "emit_ms": 0.64772,
+          "rust_bytes": 3931,
+          "process_ms": 15.637746
+        },
+        "edited_host_compile_link_ms": 396.127279
+      }
+    },
+    {
+      "functions": 100,
+      "iterations": 100,
+      "plenty_bytes": 59171,
+      "variants": {
+        "helpers-dev": {
+          "helpers": true,
+          "opt_level": 0,
+          "codegen_units": 16,
+          "module_size": 0,
+          "no_inline": false,
+          "emission_samples": [
+            {
+              "check_ms": 58.005972,
+              "emit_ms": 36.754027,
+              "rust_bytes": 275207,
+              "process_ms": 120.258777
+            },
+            {
+              "check_ms": 54.739138,
+              "emit_ms": 39.019168,
+              "rust_bytes": 275207,
+              "process_ms": 119.244693
+            },
+            {
+              "check_ms": 61.415502,
+              "emit_ms": 36.586564,
+              "rust_bytes": 275207,
+              "process_ms": 123.445431
+            }
+          ],
+          "library_compile": {
+            "median_ms": 1603.48473,
+            "samples_ms": [
+              1453.833478,
+              1603.48473,
+              1723.212014
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 426.26772,
+            "samples_ms": [
+              415.234007,
+              440.089293,
+              426.26772
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 1487.381425,
+            "samples_ms": [
+              1487.381425,
+              1493.35234,
+              1465.676744
+            ]
+          },
+          "run": {
+            "median_ms": 22.269506,
+            "samples_ms": [
+              18.866638,
+              22.993418,
+              22.269506
+            ]
+          },
+          "rlib_bytes": 226596,
+          "binary_bytes": 4601408,
+          "frequency_start_khz": {
+            "0": 544377,
+            "1": 544195,
+            "2": 544464,
+            "3": 544457,
+            "4": 544472,
+            "5": 545237,
+            "6": 544479,
+            "7": 544694
+          },
+          "end_to_end": {
+            "median_ms": 2124.632212,
+            "samples_ms": [
+              2136.810736,
+              2124.632212,
+              2117.542387
+            ]
+          },
+          "frequency_end_khz": {
+            "0": 544445,
+            "1": 544490,
+            "2": 544487,
+            "3": 544526,
+            "4": 544500,
+            "5": 544525,
+            "6": 544463,
+            "7": 543532
+          }
+        },
+        "helpers-release-groups-noinline": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "module_size": 32,
+          "no_inline": true,
+          "emission_samples": [
+            {
+              "check_ms": 63.402474,
+              "emit_ms": 40.294602,
+              "rust_bytes": 277444,
+              "process_ms": 137.026144
+            },
+            {
+              "check_ms": 61.787717,
+              "emit_ms": 42.944613,
+              "rust_bytes": 277444,
+              "process_ms": 133.972089
+            },
+            {
+              "check_ms": 71.122547,
+              "emit_ms": 51.306676,
+              "rust_bytes": 277444,
+              "process_ms": 158.184054
+            }
+          ],
+          "library_compile": {
+            "median_ms": 2629.998471,
+            "samples_ms": [
+              2629.998471,
+              2712.179609,
+              2411.795746
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 419.94624,
+            "samples_ms": [
+              425.126138,
+              419.94624,
+              413.526966
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 1387.06224,
+            "samples_ms": [
+              1374.664959,
+              1387.06224,
+              1612.174525
+            ]
+          },
+          "run": {
+            "median_ms": 10.761406,
+            "samples_ms": [
+              8.599006,
+              10.761406,
+              12.451463
+            ]
+          },
+          "rlib_bytes": 164866,
+          "binary_bytes": 4614984,
+          "frequency_start_khz": {
+            "0": 545555,
+            "1": 544460,
+            "2": 544495,
+            "3": 544087,
+            "4": 544536,
+            "5": 543660,
+            "6": 544451,
+            "7": 544257
+          },
+          "end_to_end": {
+            "median_ms": 3540.561755,
+            "samples_ms": [
+              3570.490611,
+              3540.561755,
+              3395.460684
+            ]
+          },
+          "frequency_end_khz": {
+            "0": 544465,
+            "1": 544467,
+            "2": 544442,
+            "3": 544464,
+            "4": 544425,
+            "5": 544059,
+            "6": 544481,
+            "7": 543097
+          }
+        }
+      },
+      "plenty_dev_compile_link": {
+        "median_ms": 519.892157,
+        "samples_ms": [
+          519.892157,
+          483.91958,
+          528.041433
+        ]
+      },
+      "expected_status": 132,
+      "plenty_dev_run": {
+        "median_ms": 11.035548,
+        "samples_ms": [
+          10.144873,
+          11.822778,
+          11.035548
+        ]
+      },
+      "plenty_release_compile_link": {
+        "median_ms": 532.550628,
+        "samples_ms": [
+          523.138243,
+          532.550628,
+          541.245161
+        ]
+      },
+      "plenty_release_run": {
+        "median_ms": 9.724368,
+        "samples_ms": [
+          9.724368,
+          9.668995,
+          10.256311
+        ]
+      },
+      "incremental_dev": {
+        "module_size": 32,
+        "first_ms": 2096.849496,
+        "unchanged": {
+          "median_ms": 735.737139,
+          "samples_ms": [
+            735.737139,
+            797.997678,
+            729.675243
+          ]
+        },
+        "body_edit_ms": 863.245149,
+        "body_edit_emission": {
+          "check_ms": 63.684051000000004,
+          "emit_ms": 48.752143,
+          "rust_bytes": 275727,
+          "process_ms": 144.19611
+        },
+        "edited_host_compile_link_ms": 421.410877
+      }
+    }
+  ],
+  "cpu": {
+    "lscpu": [
+      {
+        "field": "Architecture:",
+        "data": "x86_64"
+      },
+      {
+        "field": "CPU op-mode(s):",
+        "data": "32-bit, 64-bit"
+      },
+      {
+        "field": "Address sizes:",
+        "data": "48 bits physical, 48 bits virtual"
+      },
+      {
+        "field": "Byte Order:",
+        "data": "Little Endian"
+      },
+      {
+        "field": "CPU(s):",
+        "data": "16"
+      },
+      {
+        "field": "On-line CPU(s) list:",
+        "data": "0-15"
+      },
+      {
+        "field": "Vendor ID:",
+        "data": "AuthenticAMD"
+      },
+      {
+        "field": "Model name:",
+        "data": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics"
+      },
+      {
+        "field": "CPU family:",
+        "data": "25"
+      },
+      {
+        "field": "Model:",
+        "data": "116"
+      },
+      {
+        "field": "Thread(s) per core:",
+        "data": "2"
+      },
+      {
+        "field": "Core(s) per socket:",
+        "data": "8"
+      },
+      {
+        "field": "Socket(s):",
+        "data": "1"
+      },
+      {
+        "field": "Stepping:",
+        "data": "1"
+      },
+      {
+        "field": "Frequency boost:",
+        "data": "enabled"
+      },
+      {
+        "field": "CPU(s) scaling MHz:",
+        "data": "11%"
+      },
+      {
+        "field": "CPU max MHz:",
+        "data": "5137.9038"
+      },
+      {
+        "field": "CPU min MHz:",
+        "data": "419.4210"
+      },
+      {
+        "field": "BogoMIPS:",
+        "data": "7586.27"
+      },
+      {
+        "field": "Flags:",
+        "data": "fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good amd_lbr_v2 nopl xtopology nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw ibs skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpuid_fault cpb cat_l3 cdp_l3 hw_pstate ssbd mba perfmon_v2 ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local user_shstk avx512_bf16 clzero irperf xsaveerptr rdpru wbnoinvd cppc arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold vgif x2avic v_spec_ctrl vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid overflow_recov succor smca fsrm flush_l1d amd_lbr_pmc_freeze"
+      },
+      {
+        "field": "Virtualization:",
+        "data": "AMD-V"
+      },
+      {
+        "field": "L1d cache:",
+        "data": "256 KiB (8 instances)"
+      },
+      {
+        "field": "L1i cache:",
+        "data": "256 KiB (8 instances)"
+      },
+      {
+        "field": "L2 cache:",
+        "data": "8 MiB (8 instances)"
+      },
+      {
+        "field": "L3 cache:",
+        "data": "16 MiB (1 instance)"
+      },
+      {
+        "field": "NUMA node(s):",
+        "data": "1"
+      },
+      {
+        "field": "NUMA node0 CPU(s):",
+        "data": "0-15"
+      },
+      {
+        "field": "Vulnerability Gather data sampling:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Ghostwrite:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Indirect target selection:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Itlb multihit:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability L1tf:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Mds:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Meltdown:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Mmio stale data:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Old microcode:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Reg file data sampling:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Retbleed:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Spec rstack overflow:",
+        "data": "Mitigation; Safe RET"
+      },
+      {
+        "field": "Vulnerability Spec store bypass:",
+        "data": "Mitigation; Speculative Store Bypass disabled via prctl"
+      },
+      {
+        "field": "Vulnerability Spectre v1:",
+        "data": "Mitigation; usercopy/swapgs barriers and __user pointer sanitization"
+      },
+      {
+        "field": "Vulnerability Spectre v2:",
+        "data": "Mitigation; Enhanced / Automatic IBRS; IBPB conditional; STIBP always-on; PBRSB-eIBRS Not affected; BHI Not affected"
+      },
+      {
+        "field": "Vulnerability Srbds:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Tsa:",
+        "data": "Mitigation; Clear CPU buffers"
+      },
+      {
+        "field": "Vulnerability Tsx async abort:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Vmscape:",
+        "data": "Mitigation; IBPB before exit to userspace"
+      }
+    ]
+  }
+}

@@ -144,20 +144,23 @@ no-op timings. Rust still reads and checks the generated crate.
 
 `finalist-measurements.json` adds a single timer around checking/emission,
 Rust library compilation and host compilation/linking, with three independent
-samples. This run had no competing task builds. However, recorded CPU frequencies
-were around 544 MHz, much lower than expected; these absolute numbers must not
-be combined with the earlier exploratory snapshots. The native baseline was
-remeasured in the same run. No power-management settings were changed.
+samples. After the user corrected the CPU frequency limitation, the two finalist
+configurations and matching native baselines were rerun in a coordinated quiet
+window on 2026-10-24. Sampled frequencies were 3.25–4.09 GHz. Workloads, three
+repetitions, 100 aggregate iterations, CPU affinity and compiler flags are
+unchanged. The raw snapshot records the command, source commit and environment.
+The initial exploratory emission-shape measurements were not rerun.
 
 | Functions | Native dev | Rust helper dev, end to end | Native release | Rust grouped/non-inlined release, end to end |
 | --- | ---: | ---: | ---: | ---: |
-| 1 | 427 ms | 707 ms | 369 ms | 736 ms |
-| 100 | 520 ms | 2,125 ms | 533 ms | 3,541 ms |
+| 1 | 42 ms | 83 ms | 42 ms | 94 ms |
+| 100 | 61 ms | 246 ms | 65 ms | 343 ms |
 
-This confirms the practical direction of the earlier stage measurements:
-the small Rust pipeline is usable, but its build cost grows faster than the
-native path. Repeat on a normally clocked, quiet machine before setting any
-build-time budget. The raw snapshot records per-variant CPU frequencies.
+The previous roughly 544 MHz results are preserved separately in
+`finalist-throttled-measurements.json` and superseded by this table; the two
+hardware regimes are not pooled. The fresh samples support practical subsecond
+builds for these small Rust libraries, while the native path remains faster.
+These two small synthetic workloads do not set a general build-time budget.
 
 **Recommendation:** continue the Rust-hosted library experiment with compact
 monomorphic helpers and an explicit development/optimized emission policy.

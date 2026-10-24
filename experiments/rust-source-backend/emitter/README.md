@@ -27,9 +27,11 @@ Plenty toolchain are sufficient; generated crates have no external dependencies.
 snapshots. `--end-to-end` additionally times generation, library compilation and
 host compilation/linking under one timer; use `--variants helpers-dev
 helpers-release-groups-noinline` to focus on the two finalist configurations.
-`finalist-measurements.json` records that end-to-end comparison for 1/100 functions.
-Its CPU was frequency-limited to roughly 544 MHz: compare its native and Rust
-results within that run, not directly with the earlier snapshots.
+`finalist-measurements.json` records the fresh end-to-end comparison for 1/100
+functions after the user corrected the CPU frequency issue (samples 3.25–4.09 GHz).
+It supersedes `finalist-throttled-measurements.json`, retained as provenance for
+the earlier roughly 544 MHz run. Neither final run replaces the exploratory
+flat/grouped measurements; do not pool different hardware regimes.
 
 For a custom module:
 
