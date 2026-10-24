@@ -3,6 +3,135 @@ mod support;
 use rstest::rstest;
 use support::assert_visible_stdout as native;
 
+#[test]
+fn filter_count_does_not_read_past_guard_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new("python3")
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/experiments/simd/clist/run.py"
+        ))
+        .arg(support::plenty_bin())
+        .arg("--out")
+        .arg(dir.path())
+        .arg("--verify-only")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn filter_count_preserves_integer_comparisons_and_all_tails(#[case] release: bool) {
+    let mut source =
+        String::from("class Row:\n    pad: bool\n    signed: i32\n    unsigned: u32\n\n");
+    let comparisons = ["==", "!=", "<", "<=", ">", ">="];
+    for (kind, ty, threshold) in [
+        ("signed", "i32", "-1i32"),
+        ("unsigned", "u32", "2147483648u32"),
+    ] {
+        for (i, comparison) in comparisons.iter().enumerate() {
+            source.push_str(&format!(
+                "def scan_{kind}_{i}(rows: &clist[Row]) -> i64:\n    rows.column(Row.{kind}).filter(def(x: &{ty}) -> bool: *x {comparison} {threshold}).count()\n"
+            ));
+        }
+    }
+    source.push_str("for length in range(130):\n    mut rows = clist[Row]()\n    rows.reserve(length).unwrap()\n    for n in range(length):\n        bits = u32(n).wrapping_mul(2147483647u32)\n        rows.append(Row(True, i32.wrapping_from(bits), bits)).unwrap()\n");
+    for (kind, threshold) in [("signed", "-1i32"), ("unsigned", "2147483648u32")] {
+        for (i, comparison) in comparisons.iter().enumerate() {
+            source.push_str(&format!(
+                "    mut expected_{kind}_{i} = 0\n    for n in range(length):\n        if rows[n].{kind} {comparison} {threshold}:\n            expected_{kind}_{i} += 1\n    check(scan_{kind}_{i}(&rows) == expected_{kind}_{i}, \"comparison {kind} {comparison}\").unwrap()\n"
+            ));
+        }
+    }
+    source.push_str("print(\"ok\").unwrap()\n");
+    let output = run_mode(&source, release);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"ok\n");
+}
+
+#[test]
+fn filter_count_keeps_effects_and_nonmatching_chains_scalar() {
+    let source = r#"
+class Row:
+    x: i32
+def noisy(x: &i32) -> bool:
+    print(*x).unwrap()
+    *x > 2i32
+mut rows = clist[Row]()
+for n in range(7):
+    rows.append(Row(i32(n))).unwrap()
+check(rows.column(Row.x).filter(noisy).count() == 4, "side effects").unwrap()
+limit = 2i32
+check(rows.column(Row.x).filter(def [limit](x: &i32) -> bool: *x > limit).count() == 4, "capture").unwrap()
+check(rows.column(Row.x).filter(def(x: &i32) -> bool: *x > 2i32).take(2).count() == 2, "take").unwrap()
+check(rows.column(Row.x).skip(2).filter(def(x: &i32) -> bool: *x > 2i32).count() == 4, "skip").unwrap()
+check(rows.column(Row.x).filter(def(x: &i32) -> bool: *x > 2i32).filter(def(x: &i32) -> bool: *x < 5i32).count() == 2, "two filters").unwrap()
+print("ok").unwrap()
+"#;
+    let output = run_mode(source, true);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"0\n1\n2\n3\n4\n5\n6\nok\n");
+}
+
+#[test]
+fn filter_count_emits_vectors_only_for_the_bounded_predicate() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("scan.plenty");
+    std::fs::write(
+        &path,
+        r#"
+class Row:
+    x: i32
+def eligible(rows: &clist[Row]) -> i64:
+    rows.column(Row.x).filter(def(x: &i32) -> bool: *x > 5i32).count()
+def predicate(x: &i32) -> bool:
+    *x > 5i32
+def named(rows: &clist[Row]) -> i64:
+    rows.column(Row.x).filter(predicate).count()
+def checked(rows: &clist[Row]) -> i64:
+    rows.column(Row.x).filter(def(x: &i32) -> bool: *x + 1i32 > 5i32).count()
+def main() -> Result[(), IoError]:
+    rows = clist[Row]()
+    print(eligible(&rows), named(&rows), checked(&rows))?
+    Ok(())
+"#,
+    )
+    .unwrap();
+    for (function, vectorized) in [("eligible", true), ("named", true), ("checked", false)] {
+        let output = std::process::Command::new(support::plenty_bin())
+            .args(["--release", "--dump", "clif,asm", "--dump-filter", function])
+            .arg(&path)
+            .args(["-o", "-"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(text.contains("load.i32x4"), vectorized, "{text}");
+        if vectorized {
+            assert!(text.contains("pcmpgtd"), "{text}");
+        }
+    }
+}
+
 fn run_mode(source: &str, release: bool) -> std::process::Output {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("clist.plenty");
