@@ -85,6 +85,9 @@ impl Lower<'_> {
     }
 
     pub(super) fn is_pipeline(&self, e: &Expr) -> bool {
+        if self.is_clist_column(e) {
+            return true;
+        }
         match &ungroup(e).kind {
             Expression::Name(n) => matches!(self.names.get(n).map(|l| &l.ty), Some(Ty::Iter(..))),
             Expression::Call(n, _) => {
@@ -161,7 +164,7 @@ impl Lower<'_> {
                 };
                 self.pipeline_source(source, ops)?
             }
-            Expression::Method(_, method, _, _) if method == "items" => {
+            Expression::Method(_, method, _, _) if method == "items" || self.is_clist_column(e) => {
                 self.pipeline_raw_source(e, ops)?
             }
             Expression::Method(base, method, args, _) => {
@@ -340,7 +343,8 @@ impl Lower<'_> {
         } else {
             self.names[&names[0]].clone()
         };
-        let owned = !item.ty.contains_reference()
+        let owned = !self.is_clist_column(source)
+            && !item.ty.contains_reference()
             && pair
                 .as_ref()
                 .is_none_or(|fields| fields.iter().all(|field| !field.ty.contains_reference()));

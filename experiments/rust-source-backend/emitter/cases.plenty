@@ -1,0 +1,97 @@
+def add(x: i64, y: i64) -> i64:
+    x + y
+
+def arithmetic() -> i64:
+    (add(12, 4) * 7 - 2) // 5
+
+def floors() -> i64:
+    (-7 // 3) * 1000 + (7 // -3) * 100 + (-7 % 3) * 10 + (7 % -3)
+
+def minimum_modulo() -> i64:
+    -9223372036854775808 % -1
+
+def widths() -> i64:
+    a: i8 = -127
+    b: i16 = 300
+    c: i32 = 70000
+    d: u8 = 250
+    e: u16 = 65000
+    f: u32 = 100000
+    g: u64 = 18446744073709551615
+    i64(a) + i64(b) + i64(c) + i64(d) + i64(e) + i64(f) + i64.wrapping_from(g)
+
+def loops() -> i64:
+    mut i = 0
+    mut result = 0
+    while i < 20:
+        i += 1
+        if i == 5:
+            continue
+        if i == 12:
+            break
+        result += i
+    result
+
+def choose(x: i64) -> i64:
+    if x < 0:
+        -1
+    elif x == 0:
+        9
+    else:
+        x + 4
+
+def branches() -> i64:
+    choose(-4) + choose(0) + choose(3)
+
+def short_circuit() -> i64:
+    if False and add(9223372036854775807, 1) == 0:
+        return 20
+    if True or add(9223372036854775807, 1) == 0:
+        return 17
+    0
+
+def tail(n: i64, a: i64, b: i64) -> i64:
+    if n == 0:
+        return a * 10 + b
+    tail(n - 1, b, a)
+
+def tail_test() -> i64:
+    tail(100001, 2, 3)
+
+def host_adjust(x: i64) -> i64:
+    x * 3
+
+def host_roundtrip(x: i64) -> i64:
+    host_adjust(x) + 4
+
+def nothing() -> ():
+    return
+
+def void_test() -> i64:
+    nothing()
+    4
+
+def identity[T](x: T) -> T:
+    x
+
+def selected(x: i8) -> i64:
+    match x:
+        case -2:
+            11
+        case 3:
+            19
+        case _:
+            7
+
+def patterns() -> i64:
+    selected(-2) + selected(3) + selected(9) + identity(2)
+
+def wraps() -> i64:
+    x: u8 = 250
+    y: u8 = 10
+    z: i8 = -128
+    i64(x.wrapping_add(y)) + i64(y.wrapping_sub(x)) + i64(z.wrapping_mul(-1i8))
+
+def main() -> Result[(), IoError]:
+    print(arithmetic(), floors(), minimum_modulo(), widths(), loops(), branches(), short_circuit(), tail_test(), host_roundtrip(7), void_test(), patterns(), wraps())?
+    Ok(())

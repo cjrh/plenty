@@ -387,6 +387,7 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
                 .collect(),
         ),
         Ty::List(t) => (Some("list".into()), vec![t]),
+        Ty::Clist(t) => (Some("clist".into()), vec![t]),
         Ty::Future(t) => (Some("Future".into()), vec![t]),
         Ty::Channel(t, sender) => (
             Some(if *sender { "Sender" } else { "Receiver" }.into()),
@@ -568,9 +569,10 @@ fn infer_inner(
                 .chain(std::iter::once(sig.output.as_ref().unwrap_or(&Ty::Unit)))
                 .collect(),
         ),
-        (Some("list"), Ty::List(t)) | (Some("set"), Ty::Set(t)) | (Some("range"), Ty::Range(t)) => {
-            Some(vec![t])
-        }
+        (Some("list"), Ty::List(t))
+        | (Some("clist"), Ty::Clist(t))
+        | (Some("set"), Ty::Set(t))
+        | (Some("range"), Ty::Range(t)) => Some(vec![t]),
         (Some("Generator"), Ty::Generator(t)) => Some(vec![&t.element]),
         (Some("Future"), Ty::Future(t))
         | (Some("Box"), Ty::Box(t))
@@ -587,6 +589,9 @@ fn infer_inner(
             Some(vec![&t.local().variants[0].fields[0]])
         }
         (Some("SendError"), Ty::Enum(t)) if t.name.starts_with("SendError[") => {
+            Some(vec![&t.local().variants[0].fields[0]])
+        }
+        (Some("AppendError"), Ty::Enum(t)) if t.name.starts_with("AppendError[") => {
             Some(vec![&t.local().variants[0].fields[0]])
         }
         (Some("SendTimeoutError"), Ty::Enum(t)) if t.name.starts_with("SendTimeoutError[") => {

@@ -351,6 +351,18 @@ pub fn send_error(value: Ty) -> Ty {
     structural(ty, format!("SendError[{}]", value.identity_name()))
 }
 
+/// Failed columnar append retains the complete submitted row.
+pub fn append_error(value: Ty) -> Ty {
+    let Ty::Enum(template) = send_error(value.clone()) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = format!("AppendError[{value}]");
+    ty.variants[0].name = "OutOfMemory".into();
+    ty.variants[1].name = "CapacityOverflow".into();
+    structural(ty, format!("AppendError[{}]", value.identity_name()))
+}
+
 pub fn recv_error() -> Ty {
     let Ty::Enum(template) = alloc_error() else {
         unreachable!()

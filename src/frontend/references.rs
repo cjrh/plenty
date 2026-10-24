@@ -423,6 +423,9 @@ impl Lower<'_> {
         mutable: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        if self.clist_projection(e)?.is_some() {
+            return Err(e.at.error("packed clist fields cannot be borrowed; read the scalar value or use column iteration"));
+        }
         if self.is_pipeline(e) {
             return Err(e.at.error(
                 "iterator pipeline lending is not implemented; consume it in its creating scope",
@@ -440,15 +443,37 @@ impl Lower<'_> {
         slots: &mut Vec<u8>,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        self.access_indices(e, slots, ops, true)
+    }
+
+    /// Save computed keys without borrowing their owners. Ordinary indexed
+    /// assignment has additional collection-only restrictions; clist owner
+    /// projections can pass through tuples and check mutability when borrowed.
+    pub(super) fn access_indices(
+        &mut self,
+        e: &Expr,
+        slots: &mut Vec<u8>,
+        ops: &mut Vec<Op>,
+        mutating: bool,
+    ) -> Result<()> {
         match &ungroup(e).kind {
-            Expression::Member(base, _, _) => self.assignment_indices(base, slots, ops),
-            Expression::Unary(op, base) if op == "*" => self.assignment_indices(base, slots, ops),
+            Expression::Member(base, _, _) => self.access_indices(base, slots, ops, mutating),
+            Expression::Unary(op, base) if op == "*" => {
+                self.access_indices(base, slots, ops, mutating)
+            }
             Expression::Index(base, index) => {
-                if matches!(self.place_type(base), Some(Ty::Shared(_))) {
+                if mutating && matches!(self.place_type(base), Some(Ty::Shared(_))) {
                     return Err(e.at.error(shared::MUTATION));
                 }
-                self.assignment_indices(base, slots, ops)?;
-                let key = match self.place_type(base) {
+                self.access_indices(base, slots, ops, mutating)?;
+                let container = self.place_type(base).map(|ty| match ty {
+                    Ty::Shared(content) => (*content).clone(),
+                    other => other,
+                });
+                let key = match container {
+                    // Tuple indices are compile-time projections, not consumed
+                    // runtime keys. borrow_with_indices validates the literal.
+                    Some(Ty::Enum(t)) if !mutating && t.tuple() => return Ok(()),
                     Some(Ty::List(_)) => Ty::I64,
                     Some(Ty::Dict(key, _)) => (*key).clone(),
                     _ => return Err(e.at.error("indexed assignment requires list or dict")),

@@ -1,0 +1,815 @@
+{
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "affinity": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "repeats": 3,
+  "flags": "edition=2024 panic=abort debuginfo=0 embed-bitcode=no; default installed linker; no external crates",
+  "cache_note": "artifact-cold unless incremental_dev; OS pages warm; prebuilt installed sysroot",
+  "workloads": [
+    {
+      "functions": 100,
+      "iterations": 100,
+      "plenty_bytes": 59171,
+      "variants": {
+        "helpers-dev-groups": {
+          "helpers": true,
+          "opt_level": 0,
+          "codegen_units": 16,
+          "module_size": 32,
+          "no_inline": false,
+          "emission_samples": [
+            {
+              "check_ms": 7.680422,
+              "emit_ms": 4.471991,
+              "rust_bytes": 275727,
+              "process_ms": 15.735012
+            },
+            {
+              "check_ms": 7.575316,
+              "emit_ms": 4.183542,
+              "rust_bytes": 275727,
+              "process_ms": 15.421386
+            },
+            {
+              "check_ms": 7.040496999999999,
+              "emit_ms": 4.689757,
+              "rust_bytes": 275727,
+              "process_ms": 15.499242
+            }
+          ],
+          "library_compile": {
+            "median_ms": 194.576787,
+            "samples_ms": [
+              194.576787,
+              186.654203,
+              194.649943
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 55.763669,
+            "samples_ms": [
+              55.192371,
+              56.341898,
+              55.763669
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 176.051073,
+            "samples_ms": [
+              176.051073,
+              175.896926,
+              183.955363
+            ]
+          },
+          "run": {
+            "median_ms": 2.271301,
+            "samples_ms": [
+              2.622237,
+              2.271301,
+              2.153762
+            ]
+          },
+          "rlib_bytes": 247762,
+          "binary_bytes": 4602144
+        },
+        "helpers-release-groups": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "module_size": 32,
+          "no_inline": false,
+          "emission_samples": [
+            {
+              "check_ms": 7.639646,
+              "emit_ms": 4.65869,
+              "rust_bytes": 275727,
+              "process_ms": 16.01735
+            },
+            {
+              "check_ms": 7.808351,
+              "emit_ms": 4.365663,
+              "rust_bytes": 275727,
+              "process_ms": 15.993274
+            },
+            {
+              "check_ms": 7.523139,
+              "emit_ms": 4.760159,
+              "rust_bytes": 275727,
+              "process_ms": 16.093963
+            }
+          ],
+          "library_compile": {
+            "median_ms": 390.700242,
+            "samples_ms": [
+              390.700242,
+              434.696828,
+              375.248719
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 59.875517,
+            "samples_ms": [
+              59.875517,
+              61.530287,
+              59.746575
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 198.612974,
+            "samples_ms": [
+              195.240737,
+              198.612974,
+              203.000066
+            ]
+          },
+          "run": {
+            "median_ms": 1.240276,
+            "samples_ms": [
+              1.333521,
+              1.078704,
+              1.240276
+            ]
+          },
+          "rlib_bytes": 163394,
+          "binary_bytes": 4614528
+        },
+        "helpers-release-noinline": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "module_size": 0,
+          "no_inline": true,
+          "emission_samples": [
+            {
+              "check_ms": 7.736176,
+              "emit_ms": 4.358368,
+              "rust_bytes": 276924,
+              "process_ms": 16.167771
+            },
+            {
+              "check_ms": 7.618096,
+              "emit_ms": 4.606862,
+              "rust_bytes": 276924,
+              "process_ms": 16.181366
+            },
+            {
+              "check_ms": 7.538587000000001,
+              "emit_ms": 4.337901,
+              "rust_bytes": 276924,
+              "process_ms": 15.747625
+            }
+          ],
+          "library_compile": {
+            "median_ms": 757.922974,
+            "samples_ms": [
+              757.922974,
+              832.239997,
+              738.477562
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 61.437853,
+            "samples_ms": [
+              61.437853,
+              62.145405,
+              60.452564
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 181.621385,
+            "samples_ms": [
+              183.792029,
+              178.746476,
+              181.621385
+            ]
+          },
+          "run": {
+            "median_ms": 1.275622,
+            "samples_ms": [
+              1.275622,
+              1.218906,
+              1.443927
+            ]
+          },
+          "rlib_bytes": 142584,
+          "binary_bytes": 4613800
+        },
+        "helpers-release-groups-noinline": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "module_size": 32,
+          "no_inline": true,
+          "emission_samples": [
+            {
+              "check_ms": 7.56184,
+              "emit_ms": 4.378466,
+              "rust_bytes": 277444,
+              "process_ms": 15.87806
+            },
+            {
+              "check_ms": 7.387435,
+              "emit_ms": 4.417689,
+              "rust_bytes": 277444,
+              "process_ms": 15.490646
+            },
+            {
+              "check_ms": 6.989662,
+              "emit_ms": 4.237744,
+              "rust_bytes": 277444,
+              "process_ms": 14.759681
+            }
+          ],
+          "library_compile": {
+            "median_ms": 337.154555,
+            "samples_ms": [
+              316.927956,
+              337.154555,
+              343.875976
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 62.580628,
+            "samples_ms": [
+              65.205118,
+              62.580628,
+              62.455474
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 178.787623,
+            "samples_ms": [
+              178.787623,
+              174.26589,
+              181.28621
+            ]
+          },
+          "run": {
+            "median_ms": 1.407128,
+            "samples_ms": [
+              2.977971,
+              1.407128,
+              1.281313
+            ]
+          },
+          "rlib_bytes": 164858,
+          "binary_bytes": 4614984
+        }
+      },
+      "plenty_dev_compile_link": {
+        "median_ms": 71.271677,
+        "samples_ms": [
+          74.875908,
+          69.658334,
+          71.271677
+        ]
+      },
+      "expected_status": 132,
+      "plenty_dev_run": {
+        "median_ms": 1.447943,
+        "samples_ms": [
+          1.313612,
+          1.487628,
+          1.447943
+        ]
+      },
+      "plenty_release_compile_link": {
+        "median_ms": 73.584755,
+        "samples_ms": [
+          79.926869,
+          73.584755,
+          72.449536
+        ]
+      },
+      "plenty_release_run": {
+        "median_ms": 1.520669,
+        "samples_ms": [
+          1.565433,
+          1.520669,
+          1.472981
+        ]
+      },
+      "incremental_dev": {
+        "module_size": 32,
+        "first_ms": 224.195955,
+        "unchanged": {
+          "median_ms": 89.649875,
+          "samples_ms": [
+            89.713433,
+            89.144381,
+            89.649875
+          ]
+        },
+        "body_edit_ms": 103.779579,
+        "body_edit_emission": {
+          "check_ms": 7.273211,
+          "emit_ms": 4.269482,
+          "rust_bytes": 275727,
+          "process_ms": 15.360552
+        },
+        "edited_host_compile_link_ms": 55.570738
+      }
+    },
+    {
+      "functions": 1000,
+      "iterations": 100,
+      "plenty_bytes": 603750,
+      "variants": {
+        "helpers-dev-groups": {
+          "helpers": true,
+          "opt_level": 0,
+          "codegen_units": 16,
+          "module_size": 32,
+          "no_inline": false,
+          "emission_samples": [
+            {
+              "check_ms": 64.183882,
+              "emit_ms": 59.874304,
+              "rust_bytes": 2776241,
+              "process_ms": 153.563211
+            },
+            {
+              "check_ms": 62.470692,
+              "emit_ms": 58.130368000000004,
+              "rust_bytes": 2776241,
+              "process_ms": 149.391843
+            },
+            {
+              "check_ms": 61.208486,
+              "emit_ms": 63.128802,
+              "rust_bytes": 2776241,
+              "process_ms": 154.338509
+            }
+          ],
+          "library_compile": {
+            "median_ms": 1912.497001,
+            "samples_ms": [
+              1785.6566,
+              1918.888075,
+              1912.497001
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 65.196423,
+            "samples_ms": [
+              61.845755,
+              66.034468,
+              65.196423
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 1779.3912,
+            "samples_ms": [
+              1995.861158,
+              1777.438934,
+              1779.3912
+            ]
+          },
+          "run": {
+            "median_ms": 25.809254,
+            "samples_ms": [
+              25.684471,
+              25.818351,
+              25.809254
+            ]
+          },
+          "rlib_bytes": 2385754,
+          "binary_bytes": 5281136
+        },
+        "helpers-release-groups": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "module_size": 32,
+          "no_inline": false,
+          "emission_samples": [
+            {
+              "check_ms": 64.597584,
+              "emit_ms": 65.617359,
+              "rust_bytes": 2776241,
+              "process_ms": 163.822579
+            },
+            {
+              "check_ms": 69.425149,
+              "emit_ms": 69.42506800000001,
+              "rust_bytes": 2776241,
+              "process_ms": 173.758833
+            },
+            {
+              "check_ms": 66.108305,
+              "emit_ms": 64.05301800000001,
+              "rust_bytes": 2776241,
+              "process_ms": 163.692346
+            }
+          ],
+          "library_compile": {
+            "median_ms": 4074.221899,
+            "samples_ms": [
+              4355.986083,
+              4074.221899,
+              4048.817812
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 62.821027,
+            "samples_ms": [
+              61.173912,
+              62.821027,
+              63.762064
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 1864.022834,
+            "samples_ms": [
+              1868.427268,
+              1864.022834,
+              1811.979202
+            ]
+          },
+          "run": {
+            "median_ms": 4.887927,
+            "samples_ms": [
+              4.755751,
+              4.887927,
+              5.113749
+            ]
+          },
+          "rlib_bytes": 1653142,
+          "binary_bytes": 5485288
+        },
+        "helpers-release-noinline": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "module_size": 0,
+          "no_inline": true,
+          "emission_samples": [
+            {
+              "check_ms": 63.562912,
+              "emit_ms": 62.014841000000004,
+              "rust_bytes": 2787623,
+              "process_ms": 156.137178
+            },
+            {
+              "check_ms": 61.637256,
+              "emit_ms": 55.985822999999996,
+              "rust_bytes": 2787623,
+              "process_ms": 147.466195
+            },
+            {
+              "check_ms": 61.795863,
+              "emit_ms": 57.331185,
+              "rust_bytes": 2787623,
+              "process_ms": 149.178273
+            }
+          ],
+          "library_compile": {
+            "median_ms": 10254.585375,
+            "samples_ms": [
+              10148.690585,
+              10254.585375,
+              10537.038094
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 64.921339,
+            "samples_ms": [
+              61.450437,
+              64.921339,
+              67.97417
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 1756.36355,
+            "samples_ms": [
+              1778.45459,
+              1756.36355,
+              1730.446926
+            ]
+          },
+          "run": {
+            "median_ms": 6.156286,
+            "samples_ms": [
+              6.191692,
+              6.156286,
+              5.861916
+            ]
+          },
+          "rlib_bytes": 1458938,
+          "binary_bytes": 5476512
+        },
+        "helpers-release-groups-noinline": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "module_size": 32,
+          "no_inline": true,
+          "emission_samples": [
+            {
+              "check_ms": 71.690509,
+              "emit_ms": 69.44830300000001,
+              "rust_bytes": 2793258,
+              "process_ms": 174.239621
+            },
+            {
+              "check_ms": 67.92163099999999,
+              "emit_ms": 67.761623,
+              "rust_bytes": 2793258,
+              "process_ms": 169.140078
+            },
+            {
+              "check_ms": 70.20243099999999,
+              "emit_ms": 64.651014,
+              "rust_bytes": 2793258,
+              "process_ms": 167.222779
+            }
+          ],
+          "library_compile": {
+            "median_ms": 2900.866441,
+            "samples_ms": [
+              3285.967127,
+              2900.866441,
+              2496.264911
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 55.039386,
+            "samples_ms": [
+              55.039386,
+              54.989743,
+              55.429244
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 1432.087112,
+            "samples_ms": [
+              1432.393765,
+              1432.087112,
+              1400.724669
+            ]
+          },
+          "run": {
+            "median_ms": 4.595731,
+            "samples_ms": [
+              4.595731,
+              4.259975,
+              4.663769
+            ]
+          },
+          "rlib_bytes": 1657782,
+          "binary_bytes": 5487112
+        }
+      },
+      "plenty_dev_compile_link": {
+        "median_ms": 252.884576,
+        "samples_ms": [
+          252.884576,
+          253.291626,
+          238.749341
+        ]
+      },
+      "expected_status": 82,
+      "plenty_dev_run": {
+        "median_ms": 13.455385,
+        "samples_ms": [
+          14.73791,
+          13.319211,
+          13.455385
+        ]
+      },
+      "plenty_release_compile_link": {
+        "median_ms": 297.227308,
+        "samples_ms": [
+          297.927315,
+          297.227308,
+          292.930615
+        ]
+      },
+      "plenty_release_run": {
+        "median_ms": 7.950316,
+        "samples_ms": [
+          8.176498,
+          7.950316,
+          7.870978
+        ]
+      },
+      "incremental_dev": {
+        "module_size": 32,
+        "first_ms": 1654.569828,
+        "unchanged": {
+          "median_ms": 656.462875,
+          "samples_ms": [
+            656.462875,
+            659.344386,
+            655.478637
+          ]
+        },
+        "body_edit_ms": 697.375111,
+        "body_edit_emission": {
+          "check_ms": 55.329628,
+          "emit_ms": 49.961283,
+          "rust_bytes": 2776241,
+          "process_ms": 132.675026
+        },
+        "edited_host_compile_link_ms": 51.281229
+      }
+    }
+  ],
+  "cpu": {
+    "lscpu": [
+      {
+        "field": "Architecture:",
+        "data": "x86_64"
+      },
+      {
+        "field": "CPU op-mode(s):",
+        "data": "32-bit, 64-bit"
+      },
+      {
+        "field": "Address sizes:",
+        "data": "48 bits physical, 48 bits virtual"
+      },
+      {
+        "field": "Byte Order:",
+        "data": "Little Endian"
+      },
+      {
+        "field": "CPU(s):",
+        "data": "16"
+      },
+      {
+        "field": "On-line CPU(s) list:",
+        "data": "0-15"
+      },
+      {
+        "field": "Vendor ID:",
+        "data": "AuthenticAMD"
+      },
+      {
+        "field": "Model name:",
+        "data": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics"
+      },
+      {
+        "field": "CPU family:",
+        "data": "25"
+      },
+      {
+        "field": "Model:",
+        "data": "116"
+      },
+      {
+        "field": "Thread(s) per core:",
+        "data": "2"
+      },
+      {
+        "field": "Core(s) per socket:",
+        "data": "8"
+      },
+      {
+        "field": "Socket(s):",
+        "data": "1"
+      },
+      {
+        "field": "Stepping:",
+        "data": "1"
+      },
+      {
+        "field": "Frequency boost:",
+        "data": "enabled"
+      },
+      {
+        "field": "CPU(s) scaling MHz:",
+        "data": "88%"
+      },
+      {
+        "field": "CPU max MHz:",
+        "data": "5137.9038"
+      },
+      {
+        "field": "CPU min MHz:",
+        "data": "419.4210"
+      },
+      {
+        "field": "BogoMIPS:",
+        "data": "7586.27"
+      },
+      {
+        "field": "Flags:",
+        "data": "fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good amd_lbr_v2 nopl xtopology nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw ibs skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpuid_fault cpb cat_l3 cdp_l3 hw_pstate ssbd mba perfmon_v2 ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local user_shstk avx512_bf16 clzero irperf xsaveerptr rdpru wbnoinvd cppc arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold vgif x2avic v_spec_ctrl vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid overflow_recov succor smca fsrm flush_l1d amd_lbr_pmc_freeze"
+      },
+      {
+        "field": "Virtualization:",
+        "data": "AMD-V"
+      },
+      {
+        "field": "L1d cache:",
+        "data": "256 KiB (8 instances)"
+      },
+      {
+        "field": "L1i cache:",
+        "data": "256 KiB (8 instances)"
+      },
+      {
+        "field": "L2 cache:",
+        "data": "8 MiB (8 instances)"
+      },
+      {
+        "field": "L3 cache:",
+        "data": "16 MiB (1 instance)"
+      },
+      {
+        "field": "NUMA node(s):",
+        "data": "1"
+      },
+      {
+        "field": "NUMA node0 CPU(s):",
+        "data": "0-15"
+      },
+      {
+        "field": "Vulnerability Gather data sampling:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Ghostwrite:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Indirect target selection:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Itlb multihit:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability L1tf:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Mds:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Meltdown:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Mmio stale data:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Old microcode:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Reg file data sampling:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Retbleed:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Spec rstack overflow:",
+        "data": "Mitigation; Safe RET"
+      },
+      {
+        "field": "Vulnerability Spec store bypass:",
+        "data": "Mitigation; Speculative Store Bypass disabled via prctl"
+      },
+      {
+        "field": "Vulnerability Spectre v1:",
+        "data": "Mitigation; usercopy/swapgs barriers and __user pointer sanitization"
+      },
+      {
+        "field": "Vulnerability Spectre v2:",
+        "data": "Mitigation; Enhanced / Automatic IBRS; IBPB conditional; STIBP always-on; PBRSB-eIBRS Not affected; BHI Not affected"
+      },
+      {
+        "field": "Vulnerability Srbds:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Tsa:",
+        "data": "Mitigation; Clear CPU buffers"
+      },
+      {
+        "field": "Vulnerability Tsx async abort:",
+        "data": "Not affected"
+      },
+      {
+        "field": "Vulnerability Vmscape:",
+        "data": "Mitigation; IBPB before exit to userspace"
+      }
+    ]
+  }
+}

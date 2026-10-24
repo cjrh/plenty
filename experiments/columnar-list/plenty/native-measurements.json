@@ -1,0 +1,724 @@
+{
+  "compiler": "/home/caleb/Documents/repos/plenty/target/clist-minimal/release/plenty",
+  "compiler_sha256": "fb993afba10e0534d06598933bdede3ae6c98a22ee27bed860a4b78a62207c6b",
+  "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "cpu": 8,
+  "samples": 7,
+  "repeats": 20,
+  "release": true,
+  "native_clist": true,
+  "skip_generated": true,
+  "results": [
+    {
+      "rows": 8192,
+      "layout": "native",
+      "kernel": "one",
+      "median_ns_per_row": 0.559759521484375,
+      "samples_ns_per_row": [
+        0.616015625,
+        0.568017578125,
+        0.66817626953125,
+        0.559759521484375,
+        0.495611572265625,
+        0.4947021484375,
+        0.494207763671875
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "kernel": "one",
+      "median_ns_per_row": 1.46251220703125,
+      "samples_ns_per_row": [
+        1.60357666015625,
+        1.4637939453125,
+        1.580157470703125,
+        1.3399658203125,
+        1.46251220703125,
+        1.31820068359375,
+        1.45877685546875
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "native",
+      "kernel": "two",
+      "median_ns_per_row": 2.75318603515625,
+      "samples_ns_per_row": [
+        2.813848876953125,
+        2.75318603515625,
+        2.7825439453125,
+        4.12060546875,
+        2.695831298828125,
+        2.69852294921875,
+        2.69454345703125
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "kernel": "two",
+      "median_ns_per_row": 2.35479736328125,
+      "samples_ns_per_row": [
+        2.3330322265625,
+        2.413690185546875,
+        2.306982421875,
+        2.424078369140625,
+        2.788165283203125,
+        2.35479736328125,
+        2.333892822265625
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "native",
+      "kernel": "stream",
+      "median_ns_per_row": 116.08799438476562,
+      "samples_ns_per_row": [
+        110.90234985351563,
+        109.912890625,
+        117.74379272460938,
+        115.62289428710938,
+        116.08799438476562,
+        117.10355834960937,
+        117.32718505859376
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "kernel": "stream",
+      "median_ns_per_row": 3.020660400390625,
+      "samples_ns_per_row": [
+        3.141912841796875,
+        3.09354248046875,
+        3.14393310546875,
+        2.861602783203125,
+        2.96776123046875,
+        3.020660400390625,
+        2.926544189453125
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "native",
+      "kernel": "whole",
+      "median_ns_per_row": 96.80858154296875,
+      "samples_ns_per_row": [
+        104.163134765625,
+        95.22616577148438,
+        97.06669921875,
+        94.68070678710937,
+        97.0825927734375,
+        96.80858154296875,
+        96.29951782226563
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "kernel": "whole",
+      "median_ns_per_row": 3.047314453125,
+      "samples_ns_per_row": [
+        3.090606689453125,
+        3.133477783203125,
+        3.016741943359375,
+        2.9080810546875,
+        3.047314453125,
+        3.088714599609375,
+        2.975836181640625
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "native",
+      "kernel": "random",
+      "median_ns_per_row": 96.84172973632812,
+      "samples_ns_per_row": [
+        95.1143798828125,
+        96.7665771484375,
+        98.00160522460938,
+        95.29893188476562,
+        97.71200561523438,
+        97.23154907226562,
+        96.84172973632812
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "kernel": "random",
+      "median_ns_per_row": 7.520147705078125,
+      "samples_ns_per_row": [
+        7.591021728515625,
+        7.53365478515625,
+        7.390386962890625,
+        7.887957763671875,
+        7.520147705078125,
+        7.406158447265625,
+        7.37069091796875
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "native",
+      "kernel": "one",
+      "median_ns_per_row": 0.495330810546875,
+      "samples_ns_per_row": [
+        0.49501743316650393,
+        0.4921108245849609,
+        0.495330810546875,
+        0.4954835891723633,
+        0.4958772659301758,
+        0.4960798263549805,
+        0.4952676773071289
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "kernel": "one",
+      "median_ns_per_row": 4.469967460632324,
+      "samples_ns_per_row": [
+        4.469967460632324,
+        4.555429267883301,
+        4.523859214782715,
+        4.357553863525391,
+        4.341429710388184,
+        3.84314079284668,
+        4.97244873046875
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "native",
+      "kernel": "two",
+      "median_ns_per_row": 3.7866233825683593,
+      "samples_ns_per_row": [
+        3.6984346389770506,
+        3.6768566131591798,
+        3.8451396942138674,
+        3.80985050201416,
+        3.7866233825683593,
+        3.799216461181641,
+        3.660462760925293
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "kernel": "two",
+      "median_ns_per_row": 4.060580253601074,
+      "samples_ns_per_row": [
+        5.447516059875488,
+        4.060580253601074,
+        4.092979812622071,
+        3.6480838775634767,
+        3.9164264678955076,
+        3.8549291610717775,
+        4.156179618835449
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "native",
+      "kernel": "stream",
+      "median_ns_per_row": 117.51703758239746,
+      "samples_ns_per_row": [
+        109.02351589202881,
+        117.51703758239746,
+        108.47178268432617,
+        118.01251544952393,
+        119.57409210205078,
+        108.41074619293212,
+        117.90053768157959
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "kernel": "stream",
+      "median_ns_per_row": 3.6938751220703123,
+      "samples_ns_per_row": [
+        3.6938751220703123,
+        4.43388557434082,
+        3.7182374954223634,
+        3.662117767333984,
+        3.689183807373047,
+        4.114315223693848,
+        3.632106590270996
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "native",
+      "kernel": "whole",
+      "median_ns_per_row": 96.09799880981446,
+      "samples_ns_per_row": [
+        94.37505874633788,
+        96.09799880981446,
+        95.95033264160156,
+        97.1541130065918,
+        94.8975091934204,
+        97.016064453125,
+        97.33426856994629
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "kernel": "whole",
+      "median_ns_per_row": 3.970986747741699,
+      "samples_ns_per_row": [
+        3.7708221435546876,
+        4.474859237670898,
+        4.207955741882325,
+        4.227084159851074,
+        3.970986747741699,
+        3.582784080505371,
+        3.6668701171875
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "native",
+      "kernel": "random",
+      "median_ns_per_row": 132.5245237350464,
+      "samples_ns_per_row": [
+        132.5245237350464,
+        134.98866634368898,
+        133.85563621520996,
+        130.87401523590088,
+        137.0587381362915,
+        130.39298191070557,
+        129.47499256134034
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "kernel": "random",
+      "median_ns_per_row": 49.437202262878415,
+      "samples_ns_per_row": [
+        50.658282089233396,
+        50.94645614624024,
+        49.48021297454834,
+        49.437202262878415,
+        48.1822265625,
+        49.14074077606201,
+        48.844955635070804
+      ]
+    }
+  ],
+  "construction": [
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "ns_per_row": 161.1480712890625
+    },
+    {
+      "rows": 8192,
+      "layout": "native",
+      "ns_per_row": 140.157958984375
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "ns_per_row": 173.57906341552734
+    },
+    {
+      "rows": 262144,
+      "layout": "native",
+      "ns_per_row": 145.49206161499023
+    }
+  ],
+  "frequency_khz": [
+    {
+      "rows": 8192,
+      "phase": "before",
+      "khz": 3510878
+    },
+    {
+      "rows": 8192,
+      "phase": "during",
+      "khz": 4092567
+    },
+    {
+      "rows": 8192,
+      "phase": "after",
+      "khz": 4092266
+    },
+    {
+      "rows": 262144,
+      "phase": "before",
+      "khz": 3271402
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092383
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092237
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092323
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092202
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092030
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4091609
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092279
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4091602
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092340
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092658
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4091345
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092268
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092460
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092271
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4090779
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4091795
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092328
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092569
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092366
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092618
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092421
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092471
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092271
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4089645
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4091588
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092419
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092103
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4091998
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092323
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092581
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092539
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4091667
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092159
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092393
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4091553
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092238
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092493
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4090341
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092459
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092469
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092527
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092236
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4091902
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092499
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092537
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092609
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092557
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092470
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092316
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092072
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092197
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092492
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092538
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092477
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092546
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092505
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092593
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092611
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092054
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4090974
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092160
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092586
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092557
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092536
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092600
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092525
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4091838
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092104
+    },
+    {
+      "rows": 262144,
+      "phase": "during",
+      "khz": 4092625
+    },
+    {
+      "rows": 262144,
+      "phase": "after",
+      "khz": 4092492
+    }
+  ],
+  "lscpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           48 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  16\nOn-line CPU(s) list:                     0-15\nVendor ID:                               AuthenticAMD\nModel name:                              AMD Ryzen 7 7840HS w/ Radeon 780M Graphics\nCPU family:                              25\nModel:                                   116\nThread(s) per core:                      2\nCore(s) per socket:                      8\nSocket(s):                               1\nStepping:                                1\nFrequency boost:                         enabled\nCPU(s) scaling MHz:                      68%\nCPU max MHz:                             5137.9038\nCPU min MHz:                             419.4210\nBogoMIPS:                                7586.27\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good amd_lbr_v2 nopl xtopology nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw ibs skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpuid_fault cpb cat_l3 cdp_l3 hw_pstate ssbd mba perfmon_v2 ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local user_shstk avx512_bf16 clzero irperf xsaveerptr rdpru wbnoinvd cppc arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold vgif x2avic v_spec_ctrl vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid overflow_recov succor smca fsrm flush_l1d amd_lbr_pmc_freeze\nVirtualization:                          AMD-V\nL1d cache:                               256 KiB (8 instances)\nL1i cache:                               256 KiB (8 instances)\nL2 cache:                                8 MiB (8 instances)\nL3 cache:                                16 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-15\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Mitigation; Safe RET\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; STIBP always-on; PBRSB-eIBRS Not affected; BHI Not affected\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Mitigation; Clear CPU buffers\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+  "kernel_code_bytes_262144": {
+    "aos_one": 161,
+    "aos_random": 560,
+    "aos_stream": 362,
+    "aos_two": 235,
+    "aos_whole": 362,
+    "native_one": 294,
+    "native_random": 936,
+    "native_stream": 1269,
+    "native_two": 620,
+    "native_whole": 831
+  },
+  "binary_sha256_262144": "414a235b1e5e36321e61ebac3850cf2fa411ee1b9aadce9a5f4059aab425ef92",
+  "implementation_commit": "d6e9a2cf910af4d6213fc22e56ff3303d6ad39b1",
+  "measurement_conditions": "Final reviewed native clist versus ordinary list only; earlier generated-container spike omitted. Both owners remain live. Pinned CPU 8, no concurrent task builds/timings; frequency sampled every 250 ms during executable runs. Supersedes throttled initial native measurements.",
+  "cpu_governor": "performance"
+}

@@ -1,0 +1,1081 @@
+{
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "affinity": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "repeats": 3,
+  "flags": "edition=2024 panic=abort debuginfo=0 embed-bitcode=no; default installed linker; no external crates",
+  "cache_note": "artifact-cold unless incremental_dev; OS pages warm; prebuilt installed sysroot",
+  "workloads": [
+    {
+      "functions": 1,
+      "iterations": 100,
+      "plenty_bytes": 744,
+      "variants": {
+        "inline-dev": {
+          "helpers": false,
+          "opt_level": 0,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 1.418389,
+              "emit_ms": 0.061995999999999996,
+              "rust_bytes": 7079,
+              "process_ms": 2.54376
+            },
+            {
+              "check_ms": 0.6526989999999999,
+              "emit_ms": 0.055884,
+              "rust_bytes": 7079,
+              "process_ms": 1.644401
+            },
+            {
+              "check_ms": 0.766381,
+              "emit_ms": 0.059932,
+              "rust_bytes": 7079,
+              "process_ms": 1.86353
+            }
+          ],
+          "library_compile": {
+            "median_ms": 33.128249,
+            "samples_ms": [
+              34.516582,
+              33.128249,
+              32.745855
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 54.896396,
+            "samples_ms": [
+              59.835248,
+              50.74816,
+              54.896396
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 29.937692,
+            "samples_ms": [
+              29.70134,
+              29.937692,
+              29.94724
+            ]
+          },
+          "run": {
+            "median_ms": 0.702322,
+            "samples_ms": [
+              0.718602,
+              0.686181,
+              0.702322
+            ]
+          },
+          "rlib_bytes": 17394,
+          "binary_bytes": 4530584
+        },
+        "helpers-dev": {
+          "helpers": true,
+          "opt_level": 0,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 0.742837,
+              "emit_ms": 0.06651399999999999,
+              "rust_bytes": 3878,
+              "process_ms": 1.805982
+            },
+            {
+              "check_ms": 0.573541,
+              "emit_ms": 0.05365,
+              "rust_bytes": 3878,
+              "process_ms": 1.717688
+            },
+            {
+              "check_ms": 0.571497,
+              "emit_ms": 0.051746,
+              "rust_bytes": 3878,
+              "process_ms": 1.466328
+            }
+          ],
+          "library_compile": {
+            "median_ms": 24.2169,
+            "samples_ms": [
+              24.2169,
+              23.768363,
+              24.932375
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 49.306418,
+            "samples_ms": [
+              49.306418,
+              49.760636,
+              48.620127
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 24.980906,
+            "samples_ms": [
+              23.471427,
+              25.265447,
+              24.980906
+            ]
+          },
+          "run": {
+            "median_ms": 0.665793,
+            "samples_ms": [
+              0.612935,
+              0.742567,
+              0.665793
+            ]
+          },
+          "rlib_bytes": 13810,
+          "binary_bytes": 4527496
+        },
+        "helpers-dev-one-unit": {
+          "helpers": true,
+          "opt_level": 0,
+          "codegen_units": 1,
+          "emission_samples": [
+            {
+              "check_ms": 0.7727320000000001,
+              "emit_ms": 0.057628,
+              "rust_bytes": 3878,
+              "process_ms": 2.054116
+            },
+            {
+              "check_ms": 0.5748840000000001,
+              "emit_ms": 0.05346,
+              "rust_bytes": 3878,
+              "process_ms": 1.550746
+            },
+            {
+              "check_ms": 0.520362,
+              "emit_ms": 0.051356,
+              "rust_bytes": 3878,
+              "process_ms": 1.43504
+            }
+          ],
+          "library_compile": {
+            "median_ms": 24.964205,
+            "samples_ms": [
+              24.964205,
+              24.869417,
+              25.6096
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 50.309091,
+            "samples_ms": [
+              50.964364,
+              47.001133,
+              50.309091
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 25.269115,
+            "samples_ms": [
+              25.110799,
+              25.269115,
+              26.487649
+            ]
+          },
+          "run": {
+            "median_ms": 0.751273,
+            "samples_ms": [
+              0.798391,
+              0.751273,
+              0.547513
+            ]
+          },
+          "rlib_bytes": 11278,
+          "binary_bytes": 4527440
+        },
+        "helpers-opt1": {
+          "helpers": true,
+          "opt_level": 1,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 0.696391,
+              "emit_ms": 0.054382,
+              "rust_bytes": 3878,
+              "process_ms": 1.963877
+            },
+            {
+              "check_ms": 0.669289,
+              "emit_ms": 0.050565,
+              "rust_bytes": 3878,
+              "process_ms": 1.766618
+            },
+            {
+              "check_ms": 0.740182,
+              "emit_ms": 0.054911999999999996,
+              "rust_bytes": 3878,
+              "process_ms": 1.926287
+            }
+          ],
+          "library_compile": {
+            "median_ms": 34.781217,
+            "samples_ms": [
+              32.848958,
+              42.540935,
+              34.781217
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 49.729929,
+            "samples_ms": [
+              45.66537,
+              49.729929,
+              50.580166
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 25.494835,
+            "samples_ms": [
+              24.096685,
+              25.568804,
+              25.494835
+            ]
+          },
+          "run": {
+            "median_ms": 0.777251,
+            "samples_ms": [
+              0.807037,
+              0.777251,
+              0.493131
+            ]
+          },
+          "rlib_bytes": 7166,
+          "binary_bytes": 4525208
+        },
+        "helpers-release": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 0.7690359999999999,
+              "emit_ms": 0.082504,
+              "rust_bytes": 3878,
+              "process_ms": 1.802135
+            },
+            {
+              "check_ms": 0.497058,
+              "emit_ms": 0.048820999999999996,
+              "rust_bytes": 3878,
+              "process_ms": 1.384695
+            },
+            {
+              "check_ms": 0.558473,
+              "emit_ms": 0.051396,
+              "rust_bytes": 3878,
+              "process_ms": 1.484932
+            }
+          ],
+          "library_compile": {
+            "median_ms": 34.395947,
+            "samples_ms": [
+              34.395947,
+              34.064688,
+              36.196589
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 50.418845,
+            "samples_ms": [
+              49.167158,
+              51.548355,
+              50.418845
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 25.321011,
+            "samples_ms": [
+              24.939087,
+              25.321011,
+              26.877938
+            ]
+          },
+          "run": {
+            "median_ms": 0.628463,
+            "samples_ms": [
+              0.801907,
+              0.558303,
+              0.628463
+            ]
+          },
+          "rlib_bytes": 7094,
+          "binary_bytes": 4525144
+        }
+      },
+      "plenty_dev_compile_link": {
+        "median_ms": 41.469505,
+        "samples_ms": [
+          57.436409,
+          40.432728,
+          41.469505
+        ]
+      },
+      "expected_status": 65,
+      "plenty_dev_run": {
+        "median_ms": 0.553123,
+        "samples_ms": [
+          0.582387,
+          0.553123,
+          0.532264
+        ]
+      },
+      "plenty_release_compile_link": {
+        "median_ms": 45.238282,
+        "samples_ms": [
+          45.238282,
+          45.260273,
+          42.632256
+        ]
+      },
+      "plenty_release_run": {
+        "median_ms": 0.656727,
+        "samples_ms": [
+          0.68559,
+          0.656727,
+          0.653881
+        ]
+      },
+      "incremental_dev": {
+        "first_ms": 26.920397,
+        "unchanged": {
+          "median_ms": 20.760446,
+          "samples_ms": [
+            20.775824,
+            20.760446,
+            20.379815
+          ]
+        },
+        "body_edit_ms": 25.059392,
+        "body_edit_emission": {
+          "check_ms": 1.024793,
+          "emit_ms": 0.057908,
+          "rust_bytes": 3878,
+          "process_ms": 2.331052
+        },
+        "edited_host_compile_link_ms": 45.233544
+      }
+    },
+    {
+      "functions": 100,
+      "iterations": 100,
+      "plenty_bytes": 59171,
+      "variants": {
+        "inline-dev": {
+          "helpers": false,
+          "opt_level": 0,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 6.35117,
+              "emit_ms": 4.4011379999999996,
+              "rust_bytes": 633868,
+              "process_ms": 13.473178
+            },
+            {
+              "check_ms": 5.768782,
+              "emit_ms": 4.008515,
+              "rust_bytes": 633868,
+              "process_ms": 12.652095
+            },
+            {
+              "check_ms": 5.995365,
+              "emit_ms": 4.513358,
+              "rust_bytes": 633868,
+              "process_ms": 13.347443
+            }
+          ],
+          "library_compile": {
+            "median_ms": 508.848195,
+            "samples_ms": [
+              587.108047,
+              508.848195,
+              478.248327
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 47.719304,
+            "samples_ms": [
+              46.883494,
+              49.120952,
+              47.719304
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 373.914388,
+            "samples_ms": [
+              386.16878,
+              373.592717,
+              373.914388
+            ]
+          },
+          "run": {
+            "median_ms": 6.760344,
+            "samples_ms": [
+              6.325822,
+              7.189705,
+              6.760344
+            ]
+          },
+          "rlib_bytes": 756484,
+          "binary_bytes": 4973968
+        },
+        "helpers-dev": {
+          "helpers": true,
+          "opt_level": 0,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 6.032344,
+              "emit_ms": 3.870136,
+              "rust_bytes": 275191,
+              "process_ms": 12.681359
+            },
+            {
+              "check_ms": 6.7402560000000005,
+              "emit_ms": 3.858926,
+              "rust_bytes": 275191,
+              "process_ms": 13.568325
+            },
+            {
+              "check_ms": 5.784231,
+              "emit_ms": 4.717048,
+              "rust_bytes": 275191,
+              "process_ms": 13.307238
+            }
+          ],
+          "library_compile": {
+            "median_ms": 153.647511,
+            "samples_ms": [
+              153.647511,
+              154.229698,
+              148.541306
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 45.761579,
+            "samples_ms": [
+              46.71537,
+              45.761579,
+              42.906718
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 137.281421,
+            "samples_ms": [
+              143.743438,
+              137.281421,
+              136.358457
+            ]
+          },
+          "run": {
+            "median_ms": 2.119808,
+            "samples_ms": [
+              2.051,
+              2.119808,
+              2.32949
+            ]
+          },
+          "rlib_bytes": 226604,
+          "binary_bytes": 4601408
+        },
+        "helpers-dev-one-unit": {
+          "helpers": true,
+          "opt_level": 0,
+          "codegen_units": 1,
+          "emission_samples": [
+            {
+              "check_ms": 6.2026520000000005,
+              "emit_ms": 3.8516929999999996,
+              "rust_bytes": 275191,
+              "process_ms": 12.589749
+            },
+            {
+              "check_ms": 6.194827,
+              "emit_ms": 4.313074,
+              "rust_bytes": 275191,
+              "process_ms": 13.214996
+            },
+            {
+              "check_ms": 5.785622,
+              "emit_ms": 3.895664,
+              "rust_bytes": 275191,
+              "process_ms": 12.452492
+            }
+          ],
+          "library_compile": {
+            "median_ms": 154.851428,
+            "samples_ms": [
+              154.851428,
+              155.333139,
+              150.866718
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 45.996208,
+            "samples_ms": [
+              47.399318,
+              45.996208,
+              45.266515
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 136.312251,
+            "samples_ms": [
+              135.140243,
+              136.312251,
+              147.943901
+            ]
+          },
+          "run": {
+            "median_ms": 1.832652,
+            "samples_ms": [
+              2.137672,
+              1.832652,
+              1.687481
+            ]
+          },
+          "rlib_bytes": 224072,
+          "binary_bytes": 4601352
+        },
+        "helpers-opt1": {
+          "helpers": true,
+          "opt_level": 1,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 5.866324,
+              "emit_ms": 4.060612,
+              "rust_bytes": 275191,
+              "process_ms": 12.907171
+            },
+            {
+              "check_ms": 6.149864,
+              "emit_ms": 4.024875,
+              "rust_bytes": 275191,
+              "process_ms": 13.062701
+            },
+            {
+              "check_ms": 6.365226,
+              "emit_ms": 4.6250160000000005,
+              "rust_bytes": 275191,
+              "process_ms": 14.139952
+            }
+          ],
+          "library_compile": {
+            "median_ms": 1008.597731,
+            "samples_ms": [
+              1008.597731,
+              979.143442,
+              1013.826584
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 46.551604,
+            "samples_ms": [
+              44.575294,
+              46.551604,
+              47.140074
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 135.784256,
+            "samples_ms": [
+              136.410985,
+              135.784256,
+              131.828649
+            ]
+          },
+          "run": {
+            "median_ms": 0.899079,
+            "samples_ms": [
+              0.899079,
+              0.88351,
+              3.662649
+            ]
+          },
+          "rlib_bytes": 117672,
+          "binary_bytes": 4611656
+        },
+        "helpers-release": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 5.855885,
+              "emit_ms": 3.868644,
+              "rust_bytes": 275191,
+              "process_ms": 12.435521
+            },
+            {
+              "check_ms": 5.586642,
+              "emit_ms": 3.9436139999999997,
+              "rust_bytes": 275191,
+              "process_ms": 12.287604
+            },
+            {
+              "check_ms": 6.2956449999999995,
+              "emit_ms": 4.200333,
+              "rust_bytes": 275191,
+              "process_ms": 13.182435
+            }
+          ],
+          "library_compile": {
+            "median_ms": 1081.324542,
+            "samples_ms": [
+              1054.845828,
+              1113.741963,
+              1081.324542
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 49.706416,
+            "samples_ms": [
+              46.00848,
+              49.776386,
+              49.706416
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 146.817828,
+            "samples_ms": [
+              146.817828,
+              145.942413,
+              148.110503
+            ]
+          },
+          "run": {
+            "median_ms": 0.862852,
+            "samples_ms": [
+              0.943111,
+              0.862852,
+              0.817797
+            ]
+          },
+          "rlib_bytes": 108480,
+          "binary_bytes": 4602472
+        }
+      },
+      "plenty_dev_compile_link": {
+        "median_ms": 54.878302,
+        "samples_ms": [
+          58.239429,
+          52.653338,
+          54.878302
+        ]
+      },
+      "expected_status": 132,
+      "plenty_dev_run": {
+        "median_ms": 1.311219,
+        "samples_ms": [
+          1.311219,
+          0.96935,
+          1.377693
+        ]
+      },
+      "plenty_release_compile_link": {
+        "median_ms": 56.798207,
+        "samples_ms": [
+          58.735244,
+          56.719991,
+          56.798207
+        ]
+      },
+      "plenty_release_run": {
+        "median_ms": 0.93199,
+        "samples_ms": [
+          1.260735,
+          0.888569,
+          0.93199
+        ]
+      },
+      "incremental_dev": {
+        "first_ms": 174.853819,
+        "unchanged": {
+          "median_ms": 78.484651,
+          "samples_ms": [
+            74.323733,
+            78.484651,
+            89.089283
+          ]
+        },
+        "body_edit_ms": 109.670173,
+        "body_edit_emission": {
+          "check_ms": 6.219143,
+          "emit_ms": 4.069559,
+          "rust_bytes": 275191,
+          "process_ms": 13.600997
+        },
+        "edited_host_compile_link_ms": 53.464553
+      }
+    },
+    {
+      "functions": 1000,
+      "iterations": 100,
+      "plenty_bytes": 603750,
+      "variants": {
+        "inline-dev": {
+          "helpers": false,
+          "opt_level": 0,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 55.239477,
+              "emit_ms": 47.273342,
+              "rust_bytes": 6363795,
+              "process_ms": 130.246465
+            },
+            {
+              "check_ms": 54.780629999999995,
+              "emit_ms": 56.135298999999996,
+              "rust_bytes": 6363795,
+              "process_ms": 142.325921
+            },
+            {
+              "check_ms": 55.249134,
+              "emit_ms": 49.973974999999996,
+              "rust_bytes": 6363795,
+              "process_ms": 135.118943
+            }
+          ],
+          "library_compile": {
+            "median_ms": 5299.520919,
+            "samples_ms": [
+              5329.615543,
+              5260.418063,
+              5299.520919
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 60.662854,
+            "samples_ms": [
+              53.979423,
+              60.662854,
+              76.948193
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 4061.349533,
+            "samples_ms": [
+              4039.38079,
+              4221.609841,
+              4061.349533
+            ]
+          },
+          "run": {
+            "median_ms": 101.713736,
+            "samples_ms": [
+              107.00651,
+              101.713736,
+              77.611451
+            ]
+          },
+          "rlib_bytes": 7506950,
+          "binary_bytes": 9005056
+        },
+        "helpers-dev": {
+          "helpers": true,
+          "opt_level": 0,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 53.42035,
+              "emit_ms": 46.705982,
+              "rust_bytes": 2770590,
+              "process_ms": 126.976148
+            },
+            {
+              "check_ms": 53.624371,
+              "emit_ms": 45.342055,
+              "rust_bytes": 2770590,
+              "process_ms": 125.356894
+            },
+            {
+              "check_ms": 52.690027,
+              "emit_ms": 44.99037,
+              "rust_bytes": 2770590,
+              "process_ms": 124.383527
+            }
+          ],
+          "library_compile": {
+            "median_ms": 1451.534332,
+            "samples_ms": [
+              1431.172841,
+              1451.534332,
+              1458.086817
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 48.409193,
+            "samples_ms": [
+              60.906328,
+              48.409193,
+              47.788033
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 1261.546564,
+            "samples_ms": [
+              1261.842877,
+              1257.887341,
+              1261.546564
+            ]
+          },
+          "run": {
+            "median_ms": 21.887239,
+            "samples_ms": [
+              22.684498,
+              21.53972,
+              21.887239
+            ]
+          },
+          "rlib_bytes": 2192254,
+          "binary_bytes": 5274648
+        },
+        "helpers-dev-one-unit": {
+          "helpers": true,
+          "opt_level": 0,
+          "codegen_units": 1,
+          "emission_samples": [
+            {
+              "check_ms": 52.965841,
+              "emit_ms": 46.307990000000004,
+              "rust_bytes": 2770590,
+              "process_ms": 126.15225
+            },
+            {
+              "check_ms": 55.435242,
+              "emit_ms": 49.049559,
+              "rust_bytes": 2770590,
+              "process_ms": 131.264497
+            },
+            {
+              "check_ms": 53.894054,
+              "emit_ms": 46.286178,
+              "rust_bytes": 2770590,
+              "process_ms": 126.33403
+            }
+          ],
+          "library_compile": {
+            "median_ms": 1445.412791,
+            "samples_ms": [
+              1462.995292,
+              1435.209178,
+              1445.412791
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 44.544437,
+            "samples_ms": [
+              47.230602,
+              44.544437,
+              44.192469
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 1246.678992,
+            "samples_ms": [
+              1246.678992,
+              1246.397296,
+              1264.435729
+            ]
+          },
+          "run": {
+            "median_ms": 22.324306,
+            "samples_ms": [
+              22.324306,
+              21.744643,
+              22.336708
+            ]
+          },
+          "rlib_bytes": 2189722,
+          "binary_bytes": 5274592
+        },
+        "helpers-opt1": {
+          "helpers": true,
+          "opt_level": 1,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 55.95886,
+              "emit_ms": 53.617027,
+              "rust_bytes": 2770590,
+              "process_ms": 136.647317
+            },
+            {
+              "check_ms": 54.901807,
+              "emit_ms": 47.771342000000004,
+              "rust_bytes": 2770590,
+              "process_ms": 130.133674
+            },
+            {
+              "check_ms": 57.764321,
+              "emit_ms": 46.144433,
+              "rust_bytes": 2770590,
+              "process_ms": 131.453729
+            }
+          ],
+          "library_compile": {
+            "median_ms": 58340.60336,
+            "samples_ms": [
+              58705.248042,
+              58340.60336,
+              57047.454157
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 47.200398,
+            "samples_ms": [
+              46.609635,
+              50.992369,
+              47.200398
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 1357.014829,
+            "samples_ms": [
+              1378.55455,
+              1325.253551,
+              1357.014829
+            ]
+          },
+          "run": {
+            "median_ms": 3.950977,
+            "samples_ms": [
+              3.950977,
+              3.831254,
+              4.056364
+            ]
+          },
+          "rlib_bytes": 1206290,
+          "binary_bytes": 5451872
+        },
+        "helpers-release": {
+          "helpers": true,
+          "opt_level": 3,
+          "codegen_units": 16,
+          "emission_samples": [
+            {
+              "check_ms": 54.892291,
+              "emit_ms": 45.748637,
+              "rust_bytes": 2770590,
+              "process_ms": 127.453235
+            },
+            {
+              "check_ms": 54.145246,
+              "emit_ms": 44.142888,
+              "rust_bytes": 2770590,
+              "process_ms": 125.005484
+            },
+            {
+              "check_ms": 52.470078,
+              "emit_ms": 44.000413,
+              "rust_bytes": 2770590,
+              "process_ms": 123.033633
+            }
+          ],
+          "library_compile": {
+            "median_ms": 81919.628003,
+            "samples_ms": [
+              63006.505251,
+              81919.628003,
+              83672.683945
+            ]
+          },
+          "host_compile_link": {
+            "median_ms": 60.887767,
+            "samples_ms": [
+              60.537723,
+              60.887767,
+              66.608459
+            ]
+          },
+          "metadata_only": {
+            "median_ms": 1987.205125,
+            "samples_ms": [
+              1987.205125,
+              1993.067661,
+              1826.649857
+            ]
+          },
+          "run": {
+            "median_ms": 4.778833,
+            "samples_ms": [
+              5.107107,
+              4.778833,
+              4.74457
+            ]
+          },
+          "rlib_bytes": 1114306,
+          "binary_bytes": 5359888
+        }
+      },
+      "plenty_dev_compile_link": {
+        "median_ms": 229.086075,
+        "samples_ms": [
+          244.43727,
+          229.086075,
+          211.443842
+        ]
+      },
+      "expected_status": 82,
+      "plenty_dev_run": {
+        "median_ms": 10.447339,
+        "samples_ms": [
+          10.621042,
+          10.408766,
+          10.447339
+        ]
+      },
+      "plenty_release_compile_link": {
+        "median_ms": 240.224974,
+        "samples_ms": [
+          287.229413,
+          232.191744,
+          240.224974
+        ]
+      },
+      "plenty_release_run": {
+        "median_ms": 5.267596,
+        "samples_ms": [
+          5.138436,
+          5.353396,
+          5.267596
+        ]
+      },
+      "incremental_dev": {
+        "first_ms": 2147.634057,
+        "unchanged": {
+          "median_ms": 795.477781,
+          "samples_ms": [
+            795.477781,
+            788.525137,
+            810.232943
+          ]
+        },
+        "body_edit_ms": 1092.176762,
+        "body_edit_emission": {
+          "check_ms": 66.503724,
+          "emit_ms": 72.105875,
+          "rust_bytes": 2770606,
+          "process_ms": 172.613464
+        },
+        "edited_host_compile_link_ms": 60.754098
+      }
+    }
+  ]
+}

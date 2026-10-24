@@ -1,10 +1,11 @@
 # Columnar lists with an object-shaped interface
 
-> **Status: Not implemented as a language feature.** Layout/ownership experiments
-> now include a [generated Plenty implementation spike](columnar-list/implementation-spike.md)
-> based on `00d32a13` on 2026-10-24. `clist`, field selectors,
-> and column views below are proposed syntax. No compiler or runtime feature
-> ships here. [B76](../backlog.md) records the candidate work.
+> **Status: Initial primitive-field implementation.** See the
+> [current reference](../design/facilities/01-builtins/clists.md) for the supported
+> interface. It uses packed native columns and borrowed, scalar-valued local
+> pipelines. The original [generated Plenty spike](columnar-list/implementation-spike.md)
+> remains historical evidence. Extensions in this proposal are not implied by
+> the initial implementation; [B76](../backlog.md) tracks remaining candidates.
 
 Recommend an explicit `clist[T]` storage choice for repeated scans of a few
 fields of many records. Keep ordinary class declarations and ordinary
@@ -26,15 +27,17 @@ particles[0].x = 4.0
 ```
 
 This is a storage decision at the collection declaration, not a change to
-`Particle` everywhere. The spelling `clist` is provisional. The empty owner
-should require no allocation; the first append is fallible. Proposed append
-errors retain the submitted row; see the [ownership and API contract](columnar-list/contract.md).
+`Particle` everywhere. The empty owner requires no allocation; the first append
+is fallible. Append errors retain the submitted row; see the
+[ownership and API rationale](columnar-list/contract.md).
 
 The [original layout evidence](columnar-list/evidence.md) and
 [Plenty implementation spike](columnar-list/implementation-spike.md) support the
 narrow-field use case and expose tradeoffs. The Plenty experiment establishes
 bounded scalar scan benefits with ordinary list-backed columns, not packed
 primitive storage, a final chunk size, or safe general row references.
+The [native implementation follow-up](columnar-list/native-implementation.md)
+records the packed representation and its comparison with that baseline.
 
 ## What changes in memory
 

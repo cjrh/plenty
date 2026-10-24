@@ -49,6 +49,7 @@ mod boxed;
 mod bytes;
 pub mod cache;
 mod channel;
+mod clist;
 mod closure;
 mod codegen;
 mod collection;
@@ -82,6 +83,11 @@ pub mod profile;
 pub mod project;
 mod record;
 mod regex;
+// Experiment only: no stable compiler or CLI contract is implied.
+#[cfg(feature = "rust-source-spike")]
+#[doc(hidden)]
+#[path = "../experiments/rust-source-backend/emitter/mod.rs"]
+pub mod rust_source_spike;
 mod sqlite;
 mod stream;
 mod sum;

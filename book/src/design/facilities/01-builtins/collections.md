@@ -1,5 +1,9 @@
 # Collections
 
+For primitive-field class records scanned by field, see
+[columnar lists](clists.md). Their packed columns and borrowed scalar pipelines
+have a deliberately smaller interface than ordinary lists.
+
 `list[T]`, `dict[K, V]`, and `set[T]` have concrete element types, including
 nested collections. Dictionary keys and set members are integers, `bool`, `str`,
 `bytes`, or tuples recursively containing those types. Hashing uses tuple
