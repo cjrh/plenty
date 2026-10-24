@@ -249,8 +249,10 @@ pub(super) struct Engine {
     /// `templates` so that releasing a template cannot lower the limit.
     pub(super) specializable: usize,
     /// First-requiring dependency depth, also inherited by lifted code.
-    /// Generator consumer frames have entries too.
-    pub(super) specialization_depths: HashMap<String, usize>,
+    /// Generator consumer frames have entries too. Keyed by symbol, like
+    /// `required`, so an instance costs no name copy or string hash here
+    /// (issue #436).
+    pub(super) specialization_depths: HashMap<functions::Symbol, usize>,
     /// Functions to lower, with their symbols in the function table.
     pub(super) pending: VecDeque<(functions::Symbol, Arc<Function>)>,
     pub(super) compiled: Vec<Op>,
@@ -261,7 +263,7 @@ pub(super) struct Engine {
     pub(super) frame_instances: HashMap<String, usize>,
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
-    pub(super) required: HashMap<String, Arc<Instantiation>>,
+    pub(super) required: HashMap<functions::Symbol, Arc<Instantiation>>,
     /// Queued instances whose bodies are still their templates' bodies,
     /// with the replacements for their type parameters.
     unsubstituted: HashMap<functions::Symbol, (Arc<Function>, Substitution)>,
@@ -742,17 +744,16 @@ impl Lower<'_> {
             modules::check_member(self.access, name, "__new__", at)?;
         }
         self.sync_data()?;
-        let (symbol, function) = self.generics.instantiate(
-            name,
-            actual,
-            at,
-            self.aliases,
-            self.access,
-            &self.function_name,
-        )?;
+        let (symbol, function) =
+            self.generics
+                .instantiate(name, actual, at, self.aliases, self.access, self.symbol)?;
         if let Some(new) = function {
+            let symbol_id = self.sigs.intern(&new.function.name);
+            self.generics
+                .specialization_depths
+                .insert(symbol_id, new.depth);
             let instance: Arc<str> = crate::record::method_display(&new.display).into();
-            let required = Arc::new(match self.generics.required.get(&self.function_name) {
+            let required = Arc::new(match self.generics.required.get(&self.symbol) {
                 Some(outer) => Instantiation {
                     instance,
                     ..(**outer).clone()
@@ -763,9 +764,7 @@ impl Lower<'_> {
                     instance,
                 },
             });
-            self.generics
-                .required
-                .insert(symbol.clone(), required.clone());
+            self.generics.required.insert(symbol_id, required.clone());
             // The signature can name data instances that only this instance uses.
             let outer = self
                 .aliases
@@ -773,7 +772,6 @@ impl Lower<'_> {
                 .attribute_within(|| data::Requiring::Instance(required.clone()));
             // Substitution changes only types, so the template body says
             // whether the instance yields and what reference it returns.
-            let symbol_id = self.sigs.intern(&new.function.name);
             let registered = register_with_body(
                 symbol_id,
                 &new.function,
@@ -983,16 +981,47 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
 impl Engine {
     /// Code lifted out of `parent`, or copied from it, is checked on behalf of
     /// the same use.
-    pub(super) fn inherit_requirement(&mut self, parent: &str, child: &str) {
-        if let Some(depth) = self.specialization_depths.get(parent).copied() {
-            self.specialization_depths.insert(child.into(), depth);
-        }
+    pub(super) fn inherit_requirement(
+        &mut self,
+        table: &mut functions::Functions,
+        parent: &str,
+        child: &str,
+    ) {
         if self.protocol_instances.contains(parent) {
             self.protocol_instances.insert(child.into());
         }
-        if let Some(required) = self.required.get(parent).cloned() {
-            self.required.insert(child.into(), required);
+        let Some(parent) = table.symbol(parent) else {
+            return;
+        };
+        let depth = self.specialization_depths.get(&parent).copied();
+        let required = self.required.get(&parent).cloned();
+        if depth.is_none() && required.is_none() {
+            return;
         }
+        let child = table.intern(child);
+        if let Some(depth) = depth {
+            self.specialization_depths.insert(child, depth);
+        }
+        if let Some(required) = required {
+            self.required.insert(child, required);
+        }
+    }
+
+    /// The use that first required `symbol`, if it is generic code.
+    pub(super) fn requirement(&self, symbol: functions::Symbol) -> Option<&Arc<Instantiation>> {
+        self.required.get(&symbol)
+    }
+
+    /// `requirement` by name, for the few callers without a symbol.
+    pub(super) fn requirement_of(
+        &self,
+        table: &functions::Functions,
+        name: &str,
+    ) -> Option<&Arc<Instantiation>> {
+        if self.required.is_empty() {
+            return None;
+        }
+        self.requirement(table.symbol(name)?)
     }
 
     /// Scans every instance, so it is for diagnostics only: lowering takes a
@@ -1173,8 +1202,13 @@ impl Engine {
 
     /// The dependency depth of an instance first required by `parent`,
     /// checked against the depth limit.
-    pub(super) fn dependency_depth(&self, parent: &str, at: &Token) -> Result<usize> {
-        let depth = self.specialization_depths.get(parent).copied().unwrap_or(0) + 1;
+    pub(super) fn dependency_depth(&self, parent: functions::Symbol, at: &Token) -> Result<usize> {
+        let depth = self
+            .specialization_depths
+            .get(&parent)
+            .copied()
+            .unwrap_or(0)
+            + 1;
         let limit = MAX_SPECIALIZATION_REPEATS + self.specializable;
         if depth > limit {
             return Err(at.error(format!(
@@ -1191,7 +1225,7 @@ impl Engine {
         at: &Token,
         aliases: &TypeAliases,
         access: &modules::AccessMap,
-        parent: &str,
+        parent: functions::Symbol,
     ) -> Result<(String, Option<Instance>)> {
         if self.retention.released(name) {
             return Err(at.error(format!(
@@ -1339,12 +1373,12 @@ impl Engine {
         // Cache before queueing the body, so recursive calls share this instance.
         self.cache.insert(key, symbol.clone());
         self.instances += 1;
-        self.specialization_depths.insert(symbol.clone(), depth);
         let instance = Instance {
             function: f,
             template: Arc::clone(template),
             replacements,
             display,
+            depth,
         };
         Ok((symbol, Some(instance)))
     }
@@ -1421,6 +1455,8 @@ pub(super) struct Instance {
     replacements: Substitution,
     /// The instance name in diagnostics, such as `f[i64]`.
     pub(super) display: String,
+    /// Its dependency depth, which the caller records under its symbol.
+    pub(super) depth: usize,
 }
 
 impl Instance {

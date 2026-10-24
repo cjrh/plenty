@@ -119,7 +119,7 @@ impl Lower<'_> {
             };
             register_signature(&function, self.aliases, self.sigs)?;
             self.generics
-                .inherit_requirement(&self.function_name, &name);
+                .inherit_requirement(self.sigs, &self.function_name, &name);
             let function = Arc::new(function);
             let symbol = self.generics.record(&function, self.sigs);
             lower_function(
@@ -264,7 +264,7 @@ impl Lower<'_> {
         // The same scheme as generic functions (issue #430): the caller's
         // dependency depth bounds expansion, while the per-consumer and total
         // counts bound breadth and resources.
-        let depth = self.generics.dependency_depth(&self.function_name, at)?;
+        let depth = self.generics.dependency_depth(self.symbol, at)?;
         let count = self
             .generics
             .frame_instances
@@ -274,7 +274,7 @@ impl Lower<'_> {
         if count >= MAX_CONSUMER_FRAMES {
             return Err(at.error(format!(
                 "generator specialization limit of {MAX_CONSUMER_FRAMES} frames of `{}` exceeded; check for expanding recursion",
-                match self.generics.required.get(name) {
+                match self.generics.requirement_of(self.sigs, name) {
                     Some(required) => required.instance.to_string(),
                     None => crate::record::method_display(name).to_string(),
                 }
@@ -298,10 +298,9 @@ impl Lower<'_> {
         }
         register_signature(&f, self.aliases, self.sigs)?;
         self.generics.frames.insert(key, symbol.clone());
-        self.generics.inherit_requirement(name, &symbol);
-        self.generics
-            .specialization_depths
-            .insert(symbol.clone(), depth);
+        self.generics.inherit_requirement(self.sigs, name, &symbol);
+        let frame = self.sigs.intern(&symbol);
+        self.generics.specialization_depths.insert(frame, depth);
         match self.generics.frame_instances.get_mut(name) {
             Some(count) => *count += 1,
             None => {

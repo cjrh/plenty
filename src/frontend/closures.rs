@@ -97,7 +97,7 @@ impl Lower<'_> {
         if !self.sigs.contains_key(&function.name) {
             register_signature(&function, self.aliases, self.sigs)?;
             self.generics
-                .inherit_requirement(&self.function_name, &function.name);
+                .inherit_requirement(self.sigs, &self.function_name, &function.name);
             self.generics.declare(function, self.sigs);
         }
         self.closure_loans
