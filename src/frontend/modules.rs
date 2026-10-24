@@ -1079,10 +1079,15 @@ struct Scope {
     imported: Arc<HashMap<String, String>>,
     namespaces: Arc<HashMap<String, Arc<HashMap<String, String>>>>,
     constants: Arc<HashMap<String, String>>,
-    type_params: HashSet<String>,
+    /// Type parameters in scope: a declaration has few, so a scan beats
+    /// building a hash set per function (issue #436).
+    type_params: Vec<String>,
 }
 
 impl Scope {
+    fn type_param(&self, name: &str) -> bool {
+        self.type_params.iter().any(|p| p == name)
+    }
     fn fresh_capture_binding<'a>(
         &self,
         names: impl IntoIterator<Item = &'a String>,
@@ -1124,7 +1129,7 @@ impl Scope {
             self.ty(arg)?;
         }
         if let Some(name) = &mut ty.name {
-            if self.type_params.contains(name) {
+            if self.type_param(name) {
                 return Ok(());
             }
             // Imports can bind a builtin spelling only to that same identity.
@@ -1383,7 +1388,7 @@ impl Scope {
             )));
         }
         if let Expression::Name(name) | Expression::Call(name, _) = &e.kind
-            && self.type_params.contains(name)
+            && self.type_param(name)
             && locals.contains_key(name)
         {
             return Err(e
@@ -1467,7 +1472,7 @@ impl Scope {
             | Expression::Call(n, _)
             | Expression::GenericCall(n, _, _)
             | Expression::GenericValue(n, _)
-                if !locals.contains_key(n) && !self.type_params.contains(n) =>
+                if !locals.contains_key(n) && !self.type_param(n) =>
             {
                 let written = n.chars().count() as u32;
                 if let Some(symbol) = self.symbol(n, &e.at)? {
@@ -1501,7 +1506,7 @@ impl Scope {
         | Expression::GenericCall(n, _, _)
         | Expression::GenericValue(n, _) = &e.kind
             && !locals.contains_key(n)
-            && !self.type_params.contains(n)
+            && !self.type_param(n)
             && let Some(getter) = self.constants.get(n)
         {
             if !matches!(e.kind, Expression::Name(_)) {
@@ -1730,7 +1735,7 @@ fn resolve(
         let mut scope = Scope {
             captures: HashSet::default(),
             uncaptured: HashSet::default(),
-            type_params: HashSet::default(),
+            type_params: Vec::new(),
             module: m.name.clone(),
             declared: Arc::new(m.names().cloned().collect()),
             imported: Arc::default(),

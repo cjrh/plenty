@@ -1238,6 +1238,7 @@ struct Parser {
     scratch_exprs: Vec<Expr>,
     scratch_inputs: Vec<(String, TypeRef)>,
     scratch_type_params: Vec<(String, Option<TypeRef>)>,
+    scratch_type_args: Vec<TypeRef>,
 }
 impl Parser {
     /// A parser for a module whose tokens name `origin` as their source file.
@@ -1264,6 +1265,7 @@ impl Parser {
             scratch_exprs: Vec::new(),
             scratch_inputs: Vec::new(),
             scratch_type_params: Vec::new(),
+            scratch_type_args: Vec::new(),
         }
     }
     /// Runs `parse`, which pushes a list's elements onto the scratch stack
@@ -1303,11 +1305,16 @@ impl Parser {
             let mut depth = 0usize;
             for token in self.tokens.range_mut(lexed..) {
                 token.file = self.end.file;
-                if [")", "]", "}"].iter().any(|close| token.is(close)) {
+                // Brackets are symbols, so other tokens need no comparison.
+                let symbol = match &token.kind {
+                    Kind::Symbol(s) => *s,
+                    _ => "",
+                };
+                if matches!(symbol, ")" | "]" | "}") {
                     depth = depth.saturating_sub(1);
                 }
                 self.in_brackets.push_back(depth > 0);
-                if ["(", "[", "{"].iter().any(|open| token.is(open)) {
+                if matches!(symbol, "(" | "[" | "{") {
                     depth += 1;
                 }
             }
@@ -1404,7 +1411,7 @@ impl Parser {
             && !reserved(s)
             && !s.starts_with("__plenty_")
         {
-            return Ok(s.to_string());
+            return Ok(String::from(&**s));
         }
         Err(t.error("expected an identifier (keywords and __plenty_ names are reserved)"))
     }
@@ -1482,7 +1489,7 @@ impl Parser {
         if let Kind::Word(ref name) = t.kind
             && !reserved(name)
         {
-            let mut name = name.to_string();
+            let mut name = String::from(&**name);
             while self.eat(".") {
                 name.push('.');
                 name.push_str(&self.name()?);
@@ -1525,18 +1532,20 @@ impl Parser {
         Err(t.error("expected a type name or ()"))
     }
     fn type_arguments(&mut self) -> Result<Vec<TypeRef>> {
-        let mut args = Vec::new();
-        if self.eat("[") {
-            loop {
-                args.push(self.ty()?);
-                if self.eat("]") {
-                    break;
-                }
-                self.expect(",")?;
-            }
+        if !self.eat("[") {
+            return Ok(Vec::new());
         }
-        args.shrink_to_fit();
-        Ok(args)
+        self.exact_list(
+            |p| &mut p.scratch_type_args,
+            |p| loop {
+                let ty = p.ty()?;
+                p.scratch_type_args.push(ty);
+                if p.eat("]") {
+                    return Ok(());
+                }
+                p.expect(",")?;
+            },
+        )
     }
     /// Reparses brackets already accepted as type arguments as `base[index]`.
     /// `start` is the opening bracket and the parser sits just past the closing
@@ -2265,8 +2274,8 @@ impl Parser {
         }
         let at = self.take();
         let kind = match &at.kind {
-            Kind::Number(n) => Expression::Number(n.to_string()),
-            Kind::Text(s) => Expression::Text(s.to_string()),
+            Kind::Number(n) => Expression::Number(String::from(&**n)),
+            Kind::Text(s) => Expression::Text(String::from(&**s)),
             Kind::Format(parts) => self.format_literal(parts)?,
             Kind::Bytes(b) => Expression::Bytes(b.to_vec()),
             Kind::Word(s) if matches!(&**s, "True" | "False") => Expression::Bool(&**s == "True"),
@@ -2325,9 +2334,9 @@ impl Parser {
                         Expression::Constructor(Box::new(ty), self.arguments()?)
                     }
                 } else if self.eat("(") {
-                    Expression::Call(s.to_string(), self.arguments()?)
+                    Expression::Call(String::from(&**s), self.arguments()?)
                 } else {
-                    Expression::Name(s.to_string())
+                    Expression::Name(String::from(&**s))
                 }
             }
             _ if at.is("match") => return Err(at.error(MATCH_VALUE_POSITION)),
@@ -2818,6 +2827,8 @@ struct Lower<'a> {
     pipelines: Vec<pipelines::Pipeline>,
     pipeline_generators: usize,
     function_name: String,
+    /// `function_name` in the function table.
+    symbol: functions::Symbol,
     bare_self_receiver: bool,
     source_tail: Vec<crate::ownership::Site>,
     tail_candidates: Vec<tail_calls::Candidate>,
@@ -3286,7 +3297,7 @@ impl Lower<'_> {
                 let name = function.name.clone();
                 register_signature(&function, self.aliases, self.sigs)?;
                 self.generics
-                    .inherit_requirement(&self.function_name, &name);
+                    .inherit_requirement(self.sigs, &self.function_name, &name);
                 self.generics.declare(function, self.sigs);
                 Some(self.function_value(&name, &e.at, ops)?)
             }
@@ -5580,7 +5591,7 @@ fn lower_function(
     if sigs.lowered(symbol) {
         return Ok(());
     }
-    let required = generics.required.get(&f.name).cloned();
+    let required = generics.requirement(symbol).cloned();
     let outer = aliases
         .data
         .attribute(required.clone().map(data::Requiring::Instance));
@@ -5666,6 +5677,7 @@ fn lower_body(
             };
             let mut lower = Lower {
                 function_name: f.name.clone(),
+                symbol,
                 bare_self_receiver: f.inputs.first().is_some_and(|(name, ty)| {
                     name == "self" && ty.name.as_deref() == Some("&") && ty.at.is("self")
                 }),
@@ -5856,7 +5868,7 @@ fn lower_body(
                 source,
                 trap_file: facts.map(|(relative, _)| relative),
                 names: lower.slot_names,
-                required: lower.generics.required.get(&f.name).cloned(),
+                required: lower.generics.requirement(symbol).cloned(),
             }),
             generator: yield_type,
             sig,
@@ -6050,16 +6062,20 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                 )
                 .is_ok()
                 {
+                    let main = sigs.intern("main");
                     let (symbol, function) = generics.instantiate(
                         "std.report.entry_report",
                         vec![error.clone()],
                         &protocol.at,
                         &aliases,
                         &access,
-                        "main",
+                        main,
                     )?;
                     if let Some(instance) = function {
+                        let depth = instance.depth;
                         let function = instance.complete()?;
+                        let instance = sigs.intern(&function.name);
+                        generics.specialization_depths.insert(instance, depth);
                         register_signature(&function, &aliases, &mut sigs)?;
                         generics.declare(function, &mut sigs);
                     }
@@ -6113,7 +6129,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     }
     let mut ops = std::mem::take(&mut generics.compiled);
     validate_frames(&ops).map_err(|message| at.error(message))?;
-    tail_calls::validate(&ops, &generics)?;
+    tail_calls::validate(&ops, &generics, &sigs)?;
     if require_main {
         ops.push(Op::Call("main".into()));
         if let [Ty::Enum(t)] = sigs["main"].outputs.as_slice() {

@@ -828,7 +828,8 @@ impl generics::Engine {
             let methods = enums::expand(vec![declaration], aliases)?;
             if let Some(required) = required {
                 for method in &methods {
-                    self.required.insert(method.name.clone(), required.clone());
+                    self.required
+                        .insert(table.intern(&method.name), required.clone());
                 }
             }
             functions.extend(methods);
@@ -838,7 +839,8 @@ impl generics::Engine {
             let methods = classes::expand(vec![class], aliases)?;
             if let Some(required) = required {
                 for method in &methods {
-                    self.required.insert(method.name.clone(), required.clone());
+                    self.required
+                        .insert(table.intern(&method.name), required.clone());
                 }
             }
             functions.extend(methods);

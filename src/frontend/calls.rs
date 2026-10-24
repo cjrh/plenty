@@ -56,7 +56,7 @@ impl Lower<'_> {
             };
             register_signature(&validator, self.aliases, self.sigs)?;
             self.generics
-                .inherit_requirement(&function.name, &validator.name);
+                .inherit_requirement(self.sigs, &function.name, &validator.name);
             self.generics.declare(validator, self.sigs);
         }
         Ok(())
@@ -278,7 +278,7 @@ impl Lower<'_> {
                 .insert(symbol.clone(), Arc::new(wrapper));
         }
         self.generics
-            .inherit_requirement(&self.function_name, &symbol);
+            .inherit_requirement(self.sigs, &self.function_name, &symbol);
         self.generics.call_wrappers.insert(key, symbol.clone());
         Ok(Some((symbol, values)))
     }

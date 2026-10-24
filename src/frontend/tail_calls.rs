@@ -203,7 +203,11 @@ fn expression_endings(
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
-pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
+pub(super) fn validate(
+    ops: &[Op],
+    generics: &generics::Engine,
+    sigs: &functions::Functions,
+) -> Result<()> {
     // Only a function with a call in source tail position has anything to
     // validate. Without one, skip the whole-program tables built below.
     if generics.tail_candidates.is_empty() {
@@ -319,7 +323,7 @@ pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
                     "recursive call to `{}`{cycle} is in tail position but cannot be a tail call: {reason}",
                     generics.diagnostic_name(&candidate.callee)
                 );
-                return Err(match generics.required.get(name) {
+                return Err(match generics.requirement_of(sigs, name) {
                     Some(required) => required
                         .report(&format!("{}: ", candidate.at.location()), &message)
                         .into(),

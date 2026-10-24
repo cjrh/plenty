@@ -152,7 +152,7 @@ impl Lower<'_> {
             .as_ref()
             .map(|path| self.generics.source_facts(path));
         self.generics
-            .inherit_requirement(&self.function_name, &name);
+            .inherit_requirement(self.sigs, &self.function_name, &name);
         self.sigs.insert(name.clone(), sig.clone());
         self.generics.compiled.push(Op::DefineFn(
             name.clone(),
@@ -170,7 +170,7 @@ impl Lower<'_> {
                         .iter()
                         .map(|slot| self.slot_names.get(*slot as usize).cloned().flatten())
                         .collect(),
-                    required: self.generics.required.get(&name).cloned(),
+                    required: self.generics.requirement_of(self.sigs, &name).cloned(),
                 }),
                 generator: Some(plan.item.ty),
                 sig: sig.clone(),

@@ -1084,7 +1084,7 @@ impl Lower<'_> {
         }];
         register_signature(&function, self.aliases, self.sigs)?;
         self.generics
-            .inherit_requirement(&self.function_name, callee);
+            .inherit_requirement(self.sigs, &self.function_name, callee);
         self.generics.declare(function, self.sigs);
         Ok(())
     }
