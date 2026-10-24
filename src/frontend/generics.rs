@@ -4,7 +4,12 @@ use crate::ownership::Instantiation;
 use std::collections::VecDeque;
 use std::fmt::Write as _;
 
-const MAX_SPECIALIZATION_DEPTH: usize = 256;
+/// Repeats allowed along a dependency chain. A chain in which no declaration
+/// repeats is no longer than the program's number of generic functions and
+/// generator consumers, so the depth limit adds that number: only steps that
+/// repeat a declaration can exceed it, and unbounded expansion repeats one
+/// without end (issue #435).
+const MAX_SPECIALIZATION_REPEATS: usize = 256;
 /// Bounds expansion that branches within the depth limit, such as `f[T]`
 /// requiring both `f[list[T]]` and `f[Box[T]]`. A program has finitely many
 /// templates, so unbounded expansion must grow one of them without bound
@@ -162,6 +167,7 @@ pub(super) fn prepare(
         cache: HashMap::default(),
         template_instances: HashMap::default(),
         instances: 0,
+        specializable: 0,
         specialization_depths: HashMap::default(),
         // One entry per function: sized up front, these are not rehashed
         // key by key at every doubling (issue #57).
@@ -170,6 +176,7 @@ pub(super) fn prepare(
         tail_candidates: HashMap::default(),
         active: HashSet::default(),
         frames: HashMap::default(),
+        frame_instances: HashMap::default(),
         required: HashMap::default(),
         protocol_instances: HashSet::default(),
         source_root: None,
@@ -197,6 +204,7 @@ pub(super) fn prepare(
             engine.record_defaults(&f);
             engine.retention.template(&f);
             engine.templates.insert(f.name.clone(), Arc::new(f));
+            engine.specializable += 1;
         }
     }
     // Checked against the function tables, which exist anyway: a table of
@@ -230,14 +238,21 @@ pub(super) struct Engine {
     template_instances: HashMap<String, usize>,
     /// Function instances created, which number their symbols.
     instances: usize,
+    /// Generic functions and methods declared so far, and generator consumers
+    /// specialized so far, which extend the depth limit. Counted apart from
+    /// `templates` so that releasing a template cannot lower the limit.
+    pub(super) specializable: usize,
     /// First-requiring dependency depth, also inherited by lifted code.
-    specialization_depths: HashMap<String, usize>,
+    /// Generator consumer frames have entries too.
+    pub(super) specialization_depths: HashMap<String, usize>,
     /// Functions to lower, with their symbols in the function table.
     pub(super) pending: VecDeque<(functions::Symbol, Arc<Function>)>,
     pub(super) compiled: Vec<Op>,
     pub(super) tail_candidates: HashMap<String, Vec<tail_calls::Candidate>>,
     pub(super) active: HashSet<functions::Symbol>,
     pub(super) frames: HashMap<(String, Vec<Ty>), String>,
+    /// Frame specializations of each generator consumer.
+    pub(super) frame_instances: HashMap<String, usize>,
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
     pub(super) required: HashMap<String, Arc<Instantiation>>,
@@ -1129,6 +1144,19 @@ impl Engine {
         output
     }
 
+    /// The dependency depth of an instance first required by `parent`,
+    /// checked against the depth limit.
+    pub(super) fn dependency_depth(&self, parent: &str, at: &Token) -> Result<usize> {
+        let depth = self.specialization_depths.get(parent).copied().unwrap_or(0) + 1;
+        let limit = MAX_SPECIALIZATION_REPEATS + self.specializable;
+        if depth > limit {
+            return Err(at.error(format!(
+                "specialization dependency depth limit of {limit} ({MAX_SPECIALIZATION_REPEATS} plus one per generic function or generator consumer) exceeded; check for expanding recursion"
+            )));
+        }
+        Ok(depth)
+    }
+
     pub(super) fn instantiate(
         &mut self,
         name: &str,
@@ -1216,12 +1244,7 @@ impl Engine {
         // bounds branching; neither counts unrelated templates, which only
         // the total resource budget does. Cache hits above consume no limit,
         // including recursive calls.
-        let depth = self.specialization_depths.get(parent).copied().unwrap_or(0) + 1;
-        if depth > MAX_SPECIALIZATION_DEPTH {
-            return Err(at.error(format!(
-                "generic specialization dependency depth limit of {MAX_SPECIALIZATION_DEPTH} exceeded; check for expanding recursion or a long chain of generic calls"
-            )));
-        }
+        let depth = self.dependency_depth(parent, at)?;
         if count >= MAX_TEMPLATE_INSTANCES {
             return Err(at.error(format!(
                 "generic specialization limit of {MAX_TEMPLATE_INSTANCES} instances of `{}` exceeded; check for expanding recursion",

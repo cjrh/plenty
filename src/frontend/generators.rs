@@ -1,5 +1,11 @@
 use super::*;
 
+/// Concrete frame specializations of one generator consumer.
+const MAX_CONSUMER_FRAMES: usize = 16_384;
+/// Frame specializations per compilation, a resource budget like generic
+/// functions' total.
+const MAX_FRAMES: usize = 65_536;
+
 pub(super) fn yields(body: &[Stmt]) -> bool {
     body.iter().any(|stmt| match &stmt.kind {
         Statement::Yield(_) => true,
@@ -255,10 +261,29 @@ impl Lower<'_> {
             self.ensure_concrete_output(&symbol, at)?;
             return Ok(symbol);
         }
-        if self.generics.frames.len() >= 256 {
-            return Err(at.error(
-                "generator specialization limit of 256 exceeded; check for expanding recursion",
-            ));
+        // The same scheme as generic functions (issue #430): the caller's
+        // dependency depth bounds expansion, while the per-consumer and total
+        // counts bound breadth and resources.
+        let depth = self.generics.dependency_depth(&self.function_name, at)?;
+        let count = self
+            .generics
+            .frame_instances
+            .get(name)
+            .copied()
+            .unwrap_or(0);
+        if count >= MAX_CONSUMER_FRAMES {
+            return Err(at.error(format!(
+                "generator specialization limit of {MAX_CONSUMER_FRAMES} frames of `{}` exceeded; check for expanding recursion",
+                match self.generics.required.get(name) {
+                    Some(required) => required.instance.to_string(),
+                    None => crate::record::method_display(name).to_string(),
+                }
+            )));
+        }
+        if self.generics.frames.len() >= MAX_FRAMES {
+            return Err(at.error(format!(
+                "total generator specialization budget of {MAX_FRAMES} exceeded"
+            )));
         }
         let mut f = Function::clone(
             self.sigs
@@ -274,6 +299,18 @@ impl Lower<'_> {
         register_signature(&f, self.aliases, self.sigs)?;
         self.generics.frames.insert(key, symbol.clone());
         self.generics.inherit_requirement(name, &symbol);
+        self.generics
+            .specialization_depths
+            .insert(symbol.clone(), depth);
+        match self.generics.frame_instances.get_mut(name) {
+            Some(count) => *count += 1,
+            None => {
+                self.generics.frame_instances.insert(name.to_owned(), 1);
+                // A chain through distinct consumers is finite like one
+                // through distinct generic functions (issue #435).
+                self.generics.specializable += 1;
+            }
+        }
         self.generics.declare(f, self.sigs);
         self.ensure_concrete_output(&symbol, at)?;
         Ok(symbol)
