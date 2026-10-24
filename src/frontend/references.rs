@@ -3,12 +3,12 @@ use super::*;
 
 /// Summarize only a single direct returned projection. More complicated bodies
 /// keep the conservative whole-argument footprint until flow summaries exist.
-pub(super) fn returned_fields(function: &Function, sig: &FnSig) -> Option<Vec<usize>> {
+pub(super) fn returned_fields(body: &[Stmt], sig: &FnSig) -> Option<Vec<usize>> {
     if !matches!(sig.outputs.first(), Some(Ty::Ref(..))) {
         return None;
     }
     let (root, ty) = sig.inputs.iter().find(|(_, t)| matches!(t, Ty::Ref(..)))?;
-    let [stmt] = function.body.as_slice() else {
+    let [stmt] = body else {
         return None;
     };
     let expression = match &stmt.kind {

@@ -475,3 +475,65 @@ fn templates_of_an_imported_module_instantiate_after_its_functions_are_lowered()
         "8\n(\"w\", \"w\")\n2.5\n"
     );
 }
+
+// An instance's body is substituted when it is lowered, not when it is
+// instantiated; once its template is released, the last instance takes the
+// template's body instead of copying it (issue #436). Each template here has
+// instances lowered both before and after that release, with type parameters
+// in local annotations, explicit type arguments, nested generic calls,
+// generator factories and generator consumers.
+const DEFERRED_BODY_PROGRAM: &str = r#"def keep[T](value: T) -> T:
+    copy: T = value
+    copy
+
+def nest[T](value: T) -> (T, T):
+    inner: T = keep[T](value)
+    (inner, keep(value))
+
+def once[T](value: T) -> Generator[T]:
+    copy: T = value
+    yield copy
+
+def collect[T](source: Generator[T]) -> Result[list[T], AllocError]:
+    [item for item in source]
+
+def first() -> (i64, i64):
+    nest(1)
+
+def second() -> (str, str):
+    nest("b")
+
+def main() -> Result[(), AllocError | IoError]:
+    print(first())?
+    print(second())?
+    print(nest(2.5))?
+    print(collect(once(7u8))?)?
+    print(collect(once("g"))?)?
+    Ok(())
+"#;
+
+#[test]
+fn instance_bodies_are_substituted_when_lowered() {
+    let output = support::assert_success(support::run_file(DEFERRED_BODY_PROGRAM));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "(1, 1)\n(\"b\", \"b\")\n(2.5, 2.5)\n[7]\n[\"g\"]\n"
+    );
+}
+
+#[test]
+fn type_parameter_misuse_in_a_body_is_reported_at_the_requiring_use() {
+    assert_eq!(
+        rejection(
+            "def wrap[T](value: T) -> i64:
+    copy: T[i64] = value
+    1
+
+def main() -> ():
+    x = wrap(3)
+"
+        ),
+        "6:9: cannot instantiate `wrap[i64]`: its definition is rejected
+  2:11: note: in instantiation `wrap[i64]`: a type parameter cannot take type arguments"
+    );
+}
