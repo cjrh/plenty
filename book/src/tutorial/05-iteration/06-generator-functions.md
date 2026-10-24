@@ -31,6 +31,8 @@ def main() -> Result[(), IoError]:
 
 `total` accepts either producer. Passing a generator transfers ownership; use
 `&mut Generator[T]` when a helper should advance an existing owner with `next`.
+Once you know closures, [Transform a stream of values](../10-functions/streams.md)
+shows how to filter, map and reduce a generator without writing the loop.
 
 A factory must return the same producer on every path. Two generators yielding
 the same type are not interchangeable return values:

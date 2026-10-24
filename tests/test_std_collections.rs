@@ -1,10 +1,9 @@
-//! `std.collections` heaps and `std.iter` generator adapters.
+//! `std.collections` heaps, including heap drains as pipeline sources.
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-const HEADER: &str = "from std.collections import Heap, HeapBy, drain, drain_by\n\
-from std.iter import map, filter, take, fold, try_fold\n";
+const HEADER: &str = "from std.collections import Heap, HeapBy, drain, drain_by\n";
 
 const DECLARATIONS: &str = r#"
 class Guard:
@@ -249,7 +248,7 @@ taken = heap.pop().unwrap()
 print("took", taken.n)?
 drop(taken)
 print("drain")?
-for value in take(map(drain_by(heap), number), 2):
+for value in drain_by(heap).map(number).take(2):
     print("value", value)?
 print("cleared")?
 mut again = HeapBy(larger)?
@@ -265,7 +264,7 @@ again.push(Guard(50))?
         lines[..9],
         [
             "peek 9", "took 9", "drop 9", "drain", "drop 7", "value 7", "drop 4", "value 4",
-            // Ending the adapter chain drops the heap still owned by the drain frame.
+            // Ending the pipeline drops the heap still owned by the drain frame.
             "drop 2",
         ]
     );
@@ -307,25 +306,25 @@ fn empty_peek_traps_like_a_missing_index() {
 }
 
 #[test]
-fn adapters_compose_lazily_and_keep_callback_state() {
+fn generator_pipelines_compose_lazily_and_keep_callback_state() {
     native(
         r#"
-print(fold(map(filter(take(naturals(), 10), even), square), 0, add))?
+print(naturals().take(10).filter(even).map(square).fold(0, add))?
 offset = 100
-shifted = map((n for n in [1, 2, 3]?), def [offset](n: i64) -> i64: n + offset)
+shifted = (n for n in [1, 2, 3]?).map(def [offset](n: i64) -> i64: n + offset)
 print([n for n in shifted]?)?
 mut seen = 0
 numbered = def [mut seen](n: i64) -> (i64, i64):
     seen += 1
     (seen, n)
-for pair in take(map(naturals(), numbered), 2):
+for pair in naturals().map(numbered).take(2):
     print(pair)?
-print(try_fold(take(naturals(), 4), list[i64].new()?, keep)?)?
-print(fold(take(naturals(), 0), 7, add), fold(take(naturals(), -3), 7, add))?
+print(naturals().take(4).try_fold(list[i64].new()?, keep)?)?
+print(naturals().take(0).fold(7, add), naturals().take(-3).fold(7, add))?
 mut heap = Heap[i64]()?
 for n in [6, 1, 4, 3]?:
     heap.push(n)?
-print(fold(filter(drain(heap), even), 0, add))?
+print(drain(heap).filter(even).fold(0, add))?
 "#,
         r#"
 120
@@ -340,16 +339,16 @@ print(fold(filter(drain(heap), even), 0, add))?
 }
 
 #[test]
-fn adapters_run_only_as_far_as_they_are_consumed_and_clean_up() {
+fn generator_pipelines_run_only_as_far_as_they_are_consumed_and_clean_up() {
     native(
         r#"
-for n in map(filter(guards(5), odd), number):
+for n in guards(5).filter(odd).map(number):
     print("got", n)?
     break
 print("stopped")?
-print(str.repr(try_fold(guards(9), 0, below_three))?)?
-print(fold(take(guards(9), 1), 10, def(total: i64, guard: Guard) -> i64: total + guard.n))?
-unused = map(guards(3), number)
+print(str.repr(guards(9).try_fold(0, below_three))?)?
+print(guards(9).take(1).fold(10, def(total: i64, guard: Guard) -> i64: total + guard.n))?
+unused = guards(3).map(number)
 print("unused")?
 "#,
         r#"
@@ -377,7 +376,7 @@ unused
 }
 
 #[test]
-fn heap_and_adapters_allocate_only_for_growth() {
+fn heap_and_pipelines_allocate_only_for_growth() {
     native(
         r#"
 mut heap = Heap[i64]()?
@@ -393,7 +392,7 @@ first = heap.pop().unwrap()
 jobs.push(Quiet(1)).unwrap()
 jobs.push(Quiet(2)).unwrap()
 top = jobs.pop().unwrap().n
-total = fold(map(filter(take(drain(heap), 5), even), square), 0, add)
+total = drain(heap).take(5).filter(even).map(square).fold(0, add)
 print("__test_restore_allocations__")?
 print("__test_end_no_allocations__")?
 print(least, first, top, total)?
@@ -459,19 +458,7 @@ fn unsupported_orders_sources_and_escaping_borrows_are_rejected() {
         stored.contains("closures with borrowed captures cannot be stored in generic data"),
         "{stored}"
     );
-    let borrowed = rejected(
-        "base = 3\nshift = (def [&base](n: i64) -> i64: n + base)\nfor n in map(naturals(), shift):\n    print(n)?",
-    );
-    assert!(
-        borrowed.contains("pass a borrowing closure by reference"),
-        "{borrowed}"
-    );
-    let list = rejected("values = [1, 2]?\nprint(fold(values, 0, add))?");
-    assert!(
-        list.contains("argument type list[i64] does not match"),
-        "{list}"
-    );
-    let view = rejected("values = [1, 2]?\nprint(fold((n for n in &values), 0, add))?");
+    let view = rejected("values = [1, 2]?\nprint((n for n in &values).fold(0, add))?");
     assert!(
         view.contains("generator expressions require owned inputs"),
         "{view}"

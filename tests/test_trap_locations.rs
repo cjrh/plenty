@@ -343,20 +343,20 @@ fn indirect_standard_calls_keep_the_dynamic_call_site() {
 fn a_user_callback_trap_keeps_its_own_position_without_a_standard_note() {
     let error = trap(&[(
         "main.plenty",
-        "from std.iter import fold\ndef values() -> Generator[i64]:\n    yield 0\ndef divide(a: i64, b: i64) -> i64:\n    a // b\ndef main() -> Result[(), IoError]:\n    print(fold(values(), 1, divide))?\n    Ok(())\n",
+        "from std.error import map_error\ndef divide(b: i64) -> i64:\n    1 // b\ndef main() -> Result[(), IoError]:\n    print(map_error(Result[i64, i64].Err(0), divide).is_err())?\n    Ok(())\n",
     )]);
-    assert_eq!(error, "error: main.plenty:5:5: division by zero\n");
+    assert_eq!(error, "error: main.plenty:3:5: division by zero\n");
 }
 
 #[test]
-fn a_callback_can_enter_std_again_through_nested_generator_adapters() {
+fn a_callback_can_enter_std_again_from_a_standard_call() {
     let error = trap(&[(
         "main.plenty",
-        "from std.math import abs\nfrom std.iter import map, take\ndef values() -> Generator[i64]:\n    yield -9223372036854775808\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), IoError]:\n    for x in take(map(values(), positive), 1):\n        print(x)?\n    Ok(())\n",
+        "from std.error import map_error\nfrom std.math import abs\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), IoError]:\n    print(map_error(Result[i64, i64].Err(-9223372036854775808), positive).is_err())?\n    Ok(())\n",
     )]);
     assert!(error.contains("integer overflow"), "{error}");
     assert!(
-        error.ends_with("note: called from main.plenty:6:5\n"),
+        error.ends_with("note: called from main.plenty:4:5\n"),
         "{error}"
     );
 }
@@ -500,13 +500,13 @@ fn standard_library_code_makes_no_caller_context_calls() {
 #[test]
 fn standard_indirect_calls_still_restore_the_caller_context() {
     let calls = caller_context_calls(
-        "from std.iter import fold\nfrom std.math import abs\ndef values() -> Generator[i64]:\n    yield 1\ndef positive(a: i64, b: i64) -> i64:\n    abs(a + b)\ndef main() -> Result[(), IoError]:\n    print(fold(values(), 0, positive))?\n    Ok(())\n",
+        "from std.error import map_error\nfrom std.math import abs\ndef positive(a: i64) -> i64:\n    abs(a + 1)\ndef main() -> Result[(), IoError]:\n    print(map_error(Result[i64, i64].Err(1), positive).is_err())?\n    Ok(())\n",
     );
-    let fold = calls
+    let map_error = calls
         .iter()
-        .find(|(header, _)| header.contains("source=std/iter.plenty"))
+        .find(|(header, _)| header.contains("source=std/error.plenty"))
         .unwrap_or_else(|| panic!("{calls:?}"));
-    assert_eq!(fold.1, 1, "{calls:?}");
+    assert_eq!(map_error.1, 1, "{calls:?}");
 }
 
 /// An executable's check ends in a `ud2` that the runtime's `SIGILL` handler

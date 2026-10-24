@@ -28,7 +28,6 @@ CASES = {
     "fluent_generator": "    numbers(stop).filter(even).map(square).fold(0, add)\n",
     "converted_range": "    iter(range(stop)).filter(even).map(square).generator().fold(0, add)\n",
     "converted_generator": "    numbers(stop).filter(even).map(square).generator().fold(0, add)\n",
-    "legacy": "    legacy.fold(legacy.map(legacy.filter(numbers(stop), even), square), 0, add)\n",
 }
 
 
@@ -49,8 +48,7 @@ def main():
         for label, body in CASES.items():
             source = root / f"{label}.plenty"
             binary = root / label
-            imports = "import std.iter as legacy\n" if label == "legacy" else ""
-            source.write_text(imports + DECLARATIONS + GENERATORS
+            source.write_text(DECLARATIONS + GENERATORS
                               + "def work(stop: i64) -> i64:\n" + body
                               + f"def main() -> ():\n    print(work({args.items})).unwrap()\n")
             elapsed, _ = measured([compiler, "--release", "--compile", str(source), "-o", str(binary)], env)
@@ -74,8 +72,7 @@ def main():
                                ("fluent_generator", "wrapped_generator"),
                                ("fluent_generator", "inline_generator"),
                                ("converted_range", "local_range"),
-                               ("converted_range", "legacy"),
-                               ("converted_generator", "legacy")]:
+                               ("converted_generator", "fluent_generator")]:
             print(f"{case}/{baseline}={medians[case] / medians[baseline]:.3f}")
         print(f"all results={expected.decode().strip()}")
 

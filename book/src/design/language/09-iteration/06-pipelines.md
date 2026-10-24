@@ -200,6 +200,5 @@ has its own suspension boundary. Local fluent consumption keeps its fused
 loop without relying on generator-frame fusion as an optimization.
 
 The [proposal](../../../proposals/fluent-iterators.md) describes the broader
-design; [B75](../../../backlog.md) tracks the remaining stages. `std.iter`
-remains available for compatibility; prefer fluent methods and explicit
-conversion for new code.
+design; [B75](../../../backlog.md) tracks the remaining stages. Pipelines
+replace the removed `std.iter` generator functions.
