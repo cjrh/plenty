@@ -1350,3 +1350,183 @@ def main() -> Result[(), AllocError | IoError]:
         "True\nTrue\nFalse\nOption[i64].Some(4)\nOption[i64].Some(14)\n306\n13\n2\n53\n612\n6\nTrue\nOption[i64].Some(36)\nOption[i64].Nothing\n",
     );
 }
+
+#[test]
+fn spliced_closure_literals_keep_call_semantics() {
+    output(
+        r#"
+def show(tag: str, n: i64) -> i64:
+    print(tag, n).unwrap()
+    n
+def main() -> Result[(), AllocError | IoError]:
+    mut k = 3
+    scaled = iter(range(3)).map(def [k](n: i64) -> i64: n * k)
+    k = 10
+    print(scaled.fold(0, def(a: i64, b: i64) -> i64: a + b), k)?
+    picked: list[i64] = iter(range(4)).filter(def(n: &i64) -> bool: show("test", *n) % 2 == 0).map(def(n: i64) -> i64: show("map", n) * 10).collect()?
+    print(picked)?
+    seen: list[i64] = []?
+    kept: list[i64] = iter(range(5)).filter(def [mut seen](n: &i64) -> bool: seen.append(*n).is_ok() and len(seen) % 2 == 0).collect()?
+    print(kept)?
+    words = ["a", "bb"]?
+    sizes: list[i64] = iter(range(2)).map(def [&words](i: i64) -> i64: len(words[i])).collect()?
+    print(sizes, len(words))?
+    print(iter(range(10)).find(def(n: &i64) -> bool: show("find", *n) > 1))?
+    print(iter(range(10)).take_while(def(n: &i64) -> bool: show("while", *n) < 2).count())?
+    nested: list[i64] = iter(range(3)).flat_map(def [k](n: i64) -> list[i64]: [n, n * k].unwrap()).collect()?
+    print(nested)?
+    Ok(())
+"#,
+        "9 10\ntest 0\nmap 0\ntest 1\ntest 2\nmap 2\ntest 3\n[0, 20]\n[1, 3]\n[1, 2] 2\nfind 0\nfind 1\nfind 2\nOption[i64].Some(2)\nwhile 0\nwhile 1\nwhile 2\n2\n[0, 0, 1, 10, 2, 20]\n",
+    );
+}
+
+#[test]
+fn spliced_closure_literals_keep_borrow_and_capture_diagnostics() {
+    for (source, expected) in [
+        (
+            "mut xs = [1, 2].unwrap()\np = iter(range(2)).map(def [&xs](i: i64) -> i64: xs[i])\nxs[0] = 5\nprint(p.count()).unwrap()\n",
+            "cannot modify or exclusively borrow `xs[0]` while `xs` is borrowed",
+        ),
+        (
+            "n = 2\nprint(iter(range(3)).map(def(x: i64) -> i64: x + n).count()).unwrap()\n",
+            "anonymous functions cannot capture `n`",
+        ),
+        (
+            "xs = [1].unwrap()\nprint(iter(range(2)).map(def [xs](i: i64) -> list[i64]: xs).count()).unwrap()\n",
+            "cannot move out of a closure capture",
+        ),
+        (
+            "s = [1].unwrap()\np = iter(range(2)).map(def [s](i: i64) -> i64: len(s) + i)\nprint(len(s)).unwrap()\nprint(p.count()).unwrap()\n",
+            "use of moved binding `s`",
+        ),
+    ] {
+        let error = support::check_source(source).map_or_else(
+            |error| error.to_string(),
+            |()| format!("accepted:\n{source}"),
+        );
+        assert!(error.contains(expected), "{source}\n{error}");
+    }
+}
+
+/// Owned captures move into the plan and are dropped with it, after an early
+/// exit and after each failed allocation; the runtime checks the balance.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn spliced_owned_captures_are_released_on_early_exit_and_allocation_failure() {
+    support::assert_visible_stdout(
+        r#"
+tags = [7, 8].unwrap()
+print(iter(range(10)).any(def [tags](n: &i64) -> bool: *n == len(tags))).unwrap()
+"#,
+        "True",
+    );
+    for budget in 0..=8 {
+        let source = format!(
+            r#"
+tags = [7, 8].unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result: Result[list[list[i64]], AllocError] = iter(range(3)).map(def [tags](n: i64) -> Result[list[i64], AllocError]: [n, tags[0]]).try_collect()
+print("__test_restore_allocations__").unwrap()
+match result:
+    case Ok(values):
+        print(len(values), values[2][1]).unwrap()
+    case Err(_):
+        print("allocation failed").unwrap()
+"#
+        );
+        support::assert_visible_stdout(
+            &source,
+            if budget == 8 {
+                "3 7"
+            } else {
+                "allocation failed"
+            },
+        );
+    }
+}
+
+fn dump_ops(source: &str, function: &str) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pipeline.plenty");
+    std::fs::write(&path, source).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .args(["--dump", "ops", "--dump-filter", function])
+        .arg(&path)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn closure_literals_in_a_chain_lower_into_the_fused_loop() {
+    let source = r#"
+def scaled(values: &list[i64], k: i64) -> i64:
+    iter(values).map(def [k](n: &i64) -> i64: *n * k).filter(def(n: &i64) -> bool: *n > 2).fold(0, def(a: i64, b: i64) -> i64: a + b)
+def reductions(n: i64) -> bool:
+    iter(range(n)).any(def(x: &i64) -> bool: *x == 7) and iter(range(n)).all(def(x: &i64) -> bool: *x < 9) and iter(range(n)).take_while(def(x: &i64) -> bool: *x < 3).find(def(x: &i64) -> bool: *x > 1).is_some()
+def visit(n: i64) -> ():
+    iter(range(n)).for_each(def(x: i64) -> (): print(x).unwrap())
+def nested(n: i64) -> i64:
+    iter(range(n)).flat_map(def(x: i64) -> list[i64]: [x, x].unwrap()).count()
+def stored(n: i64, k: i64) -> i64:
+    f = def [k](x: i64) -> i64:
+        x * k
+    iter(range(n)).map(f).count()
+def fallible(n: i64) -> Result[i64, AllocError]:
+    iter(range(n)).try_fold(0, def(a: i64, x: i64) -> Result[i64, AllocError]: Ok(a + len([x]?)))
+def main() -> ():
+    values = [1, 2, 3].unwrap()
+    print(scaled(&values, 2), reductions(10), nested(2)).unwrap()
+    visit(1)
+    print(stored(2, 3), fallible(2).unwrap()).unwrap()
+"#;
+    for function in ["scaled", "reductions", "visit", "nested"] {
+        let ops = dump_ops(source, function);
+        for absent in ["ClosureNew", "ClosureCall", "__plenty_closure"] {
+            assert!(!ops.contains(absent), "{function}: {absent}\n{ops}");
+        }
+    }
+    // A closure held in a local and a body with `?` keep the call.
+    for function in ["stored", "fallible"] {
+        let ops = dump_ops(source, function);
+        assert!(ops.contains("ClosureCall"), "{function}\n{ops}");
+    }
+}
+
+#[test]
+fn comprehensions_lower_to_the_same_ops_as_pipelines() {
+    let source = r#"
+def keep(x: &i64) -> bool:
+    *x % 3 != 0
+def twice(x: i64) -> i64:
+    x * 2
+def comprehension(n: i64) -> Result[list[i64], AllocError]:
+    [twice(x) for x in range(n) if keep(&x)]
+def pipeline(n: i64) -> Result[list[i64], AllocError]:
+    iter(range(n)).filter(keep).map(twice).collect()
+def main() -> ():
+    print(comprehension(10).unwrap(), pipeline(10).unwrap()).unwrap()
+"#;
+    // Source positions and loan bookkeeping differ by construction.
+    let normalized = |function| {
+        dump_ops(source, function)
+            .lines()
+            .skip_while(|line| !line.starts_with("local "))
+            .filter(|line| {
+                let op = line.trim_start();
+                let name = op.split([' ', '(']).next().unwrap();
+                !["Site", "CallerSite", "Access", "Loan", "UseLoan", "EndLoan"].contains(&name)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(normalized("comprehension"), normalized("pipeline"));
+    output(source, "[2, 4, 8, 10, 14, 16] [2, 4, 8, 10, 14, 16]\n");
+}

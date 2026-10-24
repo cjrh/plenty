@@ -900,6 +900,11 @@ impl Lower<'_> {
         if expected.as_ref().is_some_and(|ty| !kind_matches(kind, ty)) {
             return Err(e.at.error("collection type does not match its annotation"));
         }
+        if let Some(output) =
+            self.comprehension_pipeline(kind, entries, clauses, expected.clone(), &e.at, ops)?
+        {
+            return Ok(output);
+        }
         let start = self.locals.len();
         let owner = self.slot(Ty::I64, &e.at)?;
         let pending = self.slot(crate::sum::allocation_result(), &e.at)?;
@@ -1037,46 +1042,7 @@ impl Lower<'_> {
                 for (key, value) in entries {
                     let entry_start = ops.len();
                     ops.push(Op::LoadLocal(result));
-                    let element = ty.as_ref().and_then(Ty::element);
-                    let k = self
-                        .expr_expected(key, element, ops)?
-                        .ok_or_else(|| key.at.error("collection elements cannot be unit"))?;
-                    let inferred = if let Some(value) = value {
-                        let expected = match ty {
-                            Some(Ty::Dict(_, v)) => Some((**v).clone()),
-                            _ => None,
-                        };
-                        let v = self
-                            .expr_expected(value, expected, ops)?
-                            .ok_or_else(|| value.at.error("collection elements cannot be unit"))?;
-                        if !k.hashable() {
-                            return Err(key.at.error(
-                                "dictionary keys must be integers, bool, str, or tuples of these",
-                            ));
-                        }
-                        Ty::Dict(Arc::new(k), Arc::new(v))
-                    } else if kind == "set" {
-                        if !k.hashable() {
-                            return Err(key.at.error(
-                                "set elements must be integers, bool, str, or tuples of these",
-                            ));
-                        }
-                        Ty::Set(Arc::new(k))
-                    } else {
-                        Ty::List(Arc::new(k))
-                    };
-                    if let Some(expected) = ty {
-                        self.same(Some(inferred.clone()), Some(expected.clone()), &key.at)?;
-                    }
-                    // Hashable keys are copyable scalars or structural tuples.
-                    let barrier = match &inferred {
-                        Ty::Dict(_, t) | Ty::List(t) | Ty::Set(t) => t.storage_barrier(),
-                        _ => None,
-                    };
-                    if let Some(barrier) = barrier {
-                        return Err(key.at.error(barrier.message("collections")));
-                    }
-                    *ty = Some(inferred.clone());
+                    let inferred = self.comprehension_entry(key, value.as_ref(), kind, ty, ops)?;
                     if let Some(pending) = pending {
                         ops.push(Op::Collection(CollectionOp::TryInsert(inferred)));
                         ops.push(Op::StoreLocal(pending));
@@ -1091,6 +1057,131 @@ impl Lower<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Push one entry's key, then its value for a dict, and refine the
+    /// collection type `ty` from them. Returns the refined collection type.
+    fn comprehension_entry(
+        &mut self,
+        key: &Expr,
+        value: Option<&Expr>,
+        kind: &str,
+        ty: &mut Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let element = ty.as_ref().and_then(Ty::element);
+        let k = self
+            .expr_expected(key, element, ops)?
+            .ok_or_else(|| key.at.error("collection elements cannot be unit"))?;
+        let inferred = if let Some(value) = value {
+            let expected = match ty {
+                Some(Ty::Dict(_, v)) => Some((**v).clone()),
+                _ => None,
+            };
+            let v = self
+                .expr_expected(value, expected, ops)?
+                .ok_or_else(|| value.at.error("collection elements cannot be unit"))?;
+            if !k.hashable() {
+                return Err(key
+                    .at
+                    .error("dictionary keys must be integers, bool, str, or tuples of these"));
+            }
+            Ty::Dict(Arc::new(k), Arc::new(v))
+        } else if kind == "set" {
+            if !k.hashable() {
+                return Err(key
+                    .at
+                    .error("set elements must be integers, bool, str, or tuples of these"));
+            }
+            Ty::Set(Arc::new(k))
+        } else {
+            Ty::List(Arc::new(k))
+        };
+        if let Some(expected) = ty {
+            self.same(Some(inferred.clone()), Some(expected.clone()), &key.at)?;
+        }
+        // Hashable keys are copyable scalars or structural tuples.
+        let barrier = match &inferred {
+            Ty::Dict(_, t) | Ty::List(t) | Ty::Set(t) => t.storage_barrier(),
+            _ => None,
+        };
+        if let Some(barrier) = barrier {
+            return Err(key.at.error(barrier.message("collections")));
+        }
+        *ty = Some(inferred.clone());
+        Ok(inferred)
+    }
+
+    /// Lower a comprehension with one `for` and any `if` clauses as the
+    /// pipeline `iter(s).filter(..).map(..).collect()`: the same iteration,
+    /// filter steps and known-length reserve. Other shapes return `None`.
+    fn comprehension_pipeline(
+        &mut self,
+        kind: &str,
+        entries: &[(Expr, Option<Expr>)],
+        clauses: &[Clause],
+        expected: Type,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Option<Ty>> {
+        let ([Clause::For(names, iterable), filters @ ..], [(key, value)]) = (clauses, entries)
+        else {
+            return Ok(None);
+        };
+        if filters
+            .iter()
+            .any(|clause| matches!(clause, Clause::For(..)))
+        {
+            return Ok(None);
+        }
+        let start = self.locals.len();
+        let saved = self.names.clone();
+        let hint = comprehension_hint(names, entries, expected.as_ref());
+        let mut iteration = self.iteration(names, iterable, hint, ops)?;
+        for filter in filters {
+            let Clause::If(condition) = filter else {
+                unreachable!()
+            };
+            let temporaries = self.expression_temps.len();
+            let accepted = self.expr(condition, &mut iteration.body)?;
+            self.same(accepted, Some(Ty::Bool), &condition.at)?;
+            self.finish_temporaries(temporaries, &mut iteration.body);
+            iteration.exact_len = None;
+            let mut rejected = iteration.step.clone();
+            rejected.push(Op::Continue);
+            iteration.body.push(branch(vec![], rejected));
+        }
+        let temporaries = self.expression_temps.len();
+        let mut ty = expected;
+        let target =
+            self.comprehension_entry(key, value.as_ref(), kind, &mut ty, &mut iteration.body)?;
+        let item = match &target {
+            Ty::Dict(k, v) => {
+                let item = crate::sum::tuple(vec![(**k).clone(), (**v).clone()]);
+                let Ty::Enum(tuple) = &item else {
+                    unreachable!()
+                };
+                iteration
+                    .body
+                    .push(Op::Enum(crate::sum::EnumOp::New(tuple.clone(), 0)));
+                item
+            }
+            _ => target.element().unwrap(),
+        };
+        self.names = saved;
+        if target.layout_depth() >= 64 {
+            return Err(at.error("type nesting exceeds the implementation limit of 64"));
+        }
+        let slot = self.slot(item.clone(), at)?;
+        iteration.body.push(Op::StoreLocal(slot));
+        self.finish_temporaries(temporaries, &mut iteration.body);
+        if item.managed() {
+            iteration.step.push(Op::DropLocal(slot));
+        }
+        iteration.target = slot;
+        let output = self.collect_iteration(iteration, target, None, at, ops)?;
+        self.cleanup(start, ops);
+        Ok(Some(output))
     }
 
     pub(super) fn dictionary_iteration(

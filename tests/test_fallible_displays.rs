@@ -78,12 +78,38 @@ fn comprehension_growth_failure_reclaims_owned_elements() {
                 r#"
 source = [[1].unwrap(), [2].unwrap(), [3].unwrap(), [4].unwrap(), [5].unwrap(), [6].unwrap(), [7].unwrap(), [8].unwrap(), [9].unwrap()].unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
-result = [value for value in source]
+result = [value for value in source if len(value) > 0]
 print("__test_restore_allocations__").unwrap()
 print(str.repr(result).unwrap()).unwrap()
 "#
             ),
             if budget == 4 {
+                "Result[list[list[i64]], AllocError].Ok([[1], [2], [3], [4], [5], [6], [7], [8], [9]])"
+            } else {
+                "Result[list[list[i64]], AllocError].Err(AllocError.OutOfMemory)"
+            },
+        );
+    }
+}
+
+/// An unfiltered comprehension over a sized source reserves its length up
+/// front, as `collect` does, so only the list's two initial allocations can
+/// fail and it never grows; the moved source's elements are still reclaimed.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn sized_comprehension_reserves_once_and_reclaims_its_source() {
+    for budget in 0..=2 {
+        native(
+            &format!(
+                r#"
+source = [[1].unwrap(), [2].unwrap(), [3].unwrap(), [4].unwrap(), [5].unwrap(), [6].unwrap(), [7].unwrap(), [8].unwrap(), [9].unwrap()].unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = [value for value in source]
+print("__test_restore_allocations__").unwrap()
+print(str.repr(result).unwrap()).unwrap()
+"#
+            ),
+            if budget == 2 {
                 "Result[list[list[i64]], AllocError].Ok([[1], [2], [3], [4], [5], [6], [7], [8], [9]])"
             } else {
                 "Result[list[list[i64]], AllocError].Err(AllocError.OutOfMemory)"

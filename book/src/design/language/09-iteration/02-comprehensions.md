@@ -15,6 +15,14 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 ```
 
+A comprehension with one `for` clause and any number of `if` clauses lowers to
+the same loop as the equivalent [pipeline](06-pipelines.md):
+`[f(x) for x in s if p(x)]` runs as `iter(s).filter(p).map(f).collect()` would,
+with no hidden function. Its iterable is evaluated before the output is
+allocated. Over a known-length range or list without filters, the output
+reserves its full length once and never grows. Comprehensions with several
+`for` clauses keep the nested loop.
+
 Comprehension bindings have their own scope; the first iterable sees the
 enclosing scope. Flat tuple targets are supported. Conditional expressions in
 iterables or filters must be parenthesized. Parenthesized

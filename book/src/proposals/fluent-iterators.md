@@ -498,9 +498,10 @@ declared target type.
 `collect()`, so there is one spelling.
 
 There is no `.sum()`, `.min()` or `.max()` method. Numeric helpers belong in
-`std.math`; extend `std.math.sum_iter`/`prod_iter`/`min_all`/`max_all` to
-accept a pipeline (or add pipeline overloads there), so `sum` keeps one home.
-`fold` covers the rest.
+`std.math`, so `sum` keeps one home. They accept pipelines in stage 3: with
+`&mut Iter[T]` parameters, `sum_iter`/`prod_iter`/`min_all`/`max_all` become
+ordinary generic functions, for example `sum_iter(&mut pipeline, 0)`, with no
+compiler special case. Until then `.fold` covers sums and the rest.
 
 ### Errors
 
@@ -646,6 +647,8 @@ Acceptance for the implementation, not optional extras:
   `iter(s).filter(p).map(f).collect()` into a `list` target. Comprehensions stay: they are the
   Python-shaped way to build a collection, and the tutorial teaches them first.
   The two forms must produce the same operations; that is a test, not a goal.
+  Implemented for one `for` clause with any `if` clauses, for lists, sets and
+  dictionaries; several `for` clauses keep the nested loop.
 - `.generator()` converts an eligible prepared pipeline into one frame. Ordinary
   generator expressions keep their existing syntax and owned-source rules;
   an unconverted pipeline is not a valid generator-expression source. Stored
@@ -746,7 +749,7 @@ benefit and whether effect checks are sufficient.
   [iteration](../design/language/09-iteration/index.md); update
   [adapters](../design/language/09-iteration/04-adapters.md) (enumerate/zip
   become pipeline starts), the `std.iter` page, `std.math` (`sum_iter` and
-  friends accept pipelines), parallel mapping, the cheat sheet and
+  friends accept lent pipelines in stage 3), parallel mapping, the cheat sheet and
   `support.md`.
 - **Compatibility.** No existing program changes meaning: `iter` is a new name
   (a user function named `iter` keeps priority, as with `enumerate`), and
@@ -820,15 +823,22 @@ scope, with lending for helpers, ships the useful part now.
    Small scalar leaf callback substitution and SSA scalar captures are also
    implemented; [measurements](../development/profiling.md#serial-pipeline-callbacks)
    cover the original workload. Generator fluent entry and the explicit owned
-   `.generator()` bridge also landed independently of composition. General
-   callback-body splicing remains separate.
-2. **Stage 2 — composition.** `chain`, `flat_map`, broader closure-body splicing,
-   comprehensions lowered through the pipeline plan, `std.math` pipeline
-   helpers, tutorial rewrite and `std.iter` deprecation.
+   `.generator()` bridge also landed independently of composition.
+2. **Stage 2 — composition.** `chain`, `flat_map`, closure-literal splicing,
+   comprehensions lowered through the pipeline plan, tutorial rewrite and
+   `std.iter` deprecation. `chain` and `flat_map` are implemented. Closure
+   literals written in a chain are lowered in place for every adapter and
+   callback terminal; literals with `?`, `match`, several statements or a
+   nested closure, and closures held in locals, keep the call. Single-`for`
+   comprehensions lower through the plan and produce the same operations as
+   the equivalent `filter`/`map`/`collect` chain; multi-`for` comprehensions
+   and generator expressions keep their own lowering.
 3. **Stage 3 — lending.** `&mut Iter[T]` parameters specialized per pipeline
    type, `next(p)`, resumable slot state for every adapter, store-back only for
    lent pipelines, and partial consumption followed by collection in the
-   caller. Measure instance counts in `compile_bench`.
+   caller. Measure instance counts in `compile_bench`. The `std.math` pipeline
+   helpers move here from stage 2: with lent pipelines they are ordinary
+   generic functions such as `sum_iter(&mut pipeline, 0)`.
 4. **Stage 4 — parallel.** `.par(&pool)` with chunked fused jobs (one chunk
    per logical core by default), the allowed-step rules, and
    `collect`/`try_collect`/`reduce`/`count`/`any`/`all`.

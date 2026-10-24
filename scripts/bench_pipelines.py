@@ -38,6 +38,15 @@ CAPTURED = """    parity = 2
     modulus = 1000
     iter(range(stop)).filter(def [parity](n: &i64) -> bool: *n % parity == 0).map(def [modulus](n: i64) -> i64: (n * n) % modulus).fold(0, add)
 """
+# A branching callback, compared with its own loop.
+BRANCH_LOOP = """    mut total = 0
+    for n in range(stop):
+        total += (n * 3) % 1000 if n % 3 == 0 else n % 7
+    total
+"""
+BRANCH = """    iter(range(stop)).map(def(n: i64) -> i64: (n * 3) % 1000 if n % 3 == 0 else n % 7).fold(0, def(a: i64, b: i64) -> i64: a + b)
+"""
+BODIES = {"named": PIPELINE, "closure": CLOSURE, "captured": CAPTURED, "branch-loop": BRANCH_LOOP, "branch": BRANCH}
 
 
 def measured(command, env):
@@ -52,7 +61,7 @@ def main():
     parser.add_argument("--items", type=int, default=20_000_000)
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--units", type=int, default=100)
-    parser.add_argument("--cases", nargs="+", choices=["named", "closure", "captured"], default=["named", "closure", "captured"])
+    parser.add_argument("--cases", nargs="+", choices=["named", "closure", "captured", "branch"], default=["named", "closure", "captured", "branch"])
     args = parser.parse_args()
     if min(args.items, args.runs, args.units) < 1:
         parser.error("items, runs and units must be positive")
@@ -61,8 +70,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix="plenty-pipelines-") as directory:
         root = Path(directory)
         timings = {}
-        expected = None
-        cases = [("loop", LOOP)] + [(label, {"named": PIPELINE, "closure": CLOSURE, "captured": CAPTURED}[label]) for label in args.cases]
+        expected = {}
+        labels = ["loop"] + [label for label in args.cases if label != "branch"]
+        if "branch" in args.cases:
+            labels += ["branch-loop", "branch"]
+        cases = [(label, BODIES.get(label, LOOP)) for label in labels]
+        baseline = lambda label: "branch-loop" if label.startswith("branch") else "loop"
         executables = {}
         for label, body in cases:
             source = root / f"{label}.plenty"
@@ -84,17 +97,19 @@ def main():
             order = cases if run % 2 == 0 else list(reversed(cases))
             for label, _ in order:
                 duration, stdout = measured([str(executables[label])], env)
-                if expected is None:
-                    expected = stdout
-                if stdout != expected:
+                group = baseline(label)
+                if group not in expected:
+                    expected[group] = stdout
+                if stdout != expected[group]:
                     raise RuntimeError(f"{label} produced a different result")
                 timings[label].append(duration)
         medians = {label: statistics.median(samples) for label, samples in timings.items()}
         for label, _ in cases:
-            print(f"{label}: native median={medians[label]:.6f}s result={expected.decode().strip()}")
+            group = baseline(label)
+            print(f"{label}: native median={medians[label]:.6f}s result={expected[group].decode().strip()}")
             print(f"{label}: native samples=" + ",".join(f"{sample:.6f}" for sample in timings[label]))
-            if label != "loop":
-                print(f"{label}/loop runtime ratio={medians[label] / medians['loop']:.3f}")
+            if label != group:
+                print(f"{label}/{group} runtime ratio={medians[label] / medians[group]:.3f}")
 
 
 if __name__ == "__main__":

@@ -40,8 +40,10 @@ def main() -> Result[(), AllocError | IoError]:
 expected list[i64]
 ```
 
-Comprehensions grow their output collection in place. The `?` handles allocation
-failure.
+A comprehension over a range or list with no `if` clause reserves its full
+length once; with a filter or another source it grows the output in place. The
+`?` handles allocation failure. A comprehension with one `for` clause compiles
+to the same loop as the equivalent [pipeline](../10-functions/pipelines.md).
 
 ## Collect a snapshot with unpacking
 
