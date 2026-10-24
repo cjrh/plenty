@@ -733,10 +733,7 @@ fn instance_name(name: &str, args: &[Ty], f: impl Fn(&Ty) -> String) -> String {
     format!("{name}[{args}]")
 }
 
-fn substitute_method(
-    method: &mut Function,
-    substitutions: &HashMap<String, TypeRef>,
-) -> Result<()> {
+fn substitute_method(method: &mut Function, substitutions: &generics::Substitution) -> Result<()> {
     for bound in method
         .type_params
         .iter_mut()

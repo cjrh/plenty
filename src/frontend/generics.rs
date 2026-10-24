@@ -2,9 +2,19 @@
 use super::*;
 use crate::ownership::Instantiation;
 use std::collections::VecDeque;
+use std::fmt::Write as _;
 
 const MAX_SPECIALIZATION_DEPTH: usize = 256;
-const MAX_FUNCTION_INSTANCES: usize = 16_384;
+/// Bounds expansion that branches within the depth limit, such as `f[T]`
+/// requiring both `f[list[T]]` and `f[Box[T]]`. A program has finitely many
+/// templates, so unbounded expansion must grow one of them without bound
+/// (issue #428).
+const MAX_TEMPLATE_INSTANCES: usize = 16_384;
+/// Bounds the work of expansion that drags other templates along, each of
+/// which can approach the per-template limit before one reaches it. Breadth
+/// stays well below it: the 200x200 generic compile benchmark needs 40,000
+/// (issue #428).
+const MAX_FUNCTION_INSTANCES: usize = 262_144;
 
 /// The type parser rejects `Callable` and `OnceCallable` without a signature,
 /// so a callable bound always carries at least its return type in `args`.
@@ -145,6 +155,8 @@ pub(super) fn prepare(
         call_wrappers: HashMap::default(),
         deferred_reporting: HashMap::default(),
         cache: HashMap::default(),
+        template_instances: HashMap::default(),
+        instances: 0,
         specialization_depths: HashMap::default(),
         // One entry per function: sized up front, these are not rehashed
         // key by key at every doubling (issue #57).
@@ -202,7 +214,15 @@ pub(super) struct Engine {
     /// Conditional Context methods retain their declarations without lowering
     /// an unsupported cause's formatting body merely by constructing Context.
     deferred_reporting: HashMap<String, (functions::Symbol, Arc<Function>)>,
+    /// Function instance symbols by template and type arguments.
     cache: HashMap<(String, Vec<Ty>), String>,
+    /// Instances of each template, which `MAX_TEMPLATE_INSTANCES` limits.
+    /// Counted here rather than by keying the cache by template: most
+    /// templates have one instance, and a table per template costs more
+    /// than that instance.
+    template_instances: HashMap<String, usize>,
+    /// Function instances created, which number their symbols.
+    instances: usize,
     /// First-requiring dependency depth, also inherited by lifted code.
     specialization_depths: HashMap<String, usize>,
     /// Functions to lower, with their symbols in the function table.
@@ -315,7 +335,37 @@ impl Engine {
     }
 }
 
-pub(super) type Substitution = HashMap<String, TypeRef>;
+/// Type parameters with their replacements. A declaration has few type
+/// parameters, so a scan beats allocating a hash table per instance and
+/// hashing every name substitution probes (issue #428).
+#[derive(Default)]
+pub(super) struct Substitution(Vec<(String, TypeRef)>);
+
+impl Substitution {
+    pub(super) fn get(&self, name: &str) -> Option<&TypeRef> {
+        self.0
+            .iter()
+            .find_map(|(parameter, t)| (parameter == name).then_some(t))
+    }
+
+    /// Adds a replacement, or replaces the one `name` has.
+    pub(super) fn insert(&mut self, name: String, replacement: TypeRef) {
+        match self.0.iter_mut().find(|(parameter, _)| *parameter == name) {
+            Some((_, t)) => *t = replacement,
+            None => self.0.push((name, replacement)),
+        }
+    }
+}
+
+impl FromIterator<(String, TypeRef)> for Substitution {
+    fn from_iter<I: IntoIterator<Item = (String, TypeRef)>>(pairs: I) -> Self {
+        let mut substitution = Self::default();
+        for (name, replacement) in pairs {
+            substitution.insert(name, replacement);
+        }
+        substitution
+    }
+}
 
 /// Reify concrete types without parsing their display names or losing nominal identity.
 pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
@@ -666,8 +716,7 @@ impl Lower<'_> {
             self.access,
             &self.function_name,
         )?;
-        if let Some(f) = function {
-            let instance = self.generics.diagnostic_name(&symbol);
+        if let Some((f, instance)) = function {
             let instance: Arc<str> = crate::record::method_display(&instance).into();
             let required = Arc::new(match self.generics.required.get(&self.function_name) {
                 Some(outer) => Instantiation {
@@ -852,6 +901,21 @@ impl Lower<'_> {
     }
 }
 
+/// `name[types]`, as diagnostics name an instance.
+fn instance_name(name: &str, types: &[Ty]) -> String {
+    let mut out = String::with_capacity(name.len() + 2 + 8 * types.len());
+    out.push_str(name);
+    out.push('[');
+    for (i, ty) in types.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        write!(out, "{ty}").unwrap();
+    }
+    out.push(']');
+    out
+}
+
 pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result<()> {
     if t.concrete.is_some() {
         return Ok(());
@@ -884,21 +948,14 @@ impl Engine {
         }
     }
 
+    /// Scans every instance, so it is for diagnostics only: lowering takes a
+    /// new instance's name from `instantiate`.
     pub(super) fn diagnostic_name(&self, symbol: &str) -> String {
         self.cache
             .iter()
             .chain(self.frames.iter())
             .find_map(|((name, types), instance)| {
-                (instance == symbol).then(|| {
-                    format!(
-                        "{name}[{}]",
-                        types
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                })
+                (instance == symbol).then(|| instance_name(name, types))
             })
             .unwrap_or_else(|| symbol.into())
     }
@@ -1070,7 +1127,7 @@ impl Engine {
         aliases: &TypeAliases,
         access: &modules::AccessMap,
         parent: &str,
-    ) -> Result<(String, Option<Function>)> {
+    ) -> Result<(String, Option<(Function, String)>)> {
         let template = self
             .templates
             .get(name)
@@ -1081,17 +1138,22 @@ impl Engine {
                 template.type_params.len()
             )));
         }
-        let key = (name.to_owned(), actual.clone());
+        let mut key = (name.to_owned(), actual);
         if let Some(symbol) = self.cache.get(&key) {
             return Ok((symbol.clone(), None));
         }
+        // The cache keeps the type arguments, which callers collect with
+        // spare capacity.
+        key.1.shrink_to_fit();
+        let actual = &key.1;
+        let count = self.template_instances.get(name).copied().unwrap_or(0);
         let replacements: Substitution = template
             .type_params
             .iter()
             .map(|(n, _)| n.clone())
             .zip(actual.iter().map(|ty| type_ref(ty, at)))
             .collect();
-        for ((_, bound), ty) in template.type_params.iter().zip(&actual) {
+        for ((_, bound), ty) in template.type_params.iter().zip(actual) {
             if ty.key_view() {
                 return Err(at.error("dictionary key views are local-only and cannot be user-function type arguments; materialise keys_snapshot() or to_set()"));
             }
@@ -1135,20 +1197,29 @@ impl Engine {
                 }
             }
         }
-        // Bound repeated expansion separately from unrelated library breadth.
-        // Cache hits above consume neither budget, including recursive calls.
+        // Depth bounds chains of new instances and the per-template count
+        // bounds branching; neither counts unrelated templates, which only
+        // the total resource budget does. Cache hits above consume no limit,
+        // including recursive calls.
         let depth = self.specialization_depths.get(parent).copied().unwrap_or(0) + 1;
         if depth > MAX_SPECIALIZATION_DEPTH {
             return Err(at.error(format!(
                 "generic specialization dependency depth limit of {MAX_SPECIALIZATION_DEPTH} exceeded; check for expanding recursion or a long chain of generic calls"
             )));
         }
-        if self.cache.len() >= MAX_FUNCTION_INSTANCES {
+        if count >= MAX_TEMPLATE_INSTANCES {
+            return Err(at.error(format!(
+                "generic specialization limit of {MAX_TEMPLATE_INSTANCES} instances of `{}` exceeded; check for expanding recursion",
+                crate::record::method_display(name)
+            )));
+        }
+        if self.instances >= MAX_FUNCTION_INSTANCES {
             return Err(at.error(format!(
                 "total generic function specialization budget of {MAX_FUNCTION_INSTANCES} exceeded"
             )));
         }
-        let symbol = format!("__plenty_generic_{}", self.cache.len());
+        let mut symbol = String::with_capacity(24);
+        write!(symbol, "__plenty_generic_{}", self.instances).unwrap();
         if self.protocol_instances.contains(name)
             || template.type_params.iter().any(|(_, bound)| {
                 bound
@@ -1159,9 +1230,23 @@ impl Engine {
         {
             self.protocol_instances.insert(symbol.clone());
         }
-        let mut f = (**template).clone();
-        f.name = symbol.clone();
-        f.type_params.clear();
+        // Every field but the name and type parameters, which the instance
+        // replaces: cloning those would allocate only to free.
+        let mut f = Function {
+            once: template.once,
+            captures: template.captures.clone(),
+            foreign: template.foreign.clone(),
+            export: template.export.clone(),
+            name: symbol.clone(),
+            type_params: Vec::new(),
+            at: template.at.clone(),
+            inputs: template.inputs.clone(),
+            defaults: template.defaults.clone(),
+            output: template.output.clone(),
+            doc: template.doc.clone(),
+            doc_at: template.doc_at.clone(),
+            body: template.body.clone(),
+        };
         for (_, ty) in &mut f.inputs {
             substitute(ty, &replacements)?;
         }
@@ -1169,11 +1254,19 @@ impl Engine {
         for default in f.defaults.iter_mut().flatten() {
             substitute_expr(default, &replacements)?;
         }
+        let display = instance_name(name, actual);
         // Cache before queueing the body, so recursive calls share this instance.
         self.cache.insert(key, symbol.clone());
+        match self.template_instances.get_mut(name) {
+            Some(count) => *count += 1,
+            None => {
+                self.template_instances.insert(name.to_owned(), 1);
+            }
+        }
+        self.instances += 1;
         self.specialization_depths.insert(symbol.clone(), depth);
         substitute_block(&mut f.body, &replacements)?;
-        Ok((symbol, Some(f)))
+        Ok((symbol, Some((f, display))))
     }
 }
 
