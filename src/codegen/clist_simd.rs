@@ -6,6 +6,7 @@ use crate::collection::CollectionOp;
 use crate::op::{IntegerOp, Pattern};
 use crate::value::Value as Literal;
 use cranelift_codegen::ir::MemFlagsData;
+use cranelift_codegen::ir::condcodes::CondCode;
 
 fn operations(ops: &[Op]) -> Vec<&Op> {
     ops.iter()
@@ -28,14 +29,132 @@ fn step(ops: &[&Op], index: u8) -> bool {
         Op::Integer(IntegerOp::WrappingAdd), Op::StoreLocal(b)] if *a == index && *b == index)
 }
 
+#[derive(Clone)]
+enum Threshold {
+    Constant(i64),
+    Capture(u8),
+}
+
+#[derive(Clone)]
+struct Comparison {
+    condition: IntCC,
+    threshold: Threshold,
+}
+
+#[derive(Clone)]
+pub(super) struct Predicate {
+    ty: Ty,
+    captures: usize,
+    comparisons: Vec<Comparison>,
+}
+
+fn comparison(ops: &[&Op], ty: &Ty, item: u8) -> Option<Comparison> {
+    let (compare, operands) = ops.split_last()?;
+    let signed = *ty == Ty::I32;
+    let condition = match compare {
+        Op::Eq => IntCC::Equal,
+        Op::Ne => IntCC::NotEqual,
+        Op::Lt if signed => IntCC::SignedLessThan,
+        Op::Le if signed => IntCC::SignedLessThanOrEqual,
+        Op::Gt if signed => IntCC::SignedGreaterThan,
+        Op::Ge if signed => IntCC::SignedGreaterThanOrEqual,
+        Op::Lt => IntCC::UnsignedLessThan,
+        Op::Le => IntCC::UnsignedLessThanOrEqual,
+        Op::Gt => IntCC::UnsignedGreaterThan,
+        Op::Ge => IntCC::UnsignedGreaterThanOrEqual,
+        _ => return None,
+    };
+    let reads_item = |ops: &[&Op]| matches!(ops, [Op::LoadLocal(slot), Op::ReadRef(t)] if *slot == item && t == ty);
+    let threshold = |ops: &[&Op]| match ops {
+        [Op::PushInt(Literal::I32(n))] if *ty == Ty::I32 => {
+            Some(Threshold::Constant(i64::from(*n)))
+        }
+        [Op::PushInt(Literal::U32(n))] if *ty == Ty::U32 => {
+            Some(Threshold::Constant(i64::from(*n)))
+        }
+        [Op::LoadLocal(slot), Op::ReadRef(t)] if *slot < item && t == ty => {
+            Some(Threshold::Capture(*slot))
+        }
+        _ => None,
+    };
+    if operands.len() >= 2 && reads_item(&operands[..2]) {
+        Some(Comparison {
+            condition,
+            threshold: threshold(&operands[2..])?,
+        })
+    } else if operands.len() >= 2 && reads_item(&operands[operands.len() - 2..]) {
+        Some(Comparison {
+            condition: condition.swap_args(),
+            threshold: threshold(&operands[..operands.len() - 2])?,
+        })
+    } else {
+        None
+    }
+}
+
+fn predicate(body: &[Op], function: &UserFn) -> Option<Predicate> {
+    if body.len() > 48 || function.generator.is_some() || !function.locals.is_empty() {
+        return None;
+    }
+    let inputs = &function.sig.inputs;
+    let captures = inputs.len().checked_sub(1)?;
+    let Ty::Ref(ty, false) = &inputs.last()?.1 else {
+        return None;
+    };
+    if captures > 2
+        || !matches!(ty.as_ref(), Ty::I32 | Ty::U32)
+        || inputs
+            .iter()
+            .any(|(_, input)| input != &inputs.last().unwrap().1)
+        || function.sig.outputs.as_slice() != [Ty::Bool]
+    {
+        return None;
+    }
+    let ops = operations(body);
+    let comparisons = if let Some(Op::Match(arms)) = ops.last().copied() {
+        // Source `and` short-circuits through this exact branch. Both accepted
+        // comparisons only read immutable scalar values, so evaluating their
+        // masks eagerly cannot add calls, traps, effects or observable reads.
+        let [yes, no] = arms.as_ref() else {
+            return None;
+        };
+        if yes.body.len() > 24
+            || no.body.len() > 8
+            || yes.pattern != Pattern::Bool(true)
+            || no.pattern != Pattern::Bool(false)
+            || !matches!(operations(&no.body).as_slice(), [Op::PushBool(false)])
+        {
+            return None;
+        }
+        vec![
+            comparison(&ops[..ops.len() - 1], ty, captures as u8)?,
+            comparison(&operations(&yes.body), ty, captures as u8)?,
+        ]
+    } else {
+        vec![comparison(&ops, ty, captures as u8)?]
+    };
+    Some(Predicate {
+        ty: ty.as_ref().clone(),
+        captures,
+        comparisons,
+    })
+}
+
+pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<String, UserFn>) {
+    for (name, body) in bodies {
+        let function = functions.get_mut(name).unwrap();
+        function.column_predicate = predicate(body, function).map(Arc::new);
+    }
+}
+
 struct Scan {
     address: u8,
     index: u8,
     length: u8,
     item: u8,
     count: u8,
-    comparison: IntCC,
-    constant: i64,
+    environment: Option<(u8, Arc<crate::closure::ClosureType>)>,
+    predicate: Arc<Predicate>,
 }
 
 impl Lowerer<'_, '_> {
@@ -66,8 +185,13 @@ impl Lowerer<'_, '_> {
                 Op::BorrowLocal(env, false),
                 Op::BorrowLocal(arg, false),
                 Op::ClosureCall(closure),
-            ] if closure.captures.is_empty() && !closure.mutable && !closure.once => {
-                (closure.name.as_str(), Some(*env), *arg)
+            ] if !closure.mutable
+                && !closure.once
+                && closure.captures.len() <= 2
+                && closure.captures.iter().all(|(_, t)| t == ty)
+                && self.locals[*env as usize].1 == Ty::Closure(closure.clone()) =>
+            {
+                (closure.name.as_str(), Some((*env, closure.clone())), *arg)
             }
             [Op::BorrowLocal(arg, false), Op::Call(name)] => (name.as_str(), None, *arg),
             _ => return None,
@@ -105,7 +229,10 @@ impl Lowerer<'_, '_> {
             return None;
         }
         let slots = [*address, *index, *length, *item, *count];
-        if environment.is_some_and(|env| slots.contains(&env)) {
+        if environment
+            .as_ref()
+            .is_some_and(|(env, _)| slots.contains(env))
+        {
             return None;
         }
         for (i, slot) in slots.iter().enumerate() {
@@ -119,20 +246,20 @@ impl Lowerer<'_, '_> {
                 return None;
             }
         }
-        let (comparison, constant) = self
-            .user_fns
-            .get(callee)?
-            .inline
-            .as_ref()?
-            .column_comparison(ty)?;
+        let predicate = self.user_fns.get(callee)?.column_predicate.as_ref()?;
+        if predicate.ty != *ty
+            || predicate.captures != environment.as_ref().map_or(0, |(_, t)| t.captures.len())
+        {
+            return None;
+        }
         Some(Scan {
             address: *address,
             index: *index,
             length: *length,
             item: *item,
             count: *count,
-            comparison,
-            constant,
+            environment,
+            predicate: predicate.clone(),
         })
     }
 
@@ -155,8 +282,37 @@ impl Lowerer<'_, '_> {
         let address = self.read_local(scan.address);
         let length = self.read_local(scan.length);
         let end = self.bcx.ins().band_imm_s(length, -4);
-        let threshold = self.bcx.ins().iconst(types::I32, scan.constant);
-        let threshold = self.bcx.ins().splat(types::I32X4, threshold);
+        let environment = scan
+            .environment
+            .as_ref()
+            .map(|(slot, ty)| (self.read_local(*slot), ty));
+        let comparisons: Vec<_> = scan
+            .predicate
+            .comparisons
+            .iter()
+            .map(|comparison| {
+                let threshold = match comparison.threshold {
+                    Threshold::Constant(value) => self.bcx.ins().iconst(types::I32, value),
+                    Threshold::Capture(slot) => {
+                        let (storage, ty) =
+                            environment.as_ref().expect("validated capture environment");
+                        // Read the closure's own snapshot, not the source binding.
+                        // Only immutable by-value scalar captures reach this path.
+                        let packed = self.bcx.ins().load(
+                            types::I128,
+                            MemFlagsData::trusted(),
+                            *storage,
+                            ty.offset(slot as usize) as i32,
+                        );
+                        self.unpack(packed, &scan.predicate.ty)
+                    }
+                };
+                (
+                    comparison.condition,
+                    self.bcx.ins().splat(types::I32X4, threshold),
+                )
+            })
+            .collect();
         let zero = self.bcx.ins().iconst(types::I64, 0);
         let sum = self.bcx.ins().splat(types::I64X2, zero);
         let header = self.bcx.create_block();
@@ -180,7 +336,12 @@ impl Lowerer<'_, '_> {
             self.bcx
                 .ins()
                 .load(types::I32X4, MemFlagsData::new().with_notrap(), pointer, 0);
-        let mask = self.bcx.ins().icmp(scan.comparison, values, threshold);
+        let (condition, threshold) = comparisons[0];
+        let mut mask = self.bcx.ins().icmp(condition, values, threshold);
+        if let Some(&(condition, threshold)) = comparisons.get(1) {
+            let other = self.bcx.ins().icmp(condition, values, threshold);
+            mask = self.bcx.ins().band(mask, other);
+        }
         // Widen -1/0 masks before summing: 32-bit lane counters would wrap on
         // a valid large column. Each i64 lane counts at most half its rows.
         // Comparison lanes are all-zero or all-one bits, so duplicating each

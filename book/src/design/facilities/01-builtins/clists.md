@@ -89,9 +89,14 @@ compare these paths with the initial implementation.
 ## Automatic SIMD counts
 
 With `--release`, a column of `i32` or `u32` followed by one `filter` and
-`count()` uses four-lane SIMD when the predicate is a comparison of its borrowed
-argument against a constant of the same type (`==`, `!=`, `<`, `<=`, `>`, `>=`).
-Both a named function and a closure without captures are recognized. For example:
+`count()` uses four-lane SIMD when the predicate compares its borrowed argument
+against a constant or immutable by-value capture of the same type
+(`==`, `!=`, `<`, `<=`, `>`, `>=`). Either operand order is recognized. The
+predicate may also join two such comparisons with `and`, for example
+`*x >= low and *x < high`. Captured bounds may be runtime values; the closure
+retains its own snapshot. This bounded pattern accepts at most two captures,
+both of the column's scalar type. Named functions and closures are recognized.
+For example:
 `items.column(T.score).filter(def(x: &i32) -> bool: *x > 5i32).count()`.
 The ordinary scalar program remains valid without `--release`.
 
@@ -103,8 +108,11 @@ including for columns larger than a 32-bit lane counter could represent.
 The generated instructions use the existing x86-64 SSE2 baseline, so this slice
 needs neither a newer CPU nor runtime feature dispatch.
 
-Captures, checked arithmetic in predicates, additional adapters, other scalar
-types and other terminals retain scalar execution. Side effects, traps and
+Borrowed or mutable captures, `or`, more than two comparisons, checked arithmetic
+in predicates, additional adapters, other scalar types and other terminals
+retain scalar execution. Only total comparisons qualify: eagerly combining their
+SIMD masks cannot introduce effects or traps from a skipped `and` operand.
+Side effects, traps and
 floating-point order are unchanged. This is a bounded optimization, not general
 auto-vectorization; parallel scans remain unimplemented. See the
 [validation and measurements](../../../proposals/columnar-list/simd-counts.md).

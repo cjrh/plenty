@@ -29,49 +29,6 @@ fn marker(op: &Op) -> bool {
 }
 
 impl Leaf {
-    /// A total scalar predicate with no state, calls, arithmetic or cleanup.
-    pub(super) fn column_comparison(&self, ty: &Ty) -> Option<(IntCC, i64)> {
-        if self.sig.inputs.len() != 1
-            || self.sig.inputs[0].1 != Ty::Ref(Arc::new(ty.clone()), false)
-            || self.sig.outputs.as_slice() != [Ty::Bool]
-        {
-            return None;
-        }
-        let ops: Vec<_> = self.body.iter().filter(|op| !marker(op)).collect();
-        let [
-            Op::LoadLocal(0),
-            Op::ReadRef(t),
-            Op::PushInt(value),
-            compare,
-        ] = ops.as_slice()
-        else {
-            return None;
-        };
-        if t != ty {
-            return None;
-        }
-        let constant = match (ty, value) {
-            (Ty::I32, crate::value::Value::I32(n)) => i64::from(*n),
-            (Ty::U32, crate::value::Value::U32(n)) => i64::from(*n),
-            _ => return None,
-        };
-        let signed = *ty == Ty::I32;
-        let cc = match compare {
-            Op::Eq => IntCC::Equal,
-            Op::Ne => IntCC::NotEqual,
-            Op::Lt if signed => IntCC::SignedLessThan,
-            Op::Le if signed => IntCC::SignedLessThanOrEqual,
-            Op::Gt if signed => IntCC::SignedGreaterThan,
-            Op::Ge if signed => IntCC::SignedGreaterThanOrEqual,
-            Op::Lt => IntCC::UnsignedLessThan,
-            Op::Le => IntCC::UnsignedLessThanOrEqual,
-            Op::Gt => IntCC::UnsignedGreaterThan,
-            Op::Ge => IntCC::UnsignedGreaterThanOrEqual,
-            _ => return None,
-        };
-        Some((cc, constant))
-    }
-
     pub(super) fn capture_reads(&self, captures: usize) -> bool {
         self.body.iter().enumerate().all(|(index, op)| {
             !matches!(op, Op::LoadLocal(i) if (*i as usize) < captures)
