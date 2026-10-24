@@ -109,5 +109,5 @@ floating-point order are unchanged. This is a bounded optimization, not general
 auto-vectorization; parallel scans remain unimplemented. See the
 [validation and measurements](../../../proposals/columnar-list/simd-counts.md).
 
-See the [tutorial](../../../tutorial/06-data/11-columnar-records.md) and the
+See the [tutorial](../../../tutorial/special-purpose/columnar-lists/index.md) and the
 [design rationale and measurements](../../../proposals/columnar-list.md).
