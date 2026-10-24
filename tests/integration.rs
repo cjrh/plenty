@@ -81,6 +81,8 @@ mod test_callback_registry;
 mod test_cancel_on_exit;
 #[path = "test_channels.rs"]
 mod test_channels;
+#[path = "test_checked_add_sub.rs"]
+mod test_checked_add_sub;
 #[path = "test_class_allocation.rs"]
 mod test_class_allocation;
 #[path = "test_classes.rs"]

@@ -113,6 +113,11 @@ impl Symbols {
         self.declared.lines
     }
 
+    /// Whether Cranelift's optimizer runs on the bodies built here.
+    pub(super) fn optimizes(&self) -> bool {
+        self.declared.isa.flags().opt_level() != cranelift_codegen::settings::OptLevel::None
+    }
+
     pub(super) fn make_signature(&self) -> ir::Signature {
         ir::Signature::new(self.declared.isa.default_call_conv())
     }
