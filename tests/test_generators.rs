@@ -231,3 +231,64 @@ fn diagnostics(#[case] source: &str, #[case] expected: &str) {
         "{source}\nexpected {expected:?}, got {error:?}"
     );
 }
+
+#[test]
+fn one_consumer_accepts_more_than_256_generator_functions() {
+    // Issue #430's reproduction: the former limit of 256 frames counted every
+    // consumer together and blamed recursion.
+    use std::fmt::Write;
+    let mut source = String::new();
+    for i in 0..257 {
+        writeln!(source, "def g{i}() -> Generator[i64]:\n    yield {i}").unwrap();
+    }
+    source.push_str(
+        "def total(values: Generator[i64]) -> i64:\n    mut result = 0\n    for value in values:\n        result = result + value\n    result\ndef main() -> ():\n",
+    );
+    for i in 0..257 {
+        writeln!(source, "    drop(total(g{i}()))").unwrap();
+    }
+    support::check_source(&source).unwrap();
+}
+
+#[test]
+fn a_chain_of_300_distinct_generator_consumers_runs() {
+    // Each consumer passes its generator on, so each needs its own frame one
+    // dependency level deeper; no consumer repeats (issue #435).
+    use std::fmt::Write;
+    let mut source = format!(
+        "{COUNT}def c0(values: Generator[i64]) -> i64:\n    mut result = 0\n    for value in values:\n        result = result + value\n    result\n"
+    );
+    for i in 1..300 {
+        writeln!(
+            source,
+            "def c{i}(values: Generator[i64]) -> i64:\n    c{}(values)",
+            i - 1
+        )
+        .unwrap();
+    }
+    source.push_str("def main() -> i32:\n    i32(c299(count(5)))\n");
+    let output = run(&source);
+    assert_eq!(output.status.code(), Some(10), "{output:?}");
+}
+
+#[test]
+fn expanding_generator_consumers_are_bounded() {
+    for (call, expected) in [
+        // Each frame requires a deeper one: the dependency depth stops it.
+        (
+            "total((v + 1 for v in values), n - 1)",
+            "dependency depth limit of 257 (256 plus one per generic function or generator consumer) exceeded",
+        ),
+        // Two per frame reach the consumer's limit within that depth.
+        (
+            "total((v + 1 for v in values), n - 1) + total((v * 2 for v in values), n - 1)",
+            "generator specialization limit of 16384 frames of `total` exceeded",
+        ),
+    ] {
+        let source = format!(
+            "def total(values: Generator[i64], n: i64) -> i64:\n    if n == 0:\n        return 0\n    {call}\ndef main() -> ():\n    drop(total((v for v in [1, 2, 3].unwrap()), 3))\n"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}

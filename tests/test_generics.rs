@@ -81,8 +81,10 @@ fn one_template_can_have_more_than_256_independent_instances() {
 #[test]
 fn dependency_depth_is_bounded_separately_from_breadth() {
     use std::fmt::Write;
+    // A chain in which no template repeats is no longer than the number of
+    // templates, which extends the depth limit (issue #435).
     let mut source = String::new();
-    for i in 0..256 {
+    for i in 0..1000 {
         writeln!(
             source,
             "def step_{i}[T](value: T) -> T:\n    step_{}(value)",
@@ -91,21 +93,31 @@ fn dependency_depth_is_bounded_separately_from_breadth() {
         .unwrap();
     }
     source.push_str(
-        "def step_256[T](value: T) -> T:\n    value\ndef main() -> ():\n    drop(step_1(0))\n",
+        "def step_1000[T](value: T) -> T:\n    value\ndef main() -> ():\n    drop(step_0(0))\n",
     );
     plenty::check_source(&source).unwrap();
     // A cycle back to a cached instance does not add a dependency level.
     plenty::check_source(&source.replace(
-        "def step_256[T](value: T) -> T:\n    value",
-        "def step_256[T](value: T) -> T:\n    step_1(value)",
+        "def step_1000[T](value: T) -> T:\n    value",
+        "def step_1000[T](value: T) -> T:\n    step_0(value)",
     ))
     .unwrap();
-    let source = source.replace("drop(step_1(0))", "drop(step_0(0))");
-    let error = rejection(&source);
-    assert!(
-        error.contains("dependency depth limit of 256 exceeded"),
-        "{error}"
-    );
+}
+
+#[test]
+fn a_chain_of_257_distinct_generic_functions_runs() {
+    // Issue #435's reproduction, which reached the former depth limit of 256.
+    let mut source = String::from("def h0[T: IntType](x: T) -> T:\n    x + 1\n");
+    for i in 1..257 {
+        source.push_str(&format!(
+            "def h{i}[T: IntType](x: T) -> T:\n    x + h{}[T](x) + 1\n",
+            i - 1
+        ));
+    }
+    source.push_str("def main() -> i32:\n    i32(h256[i64](1) % 256)\n");
+    let output = support::run(&source);
+    // h0(1) = 2 and each step adds 2, so h256(1) = 514.
+    assert_eq!(output.status.code(), Some(514 % 256), "{output:?}");
 }
 
 #[test]
@@ -119,7 +131,9 @@ fn expanding_closure_identities_keep_the_depth_guard_through_lifted_code() {
         );
         let error = rejection(&source);
         assert!(
-            error.contains("dependency depth limit of 256 exceeded"),
+            error.contains("dependency depth limit of")
+                && error
+                    .contains("(256 plus one per generic function or generator consumer) exceeded"),
             "{error}"
         );
     }
