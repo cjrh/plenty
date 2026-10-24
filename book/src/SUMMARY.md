@@ -475,6 +475,7 @@
     - [Compiling Plenty to Rust source](proposals/rust-source-backend.md)
         - [Semantic and interoperability contract](proposals/rust-source-backend/contract.md)
         - [Probe evidence and adoption criteria](proposals/rust-source-backend/evidence.md)
+        - [Checked emitter and Rust build costs](proposals/rust-source-backend/checked-emitter.md)
     - [Generated library contracts and C headers](proposals/ffi-export-contracts.md)
     - [Fallible memory, parallel execution, and SIMD](proposals/memory-parallelism-and-simd.md)
     - [Portable SIMD without everyday bookkeeping](proposals/std-simd.md)

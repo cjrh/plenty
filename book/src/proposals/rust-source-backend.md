@@ -1,13 +1,19 @@
 # Compiling Plenty to Rust source
 
-> **Status: Exploratory proposal, not implemented (2026-10-24).**
+> **Status: Restricted checked-IR emitter spike; no production backend (2026-10-24).**
 > B20 tracks optional backends; B17 tracks Rust dependency tooling. The current
-> compiler still emits native code through Cranelift. No new command, target,
+> compiler still emits native code through Cranelift. No production command, target,
 > Rust import syntax or compatibility guarantee is introduced here.
 
 ## Recommendation
 
-**This merits a bounded backend experiment, especially for Rust-hosted Plenty
+The [checked-emitter experiment](rust-source-backend/checked-emitter.md) now
+generates a restricted scalar library from Plenty's actual checked operations,
+including a Rust → Plenty → Rust companion round-trip. It measures generated
+Rust build costs separately from the earlier hand-lowered ownership probes.
+References, records, enums and dynamic owners remain outside that emitter.
+
+**The evidence supports continued bounded exploration of Rust-hosted Plenty
 libraries.** Emitting a Rust crate could let Rust call Plenty functions, and
 Plenty call selected Rust APIs, with ordinary Rust owners, borrows, enums and
 callbacks. rustc would own type layout, calling conventions, generic codegen

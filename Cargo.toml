@@ -17,6 +17,8 @@ resolver = "2"
 
 [features]
 runtime-checks = []
+# Developer-only checked-IR Rust emitter; not part of the normal compiler CLI.
+rust-source-spike = []
 # Opt-in compiler phase profile (issue #150); see book/src/development/profiling.md.
 profile = ["dep:hotpath", "hotpath/hotpath"]
 profile-alloc = ["profile", "hotpath/hotpath-alloc"]
@@ -72,3 +74,7 @@ iced-x86 = { version = "1.21.0", default-features = false, features = ["std", "d
 [[example]]
 name = "compile_bench"
 test = true
+
+[[example]]
+name = "rust_source_spike"
+required-features = ["rust-source-spike"]

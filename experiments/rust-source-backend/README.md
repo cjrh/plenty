@@ -1,5 +1,9 @@
 # Rust-source backend semantic probes
 
+The newer [checked emitter](emitter/README.md) consumes real Plenty checked IR
+and measures Rust compile/link costs. The probes directly in this directory
+remain hand-lowered and cover richer ownership semantics than that emitter.
+
 These are **hand-lowered candidate Rust implementations**, not a new emitter.
 The earlier `experiments/rust-crates/run.py` contains the actual restricted
 Plenty-to-Rust emitter. This experiment asks additional semantic and
@@ -38,6 +42,8 @@ The negative `.rs` files must fail, with E0499 and E0382 respectively. Do not
 add them as Cargo targets or fix the errors: they demonstrate the rejected
 naive indexed-borrow translation and Rust's use-after-move check.
 
-The real compiler is unchanged. Full collection representation, source maps,
-module linking, arbitrary control flow and automatic emission are outside this
-probe. The design lives in the book's Rust-source-backend proposal.
+These hand-lowered probes do not change compiler behavior. Full collection
+representation, source maps, module linking, arbitrary control flow and automatic
+emission are outside these original probes; see the separate checked emitter
+above for the newer scalar work. The design lives in the book's
+Rust-source-backend proposal.
