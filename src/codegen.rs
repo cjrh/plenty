@@ -2309,8 +2309,11 @@ impl Lowerer<'_, '_> {
             Op::WriteRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 let (value, _) = self.pop_typed(ty.clone())?;
-                let old = self.read_reference(reference);
-                self.release(old, ty);
+                // An unmanaged old value owns nothing to release.
+                if ty.managed() {
+                    let old = self.read_reference(reference);
+                    self.release(old, ty);
+                }
                 self.write_reference(reference, value, ty);
             }
             Op::ReplaceRef(ty) => {
