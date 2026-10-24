@@ -1980,6 +1980,7 @@ fn step(
                     return Err("list length and rows require a list reference".into());
                 }
                 crate::collection::CollectionOp::ListScalarGetRef(ty)
+                | crate::collection::CollectionOp::ListScalarGetView(ty)
                 | crate::collection::CollectionOp::ListScalarSetRef(ty)
                     if !matches!(ty, Ty::List(element) if element.is_numeric() || **element == Ty::Bool) =>
                 {

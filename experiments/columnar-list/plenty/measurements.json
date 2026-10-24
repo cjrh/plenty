@@ -1,0 +1,320 @@
+{
+  "compiler": "/tmp/plenty-clist-implementation-spike/target/debug/plenty",
+  "compiler_sha256": "d6afbe03e733a6ca2a8fdb59027983d01a957cd464eb55412d812aa564263382",
+  "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "cpu": 4,
+  "samples": 7,
+  "repeats": 20,
+  "release": true,
+  "results": [
+    {
+      "rows": 8192,
+      "layout": "soa",
+      "kernel": "one",
+      "median_ns_per_row": 0.6612060546875,
+      "samples_ns_per_row": [
+        0.636138916015625,
+        0.6612060546875,
+        0.650689697265625,
+        0.64659423828125,
+        0.669952392578125,
+        0.675518798828125,
+        0.665606689453125
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "kernel": "one",
+      "median_ns_per_row": 1.1552978515625,
+      "samples_ns_per_row": [
+        1.15015869140625,
+        1.15902099609375,
+        1.3816650390625,
+        1.083197021484375,
+        1.58939208984375,
+        1.148809814453125,
+        1.1552978515625
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "soa",
+      "kernel": "two",
+      "median_ns_per_row": 2.605267333984375,
+      "samples_ns_per_row": [
+        2.53775634765625,
+        2.605267333984375,
+        2.770855712890625,
+        2.555364990234375,
+        2.868756103515625,
+        2.64061279296875,
+        2.541851806640625
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "kernel": "two",
+      "median_ns_per_row": 2.030157470703125,
+      "samples_ns_per_row": [
+        1.93543701171875,
+        1.9501708984375,
+        1.998785400390625,
+        2.266070556640625,
+        2.041778564453125,
+        2.27144775390625,
+        2.030157470703125
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "soa",
+      "kernel": "stream",
+      "median_ns_per_row": 34.096014404296874,
+      "samples_ns_per_row": [
+        34.096014404296874,
+        34.1144775390625,
+        34.045562744140625,
+        34.22735595703125,
+        35.42686157226562,
+        33.979827880859375,
+        33.697320556640626
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "kernel": "stream",
+      "median_ns_per_row": 2.483209228515625,
+      "samples_ns_per_row": [
+        2.455816650390625,
+        2.516229248046875,
+        2.618292236328125,
+        2.463702392578125,
+        2.540203857421875,
+        2.45166015625,
+        2.483209228515625
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "soa",
+      "kernel": "whole",
+      "median_ns_per_row": 66.19024047851562,
+      "samples_ns_per_row": [
+        66.12590942382812,
+        66.34335327148438,
+        66.19024047851562,
+        76.50123291015625,
+        66.0190185546875,
+        66.61864624023437,
+        65.31983642578125
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "kernel": "whole",
+      "median_ns_per_row": 2.537451171875,
+      "samples_ns_per_row": [
+        2.4801513671875,
+        3.003533935546875,
+        2.498199462890625,
+        2.572796630859375,
+        2.568389892578125,
+        2.423773193359375,
+        2.537451171875
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "soa",
+      "kernel": "random",
+      "median_ns_per_row": 67.3140380859375,
+      "samples_ns_per_row": [
+        67.65549926757812,
+        68.25439453125,
+        66.87266235351562,
+        67.96773071289063,
+        67.30376586914062,
+        67.3140380859375,
+        66.39044189453125
+      ]
+    },
+    {
+      "rows": 8192,
+      "layout": "aos",
+      "kernel": "random",
+      "median_ns_per_row": 6.340576171875,
+      "samples_ns_per_row": [
+        6.40050048828125,
+        6.340576171875,
+        6.34063720703125,
+        6.30205078125,
+        6.348895263671875,
+        6.28927001953125,
+        6.187762451171875
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "soa",
+      "kernel": "one",
+      "median_ns_per_row": 0.7112852096557617,
+      "samples_ns_per_row": [
+        0.7005170822143555,
+        0.7112852096557617,
+        0.7121011734008789,
+        0.686985969543457,
+        0.8599355697631836,
+        0.6903491973876953,
+        1.3885980606079102
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "kernel": "one",
+      "median_ns_per_row": 4.074893951416016,
+      "samples_ns_per_row": [
+        3.672195053100586,
+        4.074893951416016,
+        3.8993303298950197,
+        3.5556446075439454,
+        4.59391040802002,
+        4.085641098022461,
+        4.650947570800781
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "soa",
+      "kernel": "two",
+      "median_ns_per_row": 2.6303499221801756,
+      "samples_ns_per_row": [
+        2.483094596862793,
+        2.6303499221801756,
+        2.5289051055908205,
+        2.6233598709106447,
+        2.647282600402832,
+        2.951141357421875,
+        2.6712913513183594
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "kernel": "two",
+      "median_ns_per_row": 2.884073829650879,
+      "samples_ns_per_row": [
+        2.884073829650879,
+        3.1671953201293945,
+        3.3565038681030273,
+        2.7455572128295898,
+        3.1097970962524415,
+        2.682963180541992,
+        2.7948780059814453
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "soa",
+      "kernel": "stream",
+      "median_ns_per_row": 36.3399564743042,
+      "samples_ns_per_row": [
+        35.77586154937744,
+        36.64315013885498,
+        36.22139186859131,
+        36.469719314575194,
+        36.6984769821167,
+        36.1102108001709,
+        36.3399564743042
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "kernel": "stream",
+      "median_ns_per_row": 3.209835433959961,
+      "samples_ns_per_row": [
+        3.209835433959961,
+        2.9682668685913085,
+        3.352336311340332,
+        2.8421119689941405,
+        3.3719709396362303,
+        3.200322914123535,
+        3.503331184387207
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "soa",
+      "kernel": "whole",
+      "median_ns_per_row": 66.8819953918457,
+      "samples_ns_per_row": [
+        66.80640907287598,
+        66.24346256256104,
+        66.96198425292968,
+        66.68699378967285,
+        66.8819953918457,
+        67.01168727874756,
+        67.58362083435058
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "kernel": "whole",
+      "median_ns_per_row": 3.5346969604492187,
+      "samples_ns_per_row": [
+        3.5346969604492187,
+        3.810440254211426,
+        3.7398778915405275,
+        3.2135616302490235,
+        3.418125343322754,
+        3.6860912322998045,
+        3.412369728088379
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "soa",
+      "kernel": "random",
+      "median_ns_per_row": 169.97517051696778,
+      "samples_ns_per_row": [
+        166.42459373474122,
+        173.36199684143065,
+        167.69763107299804,
+        169.97517051696778,
+        166.30654888153077,
+        175.452583694458,
+        186.06165618896483
+      ]
+    },
+    {
+      "rows": 262144,
+      "layout": "aos",
+      "kernel": "random",
+      "median_ns_per_row": 49.37680492401123,
+      "samples_ns_per_row": [
+        53.59055767059326,
+        49.00566101074219,
+        47.844347190856936,
+        47.546855735778806,
+        49.37680492401123,
+        49.98592472076416,
+        59.67319812774658
+      ]
+    }
+  ],
+  "lscpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           48 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  16\nOn-line CPU(s) list:                     0-15\nVendor ID:                               AuthenticAMD\nModel name:                              AMD Ryzen 7 7840HS w/ Radeon 780M Graphics\nCPU family:                              25\nModel:                                   116\nThread(s) per core:                      2\nCore(s) per socket:                      8\nSocket(s):                               1\nStepping:                                1\nFrequency boost:                         enabled\nCPU(s) scaling MHz:                      65%\nCPU max MHz:                             5137.9038\nCPU min MHz:                             419.4210\nBogoMIPS:                                7586.27\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good amd_lbr_v2 nopl xtopology nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw ibs skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpuid_fault cpb cat_l3 cdp_l3 hw_pstate ssbd mba perfmon_v2 ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local user_shstk avx512_bf16 clzero irperf xsaveerptr rdpru wbnoinvd cppc arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold vgif x2avic v_spec_ctrl vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid overflow_recov succor smca fsrm flush_l1d amd_lbr_pmc_freeze\nVirtualization:                          AMD-V\nL1d cache:                               256 KiB (8 instances)\nL1i cache:                               256 KiB (8 instances)\nL2 cache:                                8 MiB (8 instances)\nL3 cache:                                16 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-15\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Mitigation; Safe RET\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; STIBP always-on; PBRSB-eIBRS Not affected; BHI Not affected\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Mitigation; Clear CPU buffers\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+  "source_base": "00d32a13c7d7edd6a37b283f33d1fe50e5852ab7",
+  "measured_on": "2026-10-24",
+  "construction": [
+    {"rows": 8192, "layout": "aos", "ns_per_row": 141.9886474609375},
+    {"rows": 8192, "layout": "soa", "ns_per_row": 450.07373046875},
+    {"rows": 262144, "layout": "aos", "ns_per_row": 145.02660751342773},
+    {"rows": 262144, "layout": "soa", "ns_per_row": 453.7955322265625}
+  ]
+}

@@ -1,0 +1,8 @@
+# Regression for issue #427: consume a returned list reference directly.
+def column(values: &list[i64]) -> &list[i64]:
+    values
+
+def main() -> Result[(), AllocError | IoError]:
+    values = [1, 2, 3]?
+    print(iter(column(&values)).count())?
+    Ok(())

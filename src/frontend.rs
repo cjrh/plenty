@@ -2805,6 +2805,7 @@ struct Lower<'a> {
     /// Code executed before continuing the innermost loop (for-loop increment).
     loop_steps: Vec<Vec<Op>>,
     loop_scopes: Vec<usize>,
+    indexed_lists: Vec<collections::IndexedLists>,
     yield_type: Type,
     loans: Vec<crate::ownership::Loan>,
     reference_locals: HashMap<u8, usize>,
@@ -5645,6 +5646,7 @@ fn lower_body(
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),
+                indexed_lists: Vec::new(),
                 expression_temps: Vec::new(),
                 contexts: Vec::new(),
                 return_origin: if matches!(sig.outputs.first(), Some(Ty::Ref(..))) {

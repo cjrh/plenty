@@ -1,7 +1,8 @@
 # Columnar lists with an object-shaped interface
 
-> **Status: Not implemented.** An investigation and isolated layout/ownership
-> spike, based on Plenty `45798945` on 2026-10-23. `clist`, field selectors,
+> **Status: Not implemented as a language feature.** Layout/ownership experiments
+> now include a [generated Plenty implementation spike](columnar-list/implementation-spike.md)
+> based on `00d32a13` on 2026-10-24. `clist`, field selectors,
 > and column views below are proposed syntax. No compiler or runtime feature
 > ships here. [B76](../backlog.md) records the candidate work.
 
@@ -29,9 +30,11 @@ This is a storage decision at the collection declaration, not a change to
 should require no allocation; the first append is fallible. Proposed append
 errors retain the submitted row; see the [ownership and API contract](columnar-list/contract.md).
 
-The [spike evidence](columnar-list/evidence.md) supports the narrow-field use
-case and exposes tradeoffs. It does **not** establish Plenty speedups, a final
-chunk size, or a safe general row-reference implementation.
+The [original layout evidence](columnar-list/evidence.md) and
+[Plenty implementation spike](columnar-list/implementation-spike.md) support the
+narrow-field use case and expose tradeoffs. The Plenty experiment establishes
+bounded scalar scan benefits with ordinary list-backed columns, not packed
+primitive storage, a final chunk size, or safe general row references.
 
 ## What changes in memory
 
@@ -109,8 +112,9 @@ The [SIMD proposal](std-simd.md) can later recognize safe kernels over these
 sources. Integer overflow must retain Plenty's checked semantics unless the
 program explicitly uses wrapping operations; floating reductions stay ordered.
 Contiguous storage does not authorize reassociation, speculative callback
-execution, or automatic threads. This experiment uses LLVM-generated native
-kernels; it neither benchmarks nor replaces Cranelift. The existing SIMD
+execution, or automatic threads. The original layout experiment uses
+LLVM-generated native kernels; the implementation follow-up uses Plenty and
+Cranelift. Neither is a controlled backend comparison. The existing SIMD
 evidence remains the backend comparison. Avoid building a dataframe optimizer
 inside Plenty simply to compensate for a backend limitation.
 

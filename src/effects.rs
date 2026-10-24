@@ -197,6 +197,7 @@ impl CollectionOp {
             | ListLenRef(_)
             | QueryRef(_)
             | ListScalarGetRef(_)
+            | ListScalarGetView(_)
             | ListScalarSetRef(_)
             | ListRowsRef(_)
             | ListRowBytesRef(_)

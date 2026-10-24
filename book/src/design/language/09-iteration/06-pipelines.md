@@ -25,6 +25,10 @@ collections and generators move into the pipeline; borrowed collections retain
 their loan. Integer ranges use counted loops. Text, bytes and collection views
 keep their ordinary item types.
 
+A source may be a reference-returning call, such as `iter(owner.column())`.
+The call runs once during construction; its owner stays borrowed until the
+pipeline is consumed or dropped. An intermediate reference binding is optional.
+
 A local may have an `Iter[T]` annotation. Its concrete source and callback
 identity remain part of its type. Consuming it, adapting it, or `drop(p)` moves
 it; a second use is rejected. Dropping it releases the owned source and
