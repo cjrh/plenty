@@ -2,6 +2,165 @@
 mod support;
 use rstest::rstest;
 
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn indexed_column_hot_loop_has_no_runtime_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("columns.plenty");
+    std::fs::write(
+        &source,
+        r#"
+def total(xs: &list[i64], ys: &list[i64]) -> i64:
+    mut total = 0
+    for i in range(len(xs)):
+        total += xs[i] * ys[i]
+    total
+def main() -> ():
+    print(total(&[1, 2].unwrap(), &[3, 4].unwrap())).unwrap()
+"#,
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .args(["--release", "--dump", "asm", "--dump-filter", "total"])
+        .arg(source)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let asm = String::from_utf8(output.stdout).unwrap();
+    let instruction = regex::Regex::new(r"^\s*([0-9a-f]+):\s+(.*)$").unwrap();
+    let instructions: Vec<_> = asm
+        .lines()
+        .filter_map(|line| {
+            let captures = instruction.captures(line)?;
+            Some((
+                u64::from_str_radix(&captures[1], 16).unwrap(),
+                captures[2].to_owned(),
+            ))
+        })
+        .collect();
+    let (end, target) = instructions
+        .iter()
+        .find_map(|(offset, text)| {
+            let target = text.strip_prefix("jmp")?.trim().strip_prefix("0x")?;
+            let target = u64::from_str_radix(target, 16).ok()?;
+            (target < *offset).then_some((*offset, target))
+        })
+        .expect("counted loop backedge");
+    assert!(!instructions.iter().any(|(offset, text)| (*offset >= target && *offset <= end) && text.starts_with("call")), "{asm}");
+    assert_eq!(asm.matches("# plenty_list_rows").count(), 2, "{asm}");
+    assert_eq!(asm.matches("# plenty_list_row_bytes").count(), 2, "{asm}");
+    // Only the out-of-bounds cold blocks retain this helper for its diagnostic.
+    assert_eq!(asm.matches("# plenty_list_scalar_get").count(), 2, "{asm}");
+}
+
+#[test]
+fn indexed_shared_columns_keep_bounds_bits_and_loop_control() {
+    support::assert_visible_stdout(
+        r#"
+def total(xs: &list[i64], ys: &list[i64]) -> i64:
+    mut total = 0
+    for i in range(len(xs)):
+        if i == 1:
+            continue
+        total += xs[i] * ys[-i - 1]
+    total
+def floats(xs: &list[f32], flags: &list[bool], wide: &list[u64]) -> ():
+    for i in range(len(xs)):
+        print(xs[i], flags[i], wide[i]).unwrap()
+def local_columns(xs: &list[i64]) -> i64:
+    column = xs
+    mut total = 0
+    for i in range(2):
+        for j in range(len(column)):
+            total += column[j]
+    total
+xs = [1, 2, 3].unwrap()
+ys = [4, 5, 6].unwrap()
+print(total(&xs, &ys), local_columns(&xs)).unwrap()
+floats(&[-1.25f32].unwrap(), &[True].unwrap(), &[18446744073709551615u64].unwrap())
+"#,
+        "18 12\n-1.25 True 18446744073709551615",
+    );
+}
+
+#[rstest]
+#[case("0", "list[i64]().unwrap()")]
+#[case("-2", "[1].unwrap()")]
+#[case("-9223372036854775808", "[1].unwrap()")]
+#[case("9223372036854775807", "[1].unwrap()")]
+fn indexed_shared_columns_trap_at_each_columns_own_bound(
+    #[case] index: &str,
+    #[case] values: &str,
+) {
+    let source = format!(
+        "def read(xs: &list[i64], ys: &list[i64]) -> i64:\n    mut result = 0\n    for i in range(len(xs)):\n        result += xs[i] + ys[{index}]\n    result\nprint(read(&[1].unwrap(), &{values})).unwrap()"
+    );
+    let output = support::run(&source);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("index out of bounds"));
+}
+
+#[test]
+fn indexed_loops_do_not_cache_mutable_or_owned_sources() {
+    support::assert_visible_stdout(
+        r#"
+def changing(xs: &mut list[i64]) -> ():
+    for i in range(3):
+        xs.append(i).unwrap()
+        print(xs[-1]).unwrap()
+mut xs = [9].unwrap()
+changing(&mut xs)
+first = [[1].unwrap(), [2].unwrap()].unwrap()
+mut second = [2].unwrap()
+mut view = &first[0]
+for i in range(2):
+    view = &first[i]
+    print(view[0]).unwrap()
+for row in &first:
+    print(row[0]).unwrap()
+for i in range(3):
+    second.append(i).unwrap()
+    print(second[-1]).unwrap()
+"#,
+        "0\n1\n2\n1\n2\n1\n2\n0\n1\n2",
+    );
+}
+
+#[test]
+fn cached_column_reads_preserve_index_effects_and_owner_loans() {
+    support::assert_visible_stdout(
+        r#"
+def index(value: i64) -> i64:
+    print(value).unwrap()
+    value
+def total(xs: &list[i64], ys: &list[i64]) -> i64:
+    mut result = 0
+    for i in range(2):
+        result += xs[index(i)] + ys[index(-i - 1)]
+    result
+print(total(&[1, 2].unwrap(), &[3, 4].unwrap())).unwrap()
+"#,
+        "0\n-1\n1\n-2\n10",
+    );
+    let error = support::check_source(
+        r#"
+mut values = [1, 2].unwrap()
+column = &values
+for i in range(2):
+    values.append(3).unwrap()
+    print(column[i]).unwrap()
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("borrow"), "{error}");
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn immediate_literal_progressions_need_no_collection_storage() {

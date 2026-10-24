@@ -9,8 +9,9 @@ not to ship the generated wrapper unchanged.
 
 This 2026-10-24 follow-up to the [proposal](../columnar-list.md) uses Plenty
 `00d32a13`. Sources, commands and preserved timing samples are in
-`experiments/columnar-list/plenty/` in the repository. It changes no compiler,
-runtime, standard-library API or tutorial behavior. `clist[T]` remains proposed.
+`experiments/columnar-list/plenty/` in the repository. The initial spike changed
+no compiler or runtime; the indexed-access follow-up below records the later
+compiler fixes. `clist[T]` remains proposed.
 
 ## What was implemented
 
@@ -65,9 +66,10 @@ feasibility probes still pass. No custom destructor, removal, stable row handle,
 stored view, cross-thread operation or affine-field semantics are implemented.
 Column loans conservatively borrow the entire owner.
 
-Issue #427 records a frontend limitation found here: direct
-`iter(items.column_x())` fails with `for requires an iterable`; binding the
-returned reference first works. This restriction is not part of the desired API.
+Issue #427 recorded a frontend limitation found here. Its follow-up now accepts
+`iter(items.column_x())` directly and retains the returned loan through
+consumption. The fixture suite includes this positive case and rejects mutation
+while such a pipeline holds the owner.
 
 ## End-to-end scalar measurements
 
@@ -96,22 +98,57 @@ the row list. Two-column results are mixed and close enough at the large size
 that they do not establish a robust improvement.
 
 The all-field comparison includes real facade costs, not just memory layout.
-Assembly inspection shows:
+Assembly inspection at the original spike revision showed:
 
 - The one-column fold hoists length, base and stride, then directly loads and
   adds one scalar per iteration. There is no callback call in its hot loop.
 - Two-column `zip` hoists both sources, but calls the scalar fold callback for
   each pair. Checked arithmetic and original evaluation order remain intact.
-- Direct indexing of eight borrowed columns still calls
+- Direct indexing of eight borrowed columns called
   `plenty_list_scalar_get` eight times per row. Issue #429 records this cost.
 - `copy_row` adds a method call, reconstruction/Option handling and cleanup
-  machinery. Avoiding reconstruction roughly halves the sequential cost here,
-  but indexed access still dominates the direct-column version.
+  machinery. Avoiding reconstruction roughly halved the sequential cost there,
+  but indexed access dominated the direct-column version.
 
 The reserved construction pass took 145 ns/row for the row list and 454 ns/row
 for columns at the large size. This is one observation per layout, including
 allocation and append, not a repeated growth benchmark. Eight reserve/check/
 append paths per row are a visible cost of this generated implementation.
+
+## Indexed-access follow-up (#429)
+
+Ordinary `for` loops now cache length, row pointer and stride for immutable
+shared scalar-list bindings already in scope. Indexed reads use direct loads
+with separate bounds checks for every column, including negative indices.
+No runtime container layout is exposed, equal column lengths are not assumed,
+and the original helper handles the cold out-of-bounds diagnostic. Mutable,
+retargetable and owned sources keep their existing path.
+
+Repeating the same benchmark against baseline `1c1b8ca1`, without overlapping
+task builds, gave these medians (ns/row):
+
+| Kernel | Rows | Before | After |
+| --- | ---: | ---: | ---: |
+| Eight indexed columns | 8,192 | 33.248 | 5.653 |
+| Eight indexed columns | 262,144 | 37.310 | 8.896 |
+| One-column fold | 262,144 | 0.648 | 0.647 |
+| Whole-row reconstruction | 262,144 | 64.465 | 63.062 |
+
+The targeted large scan improved about 4.2×, but still trails ordinary row
+iteration (3.113 ns/row in the after run). Reconstruction is unchanged by this
+optimization. The eight-column function grew from 804 to 1,856 machine-code
+bytes; the two-column issue reproduction grew from 371 to 568. Cold compile/link
+medians were 91.47 versus 91.09 ms for the full benchmark and 47.26 versus
+47.23 ms for the small reproduction: no meaningful compilation-time change in
+these seven alternating samples, using debug-built compilers and release output.
+The size increase is a real tradeoff, not evidence for applying this everywhere.
+
+`experiments/columnar-list/plenty/indexed-measurements.json` retains raw samples,
+compiler hashes and methodology. Reproduce runtime results with the existing
+`bench.py` command in that directory's README against each compiler.
+Use `--release --dump asm --dump-filter soa_stream`
+to inspect code size and the call-free hot loop; time `--release --compile`
+with `PLENTY_CACHE=off` and `PLENTY_LINKER_THREADS=1` for cold compilation.
 
 ## Consequence for the design
 

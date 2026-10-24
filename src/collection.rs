@@ -208,6 +208,9 @@ pub enum CollectionOp {
     /// Non-owning list observations; the frontend keeps the receiver's loan live.
     ListLenRef(Ty),
     ListScalarGetRef(Ty),
+    /// Stable shared list reference, length, rows, row bytes, index -> scalar.
+    /// Metadata is captured before a loop; bounds and negative indices remain checked.
+    ListScalarGetView(Ty),
     /// Exclusive scalar row write: list reference, index, value -> ().
     ListScalarSetRef(Ty),
     /// A [`Query`] of the value behind a shared reference, which the
@@ -655,6 +658,16 @@ impl CollectionOp {
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
                 t.element().unwrap(),
             ),
+            ListScalarGetView(t) => (
+                vec![
+                    Ty::Ref(Arc::new(t.clone()), false),
+                    Ty::I64,
+                    Ty::I64,
+                    Ty::I64,
+                    Ty::I64,
+                ],
+                t.element().unwrap(),
+            ),
             ListSortBy(sort) => (
                 vec![
                     Ty::Ref(Arc::new(sort.list.clone()), true),
@@ -825,6 +838,7 @@ impl CollectionOp {
             Self::Len(_) => 5,
             Self::ListLenRef(_)
             | Self::ListScalarGetRef(_)
+            | Self::ListScalarGetView(_)
             | Self::ListScalarSetRef(_)
             | Self::ListRowsRef(_)
             | Self::ListRowBytesRef(_)
