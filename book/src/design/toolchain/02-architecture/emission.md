@@ -5,25 +5,32 @@ operations are resolved before Cranelift receives IR; runtime metadata describes
 known storage and operations, not dynamic inference.
 
 Placeholder identities and queued concrete signatures break recursive checking
-dependencies. Each generic function or method allows 16,384 instances, with at
-most 256 newly required instances along a dependency chain. A program has
-finitely many generic declarations, so expansion without end must grow the
-instances of one of them without end. Independent calls start at depth one, even
-when they specialize the same template with different types. A new instance
-inherits its first requiring caller's depth plus one; lifted closures and
-generated call wrappers preserve that depth. Repeated calls, ordinary recursion,
-and alias-equivalent arguments reuse cached specializations without spending
-any limit. The depth check guards expansion, rather than counting the unrelated
-generics in a library. It is a conservative implementation bound, not a proof of
-infinite recursion; an unusually long finite dependency chain can also reach it.
-The per-template limit bounds expansion that branches within the depth limit,
-such as `f[T]` requiring both `f[list[T]]` and `f[Box[T]]`. A separate budget
-of 262,144 instances per compilation bounds the resources of expansion that
-drags other generic functions along, and reports a resource-budget diagnostic
-(issue #428).
+dependencies. Each generic function or method allows 16,384 instances. A
+dependency chain of newly required instances may be 256 steps longer than the
+number of generic functions and methods declared plus generator consumers
+specialized. A program has finitely many generic declarations, so expansion
+without end must grow the instances of one of them without end. A chain in
+which no declaration repeats is no longer than that number, so only repeats
+can exceed the depth limit: a finite chain through distinct generic functions,
+however long, does not reach it (issue #435). Independent calls start at depth one, even when they specialize
+the same template with different types. A new instance inherits its first
+requiring caller's depth plus one; lifted closures and generated call wrappers
+preserve that depth. Repeated calls, ordinary recursion, and alias-equivalent
+arguments reuse cached specializations without spending any limit. The depth
+check guards expansion, rather than counting the unrelated generics in a
+library. It is a conservative implementation bound, not a proof of infinite
+recursion. The per-template limit bounds expansion that branches within the
+depth limit, such as `f[T]` requiring both `f[list[T]]` and `f[Box[T]]`. A
+separate budget of 262,144 instances per compilation bounds the resources of
+expansion that drags other generic functions along, and reports a
+resource-budget diagnostic (issue #428).
 
-The independent limits of 256 generic data instances and 256 concrete generator
-consumer specializations per compilation are unchanged. Type nesting is still
+Generic data and generator consumers follow the same scheme (issue #430). Each
+generic class or enum allows 16,384 instances, with definitions nested at most
+64 deep, and a compilation allows 65,536 generic data instances; `Option`
+instances do not count. Each function with a `Generator` parameter allows
+16,384 concrete frame specializations, which share the dependency depth limit
+of generic functions, and a compilation allows 65,536. Type nesting is still
 bounded separately.
 
 Before native preparation, emission removes unreachable definitions from the

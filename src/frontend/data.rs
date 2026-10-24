@@ -5,6 +5,14 @@ use std::cell::{Cell, RefCell};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
+/// Instances of one generic class or enum. Expansion that branches, such as
+/// `Node[T]` holding both `Node[list[T]]` and `Node[Box[T]]`, reaches it
+/// within the nesting limit of 64.
+const MAX_DECLARATION_INSTANCES: usize = 16_384;
+/// Generic data instances per compilation, a resource budget for expansion
+/// that grows several declarations together.
+const MAX_DATA_INSTANCES: usize = 65_536;
+
 #[derive(Clone, Default)]
 pub(crate) struct TypeAliases {
     named: HashMap<String, Type>,
@@ -17,6 +25,10 @@ pub(super) struct DataTypes {
     enums: Arc<HashMap<String, enums::EnumDecl>>,
     classes: Arc<HashMap<String, classes::ClassDecl>>,
     instances: RefCell<HashMap<(String, Vec<Ty>), Ty>>,
+    /// Instances with type arguments, which `MAX_DATA_INSTANCES` limits.
+    generic_instances: Cell<usize>,
+    /// Those instances by declaration, which `MAX_DECLARATION_INSTANCES` limits.
+    declaration_instances: RefCell<HashMap<String, usize>>,
     named: RefCell<HashMap<String, Ty>>,
     arguments: RefCell<HashMap<String, (String, Vec<Ty>)>>,
     pending: RefCell<Vec<classes::ClassDecl>>,
@@ -394,23 +406,33 @@ impl TypeAliases {
         if let Some(ty) = self.data.instances.borrow().get(&key) {
             return Ok(ty.clone());
         }
-        // Placeholder instances do not count against the program's limit.
-        if !actual.is_empty()
-            && !self.data.shapes_only
-            && self
+        // Placeholder instances do not count against the program's limits.
+        // As for generic functions (issue #430), the definition depth below
+        // bounds expansion, the per-declaration count bounds branching, and
+        // the total is a resource budget.
+        let counted = !actual.is_empty() && !self.data.shapes_only;
+        if counted {
+            let count = self
                 .data
-                .instances
+                .declaration_instances
                 .borrow()
-                .keys()
-                .filter(|(_, args)| !args.is_empty())
-                .count()
-                >= 256
-        {
-            return Err(self.expansion().unwrap_or_else(|| {
-                application
-                    .at
-                    .error("generic data specialization limit of 256 exceeded")
-            }));
+                .get(name)
+                .copied()
+                .unwrap_or(0);
+            if count >= MAX_DECLARATION_INSTANCES {
+                return Err(self.expansion().unwrap_or_else(|| {
+                    application.at.error(format!(
+                        "generic data specialization limit of {MAX_DECLARATION_INSTANCES} instances of `{name}` exceeded; check for expanding recursion"
+                    ))
+                }));
+            }
+            if self.data.generic_instances.get() >= MAX_DATA_INSTANCES {
+                return Err(self.expansion().unwrap_or_else(|| {
+                    application.at.error(format!(
+                        "total generic data specialization budget of {MAX_DATA_INSTANCES} exceeded"
+                    ))
+                }));
+            }
         }
         if self.data.depth.get() >= 64 {
             return Err(self.expansion().unwrap_or_else(|| {
@@ -444,6 +466,17 @@ impl TypeAliases {
             .borrow_mut()
             .insert(concrete_name.clone(), key.clone());
         self.data.instances.borrow_mut().insert(key, ty.clone());
+        if counted {
+            self.data
+                .generic_instances
+                .set(self.data.generic_instances.get() + 1);
+            *self
+                .data
+                .declaration_instances
+                .borrow_mut()
+                .entry(name.clone())
+                .or_default() += 1;
+        }
         self.data
             .named
             .borrow_mut()
@@ -516,6 +549,10 @@ impl TypeAliases {
         self.data.deferred.set(true);
         let attributed = self.data.requiring.borrow().clone();
         let result = (|| {
+            // Instances defined by earlier calls were checked then, and their
+            // layouts cannot change: rechecking every instance made checking
+            // quadratic in the number of instances (issue #430).
+            let mut defined = Vec::new();
             loop {
                 let next = self.data.pending_types.borrow_mut().pop_front();
                 let Some(DefinitionJob {
@@ -533,6 +570,7 @@ impl TypeAliases {
                 // Instances named by this one's fields and methods have the same cause.
                 *self.data.requiring.borrow_mut() = Some(Requiring::Instance(required.clone()));
                 let ty = self.data.instances.borrow()[&(name.clone(), actual.clone())].clone();
+                defined.push((name.clone(), ty.clone()));
                 let concrete_name = ty.identity_name();
                 // Diagnostics show the display name, not the linking identity.
                 *self.data.requirer.borrow_mut() = Some(Arc::new(Requirer {
@@ -637,7 +675,7 @@ impl TypeAliases {
             for (row, at) in std::mem::take(&mut *self.data.pending_clists.borrow_mut()) {
                 super::clists::check_row(&row, &at)?;
             }
-            for ((name, _), ty) in self.data.instances.borrow().iter() {
+            for (name, ty) in &defined {
                 let at = || {
                     self.data
                         .enums
@@ -809,6 +847,7 @@ impl generics::Engine {
             if !f.type_params.is_empty() {
                 self.validate_template(f, aliases)?;
                 self.templates.insert(f.name.clone(), Arc::new(f.clone()));
+                self.specializable += 1;
                 continue;
             }
             let signature = protocols::signature(f, aliases)?;
