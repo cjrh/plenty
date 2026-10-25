@@ -286,21 +286,28 @@ pub def abs[T](x: T) -> T:
     x
 
 pub def min[T](a: T, b: T) -> T:
-    if b < a:
+    # Scalar NaN is unordered with itself; tuples retain their total ordering.
+    if not (a <= a):
+        return a
+    if not (b <= b) or b < a:
         return b
     a
 
 pub def max[T](a: T, b: T) -> T:
-    if b > a:
+    if not (a <= a):
+        return a
+    if not (b <= b) or b > a:
         return b
     a
 
-# Borrow the collection; copy the selected value, retaining the first on ties.
+# Borrow the collection; propagate NaN and retain the first value on ties.
 pub def min_all[T](items: &list[T]) -> Option[T]:
     if len(items) == 0:
         return Nothing
     mut best = *&items[0]
     for item in items:
+        if not (item <= item):
+            return Some(*item)
         if item < best:
             best = *item
     Some(best)
@@ -310,6 +317,8 @@ pub def max_all[T](items: &list[T]) -> Option[T]:
         return Nothing
     mut best = *&items[0]
     for item in items:
+        if not (item <= item):
+            return Some(*item)
         if item > best:
             best = *item
     Some(best)

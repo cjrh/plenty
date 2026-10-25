@@ -66,7 +66,9 @@ quotient and remainder with the divisor's sign; use `divmod_float` for floats.
 Division by zero is a recoverable `Domain` error.
 
 `min_all` and `max_all` borrow a list and return `Nothing` for an empty list.
-They retain the first value on ties. `sum_iter` and `prod_iter` also borrow
+They retain the first value on ties. For floating-point lists, any NaN makes
+the result `Some(NaN)`, regardless of its position. The two-value `min` and `max`
+also propagate NaN. `sum_iter` and `prod_iter` also borrow
 ranges, sets, and dictionary keys; their explicit start supplies the numeric
 type and the result for an empty input. The original collections remain usable.
 
