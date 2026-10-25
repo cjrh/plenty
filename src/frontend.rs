@@ -2840,6 +2840,8 @@ struct Lower<'a> {
     /// Where each closure value a pipeline holds as a callback came from, and
     /// the binding it was read from, for lending diagnostics.
     pipeline_callbacks: HashMap<u8, (Token, Option<String>)>,
+    /// Loans of the reference items of lent pipelines this borrower received.
+    lent_item_loans: HashSet<usize>,
     pipeline_generators: usize,
     function_name: String,
     /// `function_name` in the function table.
@@ -5737,6 +5739,7 @@ fn lower_body(
                 binding_pipeline: false,
                 lent_parameters: HashMap::default(),
                 pipeline_callbacks: HashMap::default(),
+                lent_item_loans: HashSet::default(),
                 pipeline_generators: 0,
                 function_places: HashMap::default(),
                 function_initializers: Vec::new(),

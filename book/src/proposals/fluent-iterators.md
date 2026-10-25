@@ -281,12 +281,24 @@ borrow checking, the conservative option was taken:
   lending. In the borrower, `p` itself is borrowed exclusively by every loop,
   `next`, terminal and sub-pipeline over it, so overlapping uses of `p` there
   are ordinary borrow conflicts.
+- *Reference items borrow for the call only.* A pipeline whose items are
+  references, such as `iter(&names).filter_value("ada")`, can be lent. In the
+  borrower each reference item has a loan rooted at one of the plan's hidden
+  parameters, which the borrower only reads and cannot name. An item is
+  therefore usable anywhere in the call, including by local adapters,
+  closures and further lends, but cannot leave it: returning an item, or a
+  reference derived from one, is rejected with "an item of a lent pipeline
+  cannot be returned". The other routes out already reject references:
+  `Option` and tuple payloads, class fields, generators, and escaping
+  borrowing closures. Rooting items at the declared `&mut Iter` parameter
+  instead would let a borrower return an item tied only to that parameter,
+  which can outlive the pipeline's loan of its source once the lender
+  consumes the pipeline.
 - *Limits.* A lent pipeline may have at most 64 state slots, which keeps the
   borrower within the 256-slot frame limit. A pipeline is rejected when its
-  items are references, when its state holds a reference inside another value
-  (a bound closure with borrowed captures), or when it holds a reference into
-  its own owned state. The first would need item provenance in the borrower;
-  the others would let the borrower's copy alias the lender's slot.
+  state holds a reference inside another value (a bound closure with borrowed
+  captures), or when it holds a reference into its own owned state: either
+  would let the borrower's copy alias the lender's slot.
 
 One borrower instance is compiled per lent plan, shared by recursive and
 repeated lends. In a probe lending three different pipelines to a one-line
