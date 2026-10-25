@@ -439,10 +439,27 @@ fn run_job(job: &Job, number: usize, workspace: &Path, run_command: bool) -> boo
             std::fs::copy(example_dir.join(&library), destination).unwrap();
         }
     }
+    // Cargo's library search path can contain an older optional engine. Run
+    // dataframe examples against the same explicit installation used to link.
+    let engine_environment: Vec<_> = if source.language == "plenty dataframe" {
+        std::env::var_os("PLENTY_DATAFRAME_ENGINE")
+            .map(|path| {
+                let path = PathBuf::from(path).canonicalize().unwrap();
+                (
+                    "LD_LIBRARY_PATH",
+                    path.parent().unwrap().as_os_str().to_owned(),
+                )
+            })
+            .into_iter()
+            .collect()
+    } else {
+        Vec::new()
+    };
     let run_output = run_command.then(|| {
         Command::new(binary)
             .arg(&source_path)
             .current_dir(&run_dir)
+            .envs(engine_environment.iter().map(|(key, value)| (key, value)))
             .output()
             .unwrap()
     });
@@ -464,6 +481,7 @@ fn run_job(job: &Job, number: usize, workspace: &Path, run_command: bool) -> boo
             );
             let native = Command::new(&executable)
                 .current_dir(&native_dir)
+                .envs(engine_environment.iter().map(|(key, value)| (key, value)))
                 .output()
                 .unwrap();
             assert!(

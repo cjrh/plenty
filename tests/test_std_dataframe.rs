@@ -32,6 +32,12 @@ fn dynamic(path: &Path) -> String {
     .unwrap()
 }
 
+fn engine_under_test() -> PathBuf {
+    PathBuf::from(std::env::var_os("PLENTY_DATAFRAME_ENGINE").expect("engine under test"))
+        .canonicalize()
+        .expect("selected dataframe engine must exist")
+}
+
 #[test]
 fn unused_dataframe_does_not_need_or_link_engine() {
     for source in [
@@ -69,13 +75,12 @@ fn dataframe_end_to_end_with_real_engine() {
         );
         return;
     }
-    let engine = std::env::var_os("PLENTY_DATAFRAME_ENGINE")
-        .expect("PLENTY_DATAFRAME_ENGINE must name the engine under test");
+    let engine = engine_under_test();
     let temp = tempfile::tempdir().unwrap();
     let binary = compile(
         temp.path(),
         include_str!("fixtures/dataframe.plenty"),
-        Some(engine.into()),
+        Some(engine.clone()),
     )
     .unwrap();
     let dependencies = dynamic(&binary);
@@ -90,9 +95,39 @@ fn dataframe_end_to_end_with_real_engine() {
     let result = assert_success(
         Command::new(binary)
             .current_dir(temp.path())
+            // Cargo prepends target directories to LD_LIBRARY_PATH. Do not
+            // accidentally load an older same-SONAME engine from that cache.
+            .env("LD_LIBRARY_PATH", engine.parent().unwrap())
             .env("POLARS_MAX_THREADS", "2")
             .output()
             .unwrap(),
     );
     assert_eq!(String::from_utf8(result.stdout).unwrap(), "dataframe ok\n");
+}
+
+#[test]
+fn joins_sorts_and_slices_with_real_engine() {
+    if std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none() {
+        eprintln!("query operation execution requires PLENTY_DATAFRAME_TESTS=1");
+        return;
+    }
+    let engine = engine_under_test();
+    let temp = tempfile::tempdir().unwrap();
+    let binary = compile(
+        temp.path(),
+        include_str!("fixtures/dataframe_queries.plenty"),
+        Some(engine.clone()),
+    )
+    .unwrap();
+    let output = assert_success(
+        Command::new(binary)
+            .env("LD_LIBRARY_PATH", engine.parent().unwrap())
+            .env("POLARS_MAX_THREADS", "2")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "dataframe queries ok\n"
+    );
 }

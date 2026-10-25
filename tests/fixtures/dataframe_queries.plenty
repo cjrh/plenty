@@ -1,0 +1,98 @@
+import std.dataframe as df
+import std.test as test
+
+def data(ids: &list[i64], values: &list[i64]) -> Result[df.DataFrame, df.DataFrameError | AllocError]:
+    df.frame([df.column_i64("id", ids)?, df.column_i64("value", values)?]?)
+
+def retained_join() -> Result[df.Query, df.DataFrameError | AllocError]:
+    left = data([1, 1, 3]?, [10, 11, 30]?)?
+    right = data([1, 1, 2]?, [100, 101, 200]?)?
+    keys = [df.col("id")?]?
+    left.lazy()?.join(right.lazy()?, keys, keys, how=df.JoinKind.Left, suffix="_rhs")
+
+def main() -> Result[(), df.DataFrameError | test.TestError | AllocError | IoError]:
+    joined = retained_join()?
+    order = [df.SortKey(df.col("id")?), df.SortKey(df.col("value")?), df.SortKey(df.col("value_rhs")?, descending=True)]?
+    result = joined.sort(order)?.collect()?
+    test.equal(result.height()?, 5)?
+    test.equal(result.values_i64("value")?, [10, 10, 11, 11, 30]?)?
+    test.equal(result.get_i64("value_rhs", 0)?, Some(101))?
+    test.equal(result.get_i64("value_rhs", 1)?, Some(100))?
+    test.check(result.get_i64("value_rhs", 4)?.is_none(), "left join fills unmatched right cells with null")?
+    test.equal(result.get_i64("id_rhs", 0)?, Some(1))?
+    null_first = [df.SortKey(df.col("value_rhs")?, descending=True, nulls_last=False), df.SortKey(df.col("value")?)]?
+    sorted_nulls = joined.sort(null_first)?.collect()?
+    test.equal(sorted_nulls.values_i64("value")?, [30, 10, 11, 10, 11]?)?
+    ordered = joined.sort(order)?
+    test.equal(ordered.slice(1, 2)?.collect()?.values_i64("value")?, [10, 11]?)?
+    test.equal(ordered.slice(-2, 9)?.collect()?.values_i64("value")?, [11, 30]?)?
+    test.equal(ordered.limit(0)?.collect()?.height()?, 0)?
+    test.equal(ordered.limit(2)?.collect()?.height()?, 2)?
+    test.equal(ordered.slice(i64.MAX, 1)?.collect()?.height()?, 0)?
+    test.equal(ordered.slice(i64.MIN, 1)?.collect()?.height()?, 0)?
+    test.equal(ordered.slice(-99, 2)?.collect()?.height()?, 0)?
+    for length in [-1, 4294967296]?:
+        match ordered.slice(0, length):
+            case Err(df.DataFrameError.Bounds(message)):
+                test.check(len(message) > 0, "slice diagnostic")?
+            case _:
+                test.fail("invalid slice length accepted")?
+    left = data([1, 1, 3]?, [10, 11, 30]?)?
+    right = data([1, 1, 2]?, [10, 11, 20]?)?
+    key = [df.col("id")?]?
+    inner = left.lazy()?.join(right.lazy()?, key, key)?.collect()?
+    test.equal(inner.height()?, 4)?
+    empty_values: list[i64] = []?
+    empty = data(empty_values, empty_values)?
+    test.equal(empty.lazy()?.join(right.lazy()?, key, key)?.collect()?.height()?, 0)?
+    unmatched = left.lazy()?.join(empty.lazy()?, key, key, how=df.JoinKind.Left)?.collect()?
+    test.equal(unmatched.height()?, 3)?
+    test.check(unmatched.get_i64("value_right", 0)?.is_none(), "empty right side preserves left rows")?
+    composite = [df.col("id")?, df.col("value")?]?
+    multi = left.lazy()?.join(right.lazy()?, composite, composite)?.collect()?
+    test.equal(multi.height()?, 2)?
+    null_key = [df.null_f64()?.alias("key")?]?
+    null_left = left.lazy()?.with_columns(null_key)?
+    null_right = right.lazy()?.with_columns(null_key)?.limit(1)?
+    keys = [df.col("key")?]?
+    test.equal(null_left.join(null_right, keys, keys)?.collect()?.height()?, 0)?
+    test.equal(null_left.join(null_right, keys, keys, nulls_equal=True)?.collect()?.height()?, 3)?
+    null_join = null_left.join(null_right, keys, keys, how=df.JoinKind.Left)?.collect()?
+    test.equal(null_join.height()?, 3)?
+    test.check(null_join.get_i64("value_right", 0)?.is_none(), "null keys do not match by default")?
+    empty_keys: list[df.Expr] = []?
+    match left.lazy()?.join(right.lazy()?, empty_keys, key):
+        case Err(df.DataFrameError.Schema(message)):
+            test.check(len(message) > 0, "empty join keys")?
+        case _:
+            test.fail("empty join keys accepted")?
+    match left.lazy()?.join(right.lazy()?, key, composite):
+        case Err(df.DataFrameError.Schema(message)):
+            test.check(len(message) > 0, "mismatched join keys")?
+        case _:
+            test.fail("mismatched join keys accepted")?
+    empty_order: list[df.SortKey] = []?
+    match ordered.sort(empty_order):
+        case Err(df.DataFrameError.Schema(message)):
+            test.check(len(message) > 0, "empty sort keys")?
+        case _:
+            test.fail("empty sort keys accepted")?
+    match left.lazy()?.join(right.lazy()?, key, key, suffix="")?.collect():
+        case Err(df.DataFrameError.Query(message)):
+            test.check(len(message) > 0, "suffix collision")?
+        case _:
+            test.fail("duplicate output column names accepted")?
+    unknown = [df.SortKey(df.col("missing")?)]?
+    match ordered.sort(unknown)?.collect():
+        case Err(df.DataFrameError.Query(message)):
+            test.check(len(message) > 0, "unknown sort column")?
+        case _:
+            test.fail("unknown sort column accepted")?
+    ties = data([1, 1, 2, 1]?, [4, 3, 2, 1]?)?
+    tie_order = [df.SortKey(df.col("id")?)]?
+    test.equal(ties.lazy()?.sort(tie_order)?.collect()?.values_i64("value")?, [4, 3, 1, 2]?)?
+    test.equal(ties.lazy()?.sort(tie_order)?.limit(2)?.collect()?.values_i64("value")?, [4, 3]?)?
+    test.equal(empty.lazy()?.sort(tie_order)?.collect()?.height()?, 0)?
+    test.equal(ties.lazy()?.limit(4294967295)?.collect()?.height()?, 4)?
+    print("dataframe queries ok")?
+    Ok(())
