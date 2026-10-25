@@ -237,6 +237,8 @@ pub enum CollectionOp {
     TryKeys(Ty),
     TryValues(Ty),
     ListTrySlice(Ty),
+    /// Internal to `.par`: move an owned list's rows into adjacent chunks.
+    ListTrySplit(Ty),
     TextByteLen,
     TextIndex,
     TextTryConcat,
@@ -722,6 +724,10 @@ impl CollectionOp {
                 vec![t.clone(), Ty::I64, Ty::I64],
                 crate::sum::result(t.clone(), crate::sum::alloc_error()),
             ),
+            ListTrySplit(t) => (
+                vec![t.clone(), Ty::I64],
+                crate::sum::result(Ty::List(Arc::new(t.clone())), crate::sum::alloc_error()),
+            ),
         }
     }
     /// Whether the runtime can trap in this operation, which then takes the
@@ -866,6 +872,7 @@ impl CollectionOp {
             Self::TryKeys(_) => 43,
             Self::TryValues(_) => 44,
             Self::ListTrySlice(_) => 45,
+            Self::ListTrySplit(_) => 168,
             Self::TextByteLen => 12,
             Self::TextIndex => 114,
             Self::TextTryRemovePrefix => 71,

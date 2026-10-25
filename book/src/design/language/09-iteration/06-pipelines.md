@@ -313,6 +313,116 @@ error. `try_fold` and `try_for_each` instead stop on callback errors: their
 callbacks must explicitly handle any `Result` items. They add no allocation
 error of their own.
 
+## Parallel pipelines
+
+`.par(&pool)` runs the rest of a pipeline on a `ThreadPoolExecutor`'s workers.
+The pool is borrowed: write `&pool`, or pass a `&ThreadPoolExecutor` value.
+
+```text
+with ThreadPoolExecutor(8, 64)? as pool:
+    lengths = iter(paths).par(&pool).map(file_size).collect()?
+    best = iter(range(1, n)).par(&pool, chunks=16).map(score).reduce(better)?
+```
+
+| Part | Accepted |
+|---|---|
+| Source | an owned `list[T]` or a `range[i64]`, through `iter(source)`, `iter(source).enumerate(start)` or `enumerate(source, start)` |
+| Steps after `par` | `map`, `filter`, and `filter_value` |
+| Callbacks | named functions, or reusable immutable closures that own their captures |
+| Terminals | `collect`, `try_collect`, `count`, `any`, `all`, `sum`, `min`, `max`, `reduce` |
+
+`enumerate` must come before `par`. Other steps (`take`, `skip`, `take_while`,
+`zip`, `chain`, `flat_map`) are rejected after `par`, as are
+steps before it other than `enumerate`. Borrowed lists wait for scoped pool
+jobs (B22); generators and other range types are rejected. A parallel pipeline
+must end in a terminal: it cannot be stored, looped over with `for`, converted
+to a generator, or advanced with `next`. `fold`, `try_fold`, `for_each`, and
+`try_for_each` are rejected because their callbacks have no associativity
+guarantee or would run in no fixed order. Mutable, one-shot, and borrowing
+closures are rejected; callbacks also pass the
+[worker eligibility checks](../../facilities/03-concurrency/parallel-map.md).
+
+`filter_value(value=True)` follows the serial rules: `value` is evaluated once,
+on the calling thread, takes the item type, and is compared with `==`. Every
+chunk compares against that one value, so the items must be copyable (scalars,
+`str`, and tuples of them); use `filter` for other item types. The value must
+also pass the worker checks.
+
+**Chunks.** The source is split into contiguous chunks, and each chunk runs the
+fused steps as one pool job. By default the chunk count is the
+pool's worker count, read when the pipeline runs. `.par(&pool, chunks=N)` sets
+it explicitly; `N` is an `i64` expression and must be positive. A literal zero
+or negative count is a compile error, and a non-positive runtime value traps
+with `integer cast out of range`. An input with fewer items than the count gets
+one chunk per item, so no chunk is empty. Chunk boundaries depend only on the
+input length and the count, never on scheduling.
+
+**Terminals.**
+
+| Terminal | Result |
+|---|---|
+| `collect()` | `Result[list[U], PoolMapError]`, in input order |
+| `try_collect()` on `Result[U, E]` items | `Result[list[U], ParallelError[E \| AllocError]]` |
+| `count()` | `Result[i64, PoolMapError]` |
+| `any(keep)`, `all(keep)`; `any()`, `all()` on `bool` items | `Result[bool, PoolMapError]` |
+| `sum()` | `Result[T, PoolMapError]` for numeric items |
+| `min()`, `max()` | `Result[Option[T], PoolMapError]` |
+| `reduce(f)` | `Result[Option[T], PoolMapError]` |
+
+`try_collect` reports the error at the lowest input index, across chunks, as
+[`map_result`](../../facilities/03-concurrency/parallel-map.md) does. Chunk
+allocation failure inside a worker is reported as
+`ParallelError.Worker(AllocError)`. As in the serial form, `any()` and `all()`
+without a predicate test `bool` items. `any` and `all` evaluate every chunk;
+there is no early stop across chunks.
+
+`sum` adds each chunk serially, then adds the chunk totals in input order.
+Integer sums match the serial `sum`, including its overflow behavior: the
+program traps with `integer overflow` at the terminal whenever any running
+total of the serial left-to-right sum would leave the type's range. A
+floating-point sum can differ from the serial sum, since chunk totals regroup
+the additions; it is deterministic for a given input length and chunk count.
+With the default count, a different pool size can change the result; pass
+`chunks=N` when the same answer is needed from any pool.
+
+`min` and `max` take each chunk's serial result and combine them in input
+order, so they equal the serial results: the first NaN in input order wins,
+and `-0.0` is less than `0.0`. Empty input gives `Nothing`.
+
+`reduce(f)` takes a named function `(T, T) -> T`. Like `sum`, it reduces each
+chunk serially, left to right, on its worker, then reduces the chunk results in
+input order, skipping chunks with no items; empty input gives `Nothing`. No list
+of all items is built. The result is deterministic for a given input length and
+chunk count, but it can differ from the serial left fold when `f` is not
+associative, and with the default count a different pool size can change it.
+Code that needs one grouping for any pool or chunk count can collect the items
+and use [`pool.reduce_tree`](../../facilities/03-concurrency/parallel-reduce.md),
+whose fixed adjacent-pair tree does not depend on the worker count.
+
+**Errors and order.** Every terminal reports `PoolMapError.Shutdown` for a
+closed pool and `PoolMapError.Allocation` when chunk storage or job submission
+cannot allocate. Callbacks may run in any order and on any worker; accepted
+chunks finish before the terminal returns, and partial outputs and captures
+are dropped once.
+
+Arguments are evaluated in written order, as in a serial pipeline: the source,
+the `enumerate` start, the pool and `chunks` arguments of `par`, then each later
+step's value or callback captures and the terminal's arguments, left to right.
+The pool stays borrowed until the terminal returns, so a later argument cannot
+move it.
+
+**Cost.** Splitting a list allocates one list per chunk, then moves each
+chunk's items with one bulk copy on the calling thread; a range is split without
+copying items. Each chunk is one pool job. Collecting terminals allocate one
+output list per chunk, then append each chunk's storage to one reserved result
+list. `reduce` allocates nothing beyond the chunk lists and the jobs.
+
+With a cheap callback over a large list, the split's copy of every item can
+cost more than the work saved, so `.par` pays off when the callbacks cost more
+than moving an item. Borrowed chunks, which would remove the copy, wait for
+scoped pool jobs (B22, issue #455). See the
+[parallel pipeline measurements](../../../development/profiling.md#parallel-pipelines).
+
 ## Cost
 
 The pipeline itself adds no heap allocation or per-adapter generator frame.
@@ -346,5 +456,5 @@ has its own suspension boundary. Local fluent consumption keeps its fused
 loop without relying on generator-frame fusion as an optimization.
 
 The [proposal](../../../proposals/fluent-iterators.md) describes the broader
-design; [B75](../../../backlog.md) tracks the remaining stages. Pipelines
+design; [B75](../../../backlog.md) tracks follow-up work. Pipelines
 replace the removed `std.iter` generator functions.

@@ -7,20 +7,29 @@ are consumed on every outcome; ranges retain copyable semantics. Empty input
 returns Nothing; otherwise the result is Some. No identity is inserted or copied.
 
 Each round combines adjacent pairs in left/right order; an odd final element
-advances unchanged. A round finishes before the next starts. Five inputs use
-`f(f(f(a, b), f(c, d)), e)`. Worker count, queue capacity, and completion order
-do not change the tree. A successful nonempty input of length n invokes the
-worker exactly n - 1 times.
+advances unchanged. Five inputs use `f(f(f(a, b), f(c, d)), e)`. Worker count,
+queue capacity, and completion order do not change the tree. A successful
+nonempty input of length n invokes the worker exactly n - 1 times.
+
+The rounds define the grouping, not the schedule. One job reduces an aligned
+run of adjacent inputs, a power-of-two count chosen so there is about one run
+per worker, through as many rounds as the run spans; jobs then combine the run
+results pairwise. A job's calls are serial, and runs proceed independently, so
+calls from different rounds can overlap in time.
 
 This reassociates operations rather than performing a left fold. Floating-point
 results can differ from serial accumulation; pure workers produce the same result
 for the same input and target across pool sizes. Effect order is unspecified.
 Workers must not depend on another pair being scheduled. Integer overflow and
 traps retain ordinary language behavior.
+A [parallel pipeline's](../../language/09-iteration/06-pipelines.md#parallel-pipelines)
+`reduce` groups by chunk instead, so its result can depend on the chunk count;
+use `reduce_tree` when one grouping is needed for every pool.
 
 Empty and singleton reductions allocate nothing. Larger inputs need one fallible
 scratch buffer proportional to input length, including for ranges, a bounded job
-window, and fallible job cells. Pair arguments transfer without tuple allocation
+window, fallible job cells, and, when a job reduces more than one input, one
+small buffer of per-job run descriptors and pair scratch. Pair arguments transfer without tuple allocation
 or implicit copying.
 
 Infrastructure failure stops submission, drains accepted jobs, and destroys

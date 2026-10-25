@@ -32,6 +32,86 @@ impl Drop for Values {
     }
 }
 
+/// One job's share of the tree: an aligned run of `count` adjacent slots,
+/// reduced serially with the same pairing the level-by-level loop uses.
+struct Block {
+    first: *mut u128,
+    count: usize,
+    element: &'static Type,
+    pair: &'static Type,
+    entry: executors::Entry,
+    /// Room for one pair environment and its result.
+    scratch: *mut u128,
+}
+
+/// A block job's input is the address of its `Block`, which owns nothing.
+static BLOCK: Type = Type {
+    kind: b'4',
+    affine: false,
+    reflexive: true,
+    inline_range: false,
+    inline_bytes: 0,
+    key: None,
+    value: None,
+    name: "reduce block",
+    variants: &[],
+    drop: None,
+};
+
+/// The width of the aligned blocks reduced inside one job: the smallest power
+/// of two that leaves at most one block per worker. Block `j` covers leaves
+/// `j * width..` and, because every level maps index `i` to `i / 2` (paired
+/// or carried), it is exactly the subtree that the level-by-level tree reduces
+/// to index `j` after `log2(width)` levels, including a short final block.
+fn block_width(count: usize, workers: usize) -> usize {
+    let mut width = 1usize;
+    while count.div_ceil(width) > workers.max(1) {
+        width *= 2;
+    }
+    width
+}
+
+unsafe extern "C" fn reduce_block(input: *const u128, out: *mut u128, _shared: *const u128) {
+    // SAFETY: `input` holds the address of a `Block` the caller keeps alive and
+    // untouched until this job's result is taken. The block's slots and scratch
+    // belong to this job alone; each value moves once and its slot is zeroed.
+    unsafe {
+        let block = &*(input.read() as usize as *const Block);
+        let words = block.element.slot_words();
+        let slot = |index: usize| block.first.add(index * words);
+        let environment = block.scratch.add(1);
+        let result = block.scratch.add(block.pair.slot_words());
+        let mut count = block.count;
+        while count > 1 {
+            let pairs = count / 2;
+            for index in 0..pairs {
+                // The same inline environment `submit_pair` builds.
+                environment.write(block.pair as *const Type as u128);
+                let mut capture = environment.add(1);
+                for (source, ty) in [slot(2 * index), slot(2 * index + 1)]
+                    .into_iter()
+                    .zip(block.pair.variants[0].fields)
+                {
+                    ranges::store(capture, source.read(), ty);
+                    capture = capture.add(ty.slot_words());
+                    source.write(0);
+                }
+                block.scratch.write(environment as u128);
+                (block.entry)(block.scratch, result, std::ptr::null());
+                ranges::store(slot(index), result.read(), block.element);
+            }
+            if count % 2 == 1 {
+                let odd = slot(count - 1);
+                ranges::store(slot(pairs), odd.read(), block.element);
+                odd.write(0);
+            }
+            count = count.div_ceil(2);
+        }
+        ranges::store(out, slot(0).read(), block.element);
+        slot(0).write(0);
+    }
+}
+
 pub(crate) unsafe fn run(
     pool: *mut Pool,
     source: u128,
@@ -78,10 +158,61 @@ pub(crate) unsafe fn run(
                 return Ok(());
             }
             let mut values = Values::new(count, element)?;
+            let width = block_width(count, executors::workers(pool));
+            let blocks = count.div_ceil(width);
+            // Declared before `pending`, so they outlive its drain on every exit.
+            let mut descriptors = Vec::new();
+            let mut scratch = Vec::new();
+            if width > 1 {
+                let words = job_input.slot_words() + element.slot_words();
+                memory::try_reserve(&mut descriptors, blocks)?;
+                let total = blocks
+                    .checked_mul(words)
+                    .ok_or(AllocError::CapacityOverflow)?;
+                memory::try_reserve(&mut scratch, total)?;
+                scratch.resize(total, 0u128);
+                for block in 0..blocks {
+                    descriptors.push(Block {
+                        first: values.slot(block * width),
+                        count: width.min(count - block * width),
+                        element,
+                        pair: job_input,
+                        entry,
+                        scratch: scratch.as_mut_ptr().add(block * words),
+                    });
+                }
+            }
             let window = window.min(count / 2);
             let mut pending = Pending::new(window, element)?;
             for index in 0..count {
                 take_input(index, values.slot(index));
+            }
+            if width > 1 {
+                let mut submitted = 0;
+                let mut finished = 0;
+                while submitted < blocks || pending.len > 0 {
+                    while submitted < blocks && pending.len < window {
+                        let block = &descriptors[submitted] as *const Block;
+                        let job = executors::submit(
+                            pool,
+                            block as usize as u128,
+                            &BLOCK,
+                            element,
+                            reduce_block,
+                            false,
+                        )
+                        .map_err(Error::submission)?;
+                        pending.push(job);
+                        submitted += 1;
+                    }
+                    let mut completed = pending.pop();
+                    // Slot `finished` lies in an earlier, completed block, and
+                    // later blocks only touch slots at or beyond their start.
+                    ranges::store(values.slot(finished), completed.value, element);
+                    completed.transferred();
+                    finished += 1;
+                }
+                count = blocks;
             }
             while count > 1 {
                 let pairs = count / 2;
