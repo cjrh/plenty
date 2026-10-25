@@ -10,7 +10,7 @@ def retained_join() -> Result[df.Query, df.DataFrameError | AllocError]:
     keys = [df.col("id")?]?
     left.lazy()?.join(right.lazy()?, keys, keys, how=df.JoinKind.Left, suffix="_rhs")
 
-def main() -> Result[(), df.DataFrameError | test.TestError | AllocError | IoError]:
+def joined_rows_and_windows() -> Result[(), df.DataFrameError | test.TestError | AllocError]:
     joined = retained_join()?
     order = [df.SortKey(df.col("id")?), df.SortKey(df.col("value")?), df.SortKey(df.col("value_rhs")?, descending=True)]?
     result = joined.sort(order)?.collect()?
@@ -37,6 +37,9 @@ def main() -> Result[(), df.DataFrameError | test.TestError | AllocError | IoErr
                 test.check(len(message) > 0, "slice diagnostic")?
             case _:
                 test.fail("invalid slice length accepted")?
+    Ok(())
+
+def keys_nulls_and_sorting() -> Result[(), df.DataFrameError | test.TestError | AllocError]:
     left = data([1, 1, 3]?, [10, 11, 30]?)?
     right = data([1, 1, 2]?, [10, 11, 20]?)?
     key = [df.col("id")?]?
@@ -51,6 +54,10 @@ def main() -> Result[(), df.DataFrameError | test.TestError | AllocError | IoErr
     composite = [df.col("id")?, df.col("value")?]?
     multi = left.lazy()?.join(right.lazy()?, composite, composite)?.collect()?
     test.equal(multi.height()?, 2)?
+    computed_key = [df.col("id")?.add(df.lit_i64(1)?)?]?
+    computed = left.lazy()?.join(right.lazy()?, computed_key, key)?.collect()?
+    test.equal(computed.height()?, 2)?
+    test.equal(computed.values_i64("id")?, [1, 1]?)?
     null_key = [df.null_f64()?.alias("key")?]?
     null_left = left.lazy()?.with_columns(null_key)?
     null_right = right.lazy()?.with_columns(null_key)?.limit(1)?
@@ -72,7 +79,7 @@ def main() -> Result[(), df.DataFrameError | test.TestError | AllocError | IoErr
         case _:
             test.fail("mismatched join keys accepted")?
     empty_order: list[df.SortKey] = []?
-    match ordered.sort(empty_order):
+    match left.lazy()?.sort(empty_order):
         case Err(df.DataFrameError.Schema(message)):
             test.check(len(message) > 0, "empty sort keys")?
         case _:
@@ -83,7 +90,7 @@ def main() -> Result[(), df.DataFrameError | test.TestError | AllocError | IoErr
         case _:
             test.fail("duplicate output column names accepted")?
     unknown = [df.SortKey(df.col("missing")?)]?
-    match ordered.sort(unknown)?.collect():
+    match left.lazy()?.sort(unknown)?.collect():
         case Err(df.DataFrameError.Query(message)):
             test.check(len(message) > 0, "unknown sort column")?
         case _:
@@ -94,5 +101,10 @@ def main() -> Result[(), df.DataFrameError | test.TestError | AllocError | IoErr
     test.equal(ties.lazy()?.sort(tie_order)?.limit(2)?.collect()?.values_i64("value")?, [4, 3]?)?
     test.equal(empty.lazy()?.sort(tie_order)?.collect()?.height()?, 0)?
     test.equal(ties.lazy()?.limit(4294967295)?.collect()?.height()?, 4)?
+    Ok(())
+
+def main() -> Result[(), df.DataFrameError | test.TestError | AllocError | IoError]:
+    joined_rows_and_windows()?
+    keys_nulls_and_sorting()?
     print("dataframe queries ok")?
     Ok(())
