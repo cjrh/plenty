@@ -147,6 +147,8 @@ mod expressions;
 pub use expressions::*;
 mod io;
 pub use io::*;
+mod asof;
+pub use asof::*;
 
 /// # Safety
 /// Borrow a non-null error owner for the call.

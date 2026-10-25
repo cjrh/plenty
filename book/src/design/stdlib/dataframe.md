@@ -59,6 +59,7 @@ The [signature index](signatures.md#stddataframe) gives exact declarations.
 | `query.with_columns(&expressions)`, `select(&expressions)` | `Query` |
 | `query.group_by(&keys, &aggregates)` | `Query` |
 | `query.join(&other, &left_keys, &right_keys, how=JoinKind.Inner, suffix="_right", nulls_equal=False)` | `Query` |
+| `query.join_asof(&other, "key", "key", strategy=AsOfStrategy.Backward, tolerance=Nothing, allow_exact_matches=True, suffix="_right")` | `Query` |
 | `query.sort(&keys)`, `slice(offset, length)`, `limit(count)` | `Query` |
 | `query.collect()`, `collect_streaming()` | `DataFrame` |
 | `scan_csv(path, ...)` | `Query` |
@@ -85,6 +86,10 @@ derived query. Each handle is freed by the engine that allocated it.
 There are no public raw pointers or user-created native handles.
 
 ## Joins, ordering and row windows
+
+For sorted integer keys, [as-of joins](dataframe-asof.md) attach the previous,
+next or nearest right row with an optional distance bound. Unlike equality
+joins, they produce at most one match for each left row.
 
 These operations return new immutable query plans; neither input is consumed
 or mutated. They execute inside Polars, with no Plenty row callbacks or

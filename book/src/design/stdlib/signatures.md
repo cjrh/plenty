@@ -378,6 +378,8 @@ class Field
     dtype: DType
 enum JoinKind
     Inner | Left | Full | Semi | Anti
+enum AsOfStrategy
+    Backward | Forward | Nearest
 class SortKey
     def __init__(self, expression: Expr, descending: bool = False, nulls_last: bool = True) -> ()
 enum DataFrameError
@@ -440,6 +442,7 @@ class Query
     def collect_streaming(self) -> Result[DataFrame, DataFrameError]
     def sink_parquet(self, path: &str) -> Result[(), DataFrameError]
     def join(self, other: &Query, left_keys: &list[Expr], right_keys: &list[Expr], how: JoinKind = JoinKind.Inner, suffix: &str = "_right", nulls_equal: bool = False) -> Result[Query, DataFrameError]
+    def join_asof(self, other: &Query, left_on: &str, right_on: &str, strategy: AsOfStrategy = AsOfStrategy.Backward, tolerance: Option[i64] = Nothing, allow_exact_matches: bool = True, suffix: &str = "_right") -> Result[Query, DataFrameError]
     def sort(self, keys: &list[SortKey]) -> Result[Query, DataFrameError]
     def slice(self, offset: i64, length: i64) -> Result[Query, DataFrameError]
     def limit(self, count: i64) -> Result[Query, DataFrameError]

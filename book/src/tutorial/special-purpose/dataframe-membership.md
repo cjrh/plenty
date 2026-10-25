@@ -81,3 +81,6 @@ Full joins preserve duplicate matching pairs, just like inner and left joins.
 They do not verify key uniqueness. The nulls above describe missing sides;
 they are not query failures. See the [join contracts](../../design/stdlib/dataframe-joins.md)
 for composite keys, null matching, name collisions and ordering.
+
+Continue with [Match nearby observations](dataframe-asof.md) when a lookup
+should use the most recent or nearest key rather than an identical key.

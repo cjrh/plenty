@@ -46,6 +46,7 @@ extern def select_raw(query: RawQuery, exprs: RawExprs, out: &mut RawQuery) -> R
 extern def group_raw(query: RawQuery, keys: RawExprs, aggregates: RawExprs, out: &mut RawQuery) -> RawError = "pldf_v1_group"
 extern def collect_raw(query: RawQuery, out: &mut RawFrame) -> RawError = "pldf_v1_collect"
 extern def join_raw(left: RawQuery, right: RawQuery, left_keys: RawExprs, right_keys: RawExprs, kind: i32, suffix: &str as utf8, nulls_equal: u8, out: &mut RawQuery) -> RawError = "pldf_v1_join"
+extern def join_asof_raw(left: RawQuery, right: RawQuery, left_on: &str as utf8, right_on: &str as utf8, strategy: i32, has_tolerance: u8, tolerance: i64, allow_exact_matches: u8, suffix: &str as utf8, out: &mut RawQuery) -> RawError = "pldf_v1_join_asof"
 extern def sort_keys_new(out: &mut RawSortKeys) -> RawError = "pldf_v1_sort_keys_new"
 extern def sort_keys_add(keys: RawSortKeys, expr: RawExpr, descending: u8, nulls_last: u8) -> RawError = "pldf_v1_sort_keys_add"
 extern def sort_keys_drop(keys: RawSortKeys) -> () = "pldf_v1_sort_keys_drop"
@@ -123,6 +124,11 @@ pub enum JoinKind:
     Full
     Semi
     Anti
+
+pub enum AsOfStrategy:
+    Backward
+    Forward
+    Nearest
 
 pub class SortKey:
     expr: Expr
@@ -551,6 +557,17 @@ pub class Query:
                 4i32
         mut out = Query()
         checked(join_raw(self.raw, other.raw, native_left.raw, native_right.raw, kind, suffix, 1u8 if nulls_equal else 0u8, &mut out.raw))?
+        Ok(out)
+    pub def join_asof(self, other: &Query, left_on: &str, right_on: &str, strategy: AsOfStrategy = AsOfStrategy.Backward, tolerance: Option[i64] = Nothing, allow_exact_matches: bool = True, suffix: &str = "_right") -> Result[Query, DataFrameError]:
+        kind = match strategy:
+            case AsOfStrategy.Backward:
+                0i32
+            case AsOfStrategy.Forward:
+                1i32
+            case AsOfStrategy.Nearest:
+                2i32
+        mut out = Query()
+        checked(join_asof_raw(self.raw, other.raw, left_on, right_on, kind, 1u8 if tolerance.is_some() else 0u8, tolerance.unwrap_or(0), 1u8 if allow_exact_matches else 0u8, suffix, &mut out.raw))?
         Ok(out)
     pub def sort(self, keys: &list[SortKey]) -> Result[Query, DataFrameError]:
         mut native_keys = SortKeys()
