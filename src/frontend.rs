@@ -2837,6 +2837,9 @@ struct Lower<'a> {
     binding_pipeline: bool,
     /// `&mut Iter[T]` parameters by slot, with their plans.
     lent_parameters: HashMap<u8, pipelines::LentParameter>,
+    /// Where each closure value a pipeline holds as a callback came from, and
+    /// the binding it was read from, for lending diagnostics.
+    pipeline_callbacks: HashMap<u8, (Token, Option<String>)>,
     pipeline_generators: usize,
     function_name: String,
     /// `function_name` in the function table.
@@ -5733,6 +5736,7 @@ fn lower_body(
                 resumed_ends: Default::default(),
                 binding_pipeline: false,
                 lent_parameters: HashMap::default(),
+                pipeline_callbacks: HashMap::default(),
                 pipeline_generators: 0,
                 function_places: HashMap::default(),
                 function_initializers: Vec::new(),

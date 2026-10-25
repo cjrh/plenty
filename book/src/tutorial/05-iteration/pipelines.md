@@ -169,7 +169,9 @@ columns: name,score
 
 The function can also loop over `rows` and `break` or return early; the rest
 stays with the caller. It cannot keep or return the pipeline. Lent items must
-be owned, as with `next`.
+be owned, as with `next`. A lent pipeline whose callbacks borrow local values
+needs those closures written inside the adapter calls; see
+[Lend a pipeline whose callbacks borrow](../10-functions/pipelines.md#lend-a-pipeline-whose-callbacks-borrow).
 
 Generators have the same methods without `iter`:
 
