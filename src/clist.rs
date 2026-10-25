@@ -12,6 +12,8 @@ pub enum ClistOp {
     Len(Ty),
     Capacity(Ty),
     CopyRow(Ty),
+    Remove(Ty),
+    Clear(Ty),
     Get(Ty, usize),
     Set(Ty, usize),
     Column(Ty, usize),
@@ -48,6 +50,8 @@ impl ClistOp {
             | Self::Len(t)
             | Self::Capacity(t)
             | Self::CopyRow(t)
+            | Self::Remove(t)
+            | Self::Clear(t)
             | Self::Get(t, _)
             | Self::Set(t, _)
             | Self::Column(t, _) => t,
@@ -81,6 +85,11 @@ impl ClistOp {
                 vec![reference(false), Ty::I64],
                 crate::sum::option(row(owner).clone()),
             ),
+            Self::Remove(_) => (
+                vec![reference(true), Ty::I64],
+                crate::sum::option(row(owner).clone()),
+            ),
+            Self::Clear(_) => (vec![reference(true)], Ty::Unit),
             Self::Get(_, i) => (vec![reference(false), Ty::I64], field(owner, *i)),
             Self::Set(_, i) => (vec![reference(true), Ty::I64, field(owner, *i)], Ty::Unit),
             Self::Load(_) => unreachable!(),
@@ -98,6 +107,8 @@ impl ClistOp {
             Self::Len(_) => 523,
             Self::Capacity(_) => 524,
             Self::CopyRow(_) => 525,
+            Self::Remove(_) => 530,
+            Self::Clear(_) => 531,
             Self::Get(..) => 526,
             Self::Set(..) => 527,
             Self::Column(..) => 528,

@@ -103,13 +103,18 @@ impl Lower<'_> {
         let op = match name {
             "reserve" => ClistOp::Reserve(ty),
             "append" => ClistOp::Append(ty),
+            "remove" => {
+                self.check_clist_access(&ty, &base.at)?;
+                ClistOp::Remove(ty)
+            }
+            "clear" => ClistOp::Clear(ty),
             "copy_row" => {
                 self.check_clist_access(&ty, &base.at)?;
                 ClistOp::CopyRow(ty)
             }
             "len" => ClistOp::Len(ty),
             "capacity" => ClistOp::Capacity(ty),
-            _ => return Err(base.at.error(format!("unsupported clist method `{name}`; use column, reserve, append, copy_row, len, or capacity"))),
+            _ => return Err(base.at.error(format!("unsupported clist method `{name}`; use column, reserve, append, remove, clear, copy_row, len, or capacity"))),
         };
         let (inputs, output) = op.signature();
         if args.len() + 1 != inputs.len() {
@@ -140,7 +145,12 @@ impl Lower<'_> {
             ops.push(Op::MoveLocal(slot));
         }
         ops.extend([Op::Collection(CollectionOp::Clist(op)), Op::UseLoan(loan)]);
-        Ok(Some(output))
+        if output == Ty::Unit {
+            ops.push(Op::Drop);
+            Ok(None)
+        } else {
+            Ok(Some(output))
+        }
     }
 
     pub(super) fn augment_clist_field(

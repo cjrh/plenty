@@ -1,9 +1,20 @@
 # Plenty
 
-Plenty is a statically typed language with Python-shaped syntax, explicit
-ownership, checked borrowing, and ahead-of-time native compilation through
-Cranelift. Low memory use, fast compilation, and a small, understandable language
-guide the design.
+Plenty is a programming language and compiler.
+
+Features:
+- Syntax influenced by Python and Rust (and others)
+- AOT native compilation through Cranelift
+- Static typing with type inference
+- Fallible memory allocation
+- Explicit ownership and borrowing with compile-time checks
+- No garbage collector
+
+The goal of Plenty is to merge the best features of Python
+and Rust, and to shamelessly copy good ideas from other languages.
+
+We are not trying to invent anything groundbreaking but
+what we have is plenty.
 
 Read the [online documentation](https://cjrh.info/plenty/), or the
 [development documentation](https://cjrh.info/plenty/dev/) for current `main`.

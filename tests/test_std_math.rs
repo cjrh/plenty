@@ -4,6 +4,10 @@ use std::process::Command;
 mod support;
 
 fn run(body: &str) -> String {
+    run_mode(body, false)
+}
+
+fn run_mode(body: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("main.plenty");
     std::fs::write(
@@ -13,7 +17,16 @@ fn run(body: &str) -> String {
     .unwrap();
     plenty::check_file(&source, None).unwrap();
     let program = dir.path().join("program");
-    plenty::compile_file_to_executable(&source, &program, None).unwrap();
+    plenty::compile_file_to_executable_with_options(
+        &source,
+        &program,
+        None,
+        &plenty::CompileOptions {
+            optimize,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let output = Command::new(program).output().unwrap();
     assert!(
         output.status.success(),
@@ -285,12 +298,109 @@ fn generic_helpers_preserve_magnitudes_ties_nan_and_empty_start_values() {
     print(math.copysign(1.0, math.abs(-0.0)))?
     print(math.min(-0.0, 0.0))?
     print(math.isnan(math.min(f64.NAN, 1.0)))?
-    print(math.max(1.0, f64.NAN))?
+    print(math.isnan(math.max(1.0, f64.NAN)))?
     empty: list[f64] = []?
     print(math.sum(&empty, 2.5))?
     print(math.prod(&empty, 2.5))?
 "#),
-        "5\n1.0\n-0.0\nTrue\n1.0\n2.5\n2.5\n"
+        "5\n1.0\n-0.0\nTrue\nTrue\n2.5\n2.5\n"
+    );
+}
+
+#[rstest::rstest]
+#[case("f32", false)]
+#[case("f64", false)]
+#[case("f32", true)]
+#[case("f64", true)]
+fn extrema_propagate_nan_and_preserve_ordered_values(#[case] ty: &str, #[case] optimize: bool) {
+    let mut body = String::new();
+    let mut assertions = 0;
+    for (index, values) in [
+        "NAN, 1.0, 2.0",
+        "1.0, NAN, 2.0",
+        "1.0, 2.0, NAN",
+        "NAN",
+        "NAN, NAN",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let values = values.replace("NAN", &format!("{ty}.NAN"));
+        body.push_str(&format!("    values_{index}: list[{ty}] = [{values}]?\n"));
+        for operation in ["min", "max"] {
+            body.push_str(&format!(
+                "    print(math.isnan(f64(math.{operation}_all(&values_{index}).unwrap())))?\n"
+            ));
+            assertions += 1;
+        }
+        // The borrowed helpers must leave the input intact.
+        body.push_str(&format!(
+            "    print(len(values_{index}) == {})?\n",
+            values.split(',').count()
+        ));
+        assertions += 1;
+    }
+    for operation in ["min", "max"] {
+        for pair in [
+            format!("{ty}.NAN, 1.0{ty}"),
+            format!("1.0{ty}, {ty}.NAN"),
+            format!("{ty}.NAN, {ty}.NAN"),
+        ] {
+            body.push_str(&format!(
+                "    print(math.isnan(f64(math.{operation}({pair}))))?\n"
+            ));
+            assertions += 1;
+        }
+    }
+    body.push_str(&format!(
+        "    empty: list[{ty}] = []?\n    singleton = [4.0{ty}]?\n    finite = [2.0{ty}, -3.0, 2.0]?\n    extremes = [{ty}.INF, 0.0{ty}, -{ty}.INF]?\n"
+    ));
+    for (operation, finite, extreme) in [("min", "-3.0", "-"), ("max", "2.0", "")] {
+        body.push_str(&format!(
+            "    print(math.{operation}_all(&empty) == Option[{ty}].Nothing)?\n    print(math.{operation}_all(&singleton).unwrap() == 4.0{ty})?\n    print(math.{operation}_all(&finite).unwrap() == {finite}{ty})?\n    print(math.{operation}_all(&extremes).unwrap() == {extreme}{ty}.INF)?\n    print(math.{operation}(-{ty}.INF, {ty}.INF) == {extreme}{ty}.INF)?\n"
+        ));
+        assertions += 5;
+    }
+    for (index, first, second, sign) in [(0, "-0.0", "0.0", "-1.0"), (1, "0.0", "-0.0", "1.0")] {
+        body.push_str(&format!(
+            "    zeros_{index} = [{first}{ty}, {second}{ty}]?\n"
+        ));
+        for operation in ["min", "max"] {
+            body.push_str(&format!(
+                "    print(math.copysign(1.0, f64(math.{operation}_all(&zeros_{index}).unwrap())) == {sign})?\n    print(math.copysign(1.0, f64(math.{operation}({first}{ty}, {second}{ty}))) == {sign})?\n"
+            ));
+            assertions += 2;
+        }
+    }
+    assert_eq!(run_mode(&body, optimize), "True\n".repeat(assertions));
+}
+
+#[rstest::rstest]
+#[case(false)]
+#[case(true)]
+fn extrema_keep_tuple_total_order(#[case] optimize: bool) {
+    let body = r#"    first = (1.0, f64.NAN)
+    last = (2.0, f64.NAN)
+    middle = (1.5, 0.0)
+    print(math.min(first, middle)[0])?
+    print(math.min(middle, last)[0])?
+    print(math.max(first, middle)[0])?
+    print(math.max(middle, last)[0])?
+    tuples = [middle, last, first]?
+    print(math.min_all(&tuples).unwrap()[0])?
+    print(math.max_all(&tuples).unwrap()[0])?
+    nan_fields = [(f64.NAN,), (1.0,)]?
+    print(math.min_all(&nan_fields).unwrap()[0])?
+    print(math.isnan(math.max_all(&nan_fields).unwrap()[0]))?
+    zeros = [(0.0,), (-0.0,)]?
+    print(math.min_all(&zeros).unwrap()[0])?
+    print(math.max_all(&zeros).unwrap()[0])?
+    print(math.min("z", "a"))?
+    print(math.max("z", "a"))?
+"#;
+    assert_eq!(
+        run_mode(body, optimize),
+        "1.0\n1.5\n1.5\n2.0\n1.0\n2.0\n1.0\nTrue\n-0.0\n0.0\na\nz\n"
     );
 }
 
