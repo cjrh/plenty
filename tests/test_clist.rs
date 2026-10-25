@@ -490,6 +490,8 @@ for x in rows.column(Values.a):
 #[rstest]
 #[case("items.append(Point(3)).unwrap()", "borrow")]
 #[case("items.reserve(100).unwrap()", "borrow")]
+#[case("drop(items.remove(0))", "borrow")]
+#[case("items.clear()", "borrow")]
 #[case("items[0].x = 10", "borrow")]
 #[case("moved = items", "borrow")]
 fn column_plan_protects_the_whole_owner(#[case] mutation: &str, #[case] expected: &str) {
@@ -702,6 +704,7 @@ fn column_selectors_and_copy_rows_obey_module_privacy() {
     for operation in [
         "clist[Point]()",
         "items.copy_row(0)",
+        "items.remove(0)",
         "items.column(Point.x).count()",
         "items[0].x",
     ] {
@@ -748,4 +751,150 @@ fn unsupported_projection_diagnostics(#[case] expression: &str, #[case] message:
     .unwrap_err()
     .to_string();
     assert!(error.contains(message), "{error}");
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn ordered_removal_preserves_columns_bounds_and_owned_rows(#[case] release: bool) {
+    let output = run_mode(
+        r#"
+class Row:
+    flag: bool
+    a: i8
+    b: u8
+    c: i16
+    d: u16
+    e: i32
+    f: u32
+    g: i64
+    h: u64
+    i: f32
+    j: f64
+def row(n: i64) -> Row:
+    Row(n % 2 == 0, i8(-n), u8(n), i16(-n), u16(n), i32(-n), u32(n), -n, u64(n), f32(n), f64(n))
+for length in range(1, 34):
+    for removed in range(length):
+        mut rows = clist[Row].with_capacity(length).unwrap()
+        for n in range(length):
+            rows.append(row(n)).unwrap()
+        capacity = rows.capacity()
+        check(rows.remove(length).is_none(), "past end").unwrap()
+        check(rows.remove(-length - 1).is_none(), "before start").unwrap()
+        check(rows.remove(i64.MIN).is_none() and rows.remove(i64.MAX).is_none(), "extreme bounds").unwrap()
+        check(len(rows) == length, "invalid removal keeps length").unwrap()
+        index = removed if removed % 2 == 0 else removed - length
+        saved = rows.remove(index).unwrap()
+        check(saved == row(removed), "removed row").unwrap()
+        check(len(rows) == length - 1 and rows.capacity() == capacity, "size and capacity").unwrap()
+        for n in range(len(rows)):
+            expected = n if n < removed else n + 1
+            check(rows.copy_row(n).unwrap() == row(expected), "all columns stay aligned").unwrap()
+        rows.append(row(99)).unwrap()
+        check(rows.copy_row(-1).unwrap() == row(99), "append uses reclaimed tail").unwrap()
+        check(rows.column(Row.a).count() == length, "scan has live length").unwrap()
+        rows.clear()
+        check(len(rows) == 0 and rows.capacity() == capacity, "clear retains capacity").unwrap()
+        check(rows.column(Row.h).count() == 0, "clear empties scan").unwrap()
+        check(rows.remove(0).is_none() and rows.remove(-1).is_none(), "allocated empty removal").unwrap()
+        rows.clear()
+        rows.append(row(100)).unwrap()
+        check(rows.copy_row(0).unwrap() == row(100), "append after clear").unwrap()
+        drop(rows)
+        check(saved == row(removed), "returned row outlives storage").unwrap()
+print("ok").unwrap()
+"#,
+        release,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"ok\n");
+}
+
+#[test]
+fn remove_and_clear_projected_owners_preserve_tags_and_evaluate_indices_once() {
+    native(
+        r#"
+class Point:
+    x: i64
+def owner_index() -> i64:
+    print("owner").unwrap()
+    0
+def row_index() -> i64:
+    print("row").unwrap()
+    -1
+def clear(rows: &mut clist[Point]) -> ():
+    rows.clear()
+mut wrapped = Some(clist[Point]())
+match &mut wrapped:
+    case Some(rows):
+        rows.append(Point(7)).unwrap()
+        print(rows.remove(0)).unwrap()
+        clear(&mut *rows)
+    case Nothing:
+        ()
+match wrapped:
+    case Some(rows):
+        mut groups = [rows].unwrap()
+        groups[0].append(Point(8)).unwrap()
+        print(groups[owner_index()].remove(row_index())).unwrap()
+        groups[owner_index()].clear()
+        print(len(groups[0])).unwrap()
+    case Nothing:
+        print("lost tag").unwrap()
+"#,
+        "Option[Point].Some(Point(x=7))\nrow\nowner\nOption[Point].Some(Point(x=8))\nowner\n0",
+    );
+}
+
+#[rstest]
+#[case("drop(items.remove(0))")]
+#[case("items.clear()")]
+fn remove_and_clear_require_mutable_access(#[case] operation: &str) {
+    for declaration in [
+        "items = clist[Point]()",
+        "mut owner = clist[Point]()\nitems = &owner",
+    ] {
+        let error = support::check_source(&format!(
+            "class Point:\n    x: i64\n{declaration}\n{operation}"
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("mutab"), "{error}");
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn remove_clear_and_reuse_do_not_allocate_and_preserve_float_bits() {
+    native(
+        r#"
+class Row:
+    small: i8
+    unsigned: u64
+    x: f32
+    y: f64
+mut rows = clist[Row].with_capacity(2).unwrap()
+rows.append(Row(-128i8, u64.MAX, -0.0f32, f64.NAN)).unwrap()
+rows.append(Row(127i8, 0u64, f32.NAN, -0.0)).unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+mut empty = clist[Row]()
+empty.clear()
+absent = empty.remove(0)
+first = rows.remove(0).unwrap()
+second = rows.remove(-1).unwrap()
+rows.clear()
+rows.append(Row(first.small, first.unsigned, first.x, first.y)).unwrap()
+rows.clear()
+rows.append(Row(second.small, second.unsigned, second.x, second.y)).unwrap()
+print("__test_restore_allocations__").unwrap()
+print(absent.is_none(), len(empty), empty.capacity()).unwrap()
+print(first.small, first.unsigned, first.x, first.y != first.y).unwrap()
+print(rows[0].small, rows[0].unsigned, rows[0].x != rows[0].x, rows[0].y).unwrap()
+"#,
+        "True 0 0\n-128 18446744073709551615 -0.0 True\n127 0 True -0.0",
+    );
 }

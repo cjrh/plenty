@@ -7,8 +7,8 @@ values. Choose it for repeated scans of a few fields in many rows. Ordinary
 `T` must be a fully defined, nonempty class containing only `bool`, signed or
 unsigned 8/16/32/64-bit integers, `f32`, or `f64`. Custom destructors and fallible
 initializers are rejected. Strings, nested classes, enums, nullable fields,
-collections and references are not supported. Creating a clist or copying a
-row requires access to every field; field selection respects module privacy.
+collections and references are not supported. Creating a clist or copying or
+removing a row requires access to every field; field selection respects module privacy.
 
 ## Construction and mutation
 
@@ -20,6 +20,8 @@ row requires access to every field; field selection respects module privacy.
 | `items.capacity()` | Row capacity as `i64` |
 | `items.reserve(additional)` | `Result[(), AllocError]`; capacity for `len(items) + additional` rows |
 | `items.append(row)` | `Result[(), AppendError[T]]`; moves the row |
+| `items.remove(i)` | Allocation-free `Option[T]`; takes the row and preserves remaining order |
+| `items.clear()` | `()`; empties the owner without releasing its capacity |
 | `items[i].field` | Checked scalar read; negative indices count from the end |
 | `items[i].field = value` | Checked scalar replacement |
 | `items[i].field += value` | Numeric augmented assignment; evaluates the index once |
@@ -41,13 +43,21 @@ Field replacement evaluates the RHS before its indices, following ordinary
 assignment. Enclosing owner indices precede the row index, and each is evaluated
 once. Augmented assignment evaluates these indices, reads its current value,
 then evaluates the RHS under a shared owner loan before writing. Out-of-bounds
-indices trap at the source position; `copy_row` returns `Nothing` instead.
+indices trap at the source position; `copy_row` and `remove` return `Nothing` instead.
+
+`remove` accepts an `i64` index; negative indices count from the end. An invalid
+index leaves the owner unchanged. The returned row is an independent ordinary
+`T`, assembled without rerunning its initializer. Removal shifts later rows
+left in every column. `clear` makes all columns empty. Both require mutable
+access, allocate nothing, and retain capacity for later appends. Neither changes
+the owner pointer or column starts. Removing a row requires access to every
+field, just like `copy_row`; clearing does not expose any field.
 
 ## Column iteration and ownership
 
 `T.field` is a compile-time selector accepted only by `column`. It is not a
 string lookup or a general reflection value. Each column plan borrows the entire
-clist until consumed. While that loan is live, reserve, append, field writes,
+clist until consumed. While that loan is live, reserve, append, remove, clear, field writes,
 movement and destruction of the owner are rejected. Several shared column plans
 can be zipped together. Their lengths and row order agree.
 
@@ -64,7 +74,7 @@ scan would finish before a `yield`.
 `items[i]`, `&items[i]`, packed field references and direct row-method calls are
 unsupported: there is no contiguous `T` at that row position. `copy_row` creates
 an ordinary owned `T` on which methods can run; writes to that copy do not write
-back. Whole-clist `copy`, row removal, clear, mutable column views and general
+back. Whole-clist `copy`, mutable column views and general
 row iteration are not part of this initial interface. Equality compares row
 values; formatting reports `clist(len=N)` without materializing rows.
 
@@ -75,6 +85,14 @@ columns. Every column contains tightly packed elements (`bool` uses one byte).
 Capacity rounding aligns column starts; this is an internal layout, not an
 Arrow, Parquet, C ABI or serialization contract. Growth copies all columns,
 and can temporarily hold both old and new allocations.
+
+Ordered removal moves `(len - normalized_index - 1)` values in each column,
+so its cost grows with the number of following rows and the total native row
+width. Removing the last row only gathers that row. Repeated removal near the
+front can be quadratic; this is not a bulk filtering operation. `clear` takes
+constant time because all fields are primitives with no destructors. It does
+not erase old bytes, shrink storage, or allocate; subsequent appends overwrite
+the newly live rows. Neither operation uses tombstones.
 
 Column loops load the pointer and length before iteration. Checked arithmetic and floating-point rules are
 unchanged. Indexed field reads and writes use checked native-width loads and

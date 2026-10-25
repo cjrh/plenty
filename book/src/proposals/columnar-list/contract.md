@@ -2,8 +2,8 @@
 
 This records the original proposed contract for [columnar lists](../columnar-list.md).
 The [implemented subset](../../design/facilities/01-builtins/clists.md) uses
-scalar-valued column pipelines, does not expose packed field references, and
-does not yet provide removal. The alternatives below remain design rationale.
+scalar-valued column pipelines and ordered removal, and does not expose packed
+field references. The alternatives below remain design rationale.
 
 ## An honest object facade
 
