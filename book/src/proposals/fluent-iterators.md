@@ -395,6 +395,8 @@ ownership inference.
 | `.try_fold(initial, f)` | `Result[A, E]` | `f: (A, Item) -> Result[A, E]`; stops at the first callback `Err` |
 | `.try_for_each(f)` | `Result[(), E]` | `f: (Item) -> Result[(), E]`; stops at the first callback `Err` |
 | `.try_collect()` | `Result[C, AllocError \| E]` | Over `Result[T, E]` items; same targets; first `Err` wins |
+| `.sum()` | `Item` | Stage 3; numeric items; zero when empty |
+| `.min()`, `.max()` | `Option[Item]` | Stage 3; ordered items; NaN propagates |
 
 For serial pipeline machinery, `collect` and `try_collect` are the only
 terminals that allocate. The `try_` prefix means stopping at the first error,
@@ -406,6 +408,27 @@ Early-exit terminals drop the remaining state when consuming an owned pipeline.
 Through `&mut Iter[T]`, they leave the unvisited remainder with the caller,
 just as a borrowed consuming loop does. An item already passed to a callback
 or tested by a predicate has been consumed, including the item causing an error.
+
+**Agreed for stage 3:** `.sum()`, `.min()` and `.max()` are terminals. Each
+compiles only when the item type supports the operation: `sum` needs numeric
+items, `min` and `max` need ordered items. Until then `.fold` covers them.
+
+- `sum()` returns `Item`; an empty pipeline gives zero. Integer overflow is a
+  runtime error, as for `+`.
+- `min()` and `max()` return `Option[Item]`, `Nothing` when empty. Ties keep the
+  first item.
+- NaN propagates. For `sum` this is ordinary float addition. For `min` and
+  `max` it is an explicit rule, IEEE 754-2019 `minimum`/`maximum`: any NaN
+  item makes the result `Some(NaN)`. A plain `<` loop would instead drop or
+  keep a NaN depending on its position.
+- There is no parameter to ignore NaN. Filter first; the choice is then
+  visible at the call. Separately named NaN-ignoring terminals can be added
+  if filtering proves too common or slow.
+
+NumPy, Julia, Java and IEEE 754-2019 also propagate by default; where both
+behaviors exist, most libraries use separate names rather than a flag.
+`median` is not planned: an exact median stores every item, and a streaming
+estimate is a different contract.
 
 ### Choosing the collection
 
@@ -496,12 +519,6 @@ declared target type.
 
 `list[T].from(pipeline)` is not accepted; its diagnostic points to
 `collect()`, so there is one spelling.
-
-There is no `.sum()`, `.min()` or `.max()` method. Numeric helpers belong in
-`std.math`, so `sum` keeps one home. They accept pipelines in stage 3: with
-`&mut Iter[T]` parameters, `sum_iter`/`prod_iter`/`min_all`/`max_all` become
-ordinary generic functions, for example `sum_iter(&mut pipeline, 0)`, with no
-compiler special case. Until then `.fold` covers sums and the rest.
 
 ### Errors
 
@@ -755,8 +772,8 @@ borrowed-collection pipeline lesson. The items below record the original plan.
 - **Reference.** Add a pipeline page under
   [iteration](../design/language/09-iteration/index.md); update
   [adapters](../design/language/09-iteration/04-adapters.md) (enumerate/zip
-  become pipeline starts), the `std.iter` page, `std.math` (`sum_iter` and
-  friends accept lent pipelines in stage 3), parallel mapping, the cheat sheet and
+  become pipeline starts), the `std.iter` page, `std.math` (its list helpers
+  stay; pipelines use the stage 3 terminals), parallel mapping, the cheat sheet and
   `support.md`.
 - **Compatibility.** No existing program changes meaning: `iter` is a new name
   (a user function named `iter` keeps priority, as with `enumerate`), and
@@ -799,8 +816,11 @@ borrowed pipeline needs stored references (B11), and storing an owned one needs
 frame and closure storage in generic data. Keeping pipelines in their creating
 scope, with lending for helpers, ships the useful part now.
 
-**Free `sum`, `min`, `max` methods.** Rejected for consistency with the
-`std.math` decision.
+**`std.math` helpers over lent pipelines.** `sum_iter(&mut pipeline, 0)` and
+`fold(0, math.max)` were considered for stage 3 and deferred. They need module
+functions as values and generic function values without explicit type
+arguments, and they cannot reject unsuitable item types at the call. The
+terminals above replace them for pipelines.
 
 ## Open questions
 
@@ -845,9 +865,8 @@ scope, with lending for helpers, ships the useful part now.
 3. **Stage 3 — lending.** `&mut Iter[T]` parameters specialized per pipeline
    type, `next(p)`, resumable slot state for every adapter, store-back only for
    lent pipelines, and partial consumption followed by collection in the
-   caller. Measure instance counts in `compile_bench`. The `std.math` pipeline
-   helpers move here from stage 2: with lent pipelines they are ordinary
-   generic functions such as `sum_iter(&mut pipeline, 0)`.
+   caller. Measure instance counts in `compile_bench`. Add the `sum`, `min` and
+   `max` terminals described under [Terminals](#terminals).
 4. **Stage 4 — parallel.** `.par(&pool)` with chunked fused jobs (one chunk
    per logical core by default), the allowed-step rules, and
    `collect`/`try_collect`/`reduce`/`count`/`any`/`all`.
