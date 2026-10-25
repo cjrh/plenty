@@ -168,8 +168,35 @@ columns: name,score
 ```
 
 The function can also loop over `rows` and `break` or return early; the rest
-stays with the caller. It cannot keep or return the pipeline. Lent items must
-be owned, as with `next`. A lent pipeline whose callbacks borrow local values
+stays with the caller. It cannot keep or return the pipeline.
+
+A pipeline over a borrowed list yields references, written `&mut Iter[&str]`
+here. The function can use each item while it runs, but cannot return one,
+because the caller lent the list only for the call:
+
+```plenty
+def greet_first(names: &mut Iter[&str]) -> Result[(), IoError]:
+    for name in names:
+        print("hello", name)?
+        break
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    names = ["ada", "bob", "ada", "cal"]?
+    mut adas = iter(&names).filter_value("ada")
+    greet_first(&mut adas)?
+    print(adas.count(), "more")?
+    print(len(names))?
+    Ok(())
+```
+
+```output
+hello ada
+1 more
+4
+```
+
+A lent pipeline whose callbacks borrow local values
 needs those closures written inside the adapter calls; see
 [Lend a pipeline whose callbacks borrow](../10-functions/pipelines.md#lend-a-pipeline-whose-callbacks-borrow).
 

@@ -130,8 +130,14 @@ Costs and limits:
 - References the pipeline holds, such as a borrowed source or a borrowed
   capture of a closure literal, are read-only in the borrower; the lender's
   loans cover them.
-- Items must be owned: a pipeline of references, such as `iter(&xs)` without a
-  `map` to an owned value, cannot be lent.
+- A pipeline of references, such as `iter(&names)`, can be lent as
+  `&mut Iter[&T]`. Each item borrows the lender's source, which stays borrowed
+  for the whole call, so the borrower can use items in loops, adapters and
+  local closures, and lend the pipeline on. An item cannot leave the call:
+  returning it or a reference derived from it is an error, and `next(p)` on
+  reference items is rejected as in the creating function. A generic borrower
+  cannot take one, since type arguments cannot be references; write
+  `&mut Iter[&T]` with a concrete `T`.
 - A pipeline cannot be lent when it holds a reference inside other state, such
   as a closure with borrowed captures stored in a variable and then passed to
   an adapter, or a reference into its own state. The diagnostic points at the
