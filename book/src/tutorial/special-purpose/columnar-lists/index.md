@@ -18,10 +18,12 @@ execution easier to express for the programmer and easier to recognize for
 the compiler. Start with the access pattern you need, rather than expecting
 every operation on a columnar list to become faster. Gathering a complete row
 requires reading separate columns. The current implementation accepts only
-primitive fields; use ordinary lists for strings, nested objects, removal,
+primitive fields; use ordinary lists for strings, nested objects,
 or borrowed references to whole rows.
 
 - [Build and scan columnar records](01-scanning.md): reserve capacity, append
   records, scan a column, and update or copy a row.
 - [Count matching integer values](02-counting.md): express a filter/count
   calculation that the compiler can accelerate with SIMD.
+- [Remove rows and reuse storage](03-removing.md): take individual records or
+  clear a batch while retaining capacity.

@@ -1581,7 +1581,7 @@ pub(crate) unsafe extern "C" fn plenty_collection(
             out.write(range as u128);
             return;
         }
-        if (521..=529).contains(&op) {
+        if (521..=531).contains(&op) {
             // Only Set carries a fourth operand. Other calls do not initialize
             // the scratch word beyond the fixed three arguments and result.
             let field = if op == 527 { *args.add(4) } else { 0 };

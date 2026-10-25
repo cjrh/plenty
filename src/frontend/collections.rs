@@ -2634,6 +2634,9 @@ impl Lower<'_> {
                         | "all"
                         | "find"
                         | "reduce"
+                        | "sum"
+                        | "min"
+                        | "max"
                 ))
         {
             return self.pipeline_terminal(base, name, args, ops);

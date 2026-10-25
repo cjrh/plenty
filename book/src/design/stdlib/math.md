@@ -92,9 +92,13 @@ unsupported types. They allocate nothing and retain ordinary arithmetic
 overflow traps. Floating `sum` uses sequential addition, with no compensated
 summation guarantee.
 
-Collection helpers borrow their inputs and preserve them. Extrema use ordinary
-comparisons, retaining the first value on ties (including signed zeros); NaNs
-follow those comparisons, with no total-order or NaN-skipping policy. Dictionary
+Collection helpers borrow their inputs and preserve them. `min`, `max`,
+`min_all`, and `max_all` propagate scalar NaN: any floating NaN input makes the result
+NaN (`Some(NaN)` for the list helpers), regardless of its position. Otherwise
+extrema use ordinary comparisons, retaining the first value on ties, including
+signed zeros. Tuple elements retain their existing [lexicographic total
+order](../language/03-types/tuples.md), including the ordering of NaN fields;
+they are not scalar NaNs. Dictionary
 folds visit keys in insertion order; set order is unspecified. The fold start is
 always explicit and determines the result type. Generators and custom iterator
 protocols are not borrowed iterables; strings have nonnumeric elements.

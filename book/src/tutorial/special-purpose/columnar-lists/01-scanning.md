@@ -48,7 +48,7 @@ copy when you actually need the complete object.
 
 The primitive-only restriction keeps this first version's ownership and packed
 storage model simple and sound. Prefer an ordinary list for strings, nested
-objects, removal, row references, or workloads that usually access whole
+objects, row references, or workloads that usually access whole
 objects.
 Indexed field access and row copying compile to direct scalar memory operations,
 with bounds checks. This avoids dispatching through a generic runtime helper for

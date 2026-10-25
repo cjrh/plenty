@@ -1710,3 +1710,117 @@ def main() -> ():
     assert_eq!(normalized("comprehension"), normalized("pipeline"));
     output(source, "[2, 4, 8, 10, 14, 16] [2, 4, 8, 10, 14, 16]\n");
 }
+
+#[test]
+fn sum_min_and_max_reduce_numbers_and_text() {
+    output(
+        r#"
+def numbers(n: i64) -> Generator[i64]:
+    for i in range(n):
+        yield i
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [3, -1, 7, -1]?
+    print(iter(&xs).sum(), iter(&xs).min(), iter(&mut xs).max())?
+    print(iter(range(0)).sum(), iter(range(0)).min(), iter(range(0)).max())?
+    print(numbers(5).sum(), numbers(5).map(def(n: i64) -> i64: 10 - n).min())?
+    print(iter(&xs).chain(&xs).sum(), iter(range(10)).filter(def(n: &i64) -> bool: *n % 3 == 0).sum())?
+    small: u8 = iter(range(3)).map(def(n: i64) -> u8: u8(n)).sum()
+    halves = iter(range(3)).map(def(n: i64) -> f32: f32(n) / 2.0).sum()
+    print(small, halves, iter(range(0)).map(def(n: i64) -> f64: f64(n)).sum())?
+    names = ["bob", "ada", "cy"]?
+    print(iter(&names).min(), iter(names).max())?
+    scores = {"a": 3, "b": 9}?
+    print(scores.items().map(def(k: &str, v: &i64) -> i64: *v).max())?
+    p = iter(range(4)).skip(1)
+    print(p.sum())?
+    Ok(())
+"#,
+        "8 Option[i64].Some(-1) Option[i64].Some(7)\n0 Option[i64].Nothing Option[i64].Nothing\n10 Option[i64].Some(6)\n16 18\n3 1.5 0.0\nOption[str].Some(\"ada\") Option[str].Some(\"cy\")\nOption[i64].Some(9)\n6\n",
+    );
+}
+
+#[test]
+fn float_min_and_max_propagate_nan_from_any_position() {
+    output(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    first = [f64.NAN, 2.0, 1.0]?
+    middle = [2.0, f64.NAN, 1.0]?
+    last = [2.0, 1.0, f64.NAN]?
+    for values in [first, middle, last]?:
+        print(iter(&values).min(), iter(&values).max(), iter(&values).sum())?
+    zeros = [0.0, -0.0]?
+    print(iter(&zeros).min(), iter(&zeros).max())?
+    print(iter(&zeros).map(def(z: &f64) -> f32: f32(*z)).min())?
+    Ok(())
+"#,
+        concat!(
+            "Option[f64].Some(NaN) Option[f64].Some(NaN) NaN\n",
+            "Option[f64].Some(NaN) Option[f64].Some(NaN) NaN\n",
+            "Option[f64].Some(NaN) Option[f64].Some(NaN) NaN\n",
+            "Option[f64].Some(-0.0) Option[f64].Some(0.0)\n",
+            "Option[f32].Some(-0.0)\n",
+        ),
+    );
+}
+
+#[test]
+fn sum_overflow_traps_like_addition() {
+    let result = support::run(
+        "def main() -> ():\n    values = [i64.MAX, 1].unwrap()\n    print(iter(&values).sum()).unwrap()\n",
+    );
+    assert_eq!(result.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(stderr.contains("integer overflow"), "{stderr}");
+    assert!(result.stdout.is_empty());
+}
+
+#[test]
+fn sum_min_and_max_reject_unsupported_items() {
+    for (source, message) in [
+        (
+            "print(iter([\"a\"].unwrap()).sum()).unwrap()",
+            "sum requires numeric items, found str",
+        ),
+        (
+            "print(iter([True].unwrap()).min()).unwrap()",
+            "min requires numeric or str items, found bool",
+        ),
+        (
+            "print(enumerate(range(3)).max()).unwrap()",
+            "max requires numeric or str items, found tuple[i64, i64]",
+        ),
+        (
+            "xs = [[1].unwrap()].unwrap()\nprint(iter(&xs).min()).unwrap()",
+            "found &list[i64]",
+        ),
+        (
+            "print(iter(range(3)).sum(1)).unwrap()",
+            "sum takes no arguments",
+        ),
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(error.contains(message), "{source}: {error}");
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn sum_min_and_max_do_not_allocate() {
+    support::assert_visible_stdout(
+        r#"
+values = [2.5, 1.0].unwrap()
+names = ["bob", "ada"].unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+a = iter(range(10)).sum()
+b = iter(&values).min()
+c = iter(&names).max()
+d = iter(range(10)).map(def(n: i64) -> i64: n * 2).max()
+print("__test_end_no_allocations__").unwrap()
+print("__test_restore_allocations__").unwrap()
+print(a, b, c, d).unwrap()
+"#,
+        "45 Option[f64].Some(1.0) Option[str].Some(\"bob\") Option[i64].Some(18)",
+    );
+}

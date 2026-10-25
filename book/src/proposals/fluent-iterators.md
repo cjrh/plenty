@@ -3,8 +3,9 @@
 **Status: Stages 1 and 2 implemented: the serial core, pair callbacks,
 dictionary collection, generator fluent methods, explicit owned `.generator()`
 conversion, `chain`, `flat_map`, closure-literal splicing and comprehensions
-lowered through the plan. `std.iter` was removed rather than deprecated. The
-lending and parallel stages remain proposed.** Bounded native
+lowered through the plan. `std.iter` was removed rather than deprecated. Stage
+3's `sum`, `min` and `max` terminals are implemented. The lending and parallel
+stages remain proposed.** Bounded native
 substitution of scalar leaf callbacks also covers named functions and immutable
 scalar captures; it addresses the original performance gap (issue #399).
 The [pipeline reference](../design/language/09-iteration/06-pipelines.md)
@@ -396,8 +397,8 @@ ownership inference.
 | `.try_fold(initial, f)` | `Result[A, E]` | `f: (A, Item) -> Result[A, E]`; stops at the first callback `Err` |
 | `.try_for_each(f)` | `Result[(), E]` | `f: (Item) -> Result[(), E]`; stops at the first callback `Err` |
 | `.try_collect()` | `Result[C, AllocError \| E]` | Over `Result[T, E]` items; same targets; first `Err` wins |
-| `.sum()` | `Item` | Stage 3; numeric items; zero when empty |
-| `.min()`, `.max()` | `Option[Item]` | Stage 3; ordered items; NaN propagates |
+| `.sum()` | `Item` | Numeric items; zero when empty |
+| `.min()`, `.max()` | `Option[Item]` | Numeric or `str` items; NaN propagates |
 
 For serial pipeline machinery, `collect` and `try_collect` are the only
 terminals that allocate. The `try_` prefix means stopping at the first error,
@@ -412,7 +413,10 @@ or tested by a predicate has been consumed, including the item causing an error.
 
 **Agreed for stage 3:** `.sum()`, `.min()` and `.max()` are terminals. Each
 compiles only when the item type supports the operation: `sum` needs numeric
-items, `min` and `max` need ordered items. Until then `.fold` covers them.
+items, `min` and `max` need ordered items. **Implemented** for numeric items
+and, for `min`/`max`, `str`; borrowed items are read as `*item`. Tuples are
+rejected for now: a tuple containing a float has no NaN rule yet, so they use
+`fold` or `reduce`.
 
 - `sum()` returns `Item`; an empty pipeline gives zero. Integer overflow is a
   runtime error, as for `+`.
@@ -866,8 +870,8 @@ terminals above replace them for pipelines.
 3. **Stage 3 — lending.** `&mut Iter[T]` parameters specialized per pipeline
    type, `next(p)`, resumable slot state for every adapter, store-back only for
    lent pipelines, and partial consumption followed by collection in the
-   caller. Measure instance counts in `compile_bench`. Add the `sum`, `min` and
-   `max` terminals described under [Terminals](#terminals).
+   caller. Measure instance counts in `compile_bench`. The `sum`, `min` and
+   `max` terminals described under [Terminals](#terminals) are implemented.
 4. **Stage 4 — parallel.** `.par(&pool)` with chunked fused jobs (one chunk
    per logical core by default), the allowed-step rules, and
    `collect`/`try_collect`/`reduce`/`count`/`any`/`all`.

@@ -84,6 +84,7 @@
         - [Columnar lists](tutorial/special-purpose/columnar-lists/index.md)
             - [Build and scan columnar records](tutorial/special-purpose/columnar-lists/01-scanning.md)
             - [Count matching integer values](tutorial/special-purpose/columnar-lists/02-counting.md)
+            - [Remove rows and reuse storage](tutorial/special-purpose/columnar-lists/03-removing.md)
     - [8. Organizing a program](tutorial/07-modules/index.md)
         - [Split a program into modules](tutorial/07-modules/01-import-modules.md)
         - [Choose a public API](tutorial/07-modules/02-public-apis.md)
