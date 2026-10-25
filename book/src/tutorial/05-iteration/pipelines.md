@@ -109,6 +109,68 @@ def main() -> Result[(), AllocError | IoError]:
 filter_value compares &i64 items with a str value; it requires i64 or &i64
 ```
 
+## Take one item, then continue
+
+`next` takes one item from a pipeline, as it does from a generator. The
+pipeline keeps its place, so a loop or final method afterwards continues with
+the remaining items:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    lines = ["name,score", "ada,3", "bob,5"]?
+    mut rows = iter(lines)
+    match next(rows):
+        case Some(header):
+            print("columns:", header)?
+        case Nothing:
+            print("no header")?
+    for number, row in rows.enumerate(1):
+        print(number, row)?
+    Ok(())
+```
+
+```output
+columns: name,score
+1 ada,3
+2 bob,5
+```
+
+The binding needs `mut` because `next` advances it. `next` returns an owned
+`Option`, so it needs owned items: here `iter(lines)` moves the list into the
+pipeline. For a borrowed source, first `map` each item to an owned value.
+Once `next` returns `Nothing`, the pipeline stays empty.
+
+## Lend a pipeline to a function
+
+A function can take a pipeline as `&mut Iter[T]` and consume part of it. The
+caller lends it with `&mut` and continues after the items the function took:
+
+```plenty
+def print_header(rows: &mut Iter[str]) -> Result[(), AllocError | IoError]:
+    match next(rows):
+        case Some(header):
+            print("columns:", header)?
+        case Nothing:
+            print("no header")?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    lines = ["name,score", "", "ada,3", "bob,5"]?
+    mut rows = iter(lines).filter(def(line: &str) -> bool: line != "")
+    print_header(&mut rows)?
+    print(rows.count(), "rows")?
+    Ok(())
+```
+
+```output
+columns: name,score
+2 rows
+```
+
+The function can also loop over `rows` and `break` or return early; the rest
+stays with the caller. It cannot keep or return the pipeline. Lent items must
+be owned, as with `next`.
+
 Generators have the same methods without `iter`:
 
 ```plenty

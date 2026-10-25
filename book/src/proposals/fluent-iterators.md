@@ -4,8 +4,9 @@
 dictionary collection, generator fluent methods, explicit owned `.generator()`
 conversion, `chain`, `flat_map`, closure-literal splicing and comprehensions
 lowered through the plan. `std.iter` was removed rather than deprecated. Stage
-3's `sum`, `min` and `max` terminals are implemented. The lending and parallel
-stages remain proposed.** Bounded native
+3's `sum`, `min` and `max` terminals, resumable adapters and `next(p)` in the
+creating scope and lending through `&mut Iter[T]` are implemented. The
+parallel stage remains proposed.** Bounded native
 substitution of scalar leaf callbacks also covers named functions and immutable
 scalar captures; it addresses the original performance gap (issue #399).
 The [pipeline reference](../design/language/09-iteration/06-pipelines.md)
@@ -256,6 +257,43 @@ return closures, e.g. `.filter(longer_than(3))`.
 - *Every adapter must be resumable.* Each new adapter specifies its slot
   state; this is a cost on every future addition, and the reason lending is
   staged after the serial core.
+
+**Implementation decisions.** Lending follows option A: the lender passes its
+state and the borrower rewrites the plan's operations to use it, writing state
+back only for lent pipelines, with `next(p)` inline. Where a choice affected
+borrow checking, the conservative option was taken:
+
+- *State is passed per slot, not as one record.* Each owned state slot is a
+  hidden `&mut` argument after the declared ones; each reference held as state
+  is a hidden by-value argument. This is equivalent to one record pointer
+  without a new aggregate layout, and it reuses the existing frame
+  specialization, call verification and borrow tracking for reference
+  arguments. The borrower copies owned state into locals at entry and writes
+  it back on every exit, so the lender never observes a half-updated slot.
+- *Reference state is read-only.* A reference the pipeline holds (a borrowed
+  source, a closure literal's borrowed capture) is passed by value and may not
+  be reassigned in the borrower; the compiler reports any write. The callee
+  cannot extend or shorten the loan behind it.
+- *Caller loans stay with the caller.* The plan's loans are not reconstructed
+  in the borrower, which has no names for them. The lender keeps each loan live
+  across the call and uses it after the call returns, so a conflicting
+  mutation before the pipeline ends is the same borrow error it is without
+  lending. In the borrower, `p` itself is borrowed exclusively by every loop,
+  `next`, terminal and sub-pipeline over it, so overlapping uses of `p` there
+  are ordinary borrow conflicts.
+- *Limits.* A lent pipeline may have at most 64 state slots, which keeps the
+  borrower within the 256-slot frame limit. A pipeline is rejected when its
+  items are references, when its state holds a reference inside another value
+  (a bound closure with borrowed captures), or when it holds a reference into
+  its own owned state. The first would need item provenance in the borrower;
+  the others would let the borrower's copy alias the lender's slot.
+
+One borrower instance is compiled per lent plan, shared by recursive and
+repeated lends. In a probe lending three different pipelines to a one-line
+`skip_one` and a recursive `drain`, the compiler emitted six borrower instances
+of 360 to 910 bytes each. The `compile_bench` workload has no pipelines; its
+AOT median was unchanged (223.7 ms against 225.9 ms and 223.0 ms against
+223.9 ms on main, alternating runs).
 
 ### Adapters (core set)
 
@@ -873,6 +911,11 @@ terminals above replace them for pipelines.
    lent pipelines, and partial consumption followed by collection in the
    caller. Measure instance counts in `compile_bench`. The `sum`, `min` and
    `max` terminals described under [Terminals](#terminals) are implemented.
+   Every adapter is resumable, and `next(p)` works in the creating scope: a
+   later loop or terminal continues after the items taken. In that scope the
+   plan's state already lives in the creator's slots, so resuming needs no
+   store-back; `take_while` and `zip` record that they have ended so a later
+   consumer does not pull past the end. Lending itself is not implemented.
 4. **Stage 4 — parallel.** `.par(&pool)` with chunked fused jobs (one chunk
    per logical core by default), the allowed-step rules, and
    `collect`/`try_collect`/`reduce`/`count`/`any`/`all`.

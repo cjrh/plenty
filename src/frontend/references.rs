@@ -139,7 +139,10 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Option<usize>)> {
         if self.is_pipeline(value) {
-            let plan = self.pipeline(value, ops)?;
+            let outer = std::mem::replace(&mut self.binding_pipeline, true);
+            let plan = self.pipeline(value, ops);
+            self.binding_pipeline = outer;
+            let plan = plan?;
             let item = Arc::new(plan.item.ty.clone());
             let id = self.pipelines.len();
             self.pipelines.push(plan);
@@ -428,7 +431,7 @@ impl Lower<'_> {
         }
         if self.is_pipeline(e) {
             return Err(e.at.error(
-                "iterator pipeline lending is not implemented; consume it in its creating scope",
+                "an iterator pipeline can only be lent, as `&mut p` to a `&mut Iter[T]` parameter",
             ));
         }
         self.ide_member(e);

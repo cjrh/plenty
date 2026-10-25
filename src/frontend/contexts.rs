@@ -13,6 +13,8 @@ pub(super) enum Kind {
     Lock(String, Ty, bool),
     /// The exit cancels the token share the slot holds.
     Cancel,
+    /// The exit writes a lent pipeline's state back to its lender.
+    Lent,
 }
 
 pub(super) struct Context {

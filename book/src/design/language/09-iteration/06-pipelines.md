@@ -35,10 +35,94 @@ it; a second use is rejected. Dropping it releases the owned source and
 captures without advancing a generator or calling a callback. Early exit from
 an owning consumer releases the unconsumed source and captures.
 
-Pipelines cannot be returned, passed as arguments, borrowed, captured, or put in
+Pipelines cannot be returned, passed by value, shared, captured, or put in
 stored data. They are currently rejected in generator functions, including
-before a `yield`. Pipeline lending is not implemented. An eligible owned
-pipeline can leave its scope after explicit `.generator()` conversion.
+before a `yield`. A pipeline can be [lent](#lending-a-pipeline) to a
+`&mut Iter[T]` parameter, and an eligible owned pipeline can leave its scope
+after explicit `.generator()` conversion.
+
+## Advancing one item
+
+`next(p)` takes one item from a pipeline local in its creating scope and
+returns `Option[T]`. The binding must be `mut`; `next(&mut p)` is equivalent.
+The pipeline keeps its progress, so a later `next`, loop, adapter or terminal
+continues after the items already taken:
+
+```text
+mut rows = iter(lines).filter(def(l: &str) -> bool: l != "")
+header = next(rows)
+records: list[Record] = rows.map(parse_row).try_collect()?
+```
+
+`next` expands the fused step inline: there is no frame and no dispatch. It
+returns `Nothing` once the pipeline is exhausted, and every later `next`,
+loop or terminal sees an empty pipeline: `take_while` stays stopped after its
+first rejected item, and `zip` stays stopped after either side ends. Items
+must be storable in an `Option`, so a pipeline of references is rejected;
+`map` to an owned value first. Loans held by the pipeline stay live until it is
+consumed or dropped, so mutating a borrowed source between two `next` calls is
+a borrow error. `next` on a consumed pipeline is a use of a moved binding.
+
+## Lending a pipeline
+
+A function can take a pipeline as `&mut Iter[T]`, consume part of it, and
+return. The lender then continues after the items the borrower took:
+
+```text
+def skip_header(rows: &mut Iter[str]) -> Result[(), CsvError]:
+    match next(rows):
+        case Some(header):
+            check_header(&header)
+        case Nothing:
+            Err(CsvError.Empty)
+
+def main() -> Result[(), CsvError | AllocError | IoError]:
+    mut rows = iter(lines).filter(def(l: &str) -> bool: l != "")
+    skip_header(&mut rows)?
+    records: list[Record] = rows.map(parse_row).try_collect()?
+    ...
+```
+
+The lender writes `&mut p` and the binding must be `mut`. Inside the borrower,
+`p` supports `next(p)`, `for x in p`, terminals, and adapters that build a
+sub-pipeline consumed in the borrower. A `break`, `return` or `?` inside the
+borrower's loop leaves the remaining items in the pipeline. The borrower may
+lend `p` on, as `f(p)` or `f(&mut p)`, including recursively. It cannot move,
+return, store or capture `p`, and `&Iter[T]`, by-value `Iter[T]` parameters
+and `Iter` results are rejected, as are `Iter` parameters of exported and
+foreign functions.
+
+`&mut Iter[T]` names only the item type. Like a `&mut Generator[T]`
+parameter, the borrower is compiled once per lent pipeline, as a frame
+specialization; recursive and repeated lends of the same pipeline share it.
+A generic borrower such as `def first[T](p: &mut Iter[T]) -> Option[T]` infers
+its type parameters from the lent pipelines' item types; supply the others
+explicitly. A method can take a lent pipeline the same way. A borrower that
+no call lends a pipeline to is not checked, like an unused generic function.
+
+The lender keeps the pipeline's loans live across the call, so mutating a
+borrowed source while the pipeline is unfinished stays a borrow error. Lending
+a pipeline whose binding a consumer already moved is a use of a moved binding.
+
+Costs and limits:
+
+- The borrower receives one pointer per owned state slot (source cursor,
+  owned captures, counters, `chain` phase, `flat_map` inner source, `zip` and
+  `take_while` flags) and the value of each reference the pipeline holds, as
+  hidden arguments. It copies owned state into its own locals on entry and
+  writes it back on every exit, including `?`, `return` and an early loop
+  exit. No pipeline state is heap-allocated, and a pipeline that is never lent
+  pays nothing. `next(p)` in the borrower expands one step inline.
+- References the pipeline holds, such as a borrowed source or a borrowed
+  capture of a closure literal, are read-only in the borrower; the lender's
+  loans cover them.
+- Items must be owned: a pipeline of references, such as `iter(&xs)` without a
+  `map` to an owned value, cannot be lent.
+- A pipeline cannot be lent when it holds a reference inside other state, such
+  as a closure value with borrowed captures bound before the pipeline (write
+  the closure literal in the adapter call instead), or a reference into its
+  own state.
+- A lent pipeline may need at most 64 state slots.
 
 ## Returning a resumable stream
 
@@ -83,10 +167,10 @@ stream does not need to cross a function boundary.
 | `filter(f)` | Retain items for which the shared-reference predicate is true |
 | `take(n)` | Emit at most `n` items; zero or negative `n` advances nothing |
 | `skip(n)` | Discard the first `n` items; zero or negative `n` skips nothing |
-| `take_while(f)` | Stop at the first false shared-reference predicate, dropping that item |
+| `take_while(f)` | Stop at the first false shared-reference predicate, dropping that item; stay stopped |
 | `filter_value(value=True)` | Retain items equal to `value`, compared with `==`; no callback |
 | `enumerate(start=0)` | Emit the checked `i64` index and item; count accepted items at this point in the chain |
-| `zip(right)` | Pull one accepted item from each input, left first; stop when either ends |
+| `zip(right)` | Pull one accepted item from each input, left first; stop when either ends and stay stopped |
 | `chain(other)` | Emit every item of this pipeline, then every item of `other` |
 | `flat_map(f)` | Call `(Item) -> source` once per item; emit each item of the returned source |
 
