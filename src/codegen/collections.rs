@@ -819,6 +819,11 @@ impl Lowerer<'_, '_> {
         if let ClistOp::Column(_, field) = op {
             args.push(self.bcx.ins().iconst(types::I64, *field as i64));
         }
+        if let ClistOp::Remove(_) = op {
+            // The runtime gathers the removed primitive row into caller-owned
+            // storage before shifting columns. No heap allocation is needed.
+            args.push(self.inline_storage(output.inline_bytes()));
+        }
         let result = self.collection_call(op.opcode(), &args, Some(op.owner()))?;
         let result = self.unpack(result, &output);
         let result = self.snapshot_inline(result, &output);

@@ -188,7 +188,7 @@ pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crat
                     (*owner).capacity as u128
                 }
             }
-            525 => {
+            525 | 530 => {
                 let Some(index) = position(owner, b as i64) else {
                     return wrap(0, 0);
                 };
@@ -196,7 +196,27 @@ pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crat
                 for field in 0..ty.key().variants.len() {
                     row.add(field).write(read(owner, ty, field, index));
                 }
+                if op == 530 {
+                    let following = (*owner).len - index - 1;
+                    for (field, schema) in ty.key().variants.iter().enumerate() {
+                        let width = width(schema.fields[0].kind);
+                        let destination = column(owner, ty, field).add(index * width);
+                        // Source and destination overlap. All live columns
+                        // shift identically; stale tail bytes contain only
+                        // primitives and are outside the new live length.
+                        std::ptr::copy(destination.add(width), destination, following * width);
+                    }
+                    (*owner).len -= 1;
+                }
                 wrap(c, 1)
+            }
+            531 => {
+                if !owner.is_null() {
+                    // Primitive rows have no resources or destructors. Keep
+                    // the allocation and let later appends overwrite slots.
+                    (*owner).len = 0;
+                }
+                0
             }
             526 | 527 => {
                 let index =
