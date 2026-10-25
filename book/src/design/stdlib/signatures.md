@@ -377,7 +377,7 @@ class Field
     name: str
     dtype: DType
 enum JoinKind
-    Inner | Left
+    Inner | Left | Full | Semi | Anti
 class SortKey
     def __init__(self, expression: Expr, descending: bool = False, nulls_last: bool = True) -> ()
 enum DataFrameError

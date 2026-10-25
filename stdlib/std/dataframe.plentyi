@@ -120,6 +120,9 @@ class CsvSchema:
 pub enum JoinKind:
     Inner
     Left
+    Full
+    Semi
+    Anti
 
 pub class SortKey:
     expr: Expr
@@ -540,6 +543,12 @@ pub class Query:
                 0i32
             case JoinKind.Left:
                 1i32
+            case JoinKind.Full:
+                2i32
+            case JoinKind.Semi:
+                3i32
+            case JoinKind.Anti:
+                4i32
         mut out = Query()
         checked(join_raw(self.raw, other.raw, native_left.raw, native_right.raw, kind, suffix, 1u8 if nulls_equal else 0u8, &mut out.raw))?
         Ok(out)

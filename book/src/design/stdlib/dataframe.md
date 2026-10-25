@@ -91,29 +91,10 @@ or mutated. They execute inside Polars, with no Plenty row callbacks or
 intermediate conversion into Plenty lists. Input owners, key expressions and
 sort specifications may be dropped after constructing the resulting plan.
 
-`join` accepts nonempty, equally long lists of left/right key expressions.
-`JoinKind.Inner` keeps matching row pairs; `JoinKind.Left` also keeps every
-unmatched left row with nulls in the right columns. Composite keys match all
-components. Key types must be compatible; no implicit Plenty-side cast occurs.
-Schema errors, unknown columns and incompatible native expressions may fail
-only when collected. Empty or unequal key lists fail immediately with
-`DataFrameError.Schema`.
-
-Keys need not be unique: two matching left rows and three matching right rows
-produce six pairs. This is a many-to-many join, not a checked lookup.
-Null keys do not match by default. With `nulls_equal=True`, nulls at matching
-key positions compare equal, including duplicate-null multiplicity.
-NaN remains a value governed by Polars equality, not a null.
-Join order is unspecified. Full/right/semi/anti/as-of joins and uniqueness
-validation options are not exposed by this slice.
-
-Both sides' key columns are retained, including when the key names coincide.
-Any right column whose name occurs on the left gets `suffix` (default
-`"_right"`). If suffixing still produces duplicate names, collection fails
-with `DataFrameError.Query`; it does not overwrite an existing column.
-Use a different suffix or rename/select columns in the input plan.
-This explicit retention rule applies to computed keys too; keys are not
-silently coalesced.
+`JoinKind` offers `Inner`, `Left`, `Full`, `Semi` and `Anti` equality joins.
+Inner/left/full retain both sets of key columns; semi/anti are membership
+queries returning only left columns. See [equality join contracts](dataframe-joins.md)
+for duplicate/null matching, key retention, suffix collisions and validation.
 
 `SortKey(expression: Expr, descending: bool = False, nulls_last: bool = True)`
 owns its expression; constructing the wrapper itself is infallible.

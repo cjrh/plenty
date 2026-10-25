@@ -227,3 +227,30 @@ fn csv_and_streaming_io_with_real_engine() {
         "dataframe io ok\n"
     );
 }
+
+#[test]
+fn full_semi_anti_joins_with_real_engine() {
+    if std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none() {
+        eprintln!("join execution requires PLENTY_DATAFRAME_TESTS=1");
+        return;
+    }
+    let engine = engine_under_test();
+    let temp = tempfile::tempdir().unwrap();
+    let binary = compile(
+        temp.path(),
+        include_str!("fixtures/dataframe_joins.plenty"),
+        Some(engine.clone()),
+    )
+    .unwrap();
+    let output = assert_success(
+        Command::new(binary)
+            .env("LD_LIBRARY_PATH", engine.parent().unwrap())
+            .env("POLARS_MAX_THREADS", "2")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "dataframe joins ok\n"
+    );
+}
