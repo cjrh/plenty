@@ -26,6 +26,9 @@ impl Lowerer<'_, '_> {
                 let result = match kind {
                     FloatOp::Abs => self.float_abs(x),
                     FloatOp::Copysign => self.float_copysign(x, y),
+                    // Cranelift's `fmin`/`fmax` are IEEE 754-2019 minimum/maximum.
+                    FloatOp::Minimum => self.bcx.ins().fmin(x, y),
+                    FloatOp::Maximum => self.bcx.ins().fmax(x, y),
                     FloatOp::Floor | FloatOp::Ceil | FloatOp::Trunc | FloatOp::Round => {
                         self.float_round(*kind, x)
                     }

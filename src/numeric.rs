@@ -36,11 +36,18 @@ pub enum FloatOp {
     Abs = 26,
     Copysign = 27,
     Round = 28,
+    /// IEEE 754-2019 `minimum` and `maximum`: NaN propagates and -0.0 orders
+    /// below +0.0. Inline only; pipeline `min`/`max` terminals use them.
+    Minimum = 29,
+    Maximum = 30,
 }
 
 impl FloatOp {
     pub fn is_binary(self) -> bool {
-        matches!(self, Self::Pow | Self::Fmod | Self::Atan2 | Self::Copysign)
+        matches!(
+            self,
+            Self::Pow | Self::Fmod | Self::Atan2 | Self::Copysign | Self::Minimum | Self::Maximum
+        )
     }
 }
 
