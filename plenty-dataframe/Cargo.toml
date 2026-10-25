@@ -1,0 +1,17 @@
+[package]
+name = "plenty-dataframe-engine"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+name = "plenty_dataframe_v1"
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+strip = "debuginfo"
+
+[dependencies]
+polars = { version = "=0.55.2", default-features = false, features = ["lazy", "parquet"] }

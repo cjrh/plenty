@@ -4,6 +4,8 @@ The standard library is the set of modules under the reserved `std` namespace.
 They are written in Plenty or expose existing compiler facilities, and are embedded in the compiler: importing one needs no
 source installation, network, Cargo, or rustc. Native compilation still requires
 the supported [linker environment](../toolchain/01-building/linking.md).
+Using `std.dataframe` additionally requires its separately installed
+[optional native engine](dataframe-engine.md); unused imports need no engine.
 
 A standard module must be imported. Names available without an import belong to
 the [prelude](../language/02-source/names.md) and are specified under
@@ -23,6 +25,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.concurrent`](concurrent.md) | Executors, futures and parallel operations | Pool/submission/future/parallel errors |
 | [`std.crypto`](crypto.md) | SHA-256, SHA-512, and HMAC over `std.bytes`, incremental or one-shot, and constant-time comparison | `CryptoError` |
 | [`std.csv`](csv.md) | Streaming CSV readers and writers over `std.io` with explicit dialects, size limits, and positioned errors | `CsvError` |
+| [`std.dataframe`](dataframe.md) | Optional Polars analytical expression plans, bulk numeric columns, grouping, and Parquet | `DataFrameError` |
 | [`std.db.sqlite`](sqlite.md) | SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit | `DbError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
 | [`std.encoding`](encoding.md) | Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |

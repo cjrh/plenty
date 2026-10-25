@@ -6,6 +6,9 @@ pub enum Argument {
     Utf8,
     /// Validate NULs and allocate a temporary terminated byte buffer.
     CString,
+    /// Borrow numeric list elements as (data, length, byte stride). A mutable
+    /// loan permits scalar writes only; neither form permits retention/resizing.
+    Strided,
 }
 
 #[derive(Clone, Debug, PartialEq)]

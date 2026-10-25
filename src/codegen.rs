@@ -935,6 +935,7 @@ struct Runtime {
     /// `plenty_list_row_bytes(list) -> row size`, for borrowed iteration.
     list_rows: FuncId,
     list_row_bytes: FuncId,
+    list_canonicalize_signed: FuncId,
     /// `plenty_list_row(list, index, site) -> row address`, for explicit
     /// element references (`&xs[i]`, `&mut xs[i]`).
     list_row: FuncId,
@@ -1193,6 +1194,12 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_list_row_bytes", Linkage::Import, &sig)?
+        },
+        list_canonicalize_signed: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.push(AbiParam::new(PTR_TY));
+            module.declare_function("plenty_list_canonicalize_signed", Linkage::Import, &sig)?
         },
         list_scalar_get: {
             let mut sig = module.make_signature();

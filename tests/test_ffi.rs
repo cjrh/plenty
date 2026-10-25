@@ -85,6 +85,55 @@ pub extern def reset() -> () = "fixture_reset"
 "#;
 
 #[test]
+fn numeric_strided_views_borrow_scalars_without_exposing_slot_padding() {
+    for shared in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let library = fixture(temp.path(), shared);
+        std::fs::write(temp.path().join("native.plentyi"), r#"
+pub extern def scale(input: &list[f64] as strided, output: &mut list[f64] as strided) -> f64 = "fixture_strided"
+pub extern def narrow(input: &mut list[i8] as strided) -> i64 = "fixture_strided_i8"
+"#).unwrap();
+        let output = run(
+            temp.path(),
+            r#"
+import native
+def main() -> Result[(), AllocError | IoError]:
+    source = [1.5, -2.0, 3.5]?
+    mut target = [0.0, 0.0, 0.0]?
+    print(native.scale(&source, &mut target), source, target)?
+    empty: list[f64] = []?
+    mut empty_out: list[f64] = []?
+    print(native.scale(&empty, &mut empty_out))?
+    mut small = [127i8, -128i8, 1i8]?
+    print(native.narrow(&mut small), small, i64(small[0]))?
+    Ok(())
+"#,
+            library,
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "3.0 [1.5, -2.0, 3.5] [3.0, -4.0, 7.0]\n0.0\n0 [-7, -7, -7] -7\n"
+        );
+    }
+}
+
+#[test]
+fn strided_adapters_reject_non_numeric_elements_and_overlapping_loans() {
+    for ty in ["str", "bool", "list[i64]", "Option[i64]"] {
+        rejected(
+            &format!("pub extern def call(values: &list[{ty}] as strided) -> () = \"call\"\n"),
+            "import native\ndef main() -> ():\n    pass\n",
+            "no supported C ABI",
+        );
+    }
+    rejected(
+        "pub extern def call(a: &list[f64] as strided, b: &mut list[f64] as strided) -> () = \"call\"\n",
+        "import native\ndef main() -> Result[(), AllocError]:\n    mut xs = [1.0]?\n    native.call(&xs, &mut xs)\n    Ok(())\n",
+        "borrow",
+    );
+}
+
+#[test]
 fn scalar_and_opaque_calls_link_statically_and_dynamically() {
     for shared in [false, true] {
         let temp = tempfile::tempdir().unwrap();
@@ -373,7 +422,7 @@ fn adapters_reject_invalid_types_and_preserve_borrow_rules() {
     rejected(
         "extern def bad(text: &str as bytes) -> i64 = \"bad\"\n",
         main,
-        "expected utf8 or c_string",
+        "expected utf8, c_string or strided",
     );
     rejected(
         "pub extern def write(a: &mut i64, b: &i64) -> () = \"write_both\"\n",

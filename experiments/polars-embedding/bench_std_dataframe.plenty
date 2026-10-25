@@ -1,0 +1,33 @@
+import std.dataframe as df
+import std.env as env
+import std.time as time
+
+def main() -> Result[(), AllocError | df.DataFrameError | IoError | ParseError]:
+    n = i64.parse(env.get("SPIKE_ROWS")?.unwrap_or("1000000"))?
+    reps = i64.parse(env.get("SPIKE_REPS")?.unwrap_or("100"))?
+    input_start = time.monotonic_now()
+    groups = [i % 8 for i in range(n)]?
+    values = [f64(i % 100) for i in range(n)]?
+    input_ns = time.monotonic_now().saturating_duration_since(&input_start).as_nanoseconds()
+    start = time.monotonic_now()
+    columns = [df.column_i64("group", &groups)?, df.column_f64("value", &values)?]?
+    data = df.frame(&columns)?
+    import_ns = time.monotonic_now().saturating_duration_since(&start).as_nanoseconds()
+    derived = [df.col("value")?.mul(&df.lit(2.0)?)?.alias("weighted")?]?
+    keys = [df.col("group")?]?
+    aggregates = [df.col("weighted")?.sum()?.alias("result")?]?
+    query = data.lazy()?.filter(&df.col("value")?.gt(&df.lit(50.0)?)?)?.with_columns(&derived)?.group_by(&keys, &aggregates)?
+    for warm in range(5):
+        drop(query.collect()?)
+    mut checksum = 0.0
+    start_query = time.monotonic_now()
+    for repetition in range(reps):
+        result = query.collect()?
+        for row in range(result.height()?):
+            checksum += result.get_f64("result", row)?.unwrap_or(0.0)
+    query_ns = time.monotonic_now().saturating_duration_since(&start_query).as_nanoseconds()
+    start_export = time.monotonic_now()
+    output = data.values_f64("value")?
+    export_ns = time.monotonic_now().saturating_duration_since(&start_export).as_nanoseconds()
+    print(input_ns, import_ns, query_ns, export_ns, checksum, len(output))?
+    Ok(())

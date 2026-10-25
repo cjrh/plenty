@@ -19,6 +19,9 @@ mod test_pipelines;
 #[path = "test_clist.rs"]
 mod test_clist;
 
+#[path = "test_std_dataframe.rs"]
+mod test_std_dataframe;
+
 #[path = "test_aliases.rs"]
 mod test_aliases;
 #[path = "test_allocation.rs"]

@@ -36,5 +36,24 @@ variants. It reports conversion failure rather than native status: wrappers must
 interpret native errors separately.
 
 Returned native strings are not implicitly decoded. Returned pointers need an
-independent lifetime. Mutable byte buffers, retained/returned buffer loans, and
-copying arbitrary C bytes into str are unsupported.
+independent lifetime. Retained/returned buffer loans and copying arbitrary C
+bytes directly into str are unsupported.
+
+## Strided numeric lists
+
+`&list[T] as strided` and `&mut list[T] as strided`, for primitive numeric
+`T`, pass three C arguments: a data pointer, `size_t len`, and
+`size_t stride_bytes`. Element `i` lives at `data + i * stride_bytes`.
+The pointer may be null for an empty list and must then not be dereferenced.
+The stride describes Plenty storage; it is not necessarily `sizeof(T)`.
+
+The adapter does not allocate or pack a temporary collection. Native code
+may read only each declared scalar's bytes and may write those bytes only
+through a mutable loan. It must preserve padding and runtime metadata,
+cannot resize the list, and cannot retain or return the pointer. Use
+`memcpy` or unaligned scalar accesses if the native type requires alignment.
+No booleans, strings, objects, nested lists or nullable elements are admitted.
+Exclusive borrowing rules still apply. Narrow signed mutable elements are
+normalized back into Plenty slots after the call; i64/f64 require no such pass.
+The optional [dataframe engine](../../stdlib/dataframe.md) uses this adapter
+for bulk transfer.

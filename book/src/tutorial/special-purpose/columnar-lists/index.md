@@ -21,6 +21,11 @@ requires reading separate columns. The current implementation accepts only
 primitive fields; use ordinary lists for strings, nested objects,
 or borrowed references to whole rows.
 
+For analytical expression plans, grouping and Parquet datasets, consider
+[dataframes](../dataframes.md). Their optional Polars engine has runtime
+schemas and native query semantics; `clist` keeps a lightweight mutable
+collection and Plenty's own arithmetic and type checking.
+
 - [Build and scan columnar records](01-scanning.md): reserve capacity, append
   records, scan a column, and update or copy a row.
 - [Count matching integer values](02-counting.md): express a filter/count

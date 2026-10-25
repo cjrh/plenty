@@ -27,6 +27,26 @@ pub(super) fn digest(
     field(crate::cache::compiler_identity());
     field(kind);
     field(&entry.display().to_string());
+    // Moving/replacing the optional shared engine changes a dataframe
+    // executable's RUNPATH. Missing/unused engines never fail fingerprinting.
+    let engine = options
+        .dataframe_engine
+        .clone()
+        .or_else(|| std::env::var_os("PLENTY_DATAFRAME_ENGINE").map(PathBuf::from))
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .map(|p| p.with_file_name("libplenty_dataframe_v1.so"))
+        });
+    field(&format!("{engine:?}"));
+    if let Some(path) = engine {
+        field(&format!(
+            "{:?}",
+            std::fs::metadata(path)
+                .ok()
+                .map(|m| (m.len(), m.modified().ok()))
+        ));
+    }
     field(&format!(
         "{:?} {:?} {:?} {} {:?}",
         options.target,

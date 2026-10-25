@@ -94,6 +94,9 @@ pub struct CompileOptions {
     pub verbose: bool,
     /// Additional driver arguments, each passed verbatim after the inputs.
     pub link_args: Vec<OsString>,
+    /// Override the optional dataframe engine location. Consulted only when
+    /// reachable native code uses std.dataframe; otherwise no engine is needed.
+    pub dataframe_engine: Option<PathBuf>,
     /// Ask Cranelift to optimize generated code for speed (the release
     /// profile). Off by default, which favors compilation speed.
     pub optimize: bool,
@@ -119,6 +122,7 @@ impl Default for CompileOptions {
             auto_linker: true,
             verbose: false,
             link_args: Vec::new(),
+            dataframe_engine: None,
             optimize: false,
             cache: crate::cache::CacheMode::Environment,
             program_cache: true,
@@ -319,6 +323,7 @@ pub(crate) fn link(
     extra_args: &[OsString],
     trailing_args: &[OsString],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let dataframe = dataframe_link_args(object, options)?;
     let mut command = Command::new(&options.linker);
     if let Some(linker) = options.automatic_linker() {
         command.arg(format!("-fuse-ld={linker}"));
@@ -333,6 +338,7 @@ pub(crate) fn link(
         .args(extra_args)
         .args(&options.link_args)
         .args(trailing_args)
+        .args(dataframe)
         .args(native_args.split_whitespace())
         .arg("-o")
         .arg(output);
@@ -364,6 +370,100 @@ pub(crate) fn link(
         .into());
     }
     Ok(())
+}
+
+const DATAFRAME_LIBRARY: &str = "libplenty_dataframe_v1.so";
+
+/// Follow the emitted object's section relocations, as --gc-sections does.
+/// Looking for undefined symbols alone would count unused local helpers and
+/// destructors, requiring an engine even for a bare unused import.
+fn uses_dataframe(bytes: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
+    use object::{Object, ObjectSection, ObjectSymbol, RelocationTarget, SectionFlags};
+    let object = object::File::parse(bytes)?;
+    if !object.symbols().any(|symbol| {
+        symbol.is_undefined() && symbol.name().is_ok_and(|name| name.starts_with("pldf_v1_"))
+    }) {
+        return Ok(false);
+    }
+    let mut pending: Vec<_> = object
+        .symbols()
+        .filter(|symbol| symbol.is_global() && !symbol.is_undefined())
+        .filter_map(|symbol| symbol.section_index())
+        .collect();
+    // Exported library interfaces are explicitly retained even without a
+    // global symbol. Their relocations are roots too.
+    pending.extend(
+        object
+            .sections()
+            .filter(|section| {
+                matches!(
+                    section.flags(), SectionFlags::Elf { sh_flags, .. }
+                    if sh_flags.0 & object::elf::SHF_GNU_RETAIN.0 != 0
+                )
+            })
+            .map(|section| section.index()),
+    );
+    let mut seen = std::collections::HashSet::new();
+    while let Some(index) = pending.pop() {
+        if !seen.insert(index) {
+            continue;
+        }
+        for (_, relocation) in object.section_by_index(index)?.relocations() {
+            match relocation.target() {
+                RelocationTarget::Symbol(index) => {
+                    let symbol = object.symbol_by_index(index)?;
+                    if symbol.is_undefined() && symbol.name()?.starts_with("pldf_v1_") {
+                        return Ok(true);
+                    }
+                    if let Some(section) = symbol.section_index() {
+                        pending.push(section);
+                    }
+                }
+                RelocationTarget::Section(section) => pending.push(section),
+                _ => {}
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn dataframe_link_args(
+    object: &Path,
+    options: &CompileOptions,
+) -> Result<Vec<OsString>, Box<dyn std::error::Error>> {
+    if !uses_dataframe(&std::fs::read(object)?)? {
+        return Ok(Vec::new());
+    }
+    let selected = options
+        .dataframe_engine
+        .clone()
+        .or_else(|| std::env::var_os("PLENTY_DATAFRAME_ENGINE").map(PathBuf::from))
+        .unwrap_or(std::env::current_exe()?.with_file_name(DATAFRAME_LIBRARY));
+    let engine = selected.canonicalize().map_err(|error| format!(
+        "std.dataframe requires the optional Polars engine; cannot open {}: {error}. Build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY, or set PLENTY_DATAFRAME_ENGINE to {DATAFRAME_LIBRARY}",
+        selected.display()
+    ))?;
+    if !engine.is_file() {
+        return Err(format!("dataframe engine is not a file: {}", engine.display()).into());
+    }
+    let directory = engine.parent().unwrap();
+    // ELF RUNPATH is colon-separated even when passed as one driver argument.
+    if directory.as_os_str().as_encoded_bytes().contains(&b':') {
+        return Err(
+            "dataframe engine directory must not contain ':' (ELF RUNPATH separator)".into(),
+        );
+    }
+    Ok(vec![
+        engine.as_os_str().to_owned(),
+        "-Xlinker".into(),
+        "-rpath".into(),
+        "-Xlinker".into(),
+        "$ORIGIN".into(),
+        "-Xlinker".into(),
+        "-rpath".into(),
+        "-Xlinker".into(),
+        directory.as_os_str().to_owned(),
+    ])
 }
 
 #[cfg(test)]

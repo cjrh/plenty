@@ -51,9 +51,14 @@ fn module_table() -> Vec<Row> {
 /// one line.
 fn declarations(module: &str, symbols: &[Symbol]) -> Vec<String> {
     let file = File::Standard(format!("{}.plenty", module.replace('.', "/")));
+    let interface = File::Standard(format!("{}.plentyi", module.replace('.', "/")));
     let mut own: Vec<&Symbol> = symbols
         .iter()
-        .filter(|s| s.location.as_ref().is_some_and(|l| l.file == file))
+        .filter(|s| {
+            s.location
+                .as_ref()
+                .is_some_and(|l| l.file == file || l.file == interface)
+        })
         .collect();
     own.sort_by_key(|s| {
         let l = s.location.as_ref().unwrap();

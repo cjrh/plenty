@@ -1,10 +1,12 @@
 # Dataframes backed by Polars
 
-> **Status: Experimental embedding spike.** The optional adapter lives in
-> `experiments/polars-embedding/`. It is not a standard-library module and does
-> not replace the implemented [`clist`](../design/facilities/01-builtins/clists.md).
-> See the [measured evidence](polars-dataframes/evidence.md). Priorities belong
-> to [B76 in the backlog](../backlog.md).
+> **Status: A bounded foundation is implemented as [`std.dataframe`](../design/stdlib/dataframe.md).**
+> It uses a separately built optional Polars engine, bulk numeric transfers
+> and explicit expression plans. `clist` remains a distinct lightweight mutable
+> collection. The text below records the original spike and its rationale;
+> the reference describes the supported API. See the
+> [original measurements](polars-dataframes/evidence.md) and
+> [B76 in the backlog](../backlog.md) for future priorities.
 
 ## Why use an existing engine?
 

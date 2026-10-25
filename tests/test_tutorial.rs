@@ -222,7 +222,10 @@ fn jobs(fences: &[Fence]) -> Vec<Job<'_>> {
             index += 1;
             continue;
         }
-        if !matches!(source.language.as_str(), "plenty" | "plenty-error") {
+        if !matches!(
+            source.language.as_str(),
+            "plenty" | "plenty dataframe" | "plenty-error"
+        ) {
             assert!(
                 !source.language.starts_with("plenty"),
                 "unknown example kind at line {}",
@@ -239,7 +242,7 @@ fn jobs(fences: &[Fence]) -> Vec<Job<'_>> {
         let expected = fences
             .get(index + 1)
             .expect("each tutorial program needs an expectation");
-        let valid = source.language == "plenty";
+        let valid = matches!(source.language.as_str(), "plenty" | "plenty dataframe");
         assert_eq!(
             expected.language,
             if valid { "output" } else { "error" },
@@ -372,7 +375,7 @@ fn run_job(job: &Job, number: usize, workspace: &Path, run_command: bool) -> boo
             builds,
         } => (source, expected, modules, builds),
     };
-    let valid = source.language == "plenty";
+    let valid = matches!(source.language.as_str(), "plenty" | "plenty dataframe");
     let example_dir = workspace.join(format!("example-{number}"));
     std::fs::create_dir(&example_dir).unwrap();
     for (path, module) in modules {
@@ -402,6 +405,25 @@ fn run_job(job: &Job, number: usize, workspace: &Path, run_command: bool) -> boo
     }
     let source_path = example_dir.join("lesson.plenty");
     std::fs::write(&source_path, &source.body).unwrap();
+    if source.language == "plenty dataframe" && std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none()
+    {
+        let checked = Command::new(binary)
+            .arg("--check")
+            .arg(&source_path)
+            .output()
+            .unwrap();
+        assert!(
+            checked.status.success(),
+            "{} type check: {}",
+            source.line,
+            String::from_utf8_lossy(&checked.stderr)
+        );
+        eprintln!(
+            "{}: dataframe example type-checked; execution requires PLENTY_DATAFRAME_TESTS=1",
+            source.line
+        );
+        return true;
+    }
     // Runtime examples may create files. Give each execution a separate
     // empty working directory so examples neither touch the repo nor rely
     // on files left behind by the other execution mode.
@@ -502,7 +524,9 @@ fn first_runnable_example_per_directory(jobs: &[Job]) -> Vec<bool> {
     let mut seen = std::collections::HashSet::new();
     jobs.iter()
         .map(|job| match job {
-            Job::Example { source, .. } if source.language == "plenty" => {
+            Job::Example { source, .. }
+                if matches!(source.language.as_str(), "plenty" | "plenty dataframe") =>
+            {
                 let (page, _) = source.line.rsplit_once(':').unwrap();
                 seen.insert(page.rsplit_once('/').map_or("", |(directory, _)| directory))
             }
@@ -535,6 +559,27 @@ fn run_shard(shard: usize, shards: usize) {
     assert!(
         failures.is_empty(),
         "tutorial examples failed at lines {failures:?}"
+    );
+}
+
+#[test]
+fn dataframe_examples_with_optional_engine() {
+    if std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none() {
+        return;
+    }
+    let fences = tutorial_fences();
+    let jobs = jobs(&fences);
+    let temp = tempfile::tempdir().unwrap();
+    let mut count = 0;
+    for (number, job) in jobs.iter().enumerate() {
+        if matches!(job, Job::Example { source, .. } if source.language == "plenty dataframe") {
+            assert!(run_job(job, number, temp.path(), true));
+            count += 1;
+        }
+    }
+    assert!(
+        count > 0,
+        "the optional engine job must exercise tutorial examples"
     );
 }
 

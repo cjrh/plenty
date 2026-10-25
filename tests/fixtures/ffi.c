@@ -57,3 +57,29 @@ void fixture_string_void(const char *text) { text_calls += (int64_t)strlen(text)
 int64_t fixture_text_calls(void) { return text_calls; }
 float fixture_string_float(const char *text) { return (float)strlen(text) + 0.5f; }
 void *fixture_string_pointer(const char *text) { (void)text; return &token; }
+
+/* A strided view permits touching only each scalar, never the slot padding. */
+double fixture_strided(const uint8_t *input, size_t count, size_t stride,
+                       uint8_t *output, size_t out_count, size_t out_stride) {
+    if (count != out_count) return -1;
+    double total = 0;
+    for (size_t i = 0; i < count; ++i) {
+        double value;
+        memcpy(&value, input + i * stride, sizeof(value));
+        total += value;
+        value *= 2;
+        memcpy(output + i * out_stride, &value, sizeof(value));
+    }
+    return total;
+}
+int64_t fixture_strided_i8(uint8_t *data, size_t count, size_t stride) {
+    int64_t total = 0;
+    for (size_t i = 0; i < count; ++i) {
+        int8_t value;
+        memcpy(&value, data + i * stride, 1);
+        total += value;
+        value = -7;
+        memcpy(data + i * stride, &value, 1);
+    }
+    return total;
+}
