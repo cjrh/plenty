@@ -1,12 +1,12 @@
 # Fluent iterator pipelines
 
-**Status: Stages 1 and 2 implemented: the serial core, pair callbacks,
-dictionary collection, generator fluent methods, explicit owned `.generator()`
-conversion, `chain`, `flat_map`, closure-literal splicing and comprehensions
-lowered through the plan. `std.iter` was removed rather than deprecated. Stage
-3's `sum`, `min` and `max` terminals, resumable adapters and `next(p)` in the
-creating scope and lending through `&mut Iter[T]` are implemented. The
-parallel stage remains proposed.** Bounded native
+**Status: Stages 1 to 3 implemented; stage 4 (parallel) remains proposed.**
+Stages 1 and 2 cover the serial core, pair callbacks, dictionary collection,
+generator fluent methods, explicit owned `.generator()` conversion, `chain`,
+`flat_map`, closure-literal splicing and comprehensions lowered through the
+plan. `std.iter` was removed rather than deprecated. Stage 3 covers the `sum`,
+`min` and `max` terminals, resumable adapters, `next(p)`, and lending through
+`&mut Iter[T]`, including pipelines of reference items. Bounded native
 substitution of scalar leaf callbacks also covers named functions and immutable
 scalar captures; it addresses the original performance gap (issue #399).
 The [pipeline reference](../design/language/09-iteration/06-pipelines.md)
@@ -177,6 +177,10 @@ replaces the originally proposed generator-expression bridge. There is no
 implicit conversion from an expected `Generator[T]` type.
 
 ### Lending a pipeline to a function
+
+Implemented in stage 3; the
+[reference](../design/language/09-iteration/06-pipelines.md#lending-a-pipeline)
+states the final rules and limits. This section keeps the design rationale.
 
 A function can take a pipeline by exclusive reference, consume some of it, and
 return. The caller then continues from where the callee stopped:
@@ -927,7 +931,13 @@ terminals above replace them for pipelines.
    later loop or terminal continues after the items taken. In that scope the
    plan's state already lives in the creator's slots, so resuming needs no
    store-back; `take_while` and `zip` record that they have ended so a later
-   consumer does not pull past the end. Lending itself is not implemented.
+   consumer does not pull past the end. Lending is implemented: the callee
+   receives the pipeline's state through hidden parameters, copied in on entry
+   and written back on every exit. Pipelines of reference items can be lent;
+   their items cannot be returned. A pipeline holding a stored closure with
+   borrowed captures cannot be lent; write the closure literal inside the
+   adapter instead. The [reference](../design/language/09-iteration/06-pipelines.md#lending-a-pipeline)
+   states the rules and limits.
 4. **Stage 4 — parallel.** `.par(&pool)` with chunked fused jobs (one chunk
    per logical core by default), the allowed-step rules, and
    `collect`/`try_collect`/`reduce`/`count`/`any`/`all`.
