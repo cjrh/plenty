@@ -178,6 +178,8 @@ pub(super) fn prepare(
         active: HashSet::default(),
         frames: HashMap::default(),
         frame_instances: HashMap::default(),
+        lent: Vec::new(),
+        lent_ids: HashMap::default(),
         required: HashMap::default(),
         unsubstituted: HashMap::default(),
         protocol_instances: HashSet::default(),
@@ -261,6 +263,11 @@ pub(super) struct Engine {
     pub(super) frames: HashMap<(String, Vec<Ty>), String>,
     /// Frame specializations of each generator consumer.
     pub(super) frame_instances: HashMap<String, usize>,
+    /// Pipelines lent to `&mut Iter[T]` parameters, by identity, and each
+    /// identity by lender and plan index. Relowering a lender replaces its
+    /// entries.
+    pub(super) lent: Vec<Arc<super::pipelines::Lent>>,
+    pub(super) lent_ids: HashMap<(functions::Symbol, usize), usize>,
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
     pub(super) required: HashMap<functions::Symbol, Arc<Instantiation>>,
@@ -407,7 +414,7 @@ impl FromIterator<(String, TypeRef)> for Substitution {
 pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
     let (name, children): (Option<String>, Vec<&Ty>) = match ty {
         Ty::Unit => (None, vec![]),
-        Ty::Closure(_) | Ty::BoxedCallable(_) => {
+        Ty::Closure(_) | Ty::BoxedCallable(_) | Ty::Iter(..) => {
             return TypeRef {
                 at: at.clone(),
                 concrete: Some(ty.clone()),
@@ -608,7 +615,8 @@ fn infer_inner(
         (Some("list"), Ty::List(t))
         | (Some("clist"), Ty::Clist(t))
         | (Some("set"), Ty::Set(t))
-        | (Some("range"), Ty::Range(t)) => Some(vec![t]),
+        | (Some("range"), Ty::Range(t))
+        | (Some("Iter"), Ty::Iter(t, _)) => Some(vec![t]),
         (Some("Generator"), Ty::Generator(t)) => Some(vec![&t.element]),
         (Some("Future"), Ty::Future(t))
         | (Some("Box"), Ty::Box(t))
@@ -852,6 +860,9 @@ impl Lower<'_> {
                 args.len()
             )));
         }
+        if let Some(symbol) = self.lending_instance(name, &template, args, at)? {
+            return self.call_named_with_receiver(&symbol, args, at, method, ops);
+        }
         let mut inferred = HashMap::default();
         let mut loans = Vec::new();
         let mut arguments = Vec::new();
@@ -943,6 +954,46 @@ impl Lower<'_> {
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())
+    }
+}
+
+impl Lower<'_> {
+    /// The instance a call lending a pipeline to generic `name` names. Lending
+    /// needs the borrower's concrete signature before any argument is lowered,
+    /// so the type parameters come from the lent pipelines' item types alone.
+    fn lending_instance(
+        &mut self,
+        name: &str,
+        template: &Function,
+        args: &[Expr],
+        at: &Token,
+    ) -> Result<Option<String>> {
+        let mut inferred = HashMap::default();
+        let mut lending = false;
+        for (arg, (_, pattern)) in args.iter().zip(&template.inputs) {
+            if pattern.name.as_deref() != Some("&mut")
+                || pattern.args.first().and_then(|t| t.name.as_deref()) != Some("Iter")
+            {
+                continue;
+            }
+            if let Some(ty) = self.lendable_type(arg) {
+                infer(pattern, &ty, template, &mut inferred, self.aliases, &arg.at)?;
+                lending = true;
+            }
+        }
+        if !lending {
+            return Ok(None);
+        }
+        let actual = template
+            .type_params
+            .iter()
+            .map(|(param, _)| {
+                inferred.remove(param).ok_or_else(|| {
+                    at.error(format!("cannot infer type parameter `{param}` for `{name}` from its lent pipelines; supply explicit type arguments"))
+                })
+            })
+            .collect::<Result<_>>()?;
+        self.specialize(name, actual, at).map(Some)
     }
 }
 

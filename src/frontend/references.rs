@@ -431,7 +431,7 @@ impl Lower<'_> {
         }
         if self.is_pipeline(e) {
             return Err(e.at.error(
-                "iterator pipeline lending is not implemented; consume it in its creating scope",
+                "an iterator pipeline can only be lent, as `&mut p` to a `&mut Iter[T]` parameter",
             ));
         }
         self.ide_member(e);

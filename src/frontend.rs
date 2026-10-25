@@ -2835,6 +2835,8 @@ struct Lower<'a> {
     /// Set while a pipeline binding is being built: its plan may be resumed
     /// later, so its end checks must stay.
     binding_pipeline: bool,
+    /// `&mut Iter[T]` parameters by slot, with their plans.
+    lent_parameters: HashMap<u8, pipelines::LentParameter>,
     pipeline_generators: usize,
     function_name: String,
     /// `function_name` in the function table.
@@ -5535,10 +5537,27 @@ fn register_with_body(
     let pipeline = |ty: &Ty| {
         matches!(ty, Ty::Iter(..)) || matches!(ty, Ty::Ref(t, _) if matches!(**t, Ty::Iter(..)))
     };
-    if types.iter().any(pipeline) || output.as_ref().is_some_and(pipeline) {
+    if output.as_ref().is_some_and(pipeline) {
         return Err(f.at.error(
-            "iterator pipelines are local-only; parameters, returns, and lending are not supported",
+            "an iterator pipeline cannot be returned; return a collected value or lend the pipeline as `&mut Iter[T]`",
         ));
+    }
+    if let Some(ty) = types
+        .iter()
+        .find(|ty| pipeline(ty) && !matches!(ty, Ty::Ref(_, true)))
+    {
+        return Err(f.at.error(format!(
+            "an iterator pipeline parameter must be `&mut {}`; a pipeline is lent, never moved or shared",
+            match ty {
+                Ty::Ref(t, _) => t.to_string(),
+                t => t.to_string(),
+            }
+        )));
+    }
+    if (f.foreign.is_some() || f.export.is_some()) && types.iter().any(pipeline) {
+        return Err(f
+            .at
+            .error("foreign and exported functions cannot take iterator pipelines"));
     }
     if let Some((_, written)) = f
         .inputs
@@ -5636,7 +5655,7 @@ fn lower_body(
     aliases: &TypeAliases,
     access: &modules::AccessMap,
 ) -> Result<()> {
-    let (mut sig, mut yield_type, mut lower, mut body) = crate::profile_block!(
+    let (mut sig, mut yield_type, mut lower, mut body, lent_exit) = crate::profile_block!(
         "frontend::setup_function",
         {
             if !generics.active.insert(symbol) {
@@ -5713,6 +5732,7 @@ fn lower_body(
                 pipeline_ends: Default::default(),
                 resumed_ends: Default::default(),
                 binding_pipeline: false,
+                lent_parameters: HashMap::default(),
                 pipeline_generators: 0,
                 function_places: HashMap::default(),
                 function_initializers: Vec::new(),
@@ -5769,7 +5789,16 @@ fn lower_body(
                     lower.reference_locals.insert(i as u8, loan);
                 }
             }
-            (sig, yield_type, lower, body)
+            let lent_exit = if sig
+                .inputs
+                .iter()
+                .any(|(_, ty)| pipelines::lent_identity(ty).is_some())
+            {
+                lower.receive_lent(&f.at, &mut body)?
+            } else {
+                Vec::new()
+            };
+            (sig, yield_type, lower, body, lent_exit)
         }
     );
     let lowered = crate::profile_block!(
@@ -5796,6 +5825,7 @@ fn lower_body(
             ));
             }
             lower.refine_return(output, &f.at)?;
+            body.extend(lent_exit);
         }
         if f.name.starts_with("__plenty_genexpr_") {
             yield_type = lower.yield_type.clone();

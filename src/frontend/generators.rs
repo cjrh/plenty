@@ -296,6 +296,19 @@ impl Lower<'_> {
         for ((_, pattern), ty) in f.inputs.iter_mut().zip(&actual) {
             *pattern = generics::type_ref(ty, &pattern.at);
         }
+        // A lent pipeline's state follows the declared parameters.
+        let hidden: Vec<Ty> = actual
+            .iter()
+            .filter_map(pipelines::lent_identity)
+            .flat_map(|id| self.generics.lent[id].hidden().collect::<Vec<_>>())
+            .collect();
+        for (k, ty) in hidden.iter().enumerate() {
+            f.inputs
+                .push((format!("<lent {k}>"), generics::type_ref(ty, &f.at)));
+        }
+        if !f.defaults.is_empty() {
+            f.defaults.resize(f.inputs.len(), None);
+        }
         register_signature(&f, self.aliases, self.sigs)?;
         self.generics.frames.insert(key, symbol.clone());
         self.generics.inherit_requirement(self.sigs, name, &symbol);
@@ -335,7 +348,16 @@ impl Lower<'_> {
         let mut loans = Vec::new();
         let mut reservation = None;
         let start = ops.len();
+        let mut hidden = (Vec::new(), Vec::new());
+        let mut lent_loans = Vec::new();
         for (index, (arg, (_, expected))) in args.iter().zip(&signature.inputs).enumerate() {
+            if pipelines::lent_declared(expected) {
+                let (ty, loan) =
+                    self.lend_argument(arg, expected, &mut hidden, &mut lent_loans, ops)?;
+                loans.push(loan);
+                actual.push(ty);
+                continue;
+            }
             let ty = if let Ty::Ref(inner, mutable) = expected {
                 let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
                 loans.push(loan);
@@ -363,11 +385,17 @@ impl Lower<'_> {
             self.mark(at, ops);
             loans[0] = self.activate_receiver(loan, ops);
         }
+        let (pushes, state) = hidden;
+        ops.extend(pushes);
+        loans.extend(state);
         self.record_direct_call(&symbol, at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
         self.push_call(Op::Call(symbol.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&symbol, &sig, &loans, ops);
         Self::end_reads(loans, ops);
+        // The lender's own loans, such as of a borrowed source, stay live
+        // across the call: the borrower reads through them.
+        ops.extend(lent_loans.into_iter().map(Op::UseLoan));
         Ok(sig.outputs.first().cloned())
     }
 
@@ -408,14 +436,12 @@ impl Lower<'_> {
                 place = ungroup(base);
             }
             if let Expression::Name(name) = &place.kind
-                && let Some(
-                    local @ Local {
-                        ty: Ty::Iter(..), ..
-                    },
-                ) = self.names.get(name)
+                && let Some(local) = self.names.get(name)
+                && (matches!(local.ty, Ty::Iter(..))
+                    || self.lent_parameters.contains_key(&local.slot))
             {
                 let local = local.clone();
-                return self.pipeline_next(&local, at, ops).map(Some);
+                return self.pipeline_next(&local, place, at, ops).map(Some);
             }
         }
         if let [arg] = args

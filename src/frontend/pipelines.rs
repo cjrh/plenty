@@ -4,7 +4,11 @@ use super::collections::Iteration;
 use super::*;
 
 mod generator_bridge;
+mod lending;
 mod splice;
+pub(super) use lending::{
+    Lent, LentParameter, declared as lent_declared, identity as lent_identity,
+};
 pub(super) use splice::Callback;
 
 fn result_payload(ty: &Ty) -> Option<Ty> {
@@ -32,6 +36,17 @@ pub(super) struct Pipeline {
     owned: bool,
     loans: Vec<usize>,
     depth: usize,
+    /// A borrower's copy of a lent plan: consumers write its state back
+    /// rather than finish it.
+    lent: bool,
+    /// State this plan reads but does not own: a borrower's copies, which
+    /// its write-back moves out, so finishing never drops them.
+    borrowed: Vec<u8>,
+    /// References a borrower received as state, read-only.
+    shared: Vec<u8>,
+    /// Advances a lent plan past an item a consumer took but did not step
+    /// over, as when it breaks or returns: the lender resumes after it.
+    resume: Vec<Op>,
 }
 
 impl Lower<'_> {
@@ -97,7 +112,9 @@ impl Lower<'_> {
             return true;
         }
         match &ungroup(e).kind {
-            Expression::Name(n) => matches!(self.names.get(n).map(|l| &l.ty), Some(Ty::Iter(..))),
+            Expression::Name(n) => self.names.get(n).is_some_and(|local| {
+                matches!(local.ty, Ty::Iter(..)) || self.lent_parameters.contains_key(&local.slot)
+            }),
             Expression::Call(n, _) => {
                 matches!(n.as_str(), "iter" | "enumerate" | "zip")
                     && !self.names.contains_key(n)
@@ -142,6 +159,9 @@ impl Lower<'_> {
         let ops_start = ops.len();
         let saved = self.names.clone();
         let mut plan = match &ungroup(e).kind {
+            Expression::Name(n) if self.lent_parameters.contains_key(&self.names[n].slot) => {
+                self.lent_plan(e, ops)?
+            }
             Expression::Name(n) => {
                 let local = self.names[n].clone();
                 let Ty::Iter(_, id) = local.ty else {
@@ -393,6 +413,10 @@ impl Lower<'_> {
             owned,
             loans: vec![],
             depth: 0,
+            lent: false,
+            borrowed: vec![],
+            shared: vec![],
+            resume: vec![],
         };
         self.pipeline_split_pair(&mut plan, &source.at)?;
         plan.resources
@@ -637,6 +661,10 @@ impl Lower<'_> {
             left.resources.extend(right.resources);
             left.initialized.extend(right.initialized);
             left.empty.extend(right.empty);
+            left.lent |= right.lent;
+            left.borrowed.extend(right.borrowed);
+            left.shared.extend(right.shared);
+            left.resume.extend(right.resume);
             left.owned &= right.owned;
             left.loans.extend(right.loans);
             [left.item.clone(), right.item]
@@ -796,6 +824,10 @@ impl Lower<'_> {
         left.resources.extend(right.resources);
         left.initialized.extend(right.initialized);
         left.empty.extend(right.empty);
+        left.lent |= right.lent;
+        left.borrowed.extend(right.borrowed);
+        left.shared.extend(right.shared);
+        left.resume.extend(right.resume);
         left.split = Some(second);
         left.owned &= right.owned;
         left.loans.extend(right.loans);
@@ -952,6 +984,10 @@ impl Lower<'_> {
         outer.pair = inner.pair;
         outer.resources.extend(inner.resources);
         outer.owned &= inner.owned;
+        outer.lent |= inner.lent;
+        outer.borrowed.extend(inner.borrowed);
+        outer.shared.extend(inner.shared);
+        outer.resume.extend(inner.resume);
         Ok(outer)
     }
 
@@ -1165,6 +1201,7 @@ impl Lower<'_> {
     }
 
     pub(super) fn finish_pipeline(&self, plan: &Pipeline, ops: &mut Vec<Op>) {
+        ops.extend(plan.resume.iter().cloned());
         ops.extend(plan.iteration.cleanup.iter().cloned());
         ops.extend(plan.loans.iter().copied().map(Op::UseLoan));
         for &slot in plan.resources.iter().rev() {
@@ -1188,20 +1225,38 @@ impl Lower<'_> {
     pub(super) fn pipeline_next(
         &mut self,
         local: &Local,
+        place: &Expr,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
-        let Ty::Iter(_, id) = local.ty else {
-            unreachable!()
+        let mut loans = Vec::new();
+        let plan = if let Ty::Iter(_, id) = local.ty {
+            if !local.mutable {
+                return Err(
+                    at.error("next requires a mutable pipeline binding; declare it with `mut`")
+                );
+            }
+            let plan = self
+                .pipelines
+                .get(id)
+                .cloned()
+                .ok_or_else(|| at.error("iterator pipeline has no local source plan"))?;
+            // Reading the token rejects a pipeline that a loop or terminal
+            // consumed.
+            self.mark(at, ops);
+            ops.extend([Op::LoadLocal(local.slot), Op::Drop]);
+            plan
+        } else {
+            // A lent parameter: the step runs through a borrow of it, which
+            // conflicts with a consumer or binding still holding it.
+            let start = ops.len();
+            let plan = self.lent_plan(place, ops)?;
+            loans.extend(ops[start..].iter().filter_map(|op| match op {
+                Op::Loan(loan) => Some(loan.id),
+                _ => None,
+            }));
+            plan
         };
-        if !local.mutable {
-            return Err(at.error("next requires a mutable pipeline binding; declare it with `mut`"));
-        }
-        let plan = self
-            .pipelines
-            .get(id)
-            .cloned()
-            .ok_or_else(|| at.error("iterator pipeline has no local source plan"))?;
         if let Some(barrier) = plan.item.ty.storage_barrier() {
             return Err(at.error(barrier.message("a next result; map to an owned value first")));
         }
@@ -1210,9 +1265,6 @@ impl Lower<'_> {
                 .iter()
                 .filter(|slot| self.pipeline_ends.contains(slot)),
         );
-        // Reading the token rejects a pipeline that a loop or terminal consumed.
-        self.mark(at, ops);
-        ops.extend([Op::LoadLocal(local.slot), Op::Drop]);
         let ty = crate::sum::option(plan.item.ty.clone());
         let Ty::Enum(option) = &ty else {
             unreachable!()
@@ -1235,7 +1287,7 @@ impl Lower<'_> {
             condition: plan.iteration.condition.clone().into(),
             body: body.into(),
         });
-        ops.extend(plan.loans.iter().copied().map(Op::UseLoan));
+        ops.extend(plan.loans.iter().chain(&loans).copied().map(Op::UseLoan));
         ops.push(Op::MoveLocal(result));
         Ok(ty)
     }

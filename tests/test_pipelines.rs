@@ -1098,7 +1098,6 @@ fn unsupported_placements_are_rejected() {
     for source in [
         "def bad() -> Iter[i64]:\n    iter(range(3))\n",
         "def bad(p: Iter[i64]) -> ():\n    pass\n",
-        "def bad(p: &mut Iter[i64]) -> ():\n    pass\n",
         "def bad() -> Option[Iter[i64]]:\n    Nothing\n",
         "p = iter(range(3))\nprint(&p).unwrap()\n",
         "p = iter(range(3))\nprint(p).unwrap()\n",
@@ -2058,5 +2057,257 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 "#,
         "done",
+    );
+}
+
+#[test]
+fn lent_pipelines_resume_in_the_lender() {
+    output(
+        r#"
+class Reader:
+    seen: i64
+    def skip(self: &mut Reader, p: &mut Iter[i64]) -> ():
+        _ = next(p)
+        self.seen += 1
+
+def first[T](p: &mut Iter[T]) -> Option[T]:
+    next(p)
+
+def drain(p: &mut Iter[i64]) -> i64:
+    match next(p):
+        case Some(x):
+            return x + drain(p)
+        case Nothing:
+            return 0
+
+def pairs(p: &mut Iter[i64]) -> Result[(), AllocError | IoError]:
+    for a, b in zip(p, range(100, 102)):
+        print(a, b)?
+    Ok(())
+
+def mapped(p: &mut Iter[i64]) -> Result[(), AllocError | IoError]:
+    mut q = p.map(def(x: i64) -> i64: x * 10)
+    print(next(q))?
+    print(next(p))?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    lim = 3
+    mut p = iter(range(20)).filter(def [lim](x: &i64) -> bool: *x != lim).take_while(def(x: &i64) -> bool: *x < 15)
+    mut r = Reader(0)
+    r.skip(&mut p)
+    print(r.seen)?
+    print(first(&mut p))?
+    pairs(&mut p)?
+    mapped(&mut p)?
+    print(drain(&mut p))?
+    print(next(p))?
+    names = ["ada", "bob", "ada", "cy", "ada"]?
+    mut v = iter(&names).filter_value("ada").map(def(s: &str) -> i64: len(s))
+    print(first(&mut v))?
+    print(v.count())?
+    mut c = iter(range(2)).chain(range(5, 8))
+    print(drain(&mut c))?
+    mut f = iter(range(3)).flat_map(def(x: i64) -> list[i64]: [x, x + 10].unwrap())
+    print(first(&mut f), first(&mut f), first(&mut f))?
+    print(drain(&mut f))?
+    Ok(())
+"#,
+        "1\nOption[i64].Some(1)\n2 100\n4 101\nOption[i64].Some(60)\nOption[i64].Some(7)\n77\n\
+Option[i64].Nothing\nOption[i64].Some(3)\n2\n19\n\
+Option[i64].Some(0) Option[i64].Some(10) Option[i64].Some(1)\n25\n",
+    );
+}
+
+#[test]
+fn lent_pipelines_write_back_on_every_exit() {
+    output(
+        r#"
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print("drop", self.n).unwrap()
+
+enum Bad:
+    Two
+
+def check(g: &Guard) -> Result[i64, Bad]:
+    if g.n == 2:
+        return Err(Bad.Two)
+    Ok(g.n)
+
+def total(p: &mut Iter[Guard]) -> Result[i64, Bad]:
+    mut t = 0
+    for g in p:
+        t += check(&g)?
+    Ok(t)
+
+def stop_at(p: &mut Iter[Guard], n: i64) -> i64:
+    for g in p:
+        if g.n == n:
+            return g.n
+    -1
+
+def first(p: &mut Iter[Guard]) -> ():
+    for g in p:
+        print("saw", g.n).unwrap()
+        break
+
+def main() -> ():
+    values = [Guard(0), Guard(1), Guard(2), Guard(3), Guard(4), Guard(5), Guard(6)].unwrap()
+    mut p = iter(values)
+    print(total(&mut p).is_err()).unwrap()
+    print(stop_at(&mut p, 3)).unwrap()
+    first(&mut p)
+    print("next", next(p).is_some()).unwrap()
+    print("count", p.count()).unwrap()
+    print("end").unwrap()
+"#,
+        "drop 0\ndrop 1\ndrop 2\nTrue\ndrop 3\n3\nsaw 4\ndrop 4\n\
+next True\ndrop 5\ndrop 6\ncount 1\nend\n",
+    );
+}
+
+#[test]
+fn lending_keeps_borrow_and_signature_rules() {
+    for (source, expected) in [
+        (
+            "def f(p: &mut Iter[i64]) -> ():\n    pass\ndef main() -> ():\n    p = iter(range(3))\n    f(&mut p)\n",
+            "requires a mutable binding",
+        ),
+        (
+            "def f(p: &mut Iter[i64]) -> ():\n    pass\ndef main() -> ():\n    mut p = iter(range(3))\n    f(p)\n",
+            "lend a pipeline with `&mut`",
+        ),
+        (
+            "def f(p: &mut Iter[i64]) -> ():\n    pass\ndef main() -> ():\n    mut p = iter(range(3))\n    print(p.count()).unwrap()\n    f(&mut p)\n",
+            "use of moved binding `p`",
+        ),
+        (
+            "def f(p: &mut Iter[i64], q: &mut Iter[i64]) -> ():\n    pass\ndef main() -> ():\n    mut p = iter(range(3))\n    f(&mut p, &mut p)\n",
+            "conflicting borrow",
+        ),
+        (
+            "def f(p: &mut Iter[i64]) -> ():\n    pass\ndef g(p: &mut Iter[i64]) -> ():\n    for x in p:\n        f(&mut p)\ndef main() -> ():\n    mut p = iter(range(3))\n    g(&mut p)\n",
+            "conflicting borrow",
+        ),
+        (
+            "def f(p: &mut Iter[i64]) -> ():\n    pass\ndef main() -> Result[(), AllocError]:\n    mut xs = [1, 2]?\n    mut p = iter(&xs).map(def(x: &i64) -> i64: *x)\n    f(&mut p)\n    xs.append(3)?\n    drop(next(p))\n    Ok(())\n",
+            "conflicting borrow",
+        ),
+        (
+            "def g(p: &mut Iter[i64]) -> i64:\n    q = *p\n    q.count()\ndef main() -> ():\n    mut p = iter(range(3))\n    drop(g(&mut p))\n",
+            "cannot escape their creating scope",
+        ),
+        (
+            "def g(p: &mut Iter[i64]) -> i64:\n    h = def [p]() -> i64:\n        next(p).unwrap_or(0)\n    h()\ndef main() -> ():\n    mut p = iter(range(3))\n    drop(g(&mut p))\n",
+            "cannot escape their creating scope",
+        ),
+        (
+            "def g(p: &mut Iter[i64]) -> Generator[i64]:\n    for x in p:\n        yield x\ndef main() -> ():\n    mut p = iter(range(3))\n    drop(g(&mut p))\n",
+            "generators cannot capture references",
+        ),
+        (
+            "def f(p: &mut Iter[&i64]) -> i64:\n    p.count()\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p))\n    Ok(())\n",
+            "references cannot be stored in a lent pipeline item",
+        ),
+        (
+            "def g(p: &mut Iter[i64]) -> &mut Iter[i64]:\n    p\n",
+            "cannot be returned",
+        ),
+        ("def g(p: &Iter[i64]) -> ():\n    pass\n", "must be `&mut"),
+    ] {
+        let error = support::check_source(source).expect_err(source).to_string();
+        assert!(error.contains(expected), "{source}\n{error}");
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn lending_does_not_allocate_or_leak() {
+    support::assert_visible_stdout(
+        r#"
+def skip(p: &mut Iter[str]) -> ():
+    _ = next(p)
+def longest(p: &mut Iter[str]) -> i64:
+    mut best = 0
+    for s in p:
+        if len(s) == 0:
+            break
+        if len(s) > best:
+            best = len(s)
+    best
+words = ["x", "yy", "zzz", "", "last"].unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+mut p = iter(words).filter(def(s: &str) -> bool: s != "yy")
+skip(&mut p)
+n = longest(&mut p)
+m = p.count()
+print("__test_end_no_allocations__").unwrap()
+print("__test_restore_allocations__").unwrap()
+print(n, m).unwrap()
+"#,
+        "3 1",
+    );
+}
+
+#[test]
+fn lent_owned_state_survives_early_exits() {
+    output(
+        r#"
+enum Bad:
+    Empty
+def check(s: &str) -> Result[i64, Bad]:
+    if len(s) == 0:
+        return Err(Bad.Empty)
+    Ok(len(s))
+def total(p: &mut Iter[str]) -> Result[i64, Bad]:
+    mut t = 0
+    for s in p:
+        t += check(&s)?
+    Ok(t)
+def first(p: &mut Iter[str]) -> Option[str]:
+    for s in p:
+        return Some(s)
+    Nothing
+def main() -> Result[(), AllocError | IoError]:
+    skip = ("skip" + "me")?
+    words = ["aa", "skipme", "b", "", "ccc", "dddd", ""]?
+    mut p = iter(words).filter(def [skip](s: &str) -> bool: s != skip)
+    print(total(&mut p).is_err())?
+    print(first(&mut p))?
+    print(total(&mut p).is_err())?
+    print(first(&mut p))?
+    Ok(())
+"#,
+        "True\nOption[str].Some(\"ccc\")\nTrue\nOption[str].Nothing\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn lent_pipeline_resumes_after_allocation_failure_in_borrower() {
+    support::assert_visible_stdout(
+        r#"
+def take_three(p: &mut Iter[str], out: &mut list[str]) -> Result[(), AllocError]:
+    mut n = 0
+    for s in p:
+        out.append(s)?
+        n += 1
+        if n == 3:
+            break
+    Ok(())
+words = ["a", "bb", "ccc", "dddd", "eeeee"].unwrap()
+mut p = iter(words).filter(def(s: &str) -> bool: s != "bb")
+mut out: list[str] = [].unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+r = take_three(&mut p, &mut out)
+print("__test_restore_allocations__").unwrap()
+print(r.is_err(), len(out)).unwrap()
+take_three(&mut p, &mut out).unwrap()
+print(out).unwrap()
+"#,
+        "True 0\n[\"ccc\", \"dddd\", \"eeeee\"]",
     );
 }
