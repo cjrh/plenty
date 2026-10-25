@@ -8,3 +8,6 @@ values incrementally, and collect them when you need a stored result.
 
 [Traverse backward and test boolean inputs](reverse-and-reduce.md) with
 `reversed`, `any`, and `all`.
+
+[Chain iteration steps with `iter`](pipelines.md) to count, skip, pair, and
+collect items without writing the loop.

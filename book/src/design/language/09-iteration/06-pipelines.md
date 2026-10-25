@@ -84,6 +84,7 @@ stream does not need to cross a function boundary.
 | `take(n)` | Emit at most `n` items; zero or negative `n` advances nothing |
 | `skip(n)` | Discard the first `n` items; zero or negative `n` skips nothing |
 | `take_while(f)` | Stop at the first false shared-reference predicate, dropping that item |
+| `filter_value(value=True)` | Retain items equal to `value`, compared with `==`; no callback |
 | `enumerate(start=0)` | Emit the checked `i64` index and item; count accepted items at this point in the chain |
 | `zip(right)` | Pull one accepted item from each input, left first; stop when either ends |
 | `chain(other)` | Emit every item of this pipeline, then every item of `other` |
@@ -102,6 +103,19 @@ the pipeline is consumed or dropped; owned captures are dropped with the
 pipeline; and a `mut` capture keeps its state across items. A closure stored in
 a local, and a literal whose body is more than one expression or contains `?`,
 `match`, or another closure literal, is called as before.
+
+`filter_value(value)` evaluates `value` once, at construction, and compares
+each item with `item == value` in the loop. For a borrowed `&T` or `&mut T`
+item, `value` is a `T` and the comparison reads through the reference
+(`*item == value`); the item passes through unchanged. The value takes the
+item type as its expected type, so `filter_value(2)` over `u8` items needs no
+suffix, but it is not otherwise converted: a different type, including `&T`, is
+rejected at the call. Any type that `==` accepts is allowed, with the same
+semantics: floats use IEEE equality, so a `NaN` value keeps nothing. The
+argument defaults to `True`, so `filter_value()` keeps true `bool` items and is
+a type error for any other item type. Pair items are rejected; use `filter` with
+a two-parameter predicate. An owned value is dropped with the pipeline, and a
+`.generator()` conversion moves it into the frame.
 
 Free `enumerate(source[, start])` and `zip(left, right)` also start pipelines.
 `dictionary.items()` can be used directly in a chain or through `iter`.
@@ -175,7 +189,7 @@ The pipeline itself adds no heap allocation or per-adapter generator frame.
 Source expressions, callbacks, and destructors retain their own costs. A
 generator source still pays its normal resume cost. Collecting reserves once
 for a known-length range or list pipeline containing only `map`, `take`,
-`skip`, `enumerate`, or `chain` of two known-length sides; a filter, zip,
+`skip`, `enumerate`, or `chain` of two known-length sides; a filter, `filter_value`, zip,
 `flat_map`, or unknown-length source grows as it goes.
 A terminal over a `chain` runs one loop per side, so it tests no flag per
 item; when `zip` or `flat_map` follows the `chain`, and in `for` loops,
@@ -184,6 +198,8 @@ item. `flat_map` adds the callback and
 the inner source's own setup per outer item: a list-returning callback
 allocates one list per outer item, while a range-returning callback allocates
 nothing.
+`filter_value` adds one `==` comparison per item and no call; for scalar items
+the optimized loop matches a hand-written `if *item == value` loop.
 Closure literals in a chain add no call. Optimized native code also
 substitutes small, straight-line scalar leaf functions and stored closures at
 their call sites (at most 24 meaningful operations). Immutable scalar captures

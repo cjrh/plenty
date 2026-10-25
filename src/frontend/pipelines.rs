@@ -123,6 +123,7 @@ impl Lower<'_> {
                         | "take"
                         | "skip"
                         | "take_while"
+                        | "filter_value"
                         | "enumerate"
                         | "zip"
                         | "chain"
@@ -197,6 +198,8 @@ impl Lower<'_> {
                     plan = self.pipeline_chain(plan, args, &e.at, ops)?;
                 } else if method == "flat_map" {
                     plan = self.pipeline_flat_map(plan, args, &e.at, ops)?;
+                } else if method == "filter_value" {
+                    self.pipeline_filter_value(&mut plan, args, &e.at, ops)?;
                 } else {
                     let [argument] = args.as_slice() else {
                         return Err(e.at.error(format!("{method} requires one argument")));
@@ -924,6 +927,97 @@ impl Lower<'_> {
         outer.resources.extend(inner.resources);
         outer.owned &= inner.owned;
         Ok(outer)
+    }
+
+    /// `filter_value(v)` evaluates `v` once at construction and lowers
+    /// `item == v` (`*item == v` for a borrowed item) into the loop, so it
+    /// accepts exactly the operands `==` accepts and calls nothing.
+    fn pipeline_filter_value(
+        &mut self,
+        plan: &mut Pipeline,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        if plan.pair.is_some() {
+            return Err(at.error(
+                "filter_value does not accept pair items; use filter with a two-parameter predicate",
+            ));
+        }
+        let (borrowed, target) = match &plan.item.ty {
+            Ty::Ref(inner, _) => (true, (**inner).clone()),
+            ty => (false, ty.clone()),
+        };
+        match args {
+            [] => {
+                if target != Ty::Bool {
+                    return Err(at.error(format!(
+                        "filter_value() keeps items equal to True, but this pipeline yields {}; pass the value to keep",
+                        type_name(Some(plan.item.ty.clone()))
+                    )));
+                }
+                ops.push(Op::PushBool(true));
+            }
+            [argument] => {
+                let value = match &argument.kind {
+                    Expression::NamedArgument(name, value) if name == "value" => value,
+                    Expression::NamedArgument(name, _) => {
+                        return Err(argument
+                            .at
+                            .error(format!("filter_value has no parameter named `{name}`")));
+                    }
+                    _ => argument,
+                };
+                let actual = self.expr_expected(value, Some(target.clone()), ops)?;
+                if actual.as_ref() != Some(&target) {
+                    return Err(value.at.error(format!(
+                        "filter_value compares {} items with a {} value; it requires {}",
+                        type_name(Some(plan.item.ty.clone())),
+                        type_name(actual),
+                        type_name(Some(target.clone()))
+                    )));
+                }
+            }
+            _ => return Err(at.error("filter_value takes at most one value")),
+        }
+        let slot = self.slot(target.clone(), at)?;
+        ops.push(Op::StoreLocal(slot));
+        let name = |slot: u8| Expr {
+            at: at.clone(),
+            kind: Expression::Name(format!("<pipeline value {slot}>")),
+        };
+        self.bind(
+            format!("<pipeline value {slot}>"),
+            Local {
+                slot,
+                ty: target,
+                mutable: false,
+            },
+        );
+        self.bind(
+            format!("<pipeline value {}>", plan.item.slot),
+            plan.item.clone(),
+        );
+        let item = name(plan.item.slot);
+        let item = if borrowed {
+            Expr {
+                at: at.clone(),
+                kind: Expression::Unary("*".into(), Box::new(item)),
+            }
+        } else {
+            item
+        };
+        let equal = Expr {
+            at: at.clone(),
+            kind: Expression::Binary("==".into(), Box::new(item), Box::new(name(slot))),
+        };
+        let output = self.expr(&equal, &mut plan.iteration.body)?;
+        self.same(output, Some(Ty::Bool), at)?;
+        plan.iteration.exact_len = None;
+        let mut rejected = plan.iteration.step.clone();
+        rejected.push(Op::Continue);
+        plan.iteration.body.push(branch(vec![], rejected));
+        Ok(())
     }
 
     fn pipeline_value_ops(&self, plan: &Pipeline) -> Vec<Op> {

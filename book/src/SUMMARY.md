@@ -64,6 +64,7 @@
         - [Passing and returning generators](tutorial/05-iteration/06-generator-functions.md)
         - [Creating generators](tutorial/05-iteration/07-generator-factories.md)
         - [Collect results into owned collections](tutorial/05-iteration/08-collect-results.md)
+        - [Chain iteration steps with `iter`](tutorial/05-iteration/pipelines.md)
     - [6. Defining your own data](tutorial/06-data/index.md)
         - [Group fields and methods in a class](tutorial/06-data/01-records-and-methods.md)
         - [Return a reference to a field](tutorial/06-data/borrowing-methods.md)

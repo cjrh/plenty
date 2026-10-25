@@ -759,6 +759,122 @@ print(total).unwrap()
     );
 }
 
+#[test]
+fn filter_value_keeps_items_equal_to_a_value() {
+    output(
+        r#"
+def numbers() -> Generator[i64]:
+    for n in [2, 7, 2].unwrap():
+        yield n
+def main() -> Result[(), AllocError | IoError]:
+    xs = [3, 1, 3, 2, 3]?
+    print(iter(&xs).filter_value(3).count(), iter(xs).filter_value(1).count())?
+    flags = [True, False, True]?
+    print(iter(&flags).filter_value().count(), iter(&flags).filter_value(False).count())?
+    names = ["ada", "bob", "ada"]?
+    for i, name in iter(&names).filter_value("ada").enumerate():
+        print(i, name)?
+    small: list[u8] = iter(range(10)).map(def(n: i64) -> u8: u8(n % 3)).filter_value(2).collect()?
+    print(small, iter(range(10)).filter_value(value=4).count())?
+    print(numbers().filter_value(2).chain(range(5)).filter_value(2).count())?
+    mut counts = [1, 2, 1]?
+    for n in iter(&mut counts).filter_value(1):
+        *n += 10
+    print(counts)?
+    mut stream = iter(range(10)).filter_value(7).generator()
+    print(next(stream), next(stream))?
+    Ok(())
+"#,
+        "3 1\n2 1\n0 ada\n1 ada\n[2, 2, 2] 1\n3\n[11, 2, 11]\nOption[i64].Some(7) Option[i64].Nothing\n",
+    );
+}
+
+#[test]
+fn filter_value_evaluates_once_and_drops_rejected_items_and_the_value() {
+    output(
+        r#"
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print("drop", self.n).unwrap()
+def wanted() -> Guard:
+    print("value").unwrap()
+    Guard(1)
+def main() -> Result[(), AllocError | IoError]:
+    guards = [Guard(1), Guard(2), Guard(1)]?
+    kept = iter(guards).filter_value(wanted())
+    print("built")?
+    for g in kept:
+        print("keep", g.n)?
+    print("done")?
+    Ok(())
+"#,
+        "value\nbuilt\nkeep 1\ndrop 1\ndrop 2\nkeep 1\ndrop 1\ndrop 1\ndone\n",
+    );
+}
+
+#[test]
+fn filter_value_requires_a_value_of_the_item_type() {
+    for (source, expected) in [
+        (
+            "xs = [3, 1].unwrap()\nn = iter(&xs).filter_value().count()\n",
+            "filter_value() keeps items equal to True, but this pipeline yields &i64",
+        ),
+        (
+            "xs = [3, 1].unwrap()\nn = iter(&xs).filter_value(\"3\").count()\n",
+            "filter_value compares &i64 items with a str value; it requires i64",
+        ),
+        (
+            "xs = [3, 1].unwrap()\nv = 3\nn = iter(&xs).filter_value(&v).count()\n",
+            "filter_value compares &i64 items with a &i64 value; it requires i64",
+        ),
+        (
+            "n = iter(range(3)).filter_value(1.0).count()\n",
+            "filter_value compares i64 items with a f64 value; it requires i64",
+        ),
+        (
+            "xs = [3, 1].unwrap()\nn = iter(&xs).enumerate().filter_value(3).count()\n",
+            "filter_value does not accept pair items",
+        ),
+        (
+            "n = iter(range(3)).filter_value(1, 2).count()\n",
+            "filter_value takes at most one value",
+        ),
+        (
+            "n = iter(range(3)).filter_value(item=1).count()\n",
+            "filter_value has no parameter named `item`",
+        ),
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{source}: {error}");
+    }
+}
+
+#[test]
+fn filter_value_lowers_to_an_inline_comparison() {
+    let source = r#"
+def matches(xs: &list[i64], v: i64) -> i64:
+    iter(xs).filter_value(v).count()
+def main() -> ():
+    xs = [1, 2, 1].unwrap()
+    print(matches(&xs, 1)).unwrap()
+"#;
+    let ops = dump_ops(source, "matches");
+    let names: Vec<_> = ops
+        .lines()
+        .map(|line| line.trim().split([' ', '(']).next().unwrap())
+        .collect();
+    assert!(names.contains(&"Eq"), "{ops}");
+    assert!(
+        !names
+            .iter()
+            .any(|name| name.starts_with("Call") && *name != "CallerSite"
+                || name.starts_with("Closure")),
+        "{ops}"
+    );
+    output(source, "2\n");
+}
+
 fn output(source: &str, expected: &str) {
     let result = support::run(source);
     assert!(
