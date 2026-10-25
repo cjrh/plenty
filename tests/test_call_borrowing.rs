@@ -93,6 +93,66 @@ print("done").unwrap()
 }
 
 #[test]
+fn indexed_temporary_fields_live_through_borrowed_calls() {
+    run(
+        r#"
+class Field:
+    name: str
+class Row:
+    field: Field
+def fields() -> Result[list[Field], AllocError]:
+    Ok([Field("a heap allocated field")]?)
+def rows() -> Result[list[Row], AllocError]:
+    Ok([Row(Field("nested heap allocated field"))]?)
+def read(value: &str) -> ():
+    print(value).unwrap()
+def attempt() -> Result[(), AllocError]:
+    read(fields()?[0].name)
+    read(rows()?[0].field.name)
+    named = fields()?
+    read(named[0].name)
+    read([Field("literal heap allocated field")]?[0].name)
+    read({1: Field("dictionary heap allocated field") }?[1].name)
+    read([fields()?]?[0][0].name)
+    read((fields()?, 0)[0][0].name)
+    Ok(())
+attempt().unwrap()
+"#,
+        "a heap allocated field\nnested heap allocated field\na heap allocated field\nliteral heap allocated field\ndictionary heap allocated field\na heap allocated field\na heap allocated field\n",
+    );
+}
+
+#[test]
+fn indexed_temporary_owner_drops_once_after_call_or_later_argument_error() {
+    run(
+        r#"
+class Row:
+    name: str
+    def __del__(self) -> ():
+        print("drop").unwrap()
+def rows() -> Result[list[Row], AllocError]:
+    print("make").unwrap()
+    Ok([Row("heap allocated payload")]?)
+def later() -> i64:
+    print("later").unwrap()
+    1
+def fail() -> Result[i64, str]:
+    print("fail").unwrap()
+    Err("stop")
+def use(value: &str, extra: i64) -> ():
+    print(value, extra).unwrap()
+def attempt() -> Result[(), AllocError | str]:
+    use(rows()?[0].name, later())
+    use(rows()?[0].name, fail()?)
+    Ok(())
+drop(attempt())
+print("done").unwrap()
+"#,
+        "make\nlater\nheap allocated payload 1\ndrop\nmake\nfail\ndrop\ndone\n",
+    );
+}
+
+#[test]
 #[cfg(feature = "runtime-checks")]
 fn borrowing_itself_does_not_allocate() {
     run(

@@ -42,7 +42,9 @@ buffers; chaining operations does not copy the whole dataset at every step.
 `collect()` executes the plan. A getter returns `Result[Option[T], ...]`:
 `Nothing` means a null cell, while `Err` means the operation failed.
 Bulk `values_f64` and `values_i64` return ordinary Plenty lists, but reject
-columns containing nulls.
+columns containing nulls. Their `_nullable` variants return `Option` elements.
+Strings and booleans have matching typed APIs; see
+[Types, nulls and schemas](dataframe-types.md).
 
 ## Derive columns and group
 
@@ -84,4 +86,8 @@ Native allocation failure can abort the process. Read the
 operations where those distinctions matter.
 
 Continue with [Join and rank results](dataframe-joins.md) to combine datasets,
-order results inside Polars and select a row window.
+order results inside Polars and select a row window. For cleaning text,
+conditional values and per-group comparisons, see
+[Clean and compare column values](dataframe-expressions.md).
+[Query CSV and write Parquet](dataframe-io.md) adds file-backed pipelines
+and explains when to collect or write directly.

@@ -368,11 +368,16 @@ def writer[W](inner: W, dialect: &Dialect) -> Result[Writer[W], CsvError]
 
 ## `std.dataframe`
 
-Optional Polars analytical expression plans, bulk numeric columns, grouping, and Parquet. Errors: `DataFrameError`. [Reference](dataframe.md).
+Optional Polars analytical expression plans, typed nullable columns, schema inspection, grouping, and CSV/Parquet I/O. Errors: `DataFrameError`. [Reference](dataframe.md).
 
 ```text
+enum DType
+    I64 | F64 | Bool | String | Other(str)
+class Field
+    name: str
+    dtype: DType
 enum JoinKind
-    Inner | Left
+    Inner | Left | Full | Semi | Anti
 class SortKey
     def __init__(self, expression: Expr, descending: bool = False, nulls_last: bool = True) -> ()
 enum DataFrameError
@@ -382,11 +387,30 @@ class DataFrame
     def height(self) -> Result[i64, DataFrameError]
     def lazy(self) -> Result[Query, DataFrameError]
     def write_parquet(self, path: &str) -> Result[(), DataFrameError]
+    def write_csv(self, path: &str, has_header: bool = True, separator: &str = ",", null_value: &str = "") -> Result[(), DataFrameError]
     def get_i64(self, name: &str, row: i64) -> Result[Option[i64], DataFrameError]
     def values_i64(self, name: &str) -> Result[list[i64], DataFrameError]
     def get_f64(self, name: &str, row: i64) -> Result[Option[f64], DataFrameError]
     def values_f64(self, name: &str) -> Result[list[f64], DataFrameError]
+    def schema(self) -> Result[list[Field], DataFrameError]
+    def get_bool(self, name: &str, row: i64) -> Result[Option[bool], DataFrameError]
+    def get_str(self, name: &str, row: i64) -> Result[Option[str], DataFrameError]
+    def values_bool(self, name: &str) -> Result[list[bool], DataFrameError]
+    def values_str(self, name: &str) -> Result[list[str], DataFrameError]
+    def values_str_nullable(self, name: &str) -> Result[list[Option[str]], DataFrameError]
+    def values_i64_nullable(self, name: &str) -> Result[list[Option[i64]], DataFrameError]
+    def values_f64_nullable(self, name: &str) -> Result[list[Option[f64]], DataFrameError]
+    def values_bool_nullable(self, name: &str) -> Result[list[Option[bool]], DataFrameError]
 class Expr
+    def cast(self, dtype: DType, strict: bool = True) -> Result[Expr, DataFrameError]
+    def str_lower(self) -> Result[Expr, DataFrameError]
+    def str_upper(self) -> Result[Expr, DataFrameError]
+    def str_len(self) -> Result[Expr, DataFrameError]
+    def str_contains(self, pattern: &Expr) -> Result[Expr, DataFrameError]
+    def str_starts_with(self, prefix: &Expr) -> Result[Expr, DataFrameError]
+    def str_ends_with(self, suffix: &Expr) -> Result[Expr, DataFrameError]
+    def n_unique(self) -> Result[Expr, DataFrameError]
+    def over(self, partition_by: &list[Expr]) -> Result[Expr, DataFrameError]
     def gt(self, other: &Expr) -> Result[Expr, DataFrameError]
     def mul(self, other: &Expr) -> Result[Expr, DataFrameError]
     def add(self, other: &Expr) -> Result[Expr, DataFrameError]
@@ -407,11 +431,14 @@ class Expr
     def is_null(self) -> Result[Expr, DataFrameError]
     def alias(self, name: &str) -> Result[Expr, DataFrameError]
 class Query
+    def schema(self) -> Result[list[Field], DataFrameError]
     def filter(self, predicate: &Expr) -> Result[Query, DataFrameError]
     def with_columns(self, expressions: &list[Expr]) -> Result[Query, DataFrameError]
     def select(self, expressions: &list[Expr]) -> Result[Query, DataFrameError]
     def group_by(self, keys: &list[Expr], aggregates: &list[Expr]) -> Result[Query, DataFrameError]
     def collect(self) -> Result[DataFrame, DataFrameError]
+    def collect_streaming(self) -> Result[DataFrame, DataFrameError]
+    def sink_parquet(self, path: &str) -> Result[(), DataFrameError]
     def join(self, other: &Query, left_keys: &list[Expr], right_keys: &list[Expr], how: JoinKind = JoinKind.Inner, suffix: &str = "_right", nulls_equal: bool = False) -> Result[Query, DataFrameError]
     def sort(self, keys: &list[SortKey]) -> Result[Query, DataFrameError]
     def slice(self, offset: i64, length: i64) -> Result[Query, DataFrameError]
@@ -422,8 +449,18 @@ def column_f64(name: &str, values: &list[f64]) -> Result[Column, DataFrameError]
 def col(name: &str) -> Result[Expr, DataFrameError]
 def lit(value: f64) -> Result[Expr, DataFrameError]
 def lit_i64(value: i64) -> Result[Expr, DataFrameError]
+def lit_str(value: &str) -> Result[Expr, DataFrameError]
+def lit_bool(value: bool) -> Result[Expr, DataFrameError]
+def when(predicate: &Expr, then_value: &Expr, otherwise: &Expr) -> Result[Expr, DataFrameError]
 def null_f64() -> Result[Expr, DataFrameError]
 def scan_parquet(path: &str) -> Result[Query, DataFrameError]
+def scan_csv(path: &str, has_header: bool = True, separator: &str = ",", infer_rows: i64 = 100, null_value: Option[str] = Nothing, schema_overrides: Option[list[Field]] = Nothing) -> Result[Query, DataFrameError]
+def column_bool(name: &str, values: &list[bool]) -> Result[Column, DataFrameError]
+def column_str(name: &str, values: &list[str]) -> Result[Column, DataFrameError]
+def column_i64_nullable(name: &str, values: &list[Option[i64]]) -> Result[Column, DataFrameError]
+def column_f64_nullable(name: &str, values: &list[Option[f64]]) -> Result[Column, DataFrameError]
+def column_bool_nullable(name: &str, values: &list[Option[bool]]) -> Result[Column, DataFrameError]
+def column_str_nullable(name: &str, values: &list[Option[str]]) -> Result[Column, DataFrameError]
 ```
 
 ## `std.db.sqlite`

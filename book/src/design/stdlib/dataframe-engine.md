@@ -13,14 +13,24 @@ python3 scripts/build_dataframe_engine.py --out target/release
 ```
 
 Build the compiler separately with `cargo build --release --locked`.
-The script pins Polars 0.55.2 with `lazy` and `parquet`, uses three Cargo
-jobs by default, and installs `libplenty_dataframe_v1.so`. Use
+The script pins Polars 0.55.2 with `lazy`, `parquet`, `csv`, `strings`, `regex`,
+`temporal` and `semi_anti_join`, uses three Cargo jobs by default, and installs
+`libplenty_dataframe_v1.so`. Use
 `--target-dir PATH` to reuse engine build artifacts and `--jobs N` to
 control build concurrency. It forces baseline `x86-64` code generation
 and the system C linker, overriding ambient CPU flags; AVX2 is not required.
 The supported target is currently `x86_64-unknown-linux-gnu`.
 Build on a system with a compatible glibc version for the deployment host;
 this is not a portable cross-compilation or binary distribution service.
+
+The extra string features support the native expression API. Polars 0.55.2's
+string dispatch imports its optional time module even without string-to-date
+operations, so this feature combination also needs `temporal` to compile.
+This enables additional engine kernels but exposes no date/time operations
+through Plenty. Ordinary compiler/runtime builds still do not build Polars.
+The `parquet` feature already enables Polars' streaming engine; CSV support
+adds only `csv`, not a second execution engine. The `semi_anti_join` feature
+supports native membership joins; no as-of feature is enabled.
 
 The compiler looks beside its own executable, or at the file named by
 `PLENTY_DATAFRAME_ENGINE`. An explicit environment path takes precedence.

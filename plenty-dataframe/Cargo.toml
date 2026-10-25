@@ -14,4 +14,6 @@ crate-type = ["cdylib", "rlib"]
 strip = "debuginfo"
 
 [dependencies]
-polars = { version = "=0.55.2", default-features = false, features = ["lazy", "parquet"] }
+# Polars 0.55.2's string dispatch imports polars_time unconditionally. Temporal
+# enables that supported dependency path; no date/time facade API is exposed.
+polars = { version = "=0.55.2", default-features = false, features = ["csv", "lazy", "parquet", "regex", "semi_anti_join", "strings", "temporal"] }

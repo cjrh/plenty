@@ -1440,6 +1440,7 @@ dependencies = [
  "polars-ops",
  "polars-parquet",
  "polars-sql",
+ "polars-time",
  "polars-utils",
  "version_check",
 ]
@@ -1687,6 +1688,7 @@ dependencies = [
  "polars-error",
  "polars-parquet",
  "polars-schema",
+ "polars-time",
  "polars-utils",
  "rand",
  "rayon",

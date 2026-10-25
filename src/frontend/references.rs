@@ -807,15 +807,31 @@ impl Lower<'_> {
         }
         // A temporary owner survives all observations in the containing full
         // expression, including projections through a temporary collection.
-        // An element read is a view of its collection, which is held already.
+        // An element view inherits its held collection's loan. A tuple index
+        // can instead produce an owned collection, which still needs holding.
+        // Method dispatch separately distinguishes consumed temporary receivers
+        // (for example affine values_snapshot) from borrowed collections.
+        let collection_owner = !unbox_owned
+            && matches!(&result.0, Ty::List(value) | Ty::Dict(_, value) if value.affine());
         if result.1.is_empty()
-            && result.0.has_destructor()
-            && !matches!(ungroup(e).kind, Expression::Index(..))
+            && (result.0.has_destructor() || collection_owner)
+            && (collection_owner || !matches!(ungroup(e).kind, Expression::Index(..)))
         {
             let slot = self.slot(result.0.clone(), &e.at)?;
             ops.push(Op::StoreLocal(slot));
-            ops.push(Op::LoadLocal(slot));
             self.expression_temps.push(slot);
+            if collection_owner {
+                // Indexed affine elements are views into collection storage,
+                // even when that storage contains no custom destructor. Lend
+                // the saved owner so projections keep its provenance, and so
+                // last-use lowering cannot move it out before the view is used.
+                let loan = self.new_loan(slot, false, None, ops);
+                ops.push(Op::BorrowLocal(slot, false));
+                ops.push(Op::ReadRef(result.0.clone()));
+                result.1.push(loan);
+            } else {
+                ops.push(Op::LoadLocal(slot));
+            }
         }
         Ok(result)
     }

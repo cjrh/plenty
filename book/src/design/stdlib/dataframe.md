@@ -1,6 +1,6 @@
 # `std.dataframe`
 
-Polars-backed analytical dataframes, expression plans and Parquet files.
+Polars-backed analytical dataframes, expression plans and CSV/Parquet files.
 The optional, separately compiled engine is reused by every Plenty program.
 See [installation and deployment](dataframe-engine.md) and the
 [tutorial](../../tutorial/special-purpose/dataframes.md).
@@ -33,9 +33,11 @@ types fail; a valid null cell returns `Ok(Nothing)`.
 `values_i64(name)` and `values_f64(name)` return a Plenty list in a
 `Result`. They allocate initialized Plenty storage, then copy the whole
 column in one native call. A column containing any nulls fails with
-`DataFrameError.Null`; use scalar nullable extraction or `fill_null`.
-There is no implicit numeric cast, zero-copy borrowing or nullable bulk
-input/output in this foundation.
+`DataFrameError.Null`; use `values_i64_nullable` or `values_f64_nullable`
+to preserve missing values, or `fill_null` when replacement is appropriate.
+Strings, booleans, nullable input/output and schema inspection are described
+in [Column types and schemas](dataframe-types.md). No implicit casts or
+zero-copy borrowing occur at the Plenty boundary.
 
 ## Expression plans
 
@@ -44,7 +46,10 @@ The [signature index](signatures.md#stddataframe) gives exact declarations.
 
 | Operation | Result value |
 |---|---|
-| `col(name)`, `lit(f64)`, `lit_i64(i64)`, `null_f64()` | `Expr` |
+| `col(name)`, `lit(f64)`, `lit_i64(i64)`, `lit_str(text)`, `lit_bool(value)`, `null_f64()` | `Expr` |
+| `when(predicate, then_value, otherwise)`, `expr.cast(dtype, strict=True)` | `Expr` |
+| `expr.str_lower/str_upper/str_len()`, `str_contains/str_starts_with/str_ends_with(pattern)` | `Expr` |
+| `expr.n_unique()`, `expr.over(partition_by)` | `Expr` |
 | `expr.add/sub/mul/div/gt/eq/lt/ge/le(&other)` | `Expr` |
 | `expr.and_(&other)`, `or_(&other)`, `fill_null(&other)` | `Expr` |
 | `expr.sum/count/mean/min/max/is_null()` | `Expr` |
@@ -55,8 +60,13 @@ The [signature index](signatures.md#stddataframe) gives exact declarations.
 | `query.group_by(&keys, &aggregates)` | `Query` |
 | `query.join(&other, &left_keys, &right_keys, how=JoinKind.Inner, suffix="_right", nulls_equal=False)` | `Query` |
 | `query.sort(&keys)`, `slice(offset, length)`, `limit(count)` | `Query` |
-| `query.collect()` | `DataFrame` |
+| `query.collect()`, `collect_streaming()` | `DataFrame` |
+| `scan_csv(path, ...)` | `Query` |
+| `frame.write_csv(path, ...)`, `query.sink_parquet(path)` | `()` |
 | `frame.write_parquet(path)` | `()` |
+
+See [expression contracts](dataframe-expressions.md) for conditional evaluation,
+explicit casts, string operations, distinct counts and partitioned windows.
 
 Expressions describe native Polars operations; they are not opaque Plenty
 callbacks. Polars can optimize a complete plan, push projections/filters
@@ -81,29 +91,10 @@ or mutated. They execute inside Polars, with no Plenty row callbacks or
 intermediate conversion into Plenty lists. Input owners, key expressions and
 sort specifications may be dropped after constructing the resulting plan.
 
-`join` accepts nonempty, equally long lists of left/right key expressions.
-`JoinKind.Inner` keeps matching row pairs; `JoinKind.Left` also keeps every
-unmatched left row with nulls in the right columns. Composite keys match all
-components. Key types must be compatible; no implicit Plenty-side cast occurs.
-Schema errors, unknown columns and incompatible native expressions may fail
-only when collected. Empty or unequal key lists fail immediately with
-`DataFrameError.Schema`.
-
-Keys need not be unique: two matching left rows and three matching right rows
-produce six pairs. This is a many-to-many join, not a checked lookup.
-Null keys do not match by default. With `nulls_equal=True`, nulls at matching
-key positions compare equal, including duplicate-null multiplicity.
-NaN remains a value governed by Polars equality, not a null.
-Join order is unspecified. Full/right/semi/anti/as-of joins and uniqueness
-validation options are not exposed by this slice.
-
-Both sides' key columns are retained, including when the key names coincide.
-Any right column whose name occurs on the left gets `suffix` (default
-`"_right"`). If suffixing still produces duplicate names, collection fails
-with `DataFrameError.Query`; it does not overwrite an existing column.
-Use a different suffix or rename/select columns in the input plan.
-This explicit retention rule applies to computed keys too; keys are not
-silently coalesced.
+`JoinKind` offers `Inner`, `Left`, `Full`, `Semi` and `Anti` equality joins.
+Inner/left/full retain both sets of key columns; semi/anti are membership
+queries returning only left columns. See [equality join contracts](dataframe-joins.md)
+for duplicate/null matching, key retention, suffix collisions and validation.
 
 `SortKey(expression: Expr, descending: bool = False, nulls_last: bool = True)`
 owns its expression; constructing the wrapper itself is infallible.
@@ -125,13 +116,17 @@ negative or larger lengths fail immediately with `DataFrameError.Bounds`.
 `limit(count)` is `slice(0, count)`, with the same length checks.
 Sort first when a page or top-N result needs a defined ordering.
 
+See [CSV and streaming I/O](dataframe-io.md) for file options, direct sinks,
+create-new output behavior and buffering limits.
+
 ## Semantics and limits
 
 Polars 0.55.2 semantics apply inside expressions, not Plenty scalar
-semantics. Schemas are checked at runtime. Input/extraction supports only
-`i64` and `f64`; Parquet can contain other native types that expressions
+semantics. Schemas are checked at runtime. Input/extraction supports
+`i64`, `f64`, `str` and `bool`, including nullable columns. Parquet can
+contain other native types that schema inspection describes and expressions
 can carry, but this API cannot extract them. Paths are UTF-8 strings.
-There is no automatic lambda translation, mutation API, string/date
+There is no automatic lambda translation, mutation API, date/nested-value
 construction, cloud credential configuration or stable serialization of plans.
 
 Null is missing data, distinct from floating-point NaN. Comparisons with

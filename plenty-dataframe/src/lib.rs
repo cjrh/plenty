@@ -141,6 +141,13 @@ destroy!(pldf_v1_exprs_drop, Vec<Expr>);
 destroy!(pldf_v1_query_drop, LazyFrame);
 destroy!(pldf_v1_sort_keys_drop, SortKeys);
 
+mod columns;
+pub use columns::*;
+mod expressions;
+pub use expressions::*;
+mod io;
+pub use io::*;
+
 /// # Safety
 /// Borrow a non-null error owner for the call.
 #[unsafe(no_mangle)]
@@ -222,7 +229,7 @@ macro_rules! extract {
             let frame = get(frame)?;
             if len != frame.height() { return Err(NativeError::new(1, "output length does not match dataframe height")); }
             let column = frame.column(text(name, name_len)?)?.$method()?;
-            if column.null_count() != 0 { return Err(NativeError::new(5, "column contains nulls; use nullable scalar extraction or fill nulls in the query")); }
+            if column.null_count() != 0 { return Err(NativeError::new(5, "column contains nulls; use nullable extraction or fill nulls in the query")); }
             for (i, value) in column.into_no_null_iter().enumerate() {
                 data.add(i * stride).cast::<$ty>().write_unaligned(value);
             }
@@ -295,13 +302,17 @@ export!(pldf_v1_join(left: *const LazyFrame, right: *const LazyFrame, left_keys:
     let how = match kind {
         0 => JoinType::Inner,
         1 => JoinType::Left,
+        2 => JoinType::Full,
+        3 => JoinType::Semi,
+        4 => JoinType::Anti,
         _ => return Err(NativeError::new(1, "unsupported join kind")),
     };
     if nulls_equal > 1 { return Err(NativeError::new(1, "invalid join null policy")); }
     let args = JoinArgs {
         suffix: Some(text(suffix, suffix_len)?.into()),
         nulls_equal: nulls_equal != 0,
-        // Retaining both sides is predictable for column and computed keys.
+        // Retain both key columns for joins which return both sides. Semi/anti
+        // only return left columns; native join planning ignores suffix there.
         coalesce: JoinCoalesce::KeepColumns,
         ..JoinArgs::new(how)
     };
@@ -333,6 +344,9 @@ export!(pldf_v1_slice(query: *const LazyFrame, offset: i64, length: i64, out: *m
     let length = u32::try_from(length).map_err(|_| NativeError::new(7, "slice length must be between 0 and 4294967295"))?;
     put(out, get(query)?.clone().slice(offset, length))
 });
+
+#[cfg(test)]
+mod joins_tests;
 
 #[cfg(test)]
 mod tests {

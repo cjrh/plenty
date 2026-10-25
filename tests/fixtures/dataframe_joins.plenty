@@ -1,0 +1,105 @@
+import std.dataframe as df
+import std.test as test
+
+def rows(ids: &list[Option[i64]], values: &list[str], name: &str) -> Result[df.DataFrame, df.DataFrameError | AllocError]:
+    df.frame([df.column_i64_nullable("id", ids)?, df.column_str(name, values)?]?)
+
+def retained_join(how: df.JoinKind, nulls_equal: bool = False, suffix: &str = "_right") -> Result[df.Query, df.DataFrameError | AllocError]:
+    left_ids: list[Option[i64]] = [Some(1), Some(1), Some(2), Nothing]?
+    right_ids: list[Option[i64]] = [Some(1), Some(1), Some(3), Nothing]?
+    left = rows(left_ids, ["l1", "l2", "l3", "ln"]?, "left_value")?
+    right = rows(right_ids, ["r1", "r2", "r3", "rn"]?, "right_value")?
+    keys = [df.col("id")?]?
+    left.lazy()?.join(right.lazy()?, keys, keys, how=how, nulls_equal=nulls_equal, suffix=suffix)
+
+def full_join() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    order = [df.SortKey(df.col("left_value")?), df.SortKey(df.col("right_value")?)]?
+    query = retained_join(df.JoinKind.Full)?.sort(order)?
+    data = query.collect()?
+    test.equal(data.height()?, 8)?
+    left: list[Option[str]] = [Some("l1"), Some("l1"), Some("l2"), Some("l2"), Some("l3"), Some("ln"), Nothing, Nothing]?
+    right: list[Option[str]] = [Some("r1"), Some("r2"), Some("r1"), Some("r2"), Nothing, Nothing, Some("r3"), Some("rn")]?
+    left_ids: list[Option[i64]] = [Some(1), Some(1), Some(1), Some(1), Some(2), Nothing, Nothing, Nothing]?
+    right_ids: list[Option[i64]] = [Some(1), Some(1), Some(1), Some(1), Nothing, Nothing, Some(3), Nothing]?
+    test.equal(data.values_str_nullable("left_value")?, left)?
+    test.equal(data.values_str_nullable("right_value")?, right)?
+    test.equal(data.values_i64_nullable("id")?, left_ids)?
+    test.equal(data.values_i64_nullable("id_right")?, right_ids)?
+    test.equal(query.collect_streaming()?.values_str_nullable("right_value")?, right)?
+    # Explicitly coalesce display keys; the join itself retains both originals.
+    filled = query.with_columns([df.col("id")?.fill_null(df.col("id_right")?)?.alias("key")?]?)?.collect()?
+    keys: list[Option[i64]] = [Some(1), Some(1), Some(1), Some(1), Some(2), Nothing, Some(3), Nothing]?
+    test.equal(filled.values_i64_nullable("key")?, keys)?
+    matched_nulls = retained_join(df.JoinKind.Full, nulls_equal=True)?.sort(order)?.collect_streaming()?
+    test.equal(matched_nulls.height()?, 7)?
+    test.equal(matched_nulls.get_str("right_value", 5)?, Some("rn"))?
+    test.equal(matched_nulls.get_str("left_value", 5)?, Some("ln"))?
+    match retained_join(df.JoinKind.Full, suffix="")?.collect():
+        case Err(df.DataFrameError.Query(_)):
+            pass
+        case _:
+            test.fail("full join silently accepted duplicate output key names")?
+    Ok(())
+
+def membership_joins() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    order = [df.SortKey(df.col("left_value")?)]?
+    semi = retained_join(df.JoinKind.Semi, suffix="")?.sort(order)?
+    anti = retained_join(df.JoinKind.Anti, suffix="")?.sort(order)?
+    matched = semi.collect_streaming()?
+    unmatched = anti.collect()?
+    test.equal(matched.values_str("left_value")?, ["l1", "l2"]?)?
+    test.equal(unmatched.values_str("left_value")?, ["l3", "ln"]?)?
+    schema = matched.schema()?
+    test.equal(len(schema), 2)?
+    test.equal(schema[0].name, "id")?
+    test.equal(schema[1].name, "left_value")?
+    test.equal(unmatched.schema()?, schema)?
+    test.equal(semi.collect()?.values_str("left_value")?, ["l1", "l2"]?)?
+    test.equal(anti.collect_streaming()?.values_str("left_value")?, ["l3", "ln"]?)?
+    test.equal(retained_join(df.JoinKind.Semi, nulls_equal=True)?.sort(order)?.collect()?.values_str("left_value")?, ["l1", "l2", "ln"]?)?
+    test.equal(retained_join(df.JoinKind.Anti, nulls_equal=True)?.sort(order)?.collect()?.values_str("left_value")?, ["l3"]?)?
+    match matched.values_str("right_value"):
+        case Err(df.DataFrameError.Query(_)):
+            pass
+        case _:
+            test.fail("semi join unexpectedly included right payload")?
+    Ok(())
+
+def empty_sides_and_composite_keys() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    empty_ids: list[Option[i64]] = []?
+    empty_values: list[str] = []?
+    ids: list[Option[i64]] = [Some(1), Nothing]?
+    left = rows(ids, ["a", "b"]?, "left_value")?
+    right = rows(ids, ["x", "y"]?, "right_value")?
+    empty_left = rows(empty_ids, empty_values, "left_value")?
+    empty_right = rows(empty_ids, empty_values, "right_value")?
+    key = [df.col("id")?]?
+    full = empty_left.lazy()?.join(right.lazy()?, key, key, how=df.JoinKind.Full)?.collect_streaming()?
+    test.equal(full.height()?, 2)?
+    test.check(full.get_str("left_value", 0)?.is_none(), "empty left pads nulls")?
+    test.equal(left.lazy()?.join(empty_right.lazy()?, key, key, how=df.JoinKind.Full)?.collect()?.height()?, 2)?
+    test.equal(left.lazy()?.join(empty_right.lazy()?, key, key, how=df.JoinKind.Semi)?.collect()?.height()?, 0)?
+    test.equal(left.lazy()?.join(empty_right.lazy()?, key, key, how=df.JoinKind.Anti)?.collect_streaming()?.height()?, 2)?
+    test.equal(empty_left.lazy()?.join(right.lazy()?, key, key, how=df.JoinKind.Anti)?.collect()?.height()?, 0)?
+    left_b: list[Option[i64]] = [Some(1), Nothing, Nothing]?
+    right_b: list[Option[i64]] = [Nothing, Nothing]?
+    a = df.frame([df.column_i64("a", [1, 1, 1]?)?, df.column_i64_nullable("b", left_b)?]?)?
+    b = df.frame([df.column_i64("a", [1, 2]?)?, df.column_i64_nullable("b", right_b)?]?)?
+    keys = [df.col("a")?, df.col("b")?]?
+    test.equal(a.lazy()?.join(b.lazy()?, keys, keys, how=df.JoinKind.Semi)?.collect()?.height()?, 0)?
+    test.equal(a.lazy()?.join(b.lazy()?, keys, keys, how=df.JoinKind.Semi, nulls_equal=True)?.collect_streaming()?.height()?, 2)?
+    test.equal(a.lazy()?.join(b.lazy()?, keys, keys, how=df.JoinKind.Anti, nulls_equal=True)?.collect()?.height()?, 1)?
+    mismatched = df.frame([df.column_str("id", ["1"]?)?]?)?
+    match left.lazy()?.join(mismatched.lazy()?, key, key, how=df.JoinKind.Full)?.collect():
+        case Err(df.DataFrameError.Query(_)):
+            pass
+        case _:
+            test.fail("mismatched join key types accepted")?
+    Ok(())
+
+def main() -> Result[(), df.DataFrameError | AllocError | test.TestError | IoError]:
+    full_join()?
+    membership_joins()?
+    empty_sides_and_composite_keys()?
+    print("dataframe joins ok")?
+    Ok(())

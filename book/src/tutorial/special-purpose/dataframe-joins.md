@@ -53,3 +53,6 @@ For pagination, replace `limit(2)` with `slice(2, 2)` to skip two rows and
 take up to two more. Dataframe slicing takes an offset and **count**, not
 start/stop endpoints. Negative offsets count from the end; invalid negative
 lengths return an error. See the [query contracts](../../design/stdlib/dataframe.md#joins-ordering-and-row-windows).
+
+Continue with [Membership and full joins](dataframe-membership.md) to filter
+by another dataset or reconcile unmatched rows from both sides.
