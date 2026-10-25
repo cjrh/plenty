@@ -139,7 +139,10 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Option<usize>)> {
         if self.is_pipeline(value) {
-            let plan = self.pipeline(value, ops)?;
+            let outer = std::mem::replace(&mut self.binding_pipeline, true);
+            let plan = self.pipeline(value, ops);
+            self.binding_pipeline = outer;
+            let plan = plan?;
             let item = Arc::new(plan.item.ty.clone());
             let id = self.pipelines.len();
             self.pipelines.push(plan);

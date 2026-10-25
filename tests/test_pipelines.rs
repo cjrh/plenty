@@ -1900,3 +1900,163 @@ print(a, b, c, d).unwrap()
         "45 Option[f64].Some(1.0) Option[str].Some(\"bob\") Option[i64].Some(18)",
     );
 }
+
+#[test]
+fn next_resumes_pipelines_in_their_creating_scope() {
+    output(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["a", "bb", "", "ccc", "dd"]?
+    mut p = iter(xs).filter(def(s: &str) -> bool: s != "").map(def(s: &str) -> i64: len(s))
+    print(next(p))?
+    print(next(&mut p))?
+    print(p.sum())?
+    mut c = iter(range(2)).chain(range(10, 13))
+    print(next(c))?
+    print(next(c))?
+    print(next(c))?
+    print(c.count())?
+    mut e = iter(range(3)).enumerate()
+    print(next(e))?
+    for i, x in e:
+        print(i + x)?
+    d: dict[i64, i64] = {1: 10, 2: 20, 3: 30}?
+    mut k = iter(d.keys()).map(def(x: &i64) -> i64: *x * 2)
+    print(next(k))?
+    rest: list[i64] = k.collect()?
+    print(rest)?
+    mut f = iter(range(3)).flat_map(def(x: i64) -> list[i64]: [x, x].unwrap())
+    print(next(f))?
+    mut n = 0
+    while True:
+        match next(f):
+            case Some(v):
+                n += v
+            case Nothing:
+                break
+    print(n, next(f))?
+    names = ["ada", "bob", "ada"]?
+    mut v = iter(&names).filter_value("ada").enumerate().map(def(i: i64, s: &str) -> i64: i + len(s))
+    print(next(v))?
+    print(v.count())?
+    Ok(())
+"#,
+        "Option[i64].Some(1)\nOption[i64].Some(2)\n5\n\
+Option[i64].Some(0)\nOption[i64].Some(1)\nOption[i64].Some(10)\n2\n\
+Option[tuple[i64, i64]].Some((0, 0))\n2\n4\n\
+Option[i64].Some(2)\n[4, 6]\n\
+Option[i64].Some(0)\n6 Option[i64].Nothing\n\
+Option[i64].Some(3)\n1\n",
+    );
+}
+
+#[test]
+fn take_while_and_zip_stay_empty_after_next_returns_nothing() {
+    output(
+        r#"
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print("drop", self.n).unwrap()
+def small(g: &Guard) -> bool:
+    g.n < 2
+def main() -> ():
+    values = [Guard(0), Guard(1), Guard(2), Guard(3)].unwrap()
+    mut p = iter(values).take_while(small)
+    print(next(p).is_some()).unwrap()
+    print(next(p).is_some()).unwrap()
+    print("third").unwrap()
+    print(next(p).is_some()).unwrap()
+    print(next(p).is_some()).unwrap()
+    others = [Guard(10), Guard(11)].unwrap()
+    mut z = iter(others).zip(range(1))
+    print(next(z).is_some()).unwrap()
+    print(next(z).is_some()).unwrap()
+    print(next(z).is_some()).unwrap()
+    mut q = iter(range(10)).take_while(def(x: &i64) -> bool: *x < 2)
+    print(next(q), next(q), next(q), q.count()).unwrap()
+    mut r = zip(range(5), range(1))
+    print(next(r), next(r), r.count()).unwrap()
+    print("end").unwrap()
+"#,
+        "True\ndrop 0\nTrue\ndrop 1\nthird\ndrop 2\nFalse\nFalse\n\
+True\ndrop 10\nFalse\ndrop 11\nFalse\n\
+Option[i64].Some(0) Option[i64].Some(1) Option[i64].Nothing 0\n\
+Option[tuple[i64, i64]].Some((0, 0)) Option[tuple[i64, i64]].Nothing 0\n\
+end\ndrop 3\n",
+    );
+}
+
+#[test]
+fn next_rejects_immutable_consumed_and_reference_pipelines() {
+    let immutable = support::check_error(
+        r#"
+def main() -> ():
+    p = iter(range(3))
+    drop(next(p))
+"#,
+    );
+    assert!(
+        immutable.contains("next requires a mutable pipeline binding"),
+        "{immutable}"
+    );
+    let consumed = support::check_error(
+        r#"
+def main() -> ():
+    mut p = iter(range(3))
+    drop(p.count())
+    drop(next(p))
+"#,
+    );
+    assert!(consumed.contains("use of moved binding `p`"), "{consumed}");
+    let reference = support::check_error(
+        r#"
+def main() -> ():
+    xs = [1, 2].unwrap()
+    mut p = iter(&xs)
+    drop(next(p))
+"#,
+    );
+    assert!(
+        reference.contains("references cannot be stored in a next result"),
+        "{reference}"
+    );
+    let conflict = support::check_error(
+        r#"
+def main() -> ():
+    mut xs = [1, 2].unwrap()
+    mut p = iter(&xs).map(def(n: &i64) -> i64: *n)
+    drop(next(p))
+    xs.append(3).unwrap()
+    drop(next(p))
+"#,
+    );
+    assert!(conflict.contains("borrow"), "{conflict}");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn next_partial_pipelines_release_owned_state() {
+    support::assert_visible_stdout(
+        r#"
+def partial() -> Result[(), AllocError]:
+    words = ["x", "y", "z"]?
+    mut w = iter(words).map(def(s: &str) -> Result[str, AllocError]: s + "!")
+    drop(next(w))
+    mut f = iter(range(3)).flat_map(def(x: i64) -> list[i64]: [x, x].unwrap())
+    drop(next(f))
+    nested = [[1, 2]?, [3]?]?
+    mut z = iter(nested).zip(range(1))
+    drop(next(z))
+    drop(next(z))
+    Ok(())
+def main() -> Result[(), AllocError | IoError]:
+    for i in range(100):
+        partial()?
+    print("__test_small_live_heap__")?
+    print("done")?
+    Ok(())
+"#,
+        "done",
+    );
+}

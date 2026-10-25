@@ -4,8 +4,9 @@
 dictionary collection, generator fluent methods, explicit owned `.generator()`
 conversion, `chain`, `flat_map`, closure-literal splicing and comprehensions
 lowered through the plan. `std.iter` was removed rather than deprecated. Stage
-3's `sum`, `min` and `max` terminals are implemented. The lending and parallel
-stages remain proposed.** Bounded native
+3's `sum`, `min` and `max` terminals, resumable adapters and `next(p)` in the
+creating scope are implemented. Lending through `&mut Iter[T]` and the parallel
+stage remain proposed.** Bounded native
 substitution of scalar leaf callbacks also covers named functions and immutable
 scalar captures; it addresses the original performance gap (issue #399).
 The [pipeline reference](../design/language/09-iteration/06-pipelines.md)
@@ -873,6 +874,11 @@ terminals above replace them for pipelines.
    lent pipelines, and partial consumption followed by collection in the
    caller. Measure instance counts in `compile_bench`. The `sum`, `min` and
    `max` terminals described under [Terminals](#terminals) are implemented.
+   Every adapter is resumable, and `next(p)` works in the creating scope: a
+   later loop or terminal continues after the items taken. In that scope the
+   plan's state already lives in the creator's slots, so resuming needs no
+   store-back; `take_while` and `zip` record that they have ended so a later
+   consumer does not pull past the end. Lending itself is not implemented.
 4. **Stage 4 — parallel.** `.par(&pool)` with chunked fused jobs (one chunk
    per logical core by default), the allowed-step rules, and
    `collect`/`try_collect`/`reduce`/`count`/`any`/`all`.

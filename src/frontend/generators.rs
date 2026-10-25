@@ -400,6 +400,24 @@ impl Lower<'_> {
         }
     }
     pub(super) fn next(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<Type> {
+        if let [arg] = args {
+            let mut place = ungroup(arg);
+            if let Expression::Unary(op, base) = &place.kind
+                && op == "&mut"
+            {
+                place = ungroup(base);
+            }
+            if let Expression::Name(name) = &place.kind
+                && let Some(
+                    local @ Local {
+                        ty: Ty::Iter(..), ..
+                    },
+                ) = self.names.get(name)
+            {
+                let local = local.clone();
+                return self.pipeline_next(&local, at, ops).map(Some);
+            }
+        }
         if let [arg] = args
             && let Expression::Unary(op, base) = &ungroup(arg).kind
             && op == "&mut"
