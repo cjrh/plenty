@@ -69,8 +69,9 @@ for these membership joins.
 
 The same expression-key and ownership rules apply to all five kinds.
 Native query execution supports ordinary and explicit streaming collection;
-streaming is not a promise of bounded join memory. Nearest/as-of/time-based
-joins and uniqueness-validation options are not exposed.
+streaming is not a promise of bounded join memory. For nearby-key matching,
+use [integer as-of joins](dataframe-asof.md). Temporal/grouped as-of joins and
+uniqueness-validation options are not exposed.
 
 See [membership and full-join examples](../../tutorial/special-purpose/dataframe-membership.md),
 [joining and ranking](../../tutorial/special-purpose/dataframe-joins.md),
