@@ -141,6 +141,9 @@ destroy!(pldf_v1_exprs_drop, Vec<Expr>);
 destroy!(pldf_v1_query_drop, LazyFrame);
 destroy!(pldf_v1_sort_keys_drop, SortKeys);
 
+mod columns;
+pub use columns::*;
+
 /// # Safety
 /// Borrow a non-null error owner for the call.
 #[unsafe(no_mangle)]
@@ -222,7 +225,7 @@ macro_rules! extract {
             let frame = get(frame)?;
             if len != frame.height() { return Err(NativeError::new(1, "output length does not match dataframe height")); }
             let column = frame.column(text(name, name_len)?)?.$method()?;
-            if column.null_count() != 0 { return Err(NativeError::new(5, "column contains nulls; use nullable scalar extraction or fill nulls in the query")); }
+            if column.null_count() != 0 { return Err(NativeError::new(5, "column contains nulls; use nullable extraction or fill nulls in the query")); }
             for (i, value) in column.into_no_null_iter().enumerate() {
                 data.add(i * stride).cast::<$ty>().write_unaligned(value);
             }

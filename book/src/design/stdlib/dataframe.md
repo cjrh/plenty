@@ -33,9 +33,11 @@ types fail; a valid null cell returns `Ok(Nothing)`.
 `values_i64(name)` and `values_f64(name)` return a Plenty list in a
 `Result`. They allocate initialized Plenty storage, then copy the whole
 column in one native call. A column containing any nulls fails with
-`DataFrameError.Null`; use scalar nullable extraction or `fill_null`.
-There is no implicit numeric cast, zero-copy borrowing or nullable bulk
-input/output in this foundation.
+`DataFrameError.Null`; use `values_i64_nullable` or `values_f64_nullable`
+to preserve missing values, or `fill_null` when replacement is appropriate.
+Strings, booleans, nullable input/output and schema inspection are described
+in [Column types and schemas](dataframe-types.md). No implicit casts or
+zero-copy borrowing occur at the Plenty boundary.
 
 ## Expression plans
 
@@ -128,10 +130,11 @@ Sort first when a page or top-N result needs a defined ordering.
 ## Semantics and limits
 
 Polars 0.55.2 semantics apply inside expressions, not Plenty scalar
-semantics. Schemas are checked at runtime. Input/extraction supports only
-`i64` and `f64`; Parquet can contain other native types that expressions
+semantics. Schemas are checked at runtime. Input/extraction supports
+`i64`, `f64`, `str` and `bool`, including nullable columns. Parquet can
+contain other native types that schema inspection describes and expressions
 can carry, but this API cannot extract them. Paths are UTF-8 strings.
-There is no automatic lambda translation, mutation API, string/date
+There is no automatic lambda translation, mutation API, date/nested-value
 construction, cloud credential configuration or stable serialization of plans.
 
 Null is missing data, distinct from floating-point NaN. Comparisons with
