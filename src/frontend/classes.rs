@@ -992,6 +992,9 @@ impl Lower<'_> {
         {
             return self.call_named_with_receiver(&wrapper, &arguments, &base.at, true, ops);
         }
+        if sig.inputs.iter().any(|(_, t)| t.unresolved_generator()) {
+            return self.frame_call_with_receiver(&callee, &arguments, &base.at, true, ops);
+        }
         if sig.inputs.len() != args.len() + 1 {
             return Err(base.at.error(format!(
                 "method `{name}` expects {} arguments",

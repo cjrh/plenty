@@ -121,6 +121,8 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
                 None
             }
         }
+        // A `&mut Iter[T]` parameter takes the lent plan's identity.
+        (Ty::Iter(a, usize::MAX), Ty::Iter(b, _)) if a == b => Some(actual.clone()),
         (Ty::Ref(a, am), Ty::Ref(b, bm)) if am == bm => Some(Ty::Ref(Arc::new(refine(a, b)?), *am)),
         // Member order follows identity names, which change as producers
         // resolve; pair members by refinement instead of position.
@@ -230,6 +232,7 @@ impl Ty {
         match self {
             Self::Closure(t) if t.name.is_empty() => Some(self.clone()),
             Self::Generator(t) if t.name.is_none() => Some(self.clone()),
+            Self::Iter(_, usize::MAX) => Some(self.clone()),
             Self::Ref(t, _) => t.unresolved_producer(),
             Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => t
                 .get()

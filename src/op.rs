@@ -2581,7 +2581,11 @@ fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &Sigs) -> Result<()> {
     let split = stack.len() - n;
     for (i, (param, expected)) in sig.inputs.iter().enumerate() {
         let actual = stack[split + i].clone();
-        if actual != *expected {
+        // A pipeline's identity names the plan its holder lowers; the
+        // borrower of a lent pipeline knows it by another.
+        let lent = matches!((&actual, expected), (Ty::Ref(a, true), Ty::Ref(b, true))
+            if matches!((&**a, &**b), (Ty::Iter(a, _), Ty::Iter(b, _)) if a == b));
+        if actual != *expected && !lent {
             return Err(format!(
                 "calling `{name}`: argument `{param}` (position {i}) \
                  expects {expected}, got {actual}"
