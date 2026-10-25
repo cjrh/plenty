@@ -17,7 +17,8 @@ pub(super) const CALLBACK: &str = "__plenty_par_cb";
 
 struct Step {
     name: String,
-    callback: Expr,
+    /// The callback, or `filter_value`'s optional value.
+    argument: Option<Expr>,
 }
 
 enum Source {
@@ -120,7 +121,7 @@ impl Lower<'_> {
                     "{name} is not available after .par: callbacks would run concurrently in no fixed order; collect first and loop over the list"
                 )));
             }
-            "map" | "filter" => {
+            "map" | "filter" | "filter_value" => {
                 return Err(at.error(format!("a parallel pipeline must end in {TERMINALS}")));
             }
             "enumerate" => {
@@ -128,9 +129,9 @@ impl Lower<'_> {
                     "enumerate must come before .par: chunk offsets are fixed when the source is split",
                 ));
             }
-            "take" | "skip" | "take_while" | "filter_value" | "zip" | "chain" | "flat_map" => {
+            "take" | "skip" | "take_while" | "zip" | "chain" | "flat_map" => {
                 return Err(at.error(format!(
-                    "{name} cannot follow .par: only map and filter run in parallel"
+                    "{name} cannot follow .par: only map, filter, and filter_value run in parallel"
                 )));
             }
             _ => {
@@ -156,7 +157,16 @@ impl Lower<'_> {
                     };
                     steps.push(Step {
                         name: step.clone(),
-                        callback: callback.clone(),
+                        argument: Some(callback.clone()),
+                    });
+                }
+                "filter_value" => {
+                    if step_args.len() > 1 {
+                        return Err(current.at.error("filter_value takes at most one value"));
+                    }
+                    steps.push(Step {
+                        name: step.clone(),
+                        argument: step_args.first().cloned(),
                     });
                 }
                 "enumerate" => {
@@ -166,7 +176,7 @@ impl Lower<'_> {
                 }
                 _ => {
                     return Err(current.at.error(format!(
-                        "{step} cannot follow .par: only map and filter run in parallel"
+                        "{step} cannot follow .par: only map, filter, and filter_value run in parallel"
                     )));
                 }
             }
@@ -254,52 +264,8 @@ impl Lower<'_> {
                 kind: Expression::Number("0".into()),
             },
         };
-        let mut item = if enumerated {
-            crate::sum::tuple(vec![Ty::I64, element])
-        } else {
-            element
-        };
-        // Callbacks: named functions stay names; others are built here and
-        // moved into the worker.
-        let mut captures = Vec::new();
-        let mut worker_steps = Vec::new();
-        for step in &steps {
-            let (callback, output) =
-                self.par_callback(&step.callback, hidden, &mut captures, ops)?;
-            if step.name == "map" {
-                item = output.ok_or_else(|| {
-                    step.callback
-                        .at
-                        .error("a parallel map callback must return a value")
-                })?;
-            }
-            worker_steps.push((step.name.clone(), callback));
-        }
-        let predicate = match (name, args) {
-            ("any" | "all", [predicate]) => {
-                Some(self.par_callback(predicate, hidden, &mut captures, ops)?.0)
-            }
-            ("any" | "all", _) => return Err(at.error(format!("{name} takes one predicate"))),
-            ("reduce", [_]) => None,
-            ("reduce", _) => return Err(at.error("reduce takes one named function")),
-            (_, []) => None,
-            _ => return Err(at.error(format!("{name} takes no arguments"))),
-        };
-        let reducer = if name == "reduce" {
-            match &ungroup(&args[0]).kind {
-                Expression::Name(f) if self.sigs.contains_key(f) && !self.names.contains_key(f) => {
-                    Some(args[0].clone())
-                }
-                _ => {
-                    return Err(args[0].at.error(
-                        "a parallel reduce takes a named function (T, T) -> T, the same as reduce_tree",
-                    ));
-                }
-            }
-        } else {
-            None
-        };
-        // Chunk count, then the chunks themselves.
+        // `.par`'s arguments, in written order: the pool, then the chunk count.
+        let pool = self.par_pool(&pool, hidden, ops)?;
         let parts = match chunk_count {
             Some(count) => {
                 let actual = self.expr_expected(&count, Some(Ty::I64), ops)?;
@@ -328,12 +294,99 @@ impl Lower<'_> {
                 parts
             }
             None => {
-                let (_, loans) = self.observe(&pool_place(&pool), ops)?;
+                let (_, loans) = self.observe(&pool, ops)?;
                 ops.push(Op::Executor(crate::executor::ExecutorOp::Workers));
                 Self::end_reads(loans, ops);
                 self.par_hidden("parts", Ty::I64, &at, hidden, ops)?
             }
         };
+        let mut item = if enumerated {
+            crate::sum::tuple(vec![Ty::I64, element])
+        } else {
+            element
+        };
+        // Callbacks: named functions stay names; others are built here and
+        // moved into the worker.
+        let mut captures = Vec::new();
+        let mut worker_steps = Vec::new();
+        for step in &steps {
+            if step.name == "filter_value" {
+                if item.affine() {
+                    // Each chunk compares against the one captured value, so
+                    // it must be copyable; the serial form moves it instead.
+                    return Err(step
+                        .argument
+                        .as_ref()
+                        .map_or(&at, |value| &value.at)
+                        .error(format!(
+                            "filter_value after .par needs copyable items, found {}; use filter with a predicate",
+                            type_name(Some(item.clone()))
+                        )));
+                }
+                let value = match &step.argument {
+                    Some(value) => {
+                        let actual = self.expr_expected(value, Some(item.clone()), ops)?;
+                        if actual.as_ref() != Some(&item) {
+                            return Err(value.at.error(format!(
+                                "filter_value compares {} items with a {} value; it requires {}",
+                                type_name(Some(item.clone())),
+                                type_name(actual),
+                                type_name(Some(item.clone())),
+                            )));
+                        }
+                        let local =
+                            self.par_hidden("value", item.clone(), &value.at, hidden, ops)?;
+                        let Expression::Name(name) = &local.kind else {
+                            unreachable!()
+                        };
+                        captures.push(name.clone());
+                        vec![local]
+                    }
+                    None => vec![],
+                };
+                worker_steps.push((step.name.clone(), value));
+                continue;
+            }
+            let callback = step
+                .argument
+                .as_ref()
+                .expect("map and filter take a callback");
+            let (callback_value, output) =
+                self.par_callback(callback, hidden, &mut captures, ops)?;
+            if step.name == "map" {
+                item = output.ok_or_else(|| {
+                    callback
+                        .at
+                        .error("a parallel map callback must return a value")
+                })?;
+            }
+            worker_steps.push((step.name.clone(), vec![callback_value]));
+        }
+        let predicate = match (name, args) {
+            ("any" | "all", [predicate]) => {
+                Some(self.par_callback(predicate, hidden, &mut captures, ops)?.0)
+            }
+            ("any" | "all", _) => return Err(at.error(format!("{name} takes one predicate"))),
+            ("reduce", [_]) => None,
+            ("reduce", _) => return Err(at.error("reduce takes one named function")),
+            (_, []) => None,
+            _ => return Err(at.error(format!("{name} takes no arguments"))),
+        };
+        let reducer = if name == "reduce" {
+            match &ungroup(&args[0]).kind {
+                Expression::Name(f) if self.sigs.contains_key(f) && !self.names.contains_key(f) => {
+                    Some(args[0].clone())
+                }
+                _ => {
+                    return Err(args[0].at.error(
+                        "a parallel reduce takes a named function (T, T) -> T, the same as reduce_tree",
+                    ));
+                }
+            }
+        } else {
+            None
+        };
+        // The chunks themselves.
         let (split, split_args, chunk_items) = match (&range_parts, &source_local) {
             (Some([first, step, len]), _) => (
                 "split_range",
@@ -366,10 +419,13 @@ impl Lower<'_> {
         } else {
             call(&at, "iter", vec![name_expr(&at, items_name)])
         };
-        for (step, callback) in worker_steps {
-            chain = method(&at, chain, &step, vec![callback]);
+        for (step, arguments) in worker_steps {
+            chain = method(&at, chain, &step, arguments);
         }
         let mut extra = Vec::new();
+        // Statements that replace the chain as the worker's tail, when the
+        // chunk result needs mutable state rather than one terminal call.
+        let mut tail = None;
         let (output, template) = match name {
             "collect" | "reduce" => {
                 chain = method(&at, chain, "collect", vec![]);
@@ -413,22 +469,7 @@ impl Lower<'_> {
                 if item.is_int() && item.int_range().is_some_and(|(min, _)| min < 0) {
                     // Exact prefix tracking: the combined result traps
                     // exactly when the serial running total would overflow.
-                    let step = self.par_helper("signed_step")?;
-                    let step = self.specialize(&step, vec![item.clone()], &at)?;
-                    let zero = || Expr {
-                        at: at.clone(),
-                        kind: Expression::Number("0".into()),
-                    };
-                    let mut start: Vec<Expr> = (0..6).map(|_| zero()).collect();
-                    start.push(Expr {
-                        at: at.clone(),
-                        kind: Expression::Bool(false),
-                    });
-                    let init = Expr {
-                        at: at.clone(),
-                        kind: Expression::Tuple(start),
-                    };
-                    chain = method(&at, chain, "fold", vec![init, name_expr(&at, &step)]);
+                    tail = Some(signed_chunk(&chain)?);
                     extra.push(call(
                         &at,
                         &item.to_string(),
@@ -491,20 +532,22 @@ impl Lower<'_> {
             output: typed(output),
             doc: String::new(),
             doc_at: None,
-            body: vec![
-                Stmt {
-                    at: at.clone(),
-                    kind: Statement::Unpack {
-                        names: unpack_names,
-                        mutable: false,
-                        value: name_expr(&at, "__plenty_par_chunk"),
-                    },
+            body: vec![Stmt {
+                at: at.clone(),
+                kind: Statement::Unpack {
+                    names: unpack_names,
+                    mutable: false,
+                    value: name_expr(&at, "__plenty_par_chunk"),
                 },
-                Stmt {
+            }]
+            .into_iter()
+            .chain(tail.unwrap_or_else(|| {
+                vec![Stmt {
                     at: at.clone(),
                     kind: Statement::Expr(chain),
-                },
-            ],
+                }]
+            }))
+            .collect(),
         };
         let worker_ty = self.closure_value(&worker, &par_at, ops)?;
         let worker = self.par_hidden("worker", worker_ty, &at, hidden, ops)?;
@@ -564,7 +607,7 @@ impl Lower<'_> {
         // reduce: the collected items go through the pool's fixed tree.
         let collected =
             self.par_hidden("collected", ty.expect("collect result"), &at, hidden, ops)?;
-        let place = pool_place(&pool);
+        let place = pool.clone();
         let binding = "__plenty_par_reduced";
         let failure = "__plenty_par_failure";
         let reduce = method(
@@ -641,6 +684,33 @@ impl Lower<'_> {
         Ok((pool.clone(), count))
     }
 
+    /// Borrows the pool into a hidden reference local, so it is evaluated in
+    /// written order and its loan lasts until the terminal returns.
+    fn par_pool(
+        &mut self,
+        pool: &Expr,
+        hidden: &mut Vec<String>,
+        ops: &mut Vec<Op>,
+    ) -> Result<Expr> {
+        let (ty, loan) = self.binding_value(pool, None, ops)?;
+        let slot = self.slot(ty.clone(), &pool.at)?;
+        ops.push(Op::StoreLocal(slot));
+        if let Some(loan) = loan {
+            self.bind_reference(slot, loan, false, ops);
+        }
+        let name = format!("__plenty_par_pool{slot}");
+        self.bind(
+            name.clone(),
+            Local {
+                slot,
+                ty,
+                mutable: false,
+            },
+        );
+        hidden.push(name.clone());
+        Ok(name_expr(&pool.at, &name))
+    }
+
     /// A callback for the worker: a named function stays a name; anything
     /// else must be a reusable immutable closure owning its captures, built
     /// here and captured by the worker.
@@ -711,14 +781,6 @@ impl Lower<'_> {
     }
 }
 
-/// The pool written in `.par(&pool)`, without the borrow.
-fn pool_place(pool: &Expr) -> Expr {
-    match &ungroup(pool).kind {
-        Expression::Unary(op, place) if op == "&" => (**place).clone(),
-        _ => pool.clone(),
-    }
-}
-
 fn expr_stmt(e: Expr) -> Stmt {
     Stmt {
         at: e.at.clone(),
@@ -776,4 +838,22 @@ fn internal_error(error: Box<dyn Error>, at: &Token) -> Box<dyn Error> {
     } else {
         error
     }
+}
+
+/// The signed-sum worker tail: `signed_chunk`'s statements with its `for` loop
+/// reading the chunk's fused pipeline. Locals stay in registers, where a
+/// tuple-state `fold` would copy the state through memory for every item.
+fn signed_chunk(chain: &Expr) -> Result<Vec<Stmt>> {
+    let mut body = modules::generated_interface(HELPERS)?
+        .functions
+        .into_iter()
+        .find(|f| f.name == "signed_chunk")
+        .expect("signed sum chunk helper")
+        .body;
+    for statement in &mut body {
+        if let Statement::For { iterable, .. } = &mut statement.kind {
+            *iterable = chain.clone();
+        }
+    }
+    Ok(body)
 }

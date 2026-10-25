@@ -1,4 +1,6 @@
 def split_list[T](items: list[T], start: i64, parts: i64) -> Result[list[(i64, list[T])], AllocError]:
+    # Moves each item into its chunk: one pass over the source on the calling
+    # thread. Counters avoid a length query per item.
     n = len(items)
     count = parts if parts < n else n
     mut chunks = list[(i64, list[T])].with_capacity(count)?
@@ -7,19 +9,22 @@ def split_list[T](items: list[T], start: i64, parts: i64) -> Result[list[(i64, l
     base = n // count
     extra = n % count
     mut offset = start
-    mut current = list[T].with_capacity(base + 1 if extra > 0 else base)?
+    mut index = 0
+    mut size = base + 1 if extra > 0 else base
+    mut filled = 0
+    mut current = list[T].with_capacity(size)?
     for item in items:
         current.append(item)?
-        index = len(chunks)
-        if len(current) == (base + 1 if index < extra else base):
-            following = index + 1
-            size = 0 if following == count else (base + 1 if following < extra else base)
+        filled += 1
+        if filled == size:
+            index += 1
+            following = 0 if index == count else (base + 1 if index < extra else base)
             full = current
-            current = list[T].with_capacity(size)?
-            taken = len(full)
+            current = list[T].with_capacity(following)?
             chunks.append((offset, full))?
-            if following < count:
-                offset += taken
+            offset += size if index < count else 0
+            size = following
+            filled = 0
     Ok(chunks)
 
 def split_range(first: i64, step: i64, n: i64, start: i64, parts: i64) -> Result[list[(i64, range[i64])], AllocError]:
@@ -52,9 +57,10 @@ def collect[C, U, F: Callable[[C], Result[list[U], AllocError]]](pool: &ThreadPo
                     match list[U].with_capacity(total):
                         case Ok(reserved):
                             mut output = reserved
+                            # Capacity is reserved, so moving each part's
+                            # storage cannot fail.
                             for part in parts:
-                                for item in part:
-                                    output.append(item).unwrap()
+                                output.extend(part).unwrap()
                             Ok(output)
                         case Err(error):
                             Err(PoolMapError.Allocation(error))
@@ -80,9 +86,10 @@ def try_collect[C, U, E, F: Callable[[C], Result[list[U], E]]](pool: &ThreadPool
                     match list[U].with_capacity(total):
                         case Ok(reserved):
                             mut output = reserved
+                            # Capacity is reserved, so moving each part's
+                            # storage cannot fail.
                             for part in parts:
-                                for item in part:
-                                    output.append(item).unwrap()
+                                output.extend(part).unwrap()
                             Ok(output)
                         case Err(error):
                             Err(ParallelError[E].Allocation(error))
@@ -146,17 +153,35 @@ def sum[C, T, F: Callable[[C], T]](pool: &ThreadPoolExecutor, chunks: Result[lis
         case Err(error):
             Err(PoolMapError.Allocation(error))
 
-def signed_step[T](state: (i64, i64, i64, i64, i64, i64, bool), item: T) -> (i64, i64, i64, i64, i64, i64, bool):
-    q, r, lq, lr, hq, hr, seen = state
-    value = i64(item)
-    mut nq = q + value // 4294967296
-    mut nr = r + value % 4294967296
-    if nr >= 4294967296:
-        nr -= 4294967296
-        nq += 1
-    low = not seen or nq < lq or (nq == lq and nr < lr)
-    high = not seen or nq > hq or (nq == hq and nr > hr)
-    (nq, nr, nq if low else lq, nr if low else lr, nq if high else hq, nr if high else hr, True)
+def signed_chunk(chunk_items: list[i64]) -> (i64, i64, i64, i64, i64, i64, bool):
+    # The worker body for a signed sum: the frontend copies these statements
+    # into the chunk worker and replaces `chunk_items` with the chunk's fused
+    # pipeline. The exact running total is `wraps * 2**64 + total`, so each
+    # item costs a wrapping add and compares instead of a call.
+    mut total = 0
+    mut wraps = 0
+    mut low = 0
+    mut low_wraps = 0
+    mut high = 0
+    mut high_wraps = 0
+    mut seen = False
+    for item in chunk_items:
+        value = i64(item)
+        following = total.wrapping_add(value)
+        if value >= 0 and following < total:
+            wraps += 1
+        elif value < 0 and following > total:
+            wraps -= 1
+        total = following
+        if not seen or wraps < low_wraps or (wraps == low_wraps and total < low):
+            low_wraps = wraps
+            low = total
+        if not seen or wraps > high_wraps or (wraps == high_wraps and total > high):
+            high_wraps = wraps
+            high = total
+        seen = True
+    # Base 2**32 digits `(q, r)` with 0 <= r < 2**32, as signed_sum expects.
+    (wraps * 4294967296 + total // 4294967296, total % 4294967296, low_wraps * 4294967296 + low // 4294967296, low % 4294967296, high_wraps * 4294967296 + high // 4294967296, high % 4294967296, seen)
 
 def signed_sum[C, T, F: Callable[[C], (i64, i64, i64, i64, i64, i64, bool)]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F, one: T) -> Result[(T, T), PoolMapError]:
     match chunks:

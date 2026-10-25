@@ -755,8 +755,8 @@ Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
 
 - **Sources.** Owned lists and integer ranges, as `pool.map` accepts today.
   Borrowed lists follow once scoped pool jobs can borrow (B22).
-- **Allowed steps after `par`.** `map` and `filter`; `enumerate` must be applied
-  before `par`. Order-dependent steps (`take`, `skip`, `take_while`, `chain`,
+- **Allowed steps after `par`.** `map`, `filter` and `filter_value` (over
+  copyable items); `enumerate` must be applied before `par`. Order-dependent steps (`take`, `skip`, `take_while`, `chain`,
   `zip`, `flat_map`) are rejected after `par` with a diagnostic naming the step.
 - **Callbacks.** Statically named functions or reusable immutable closures that
   wholly own their captures and pass the existing worker eligibility and effect

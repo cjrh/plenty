@@ -69,6 +69,51 @@ def pair(index: i64, value: i64) -> (i64, i64):
 }
 
 #[test]
+fn filter_value_keeps_equal_items_like_the_serial_form() {
+    runs(
+        &format!(
+            r#"
+def double(x: i64) -> i64:
+    x * 2
+{MAIN}    with ThreadPoolExecutor(3, 1)? as pool:
+        print(iter([1, 2, 3, 2, 5, 2]?).par(&pool).filter_value(2).count()?)?
+        print(iter(range(0, 6)).par(&pool).map(double).filter_value(4).collect()?)?
+        print(iter([True, False, True]?).par(&pool).filter_value().count()?)?
+        print(iter(["a", "b", "a"]?).par(&pool).filter_value("a").collect()?)?
+        nan = 0.0 / 0.0
+        print(iter([nan, 0.0, -0.0]?).par(&pool).filter_value(nan).count()?)?
+        print(iter([nan, 0.0, -0.0]?).par(&pool).filter_value(0.0).count()?)?
+    Ok(())
+"#
+        ),
+        "3\n[4]\n2\n[\"a\", \"a\"]\n0\n2\n",
+    );
+}
+
+#[test]
+fn arguments_are_evaluated_in_written_order() {
+    // Source, enumerate start, the pool and chunk count, then step values
+    // and captures, left to right, as in a serial pipeline.
+    runs(
+        r#"
+def note(label: str, n: i64) -> i64:
+    print(label).unwrap()
+    n
+def items() -> list[i64]:
+    print("source").unwrap()
+    [1, 2, 3, 2].unwrap()
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
+    pools = [ThreadPoolExecutor(2, 1)?]?
+    limit = 10
+    print(enumerate(items(), note("start", 0)).par(&pools[note("pool", 0)], chunks=note("chunks", 2)).filter(def [limit](i: &i64, v: &i64) -> bool: *v < limit).count()?)?
+    print(iter(items()).par(&pools[note("pool", 0)], chunks=note("chunks", 3)).filter_value(note("value", 2)).map(def [limit](x: i64) -> i64: x + limit).any(def [limit](x: &i64) -> bool: *x > limit)?)?
+    Ok(())
+"#,
+        "source\nstart\npool\nchunks\n4\nsource\npool\nchunks\nvalue\nTrue\n",
+    );
+}
+
+#[test]
 fn closures_own_their_captures_and_drop_once() {
     runs(
         &format!(
@@ -147,10 +192,14 @@ fn sums_match_serial_results_and_overflow_like_serial_sum() {
         print(iter([200u8, 50u8]?).par(&pool).sum()?)?
         print(iter(range(0, 0)).par(&pool).sum()?)?
         print(iter([1.5, 2.5]?).par(&pool).sum()?)?
+        # A chunk's own running total leaves i64 while the serial one does not.
+        print(iter([1, 2, -2, i64.MIN + 1]?).par(&pool, chunks=2).sum()?)?
+        print(iter([-3, 2, i64.MAX - 1]?).par(&pool, chunks=2).sum()?)?
+        print(iter([i64.MIN + 1, -1, i64.MAX, i64.MAX, i64.MIN, 1]?).par(&pool, chunks=3).sum()?)?
     Ok(())
 "#
         ),
-        "45\n9223372036854775807\n9223372036854775806\n100\n250\n0\n4.0\n",
+        "45\n9223372036854775807\n9223372036854775806\n100\n250\n0\n4.0\n-9223372036854775806\n9223372036854775805\n-1\n",
     );
     // Serial `sum` traps when any running total overflows, even if a later
     // item brings it back in range; the parallel sum must agree.
@@ -160,6 +209,9 @@ fn sums_match_serial_results_and_overflow_like_serial_sum() {
         ("[-100i8, -100i8, 100i8]", 2),
         ("[i64.MAX, 1, -1]", 1),
         ("[200u8, 100u8]", 2),
+        ("[0, 0, 1, i64.MAX]", 2),
+        ("[0, 0, -2, i64.MIN + 1]", 2),
+        ("[i64.MAX, i64.MAX, i64.MIN, i64.MIN, 1]", 5),
     ] {
         traps(
             &format!(
@@ -274,8 +326,20 @@ fn par_rejects_unsupported_shapes() {
             "take cannot follow .par",
         ),
         (
-            "print(iter(xs).par(&pool).filter_value(2).count()?)?",
-            "filter_value cannot follow .par",
+            "print(iter([[1]?]?).par(&pool).filter_value([1]?).count()?)?",
+            "filter_value after .par needs copyable items",
+        ),
+        (
+            "print(enumerate(xs).par(&pool).filter_value((0, 1)).count()?)?",
+            "filter_value does not accept pair items",
+        ),
+        (
+            "print(iter(xs).par(&pool).filter_value(1u8).count()?)?",
+            "filter_value compares i64 items with a u8 value",
+        ),
+        (
+            "p = ThreadPoolExecutor(1, 1)?\n        print(iter(xs).par(&p).map(def [p](x: i64) -> i64: x).count()?)?",
+            "cannot move `p` while it is borrowed",
         ),
         (
             "print(iter(xs).par(&pool).enumerate().count()?)?",

@@ -322,12 +322,12 @@ with ThreadPoolExecutor(8, 64)? as pool:
 | Part | Accepted |
 |---|---|
 | Source | an owned `list[T]` or a `range[i64]`, through `iter(source)`, `iter(source).enumerate(start)` or `enumerate(source, start)` |
-| Steps after `par` | `map` and `filter` |
+| Steps after `par` | `map`, `filter`, and `filter_value` |
 | Callbacks | named functions, or reusable immutable closures that own their captures |
 | Terminals | `collect`, `try_collect`, `count`, `any`, `all`, `sum`, `min`, `max`, `reduce` |
 
 `enumerate` must come before `par`. Other steps (`take`, `skip`, `take_while`,
-`filter_value`, `zip`, `chain`, `flat_map`) are rejected after `par`, as are
+`zip`, `chain`, `flat_map`) are rejected after `par`, as are
 steps before it other than `enumerate`. Borrowed lists wait for scoped pool
 jobs (B22); generators and other range types are rejected. A parallel pipeline
 must end in a terminal: it cannot be stored, looped over with `for`, converted
@@ -337,8 +337,14 @@ guarantee or would run in no fixed order. Mutable, one-shot, and borrowing
 closures are rejected; callbacks also pass the
 [worker eligibility checks](../../facilities/03-concurrency/parallel-map.md).
 
+`filter_value(value=True)` follows the serial rules: `value` is evaluated once,
+on the calling thread, takes the item type, and is compared with `==`. Every
+chunk compares against that one value, so the items must be copyable (scalars,
+`str`, and tuples of them); use `filter` for other item types. The value must
+also pass the worker checks.
+
 **Chunks.** The source is split into contiguous chunks, and each chunk runs the
-fused `map`/`filter` steps as one pool job. By default the chunk count is the
+fused steps as one pool job. By default the chunk count is the
 pool's worker count, read when the pipeline runs. `.par(&pool, chunks=N)` sets
 it explicitly; `N` is an `i64` expression and must be positive. A literal zero
 or negative count is a compile error, and a non-positive runtime value traps
@@ -377,7 +383,8 @@ With the default count, a different pool size can change the result; pass
 order, so they equal the serial results: the first NaN in input order wins,
 and `-0.0` is less than `0.0`. Empty input gives `Nothing`.
 
-`reduce(f)` takes a named function `(T, T) -> T`. It collects the items, then
+`reduce(f)` takes a named function `(T, T) -> T`. It first collects the items
+into one list, as `collect` does, allocating it and the per-chunk lists; it then
 uses the [fixed-tree reduction](../../facilities/03-concurrency/parallel-reduce.md)
 of `pool.reduce_tree`, so its grouping does not depend on chunking. Empty input
 gives `Nothing`.
@@ -386,14 +393,25 @@ gives `Nothing`.
 closed pool and `PoolMapError.Allocation` when chunk storage or job submission
 cannot allocate. Callbacks may run in any order and on any worker; accepted
 chunks finish before the terminal returns, and partial outputs and captures
-are dropped once. The source, the `enumerate` start, callback captures and the
-chunk count are evaluated left to right before the pool expression.
+are dropped once.
+
+Arguments are evaluated in written order, as in a serial pipeline: the source,
+the `enumerate` start, the pool and `chunks` arguments of `par`, then each later
+step's value or callback captures and the terminal's arguments, left to right.
+The pool stays borrowed until the terminal returns, so a later argument cannot
+move it.
 
 **Cost.** Splitting a list allocates one list per chunk and moves each item
-once; a range is split without copying items. Each chunk is one pool job, and
-collecting terminals allocate one output list per chunk, then move the items
-into one reserved result list. `reduce` also allocates the collected list and the `reduce_tree`
-scratch storage.
+once, serially on the calling thread; a range is split without copying items.
+Each chunk is one pool job. Collecting terminals allocate one output list per
+chunk, then append each chunk's storage to one reserved result list. `reduce`
+also allocates the collected list and the `reduce_tree` scratch storage.
+
+The serial split costs about as much per item as a cheap serial pipeline step,
+so `.par` over a list pays off only when the callbacks cost more than moving
+an item. `reduce` runs `reduce_tree`, which submits a job per pair, and is
+much slower than a serial `reduce` unless `f` is expensive. See the
+[parallel pipeline measurements](../../../development/profiling.md#parallel-pipelines).
 
 ## Cost
 

@@ -1,7 +1,7 @@
 # Run a pipeline on a pool
 
 `.par(&pool)` runs the rest of a [pipeline](../05-iteration/pipelines.md) on a
-pool's workers. Steps after it must be `map` or `filter`, and the pipeline must
+pool's workers. Steps after it must be `map`, `filter` or `filter_value`, and the pipeline must
 end in a terminal that combines the chunks: `collect`, `try_collect`, `count`,
 `any`, `all`, `sum`, `min`, `max` or `reduce`.
 
