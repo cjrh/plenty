@@ -421,11 +421,14 @@ rejected for now: a tuple containing a float has no NaN rule yet, so they use
 - `sum()` returns `Item`; an empty pipeline gives zero. Integer overflow is a
   runtime error, as for `+`.
 - `min()` and `max()` return `Option[Item]`, `Nothing` when empty. Ties keep the
-  first item.
+  first item; `-0.0` and `0.0` are equal, so the first of them is kept.
 - NaN propagates. For `sum` this is ordinary float addition. For `min` and
-  `max` it is an explicit rule, IEEE 754-2019 `minimum`/`maximum`: any NaN
-  item makes the result `Some(NaN)`. A plain `<` loop would instead drop or
-  keep a NaN depending on its position.
+  `max` it is an explicit rule: any NaN item makes the result `Some(NaN)`, the
+  first NaN item. A plain `<` loop would instead drop or keep a NaN depending
+  on its position. These are the `std.math.min_all`/`max_all` rules, so the
+  terminals and the library functions share one model. IEEE 754-2019
+  `minimum`/`maximum`, which order `-0.0` below `0.0`, were rejected for that
+  reason.
 - There is no parameter to ignore NaN. Filter first; the choice is then
   visible at the call. Separately named NaN-ignoring terminals can be added
   if filtering proves too common or slow.

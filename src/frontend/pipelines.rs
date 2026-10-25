@@ -2,7 +2,6 @@
 //! condition, item body, and step are spliced into the consuming loop.
 use super::collections::Iteration;
 use super::*;
-use crate::numeric::{FloatOp, NumericOp};
 
 mod generator_bridge;
 mod splice;
@@ -1482,8 +1481,8 @@ impl Lower<'_> {
 
     /// `sum`, `min` and `max`. A borrowed item is read through its reference,
     /// as `*item`, so the result is a value like the `std.math` reductions.
-    /// Float `min`/`max` use IEEE 754-2019 `minimum`/`maximum`: any NaN item
-    /// gives NaN, and -0.0 orders below +0.0. Other ties keep the first item.
+    /// `min`/`max` agree with `std.math.min_all`/`max_all`: equal items keep
+    /// the first, -0.0 equals 0.0, and the first NaN item is the result.
     fn pipeline_arithmetic(
         &mut self,
         base: &Expr,
@@ -1577,36 +1576,40 @@ impl Lower<'_> {
             let actual = self.expr(&value, &mut body)?;
             self.same(actual, Some(ty.clone()), &base.at)?;
             body.push(Op::StoreLocal(current));
-            let choose = if ty.is_float() {
-                let op = if name == "min" {
-                    FloatOp::Minimum
-                } else {
-                    FloatOp::Maximum
-                };
-                vec![
-                    Op::LoadLocal(best),
-                    Op::LoadLocal(current),
-                    Op::Numeric(NumericOp::Float(op)),
-                    Op::StoreLocal(best),
-                ]
-            } else {
-                let better = Expr {
-                    at: base.at.clone(),
-                    kind: Expression::Binary(
-                        if name == "min" { "<" } else { ">" }.into(),
-                        Box::new(named(self, current, "candidate")),
-                        Box::new(named(self, best, "best")),
-                    ),
-                };
-                let mut choose = Vec::new();
-                let actual = self.expr(&better, &mut choose)?;
-                self.same(actual, Some(Ty::Bool), &base.at)?;
-                choose.push(branch(
-                    vec![Op::LoadLocal(current), Op::StoreLocal(best)],
-                    vec![],
-                ));
-                choose
+            let candidate = named(self, current, "candidate");
+            let held = named(self, best, "best");
+            let binary = |op: &str, left: Expr, right: Expr| Expr {
+                at: base.at.clone(),
+                kind: Expression::Binary(op.into(), Box::new(left), Box::new(right)),
             };
+            // Matches `std.math.min_all`/`max_all`. A float candidate replaces
+            // `best` unless it is ordered at or past it, so a NaN candidate wins
+            // and equal values, including -0.0 and 0.0, keep the first. Once
+            // `best` is NaN it stays, keeping the first NaN item.
+            let better = if ty.is_float() {
+                let ordered = binary(
+                    if name == "min" { ">=" } else { "<=" },
+                    candidate,
+                    held.clone(),
+                );
+                binary(
+                    "and",
+                    binary("==", held.clone(), held),
+                    Expr {
+                        at: base.at.clone(),
+                        kind: Expression::Unary("not".into(), Box::new(ordered)),
+                    },
+                )
+            } else {
+                binary(if name == "min" { "<" } else { ">" }, candidate, held)
+            };
+            let mut choose = Vec::new();
+            let actual = self.expr(&better, &mut choose)?;
+            self.same(actual, Some(Ty::Bool), &base.at)?;
+            choose.push(branch(
+                vec![Op::LoadLocal(current), Op::StoreLocal(best)],
+                vec![],
+            ));
             body.extend([
                 Op::LoadLocal(seen),
                 branch(
