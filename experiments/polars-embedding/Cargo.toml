@@ -1,0 +1,17 @@
+[package]
+name = "plenty-polars-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+debug = false
+strip = "debuginfo"
+
+[dependencies]
+polars = { version = "=0.55.2", default-features = false, features = ["lazy", "parquet"] }

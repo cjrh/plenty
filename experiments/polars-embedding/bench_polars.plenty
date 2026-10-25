@@ -1,0 +1,40 @@
+import dataframe as df
+import std.env as env
+import std.time as time
+from dataframe import FrameError
+
+def plan(data: &df.DataFrame, mode: &str) -> Result[df.Query, FrameError]:
+    predicate = df.col("value")?.gt(df.lit(50.0)?)?
+    base = data.lazy()?.filter(&predicate)?
+    if mode == "count":
+        base.select(df.col("value")?.count()?.alias("result")?)
+    else:
+        derived = df.col("value")?.mul(df.lit(2.0)?)?.alias("weighted")?
+        base.with_column(&derived)?.group_by_sum(df.col("group")?, df.col("weighted")?.sum()?.alias("result")?)
+
+def main() -> Result[(), AllocError | FrameError | IoError | ParseError]:
+    n = i64.parse(env.get("SPIKE_ROWS")?.unwrap_or("1024"))?
+    reps = i64.parse(env.get("SPIKE_REPS")?.unwrap_or("100"))?
+    mode = env.get("SPIKE_MODE")?.unwrap_or("count")
+    input_start = time.monotonic_now()
+    groups = [i % 8 for i in range(n)]?
+    values = [f64(i % 100) for i in range(n)]?
+    input_ns = time.monotonic_now().saturating_duration_since(&input_start).as_nanoseconds()
+    start = time.monotonic_now()
+    data = df.from_lists(&groups, &values)?
+    import_ns = time.monotonic_now().saturating_duration_since(&start).as_nanoseconds()
+    query = plan(&data, &mode)?
+    for warm in range(5):
+        drop(query.collect()?)
+    mut checksum = 0.0
+    start_query = time.monotonic_now()
+    for repetition in range(reps):
+        result = query.collect()?
+        if mode == "count":
+            checksum += f64(result.get_i64("result", 0u64)?.unwrap_or(0))
+        else:
+            for row in range(i64(result.height()?)):
+                checksum += result.get_f64("result", u64(row))?.unwrap_or(0.0)
+    query_ns = time.monotonic_now().saturating_duration_since(&start_query).as_nanoseconds()
+    print(input_ns, import_ns, query_ns, checksum)?
+    Ok(())

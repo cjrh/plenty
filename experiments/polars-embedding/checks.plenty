@@ -1,0 +1,48 @@
+import dataframe as df
+import std.test as test
+from std.test import TestError
+from dataframe import FrameError
+
+def retained_query() -> Result[df.Query, FrameError]:
+    mut keys = df.i64_column("key")?
+    mut values = df.f64_column("value")?
+    keys.append(7)?
+    values.append(12.0)?
+    # The returned query retains Polars array ownership after builders/frame die.
+    df.frame(&keys, &values)?.lazy()
+
+def expect_error[T](result: Result[T, FrameError], expected: FrameError) -> Result[(), TestError]:
+    match result:
+        case Err(error):
+            test.equal(&error, &expected)
+        case Ok(value):
+            test.fail("expected a dataframe error")
+
+def main() -> Result[(), FrameError | IoError | TestError]:
+    mut keys = df.i64_column("key")?
+    mut values = df.f64_column("value")?
+    keys.append(1)?
+    values.append_null()?
+    keys.append(2)?
+    values.append(f64.NAN)?
+    keys.append(3)?
+    values.append(-0.0)?
+    data = df.frame(&keys, &values)?
+    print(data.height()?, data.get_f64("value", 0u64)?)?
+    nan = data.get_f64("value", 1u64)?.unwrap_or(0.0)
+    print(nan != nan, data.get_f64("value", 2u64)?)?
+    # Polars' NaN comparison is deliberately not Plenty's IEEE comparison.
+    selected = data.lazy()?.filter(df.col("value")?.gt(df.lit(50.0)?)?)?.collect()?
+    print(nan > 50.0, selected.height()?)?
+    expect_error(data.get_i64("value", 0u64), FrameError.Type)?
+    expect_error(data.get_f64("value", 3u64), FrameError.Bounds)?
+    expect_error(data.lazy()?.select(df.col("missing")?)?.collect(), FrameError.Query)?
+    keys.append(4)?
+    expect_error(df.frame(&keys, &values), FrameError.Query)?
+    print(retained_query()?.collect()?.get_f64("value", 0u64)?)?
+    print(data.height()?)?
+    # An empty dataframe retains its typed schema and can be collected.
+    empty_keys = df.i64_column("key")?
+    empty_values = df.f64_column("value")?
+    print(df.frame(&empty_keys, &empty_values)?.lazy()?.collect()?.height()?)?
+    Ok(())

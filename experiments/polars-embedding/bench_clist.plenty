@@ -1,0 +1,38 @@
+import std.env as env
+import std.time as time
+
+class Row:
+    group: i64
+    value: f64
+
+def main() -> Result[(), AllocError | AppendError[Row] | IoError | ParseError]:
+    n = i64.parse(env.get("SPIKE_ROWS")?.unwrap_or("1024"))?
+    reps = i64.parse(env.get("SPIKE_REPS")?.unwrap_or("100"))?
+    mode = env.get("SPIKE_MODE")?.unwrap_or("count")
+    input_start = time.monotonic_now()
+    groups = [i % 8 for i in range(n)]?
+    values = [f64(i % 100) for i in range(n)]?
+    input_ns = time.monotonic_now().saturating_duration_since(&input_start).as_nanoseconds()
+    start = time.monotonic_now()
+    mut data = clist[Row]()
+    data.reserve(n)?
+    for row in range(n):
+        data.append(Row(groups[row], values[row]))?
+    import_ns = time.monotonic_now().saturating_duration_since(&start).as_nanoseconds()
+    mut checksum = 0.0
+    start_query = time.monotonic_now()
+    for repetition in range(reps):
+        if mode == "count":
+            checksum += f64(data.column(Row.value).filter(def(value: &f64) -> bool: *value > 50.0).count())
+        else:
+            mut totals = [0.0 for i in range(8)]?
+            for row in range(n):
+                value = data[row].value
+                if value > 50.0:
+                    group = data[row].group
+                    totals[group] += value * 2.0
+            for value in &totals:
+                checksum += *value
+    query_ns = time.monotonic_now().saturating_duration_since(&start_query).as_nanoseconds()
+    print(input_ns, import_ns, query_ns, checksum)?
+    Ok(())

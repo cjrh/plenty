@@ -1,0 +1,7 @@
+import dataframe as df
+from dataframe import FrameError
+
+def main() -> Result[(), FrameError]:
+    # Force the dynamic dependency while avoiding thread-pool initialization.
+    drop(df.col("value")?)
+    Ok(())
