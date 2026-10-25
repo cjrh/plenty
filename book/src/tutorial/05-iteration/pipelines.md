@@ -38,6 +38,32 @@ pipeline ends.
 A pipeline is single-use. Consuming it again, or using an owned source after
 the pipeline has taken it, is an ownership error.
 
+## Add up and find extremes
+
+`sum()`, `min()`, and `max()` are final methods that need no function either:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    rolls = [3, 6, 2, 6, 6, 1]?
+    print(iter(&rolls).sum(), iter(&rolls).min(), iter(&rolls).skip(4).max())?
+    none: list[i64] = []?
+    print(iter(&none).sum(), iter(&none).max().unwrap_or(0))?
+    Ok(())
+```
+
+```output
+24 Option[i64].Some(1) Option[i64].Some(6)
+0 0
+```
+
+A borrowed item is read by value, so the results are `i64`, not references.
+`sum()` gives zero for no items, and integer overflow stops the program, as for
+`+`. `min()` and `max()` return an `Option`, `Nothing` for no items. They
+accept numbers and `str` and keep the first of equal items. Floats follow the
+IEEE 754 rules for NaN and signed zero, as `std.math.min_all` and `max_all` do;
+the [pipeline reference](../../design/language/09-iteration/06-pipelines.md#terminals)
+gives them.
+
 ## Pair, join, and collect
 
 `zip` walks two sources together, and `chain` continues with a second source of
