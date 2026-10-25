@@ -1,4 +1,4 @@
-# Reverse traversal and boolean reductions
+# Reverse traversal
 
 `reversed(iterable)` is a source for loops and comprehensions over a list,
 string, `bytes`, `std.bytes.Bytes`, or range. It evaluates the source once and
@@ -22,26 +22,13 @@ byte buffer, or range; it cannot reverse `enumerate`, `zip`, a generator,
 or a hash collection.
 It does not create a stored iterator or dispatch to a user iterator protocol.
 
-`any(iterable)` and `all(iterable)` return `bool`. They accept owned or
-borrowed boolean lists, sets, dictionary keys, and owned boolean generators.
-`reversed` may supply their boolean input. There is no implicit truth-value
-conversion: use comparisons to produce booleans from other types.
-
-| Reduction | Stops at | Empty input |
-| --- | --- | --- |
-| `any` | First `True` | `False` |
-| `all` | First `False` | `True` |
-
-The source expression evaluates once. Generator bodies run only until the
-answer is determined; remaining frame state is then dropped. A consumed list
-or generator is unavailable afterward. Borrow the list to preserve it.
-These reductions allocate no result container or iterator object. An input
-expression can still allocate, and an eager list comprehension builds its
-whole list before reduction. Use a
-[generator expression](03-generators.md#generator-expressions), such as
-`any(n == 2 for n in range(10))`, or a named generator for incremental
-predicate evaluation without building that list.
+There are no free `any` and `all` functions. Test boolean items with the
+[pipeline terminals](06-pipelines.md#terminals) `iter(flags).any()` and
+`iter(flags).all()`, or pass a predicate: `iter(values).any(is_negative)`.
+`reversed` may supply their input: `iter(reversed(&flags)).all()`. A call to
+`any(...)` or `all(...)` that names no user function is an error naming these
+replacements.
 
 Functions and callable bindings named `reversed`, `any`, or `all` retain
 their normal call behavior. Imported generic functions and generator bodies
-can use the intrinsics.
+can use `reversed`.

@@ -104,8 +104,8 @@ def main() -> Result[(), AllocError | IoError]:
         b.append(x * 100 + y)?
     print(b)?
     print([i * i for i in range(1, 8, 2)]?)?
-    print(all(i < 5 for i in range(5)))?
-    print(any(i == 4 for i in reversed(range(3))))?
+    print((i < 5 for i in range(5)).all())?
+    print((i == 4 for i in reversed(range(3))).any())?
     Ok(())
 "#,
         "[0, 1, 2, 3, 4, -3, -2, -1, 0, 1, 2, 10, 7, 4, 1, -2, -5, -8, 0, 4, 8]\n\
@@ -251,7 +251,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(list(n * 2 for n in range(10, 0, -3))?)?
     print(list(n for n in reversed(range(3)))?)?
     print(list(n for n in range(5, 5))?)?
-    print(any(i == 4 for i in range(250u8, 255u8)))?
+    print((i == 4 for i in range(250u8, 255u8)).any())?
     Ok(())
 "#,
         "[10, 7, 4, 1, -2, -5, -8, 0]\n\
