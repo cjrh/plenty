@@ -42,6 +42,12 @@ with arbitrary future Polars builds. Directly emitted objects also require
 this engine when externally linked. Engine directories containing a colon
 are rejected because ELF RUNPATH uses that character as a separator.
 
+Rebuild/reinstall the engine when updating the compiler's dataframe API.
+New query operations add version-1 symbols; an older engine cannot satisfy
+their native links even though its filename is unchanged.
+The system loader's `LD_LIBRARY_PATH` and `LD_PRELOAD` can override RUNPATH;
+keep stale engine copies out of those paths when switching installations.
+
 Normal programs need neither this library nor Rust. They do not gain a
 `DT_NEEDED` entry for Polars. A project fingerprint includes the selected
 engine path and metadata, so replacing or relocating it triggers relinking.

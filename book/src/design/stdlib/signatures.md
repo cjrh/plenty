@@ -371,6 +371,10 @@ def writer[W](inner: W, dialect: &Dialect) -> Result[Writer[W], CsvError]
 Optional Polars analytical expression plans, bulk numeric columns, grouping, and Parquet. Errors: `DataFrameError`. [Reference](dataframe.md).
 
 ```text
+enum JoinKind
+    Inner | Left
+class SortKey
+    def __init__(self, expression: Expr, descending: bool = False, nulls_last: bool = True) -> ()
 enum DataFrameError
     Schema(str) | Query(str) | Io(str) | NativePanic(str) | Null(str) | Bounds(str) | Allocation(AllocError) | Message(IoError)
 class Column
@@ -408,6 +412,10 @@ class Query
     def select(self, expressions: &list[Expr]) -> Result[Query, DataFrameError]
     def group_by(self, keys: &list[Expr], aggregates: &list[Expr]) -> Result[Query, DataFrameError]
     def collect(self) -> Result[DataFrame, DataFrameError]
+    def join(self, other: &Query, left_keys: &list[Expr], right_keys: &list[Expr], how: JoinKind = JoinKind.Inner, suffix: &str = "_right", nulls_equal: bool = False) -> Result[Query, DataFrameError]
+    def sort(self, keys: &list[SortKey]) -> Result[Query, DataFrameError]
+    def slice(self, offset: i64, length: i64) -> Result[Query, DataFrameError]
+    def limit(self, count: i64) -> Result[Query, DataFrameError]
 def frame(columns: &list[Column]) -> Result[DataFrame, DataFrameError]
 def column_i64(name: &str, values: &list[i64]) -> Result[Column, DataFrameError]
 def column_f64(name: &str, values: &list[f64]) -> Result[Column, DataFrameError]

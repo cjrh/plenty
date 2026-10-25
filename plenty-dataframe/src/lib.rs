@@ -15,6 +15,13 @@ pub struct NativeError {
 }
 type Result<T> = std::result::Result<T, NativeError>;
 
+#[derive(Default)]
+pub struct SortKeys {
+    expressions: Vec<Expr>,
+    descending: Vec<bool>,
+    nulls_last: Vec<bool>,
+}
+
 impl NativeError {
     fn new(kind: i32, message: impl Into<String>) -> Self {
         Self {
@@ -132,6 +139,7 @@ destroy!(pldf_v1_frame_drop, DataFrame);
 destroy!(pldf_v1_expr_drop, Expr);
 destroy!(pldf_v1_exprs_drop, Vec<Expr>);
 destroy!(pldf_v1_query_drop, LazyFrame);
+destroy!(pldf_v1_sort_keys_drop, SortKeys);
 
 /// # Safety
 /// Borrow a non-null error owner for the call.
@@ -279,9 +287,258 @@ export!(pldf_v1_collect(query: *const LazyFrame, out: *mut *mut DataFrame) {
     put(out, get(query)?.clone().collect()?)
 });
 
+export!(pldf_v1_join(left: *const LazyFrame, right: *const LazyFrame, left_keys: *const Vec<Expr>, right_keys: *const Vec<Expr>, kind: i32, suffix: *const u8, suffix_len: usize, nulls_equal: u8, out: *mut *mut LazyFrame) {
+    let (left_keys, right_keys) = (get(left_keys)?, get(right_keys)?);
+    if left_keys.is_empty() || left_keys.len() != right_keys.len() {
+        return Err(NativeError::new(1, "join requires nonempty left and right keys of equal length"));
+    }
+    let how = match kind {
+        0 => JoinType::Inner,
+        1 => JoinType::Left,
+        _ => return Err(NativeError::new(1, "unsupported join kind")),
+    };
+    if nulls_equal > 1 { return Err(NativeError::new(1, "invalid join null policy")); }
+    let args = JoinArgs {
+        suffix: Some(text(suffix, suffix_len)?.into()),
+        nulls_equal: nulls_equal != 0,
+        // Retaining both sides is predictable for column and computed keys.
+        coalesce: JoinCoalesce::KeepColumns,
+        ..JoinArgs::new(how)
+    };
+    put(out, get(left)?.clone().join(get(right)?.clone(), left_keys.as_slice(), right_keys.as_slice(), args))
+});
+
+export!(pldf_v1_sort_keys_new(out: *mut *mut SortKeys) { put(out, SortKeys::default()) });
+export!(pldf_v1_sort_keys_add(keys: *mut SortKeys, expr: *const Expr, descending: u8, nulls_last: u8) {
+    if descending > 1 || nulls_last > 1 { return Err(NativeError::new(1, "invalid sort direction or null placement")); }
+    let keys = keys.as_mut().ok_or_else(|| NativeError::new(1, "null sort keys"))?;
+    let expr = get(expr)?.clone();
+    keys.expressions.push(expr);
+    keys.descending.push(descending != 0);
+    keys.nulls_last.push(nulls_last != 0);
+    Ok(())
+});
+export!(pldf_v1_sort(query: *const LazyFrame, keys: *const SortKeys, out: *mut *mut LazyFrame) {
+    let keys = get(keys)?;
+    if keys.expressions.is_empty() { return Err(NativeError::new(1, "sort requires at least one key")); }
+    let options = SortMultipleOptions {
+        descending: keys.descending.clone(),
+        nulls_last: keys.nulls_last.clone(),
+        maintain_order: true,
+        ..Default::default()
+    };
+    put(out, get(query)?.clone().sort_by_exprs(&keys.expressions, options))
+});
+export!(pldf_v1_slice(query: *const LazyFrame, offset: i64, length: i64, out: *mut *mut LazyFrame) {
+    let length = u32::try_from(length).map_err(|_| NativeError::new(7, "slice length must be between 0 and 4294967295"))?;
+    put(out, get(query)?.clone().slice(offset, length))
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn success(error: *mut NativeError) {
+        if !error.is_null() {
+            // SAFETY: each returned error is a fresh unique native owner.
+            let error = unsafe { Box::from_raw(error) };
+            panic!("unexpected native error: {error:?}");
+        }
+    }
+
+    unsafe fn collected(query: *const LazyFrame) -> DataFrame {
+        let mut frame = ptr::null_mut();
+        // SAFETY: caller lends a live query; the output is consumed once.
+        unsafe {
+            success(pldf_v1_collect(query, &mut frame));
+            *Box::from_raw(frame)
+        }
+    }
+
+    #[test]
+    fn joins_preserve_multiplicity_null_policy_and_owned_inputs() {
+        let left = df!("id" => &[Some(1i64), Some(1), None, Some(3)],
+                       "value" => &[10i64, 11, 12, 13])
+        .unwrap()
+        .lazy();
+        let right = df!("id" => &[Some(1i64), Some(1), None, Some(4)],
+                        "value" => &[20i64, 21, 22, 23])
+        .unwrap()
+        .lazy();
+        let keys = vec![col("id")];
+        // SAFETY: borrowed inputs live throughout each call; returned query
+        // handles are uniquely destroyed after collecting.
+        unsafe {
+            for (kind, nulls_equal, height, nulls) in
+                [(0, 0, 4, 0), (0, 1, 5, 0), (1, 0, 6, 2), (1, 1, 6, 1)]
+            {
+                let mut out = ptr::null_mut();
+                success(pldf_v1_join(
+                    &left,
+                    &right,
+                    &keys,
+                    &keys,
+                    kind,
+                    b"_r".as_ptr(),
+                    2,
+                    nulls_equal,
+                    &mut out,
+                ));
+                let frame = collected(out);
+                pldf_v1_query_drop(out);
+                assert_eq!(frame.height(), height);
+                assert_eq!(frame.column("value_r").unwrap().null_count(), nulls);
+                assert!(frame.column("id_r").is_ok());
+                assert_eq!(
+                    (0..frame.height())
+                        .filter(
+                            |row| frame.column("id").unwrap().i64().unwrap().get(*row) == Some(1)
+                        )
+                        .count(),
+                    4
+                );
+            }
+            let mut out = ptr::null_mut();
+            success(pldf_v1_join(
+                &left,
+                &right,
+                &keys,
+                &keys,
+                1,
+                b"_r".as_ptr(),
+                2,
+                0,
+                &mut out,
+            ));
+            drop((left, right, keys));
+            assert_eq!(collected(out).height(), 6);
+            pldf_v1_query_drop(out);
+        }
+    }
+
+    #[test]
+    fn sorting_is_lexicographic_stable_and_has_per_key_null_placement() {
+        let query = df!("a" => &[Some(1i64), None, Some(1), Some(2), None, Some(1)],
+                        "b" => &[10i64, 20, 11, 30, 21, 11],
+                        "row" => &[0i64, 1, 2, 3, 4, 5])
+        .unwrap()
+        .lazy();
+        // SAFETY: the native sort owner is built and released once; Exprs
+        // are borrowed only during add, and the sorted query retains copies.
+        unsafe {
+            let mut keys = ptr::null_mut();
+            success(pldf_v1_sort_keys_new(&mut keys));
+            success(pldf_v1_sort_keys_add(keys, &col("a"), 0, 1));
+            success(pldf_v1_sort_keys_add(keys, &col("b"), 1, 0));
+            let mut out = ptr::null_mut();
+            success(pldf_v1_sort(&query, keys, &mut out));
+            pldf_v1_sort_keys_drop(keys);
+            drop(query);
+            let frame = collected(out);
+            pldf_v1_query_drop(out);
+            assert_eq!(
+                frame
+                    .column("row")
+                    .unwrap()
+                    .i64()
+                    .unwrap()
+                    .into_no_null_iter()
+                    .collect::<Vec<_>>(),
+                [2, 5, 0, 3, 4, 1]
+            );
+        }
+    }
+
+    #[test]
+    fn slice_bounds_are_checked_without_panicking_or_consuming_the_query() {
+        let query = df!("x" => &[10i64, 20, 30]).unwrap().lazy();
+        // SAFETY: all output slots are initialized null and their resulting
+        // owners are freed once. The query remains borrowed throughout.
+        unsafe {
+            for (offset, length, expected) in [
+                (1, 99, vec![20, 30]),
+                (-2, 1, vec![20]),
+                (0, 0, vec![]),
+                (i64::MAX, 1, vec![]),
+                (i64::MIN, 1, vec![]),
+                (-99, 2, vec![]),
+            ] {
+                let mut out = ptr::null_mut();
+                success(pldf_v1_slice(&query, offset, length, &mut out));
+                let frame = collected(out);
+                pldf_v1_query_drop(out);
+                assert_eq!(
+                    frame
+                        .column("x")
+                        .unwrap()
+                        .i64()
+                        .unwrap()
+                        .into_no_null_iter()
+                        .collect::<Vec<_>>(),
+                    expected
+                );
+            }
+            for length in [-1, i64::from(u32::MAX) + 1] {
+                let mut out = ptr::null_mut();
+                let error = pldf_v1_slice(&query, 0, length, &mut out);
+                assert_eq!(pldf_v1_error_kind(error), 7);
+                assert!(out.is_null());
+                pldf_v1_error_drop(error);
+            }
+            assert_eq!(collected(&query).height(), 3);
+        }
+    }
+
+    #[test]
+    fn invalid_join_keys_sort_keys_and_suffix_collisions_are_errors() {
+        let query = df!("id" => &[1i64], "id_right" => &[2i64]).unwrap().lazy();
+        let empty = vec![];
+        let one = vec![col("id")];
+        let two = vec![col("id"), col("id_right")];
+        // SAFETY: live borrowed inputs, null output slots, unique returned
+        // errors/queries released by the matching native functions.
+        unsafe {
+            for (left, right) in [(&empty, &one), (&one, &two)] {
+                let mut out = ptr::null_mut();
+                let error = pldf_v1_join(
+                    &query,
+                    &query,
+                    left,
+                    right,
+                    0,
+                    b"_right".as_ptr(),
+                    6,
+                    0,
+                    &mut out,
+                );
+                assert_eq!(pldf_v1_error_kind(error), 1);
+                assert!(out.is_null());
+                pldf_v1_error_drop(error);
+            }
+            let mut out = ptr::null_mut();
+            let error = pldf_v1_sort(&query, &SortKeys::default(), &mut out);
+            assert_eq!(pldf_v1_error_kind(error), 1);
+            assert!(out.is_null());
+            pldf_v1_error_drop(error);
+            success(pldf_v1_join(
+                &query,
+                &query,
+                &one,
+                &one,
+                0,
+                b"_right".as_ptr(),
+                6,
+                0,
+                &mut out,
+            ));
+            let mut frame = ptr::null_mut();
+            let error = pldf_v1_collect(out, &mut frame);
+            assert_eq!(pldf_v1_error_kind(error), 2);
+            assert!(frame.is_null());
+            pldf_v1_error_drop(error);
+            pldf_v1_query_drop(out);
+        }
+    }
 
     #[test]
     fn strided_reads_support_empty_unaligned_and_padded_input() {

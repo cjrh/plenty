@@ -82,6 +82,7 @@
         - [Borrow records in a collection](tutorial/06-data/10-iterate-records.md)
     - [7. Special-purpose data structures](tutorial/special-purpose/index.md)
         - [Dataframes with Polars](tutorial/special-purpose/dataframes.md)
+            - [Join and rank results](tutorial/special-purpose/dataframe-joins.md)
         - [Columnar lists](tutorial/special-purpose/columnar-lists/index.md)
             - [Build and scan columnar records](tutorial/special-purpose/columnar-lists/01-scanning.md)
             - [Count matching integer values](tutorial/special-purpose/columnar-lists/02-counting.md)
