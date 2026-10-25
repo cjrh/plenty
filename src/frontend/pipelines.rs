@@ -2,6 +2,7 @@
 //! condition, item body, and step are spliced into the consuming loop.
 use super::collections::Iteration;
 use super::*;
+use crate::numeric::{FloatOp, NumericOp};
 
 mod generator_bridge;
 mod splice;
@@ -1078,6 +1079,9 @@ impl Lower<'_> {
         if matches!(name, "collect" | "try_collect") {
             return self.pipeline_collect(base, name, args, None, ops).map(Some);
         }
+        if matches!(name, "sum" | "min" | "max") {
+            return self.pipeline_arithmetic(base, name, args, ops).map(Some);
+        }
         let start = self.locals.len();
         let saved = self.names.clone();
         let plan = self.pipeline_source(base, ops)?;
@@ -1348,6 +1352,169 @@ impl Lower<'_> {
         Ok(output.map(|(ty, _)| ty))
     }
 
+    /// `sum`, `min` and `max`. A borrowed item is read through its reference,
+    /// as `*item`, so the result is a value like the `std.math` reductions.
+    /// Float `min`/`max` use IEEE 754-2019 `minimum`/`maximum`: any NaN item
+    /// gives NaN, and -0.0 orders below +0.0. Other ties keep the first item.
+    fn pipeline_arithmetic(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        if !args.is_empty() {
+            return Err(base.at.error(format!("{name} takes no arguments")));
+        }
+        let start = self.locals.len();
+        let saved = self.names.clone();
+        let plan = self.pipeline_source(base, ops)?;
+        let ty = match &plan.item.ty {
+            Ty::Ref(inner, _) if plan.pair.is_none() => (**inner).clone(),
+            ty => ty.clone(),
+        };
+        let accepted = if name == "sum" {
+            ty.is_numeric()
+        } else {
+            ty.is_numeric() || ty == Ty::Str
+        };
+        if plan.pair.is_some() || !accepted {
+            let required = if name == "sum" {
+                "numeric items"
+            } else {
+                "numeric or str items"
+            };
+            return Err(base.at.error(format!(
+                "{name} requires {required}, found {}; map the items first or use fold",
+                type_name(Some(plan.item.ty.clone()))
+            )));
+        }
+        let [item] = self
+            .pipeline_arguments(&plan, false, &base.at)
+            .try_into()
+            .unwrap_or_else(|_| unreachable!());
+        let value = if matches!(plan.item.ty, Ty::Ref(..)) {
+            Expr {
+                at: base.at.clone(),
+                kind: Expression::Unary("*".into(), Box::new(item)),
+            }
+        } else {
+            item
+        };
+        let mut body = plan.iteration.body.clone();
+        let named = |this: &mut Self, slot: u8, label: &str| {
+            let name = format!("<pipeline {label} {slot}>");
+            this.bind(
+                name.clone(),
+                Local {
+                    slot,
+                    ty: ty.clone(),
+                    mutable: true,
+                },
+            );
+            Expr {
+                at: base.at.clone(),
+                kind: Expression::Name(name),
+            }
+        };
+        let output = if name == "sum" {
+            let total = self.slot(ty.clone(), &base.at)?;
+            ops.extend([zero(&ty), Op::StoreLocal(total)]);
+            let sum = Expr {
+                at: base.at.clone(),
+                kind: Expression::Binary(
+                    "+".into(),
+                    Box::new(named(self, total, "sum")),
+                    Box::new(value),
+                ),
+            };
+            let actual = self.expr(&sum, &mut body)?;
+            self.same(actual, Some(ty.clone()), &base.at)?;
+            body.push(Op::StoreLocal(total));
+            body.extend(plan.iteration.step.clone());
+            pipeline_loop(&plan, body, ops);
+            ops.push(Op::LoadLocal(total));
+            ty.clone()
+        } else {
+            // `best` is meaningful only once `seen` is set.
+            let seen = self.slot(Ty::Bool, &base.at)?;
+            let best = self.slot(ty.clone(), &base.at)?;
+            let current = self.slot(ty.clone(), &base.at)?;
+            ops.extend([
+                Op::PushBool(false),
+                Op::StoreLocal(seen),
+                Op::EmptyLocal(best),
+                Op::EmptyLocal(current),
+            ]);
+            let actual = self.expr(&value, &mut body)?;
+            self.same(actual, Some(ty.clone()), &base.at)?;
+            body.push(Op::StoreLocal(current));
+            let choose = if ty.is_float() {
+                let op = if name == "min" {
+                    FloatOp::Minimum
+                } else {
+                    FloatOp::Maximum
+                };
+                vec![
+                    Op::LoadLocal(best),
+                    Op::LoadLocal(current),
+                    Op::Numeric(NumericOp::Float(op)),
+                    Op::StoreLocal(best),
+                ]
+            } else {
+                let better = Expr {
+                    at: base.at.clone(),
+                    kind: Expression::Binary(
+                        if name == "min" { "<" } else { ">" }.into(),
+                        Box::new(named(self, current, "candidate")),
+                        Box::new(named(self, best, "best")),
+                    ),
+                };
+                let mut choose = Vec::new();
+                let actual = self.expr(&better, &mut choose)?;
+                self.same(actual, Some(Ty::Bool), &base.at)?;
+                choose.push(branch(
+                    vec![Op::LoadLocal(current), Op::StoreLocal(best)],
+                    vec![],
+                ));
+                choose
+            };
+            body.extend([
+                Op::LoadLocal(seen),
+                branch(
+                    choose,
+                    vec![
+                        Op::PushBool(true),
+                        Op::StoreLocal(seen),
+                        Op::LoadLocal(current),
+                        Op::StoreLocal(best),
+                    ],
+                ),
+            ]);
+            body.extend(plan.iteration.step.clone());
+            pipeline_loop(&plan, body, ops);
+            let option = crate::sum::option(ty.clone());
+            let Ty::Enum(sum) = &option else {
+                unreachable!()
+            };
+            ops.extend([
+                Op::LoadLocal(seen),
+                branch(
+                    vec![
+                        Op::LoadLocal(best),
+                        Op::Enum(crate::sum::EnumOp::New(sum.clone(), 1)),
+                    ],
+                    vec![Op::Enum(crate::sum::EnumOp::New(sum.clone(), 0))],
+                ),
+            ]);
+            option
+        };
+        self.finish_pipeline(&plan, ops);
+        self.cleanup(start, ops);
+        self.names = saved;
+        Ok(output)
+    }
+
     pub(super) fn pipeline_collect(
         &mut self,
         base: &Expr,
@@ -1498,4 +1665,22 @@ fn redirect_breaks(ops: Vec<Op>, replacement: &[Op]) -> Vec<Op> {
         }
     }
     out
+}
+
+/// The additive identity of a numeric type: `sum` of no items.
+fn zero(ty: &Ty) -> Op {
+    match ty {
+        Ty::F32 | Ty::F64 => Op::PushFloat {
+            bits: 0,
+            ty: ty.clone(),
+        },
+        Ty::I8 => Op::PushInt(Value::I8(0)),
+        Ty::I16 => Op::PushInt(Value::I16(0)),
+        Ty::I32 => Op::PushInt(Value::I32(0)),
+        Ty::U8 => Op::PushInt(Value::U8(0)),
+        Ty::U16 => Op::PushInt(Value::U16(0)),
+        Ty::U32 => Op::PushInt(Value::U32(0)),
+        Ty::U64 => Op::PushInt(Value::U64(0)),
+        _ => Op::PushInt(Value::I64(0)),
+    }
 }

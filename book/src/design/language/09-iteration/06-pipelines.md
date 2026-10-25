@@ -140,6 +140,8 @@ the pipeline is dropped. Inner items are owned, so `flat_map` adds no loan.
 | `fold(initial, f)` | Left fold with callback `(A, Item) -> A` |
 | `reduce(f)` | Left fold without an initial value; `Option[Item]`, empty is `Nothing` |
 | `count()` | Checked `i64` item count |
+| `sum()` | Numeric total; zero when empty; integer overflow traps like `+` |
+| `min()` / `max()` | Least / greatest numeric or `str` item in `Option[Item]`; empty is `Nothing`; ties keep the first |
 | `any(f)` / `all(f)` | Short-circuit shared-reference predicates; empty is false / true |
 | `find(f)` | First matching item in `Option[Item]`, then release the rest |
 | `for_each(f)` | Call `(Item) -> ()` for each item |
@@ -151,6 +153,15 @@ the pipeline is dropped. Inner items are owned, so `flat_map` adds no loan.
 
 `find` and `reduce` need an item that can be stored in an `Option`; map a
 borrowed item to an owned value first.
+
+`sum`, `min`, and `max` read a borrowed `&T` or `&mut T` item as its value
+(`*item`), so `iter(&values).max()` returns `Option[i64]` for a `list[i64]` and
+copies the selected `str`. They take no arguments and add no allocation. `sum`
+accepts numeric items; `min` and `max` accept numeric and `str` items. Pairs,
+tuples, and other types are rejected: map them to a supported item first, or use
+`fold` or `reduce`. Float `min` and `max` follow IEEE 754-2019 `minimum` and
+`maximum`: any NaN item makes the result `Some(NaN)`, and `-0.0` orders below
+`0.0`. They still consume every item. A float `sum` adds in source order.
 
 Collecting needs an expected collection type, from a binding annotation,
 argument, or return type. There is no default collection:

@@ -8,26 +8,28 @@ class Payment:
     name: str
     cents: i64
 
-def add(total: i64, cents: i64) -> i64:
-    total + cents
-
 def main() -> Result[(), AllocError | IoError]:
     payments = [Payment("bob", 120), Payment("ada", 300), Payment("bob", 80)]?
     selected = iter(&payments).filter(def(p: &Payment) -> bool: p.name == "bob")
-    total = selected.map(def(p: &Payment) -> i64: p.cents).fold(0, add)
-    print(total, len(payments))?
+    total = selected.map(def(p: &Payment) -> i64: p.cents).sum()
+    largest = iter(&payments).map(def(p: &Payment) -> i64: p.cents).max()
+    print(total, largest, len(payments))?
     Ok(())
 ```
 ```output
-200 3
+200 Option[i64].Some(300) 3
 ```
 
-`selected` holds a loan of `payments`. The filter and map run when `fold`
-consumes the pipeline, in source order. `fold` starts at zero and passes the
-accumulator and each amount to `add`. A closure written directly in the chain,
+`selected` holds a loan of `payments`. The filter and map run when `sum`
+consumes the pipeline, in source order. A closure written directly in the chain,
 like the filter and map here, is compiled into that loop rather than called.
 The payments remain available afterwards.
 Trying to consume `selected` again is an ownership error.
+
+`sum` returns zero for no items and traps on integer overflow, like `+`. `min`
+and `max` return an `Option`, `Nothing` when there are no items, and keep the
+first of equal items. They accept numbers and `str`; a float NaN makes the
+result NaN. Use `fold` for any other accumulation.
 
 A method returning a borrowed list can be used directly as the source. Its
 owner remains borrowed while the pipeline is in use:
@@ -41,13 +43,16 @@ class Readings:
 
 def main() -> Result[(), AllocError | IoError]:
     readings = Readings([10, 20, 30]?)
-    total = iter(readings.samples()).fold(0, def(acc: i64, n: &i64) -> i64: acc + *n)
-    print(total)?
+    product = iter(readings.samples()).fold(1, def(acc: i64, n: &i64) -> i64: acc * *n)
+    print(product)?
     Ok(())
 ```
 ```output
-60
+6000
 ```
+
+`fold` starts with its first argument and passes the accumulator and each item
+to the callback, which returns the next accumulator.
 
 Predicates borrow each item; `map` receives whatever the source yields. A
 borrowed list yields references, so the map above takes `&Payment`. A range
@@ -118,7 +123,7 @@ class Batch:
 def main() -> Result[(), AllocError | IoError]:
     morning = [3, 1]?
     evening = [4]?
-    total = iter(&morning).chain(&evening).fold(0, def(acc: i64, n: &i64) -> i64: acc + *n)
+    total = iter(&morning).chain(&evening).sum()
     print(total)?
     batches = [Batch(100, 2), Batch(200, 1)]?
     for ticket in iter(&batches).flat_map(def(b: &Batch) -> range[i64]: range(b.first, b.first + b.count)):
@@ -132,7 +137,7 @@ def main() -> Result[(), AllocError | IoError]:
 200
 ```
 
-Both lists stay borrowed until the fold ends. The `flat_map` callback runs
+Both lists stay borrowed until the sum ends. The `flat_map` callback runs
 once per batch, only after the previous batch's tickets are used up, and
 returns a range, so nothing is allocated. A callback may return any owned
 iterable, such as a list, range or generator; returning a list allocates one list
