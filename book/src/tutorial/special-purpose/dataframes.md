@@ -89,3 +89,5 @@ Continue with [Join and rank results](dataframe-joins.md) to combine datasets,
 order results inside Polars and select a row window. For cleaning text,
 conditional values and per-group comparisons, see
 [Clean and compare column values](dataframe-expressions.md).
+[Query CSV and write Parquet](dataframe-io.md) adds file-backed pipelines
+and explains when to collect or write directly.
