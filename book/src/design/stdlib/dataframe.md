@@ -53,6 +53,8 @@ The [signature index](signatures.md#stddataframe) gives exact declarations.
 | `query.filter(&predicate)` | `Query` |
 | `query.with_columns(&expressions)`, `select(&expressions)` | `Query` |
 | `query.group_by(&keys, &aggregates)` | `Query` |
+| `query.join(&other, &left_keys, &right_keys, how=JoinKind.Inner, suffix="_right", nulls_equal=False)` | `Query` |
+| `query.sort(&keys)`, `slice(offset, length)`, `limit(count)` | `Query` |
 | `query.collect()` | `DataFrame` |
 | `frame.write_parquet(path)` | `()` |
 
@@ -63,8 +65,8 @@ arise during construction or collection. `with_columns` replaces matching
 names or adds new columns. Expressions in one call see the input schema;
 chain calls when a later expression depends on a newly derived column.
 Selection projects or aggregates. Grouping supports multiple keys and
-aggregates, but does not promise group order. Collect and sort externally
-when an application needs a particular order.
+aggregates, but does not promise group order. Add `sort` to the plan when
+an application needs a particular order.
 
 Owners and plans are immutable through this public API. Methods borrow
 their receivers; resulting plans clone native handles and share buffers.
@@ -72,13 +74,64 @@ Dropping the original columns, frame or expressions does not invalidate a
 derived query. Each handle is freed by the engine that allocated it.
 There are no public raw pointers or user-created native handles.
 
+## Joins, ordering and row windows
+
+These operations return new immutable query plans; neither input is consumed
+or mutated. They execute inside Polars, with no Plenty row callbacks or
+intermediate conversion into Plenty lists. Input owners, key expressions and
+sort specifications may be dropped after constructing the resulting plan.
+
+`join` accepts nonempty, equally long lists of left/right key expressions.
+`JoinKind.Inner` keeps matching row pairs; `JoinKind.Left` also keeps every
+unmatched left row with nulls in the right columns. Composite keys match all
+components. Key types must be compatible; no implicit Plenty-side cast occurs.
+Schema errors, unknown columns and incompatible native expressions may fail
+only when collected. Empty or unequal key lists fail immediately with
+`DataFrameError.Schema`.
+
+Keys need not be unique: two matching left rows and three matching right rows
+produce six pairs. This is a many-to-many join, not a checked lookup.
+Null keys do not match by default. With `nulls_equal=True`, nulls at matching
+key positions compare equal, including duplicate-null multiplicity.
+NaN remains a value governed by Polars equality, not a null.
+Join order is unspecified. Full/right/semi/anti/as-of joins and uniqueness
+validation options are not exposed by this slice.
+
+Both sides' key columns are retained, including when the key names coincide.
+Any right column whose name occurs on the left gets `suffix` (default
+`"_right"`). If suffixing still produces duplicate names, collection fails
+with `DataFrameError.Query`; it does not overwrite an existing column.
+Use a different suffix or rename/select columns in the input plan.
+This explicit retention rule applies to computed keys too; keys are not
+silently coalesced.
+
+`SortKey(expression: Expr, descending: bool = False, nulls_last: bool = True)`
+owns its expression; constructing the wrapper itself is infallible.
+`query.sort(keys: &list[SortKey])` orders lexicographically, with the first
+key most significant. Every key has independent direction and null placement.
+Null placement is independent of direction: `nulls_last=True` puts nulls last
+even in descending order. NaN follows Polars value ordering. Equal keys retain
+their input order; that does not make ties from an unordered join/group
+deterministic. Include an additional identifying key when that matters.
+An empty sort list fails with `Schema`.
+
+`slice(offset: i64, length: i64)` selects a row window.
+The second argument is a **count**, unlike Plenty list `slice(start, stop)`.
+Negative offsets count from the end. The requested interval is intersected
+with the available rows: `slice(-2, 10)` keeps the last two rows, while
+`slice(-100, 2)` on a three-row frame is empty. Offsets beyond the end also
+produce empty frames. `length` must be in `0..4294967295` inclusive;
+negative or larger lengths fail immediately with `DataFrameError.Bounds`.
+`limit(count)` is `slice(0, count)`, with the same length checks.
+Sort first when a page or top-N result needs a defined ordering.
+
 ## Semantics and limits
 
 Polars 0.55.2 semantics apply inside expressions, not Plenty scalar
 semantics. Schemas are checked at runtime. Input/extraction supports only
 `i64` and `f64`; Parquet can contain other native types that expressions
 can carry, but this API cannot extract them. Paths are UTF-8 strings.
-There is no automatic lambda translation, mutation API, join, string/date
+There is no automatic lambda translation, mutation API, string/date
 construction, cloud credential configuration or stable serialization of plans.
 
 Null is missing data, distinct from floating-point NaN. Comparisons with

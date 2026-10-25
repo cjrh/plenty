@@ -47,7 +47,7 @@ jobs:
           cargo fmt --manifest-path plenty-dataframe/Cargo.toml -- --check
           cargo test --manifest-path plenty-dataframe/Cargo.toml --locked --release -j 2
           cargo clippy --manifest-path plenty-dataframe/Cargo.toml --locked --release --all-targets -j 2 -- -D warnings
-      - run: cargo test --locked --test integration test_std_dataframe::
+      - run: "cargo test --locked --test integration test_std_dataframe::"
       - run: cargo test --locked --test integration test_tutorial::dataframe_examples_with_optional_engine
   # The full all-features suite under cargo-nextest, split across runners.
   # Each shard compiles the tests itself: a shared build job plus

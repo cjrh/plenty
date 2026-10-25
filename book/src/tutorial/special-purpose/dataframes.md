@@ -17,18 +17,19 @@ analytical operations, not the default replacement for a collection.
 Copy numeric lists into named columns, create a frame, and build expressions.
 An expression is a native query description, not a Plenty function called
 once per row. `?` handles query errors, separately from null values.
+Borrowed parameters accept values directly, so explicit `&` is optional here.
 
 ```plenty dataframe
 import std.dataframe as df
 
 def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
     readings = [18.0, 23.0, 29.0]?
-    columns = [df.column_f64("temperature", &readings)?]?
-    data = df.frame(&columns)?
+    columns = [df.column_f64("temperature", readings)?]?
+    data = df.frame(columns)?
     temperature = df.col("temperature")?
-    warm = temperature.gt(&df.lit(20.0)?)?
+    warm = temperature.gt(df.lit(20.0)?)?
     aggregates = [temperature.mean()?.alias("average")?]?
-    result = data.lazy()?.filter(&warm)?.select(&aggregates)?.collect()?
+    result = data.lazy()?.filter(warm)?.select(aggregates)?.collect()?
     print(result.get_f64("average", 0)?)?
     Ok(())
 ```
@@ -54,12 +55,12 @@ import std.dataframe as df
 def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
     stations = [1, 2, 1]?
     readings = [10.0, 20.0, 30.0]?
-    columns = [df.column_i64("station", &stations)?, df.column_f64("reading", &readings)?]?
-    data = df.frame(&columns)?
-    derived = [df.col("reading")?.mul(&df.lit(2.0)?)?.alias("adjusted")?]?
+    columns = [df.column_i64("station", stations)?, df.column_f64("reading", readings)?]?
+    data = df.frame(columns)?
+    derived = [df.col("reading")?.mul(df.lit(2.0)?)?.alias("adjusted")?]?
     keys = [df.col("station")?]?
     totals = [df.col("adjusted")?.sum()?.alias("total")?]?
-    result = data.lazy()?.with_columns(&derived)?.group_by(&keys, &totals)?.collect()?
+    result = data.lazy()?.with_columns(derived)?.group_by(keys, totals)?.collect()?
     print(result.height()?)?
     data.write_parquet("readings.parquet")?
     restored = df.scan_parquet("readings.parquet")?.collect()?
@@ -81,3 +82,6 @@ Plenty arithmetic, and parallel floating-point reductions can change rounding.
 Native allocation failure can abort the process. Read the
 [reference contracts](../../design/stdlib/dataframe.md) before using these
 operations where those distinctions matter.
+
+Continue with [Join and rank results](dataframe-joins.md) to combine datasets,
+order results inside Polars and select a row window.
