@@ -78,7 +78,7 @@ individually. Numeric types retain `f64.PI`, `f64.E`, `f64.TAU`, `f64.INF`, and
 | `perm(n: u64, k: u64) -> Result[u64, MathError]` | Ordered selections; `k > n` gives zero |
 | `comb(n: u64, k: u64) -> Result[u64, MathError]` | Unordered selections; `k > n` gives zero; cancels factors before multiplication |
 | `abs[T](x: T) -> T` | Numeric magnitude; normalizes floating zero; negating a signed minimum traps |
-| `min[T](a: T, b: T) -> T`, `max[T](a: T, b: T) -> T` | Compare two owned comparable values; ties retain the first |
+| `min[T](a: T, b: T) -> T`, `max[T](a: T, b: T) -> T` | Compare two owned comparable values; equal values retain the first |
 | `min_all[T](items: &list[T]) -> Option[T]`, `max_all[T](items: &list[T]) -> Option[T]` | Copy the first extremum; `Nothing` for an empty list; elements must be copyable and comparable |
 | `sum[T](items: &list[T], start: T) -> T`, `prod[T](items: &list[T], start: T) -> T` | Sequential numeric fold; empty lists return the explicit start |
 | `sum_iter[I, T](items: &I, start: T) -> T`, `prod_iter[I, T](items: &I, start: T) -> T` | Borrowed list, set, range, or dictionary-key fold; numeric elements must match the start type |
@@ -89,14 +89,18 @@ Unlike Python, Plenty has no arbitrary-precision integer type. `gcd` and `lcm`
 take two unsigned inputs; convert signed magnitudes explicitly. Generic helpers
 specialize against operations in their bodies, with normal language errors for
 unsupported types. They allocate nothing and retain ordinary arithmetic
-overflow traps. Floating `sum` uses sequential addition, with no compensated
-summation guarantee.
+overflow traps. Floating `sum` uses sequential IEEE 754 addition, with no
+compensated summation guarantee; any NaN element makes the sum NaN.
 
-Collection helpers borrow their inputs and preserve them. `min`, `max`,
-`min_all`, and `max_all` propagate scalar NaN: any floating NaN input makes the result
-NaN (`Some(NaN)` for the list helpers), regardless of its position. Otherwise
-extrema use ordinary comparisons, retaining the first value on ties, including
-signed zeros. Tuple elements retain their existing [lexicographic total
+Collection helpers borrow their inputs and preserve them. For `f32` and `f64`,
+`min`, `max`, `min_all`, and `max_all` follow IEEE 754-2019 `minimum` and
+`maximum`: `-0.0` orders below `0.0`, so `min(0.0, -0.0)` is `-0.0` and
+`max(-0.0, 0.0)` is `0.0`, and any NaN input makes the result NaN (`Some(NaN)`
+for the list helpers), regardless of its position. The NaN returned is the
+first NaN input. The pipeline [`min()` and `max()`
+terminals](../language/09-iteration/06-pipelines.md#terminals) share this rule.
+Other types use ordinary comparisons and retain the first of equal values.
+Tuple elements retain their existing [lexicographic total
 order](../language/03-types/tuples.md), including the ordering of NaN fields;
 they are not scalar NaNs. Dictionary
 folds visit keys in insertion order; set order is unspecified. The fold start is

@@ -1740,27 +1740,103 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
-fn float_min_and_max_propagate_nan_from_any_position() {
+fn float_min_and_max_follow_ieee_minimum_and_maximum() {
+    // -0.0 orders below 0.0 in either order. The sign of a NaN result shows
+    // that the first NaN item is kept, as `extremum_replaces` documents.
     output(
         r#"
+import std.math as math
+def sign(x: Option[f64]) -> f64:
+    match x:
+        case Some(v):
+            math.copysign(1.0, v)
+        case Nothing:
+            0.0
 def main() -> Result[(), AllocError | IoError]:
-    first = [f64.NAN, 2.0, 1.0]?
-    middle = [2.0, f64.NAN, 1.0]?
-    last = [2.0, 1.0, f64.NAN]?
-    for values in [first, middle, last]?:
-        print(iter(&values).min(), iter(&values).max(), iter(&values).sum())?
+    neg = math.copysign(f64.NAN, -1.0)
+    cases = [
+        [0.0, -0.0]?, [-0.0, 0.0]?, [2.0, 1.0, 1.0]?,
+        [neg, 2.0, f64.NAN]?, [2.0, f64.NAN, neg, 1.0]?, [2.0, 1.0, neg]?,
+    ]?
+    for values in &cases:
+        low = iter(values).min()
+        high = iter(values).max()
+        print(low, sign(low), high, sign(high))?
     zeros = [0.0, -0.0]?
-    print(iter(&zeros).min(), iter(&zeros).max())?
     print(iter(&zeros).map(def(z: &f64) -> f32: f32(*z)).min())?
     Ok(())
 "#,
         concat!(
-            "Option[f64].Some(NaN) Option[f64].Some(NaN) NaN\n",
-            "Option[f64].Some(NaN) Option[f64].Some(NaN) NaN\n",
-            "Option[f64].Some(NaN) Option[f64].Some(NaN) NaN\n",
-            "Option[f64].Some(-0.0) Option[f64].Some(0.0)\n",
+            "Option[f64].Some(-0.0) -1.0 Option[f64].Some(0.0) 1.0\n",
+            "Option[f64].Some(-0.0) -1.0 Option[f64].Some(0.0) 1.0\n",
+            "Option[f64].Some(1.0) 1.0 Option[f64].Some(2.0) 1.0\n",
+            "Option[f64].Some(NaN) -1.0 Option[f64].Some(NaN) -1.0\n",
+            "Option[f64].Some(NaN) 1.0 Option[f64].Some(NaN) 1.0\n",
+            "Option[f64].Some(NaN) -1.0 Option[f64].Some(NaN) -1.0\n",
             "Option[f32].Some(-0.0)\n",
         ),
+    );
+}
+
+#[test]
+fn float_min_and_max_consume_every_item_after_nan() {
+    output(
+        r#"
+def noisy(values: list[f64]) -> Generator[f64]:
+    for v in values:
+        print("item", v).unwrap()
+        yield v
+def main() -> Result[(), AllocError | IoError]:
+    print(noisy([2.0, f64.NAN, 1.0]?).min())?
+    Ok(())
+"#,
+        "item 2.0\nitem NaN\nitem 1.0\nOption[f64].Some(NaN)\n",
+    );
+}
+
+#[test]
+fn min_and_max_agree_with_std_math() {
+    output(
+        r#"
+import std.math as math
+# Same value, including the sign of a zero; any NaN matches any NaN.
+def same(a: Option[f64], b: Option[f64]) -> bool:
+    match a:
+        case Some(x):
+            match b:
+                case Some(y):
+                    if math.isnan(x) or math.isnan(y):
+                        return math.isnan(x) and math.isnan(y)
+                    x == y and math.copysign(1.0, x) == math.copysign(1.0, y)
+                case Nothing:
+                    False
+        case Nothing:
+            b.is_none()
+def main() -> Result[(), AllocError | IoError]:
+    neg = math.copysign(f64.NAN, -1.0)
+    cases = [
+        list[f64]()?, [1.5]?, [0.0, -0.0]?, [-0.0, 0.0]?, [3.0, 1.0, 1.0, 3.0]?,
+        [neg, 2.0, f64.NAN]?, [2.0, f64.NAN, neg]?, [2.0, 1.0, neg]?,
+        [f64.INF, -f64.INF, 0.0]?,
+    ]?
+    mut differences = 0
+    for values in &cases:
+        if not same(iter(values).min(), math.min_all(values)):
+            differences += 1
+        if not same(iter(values).max(), math.max_all(values)):
+            differences += 1
+        if len(values) == 2:
+            if not same(iter(values).min(), Some(math.min(values[0], values[1]))):
+                differences += 1
+            if not same(iter(values).max(), Some(math.max(values[0], values[1]))):
+                differences += 1
+    ints = [4, -2, 9, -2]?
+    names = ["bob", "ada", "cy", "ada"]?
+    print(differences, iter(&ints).min() == math.min_all(&ints), iter(&ints).max() == math.max_all(&ints))?
+    print(iter(&names).min() == math.min_all(&names), iter(&names).max() == math.max_all(&names))?
+    Ok(())
+"#,
+        "0 True True\nTrue True\n",
     );
 }
 
