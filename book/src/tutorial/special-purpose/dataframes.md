@@ -42,7 +42,9 @@ buffers; chaining operations does not copy the whole dataset at every step.
 `collect()` executes the plan. A getter returns `Result[Option[T], ...]`:
 `Nothing` means a null cell, while `Err` means the operation failed.
 Bulk `values_f64` and `values_i64` return ordinary Plenty lists, but reject
-columns containing nulls.
+columns containing nulls. Their `_nullable` variants return `Option` elements.
+Strings and booleans have matching typed APIs; see
+[Types, nulls and schemas](dataframe-types.md).
 
 ## Derive columns and group
 

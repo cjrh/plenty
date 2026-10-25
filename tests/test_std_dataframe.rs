@@ -131,3 +131,31 @@ fn joins_sorts_and_slices_with_real_engine() {
         "dataframe queries ok\n"
     );
 }
+
+#[test]
+fn typed_nullable_columns_and_schema_with_real_engine() {
+    if std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none() {
+        eprintln!("typed dataframe execution requires PLENTY_DATAFRAME_TESTS=1");
+        return;
+    }
+    let engine = engine_under_test();
+    let temp = tempfile::tempdir().unwrap();
+    let binary = compile(
+        temp.path(),
+        include_str!("fixtures/dataframe_types.plenty"),
+        Some(engine.clone()),
+    )
+    .unwrap();
+    let output = assert_success(
+        Command::new(binary)
+            .current_dir(temp.path())
+            .env("LD_LIBRARY_PATH", engine.parent().unwrap())
+            .env("POLARS_MAX_THREADS", "2")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "dataframe types ok\n"
+    );
+}

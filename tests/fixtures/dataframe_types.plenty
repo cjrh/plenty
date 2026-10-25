@@ -1,0 +1,131 @@
+import std.dataframe as df
+import std.test as test
+
+def retained() -> Result[df.Query, df.DataFrameError | AllocError]:
+    names = ["雪", "", "café", "a\0b", "🙂"]?
+    flags = [True, False, True, False, True]?
+    data = df.frame([df.column_str("name", names)?, df.column_bool("active", flags)?]?)?
+    data.lazy()
+
+def strings_and_bools() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    query = retained()?
+    schema = query.schema()?
+    test.equal(schema[0].name, "name")?
+    test.equal(schema[0].dtype, df.DType.String)?
+    test.equal(schema[1].dtype, df.DType.Bool)?
+    data = query.collect()?
+    test.equal(data.values_str("name")?, ["雪", "", "café", "a\0b", "🙂"]?)?
+    test.equal(data.values_bool("active")?, [True, False, True, False, True]?)?
+    test.equal(data.get_str("name", 3)?, Some("a\0b"))?
+    test.equal(data.get_bool("active", 1)?, Some(False))?
+    data.write_parquet("types.parquet")?
+    scanned = df.scan_parquet("types.parquet")?
+    test.equal(scanned.schema()?, schema)?
+    test.equal(scanned.collect()?.values_str("name")?, data.values_str("name")?)?
+    selected = query.filter(df.col("active")?)?.collect()?
+    test.equal(selected.values_str("name")?, ["雪", "café", "🙂"]?)?
+    match data.get_str("name", -1):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("negative string index accepted")?
+    match data.get_bool("active", 5):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("boolean index past end accepted")?
+    match data.values_i64("active"):
+        case Err(df.DataFrameError.Query(_)):
+            pass
+        case Err(df.DataFrameError.Schema(_)):
+            pass
+        case _:
+            test.fail("boolean silently cast to integer")?
+    match data.values_str("missing"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("missing column accepted")?
+    match data.values_bool("name"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("string silently cast to boolean")?
+    Ok(())
+
+def nullable_roundtrip() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    integers: list[Option[i64]] = [Some(0), Nothing, Some(-7), Some(42)]?
+    floats: list[Option[f64]] = [Some(1.5), Nothing, Some(f64.NAN), Some(-0.0)]?
+    names: list[Option[str]] = [Some(""), Nothing, Some("é雪"), Some("🙂")]?
+    flags: list[Option[bool]] = [Some(False), Nothing, Some(True), Some(False)]?
+    data = df.frame([df.column_i64_nullable("i", integers)?, df.column_f64_nullable("f", floats)?, df.column_str_nullable("s", names)?, df.column_bool_nullable("b", flags)?]?)?
+    test.equal(data.values_i64_nullable("i")?, integers)?
+    test.equal(data.values_str_nullable("s")?, names)?
+    test.equal(data.values_bool_nullable("b")?, flags)?
+    result = data.values_f64_nullable("f")?
+    test.equal(result[0], Some(1.5))?
+    test.check(result[1].is_none(), "null preserved")?
+    nan = result[2].unwrap()
+    test.check(nan != nan, "NaN remains a value")?
+    test.equal(result[3], Some(-0.0))?
+    test.check(data.get_bool("b", 1)?.is_none(), "boolean null preserved")?
+    test.check(data.get_str("s", 1)?.is_none(), "string null preserved")?
+    test.equal(data.get_str("s", 0)?, Some(""))?
+    types = data.schema()?
+    test.equal(types[0].dtype, df.DType.I64)?
+    test.equal(types[1].dtype, df.DType.F64)?
+    test.equal(types[2].dtype, df.DType.String)?
+    test.equal(types[3].dtype, df.DType.Bool)?
+    match data.values_bool("b"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nonnullable bool extraction accepted nulls")?
+    match data.values_str("s"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nonnullable string extraction accepted nulls")?
+    data.write_parquet("nullable.parquet")?
+    restored = df.scan_parquet("nullable.parquet")?.collect()?
+    test.equal(restored.values_str_nullable("s")?, names)?
+    test.equal(restored.values_bool_nullable("b")?, flags)?
+    test.equal(restored.values_i64_nullable("i")?, integers)?
+    Ok(())
+
+def empty_and_null() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    ints: list[Option[i64]] = [Nothing, Nothing]?
+    floats: list[Option[f64]] = [Nothing, Nothing]?
+    names: list[Option[str]] = [Nothing, Nothing]?
+    flags: list[Option[bool]] = [Nothing, Nothing]?
+    data = df.frame([df.column_i64_nullable("i", ints)?, df.column_f64_nullable("f", floats)?, df.column_str_nullable("s", names)?, df.column_bool_nullable("b", flags)?]?)?
+    test.equal(data.values_i64_nullable("i")?, ints)?
+    test.equal(data.values_f64_nullable("f")?, floats)?
+    test.equal(data.values_str_nullable("s")?, names)?
+    test.equal(data.values_bool_nullable("b")?, flags)?
+    empty_i: list[Option[i64]] = []?
+    empty_f: list[Option[f64]] = []?
+    empty_s: list[Option[str]] = []?
+    empty_b: list[Option[bool]] = []?
+    empty = df.frame([df.column_i64_nullable("i", empty_i)?, df.column_f64_nullable("f", empty_f)?, df.column_str_nullable("s", empty_s)?, df.column_bool_nullable("b", empty_b)?]?)?
+    test.equal(empty.height()?, 0)?
+    test.equal(empty.schema()?, data.schema()?)?
+    test.equal(empty.values_i64_nullable("i")?, empty_i)?
+    test.equal(empty.values_f64_nullable("f")?, empty_f)?
+    test.equal(empty.values_str_nullable("s")?, empty_s)?
+    test.equal(empty.values_bool_nullable("b")?, empty_b)?
+    strings: list[str] = []?
+    bools: list[bool] = []?
+    plain = df.frame([df.column_str("s", strings)?, df.column_bool("b", bools)?]?)?
+    test.equal(plain.values_str("s")?, strings)?
+    test.equal(plain.values_bool("b")?, bools)?
+    cols: list[df.Column] = []?
+    test.equal(len(df.frame(cols)?.schema()?), 0)?
+    Ok(())
+
+def main() -> Result[(), df.DataFrameError | AllocError | test.TestError | IoError]:
+    strings_and_bools()?
+    nullable_roundtrip()?
+    empty_and_null()?
+    print("dataframe types ok")?
+    Ok(())
