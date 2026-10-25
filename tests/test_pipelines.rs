@@ -1740,9 +1740,9 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
-fn float_min_and_max_keep_the_first_tie_and_the_first_nan() {
-    // The sign of the result tells -0.0 from 0.0 and a negative NaN from a
-    // positive one, so each line shows which item was kept.
+fn float_min_and_max_follow_ieee_minimum_and_maximum() {
+    // -0.0 orders below 0.0 in either order. The sign of a NaN result shows
+    // that the first NaN item is kept, as `extremum_replaces` documents.
     output(
         r#"
 import std.math as math
@@ -1762,13 +1762,13 @@ def main() -> Result[(), AllocError | IoError]:
         low = iter(values).min()
         high = iter(values).max()
         print(low, sign(low), high, sign(high))?
-    zeros = [-0.0, 0.0]?
-    print(iter(&zeros).map(def(z: &f64) -> f32: f32(*z)).max())?
+    zeros = [0.0, -0.0]?
+    print(iter(&zeros).map(def(z: &f64) -> f32: f32(*z)).min())?
     Ok(())
 "#,
         concat!(
-            "Option[f64].Some(0.0) 1.0 Option[f64].Some(0.0) 1.0\n",
-            "Option[f64].Some(-0.0) -1.0 Option[f64].Some(-0.0) -1.0\n",
+            "Option[f64].Some(-0.0) -1.0 Option[f64].Some(0.0) 1.0\n",
+            "Option[f64].Some(-0.0) -1.0 Option[f64].Some(0.0) 1.0\n",
             "Option[f64].Some(1.0) 1.0 Option[f64].Some(2.0) 1.0\n",
             "Option[f64].Some(NaN) -1.0 Option[f64].Some(NaN) -1.0\n",
             "Option[f64].Some(NaN) 1.0 Option[f64].Some(NaN) 1.0\n",
@@ -1799,14 +1799,15 @@ fn min_and_max_agree_with_std_math() {
     output(
         r#"
 import std.math as math
-# Same value, including the sign of a zero or a NaN.
+# Same value, including the sign of a zero; any NaN matches any NaN.
 def same(a: Option[f64], b: Option[f64]) -> bool:
     match a:
         case Some(x):
             match b:
                 case Some(y):
-                    signs = math.copysign(1.0, x) == math.copysign(1.0, y)
-                    signs and (x == y or (math.isnan(x) and math.isnan(y)))
+                    if math.isnan(x) or math.isnan(y):
+                        return math.isnan(x) and math.isnan(y)
+                    x == y and math.copysign(1.0, x) == math.copysign(1.0, y)
                 case Nothing:
                     False
         case Nothing:
@@ -1824,6 +1825,11 @@ def main() -> Result[(), AllocError | IoError]:
             differences += 1
         if not same(iter(values).max(), math.max_all(values)):
             differences += 1
+        if len(values) == 2:
+            if not same(iter(values).min(), Some(math.min(values[0], values[1]))):
+                differences += 1
+            if not same(iter(values).max(), Some(math.max(values[0], values[1]))):
+                differences += 1
     ints = [4, -2, 9, -2]?
     names = ["bob", "ada", "cy", "ada"]?
     print(differences, iter(&ints).min() == math.min_all(&ints), iter(&ints).max() == math.max_all(&ints))?

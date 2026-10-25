@@ -59,8 +59,8 @@ def main() -> Result[(), AllocError | IoError]:
 A borrowed item is read by value, so the results are `i64`, not references.
 `sum()` gives zero for no items, and integer overflow stops the program, as for
 `+`. `min()` and `max()` return an `Option`, `Nothing` for no items. They
-accept numbers and `str` and keep the first of equal items. For floats they
-follow the same NaN and signed-zero rules as `std.math.min_all` and `max_all`;
+accept numbers and `str` and keep the first of equal items. Floats follow the
+IEEE 754 rules for NaN and signed zero, as `std.math.min_all` and `max_all` do;
 the [pipeline reference](../../design/language/09-iteration/06-pipelines.md#terminals)
 gives them.
 

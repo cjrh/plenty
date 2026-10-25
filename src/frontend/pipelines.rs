@@ -1481,8 +1481,8 @@ impl Lower<'_> {
 
     /// `sum`, `min` and `max`. A borrowed item is read through its reference,
     /// as `*item`, so the result is a value like the `std.math` reductions.
-    /// `min`/`max` agree with `std.math.min_all`/`max_all`: equal items keep
-    /// the first, -0.0 equals 0.0, and the first NaN item is the result.
+    /// `min`/`max` share `extremum_replaces` with `std.math`, so they agree
+    /// with `min_all`/`max_all`.
     fn pipeline_arithmetic(
         &mut self,
         base: &Expr,
@@ -1578,31 +1578,7 @@ impl Lower<'_> {
             body.push(Op::StoreLocal(current));
             let candidate = named(self, current, "candidate");
             let held = named(self, best, "best");
-            let binary = |op: &str, left: Expr, right: Expr| Expr {
-                at: base.at.clone(),
-                kind: Expression::Binary(op.into(), Box::new(left), Box::new(right)),
-            };
-            // Matches `std.math.min_all`/`max_all`. A float candidate replaces
-            // `best` unless it is ordered at or past it, so a NaN candidate wins
-            // and equal values, including -0.0 and 0.0, keep the first. Once
-            // `best` is NaN it stays, keeping the first NaN item.
-            let better = if ty.is_float() {
-                let ordered = binary(
-                    if name == "min" { ">=" } else { "<=" },
-                    candidate,
-                    held.clone(),
-                );
-                binary(
-                    "and",
-                    binary("==", held.clone(), held),
-                    Expr {
-                        at: base.at.clone(),
-                        kind: Expression::Unary("not".into(), Box::new(ordered)),
-                    },
-                )
-            } else {
-                binary(if name == "min" { "<" } else { ">" }, candidate, held)
-            };
+            let better = super::numeric::extremum_replaces(name == "min", &ty, candidate, held);
             let mut choose = Vec::new();
             let actual = self.expr(&better, &mut choose)?;
             self.same(actual, Some(Ty::Bool), &base.at)?;

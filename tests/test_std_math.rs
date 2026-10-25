@@ -174,7 +174,7 @@ fn collection_extrema_and_borrowed_iterable_folds() {
 "#);
     assert_eq!(
         output,
-        "-2\n7\nTrue\nTrue\na\nz\n-0.0\n-0.0\n10\n24\n9\n24\n5\n6\n9\n7\n3\n3\n2\n"
+        "-2\n7\nTrue\nTrue\na\nz\n-0.0\n0.0\n10\n24\n9\n24\n5\n6\n9\n7\n3\n3\n2\n"
     );
 }
 
@@ -361,11 +361,12 @@ fn extrema_propagate_nan_and_preserve_ordered_values(#[case] ty: &str, #[case] o
         ));
         assertions += 5;
     }
-    for (index, first, second, sign) in [(0, "-0.0", "0.0", "-1.0"), (1, "0.0", "-0.0", "1.0")] {
+    // IEEE 754-2019 minimum/maximum order -0.0 below 0.0 in either order.
+    for (index, first, second) in [(0, "-0.0", "0.0"), (1, "0.0", "-0.0")] {
         body.push_str(&format!(
             "    zeros_{index} = [{first}{ty}, {second}{ty}]?\n"
         ));
-        for operation in ["min", "max"] {
+        for (operation, sign) in [("min", "-1.0"), ("max", "1.0")] {
             body.push_str(&format!(
                 "    print(math.copysign(1.0, f64(math.{operation}_all(&zeros_{index}).unwrap())) == {sign})?\n    print(math.copysign(1.0, f64(math.{operation}({first}{ty}, {second}{ty}))) == {sign})?\n"
             ));
