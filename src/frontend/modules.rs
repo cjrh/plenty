@@ -1489,7 +1489,10 @@ impl Scope {
                 if let Some(symbol) = self.symbol(n, &e.at)? {
                     *n = symbol;
                 } else if n != "replace"
-                    && !matches!(n.as_str(), "enumerate" | "zip" | "reversed" | "any" | "all")
+                    && !matches!(
+                        n.as_str(),
+                        "iter" | "enumerate" | "zip" | "reversed" | "any" | "all"
+                    )
                     && !builtin(n)
                     && !self.namespace_root(n)
                 {

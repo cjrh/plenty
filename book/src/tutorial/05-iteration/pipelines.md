@@ -64,6 +64,40 @@ IEEE 754 rules for NaN and signed zero, as `std.math.min_all` and `max_all` do;
 the [pipeline reference](../../design/language/09-iteration/06-pipelines.md#terminals)
 gives them.
 
+## Test boolean items
+
+`any()` reports whether at least one item is `True`, and `all()` whether every
+item is. Both stop as soon as they know the answer:
+
+```plenty
+def positive(values: list[i64]) -> Generator[bool]:
+    for value in values:
+        yield value > 0
+
+def main() -> Result[(), AllocError | IoError]:
+    present = [True, False, True]?
+    print(iter(&present).any(), iter(reversed(&present)).all())?
+    print(positive([2, -1, 3]?).any(), positive([2, -1, 3]?).all())?
+    none: list[bool] = []?
+    print(iter(&none).any(), iter(&none).all())?
+    Ok(())
+```
+
+```output
+True False
+True False
+False True
+```
+
+The generator computes each comparison only when advanced, so `all()` stops at
+`-1` and never tests `3`; its frame is cleaned up when the method returns.
+For no items, `any()` gives `False` and `all()` gives `True`.
+
+Without an argument, these methods need `bool` items: numbers and text have no
+implicit truth value. To test other items, pass a predicate function; that
+form is taught in
+[Reduce a borrowed collection with a pipeline](../10-functions/pipelines.md).
+
 ## Pair, join, and collect
 
 `zip` walks two sources together, and `chain` continues with a second source of

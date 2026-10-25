@@ -14,11 +14,12 @@ def main() -> Result[(), AllocError | IoError]:
     selected = iter(&payments).filter(def(p: &Payment) -> bool: p.name == "bob")
     total = selected.map(def(p: &Payment) -> i64: p.cents).sum()
     largest = iter(&payments).map(def(p: &Payment) -> i64: p.cents).max()
-    print(total, largest, len(payments))?
+    refund = iter(&payments).any(def(p: &Payment) -> bool: p.cents < 0)
+    print(total, largest, refund, len(payments))?
     Ok(())
 ```
 ```output
-200 Option[i64].Some(300) 3
+200 Option[i64].Some(300) False 3
 ```
 
 `selected` holds a loan of `payments`. The filter and map run when `sum`
@@ -29,7 +30,8 @@ Trying to consume `selected` again is an ownership error.
 
 `sum` and `max` work as in [Chain iteration steps with
 `iter`](../05-iteration/pipelines.md#add-up-and-find-extremes); here they reduce
-mapped values, since a `Payment` is neither a number nor a `str`. Use `fold` for
+mapped values, since a `Payment` is neither a number nor a `str`. Likewise,
+`any` and `all` take a predicate when the items are not `bool`. Use `fold` for
 any other accumulation.
 
 A method returning a borrowed list can be used directly as the source. Its
