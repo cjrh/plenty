@@ -366,7 +366,17 @@ impl Lower<'_> {
             ("any" | "all", [predicate]) => {
                 Some(self.par_callback(predicate, hidden, &mut captures, ops)?.0)
             }
-            ("any" | "all", _) => return Err(at.error(format!("{name} takes one predicate"))),
+            // The serial rule: the no-argument form tests bool items.
+            ("any" | "all", []) if item == Ty::Bool => None,
+            ("any" | "all", []) => {
+                return Err(at.error(format!(
+                    "{name}() tests bool items, but this pipeline yields {}; pass a predicate",
+                    type_name(Some(item.clone()))
+                )));
+            }
+            ("any" | "all", _) => {
+                return Err(at.error(format!("{name} takes one predicate or none")));
+            }
             ("reduce", [_]) => None,
             ("reduce", _) => return Err(at.error("reduce takes one named function")),
             (_, []) => None,
@@ -393,11 +403,17 @@ impl Lower<'_> {
                 vec![first.clone(), step.clone(), len.clone(), offset, parts],
                 Ty::Range(Arc::new(Ty::I64)),
             ),
-            (None, Some(source)) => (
-                "split_list",
-                vec![source.clone(), offset, parts],
-                source_ty.clone(),
-            ),
+            (None, Some(source)) => {
+                // One bulk row copy per chunk in the runtime, rather than a
+                // per-item append on the calling thread.
+                self.value(source, ops)?;
+                self.value(&parts, ops)?;
+                let split = CollectionOp::ListTrySplit(source_ty.clone());
+                let (_, pieces_ty) = split.signature();
+                ops.push(Op::Collection(split));
+                let pieces = self.par_hidden("pieces", pieces_ty, &at, hidden, ops)?;
+                ("split_list", vec![pieces, offset], source_ty.clone())
+            }
             (None, None) => unreachable!(),
         };
         let split = self.par_helper(split)?;
@@ -456,7 +472,7 @@ impl Lower<'_> {
                 (Ty::I64, "count")
             }
             "any" | "all" => {
-                chain = method(&at, chain, name, vec![predicate.expect("predicate")]);
+                chain = method(&at, chain, name, predicate.into_iter().collect());
                 (Ty::Bool, name)
             }
             "sum" => {

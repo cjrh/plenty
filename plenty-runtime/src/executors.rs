@@ -417,6 +417,10 @@ pub(crate) unsafe fn wait_timeout(job: *mut Job, milliseconds: u64) -> bool {
     }
 }
 
+pub(crate) unsafe fn workers(pool: *mut Pool) -> usize {
+    unsafe { (*pool).count }
+}
+
 pub(crate) unsafe fn map_window(pool: *mut Pool) -> Result<usize, ()> {
     unsafe {
         if lock(&(*pool).queue).closed {

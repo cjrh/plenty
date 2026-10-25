@@ -180,6 +180,122 @@ def shape(a: i64, b: i64) -> i64:
 }
 
 #[test]
+fn any_and_all_without_a_predicate_test_bool_items() {
+    runs(
+        &format!(
+            r#"
+def positive(x: i64) -> bool:
+    x > 0
+{MAIN}    with ThreadPoolExecutor(3, 1)? as pool:
+        print(iter([False, False, True, False]?).par(&pool).any()?)?
+        print(iter([True, True, False]?).par(&pool, chunks=3).all()?)?
+        print(iter(range(1, 9)).par(&pool).map(positive).all()?)?
+        print(iter(range(-3, 0)).par(&pool).map(positive).any()?)?
+        print(iter(list[bool].with_capacity(0)?).par(&pool).all()?)?
+    Ok(())
+"#
+        ),
+        "True\nFalse\nTrue\nFalse\nTrue\n",
+    );
+}
+
+/// The grouping must be exactly the level-by-level adjacent-pair tree for
+/// every length and worker count, even though one job now reduces a whole
+/// aligned subtree. `mix` is not associative, so its result records the
+/// grouping.
+#[test]
+fn reduce_groups_exactly_like_the_level_by_level_pair_tree() {
+    runs(
+        &format!(
+            r#"
+def mix(a: i64, b: i64) -> i64:
+    a.wrapping_mul(1000003).wrapping_add(b.wrapping_mul(31)).wrapping_add(17)
+
+def inputs(n: i64) -> Result[list[i64], AllocError]:
+    mut items = list[i64].with_capacity(n)?
+    for i in range(0, n):
+        items.append(i * 7 + 1)?
+    Ok(items)
+
+def reference(n: i64) -> Result[Option[i64], AllocError]:
+    # The reduce_tree contract, evaluated serially one level at a time.
+    if n == 0:
+        return Ok(Nothing)
+    mut level = inputs(n)?
+    while len(level) > 1:
+        count = len(level)
+        mut next = list[i64].with_capacity(count // 2 + 1)?
+        mut i = 0
+        while i + 1 < count:
+            next.append(mix(level[i], level[i + 1]))?
+            i += 2
+        if count % 2 == 1:
+            next.append(level[count - 1])?
+        level = next
+    Ok(Some(level[0]))
+
+{MAIN}    mut lengths = inputs(0)?
+    for n in range(0, 71):
+        lengths.append(n)?
+    for n in [127, 128, 129, 1000, 1025]?:
+        lengths.append(n)?
+    mut checked = 0
+    for workers in [1u64, 2u64, 3u64, 8u64]?:
+        with ThreadPoolExecutor(workers, 2)? as pool:
+            for n in &lengths:
+                expected = reference(*n)?
+                if pool.reduce_tree(mix, inputs(*n)?)? != expected:
+                    print("reduce_tree differs")?
+                    print(workers)?
+                    print(*n)?
+                if iter(inputs(*n)?).par(&pool).reduce(mix)? != expected:
+                    print("par reduce differs")?
+                    print(workers)?
+                    print(*n)?
+                if iter(inputs(*n)?).par(&pool, chunks=5).reduce(mix)? != expected:
+                    print("par reduce (5 chunks) differs")?
+                    print(workers)?
+                    print(*n)?
+                checked += 3
+    print(checked)?
+    Ok(())
+"#
+        ),
+        "912\n",
+    );
+}
+
+/// Chunks take the source's rows in one copy each; every owned item still
+/// moves once and drops once, including when a worker stops early and drops
+/// the rest of its chunk.
+#[test]
+fn list_chunks_move_owned_items_once() {
+    runs(
+        &format!(
+            r#"
+class Tracked:
+    id: i64
+    def __del__(self) -> ():
+        print("drop").unwrap()
+def stop(item: &Tracked) -> bool:
+    item.id == 2
+{MAIN}    with ThreadPoolExecutor(2, 1)? as pool:
+        ids = iter([Tracked(1), Tracked(2), Tracked(3), Tracked(4), Tracked(5)]?).par(&pool, chunks=3).map(def(t: Tracked) -> i64: t.id).collect()?
+        print(ids)?
+        found = iter([Tracked(1), Tracked(2), Tracked(3), Tracked(4)]?).par(&pool, chunks=2).any(stop)?
+        print(found)?
+        spans = iter([Some(range(1, 3)), Nothing, Some(range(4, 6)), Some(range(7, 9)), Nothing]?).par(&pool, chunks=2).collect()?
+        print(spans)?
+        nested = iter([[1, 2]?, [3]?, [4, 5, 6]?]?).enumerate(10).par(&pool, chunks=2).collect()?
+        print(nested)?
+    Ok(())
+"#
+        ),
+        "drop\ndrop\ndrop\ndrop\ndrop\n[1, 2, 3, 4, 5]\ndrop\ndrop\ndrop\ndrop\nTrue\n[Option[range].Some(range(1, 3, 1)), Option[range].Nothing, Option[range].Some(range(4, 6, 1)), Option[range].Some(range(7, 9, 1)), Option[range].Nothing]\n[(10, [1, 2]), (11, [3]), (12, [4, 5, 6])]\n",
+    );
+}
+
+#[test]
 fn sums_match_serial_results_and_overflow_like_serial_sum() {
     runs(
         &format!(
@@ -326,6 +442,14 @@ fn par_rejects_unsupported_shapes() {
             "take cannot follow .par",
         ),
         (
+            "print(iter(xs).par(&pool).any()?)?",
+            "any() tests bool items, but this pipeline yields i64; pass a predicate",
+        ),
+        (
+            "print(enumerate([True]?).par(&pool).all()?)?",
+            "all() tests bool items, but this pipeline yields tuple[i64, bool]; pass a predicate",
+        ),
+        (
             "print(iter([[1]?]?).par(&pool).filter_value([1]?).count()?)?",
             "filter_value after .par needs copyable items",
         ),
@@ -439,4 +563,48 @@ class Capture:
         failures += usize::from(stdout.ends_with("failed\n"));
     }
     assert!(failures > 0, "no budget made the pipeline fail");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn allocation_failure_while_splitting_a_list_drops_each_item_once() {
+    let mut failures = 0;
+    for budget in 0..16 {
+        let output = output(&format!(
+            r#"
+class Tracked:
+    id: i64
+    def __del__(self) -> ():
+        print("dropped").unwrap()
+{MAIN}    with ThreadPoolExecutor(2, 1)? as pool:
+        xs = [Tracked(1), Tracked(2), Tracked(3)]?
+        print("__test_fail_allocations_after_{budget}__").unwrap()
+        result = iter(xs).par(&pool, chunks=2).map(def(t: Tracked) -> i64: t.id).collect()
+        print("__test_restore_allocations__").unwrap()
+        match result:
+            case Ok(values):
+                print(values)?
+            case Err(_):
+                print("failed")?
+    Ok(())
+"#
+        ));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "budget {budget}: {stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            stdout.matches("dropped").count(),
+            3,
+            "budget {budget}: {stdout}"
+        );
+        assert!(
+            stdout.ends_with("[1, 2, 3]\n") || stdout.ends_with("failed\n"),
+            "budget {budget}: {stdout}"
+        );
+        failures += usize::from(stdout.ends_with("failed\n"));
+    }
+    assert!(failures > 1, "too few budgets made the pipeline fail");
 }

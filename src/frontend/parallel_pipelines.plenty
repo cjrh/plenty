@@ -1,31 +1,18 @@
-def split_list[T](items: list[T], start: i64, parts: i64) -> Result[list[(i64, list[T])], AllocError]:
-    # Moves each item into its chunk: one pass over the source on the calling
-    # thread. Counters avoid a length query per item.
-    n = len(items)
-    count = parts if parts < n else n
-    mut chunks = list[(i64, list[T])].with_capacity(count)?
-    if count == 0:
-        return Ok(chunks)
-    base = n // count
-    extra = n % count
+def split_list[T](pieces: Result[list[list[T]], AllocError], start: i64) -> Result[list[(i64, list[T])], AllocError]:
+    # The runtime moved each chunk's rows in one copy; this pairs each chunk
+    # with the index of its first item.
+    chunks = pieces?
+    count = len(chunks)
+    mut paired = list[(i64, list[T])].with_capacity(count)?
     mut offset = start
     mut index = 0
-    mut size = base + 1 if extra > 0 else base
-    mut filled = 0
-    mut current = list[T].with_capacity(size)?
-    for item in items:
-        current.append(item)?
-        filled += 1
-        if filled == size:
-            index += 1
-            following = 0 if index == count else (base + 1 if index < extra else base)
-            full = current
-            current = list[T].with_capacity(following)?
-            chunks.append((offset, full))?
-            offset += size if index < count else 0
-            size = following
-            filled = 0
-    Ok(chunks)
+    for chunk in chunks:
+        size = len(chunk)
+        paired.append((offset, chunk))?
+        index += 1
+        # The offset after the last chunk may not fit in i64.
+        offset += size if index < count else 0
+    Ok(paired)
 
 def split_range(first: i64, step: i64, n: i64, start: i64, parts: i64) -> Result[list[(i64, range[i64])], AllocError]:
     count = parts if parts < n else n

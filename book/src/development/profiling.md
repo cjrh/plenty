@@ -415,79 +415,117 @@ runs the chunk in a loop over locals, tracking the exact running total as a
 wrapping `i64` plus a wrap count. Combining collected chunks now appends each
 chunk's storage with `extend` instead of moving items one at a time.
 
-Results on an AMD Ryzen 7 7840HS, eight workers, after both changes:
+The first round of measurements found two losses: splitting a list moved each
+item on the calling thread with a list append (about 37 ns per item), and
+`reduce_tree` submitted one job per pair. Two changes followed:
+
+- A list source is split by an internal list operation that allocates every
+  chunk first and then copies each chunk's contiguous rows in one bulk copy;
+  the source then forgets its rows, so each item still moves once. The
+  generated code calls the operation once and pairs chunks with offsets in a
+  loop over chunks, not items.
+- `reduce_tree`, and so `.par` `reduce`, gives one job an aligned run of
+  adjacent inputs, a power of two chosen so there is about one run per worker,
+  and the job reduces it serially through the same rounds. The remaining run
+  results are combined by pair jobs. Because each round maps index `i` to
+  `i / 2`, an aligned run is exactly a subtree of the fixed tree, so the
+  grouping is unchanged; a test compares it with a serial level-by-level
+  evaluation for lengths 0 to 70 and larger odd and even lengths, with 1, 2, 3
+  and 8 workers.
+
+Results on an AMD Ryzen 7 7840HS, eight workers, after both changes (load
+average 5 to 9 from other work during this run):
 
 | Case | Callback | Items | Serial | pool | par | par/serial | par/pool |
 |---|---|---:|---:|---:|---:|---:|---:|
-| map+collect | cheap | 1,000 | 0.042 | 0.826 | 0.080 | 1.90 | 0.10 |
-| map+collect | cheap | 100,000 | 5.592 | 84.297 | 6.209 | 1.11 | 0.07 |
-| map+collect | cheap | 10,000,000 | 578.968 | 8962.284 | 799.740 | 1.38 | 0.09 |
-| map+collect | heavy | 1,000 | 0.313 | 0.831 | 0.145 | 0.46 | 0.17 |
-| map+collect | heavy | 100,000 | 32.495 | 95.643 | 10.583 | 0.33 | 0.11 |
-| map+collect | heavy | 1,000,000 | 316.502 | 880.639 | 89.720 | 0.28 | 0.10 |
-| filter+count | cheap | 1,000 | 0.009 | 0.770 | 0.062 | 6.67 | 0.08 |
-| filter+count | cheap | 100,000 | 0.949 | 88.693 | 4.664 | 4.92 | 0.05 |
-| filter+count | cheap | 10,000,000 | 114.501 | 9034.423 | 551.130 | 4.81 | 0.06 |
-| filter+count | heavy | 1,000 | 0.272 | 0.696 | 0.119 | 0.44 | 0.17 |
-| filter+count | heavy | 100,000 | 27.728 | 85.591 | 8.498 | 0.31 | 0.10 |
-| filter+count | heavy | 1,000,000 | 270.974 | 909.911 | 76.230 | 0.28 | 0.08 |
-| sum i64 | cheap | 1,000 | 0.009 | 1.641 | 0.055 | 6.15 | 0.03 |
-| sum i64 | cheap | 100,000 | 0.869 | 181.348 | 4.602 | 5.29 | 0.03 |
-| sum i64 | cheap | 10,000,000 | 111.048 | 18446.646 | 554.508 | 4.99 | 0.03 |
-| sum i64 | heavy | 1,000 | 0.275 | 1.583 | 0.137 | 0.50 | 0.09 |
-| sum i64 | heavy | 100,000 | 27.037 | 185.473 | 8.306 | 0.31 | 0.04 |
-| sum i64 | heavy | 1,000,000 | 267.109 | 1826.832 | 76.103 | 0.28 | 0.04 |
-| sum i64 range | cheap | 1,000 | 0.001 | 1.418 | 0.012 | 14.19 | 0.01 |
-| sum i64 range | cheap | 100,000 | 0.087 | 181.689 | 0.077 | 0.89 | 0.00 |
-| sum i64 range | cheap | 10,000,000 | 8.363 | 18763.457 | 3.455 | 0.41 | 0.00 |
-| sum i64 range | heavy | 1,000 | 0.284 | 1.757 | 0.060 | 0.21 | 0.03 |
-| sum i64 range | heavy | 100,000 | 25.573 | 186.417 | 5.506 | 0.22 | 0.03 |
-| sum i64 range | heavy | 1,000,000 | 256.233 | 1854.255 | 41.792 | 0.16 | 0.02 |
-| sum f64 | cheap | 1,000 | 0.009 | 1.708 | 0.062 | 6.88 | 0.04 |
-| sum f64 | cheap | 100,000 | 0.847 | 187.809 | 4.670 | 5.52 | 0.02 |
-| sum f64 | cheap | 10,000,000 | 103.538 | 18951.343 | 557.589 | 5.39 | 0.03 |
-| sum f64 | heavy | 1,000 | 0.105 | 1.667 | 0.077 | 0.73 | 0.05 |
-| sum f64 | heavy | 100,000 | 10.741 | 188.266 | 7.022 | 0.65 | 0.04 |
-| sum f64 | heavy | 1,000,000 | 105.033 | 1881.175 | 62.007 | 0.59 | 0.03 |
-| reduce | cheap | 1,000 | 0.009 | 1.522 | 0.857 | 92.24 | 0.56 |
-| reduce | cheap | 100,000 | 0.940 | 186.101 | 98.029 | 104.27 | 0.53 |
-| reduce | cheap | 10,000,000 | 111.216 | 18906.727 | 10227.076 | 91.96 | 0.54 |
-| reduce | heavy | 1,000 | 0.269 | 1.571 | 0.952 | 3.53 | 0.61 |
-| reduce | heavy | 100,000 | 26.965 | 184.778 | 102.459 | 3.80 | 0.55 |
-| reduce | heavy | 1,000,000 | 267.240 | 1873.088 | 1025.180 | 3.84 | 0.55 |
+| map+collect | cheap | 1,000 | 0.043 | 0.835 | 0.044 | 1.03 | 0.05 |
+| map+collect | cheap | 100,000 | 5.662 | 88.533 | 2.378 | 0.42 | 0.03 |
+| map+collect | cheap | 10,000,000 | 603.161 | 9026.220 | 432.671 | 0.72 | 0.05 |
+| map+collect | heavy | 1,000 | 0.304 | 0.798 | 0.107 | 0.35 | 0.13 |
+| map+collect | heavy | 100,000 | 32.293 | 85.745 | 6.090 | 0.19 | 0.07 |
+| map+collect | heavy | 1,000,000 | 318.217 | 892.826 | 53.148 | 0.17 | 0.06 |
+| filter+count | cheap | 1,000 | 0.009 | 0.729 | 0.017 | 1.82 | 0.02 |
+| filter+count | cheap | 100,000 | 0.928 | 89.932 | 0.550 | 0.59 | 0.01 |
+| filter+count | cheap | 10,000,000 | 116.494 | 9142.480 | 195.219 | 1.68 | 0.02 |
+| filter+count | heavy | 1,000 | 0.286 | 0.999 | 0.104 | 0.36 | 0.10 |
+| filter+count | heavy | 100,000 | 28.633 | 127.328 | 7.603 | 0.27 | 0.06 |
+| filter+count | heavy | 1,000,000 | 284.509 | 1026.368 | 47.223 | 0.17 | 0.05 |
+| sum i64 | cheap | 1,000 | 0.009 | 0.848 | 0.018 | 2.05 | 0.02 |
+| sum i64 | cheap | 100,000 | 0.859 | 93.360 | 0.548 | 0.64 | 0.01 |
+| sum i64 | cheap | 10,000,000 | 109.000 | 9478.932 | 193.628 | 1.78 | 0.02 |
+| sum i64 | heavy | 1,000 | 0.305 | 1.432 | 0.121 | 0.40 | 0.08 |
+| sum i64 | heavy | 100,000 | 31.455 | 183.617 | 8.238 | 0.26 | 0.04 |
+| sum i64 | heavy | 1,000,000 | 312.719 | 1304.590 | 56.565 | 0.18 | 0.04 |
+| sum i64 range | cheap | 1,000 | 0.001 | 0.911 | 0.027 | 26.18 | 0.03 |
+| sum i64 range | cheap | 100,000 | 0.163 | 157.890 | 0.140 | 0.86 | 0.00 |
+| sum i64 range | cheap | 10,000,000 | 8.534 | 10434.829 | 6.080 | 0.71 | 0.00 |
+| sum i64 range | heavy | 1,000 | 0.301 | 1.407 | 0.103 | 0.34 | 0.07 |
+| sum i64 range | heavy | 100,000 | 27.692 | 140.153 | 6.828 | 0.25 | 0.05 |
+| sum i64 range | heavy | 1,000,000 | 279.499 | 1147.233 | 44.372 | 0.16 | 0.04 |
+| sum f64 | cheap | 1,000 | 0.012 | 1.349 | 0.026 | 2.17 | 0.02 |
+| sum f64 | cheap | 100,000 | 0.873 | 113.078 | 0.499 | 0.57 | 0.00 |
+| sum f64 | cheap | 10,000,000 | 109.501 | 9719.740 | 200.286 | 1.83 | 0.02 |
+| sum f64 | heavy | 1,000 | 0.122 | 1.272 | 0.066 | 0.54 | 0.05 |
+| sum f64 | heavy | 100,000 | 11.672 | 138.603 | 3.222 | 0.28 | 0.02 |
+| sum f64 | heavy | 1,000,000 | 115.819 | 1265.773 | 25.185 | 0.22 | 0.02 |
+| reduce | cheap | 1,000 | 0.012 | 1.422 | 0.124 | 9.91 | 0.09 |
+| reduce | cheap | 100,000 | 0.958 | 150.047 | 4.699 | 4.90 | 0.03 |
+| reduce | cheap | 10,000,000 | 112.649 | 10566.939 | 1216.061 | 10.80 | 0.12 |
+| reduce | heavy | 1,000 | 0.298 | 0.850 | 0.156 | 0.52 | 0.18 |
+| reduce | heavy | 100,000 | 26.683 | 102.877 | 9.245 | 0.35 | 0.09 |
+| reduce | heavy | 1,000,000 | 270.468 | 1009.838 | 70.616 | 0.26 | 0.07 |
 
-Before the two changes, `sum i64` over a range of ten million items took
-60.1 ms with `.par` (7.12 times serial) and 3.5 ms after; `map`+`collect` of
-one million expensive items took 158 ms (0.44 times serial) and 90 ms after.
+A second run of the ten-million-item cheap `reduce` gave 644 ms (5.9 times
+serial) against 1,216 ms above; rows at ten million items vary by up to a
+factor of two under this load.
+
+Before these changes (first-round table, same method):
+
+| Case | Callback | Items | Serial | par | par/serial |
+|---|---|---:|---:|---:|---:|
+| map+collect | cheap | 100,000 | 5.592 | 6.209 | 1.11 |
+| map+collect | cheap | 10,000,000 | 578.968 | 799.740 | 1.38 |
+| map+collect | heavy | 1,000,000 | 316.502 | 89.720 | 0.28 |
+| filter+count | cheap | 100,000 | 0.949 | 4.664 | 4.92 |
+| filter+count | cheap | 10,000,000 | 114.501 | 551.130 | 4.81 |
+| sum i64 | cheap | 100,000 | 0.869 | 4.602 | 5.29 |
+| sum i64 | cheap | 10,000,000 | 111.048 | 554.508 | 4.99 |
+| sum f64 | cheap | 10,000,000 | 103.538 | 557.589 | 5.39 |
+| sum f64 | heavy | 1,000,000 | 105.033 | 62.007 | 0.59 |
+| reduce | cheap | 100,000 | 0.940 | 98.029 | 104.27 |
+| reduce | cheap | 10,000,000 | 111.216 | 10227.076 | 91.96 |
+| reduce | heavy | 1,000,000 | 267.240 | 1025.180 | 3.84 |
+
+An earlier round, before the signed-sum worker and `extend` changes above,
+measured `sum i64` over a range of ten million items at 60.1 ms with `.par`
+(7.12 times serial) and `map`+`collect` of one million expensive items at
+158 ms (0.44 times serial).
 
 **Findings.**
 
-- With expensive callbacks, `.par` runs at 0.16 to 0.33 times the serial time
-  on `i64` work from 100,000 items (0.21 to 0.50 at 1,000), and takes 0.02 to
-  0.17 times the `pool.map` time, because it submits one job per chunk instead
-  of one per item.
-- A range source scales with the pool: ten million cheap items take 0.41 times
+- With expensive callbacks, `.par` runs at 0.16 to 0.27 times the serial time
+  on `i64` work from 100,000 items, and 0.34 to 0.40 at 1,000 items.
+- With cheap callbacks over a list, the bulk split removed most of the loss:
+  `filter`+`count` and the sums of 100,000 items now take 0.57 to 0.64 times
+  the serial time (4.9 to 5.5 before). At ten million items they take 1.7 to
+  1.8 times serial (4.8 to 5.4 before): the serial loop over a cheap callback
+  is limited by memory bandwidth, and the split still writes every item once
+  more.
+- `reduce` with an expensive function went from 3.8 times slower than serial
+  to 0.26 to 0.35 times the serial time from 100,000 items. With a cheap
+  function it went from 92 to 104 times slower to 5 to 11 times slower: it
+  still collects every item into one list and moves it into the tree's scratch
+  storage before any reduction. `pool.reduce_tree` alone over a ten-million
+  item range takes about 140 ms; its `pool` column above is dominated by
+  `pool.map`.
+- A range source still scales best: ten million cheap items take 0.71 times
   the serial time.
-- A list source loses badly with cheap callbacks: `filter`+`count` and the sums
-  take 4.8 to 6.9 times the serial time. Splitting moves every item into a
-  chunk list on the calling thread, and appending to a list costs about 37 ns
-  per item (a serial loop appending ten million `i64` values to a reserved
-  list takes 370 ms). The same append cost makes serial `map`+`collect` take
-  58 ns per item.
-- `reduce` is 90 to 105 times slower than serial with a cheap function and
-  3.5 to 3.8 times slower with an expensive one, because `reduce_tree` submits
-  a job per pair; `pool.reduce_tree` itself is equally slow.
-- `f64` sums gain less (0.59 to 0.73 with expensive callbacks); the expensive
-  `f64` callback is about 2.5 times cheaper than the `i64` one, so the serial
-  split weighs more.
 
-**Proposed fixes.** Split a list by moving contiguous ranges of storage in
-bulk, one copy per chunk, through an internal list operation; once scoped pool
-jobs exist (B22), chunks can borrow the source and the split disappears. A
-faster list append would also help serial `collect`. For `reduce`, let one
-`reduce_tree` job evaluate a whole aligned subtree serially: the grouping stays
-the fixed tree while the job count drops from one per pair to about one per
-worker.
+**Remaining work.** Once scoped pool jobs exist (B22), chunks can borrow the
+source and the split disappears. `reduce` could reduce each chunk in its
+worker and combine the chunk results, avoiding the collected list, but only
+where the chunk boundaries are aligned subtrees of the fixed tree; with the
+current near-equal chunks that would change the grouping, so it is not done.
 
 ## Fluent generators and explicit conversion
 

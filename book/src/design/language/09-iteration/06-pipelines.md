@@ -364,7 +364,7 @@ input length and the count, never on scheduling.
 | `collect()` | `Result[list[U], PoolMapError]`, in input order |
 | `try_collect()` on `Result[U, E]` items | `Result[list[U], ParallelError[E \| AllocError]]` |
 | `count()` | `Result[i64, PoolMapError]` |
-| `any(keep)`, `all(keep)` | `Result[bool, PoolMapError]` |
+| `any(keep)`, `all(keep)`; `any()`, `all()` on `bool` items | `Result[bool, PoolMapError]` |
 | `sum()` | `Result[T, PoolMapError]` for numeric items |
 | `min()`, `max()` | `Result[Option[T], PoolMapError]` |
 | `reduce(f)` | `Result[Option[T], PoolMapError]` |
@@ -372,8 +372,9 @@ input length and the count, never on scheduling.
 `try_collect` reports the error at the lowest input index, across chunks, as
 [`map_result`](../../facilities/03-concurrency/parallel-map.md) does. Chunk
 allocation failure inside a worker is reported as
-`ParallelError.Worker(AllocError)`. `any` and `all` evaluate every chunk; there
-is no early stop.
+`ParallelError.Worker(AllocError)`. As in the serial form, `any()` and `all()`
+without a predicate test `bool` items. `any` and `all` evaluate every chunk;
+there is no early stop across chunks.
 
 `sum` adds each chunk serially, then adds the chunk totals in input order.
 Integer sums match the serial `sum`, including its overflow behavior: the
@@ -406,16 +407,17 @@ step's value or callback captures and the terminal's arguments, left to right.
 The pool stays borrowed until the terminal returns, so a later argument cannot
 move it.
 
-**Cost.** Splitting a list allocates one list per chunk and moves each item
-once, serially on the calling thread; a range is split without copying items.
-Each chunk is one pool job. Collecting terminals allocate one output list per
-chunk, then append each chunk's storage to one reserved result list. `reduce`
-also allocates the collected list and the `reduce_tree` scratch storage.
+**Cost.** Splitting a list allocates one list per chunk, then moves each
+chunk's items with one bulk copy on the calling thread; a range is split without
+copying items. Each chunk is one pool job. Collecting terminals allocate one
+output list per chunk, then append each chunk's storage to one reserved result
+list. `reduce` also allocates the collected list and the `reduce_tree` scratch
+storage.
 
-The serial split costs about as much per item as a cheap serial pipeline step,
-so `.par` over a list pays off only when the callbacks cost more than moving
-an item. `reduce` runs `reduce_tree`, which submits a job per pair, and is
-much slower than a serial `reduce` unless `f` is expensive. See the
+With a cheap callback over a large list, the split's copy of every item can
+cost more than the work saved, so `.par` pays off when the callbacks cost more
+than moving an item. `reduce` collects every item before the fixed-tree
+reduction, so with a cheap `f` it is slower than a serial `reduce`. See the
 [parallel pipeline measurements](../../../development/profiling.md#parallel-pipelines).
 
 ## Cost
