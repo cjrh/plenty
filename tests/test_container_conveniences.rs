@@ -201,7 +201,7 @@ fn generator_expressions_stream_to_calls_and_short_circuit() {
 def mark(n: i64) -> bool:
     print("visit", n).unwrap()
     n == 2
-print(any(mark(n) for n in range(10))).unwrap()
+print((mark(n) for n in range(10)).any()).unwrap()
 def total(source: Generator[i64]) -> i64:
     mut result = 0
     for value in source:
@@ -246,7 +246,7 @@ class Guard:
     def __del__(self) -> ():
         print("drop", self.n).unwrap()
 guards = [Guard(1), Guard(2), Guard(3)].unwrap()
-print(any(value.n == 1 for value in guards)).unwrap()
+print((value.n == 1 for value in guards).any()).unwrap()
 guard = Guard(4)
 values = (guard.n + n for n in range(3))
 drop(values)
@@ -343,7 +343,7 @@ a, b = items
 x = queue.popleft().unwrap()
 queue.appendleft(5).unwrap()
 y = queue.pop().unwrap()
-z = any(n == 2 for n in range(10))
+z = (n == 2 for n in range(10)).any()
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(a, b, x, y, z).unwrap()

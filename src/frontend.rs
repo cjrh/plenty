@@ -2872,6 +2872,8 @@ struct Lower<'a> {
     loop_scopes: Vec<usize>,
     indexed_lists: Vec<collections::IndexedLists>,
     yield_type: Type,
+    /// Set while a terminal consumes a pipeline; see `consume_in_place`.
+    consuming_pipeline: bool,
     loans: Vec<crate::ownership::Loan>,
     reference_locals: HashMap<u8, usize>,
     expression_temps: Vec<u8>,
@@ -3852,7 +3854,11 @@ impl Lower<'_> {
                     && !self.generics.templates.contains_key(name)
                     && !self.aliases.contains_key(name)
                 {
-                    return self.boolean_reduction(name, args, &e.at, ops).map(Some);
+                    // B75 replaced the free boolean reductions with pipeline terminals.
+                    return Err(e.at.error(format!(
+                        "{name} is not a builtin function; use the pipeline terminal: \
+                         iter(flags).{name}() for bool items, or iter(source).{name}(predicate)"
+                    )));
                 }
                 if matches!(name.as_str(), "ord" | "chr")
                     && !self.names.contains_key(name)
@@ -5757,6 +5763,7 @@ fn lower_body(
                 loop_steps: Vec::new(),
                 loop_scopes: Vec::new(),
                 yield_type: yield_type.clone(),
+                consuming_pipeline: false,
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),
                 indexed_lists: Vec::new(),

@@ -732,9 +732,12 @@ Acceptance for the implementation, not optional extras:
   generator expressions keep their existing syntax and owned-source rules;
   an unconverted pipeline is not a valid generator-expression source. Stored
   range sources already use counted iteration (issue #371).
-- `any(xs)`/`all(xs)` over booleans stay as builtins; `.any(keep)`/`.all(keep)`
-  take a predicate. The free forms are defined as the pipeline forms with an
-  identity predicate.
+- There are no free `any(xs)`/`all(xs)` builtins, as there are no free `sum`,
+  `min` or `max`. `.any(keep)`/`.all(keep)` take a predicate; `.any()`/`.all()`
+  test `bool` or `&bool` items directly, as `filter_value()` does, and compile
+  to the same loop the former builtins did. Over a generator expression the
+  former builtins advanced a frame per item; `iter(xs).any(keep)` fuses the
+  test into the source loop instead.
 
 ## Parallel pipelines
 

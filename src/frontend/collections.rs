@@ -738,7 +738,7 @@ impl Lower<'_> {
                 if matches!(name.as_str(), "collect" | "try_collect")
                     && (self.is_pipeline(base) || self.is_generator_source(base)) =>
             {
-                self.pipeline_collect(base, name, args, expected, ops)
+                self.consume_in_place(|this| this.pipeline_collect(base, name, args, expected, ops))
                     .map(Some)
             }
             Expression::Name(name)
@@ -2105,60 +2105,6 @@ impl Lower<'_> {
             step,
             target,
         })
-    }
-
-    pub(super) fn boolean_reduction(
-        &mut self,
-        name: &str,
-        args: &[Expr],
-        at: &Token,
-        ops: &mut Vec<Op>,
-    ) -> Result<Ty> {
-        let [source] = args else {
-            return Err(at.error(format!("{name} requires one boolean iterable")));
-        };
-        let start = self.locals.len();
-        let saved = self.names.clone();
-        let internal = format!("<boolean reduction {start}>");
-        let Iteration {
-            condition,
-            mut body,
-            step,
-            target,
-            cleanup,
-            ..
-        } = self.iteration(std::slice::from_ref(&internal), source, None, ops)?;
-        let item = &self.names[&internal].ty;
-        let borrowed = matches!(item, Ty::Ref(inner, _) if **inner == Ty::Bool);
-        if *item != Ty::Bool && !borrowed {
-            return Err(source.at.error(format!(
-                "{name} requires bool elements; use an explicit comparison"
-            )));
-        }
-        self.names = saved;
-        let result = self.slot(Ty::Bool, at)?;
-        let identity = name == "all";
-        ops.extend([Op::PushBool(identity), Op::StoreLocal(result)]);
-        body.push(Op::LoadLocal(target));
-        if borrowed {
-            body.push(Op::ReadRef(Ty::Bool));
-        }
-        if identity {
-            body.push(Op::Not);
-        }
-        body.push(branch(
-            vec![Op::PushBool(!identity), Op::StoreLocal(result), Op::Break],
-            vec![],
-        ));
-        body.extend(step);
-        ops.push(Op::Loop {
-            condition: condition.into(),
-            body: body.into(),
-        });
-        ops.push(Op::LoadLocal(result));
-        ops.extend(cleanup);
-        self.cleanup(start, ops);
-        Ok(Ty::Bool)
     }
 
     pub(super) fn for_statement(

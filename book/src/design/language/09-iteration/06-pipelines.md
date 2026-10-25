@@ -36,8 +36,9 @@ captures without advancing a generator or calling a callback. Early exit from
 an owning consumer releases the unconsumed source and captures.
 
 Pipelines cannot be returned, passed by value, shared, captured, or put in
-stored data. They are currently rejected in generator functions, including
-before a `yield`. A pipeline can be [lent](#lending-a-pipeline) to a
+stored data. In generator functions, a pipeline must be consumed by a terminal
+in the expression that creates it, such as `yield iter(&flags).any()`; a
+pipeline local or a loop over a pipeline is rejected. A pipeline can be [lent](#lending-a-pipeline) to a
 `&mut Iter[T]` parameter, and an eligible owned pipeline can leave its scope
 after explicit `.generator()` conversion.
 
@@ -267,6 +268,7 @@ the pipeline is dropped. Inner items are owned, so `flat_map` adds no loan.
 | `sum()` | Numeric total; zero when empty; integer overflow traps like `+` |
 | `min()` / `max()` | Least / greatest numeric or `str` item in `Option[Item]`; empty is `Nothing`; ties keep the first |
 | `any(f)` / `all(f)` | Short-circuit shared-reference predicates; empty is false / true |
+| `any()` / `all()` | Short-circuit over `bool` or `&bool` items; empty is false / true |
 | `find(f)` | First matching item in `Option[Item]`, then release the rest |
 | `for_each(f)` | Call `(Item) -> ()` for each item |
 | `try_fold(initial, f)` | Left fold with `(A, Item) -> Result[A, E]`, stopping at the callback's first error |
@@ -274,6 +276,9 @@ the pipeline is dropped. Inner items are owned, so `flat_map` adds no loan.
 | `collect()` | Build an expected `list[T]`, `set[T]`, or `dict[K, V]`; return `Result[Collection, AllocError]` |
 | `try_collect()` | Collect `Result[T, E]` items, returning `Result[Collection, E | AllocError]` |
 | `generator()` | Transfer an eligible owned plan into a lazy `Generator[Item]` |
+
+`any()` and `all()` test each item itself, as `filter_value()` does; other
+item types need a predicate. There are no free `any` and `all` functions.
 
 `find` and `reduce` need an item that can be stored in an `Option`; map a
 borrowed item to an owned value first.
