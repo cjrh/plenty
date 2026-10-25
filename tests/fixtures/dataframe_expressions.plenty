@@ -1,0 +1,141 @@
+import std.dataframe as df
+import std.test as test
+
+def casts_and_conditions() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    flags: list[Option[bool]] = [Some(True), Some(False), Nothing]?
+    text: list[Option[str]] = [Some("12"), Some("bad"), Nothing]?
+    data = df.frame([df.column_bool_nullable("flag", flags)?, df.column_str_nullable("text", text)?]?)?
+    chosen = df.when(df.col("flag")?, df.lit_str("yes")?, df.lit_str("no")?)?.alias("chosen")?
+    parsed = df.col("text")?.cast(df.DType.I64, strict=False)?.alias("number")?
+    selected = data.lazy()?.select([chosen, parsed]?)?.collect()?
+    test.equal(selected.values_str("chosen")?, ["yes", "no", "no"]?)?
+    expected: list[Option[i64]] = [Some(12), Nothing, Nothing]?
+    test.equal(selected.values_i64_nullable("number")?, expected)?
+    strict = data.lazy()?.select([df.col("text")?.cast(df.DType.I64)?]?)?
+    match strict.collect():
+        case Err(df.DataFrameError.Query(message)):
+            test.check(len(message) > 0, "strict cast diagnostic")?
+        case _:
+            test.fail("strict conversion accepted invalid text")?
+    match df.col("text")?.cast(df.DType.Other("Int32")):
+        case Err(df.DataFrameError.Schema(_)):
+            pass
+        case _:
+            test.fail("unsupported cast target accepted")?
+    invalid_condition = df.when(df.col("text")?, df.lit_i64(1)?, df.lit_i64(0)?)?
+    match data.lazy()?.select([invalid_condition]?)?.collect():
+        case Err(df.DataFrameError.Query(_)):
+            pass
+        case _:
+            test.fail("nonboolean condition accepted")?
+    # Both branches must be valid plans; this is not scalar short-circuiting.
+    invalid_branch = df.when(df.lit_bool(False)?, df.col("missing")?, df.lit_i64(0)?)?
+    match data.lazy()?.select([invalid_branch]?)?.collect():
+        case Err(df.DataFrameError.Query(_)):
+            pass
+        case _:
+            test.fail("invalid unused branch accepted")?
+    conversions = data.lazy()?.select([
+        df.col("flag")?.cast(df.DType.I64)?.alias("integer")?,
+        df.col("flag")?.cast(df.DType.String)?.alias("text_flag")?,
+        df.col("text")?.cast(df.DType.F64, strict=False)?.alias("real")?
+    ]?)?.collect()?
+    expected_i: list[Option[i64]] = [Some(1), Some(0), Nothing]?
+    expected_s: list[Option[str]] = [Some("true"), Some("false"), Nothing]?
+    expected_f: list[Option[f64]] = [Some(12.0), Nothing, Nothing]?
+    test.equal(conversions.values_i64_nullable("integer")?, expected_i)?
+    test.equal(conversions.values_str_nullable("text_flag")?, expected_s)?
+    test.equal(conversions.values_f64_nullable("real")?, expected_f)?
+    floats = df.frame([df.column_f64("v", [1.9, -2.9, 0.0]?)?]?)?
+    test.equal(floats.lazy()?.select([df.col("v")?.cast(df.DType.I64)?]?)?.collect()?.values_i64("v")?, [1, -2, 0]?)?
+    test.equal(floats.lazy()?.select([df.col("v")?.cast(df.DType.Bool)?]?)?.collect()?.values_bool("v")?, [True, True, False]?)?
+    Ok(())
+
+def string_expressions() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    texts: list[Option[str]] = [Some("A.b"), Some("ab"), Some("CAFÉ"), Some("雪🙂"), Some(""), Nothing]?
+    prefixes: list[Option[str]] = [Some("A"), Some("a"), Some("C"), Some("雪"), Some(""), Nothing]?
+    data = df.frame([df.column_str_nullable("text", texts)?, df.column_str_nullable("prefix", prefixes)?]?)?
+    text = df.col("text")?
+    result = data.lazy()?.select([
+        text.str_lower()?.alias("lower")?,
+        text.str_upper()?.alias("upper")?,
+        text.str_len()?.alias("length")?,
+        text.str_contains(df.lit_str(".")?)?.alias("dot")?,
+        text.str_starts_with(df.col("prefix")?)?.alias("starts")?,
+        text.str_ends_with(df.lit_str("b")?)?.alias("ends")?
+    ]?)?.collect()?
+    lower: list[Option[str]] = [Some("a.b"), Some("ab"), Some("café"), Some("雪🙂"), Some(""), Nothing]?
+    upper: list[Option[str]] = [Some("A.B"), Some("AB"), Some("CAFÉ"), Some("雪🙂"), Some(""), Nothing]?
+    lengths: list[Option[i64]] = [Some(3), Some(2), Some(4), Some(2), Some(0), Nothing]?
+    dots: list[Option[bool]] = [Some(True), Some(False), Some(False), Some(False), Some(False), Nothing]?
+    starts: list[Option[bool]] = [Some(True), Some(True), Some(True), Some(True), Some(True), Nothing]?
+    ends: list[Option[bool]] = [Some(True), Some(True), Some(False), Some(False), Some(False), Nothing]?
+    test.equal(result.values_str_nullable("lower")?, lower)?
+    test.equal(result.values_str_nullable("upper")?, upper)?
+    test.equal(result.values_i64_nullable("length")?, lengths)?
+    test.equal(result.values_bool_nullable("dot")?, dots)?
+    test.equal(result.values_bool_nullable("starts")?, starts)?
+    test.equal(result.values_bool_nullable("ends")?, ends)?
+    numeric_pattern = data.lazy()?.select([text.str_contains(df.lit_i64(2)?)?]?)?.collect()?
+    absent: list[Option[bool]] = [Some(False), Some(False), Some(False), Some(False), Some(False), Nothing]?
+    test.equal(numeric_pattern.values_bool_nullable("text")?, absent)?
+    match data.lazy()?.select([text.str_len()?.str_contains(df.lit_i64(2)?)?]?)?.collect():
+        case Err(df.DataFrameError.Query(_)):
+            pass
+        case _:
+            test.fail("two numeric string operands accepted")?
+    # Combining marks count separately, and casing may change text length.
+    unicode = df.frame([df.column_str("u", ["é", "ß", "a\0b"]?)?]?)?
+    converted = unicode.lazy()?.select([df.col("u")?.str_len()?.alias("n")?, df.col("u")?.str_upper()?.alias("u")?]?)?.collect()?
+    test.equal(converted.values_i64("n")?, [2, 1, 3]?)?
+    test.equal(converted.values_str("u")?, ["É", "SS", "A\0B"]?)?
+    Ok(())
+
+def retained_window() -> Result[df.Query, df.DataFrameError | AllocError]:
+    groups: list[Option[str]] = [Some("a"), Some("b"), Some("a"), Nothing, Nothing]?
+    numbers: list[Option[i64]] = [Some(10), Some(20), Some(30), Some(40), Nothing]?
+    data = df.frame([df.column_str_nullable("group", groups)?, df.column_i64_nullable("value", numbers)?]?)?
+    keys = [df.col("group")?]?
+    value = df.col("value")?
+    data.lazy()?.with_columns([
+        value.sum()?.over(keys)?.alias("total")?,
+        value.mean()?.over(keys)?.alias("average")?,
+        value.n_unique()?.over(keys)?.alias("distinct")?
+    ]?)
+
+def distinct_and_windows() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    query = retained_window()?
+    result = query.collect()?
+    test.equal(result.values_i64("total")?, [40, 20, 40, 40, 40]?)?
+    test.equal(result.values_f64("average")?, [20.0, 20.0, 20.0, 40.0, 40.0]?)?
+    test.equal(result.values_i64("distinct")?, [2, 1, 2, 2, 2]?)?
+    test.equal(result.height()?, 5)?
+    ids: list[Option[i64]] = [Some(1), Some(1), Nothing, Some(2), Nothing]?
+    data = df.frame([df.column_i64_nullable("id", ids)?]?)?
+    aggregate = data.lazy()?.select([df.col("id")?.n_unique()?.alias("unique")?, df.col("id")?.count()?.alias("count")?]?)?.collect()?
+    test.equal(aggregate.get_i64("unique", 0)?, Some(3))?
+    test.equal(aggregate.get_i64("count", 0)?, Some(3))?
+    empty: list[i64] = []?
+    blank = df.frame([df.column_i64("id", empty)?]?)?
+    test.equal(blank.lazy()?.select([df.col("id")?.n_unique()?]?)?.collect()?.get_i64("id", 0)?, Some(0))?
+    no_keys: list[df.Expr] = []?
+    match df.col("id")?.sum()?.over(no_keys):
+        case Err(df.DataFrameError.Schema(_)):
+            pass
+        case _:
+            test.fail("empty window partition accepted")?
+    missing_key = df.col("id")?.sum()?.over([df.col("missing")?]?)?
+    match data.lazy()?.select([missing_key]?)?.collect():
+        case Err(df.DataFrameError.Query(_)):
+            pass
+        case _:
+            test.fail("missing window column accepted")?
+    test.equal(query.schema()?[2].dtype, df.DType.I64)?
+    Ok(())
+
+def main() -> Result[(), df.DataFrameError | AllocError | test.TestError | IoError]:
+    casts_and_conditions()?
+    string_expressions()?
+    distinct_and_windows()?
+    print("dataframe expressions ok")?
+    Ok(())

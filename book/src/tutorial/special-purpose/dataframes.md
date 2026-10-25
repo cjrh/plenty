@@ -86,4 +86,6 @@ Native allocation failure can abort the process. Read the
 operations where those distinctions matter.
 
 Continue with [Join and rank results](dataframe-joins.md) to combine datasets,
-order results inside Polars and select a row window.
+order results inside Polars and select a row window. For cleaning text,
+conditional values and per-group comparisons, see
+[Clean and compare column values](dataframe-expressions.md).
