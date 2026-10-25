@@ -52,3 +52,7 @@ Partial successes, later errors, and unsubmitted inputs drop exactly once.
 Some later inputs may already have run, and effects are not undone. Workers must
 not depend on every input being scheduled. Output capacity and the bounded job
 window are reserved before execution; submitted cells remain fallible.
+
+A [parallel pipeline](../../language/09-iteration/06-pipelines.md#parallel-pipelines)
+builds on `map` and `map_result`: `iter(items).par(&pool)` maps and filters
+contiguous chunks on the pool.

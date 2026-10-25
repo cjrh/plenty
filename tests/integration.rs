@@ -304,6 +304,8 @@ mod test_once_closure_storage;
 mod test_once_closures;
 #[path = "test_ownership_runtime.rs"]
 mod test_ownership_runtime;
+#[path = "test_par_pipelines.rs"]
+mod test_par_pipelines;
 #[path = "test_parallel.rs"]
 mod test_parallel;
 #[path = "test_parameterized_protocols.rs"]

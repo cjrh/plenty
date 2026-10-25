@@ -381,6 +381,155 @@ about 1.6 to 1.4 times the named variant; the remainder is per-literal capture
 and splice lowering. Cold-check numbers are one series per compiler and vary by
 roughly 10% between runs.
 
+## Parallel pipelines
+
+`scripts/bench_par_pipelines.py` compares a serial pipeline, the equivalent
+`pool.map`/`reduce_tree` calls, and the same pipeline after `.par(&pool)` (B75
+stage 4). Cases are `map`+`collect`, `filter`+`count`, `sum` over `i64` lists,
+`i64` ranges and `f64` lists, and `reduce`. The cheap callback is `x * 3 + 1`;
+the expensive one runs 100 rounds of a linear congruential step. The `pool`
+column for `filter`+`count` maps the predicate to `0`/`1` and sums serially;
+for the sums and `reduce` it is `reduce_tree` over `pool.map`. Run:
+
+```sh
+taskset -c 0,2,4,6,8,10,12,14 python3 -B scripts/bench_par_pipelines.py target/release/plenty
+```
+
+The `taskset` mask keeps the eight-worker pool on the eight physical cores of
+this laptop; more than ten busy threads drop its clock to about 1.1 GHz. Each
+program builds its input outside the timed region, times one terminal with the
+monotonic clock per repetition, discards the first repetition and prints a
+checksum; every variant of a case must agree. The script interleaves the
+variants over three rounds of four timed repetitions and reports medians in
+milliseconds. The machine was not otherwise idle (load average 2 to 5 from
+other work), so differences under about 10% are noise.
+
+**Screening.** Before timing, `--dump asm` of the chunk workers showed the
+same per-item calls as the serial loop (`plenty_list_scalar_get` and, when
+collecting, `plenty_collection` for the append) for `map`, `filter` and
+`count`. The signed-sum worker folded into a seven-field tuple and called
+`signed_step` per item, with two `memmove` calls for the tuple state; a serial
+microbenchmark of that fold over ten million items took 400 ms against 20 ms
+for the same arithmetic in local variables and 6 ms for `sum`. The worker now
+runs the chunk in a loop over locals, tracking the exact running total as a
+wrapping `i64` plus a wrap count. Combining collected chunks now appends each
+chunk's storage with `extend` instead of moving items one at a time.
+
+The first round of measurements found two losses: splitting a list moved each
+item on the calling thread with a list append (about 37 ns per item), and
+`.par` `reduce` collected every item, then ran `reduce_tree`, which submitted
+one job per pair. Three changes followed:
+
+- A list source is split by an internal list operation that allocates every
+  chunk first and then copies each chunk's contiguous rows in one bulk copy;
+  the source then forgets its rows, so each item still moves once. The
+  generated code calls the operation once and pairs chunks with offsets in a
+  loop over chunks, not items.
+- `pool.reduce_tree` gives one job an aligned run of adjacent inputs, a power
+  of two chosen so there is about one run per worker, and the job reduces it
+  serially through the same rounds. The remaining run results are combined by
+  pair jobs. Because each round maps index `i` to `i / 2`, an aligned run is
+  exactly a subtree of the fixed tree, so the grouping is unchanged; a test
+  compares it with a serial level-by-level evaluation for lengths 0 to 70 and
+  larger odd and even lengths, with 1, 2, 3 and 8 workers.
+- `.par` `reduce` now groups like `sum`: each chunk reduces its items left to
+  right in its worker, and the chunk results are reduced in input order. No
+  list of all items is collected. The worker's loop makes the same direct calls
+  per item as the serial pipeline (`plenty_list_scalar_get`, the callback and
+  `f`).
+
+Results on an AMD Ryzen 7 7840HS, eight workers, after the split and
+`reduce_tree` changes (load average 5 to 9 from other work during this run).
+The `reduce` rows were measured after the chunked `reduce` change, at load
+average 2 to 6; their `pool` column is `pool.reduce_tree` over `pool.map`:
+
+| Case | Callback | Items | Serial | pool | par | par/serial | par/pool |
+|---|---|---:|---:|---:|---:|---:|---:|
+| map+collect | cheap | 1,000 | 0.043 | 0.835 | 0.044 | 1.03 | 0.05 |
+| map+collect | cheap | 100,000 | 5.662 | 88.533 | 2.378 | 0.42 | 0.03 |
+| map+collect | cheap | 10,000,000 | 603.161 | 9026.220 | 432.671 | 0.72 | 0.05 |
+| map+collect | heavy | 1,000 | 0.304 | 0.798 | 0.107 | 0.35 | 0.13 |
+| map+collect | heavy | 100,000 | 32.293 | 85.745 | 6.090 | 0.19 | 0.07 |
+| map+collect | heavy | 1,000,000 | 318.217 | 892.826 | 53.148 | 0.17 | 0.06 |
+| filter+count | cheap | 1,000 | 0.009 | 0.729 | 0.017 | 1.82 | 0.02 |
+| filter+count | cheap | 100,000 | 0.928 | 89.932 | 0.550 | 0.59 | 0.01 |
+| filter+count | cheap | 10,000,000 | 116.494 | 9142.480 | 195.219 | 1.68 | 0.02 |
+| filter+count | heavy | 1,000 | 0.286 | 0.999 | 0.104 | 0.36 | 0.10 |
+| filter+count | heavy | 100,000 | 28.633 | 127.328 | 7.603 | 0.27 | 0.06 |
+| filter+count | heavy | 1,000,000 | 284.509 | 1026.368 | 47.223 | 0.17 | 0.05 |
+| sum i64 | cheap | 1,000 | 0.009 | 0.848 | 0.018 | 2.05 | 0.02 |
+| sum i64 | cheap | 100,000 | 0.859 | 93.360 | 0.548 | 0.64 | 0.01 |
+| sum i64 | cheap | 10,000,000 | 109.000 | 9478.932 | 193.628 | 1.78 | 0.02 |
+| sum i64 | heavy | 1,000 | 0.305 | 1.432 | 0.121 | 0.40 | 0.08 |
+| sum i64 | heavy | 100,000 | 31.455 | 183.617 | 8.238 | 0.26 | 0.04 |
+| sum i64 | heavy | 1,000,000 | 312.719 | 1304.590 | 56.565 | 0.18 | 0.04 |
+| sum i64 range | cheap | 1,000 | 0.001 | 0.911 | 0.027 | 26.18 | 0.03 |
+| sum i64 range | cheap | 100,000 | 0.163 | 157.890 | 0.140 | 0.86 | 0.00 |
+| sum i64 range | cheap | 10,000,000 | 8.534 | 10434.829 | 6.080 | 0.71 | 0.00 |
+| sum i64 range | heavy | 1,000 | 0.301 | 1.407 | 0.103 | 0.34 | 0.07 |
+| sum i64 range | heavy | 100,000 | 27.692 | 140.153 | 6.828 | 0.25 | 0.05 |
+| sum i64 range | heavy | 1,000,000 | 279.499 | 1147.233 | 44.372 | 0.16 | 0.04 |
+| sum f64 | cheap | 1,000 | 0.012 | 1.349 | 0.026 | 2.17 | 0.02 |
+| sum f64 | cheap | 100,000 | 0.873 | 113.078 | 0.499 | 0.57 | 0.00 |
+| sum f64 | cheap | 10,000,000 | 109.501 | 9719.740 | 200.286 | 1.83 | 0.02 |
+| sum f64 | heavy | 1,000 | 0.122 | 1.272 | 0.066 | 0.54 | 0.05 |
+| sum f64 | heavy | 100,000 | 11.672 | 138.603 | 3.222 | 0.28 | 0.02 |
+| sum f64 | heavy | 1,000,000 | 115.819 | 1265.773 | 25.185 | 0.22 | 0.02 |
+| reduce | cheap | 1,000 | 0.009 | 0.939 | 0.018 | 1.94 | 0.02 |
+| reduce | cheap | 100,000 | 0.961 | 94.659 | 0.613 | 0.64 | 0.01 |
+| reduce | cheap | 10,000,000 | 118.276 | 9709.342 | 206.719 | 1.75 | 0.02 |
+| reduce | heavy | 1,000 | 0.290 | 0.785 | 0.092 | 0.32 | 0.12 |
+| reduce | heavy | 100,000 | 29.397 | 94.482 | 6.060 | 0.21 | 0.06 |
+| reduce | heavy | 1,000,000 | 287.664 | 944.683 | 42.598 | 0.15 | 0.05 |
+
+Rows at ten million items vary by up to a factor of two under this load.
+
+Before these changes (first-round table, same method):
+
+| Case | Callback | Items | Serial | par | par/serial |
+|---|---|---:|---:|---:|---:|
+| map+collect | cheap | 100,000 | 5.592 | 6.209 | 1.11 |
+| map+collect | cheap | 10,000,000 | 578.968 | 799.740 | 1.38 |
+| map+collect | heavy | 1,000,000 | 316.502 | 89.720 | 0.28 |
+| filter+count | cheap | 100,000 | 0.949 | 4.664 | 4.92 |
+| filter+count | cheap | 10,000,000 | 114.501 | 551.130 | 4.81 |
+| sum i64 | cheap | 100,000 | 0.869 | 4.602 | 5.29 |
+| sum i64 | cheap | 10,000,000 | 111.048 | 554.508 | 4.99 |
+| sum f64 | cheap | 10,000,000 | 103.538 | 557.589 | 5.39 |
+| sum f64 | heavy | 1,000,000 | 105.033 | 62.007 | 0.59 |
+| reduce | cheap | 100,000 | 0.940 | 98.029 | 104.27 |
+| reduce | cheap | 10,000,000 | 111.216 | 10227.076 | 91.96 |
+| reduce | heavy | 1,000,000 | 267.240 | 1025.180 | 3.84 |
+
+An earlier round, before the signed-sum worker and `extend` changes above,
+measured `sum i64` over a range of ten million items at 60.1 ms with `.par`
+(7.12 times serial) and `map`+`collect` of one million expensive items at
+158 ms (0.44 times serial).
+
+**Findings.**
+
+- With expensive callbacks, `.par` runs at 0.16 to 0.27 times the serial time
+  on `i64` work from 100,000 items, and 0.34 to 0.40 at 1,000 items.
+- With cheap callbacks over a list, the bulk split removed most of the loss:
+  `filter`+`count` and the sums of 100,000 items now take 0.57 to 0.64 times
+  the serial time (4.9 to 5.5 before). At ten million items they take 1.7 to
+  1.8 times serial (4.8 to 5.4 before): the serial loop over a cheap callback
+  is limited by memory bandwidth, and the split still writes every item once
+  more.
+- `reduce` with an expensive function went from 3.8 times slower than serial
+  to 0.15 to 0.21 times the serial time from 100,000 items. With a cheap
+  function it went from 92 to 104 times slower to 0.64 times serial at 100,000
+  items and 1.75 at ten million, the same as `sum`. Before the chunked change,
+  the block `reduce_tree` alone brought cheap `reduce` to 5 to 11 times serial;
+  the rest was collecting every item and moving it into the tree's scratch
+  storage. `pool.reduce_tree` alone over a ten-million item range takes about
+  140 ms; its `pool` column above is dominated by `pool.map`.
+- A range source still scales best: ten million cheap items take 0.71 times
+  the serial time.
+
+**Remaining work.** Once scoped pool jobs exist (B22, issue #455), chunks can
+borrow the source and the split's copy disappears.
+
 ## Fluent generators and explicit conversion
 
 `scripts/bench_pipeline_generators.py` measures the same filter/map/fold workload

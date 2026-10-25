@@ -726,7 +726,8 @@ impl Lowerer<'_, '_> {
             | CollectionOp::TextTrySplitWhitespace
             | CollectionOp::TextTrySplitLines
             | CollectionOp::TryKeys(_)
-            | CollectionOp::TryValues(_) => Some(&output),
+            | CollectionOp::TryValues(_)
+            | CollectionOp::ListTrySplit(_) => Some(&output),
             CollectionOp::Len(Ty::Str)
             | CollectionOp::Get(Ty::Str)
             | CollectionOp::IterGet(Ty::Str)
