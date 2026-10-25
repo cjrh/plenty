@@ -1,0 +1,157 @@
+import std.dataframe as df
+import std.test as test
+
+def roundtrip() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    names: list[Option[str]] = [Some(""), Nothing, Some("café,\n\"雪\"")]?
+    numbers: list[Option[i64]] = [Some(1), Nothing, Some(3)]?
+    flags: list[Option[bool]] = [Some(True), Some(False), Nothing]?
+    values: list[Option[f64]] = [Some(1.5), Nothing, Some(f64.NAN)]?
+    data = df.frame([
+        df.column_str_nullable("name", names)?,
+        df.column_i64_nullable("number", numbers)?,
+        df.column_bool_nullable("flag", flags)?,
+        df.column_f64_nullable("value", values)?
+    ]?)?
+    data.write_csv("roundtrip.csv")?
+    query = df.scan_csv("roundtrip.csv", schema_overrides=Some(data.schema()?))?
+    test.equal(query.schema()?, data.schema()?)?
+    restored = query.collect_streaming()?
+    test.equal(restored.values_str_nullable("name")?, names)?
+    test.equal(restored.values_i64_nullable("number")?, numbers)?
+    test.equal(restored.values_bool_nullable("flag")?, flags)?
+    extracted = restored.values_f64_nullable("value")?
+    test.equal(extracted[0], Some(1.5))?
+    test.check(extracted[1].is_none(), "null float preserved")?
+    nan = extracted[2].unwrap()
+    test.check(nan != nan, "CSV NaN remains a present value")?
+    test.equal(query.collect()?.values_str_nullable("name")?, names)?
+    query.sink_parquet("roundtrip.parquet")?
+    stored = df.scan_parquet("roundtrip.parquet")?.collect_streaming()?
+    test.equal(stored.values_str_nullable("name")?, names)?
+    test.equal(stored.schema()?, data.schema()?)?
+    # Creation-only output cannot overwrite a source or a prior result.
+    match data.write_csv("roundtrip.csv"):
+        case Err(df.DataFrameError.Io(_)):
+            pass
+        case _:
+            test.fail("CSV overwrote existing output")?
+    match query.sink_parquet("roundtrip.csv"):
+        case Err(df.DataFrameError.Io(_)):
+            pass
+        case _:
+            test.fail("sink overwrote lazy input")?
+    test.equal(df.scan_csv("roundtrip.csv", schema_overrides=Some(data.schema()?))?.collect()?.height()?, 3)?
+    # Paths are literal, not glob patterns.
+    data.write_csv("literal[1]*.csv")?
+    test.equal(df.scan_csv("literal[1]*.csv")?.collect_streaming()?.height()?, 3)?
+    Ok(())
+
+def options_and_inference() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    scan = df.scan_csv("custom.csv", separator=";", null_value=Some("NA"), schema_overrides=Some([
+        df.Field("id", df.DType.String),
+        df.Field("active", df.DType.Bool)
+    ]?))?
+    data = scan.collect_streaming()?
+    test.equal(data.values_str("id")?, ["001", "002", "003"]?)?
+    flags: list[Option[bool]] = [Some(True), Nothing, Some(False)]?
+    test.equal(data.values_bool_nullable("active")?, flags)?
+    notes: list[Option[str]] = [Some(""), Nothing, Some("雪;quoted")]?
+    test.equal(data.values_str_nullable("note")?, notes)?
+    data.write_csv("no_header.csv", has_header=False, separator=";", null_value="NA")?
+    restored = df.scan_csv("no_header.csv", has_header=False, separator=";", null_value=Some("NA"), schema_overrides=Some([
+        df.Field("column_1", df.DType.String),
+        df.Field("column_2", df.DType.Bool),
+        df.Field("column_3", df.DType.String)
+    ]?))?.collect_streaming()?
+    test.equal(restored.values_str("column_1")?, ["001", "002", "003"]?)?
+    test.equal(restored.values_bool_nullable("column_2")?, flags)?
+    test.equal(restored.values_str_nullable("column_3")?, notes)?
+    text = df.scan_csv("inference.csv", infer_rows=0)?.collect_streaming()?
+    test.equal(text.values_str("v")?, ["1", "two"]?)?
+    all_rows = df.scan_csv("inference.csv", infer_rows=-1)?.collect_streaming()?
+    test.equal(all_rows.values_str("v")?, ["1", "two"]?)?
+    match df.scan_csv("inference.csv", infer_rows=1)?.collect_streaming():
+        case Err(df.DataFrameError.Query(_)):
+            pass
+        case _:
+            test.fail("short inference silently ignored a later parse error")?
+    tokens = df.scan_csv("tokens.csv", null_value=Some("NA"), infer_rows=0)?.collect_streaming()?
+    expected: list[Option[str]] = [Nothing, Some(""), Nothing, Some("x")]?
+    test.equal(tokens.values_str_nullable("value")?, expected)?
+    Ok(())
+
+def errors_and_empty() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    for separator in ["", "::", "é", "\"", "\n", "\0"]?:
+        match df.scan_csv("custom.csv", separator=separator):
+            case Err(df.DataFrameError.Schema(_)):
+                pass
+            case _:
+                test.fail("invalid CSV separator accepted")?
+    match df.scan_csv("custom.csv", infer_rows=-2):
+        case Err(df.DataFrameError.Schema(_)):
+            pass
+        case _:
+            test.fail("invalid inference count accepted")?
+    match df.scan_csv("custom.csv", separator=";", schema_overrides=Some([df.Field("missing", df.DType.I64)]?)):
+        case Err(df.DataFrameError.Schema(_)):
+            pass
+        case _:
+            test.fail("unknown override silently ignored")?
+    match df.scan_csv("custom.csv", schema_overrides=Some([df.Field("id", df.DType.I64), df.Field("id", df.DType.String)]?)):
+        case Err(df.DataFrameError.Schema(_)):
+            pass
+        case _:
+            test.fail("duplicate override accepted")?
+    match df.scan_csv("custom.csv", schema_overrides=Some([df.Field("id", df.DType.Other("Int32"))]?)):
+        case Err(df.DataFrameError.Schema(_)):
+            pass
+        case _:
+            test.fail("unsupported CSV dtype accepted")?
+    match df.scan_csv("absent.csv"):
+        case Err(_):
+            pass
+        case Ok(query):
+            match query.collect_streaming():
+                case Err(_):
+                    pass
+                case _:
+                    test.fail("missing file accepted")?
+    match df.scan_csv("bad_utf8.csv", infer_rows=0):
+        case Err(_):
+            pass
+        case Ok(query):
+            match query.collect_streaming():
+                case Err(_):
+                    pass
+                case _:
+                    test.fail("invalid UTF-8 accepted")?
+    empty = df.scan_csv("empty_typed.csv", schema_overrides=Some([df.Field("id", df.DType.I64), df.Field("name", df.DType.String)]?))?
+    test.equal(empty.collect_streaming()?.height()?, 0)?
+    empty.sink_parquet("empty.parquet")?
+    test.equal(df.scan_parquet("empty.parquet")?.collect()?.schema()?, empty.schema()?)?
+    Ok(())
+
+def retained_query() -> Result[df.Query, df.DataFrameError | AllocError]:
+    overrides = [df.Field("id", df.DType.String), df.Field("active", df.DType.Bool)]?
+    df.scan_csv("custom.csv", separator=";", null_value=Some("NA"), schema_overrides=Some(overrides))?.filter(df.col("active")?)
+
+def streaming_queries() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    query = retained_query()?
+    query.sink_parquet("filtered.parquet")?
+    test.equal(df.scan_parquet("filtered.parquet")?.collect()?.values_str("id")?, ["001"]?)?
+    test.equal(query.collect_streaming()?.values_str("id")?, ["001"]?)?
+    # Stateful native plans are supported, but are not promised bounded memory.
+    data = df.frame([df.column_i64("key", [2, 1, 2]?)?, df.column_i64("v", [10, 20, 30]?)?]?)?
+    grouped = data.lazy()?.group_by([df.col("key")?]?, [df.col("v")?.sum()?]?)?.sort([df.SortKey(df.col("key")?)]?)?
+    test.equal(grouped.collect_streaming()?.values_i64("v")?, [20, 40]?)?
+    grouped.sink_parquet("groups.parquet")?
+    test.equal(df.scan_parquet("groups.parquet")?.collect_streaming()?.values_i64("v")?, [20, 40]?)?
+    Ok(())
+
+def main() -> Result[(), df.DataFrameError | AllocError | test.TestError | IoError]:
+    roundtrip()?
+    options_and_inference()?
+    errors_and_empty()?
+    streaming_queries()?
+    print("dataframe io ok")?
+    Ok(())

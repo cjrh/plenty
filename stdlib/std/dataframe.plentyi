@@ -8,6 +8,7 @@ opaque RawExpr
 opaque RawExprs
 opaque RawQuery
 opaque RawSortKeys
+opaque RawCsvSchema
 
 extern def error_drop(raw: RawError) -> () = "pldf_v1_error_drop"
 extern def column_drop(raw: RawColumn) -> () = "pldf_v1_column_drop"
@@ -58,6 +59,13 @@ extern def string_unary_raw(expr: RawExpr, op: i32, out: &mut RawExpr) -> RawErr
 extern def string_binary_raw(expr: RawExpr, pattern: RawExpr, op: i32, out: &mut RawExpr) -> RawError = "pldf_v1_string_binary"
 extern def n_unique_raw(expr: RawExpr, out: &mut RawExpr) -> RawError = "pldf_v1_n_unique"
 extern def over_raw(expr: RawExpr, partition_by: RawExprs, out: &mut RawExpr) -> RawError = "pldf_v1_over"
+extern def csv_schema_new(out: &mut RawCsvSchema) -> RawError = "pldf_v1_csv_schema_new"
+extern def csv_schema_add(schema: RawCsvSchema, name: &str as utf8, dtype: i32) -> RawError = "pldf_v1_csv_schema_add"
+extern def csv_schema_drop(schema: RawCsvSchema) -> () = "pldf_v1_csv_schema_drop"
+extern def scan_csv_raw(path: &str as utf8, has_header: u8, separator: &str as utf8, infer_rows: i64, null_value: &str as utf8, has_null: u8, schema: RawCsvSchema, out: &mut RawQuery) -> RawError = "pldf_v1_scan_csv"
+extern def write_csv_raw(frame: RawFrame, path: &str as utf8, has_header: u8, separator: &str as utf8, null_value: &str as utf8) -> RawError = "pldf_v1_write_csv"
+extern def collect_streaming_raw(query: RawQuery, out: &mut RawFrame) -> RawError = "pldf_v1_collect_streaming"
+extern def sink_parquet_raw(query: RawQuery, path: &str as utf8) -> RawError = "pldf_v1_sink_parquet"
 
 extern def strings_drop(raw: RawStrings) -> () = "pldf_v1_strings_drop"
 extern def strings_meta(raw: RawStrings, rows: &mut i64, bytes: &mut i64) -> RawError = "pldf_v1_strings_meta"
@@ -88,6 +96,26 @@ pub enum DType:
 pub class Field:
     pub name: str
     pub dtype: DType
+
+def scalar_dtype(dtype: DType) -> Result[i32, DataFrameError]:
+    match dtype:
+        case DType.I64:
+            Ok(0i32)
+        case DType.F64:
+            Ok(1i32)
+        case DType.Bool:
+            Ok(2i32)
+        case DType.String:
+            Ok(3i32)
+        case DType.Other(_):
+            Err(DataFrameError.Schema("dtype must be I64, F64, Bool or String"))
+
+class CsvSchema:
+    raw: RawCsvSchema
+    def __init__(self) -> ():
+        self.raw = RawCsvSchema.null()
+    def __del__(self) -> ():
+        csv_schema_drop(self.raw)
 
 pub enum JoinKind:
     Inner
@@ -255,6 +283,8 @@ pub class DataFrame:
         Ok(out)
     pub def write_parquet(self, path: &str) -> Result[(), DataFrameError]:
         checked(write_raw(self.raw, path))
+    pub def write_csv(self, path: &str, has_header: bool = True, separator: &str = ",", null_value: &str = "") -> Result[(), DataFrameError]:
+        checked(write_csv_raw(self.raw, path, 1u8 if has_header else 0u8, separator, null_value))
     pub def get_i64(self, name: &str, row: i64) -> Result[Option[i64], DataFrameError]:
         mut out = 0
         mut valid = 0u8
@@ -334,17 +364,7 @@ pub class Expr:
     def __del__(self) -> ():
         expr_drop(self.raw)
     pub def cast(self, dtype: DType, strict: bool = True) -> Result[Expr, DataFrameError]:
-        kind = match dtype:
-            case DType.I64:
-                0i32
-            case DType.F64:
-                1i32
-            case DType.Bool:
-                2i32
-            case DType.String:
-                3i32
-            case DType.Other(_):
-                return Err(DataFrameError.Schema("cast target must be I64, F64, Bool or String"))
+        kind = scalar_dtype(dtype)?
         mut out = Expr()
         checked(cast_raw(self.raw, kind, 1u8 if strict else 0u8, &mut out.raw))?
         Ok(out)
@@ -506,6 +526,12 @@ pub class Query:
         mut out = DataFrame()
         checked(collect_raw(self.raw, &mut out.raw))?
         Ok(out)
+    pub def collect_streaming(self) -> Result[DataFrame, DataFrameError]:
+        mut out = DataFrame()
+        checked(collect_streaming_raw(self.raw, &mut out.raw))?
+        Ok(out)
+    pub def sink_parquet(self, path: &str) -> Result[(), DataFrameError]:
+        checked(sink_parquet_raw(self.raw, path))
     pub def join(self, other: &Query, left_keys: &list[Expr], right_keys: &list[Expr], how: JoinKind = JoinKind.Inner, suffix: &str = "_right", nulls_equal: bool = False) -> Result[Query, DataFrameError]:
         native_left = expression_list(left_keys)?
         native_right = expression_list(right_keys)?
@@ -594,6 +620,19 @@ pub def null_f64() -> Result[Expr, DataFrameError]:
 pub def scan_parquet(path: &str) -> Result[Query, DataFrameError]:
     mut out = Query()
     checked(scan_raw(path, &mut out.raw))?
+    Ok(out)
+
+pub def scan_csv(path: &str, has_header: bool = True, separator: &str = ",", infer_rows: i64 = 100, null_value: Option[str] = Nothing, schema_overrides: Option[list[Field]] = Nothing) -> Result[Query, DataFrameError]:
+    mut schema = CsvSchema()
+    checked(csv_schema_new(&mut schema.raw))?
+    match schema_overrides:
+        case Some(fields):
+            for field in &fields:
+                checked(csv_schema_add(schema.raw, field.name, scalar_dtype(field.dtype)?))?
+        case Nothing:
+            pass
+    mut out = Query()
+    checked(scan_csv_raw(path, 1u8 if has_header else 0u8, separator, infer_rows, null_value.unwrap_or(""), 1u8 if null_value.is_some() else 0u8, schema.raw, &mut out.raw))?
     Ok(out)
 
 pub def column_bool(name: &str, values: &list[bool]) -> Result[Column, DataFrameError]:

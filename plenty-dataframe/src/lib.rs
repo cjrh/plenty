@@ -145,6 +145,8 @@ mod columns;
 pub use columns::*;
 mod expressions;
 pub use expressions::*;
+mod io;
+pub use io::*;
 
 /// # Safety
 /// Borrow a non-null error owner for the call.

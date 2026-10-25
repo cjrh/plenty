@@ -1,6 +1,6 @@
 # `std.dataframe`
 
-Polars-backed analytical dataframes, expression plans and Parquet files.
+Polars-backed analytical dataframes, expression plans and CSV/Parquet files.
 The optional, separately compiled engine is reused by every Plenty program.
 See [installation and deployment](dataframe-engine.md) and the
 [tutorial](../../tutorial/special-purpose/dataframes.md).
@@ -60,7 +60,9 @@ The [signature index](signatures.md#stddataframe) gives exact declarations.
 | `query.group_by(&keys, &aggregates)` | `Query` |
 | `query.join(&other, &left_keys, &right_keys, how=JoinKind.Inner, suffix="_right", nulls_equal=False)` | `Query` |
 | `query.sort(&keys)`, `slice(offset, length)`, `limit(count)` | `Query` |
-| `query.collect()` | `DataFrame` |
+| `query.collect()`, `collect_streaming()` | `DataFrame` |
+| `scan_csv(path, ...)` | `Query` |
+| `frame.write_csv(path, ...)`, `query.sink_parquet(path)` | `()` |
 | `frame.write_parquet(path)` | `()` |
 
 See [expression contracts](dataframe-expressions.md) for conditional evaluation,
@@ -132,6 +134,9 @@ produce empty frames. `length` must be in `0..4294967295` inclusive;
 negative or larger lengths fail immediately with `DataFrameError.Bounds`.
 `limit(count)` is `slice(0, count)`, with the same length checks.
 Sort first when a page or top-N result needs a defined ordering.
+
+See [CSV and streaming I/O](dataframe-io.md) for file options, direct sinks,
+create-new output behavior and buffering limits.
 
 ## Semantics and limits
 

@@ -368,7 +368,7 @@ def writer[W](inner: W, dialect: &Dialect) -> Result[Writer[W], CsvError]
 
 ## `std.dataframe`
 
-Optional Polars analytical expression plans, typed nullable columns, schema inspection, grouping, and Parquet. Errors: `DataFrameError`. [Reference](dataframe.md).
+Optional Polars analytical expression plans, typed nullable columns, schema inspection, grouping, and CSV/Parquet I/O. Errors: `DataFrameError`. [Reference](dataframe.md).
 
 ```text
 enum DType
@@ -387,6 +387,7 @@ class DataFrame
     def height(self) -> Result[i64, DataFrameError]
     def lazy(self) -> Result[Query, DataFrameError]
     def write_parquet(self, path: &str) -> Result[(), DataFrameError]
+    def write_csv(self, path: &str, has_header: bool = True, separator: &str = ",", null_value: &str = "") -> Result[(), DataFrameError]
     def get_i64(self, name: &str, row: i64) -> Result[Option[i64], DataFrameError]
     def values_i64(self, name: &str) -> Result[list[i64], DataFrameError]
     def get_f64(self, name: &str, row: i64) -> Result[Option[f64], DataFrameError]
@@ -436,6 +437,8 @@ class Query
     def select(self, expressions: &list[Expr]) -> Result[Query, DataFrameError]
     def group_by(self, keys: &list[Expr], aggregates: &list[Expr]) -> Result[Query, DataFrameError]
     def collect(self) -> Result[DataFrame, DataFrameError]
+    def collect_streaming(self) -> Result[DataFrame, DataFrameError]
+    def sink_parquet(self, path: &str) -> Result[(), DataFrameError]
     def join(self, other: &Query, left_keys: &list[Expr], right_keys: &list[Expr], how: JoinKind = JoinKind.Inner, suffix: &str = "_right", nulls_equal: bool = False) -> Result[Query, DataFrameError]
     def sort(self, keys: &list[SortKey]) -> Result[Query, DataFrameError]
     def slice(self, offset: i64, length: i64) -> Result[Query, DataFrameError]
@@ -451,6 +454,7 @@ def lit_bool(value: bool) -> Result[Expr, DataFrameError]
 def when(predicate: &Expr, then_value: &Expr, otherwise: &Expr) -> Result[Expr, DataFrameError]
 def null_f64() -> Result[Expr, DataFrameError]
 def scan_parquet(path: &str) -> Result[Query, DataFrameError]
+def scan_csv(path: &str, has_header: bool = True, separator: &str = ",", infer_rows: i64 = 100, null_value: Option[str] = Nothing, schema_overrides: Option[list[Field]] = Nothing) -> Result[Query, DataFrameError]
 def column_bool(name: &str, values: &list[bool]) -> Result[Column, DataFrameError]
 def column_str(name: &str, values: &list[str]) -> Result[Column, DataFrameError]
 def column_i64_nullable(name: &str, values: &list[Option[i64]]) -> Result[Column, DataFrameError]
