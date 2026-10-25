@@ -31,6 +31,9 @@ roll, including skipped ones.
 The source follows the ordinary iteration rules. Borrowing `rolls` keeps the
 list, and each item is a reference, so the loop reads `*roll`.
 `filter_value` still takes a plain `i64`: a borrowed item is compared by value.
+It also accepts a borrowed value, such as `filter_value(&wanted)`, so a string
+can be matched without copying it; `wanted` then stays borrowed until the
+pipeline ends.
 
 A pipeline is single-use. Consuming it again, or using an owned source after
 the pipeline has taken it, is an ownership error.
@@ -77,7 +80,7 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 ```error
-filter_value compares &i64 items with a str value; it requires i64
+filter_value compares &i64 items with a str value; it requires i64 or &i64
 ```
 
 Generators have the same methods without `iter`:

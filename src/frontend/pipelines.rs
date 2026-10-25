@@ -930,8 +930,10 @@ impl Lower<'_> {
     }
 
     /// `filter_value(v)` evaluates `v` once at construction and lowers
-    /// `item == v` (`*item == v` for a borrowed item) into the loop, so it
-    /// accepts exactly the operands `==` accepts and calls nothing.
+    /// `item == v` into the loop, so it accepts exactly the operands `==`
+    /// accepts and calls nothing. A borrowed item reads through its
+    /// reference; for borrowed items `v` may itself be a shared `&T`, whose
+    /// loan is held like a borrowed source's until the pipeline ends.
     fn pipeline_filter_value(
         &mut self,
         plan: &mut Pipeline,
@@ -948,7 +950,8 @@ impl Lower<'_> {
             Ty::Ref(inner, _) => (true, (**inner).clone()),
             ty => (false, ty.clone()),
         };
-        match args {
+        let mut loan = None;
+        let value_ty = match args {
             [] => {
                 if target != Ty::Bool {
                     return Err(at.error(format!(
@@ -957,6 +960,7 @@ impl Lower<'_> {
                     )));
                 }
                 ops.push(Op::PushBool(true));
+                Ty::Bool
             }
             [argument] => {
                 let value = match &argument.kind {
@@ -968,29 +972,57 @@ impl Lower<'_> {
                     }
                     _ => argument,
                 };
-                let actual = self.expr_expected(value, Some(target.clone()), ops)?;
-                if actual.as_ref() != Some(&target) {
+                let shared = Ty::Ref(Arc::new(target.clone()), false);
+                let by_reference = borrowed
+                    && (matches!(&ungroup(value).kind, Expression::Unary(op, _) if op == "&")
+                        || matches!(self.expression_type_hint(value), Some(Ty::Ref(..))));
+                let expected = if by_reference {
+                    shared.clone()
+                } else {
+                    target.clone()
+                };
+                let actual = self.expr_expected(value, Some(expected.clone()), ops)?;
+                if actual.as_ref() != Some(&expected) {
+                    let accepted = if borrowed {
+                        format!("{} or {}", type_name(Some(target.clone())), shared)
+                    } else {
+                        type_name(Some(target.clone()))
+                    };
                     return Err(value.at.error(format!(
-                        "filter_value compares {} items with a {} value; it requires {}",
+                        "filter_value compares {} items with a {} value; it requires {accepted}",
                         type_name(Some(plan.item.ty.clone())),
                         type_name(actual),
-                        type_name(Some(target.clone()))
                     )));
                 }
+                if by_reference {
+                    plan.owned = false;
+                    loan = Some(self.reference_origin(value, ops)?);
+                }
+                expected
             }
             _ => return Err(at.error("filter_value takes at most one value")),
-        }
-        let slot = self.slot(target.clone(), at)?;
+        };
+        let slot = self.slot(value_ty.clone(), at)?;
         ops.push(Op::StoreLocal(slot));
+        if let Some(loan) = loan {
+            self.bind_reference(slot, loan, false, ops);
+        }
         let name = |slot: u8| Expr {
             at: at.clone(),
             kind: Expression::Name(format!("<pipeline value {slot}>")),
         };
+        let deref = |e: Expr| Expr {
+            at: at.clone(),
+            kind: Expression::Unary("*".into(), Box::new(e)),
+        };
+        let value_is_reference = matches!(value_ty, Ty::Ref(..));
+        // Named for diagnostics such as a conflicting read through it.
+        let argument = "filter_value argument".to_string();
         self.bind(
-            format!("<pipeline value {slot}>"),
+            argument.clone(),
             Local {
                 slot,
-                ty: target,
+                ty: value_ty,
                 mutable: false,
             },
         );
@@ -999,17 +1031,19 @@ impl Lower<'_> {
             plan.item.clone(),
         );
         let item = name(plan.item.slot);
-        let item = if borrowed {
-            Expr {
-                at: at.clone(),
-                kind: Expression::Unary("*".into(), Box::new(item)),
-            }
+        let item = if borrowed { deref(item) } else { item };
+        let value = Expr {
+            at: at.clone(),
+            kind: Expression::Name(argument),
+        };
+        let value = if value_is_reference {
+            deref(value)
         } else {
-            item
+            value
         };
         let equal = Expr {
             at: at.clone(),
-            kind: Expression::Binary("==".into(), Box::new(item), Box::new(name(slot))),
+            kind: Expression::Binary("==".into(), Box::new(item), Box::new(value)),
         };
         let output = self.expr(&equal, &mut plan.iteration.body)?;
         self.same(output, Some(Ty::Bool), at)?;

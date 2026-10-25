@@ -394,7 +394,7 @@ predicates borrow both, and folds take the accumulator followed by the pair's
 components. Collect owned pairs into an expected `dict[K, V]` with `collect()`. `a.chain(b)` continues with a
 second source of the same item type; `flat_map(f)` emits the items of the owned
 source `f` returns for each item. `filter_value(v)` keeps items equal to `v`
-(`True` by default) without a callback; borrowed items compare with an owned `v`.
+(`True` by default) without a callback; borrowed items accept `v` or `&v`.
 
 ```plenty
 def add(total: i64, value: i64) -> i64:

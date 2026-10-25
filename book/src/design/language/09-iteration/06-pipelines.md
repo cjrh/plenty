@@ -105,17 +105,21 @@ a local, and a literal whose body is more than one expression or contains `?`,
 `match`, or another closure literal, is called as before.
 
 `filter_value(value)` evaluates `value` once, at construction, and compares
-each item with `item == value` in the loop. For a borrowed `&T` or `&mut T`
-item, `value` is a `T` and the comparison reads through the reference
-(`*item == value`); the item passes through unchanged. The value takes the
-item type as its expected type, so `filter_value(2)` over `u8` items needs no
-suffix, but it is not otherwise converted: a different type, including `&T`, is
-rejected at the call. Any type that `==` accepts is allowed, with the same
-semantics: floats use IEEE equality, so a `NaN` value keeps nothing. The
-argument defaults to `True`, so `filter_value()` keeps true `bool` items and is
-a type error for any other item type. Pair items are rejected; use `filter` with
-a two-parameter predicate. An owned value is dropped with the pipeline, and a
-`.generator()` conversion moves it into the frame.
+each item with `item == value` in the loop; the item passes through unchanged.
+The value takes the item type `T` as its expected type, so `filter_value(2)`
+over `u8` items needs no suffix, but it is not otherwise converted; a different
+type is rejected at the call. For a borrowed `&T` or `&mut T` item, `value` may
+be a `T` or a shared `&T`, and the comparison reads through both references
+(`*item == *value`). A borrowed value keeps its loan until the pipeline is
+consumed or dropped, like a borrowed source; moving or assigning its owner
+while the pipeline is live is a borrow error. Owned items require a `T`.
+
+Any type that `==` accepts is allowed, with the same semantics. In particular,
+floats use IEEE equality: a `NaN` value keeps nothing and `-0.0` keeps `0.0`.
+The argument defaults to `True`, so `filter_value()` keeps true `bool` items and
+is a type error for any other item type. Pair items are rejected; use `filter`
+with a two-parameter predicate. An owned value is dropped with the pipeline, and
+a `.generator()` conversion moves it into the frame.
 
 Free `enumerate(source[, start])` and `zip(left, right)` also start pipelines.
 `dictionary.items()` can be used directly in a chain or through `iter`.

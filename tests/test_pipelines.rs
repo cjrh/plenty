@@ -814,6 +814,66 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn filter_value_compares_borrowed_items_with_a_borrowed_value() {
+    output(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    names = ["ada", "bob", "ada"]?
+    wanted = copy(names[0])?
+    print(iter(&names).filter_value(&wanted).count(), wanted)?
+    found = &wanted
+    print(iter(&names).filter_value(found).count())?
+    print(iter(&names).filter_value(&names[1]).count())?
+    mut counts = [1, 2, 1]?
+    one = 1
+    for n in iter(&mut counts).filter_value(&one):
+        *n += 10
+    print(counts)?
+    Ok(())
+"#,
+        "2 ada\n2\n1\n[11, 2, 11]\n",
+    );
+}
+
+#[test]
+fn filter_value_keeps_a_borrowed_value_borrowed_until_the_pipeline_ends() {
+    for (source, expected) in [
+        (
+            "names = [\"ada\", \"bob\"].unwrap()\nwanted = copy(names[0]).unwrap()\nkept = iter(&names).filter_value(&wanted)\ndrop(wanted)\nn = kept.count()\n",
+            "use of moved binding `wanted`",
+        ),
+        (
+            "names = [\"ada\", \"bob\"].unwrap()\nmut wanted = copy(names[0]).unwrap()\nkept = iter(&names).filter_value(&wanted)\nwanted = copy(names[1]).unwrap()\nn = kept.count()\n",
+            "cannot assign to `wanted` while it is borrowed",
+        ),
+        (
+            "names = [\"ada\", \"bob\"].unwrap()\nmut wanted = copy(names[0]).unwrap()\nfor name in iter(&names).filter_value(&wanted):\n    wanted = copy(names[1]).unwrap()\n",
+            "cannot assign to `wanted` while it is borrowed",
+        ),
+        (
+            "mut ys = [1, 2, 1].unwrap()\nfor y in iter(&mut ys).filter_value(&ys[0]):\n    *y += 10\n",
+            "while `ys` is exclusively borrowed",
+        ),
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{source}: {error}");
+    }
+    // Releasing the pipeline ends the loan.
+    output(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    names = ["ada", "bob"]?
+    mut wanted = copy(names[0])?
+    print(iter(&names).filter_value(&wanted).count())?
+    wanted = copy(names[1])?
+    print(wanted)?
+    Ok(())
+"#,
+        "1\nbob\n",
+    );
+}
+
+#[test]
 fn filter_value_requires_a_value_of_the_item_type() {
     for (source, expected) in [
         (
@@ -822,11 +882,15 @@ fn filter_value_requires_a_value_of_the_item_type() {
         ),
         (
             "xs = [3, 1].unwrap()\nn = iter(&xs).filter_value(\"3\").count()\n",
-            "filter_value compares &i64 items with a str value; it requires i64",
+            "filter_value compares &i64 items with a str value; it requires i64 or &i64",
         ),
         (
-            "xs = [3, 1].unwrap()\nv = 3\nn = iter(&xs).filter_value(&v).count()\n",
-            "filter_value compares &i64 items with a &i64 value; it requires i64",
+            "xs = [3, 1].unwrap()\nmut v = 3\nn = iter(&xs).filter_value(&mut v).count()\n",
+            "filter_value compares &i64 items with a &mut i64 value; it requires i64 or &i64",
+        ),
+        (
+            "v = 3\nn = iter([3, 1].unwrap()).filter_value(&v).count()\n",
+            "filter_value compares i64 items with a &i64 value; it requires i64",
         ),
         (
             "n = iter(range(3)).filter_value(1.0).count()\n",
