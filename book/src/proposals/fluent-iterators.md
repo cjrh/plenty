@@ -1,6 +1,6 @@
 # Fluent iterator pipelines
 
-**Status: Stages 1 to 3 implemented; stage 4 (parallel) remains proposed.**
+**Status: Stages 1 to 4 implemented.**
 Stages 1 and 2 cover the serial core, pair callbacks, dictionary collection,
 generator fluent methods, explicit owned `.generator()` conversion, `chain`,
 `flat_map`, closure-literal splicing and comprehensions lowered through the
@@ -9,6 +9,8 @@ plan. `std.iter` was removed rather than deprecated. Stage 3 covers the `sum`,
 `&mut Iter[T]`, including pipelines of reference items. Bounded native
 substitution of scalar leaf callbacks also covers named functions and immutable
 scalar captures; it addresses the original performance gap (issue #399).
+Stage 4 covers `.par(&pool)` with the terminals below, plus `sum`, `min`,
+`max` and `chunks=N`.
 The [pipeline reference](../design/language/09-iteration/06-pipelines.md)
 lists the supported adapters, terminals, ownership rules and current limits.
 Current iteration is defined by
@@ -762,7 +764,11 @@ Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
   for scoped jobs. Generator sources are rejected, as frames are not
   worker-eligible.
 - **Terminals.** `collect` and `try_collect` into a `list` target (lowest-index error wins, as
-  `map_result`), `count`, `any`/`all`, and `reduce`. A parallel `reduce` uses
+  `map_result`), `count`, `any`/`all`, `sum`, `min`/`max`, and `reduce`.
+  `sum`, `min` and `max` work per chunk, then combine chunk results in input
+  order. Integer `sum` traps exactly when the serial sum would; `min`/`max`
+  equal the serial results (first NaN wins, `-0.0 < 0.0`); a floating-point
+  `sum` regroups additions by chunk. A parallel `reduce` uses
   the fixed adjacent-pair tree of `reduce_tree`, which reassociates; it is
   deterministic for a given input but differs from the serial left fold for
   non-associative operations such as floating-point addition. There is no
@@ -789,10 +795,14 @@ Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
   `ParallelError[E]`, because submission can fail and the pool can be shut down.
 - **Granularity.** Each job runs the fused `map`/`filter` body over a
   contiguous chunk of input, not one item. The default number of chunks is the
-  number of logical cores. Chunk boundaries depend only on input length and
-  that count, never on scheduling, and filtered chunks are concatenated in input
-  order. Tuning (explicit chunk sizes, `par_chunks`, adaptive splitting) is
-  deferred until stage 4 has benchmarks.
+  pool's worker count (`max_workers`), read at run time, never the machine's
+  core count. `.par(&pool, chunks=N)` fixes the count; `N` is a positive
+  `i64`. An input shorter than the count gets one chunk per item, with no empty
+  chunks. Chunk boundaries depend only on input length and the count, never on
+  scheduling, so the same program and pool size give the same results on any
+  machine. Filtered chunks are concatenated in input order. Further tuning
+  (chunk sizes, `par_chunks`, adaptive splitting) is deferred until there are
+  benchmarks.
 
 Compile-time checks the type system must enforce: worker eligibility of every
 callback and item type (existing closed-world check), no shared mutable
@@ -938,9 +948,13 @@ terminals above replace them for pipelines.
    borrowed captures cannot be lent; write the closure literal inside the
    adapter instead. The [reference](../design/language/09-iteration/06-pipelines.md#lending-a-pipeline)
    states the rules and limits.
-4. **Stage 4 — parallel.** `.par(&pool)` with chunked fused jobs (one chunk
-   per logical core by default), the allowed-step rules, and
-   `collect`/`try_collect`/`reduce`/`count`/`any`/`all`.
+4. **Stage 4 — parallel (implemented).** `.par(&pool)` with chunked fused jobs
+   (one chunk per pool worker by default, or `chunks=N`), the allowed-step
+   rules, and `collect`/`try_collect`/`reduce`/`count`/`any`/`all`/`sum`/`min`/`max`.
+   The [reference](../design/language/09-iteration/06-pipelines.md#parallel-pipelines)
+   lists the implemented contract. `try_collect` reports
+   `ParallelError[E | AllocError]`, since a chunk's output list can fail to
+   allocate on the worker; `any`/`all` do not stop early.
 
 Suggested backlog row: **B75 — Fluent iterator pipelines.** "`iter(source)`
 pipelines with chained adapters and terminals, fused at the consumer into one

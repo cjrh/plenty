@@ -5,6 +5,7 @@ use super::*;
 
 mod generator_bridge;
 mod lending;
+mod parallel;
 mod splice;
 pub(super) use lending::{
     Lent, LentParameter, declared as lent_declared, identity as lent_identity,
@@ -1139,6 +1140,14 @@ impl Lower<'_> {
     }
 
     fn pipeline_callback(&mut self, callback: &Expr, ops: &mut Vec<Op>) -> Result<Callback> {
+        // A parallel worker calls its captured callbacks in place: each
+        // chunk's pipeline borrows the worker's shared environment.
+        if let Expression::Name(n) = &ungroup(callback).kind
+            && n.starts_with(parallel::CALLBACK)
+            && self.names.contains_key(n)
+        {
+            return Ok(Callback::Value(callback.clone()));
+        }
         if let Expression::Name(n) = &ungroup(callback).kind
             && self.sigs.contains_key(n)
             && !self.names.contains_key(n)

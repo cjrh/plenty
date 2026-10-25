@@ -2619,6 +2619,9 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if self.has_par(base) || (name == "par" && self.is_pipeline(base)) {
+            return self.parallel_pipeline(base, name, args, ops);
+        }
         if self.is_pipeline(base)
             || (self.is_generator_source(base)
                 && matches!(

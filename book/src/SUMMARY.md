@@ -200,6 +200,7 @@
         - [Recover a job when submission cannot proceed](tutorial/11-concurrency/submission-backpressure.md)
         - [Map fallible work in parallel](tutorial/11-concurrency/parallel-fallible-map.md)
         - [Combine values in parallel](tutorial/11-concurrency/parallel-reduction.md)
+        - [Run a pipeline on a pool](tutorial/11-concurrency/parallel-pipelines.md)
         - [Receive from either channel](tutorial/11-concurrency/channel-selection.md)
         - [Serve a TCP connection](tutorial/11-concurrency/tcp-sockets.md)
         - [Encrypt a TCP connection](tutorial/11-concurrency/tls-streams.md)

@@ -1,0 +1,217 @@
+def split_list[T](items: list[T], start: i64, parts: i64) -> Result[list[(i64, list[T])], AllocError]:
+    n = len(items)
+    count = parts if parts < n else n
+    mut chunks = list[(i64, list[T])].with_capacity(count)?
+    if count == 0:
+        return Ok(chunks)
+    base = n // count
+    extra = n % count
+    mut offset = start
+    mut current = list[T].with_capacity(base + 1 if extra > 0 else base)?
+    for item in items:
+        current.append(item)?
+        index = len(chunks)
+        if len(current) == (base + 1 if index < extra else base):
+            following = index + 1
+            size = 0 if following == count else (base + 1 if following < extra else base)
+            full = current
+            current = list[T].with_capacity(size)?
+            taken = len(full)
+            chunks.append((offset, full))?
+            if following < count:
+                offset += taken
+    Ok(chunks)
+
+def split_range(first: i64, step: i64, n: i64, start: i64, parts: i64) -> Result[list[(i64, range[i64])], AllocError]:
+    count = parts if parts < n else n
+    mut chunks = list[(i64, range[i64])].with_capacity(count)?
+    if count == 0:
+        return Ok(chunks)
+    base = n // count
+    extra = n % count
+    mut index = 0
+    mut position = 0
+    while index < count:
+        size = base + 1 if index < extra else base
+        low = first + position * step
+        last = low + (size - 1) * step
+        stop = last + 1 if step > 0 else last - 1
+        chunks.append((start + position, range(low, stop, step)))?
+        position += size
+        index += 1
+    Ok(chunks)
+
+def collect[C, U, F: Callable[[C], Result[list[U], AllocError]]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F) -> Result[list[U], PoolMapError]:
+    match chunks:
+        case Ok(inputs):
+            match pool.map_result(worker, inputs):
+                case Ok(parts):
+                    mut total = 0
+                    for part in &parts:
+                        total += len(part)
+                    match list[U].with_capacity(total):
+                        case Ok(reserved):
+                            mut output = reserved
+                            for part in parts:
+                                for item in part:
+                                    output.append(item).unwrap()
+                            Ok(output)
+                        case Err(error):
+                            Err(PoolMapError.Allocation(error))
+                case Err(error):
+                    match error:
+                        case ParallelError.Worker(failure):
+                            Err(PoolMapError.Allocation(failure))
+                        case ParallelError.Allocation(failure):
+                            Err(PoolMapError.Allocation(failure))
+                        case ParallelError.Shutdown:
+                            Err(PoolMapError.Shutdown)
+        case Err(error):
+            Err(PoolMapError.Allocation(error))
+
+def try_collect[C, U, E, F: Callable[[C], Result[list[U], E]]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F) -> Result[list[U], ParallelError[E]]:
+    match chunks:
+        case Ok(inputs):
+            match pool.map_result(worker, inputs):
+                case Ok(parts):
+                    mut total = 0
+                    for part in &parts:
+                        total += len(part)
+                    match list[U].with_capacity(total):
+                        case Ok(reserved):
+                            mut output = reserved
+                            for part in parts:
+                                for item in part:
+                                    output.append(item).unwrap()
+                            Ok(output)
+                        case Err(error):
+                            Err(ParallelError[E].Allocation(error))
+                case Err(error):
+                    Err(error)
+        case Err(error):
+            Err(ParallelError[E].Allocation(error))
+
+def count[C, F: Callable[[C], i64]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F) -> Result[i64, PoolMapError]:
+    match chunks:
+        case Ok(inputs):
+            match pool.map(worker, inputs):
+                case Ok(parts):
+                    mut total = 0
+                    for part in parts:
+                        total += part
+                    Ok(total)
+                case Err(error):
+                    Err(error)
+        case Err(error):
+            Err(PoolMapError.Allocation(error))
+
+def any[C, F: Callable[[C], bool]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F) -> Result[bool, PoolMapError]:
+    match chunks:
+        case Ok(inputs):
+            match pool.map(worker, inputs):
+                case Ok(parts):
+                    mut found = False
+                    for part in parts:
+                        if part:
+                            found = True
+                    Ok(found)
+                case Err(error):
+                    Err(error)
+        case Err(error):
+            Err(PoolMapError.Allocation(error))
+
+def all[C, F: Callable[[C], bool]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F) -> Result[bool, PoolMapError]:
+    match chunks:
+        case Ok(inputs):
+            match pool.map(worker, inputs):
+                case Ok(parts):
+                    mut every = True
+                    for part in parts:
+                        if not part:
+                            every = False
+                    Ok(every)
+                case Err(error):
+                    Err(error)
+        case Err(error):
+            Err(PoolMapError.Allocation(error))
+
+def sum[C, T, F: Callable[[C], T]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F) -> Result[T, PoolMapError]:
+    match chunks:
+        case Ok(inputs):
+            match pool.map(worker, inputs):
+                case Ok(parts):
+                    Ok(iter(parts).sum())
+                case Err(error):
+                    Err(error)
+        case Err(error):
+            Err(PoolMapError.Allocation(error))
+
+def signed_step[T](state: (i64, i64, i64, i64, i64, i64, bool), item: T) -> (i64, i64, i64, i64, i64, i64, bool):
+    q, r, lq, lr, hq, hr, seen = state
+    value = i64(item)
+    mut nq = q + value // 4294967296
+    mut nr = r + value % 4294967296
+    if nr >= 4294967296:
+        nr -= 4294967296
+        nq += 1
+    low = not seen or nq < lq or (nq == lq and nr < lr)
+    high = not seen or nq > hq or (nq == hq and nr > hr)
+    (nq, nr, nq if low else lq, nr if low else lr, nq if high else hq, nr if high else hr, True)
+
+def signed_sum[C, T, F: Callable[[C], (i64, i64, i64, i64, i64, i64, bool)]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F, one: T) -> Result[(T, T), PoolMapError]:
+    match chunks:
+        case Ok(inputs):
+            match pool.map(worker, inputs):
+                case Ok(parts):
+                    least = i64(T.MIN)
+                    most = i64(T.MAX)
+                    mut total = 0
+                    for part in parts:
+                        q, r, lq, lr, hq, hr, seen = part
+                        if seen:
+                            tq = total // 4294967296
+                            tr = total % 4294967296
+                            mut aq = tq + lq
+                            mut ar = tr + lr
+                            if ar >= 4294967296:
+                                ar -= 4294967296
+                                aq += 1
+                            mut bq = tq + hq
+                            mut br = tr + hr
+                            if br >= 4294967296:
+                                br -= 4294967296
+                                bq += 1
+                            mq = least // 4294967296
+                            mr = least % 4294967296
+                            xq = most // 4294967296
+                            xr = most % 4294967296
+                            if aq < mq or (aq == mq and ar < mr) or bq > xq or (bq == xq and br > xr):
+                                # The caller adds the pair at the terminal's
+                                # position, so the overflow trap is reported there.
+                                return Ok((T.MAX, one))
+                            mut cq = tq + q
+                            mut cr = tr + r
+                            if cr >= 4294967296:
+                                cr -= 4294967296
+                                cq += 1
+                            total = cq * 4294967296 + cr
+                    Ok((T(total), T(0)))
+                case Err(error):
+                    Err(error)
+        case Err(error):
+            Err(PoolMapError.Allocation(error))
+
+def extremum[C, T, F: Callable[[C], Option[T]]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F, minimum: bool) -> Result[Option[T], PoolMapError]:
+    match chunks:
+        case Ok(inputs):
+            match pool.map(worker, inputs):
+                case Ok(parts):
+                    values = iter(parts).filter(def(part: &Option[T]) -> bool: part.is_some()).map(def(part: Option[T]) -> T: part.unwrap())
+                    if minimum:
+                        Ok(values.min())
+                    else:
+                        Ok(values.max())
+                case Err(error):
+                    Err(error)
+        case Err(error):
+            Err(PoolMapError.Allocation(error))

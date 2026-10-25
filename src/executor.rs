@@ -24,6 +24,8 @@ pub enum ExecutorOp {
     Cancel(Ty),
     WaitTimeout(Ty),
     Shutdown,
+    /// The pool's worker count: a parallel pipeline's default chunk count.
+    Workers,
 }
 
 impl ExecutorOp {
@@ -74,6 +76,7 @@ impl ExecutorOp {
             Self::Done(t) | Self::Cancel(t) => (vec![Ty::Future(Arc::new(t.clone()))], Ty::Bool),
             Self::WaitTimeout(t) => (vec![Ty::Future(Arc::new(t.clone())), Ty::U64], Ty::Bool),
             Self::Shutdown => (vec![Ty::Executor, Ty::Bool], Ty::Unit),
+            Self::Workers => (vec![Ty::Executor], Ty::I64),
         }
     }
     pub fn opcode(&self) -> i64 {
@@ -89,6 +92,7 @@ impl ExecutorOp {
             Self::Map(_, _, true) => 8,
             Self::Reduce(..) => 9,
             Self::WaitTimeout(_) => 10,
+            Self::Workers => 11,
         }
     }
 

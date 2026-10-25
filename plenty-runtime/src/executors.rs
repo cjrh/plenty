@@ -548,6 +548,7 @@ pub(crate) unsafe extern "C" fn plenty_executor(
                 );
             }
             10 => out.write(wait_timeout(*args as *mut Job, *args.add(1) as u64) as u128),
+            11 => out.write((*(*args as *mut Pool)).count as u128),
             _ => crate::fail("invalid executor operation"),
         }
     }
