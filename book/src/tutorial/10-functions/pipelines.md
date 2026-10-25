@@ -144,6 +144,53 @@ returns a range, so nothing is allocated. A callback may return any owned
 iterable, such as a list, range or generator; returning a list allocates one list
 per item.
 
+## Lend a pipeline whose callbacks borrow
+
+A pipeline [lent to a function](../05-iteration/pipelines.md#lend-a-pipeline-to-a-function)
+can use a closure that borrows, when the closure is written inside the
+adapter call:
+
+```plenty
+def first(p: &mut Iter[i64]) -> Option[i64]:
+    next(p)
+
+def main() -> Result[(), IoError]:
+    limit = 3
+    mut above = iter(range(9)).filter(def [&limit](x: &i64) -> bool: *x > limit)
+    print(first(&mut above))?
+    print(above.count())?
+    Ok(())
+```
+```output
+Option[i64].Some(4)
+4
+```
+
+Storing the same closure in a variable first and passing the variable makes
+the pipeline impossible to lend:
+
+```plenty-error
+def first(p: &mut Iter[i64]) -> Option[i64]:
+    next(p)
+
+def main() -> Result[(), IoError]:
+    limit = 3
+    keep = def [&limit](x: &i64) -> bool:
+        *x > limit
+    mut above = iter(range(9)).filter(keep)
+    print(first(&mut above))?
+    Ok(())
+```
+```error
+it holds closure `keep`, which is stored in a variable and borrows its captures; write the closure literal inside the adapter call instead
+```
+
+A closure written in the chain is compiled into the pipeline, so its borrow of
+`limit` becomes one of the pipeline's own loans, which the caller keeps while
+`first` runs. A stored closure is a value holding that reference inside it,
+and a function receiving a lent pipeline cannot take such a value. Without the
+lend, both forms work.
+
 Keep a plain loop for several statements or error propagation, and use a
 comprehension when building a list is the clearest form. Pipelines are local:
 the next lesson applies them to generators and shows how to

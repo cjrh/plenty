@@ -95,10 +95,24 @@ foreign functions.
 `&mut Iter[T]` names only the item type. Like a `&mut Generator[T]`
 parameter, the borrower is compiled once per lent pipeline, as a frame
 specialization; recursive and repeated lends of the same pipeline share it.
+A method can take a lent pipeline the same way.
+
 A generic borrower such as `def first[T](p: &mut Iter[T]) -> Option[T]` infers
-its type parameters from the lent pipelines' item types; supply the others
-explicitly. A method can take a lent pipeline the same way. A borrower that
-no call lends a pipeline to is not checked, like an unused generic function.
+type parameters only from the lent pipelines' item types. A call that needs
+any other type parameter, even one an ordinary argument would determine,
+supplies all type arguments explicitly:
+
+```text
+def tagged[T, K](p: &mut Iter[T], tag: K) -> Option[(K, T)]:
+    ...
+
+tagged(&mut p, "first")             # error: cannot infer type parameter `K`
+tagged[i64, str](&mut p, "first")   # Some(("first", 0))
+```
+
+A borrower is checked only through the calls that lend it a pipeline. One
+that no call lends a pipeline to is not checked, like an unused generic
+function, so its errors appear when the first lending call is added.
 
 The lender keeps the pipeline's loans live across the call, so mutating a
 borrowed source while the pipeline is unfinished stays a borrow error. Lending
@@ -116,12 +130,20 @@ Costs and limits:
 - References the pipeline holds, such as a borrowed source or a borrowed
   capture of a closure literal, are read-only in the borrower; the lender's
   loans cover them.
-- Items must be owned: a pipeline of references, such as `iter(&xs)` without a
-  `map` to an owned value, cannot be lent.
+- A pipeline of references, such as `iter(&names)`, can be lent as
+  `&mut Iter[&T]`. Each item borrows the lender's source, which stays borrowed
+  for the whole call, so the borrower can use items in loops, adapters and
+  local closures, and lend the pipeline on. An item cannot leave the call:
+  returning it or a reference derived from it is an error, and `next(p)` on
+  reference items is rejected as in the creating function. A generic borrower
+  cannot take one, since type arguments cannot be references; write
+  `&mut Iter[&T]` with a concrete `T`.
 - A pipeline cannot be lent when it holds a reference inside other state, such
-  as a closure value with borrowed captures bound before the pipeline (write
-  the closure literal in the adapter call instead), or a reference into its
-  own state.
+  as a closure with borrowed captures stored in a variable and then passed to
+  an adapter, or a reference into its own state. The diagnostic points at the
+  adapter argument; write the closure literal inside the adapter call instead,
+  as in `.filter(def [&limit](x: &i64) -> bool: *x > limit)`. Its captures
+  then become references the lender's loans cover.
 - A lent pipeline may need at most 64 state slots.
 
 ## Returning a resumable stream

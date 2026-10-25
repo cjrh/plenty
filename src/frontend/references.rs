@@ -296,6 +296,15 @@ impl Lower<'_> {
 
     pub(super) fn check_return_reference(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
         let id = self.reference_origin(e, ops)?;
+        let mut ancestor = Some(id);
+        while let Some(loan) = ancestor {
+            if self.lent_item_loans.contains(&loan) {
+                return Err(e.at.error(
+                    "an item of a lent pipeline cannot be returned: it borrows the caller's source only for this call; return an owned copy",
+                ));
+            }
+            ancestor = self.loans[loan].parent;
+        }
         if Some(self.loans[id].root) != self.return_origin {
             return Err(e
                 .at

@@ -2208,8 +2208,32 @@ fn lending_keeps_borrow_and_signature_rules() {
             "generators cannot capture references",
         ),
         (
-            "def f(p: &mut Iter[&i64]) -> i64:\n    p.count()\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p))\n    Ok(())\n",
-            "references cannot be stored in a lent pipeline item",
+            "def f(p: &mut Iter[&i64]) -> &i64:\n    for x in p:\n        return x\n    p.count()\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(*f(&mut p))\n    Ok(())\n",
+            "an item of a lent pipeline cannot be returned",
+        ),
+        (
+            "def same(x: &i64) -> &i64:\n    x\ndef f(k: &i64, p: &mut Iter[&i64]) -> &i64:\n    for x in p:\n        return same(x)\n    k\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    k = 0\n    mut p = iter(&xs)\n    drop(*f(&k, &mut p))\n    Ok(())\n",
+            "an item of a lent pipeline cannot be returned",
+        ),
+        (
+            "def f(p: &mut Iter[&i64]) -> ():\n    for x in p:\n        break\ndef main() -> Result[(), AllocError]:\n    mut xs = [1, 2]?\n    mut p = iter(&xs)\n    f(&mut p)\n    xs.append(3)?\n    drop(p.count())\n    Ok(())\n",
+            "conflicting borrow",
+        ),
+        (
+            "def f(p: &mut Iter[&i64]) -> Closure[[], i64]:\n    for x in p:\n        return def [&x]() -> i64:\n            x\n    def() -> i64:\n        0\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p)())\n    Ok(())\n",
+            "cannot escape its function",
+        ),
+        (
+            "def f(p: &mut Iter[&i64]) -> Option[&i64]:\n    next(p)\n",
+            "references cannot be stored in enum payloads",
+        ),
+        (
+            "def f(p: &mut Iter[&i64]) -> i64:\n    match next(p):\n        case Some(x):\n            *x\n        case Nothing:\n            0\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p))\n    Ok(())\n",
+            "references cannot be stored in a next result",
+        ),
+        (
+            "def f[T](p: &mut Iter[T]) -> i64:\n    p.count()\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p))\n    Ok(())\n",
+            "reference type arguments are not supported",
         ),
         (
             "def g(p: &mut Iter[i64]) -> &mut Iter[i64]:\n    p\n",
@@ -2220,6 +2244,141 @@ fn lending_keeps_borrow_and_signature_rules() {
         let error = support::check_source(source).expect_err(source).to_string();
         assert!(error.contains(expected), "{source}\n{error}");
     }
+}
+
+/// A stored closure that borrows its captures is a reference inside the
+/// plan's state, which a borrower cannot receive; the same closure written
+/// inside the adapter call is spliced, and its captures become lent loans.
+#[test]
+fn lending_a_stored_borrowing_closure_explains_the_fix() {
+    let error = support::check_file_error(
+        r#"def first(p: &mut Iter[i64]) -> Option[i64]:
+    next(p)
+
+def main() -> Result[(), AllocError | IoError]:
+    limit = 3
+    keep = def [&limit](x: &i64) -> bool:
+        *x > limit
+    mut p = iter(range(9)).filter(keep)
+    print(first(&mut p))?
+    Ok(())
+"#,
+    );
+    assert!(
+        error.contains(":8:35: this pipeline cannot be lent (at line 9): it holds closure `keep`, which is stored in a variable and borrows its captures; write the closure literal inside the adapter call instead"),
+        "{error}"
+    );
+    output(
+        r#"
+def first(p: &mut Iter[i64]) -> Option[i64]:
+    next(p)
+limit = 3
+mut p = iter(range(9)).filter(def [&limit](x: &i64) -> bool: *x > limit)
+print(first(&mut p)).unwrap()
+print(p.count()).unwrap()
+"#,
+        "Option[i64].Some(4)\n4\n",
+    );
+}
+
+/// A lent pipeline of references: the borrower's items borrow the lender's
+/// source, which the lender keeps borrowed across the call.
+#[test]
+fn lent_pipelines_of_reference_items() {
+    output(
+        r#"
+def show(p: &mut Iter[&str]) -> Result[i64, IoError]:
+    mut n = 0
+    for name in p:
+        print(name)?
+        n += 1
+        if n == 2:
+            break
+    Ok(n)
+
+def total(p: &mut Iter[&i64]) -> i64:
+    mut t = 0
+    for x in p:
+        t += *x
+    t
+
+def bump(p: &mut Iter[&mut i64]) -> ():
+    for x in p:
+        *x += 10
+        break
+
+def inner(p: &mut Iter[&str]) -> Result[i64, IoError]:
+    mut n = 0
+    for x in p:
+        print("inner", x)?
+        n += len(x)
+    Ok(n)
+
+def outer(p: &mut Iter[&str]) -> Result[i64, IoError]:
+    for x in p:
+        print("outer", x)?
+        break
+    inner(p)
+
+def scaled(p: &mut Iter[&i64]) -> i64:
+    mut t = 0
+    for x in p:
+        times = def [&x](k: i64) -> i64:
+            x * k
+        t += times(10)
+    t
+
+def main() -> Result[(), AllocError | IoError]:
+    names = ["ada", "bob", "ada", "cal", "ada"]?
+    mut p = iter(&names).filter_value("ada")
+    print(show(&mut p)?)?
+    print(p.count())?
+    mut xs = [1, 2, 3, 4]?
+    mut q = iter(&xs).skip(1)
+    print(total(&mut q))?
+    xs.append(5)?
+    mut r = iter(&mut xs)
+    bump(&mut r)
+    bump(&mut r)
+    print(xs)?
+    mut s = iter(&names).filter(def(n: &str) -> bool: n != "bob")
+    print(outer(&mut s)?)?
+    mut t = iter(&xs).take(2)
+    print(scaled(&mut t))?
+    text = "abc"
+    mut chars = iter(&text)
+    print(show(&mut chars)?, chars.count())?
+    Ok(())
+"#,
+        "ada\nada\n2\n1\n9\n[11, 12, 3, 4, 5]\nouter ada\ninner ada\ninner cal\ninner ada\n9\n230\na\nb\n2 1\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn lending_reference_items_does_not_allocate_or_leak() {
+    support::assert_visible_stdout(
+        r#"
+def longest(p: &mut Iter[&str]) -> i64:
+    mut best = 0
+    for s in p:
+        if len(s) == 0:
+            break
+        if len(s) > best:
+            best = len(s)
+    best
+words = ["x", "yy", "zzz", "", "last"].unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+mut p = iter(&words).filter(def(s: &str) -> bool: s != "yy")
+n = longest(&mut p)
+m = p.count()
+print("__test_end_no_allocations__").unwrap()
+print("__test_restore_allocations__").unwrap()
+print(n, m, len(words)).unwrap()
+"#,
+        "3 1 5",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]

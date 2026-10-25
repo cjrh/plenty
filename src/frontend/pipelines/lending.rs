@@ -28,6 +28,9 @@ pub(in crate::frontend) struct Lent {
     shared: Vec<u8>,
     /// Slots rewritten for each item; the borrower allocates its own.
     scratch: Vec<u8>,
+    /// Item slots holding references, with the lender's loan each derives
+    /// from. The borrower gives each a loan of its own.
+    references: Vec<(u8, usize, bool)>,
 }
 
 impl Lent {
@@ -414,11 +417,7 @@ impl Lower<'_> {
             .get(index)
             .cloned()
             .ok_or_else(|| arg.at.error("iterator pipeline has no local source plan"))?;
-        if let Some(barrier) = plan.item.ty.storage_barrier() {
-            return Err(arg
-                .at
-                .error(barrier.message("a lent pipeline item; map to an owned value first")));
-        }
+        self.lent_item_references(&plan, &arg.at)?;
         self.resumed_ends.extend(
             plan.resources
                 .iter()
@@ -502,9 +501,7 @@ impl Lower<'_> {
                 if matches!(ty, Ty::Ref(..)) {
                     shared.push(slot);
                 } else if ty.contains_reference() {
-                    return Err(at.error(
-                        "this pipeline cannot be lent: it holds a borrowing closure or reference-containing value as state; consume it in its creating function",
-                    ));
+                    return Err(self.borrowing_state_error(slot, &ty, at));
                 } else {
                     owned.push(slot);
                 }
@@ -535,12 +532,14 @@ impl Lower<'_> {
             ));
         }
         let key = (self.symbol, index);
+        let references = self.lent_item_references(plan, at)?;
         let lent = Arc::new(Lent {
             plan: plan.clone(),
             types,
             owned: owned.clone(),
             shared: shared.clone(),
             scratch,
+            references,
         });
         let id = match self.generics.lent_ids.get(&key) {
             Some(&id) => {
@@ -555,6 +554,61 @@ impl Lower<'_> {
             }
         };
         Ok((id, owned, shared))
+    }
+
+    /// The item slots of `plan` that hold references, each with the loan it
+    /// derives from. An item is a reference or an owned value; a pair item
+    /// has one of these per component. A reference nested in another value
+    /// has no loan of its own to pass on, so it keeps the pipeline local.
+    fn lent_item_references(&self, plan: &Pipeline, at: &Token) -> Result<Vec<(u8, usize, bool)>> {
+        let items = match &plan.pair {
+            Some(pair) => pair.to_vec(),
+            None => vec![plan.item.clone()],
+        };
+        let mut references = Vec::new();
+        for item in items {
+            let barrier = match &item.ty {
+                Ty::Ref(inner, _) => inner.storage_barrier(),
+                ty => ty.storage_barrier(),
+            };
+            if let Some(barrier) = barrier {
+                return Err(
+                    at.error(barrier.message("a lent pipeline item; map to an owned value first"))
+                );
+            }
+            if let Ty::Ref(_, mutable) = item.ty {
+                let Some(&loan) = self.reference_locals.get(&item.slot) else {
+                    return Err(at.error(
+                        "this pipeline cannot be lent: the source of its reference items is not known here; map to an owned value first",
+                    ));
+                };
+                references.push((item.slot, loan, mutable));
+            }
+        }
+        Ok(references)
+    }
+
+    /// Why state `slot`, which holds references inside another value, keeps
+    /// its pipeline from being lent. A closure value is reported where the
+    /// adapter received it, with the literal form that can be lent.
+    fn borrowing_state_error(&self, slot: u8, ty: &Ty, at: &Token) -> Box<dyn Error> {
+        match self.pipeline_callbacks.get(&slot) {
+            Some((site, source)) if matches!(ty, Ty::Closure(_)) => {
+                let what = match source {
+                    Some(name) => format!(
+                        "closure `{name}`, which is stored in a variable and borrows its captures"
+                    ),
+                    None => "a closure value that borrows its captures".into(),
+                };
+                site.error(format!(
+                    "this pipeline cannot be lent (at line {}): it holds {what}; write the closure literal inside the adapter call instead, as in `.filter(def [&limit](x: &i64) -> bool: *x > limit)`",
+                    at.line
+                ))
+            }
+            _ => at.error(format!(
+                "this pipeline cannot be lent: it holds {ty}, which contains a reference, as state; consume it in its creating function"
+            )),
+        }
     }
 
     /// Binds each lent parameter of this borrower to its own copy of the
@@ -577,6 +631,8 @@ impl Lower<'_> {
                 continue;
             };
             let lent = self.generics.lent[id].clone();
+            // This plan's hidden parameters start here, owned state first.
+            let hidden_start = next as u8;
             let mut map = HashMap::default();
             let mut copies = Vec::new();
             for &slot in &lent.owned {
@@ -665,6 +721,32 @@ impl Lower<'_> {
                 .collect();
             facts.sort_by_key(|loan| loan.id);
             self.loans.extend(facts);
+            // An item reference points into a source the lender keeps borrowed
+            // for the whole call, which the borrower reaches only through
+            // this plan's hidden parameters. Rooting the item's loan at one of
+            // them keeps it inside the call: it cannot be returned, and the
+            // hidden parameters are only read.
+            let mut item_loans = Vec::new();
+            for &(slot, old, mutable) in &lent.references {
+                let loan = match relocation.loans.get(&old) {
+                    Some(&loan) => loan,
+                    None => {
+                        if lent.owned.is_empty() && lent.shared.is_empty() {
+                            return Err(at.error(
+                                "this pipeline cannot be lent: the source of its reference items is not known here; map to an owned value first",
+                            ));
+                        }
+                        let loan = self.new_loan(hidden_start, mutable, None, ops);
+                        self.loans[loan].precise = false;
+                        if let Some(Op::Loan(fact)) = ops.last_mut() {
+                            *fact = self.loans[loan].clone();
+                        }
+                        loan
+                    }
+                };
+                self.lent_item_loans.insert(loan);
+                item_loans.push((relocation.slot(slot)?, loan));
+            }
             let mut iteration = Iteration {
                 exact_len: plan
                     .iteration
@@ -725,6 +807,7 @@ impl Lower<'_> {
                 resume,
             };
             self.pipelines.push(relocated);
+            self.reference_locals.extend(item_loans);
             self.lent_parameters.insert(
                 parameter as u8,
                 LentParameter {
