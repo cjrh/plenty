@@ -2,7 +2,6 @@
 //! condition, item body, and step are spliced into the consuming loop.
 use super::collections::Iteration;
 use super::*;
-use crate::numeric::{FloatOp, NumericOp};
 
 mod generator_bridge;
 mod splice;
@@ -1482,8 +1481,8 @@ impl Lower<'_> {
 
     /// `sum`, `min` and `max`. A borrowed item is read through its reference,
     /// as `*item`, so the result is a value like the `std.math` reductions.
-    /// Float `min`/`max` use IEEE 754-2019 `minimum`/`maximum`: any NaN item
-    /// gives NaN, and -0.0 orders below +0.0. Other ties keep the first item.
+    /// `min`/`max` share `extremum_replaces` with `std.math`, so they agree
+    /// with `min_all`/`max_all`.
     fn pipeline_arithmetic(
         &mut self,
         base: &Expr,
@@ -1577,36 +1576,16 @@ impl Lower<'_> {
             let actual = self.expr(&value, &mut body)?;
             self.same(actual, Some(ty.clone()), &base.at)?;
             body.push(Op::StoreLocal(current));
-            let choose = if ty.is_float() {
-                let op = if name == "min" {
-                    FloatOp::Minimum
-                } else {
-                    FloatOp::Maximum
-                };
-                vec![
-                    Op::LoadLocal(best),
-                    Op::LoadLocal(current),
-                    Op::Numeric(NumericOp::Float(op)),
-                    Op::StoreLocal(best),
-                ]
-            } else {
-                let better = Expr {
-                    at: base.at.clone(),
-                    kind: Expression::Binary(
-                        if name == "min" { "<" } else { ">" }.into(),
-                        Box::new(named(self, current, "candidate")),
-                        Box::new(named(self, best, "best")),
-                    ),
-                };
-                let mut choose = Vec::new();
-                let actual = self.expr(&better, &mut choose)?;
-                self.same(actual, Some(Ty::Bool), &base.at)?;
-                choose.push(branch(
-                    vec![Op::LoadLocal(current), Op::StoreLocal(best)],
-                    vec![],
-                ));
-                choose
-            };
+            let candidate = named(self, current, "candidate");
+            let held = named(self, best, "best");
+            let better = super::numeric::extremum_replaces(name == "min", &ty, candidate, held);
+            let mut choose = Vec::new();
+            let actual = self.expr(&better, &mut choose)?;
+            self.same(actual, Some(Ty::Bool), &base.at)?;
+            choose.push(branch(
+                vec![Op::LoadLocal(current), Op::StoreLocal(best)],
+                vec![],
+            ));
             body.extend([
                 Op::LoadLocal(seen),
                 branch(

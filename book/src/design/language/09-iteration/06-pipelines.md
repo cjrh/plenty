@@ -178,8 +178,12 @@ copies the selected `str`. They take no arguments and add no allocation. `sum`
 accepts numeric items; `min` and `max` accept numeric and `str` items. Pairs,
 tuples, and other types are rejected: map them to a supported item first, or use
 `fold` or `reduce`. Float `min` and `max` follow IEEE 754-2019 `minimum` and
-`maximum`: any NaN item makes the result `Some(NaN)`, and `-0.0` orders below
-`0.0`. They still consume every item. A float `sum` adds in source order.
+`maximum`: `-0.0` orders below `0.0`, and any NaN item makes the result
+`Some(NaN)`. The NaN returned is the first NaN item. They still consume every
+item. [`std.math.min_all` and `max_all`](../../stdlib/math.md) share this rule
+and give the same result for the same items. A float `sum` adds in source
+order with IEEE 754 addition, with no compensated summation: any NaN item
+makes the sum NaN, and an empty float `sum` is `0.0`.
 
 Collecting needs an expected collection type, from a binding annotation,
 argument, or return type. There is no default collection:

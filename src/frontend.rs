@@ -2623,6 +2623,8 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "write_stdout"
                 | "write_stderr"
                 | "__caller_location"
+                | "__min_replaces"
+                | "__max_replaces"
                 | "__test_fault"
                 | "__report_write"
                 | "flush_stdout"
@@ -3852,6 +3854,9 @@ impl Lower<'_> {
                     Self::push_query(operation, ops);
                     Self::end_reads(loans, ops);
                     return Ok(Some(output));
+                }
+                if matches!(name.as_str(), "__min_replaces" | "__max_replaces") {
+                    return self.extremum_call(name, args, &e.at, ops).map(Some);
                 }
                 if name == "CancellationToken" {
                     return self.control_new(args, &e.at, ops);
