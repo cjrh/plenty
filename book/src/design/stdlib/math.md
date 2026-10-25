@@ -89,8 +89,8 @@ Unlike Python, Plenty has no arbitrary-precision integer type. `gcd` and `lcm`
 take two unsigned inputs; convert signed magnitudes explicitly. Generic helpers
 specialize against operations in their bodies, with normal language errors for
 unsupported types. They allocate nothing and retain ordinary arithmetic
-overflow traps. Floating `sum` uses sequential addition, with no compensated
-summation guarantee.
+overflow traps. Floating `sum` uses sequential IEEE 754 addition, with no
+compensated summation guarantee; any NaN element makes the sum NaN.
 
 Collection helpers borrow their inputs and preserve them. For `f32` and `f64`,
 `min`, `max`, `min_all`, and `max_all` follow IEEE 754-2019 `minimum` and

@@ -182,7 +182,8 @@ tuples, and other types are rejected: map them to a supported item first, or use
 `Some(NaN)`. The NaN returned is the first NaN item. They still consume every
 item. [`std.math.min_all` and `max_all`](../../stdlib/math.md) share this rule
 and give the same result for the same items. A float `sum` adds in source
-order.
+order with IEEE 754 addition, with no compensated summation: any NaN item
+makes the sum NaN, and an empty float `sum` is `0.0`.
 
 Collecting needs an expected collection type, from a binding annotation,
 argument, or return type. There is no default collection:
