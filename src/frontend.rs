@@ -2825,6 +2825,14 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 
 struct Lower<'a> {
     pipelines: Vec<pipelines::Pipeline>,
+    /// Flags that keep a stopped `take_while` or `zip` stopped. Only `next(p)`
+    /// can leave one set before a consumer starts, so consumers of pipelines
+    /// not in `resumed_ends` fold the flag checks away.
+    pipeline_ends: std::collections::BTreeSet<u8>,
+    resumed_ends: std::collections::BTreeSet<u8>,
+    /// Set while a pipeline binding is being built: its plan may be resumed
+    /// later, so its end checks must stay.
+    binding_pipeline: bool,
     pipeline_generators: usize,
     function_name: String,
     /// `function_name` in the function table.
@@ -5697,6 +5705,9 @@ fn lower_body(
                 access,
                 names: HashMap::default(),
                 pipelines: Vec::new(),
+                pipeline_ends: Default::default(),
+                resumed_ends: Default::default(),
+                binding_pipeline: false,
                 pipeline_generators: 0,
                 function_places: HashMap::default(),
                 function_initializers: Vec::new(),

@@ -40,6 +40,28 @@ stored data. They are currently rejected in generator functions, including
 before a `yield`. Pipeline lending is not implemented. An eligible owned
 pipeline can leave its scope after explicit `.generator()` conversion.
 
+## Advancing one item
+
+`next(p)` takes one item from a pipeline local in its creating scope and
+returns `Option[T]`. The binding must be `mut`; `next(&mut p)` is equivalent.
+The pipeline keeps its progress, so a later `next`, loop, adapter or terminal
+continues after the items already taken:
+
+```text
+mut rows = iter(lines).filter(def(l: &str) -> bool: l != "")
+header = next(rows)
+records: list[Record] = rows.map(parse_row).try_collect()?
+```
+
+`next` expands the fused step inline: there is no frame and no dispatch. It
+returns `Nothing` once the pipeline is exhausted, and every later `next`,
+loop or terminal sees an empty pipeline: `take_while` stays stopped after its
+first rejected item, and `zip` stays stopped after either side ends. Items
+must be storable in an `Option`, so a pipeline of references is rejected;
+`map` to an owned value first. Loans held by the pipeline stay live until it is
+consumed or dropped, so mutating a borrowed source between two `next` calls is
+a borrow error. `next` on a consumed pipeline is a use of a moved binding.
+
 ## Returning a resumable stream
 
 `.generator()` consumes a pipeline and transfers its prepared source, callback
@@ -83,10 +105,10 @@ stream does not need to cross a function boundary.
 | `filter(f)` | Retain items for which the shared-reference predicate is true |
 | `take(n)` | Emit at most `n` items; zero or negative `n` advances nothing |
 | `skip(n)` | Discard the first `n` items; zero or negative `n` skips nothing |
-| `take_while(f)` | Stop at the first false shared-reference predicate, dropping that item |
+| `take_while(f)` | Stop at the first false shared-reference predicate, dropping that item; stay stopped |
 | `filter_value(value=True)` | Retain items equal to `value`, compared with `==`; no callback |
 | `enumerate(start=0)` | Emit the checked `i64` index and item; count accepted items at this point in the chain |
-| `zip(right)` | Pull one accepted item from each input, left first; stop when either ends |
+| `zip(right)` | Pull one accepted item from each input, left first; stop when either ends and stay stopped |
 | `chain(other)` | Emit every item of this pipeline, then every item of `other` |
 | `flat_map(f)` | Call `(Item) -> source` once per item; emit each item of the returned source |
 

@@ -235,16 +235,21 @@ impl Lower<'_> {
                         } else {
                             plan.iteration.exact_len = None;
                             self.same(output, Some(Ty::Bool), &argument.at)?;
-                            let mut rejected = if method == "filter" {
-                                plan.iteration.step.clone()
+                            // A rejected item is released and the source
+                            // advanced, so a resumed pipeline continues after
+                            // it. `take_while` then sets its end flag and stops.
+                            let mut rejected = plan.iteration.step.clone();
+                            if method == "take_while" {
+                                let ended = self.pipeline_end(&e.at, ops)?;
+                                guard_end(&mut plan, ended);
+                                rejected.extend([
+                                    Op::PushBool(true),
+                                    Op::StoreLocal(ended),
+                                    Op::Break,
+                                ]);
                             } else {
-                                vec![]
-                            };
-                            rejected.push(if method == "filter" {
-                                Op::Continue
-                            } else {
-                                Op::Break
-                            });
+                                rejected.push(Op::Continue);
+                            }
                             plan.iteration.body.push(branch(vec![], rejected));
                         }
                     } else {
@@ -309,6 +314,14 @@ impl Lower<'_> {
             }));
         plan.loans.sort_unstable();
         plan.loans.dedup();
+        if !self.binding_pipeline {
+            for &flag in &plan.resources {
+                if self.pipeline_ends.contains(&flag) && !self.resumed_ends.contains(&flag) {
+                    plan.iteration.condition = specialize(&plan.iteration.condition, flag, false);
+                    plan.iteration.body = specialize(&plan.iteration.body, flag, false);
+                }
+            }
+        }
         self.names = saved;
         Ok(plan)
     }
@@ -599,12 +612,25 @@ impl Lower<'_> {
             self.pipeline_pack_pair(&mut right, at)?;
             self.pipeline_pull(&mut left, at)?;
             self.pipeline_pull(&mut right, at)?;
+            // The left item pulled when the right side ends is dropped. The
+            // flag stops a resumed zip from pulling and dropping another.
             let mut absent = right.iteration.absent.clone();
             absent.push(Op::PushBool(false));
+            let mut right_condition = right.iteration.condition;
+            let ended = self.pipeline_end(at, ops)?;
+            right_condition.push(branch(
+                vec![Op::PushBool(true)],
+                vec![
+                    Op::PushBool(true),
+                    Op::StoreLocal(ended),
+                    Op::PushBool(false),
+                ],
+            ));
             left.iteration
                 .condition
-                .push(branch(right.iteration.condition, absent));
+                .push(branch(right_condition, absent));
             left.iteration.absent.extend(right.iteration.absent);
+            guard_end(&mut left, ended);
             left.iteration.body.extend(right.iteration.body);
             left.iteration.cleanup.extend(right.iteration.cleanup);
             left.iteration.step.extend(right.iteration.step);
@@ -1149,6 +1175,72 @@ impl Lower<'_> {
         }
     }
 
+    /// A flag recording that an adapter has stopped for good. See `guard_end`.
+    fn pipeline_end(&mut self, at: &Token, ops: &mut Vec<Op>) -> Result<u8> {
+        let ended = self.slot(Ty::Bool, at)?;
+        ops.extend([Op::PushBool(false), Op::StoreLocal(ended)]);
+        self.pipeline_ends.insert(ended);
+        Ok(ended)
+    }
+
+    /// `next(p)` on the creator's `mut` binding: one step of the plan, in
+    /// place. The plan's slots keep its progress, so a later `next`, loop or
+    /// terminal continues after the item taken here.
+    pub(super) fn pipeline_next(
+        &mut self,
+        local: &Local,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let Ty::Iter(_, id) = local.ty else {
+            unreachable!()
+        };
+        if !local.mutable {
+            return Err(at.error("next requires a mutable pipeline binding; declare it with `mut`"));
+        }
+        let plan = self
+            .pipelines
+            .get(id)
+            .cloned()
+            .ok_or_else(|| at.error("iterator pipeline has no local source plan"))?;
+        if let Some(barrier) = plan.item.ty.storage_barrier() {
+            return Err(at.error(barrier.message("a next result; map to an owned value first")));
+        }
+        self.resumed_ends.extend(
+            plan.resources
+                .iter()
+                .filter(|slot| self.pipeline_ends.contains(slot)),
+        );
+        // Reading the token rejects a pipeline that a loop or terminal consumed.
+        self.mark(at, ops);
+        ops.extend([Op::LoadLocal(local.slot), Op::Drop]);
+        let ty = crate::sum::option(plan.item.ty.clone());
+        let Ty::Enum(option) = &ty else {
+            unreachable!()
+        };
+        let result = self.slot(ty.clone(), at)?;
+        ops.extend([
+            Op::Enum(crate::sum::EnumOp::New(option.clone(), 0)),
+            Op::StoreLocal(result),
+        ]);
+        let mut body = plan.iteration.body.clone();
+        body.extend(self.pipeline_value_ops(&plan));
+        body.extend([
+            Op::Enum(crate::sum::EnumOp::New(option.clone(), 1)),
+            Op::StoreLocal(result),
+        ]);
+        // The step runs before leaving, so the next pull starts after this item.
+        body.extend(plan.iteration.step.iter().cloned());
+        body.push(Op::Break);
+        ops.push(Op::Loop {
+            condition: plan.iteration.condition.clone().into(),
+            body: body.into(),
+        });
+        ops.extend(plan.loans.iter().copied().map(Op::UseLoan));
+        ops.push(Op::MoveLocal(result));
+        Ok(ty)
+    }
+
     pub(super) fn pipeline_iteration(
         &mut self,
         names: &[String],
@@ -1689,9 +1781,21 @@ impl Lower<'_> {
     }
 }
 
+/// Stop before pulling once `ended` is set. Only `next(p)` can leave the flag
+/// set before a consumer starts; `pipeline` folds the check away otherwise.
+fn guard_end(plan: &mut Pipeline, ended: u8) {
+    let mut absent = plan.iteration.absent.clone();
+    absent.push(Op::PushBool(false));
+    plan.iteration.condition = vec![
+        Op::LoadLocal(ended),
+        branch(absent, std::mem::take(&mut plan.iteration.condition)),
+    ];
+}
+
 /// Emit the consumer loop. A split `chain` runs one loop per side, so neither
 /// tests the flag per item. The first loop ends with the flag set when its side
 /// is exhausted; a consumer `break` leaves it clear and skips the second loop.
+/// After `next(p)` the flag may already be set, so the first loop is guarded.
 fn pipeline_loop(plan: &Pipeline, body: Vec<Op>, ops: &mut Vec<Op>) {
     let condition = &plan.iteration.condition;
     let Some(flag) = plan.split else {
@@ -1705,7 +1809,7 @@ fn pipeline_loop(plan: &Pipeline, body: Vec<Op>, ops: &mut Vec<Op>) {
         condition: specialize(condition, flag, value).into(),
         body: specialize(&body, flag, value).into(),
     };
-    ops.push(side(false));
+    ops.extend([Op::LoadLocal(flag), branch(vec![], vec![side(false)])]);
     ops.extend([Op::LoadLocal(flag), branch(vec![side(true)], vec![])]);
 }
 
