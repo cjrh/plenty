@@ -152,7 +152,7 @@ impl Lower<'_> {
     }
 
     pub(super) fn pipeline(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
-        if self.yield_type.is_some() {
+        if self.yield_type.is_some() && !self.consuming_pipeline {
             return Err(e.at.error("iterator pipelines cannot be held across yield"));
         }
         let start = self.locals.len();
@@ -346,7 +346,7 @@ impl Lower<'_> {
     }
 
     fn pipeline_source(&mut self, source: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
-        if self.yield_type.is_some() {
+        if self.yield_type.is_some() && !self.consuming_pipeline {
             return Err(source
                 .at
                 .error("iterator pipelines cannot be held across yield"));
@@ -1353,6 +1353,28 @@ impl Lower<'_> {
             }
             return self.pipeline_generator(base, ops).map(Some);
         }
+        self.consume_in_place(|this| this.pipeline_consume(base, name, args, ops))
+    }
+
+    /// A terminal consumes its pipeline within one expression, which cannot
+    /// contain `yield`, so generator bodies may use it.
+    pub(super) fn consume_in_place<T>(
+        &mut self,
+        consume: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        let outer = std::mem::replace(&mut self.consuming_pipeline, true);
+        let result = consume(self);
+        self.consuming_pipeline = outer;
+        result
+    }
+
+    fn pipeline_consume(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
         if matches!(name, "collect" | "try_collect") {
             return self.pipeline_collect(base, name, args, None, ops).map(Some);
         }
@@ -1504,6 +1526,21 @@ impl Lower<'_> {
                 ]);
                 Some((Ty::I64, slot))
             }
+            ("any" | "all", []) => {
+                // Like `filter_value()`, the no-argument form tests the item itself.
+                let borrowed = matches!(&plan.item.ty, Ty::Ref(inner, _) if **inner == Ty::Bool);
+                if plan.pair.is_some() || (plan.item.ty != Ty::Bool && !borrowed) {
+                    return Err(base.at.error(format!(
+                        "{name}() tests bool items, but this pipeline yields {}; pass a predicate",
+                        type_name(Some(plan.item.ty.clone()))
+                    )));
+                }
+                body.push(Op::LoadLocal(plan.item.slot));
+                if borrowed {
+                    body.push(Op::ReadRef(Ty::Bool));
+                }
+                Some(self.pipeline_short_circuit(name == "all", &mut body, ops, &base.at)?)
+            }
             ("any" | "all" | "find", [callback]) => {
                 let callback = self.pipeline_callback(callback, ops)?;
                 let predicate_items = self.pipeline_arguments(&plan, true, &base.at);
@@ -1533,17 +1570,7 @@ impl Lower<'_> {
                     body.push(branch(found, vec![]));
                     Some((ty, slot))
                 } else {
-                    let slot = self.slot(Ty::Bool, &base.at)?;
-                    let identity = name == "all";
-                    ops.extend([Op::PushBool(identity), Op::StoreLocal(slot)]);
-                    if identity {
-                        body.push(Op::Not);
-                    }
-                    body.push(branch(
-                        vec![Op::PushBool(!identity), Op::StoreLocal(slot), Op::Break],
-                        vec![],
-                    ));
-                    Some((Ty::Bool, slot))
+                    Some(self.pipeline_short_circuit(name == "all", &mut body, ops, &base.at)?)
                 }
             }
             ("reduce", [callback]) => {
@@ -1627,6 +1654,27 @@ impl Lower<'_> {
         self.cleanup(start, ops);
         self.names = saved;
         Ok(output.map(|(ty, _)| ty))
+    }
+
+    /// Consumes the `bool` the body leaves on the stack: `any` stops at the
+    /// first `True`, `all` at the first `False`.
+    fn pipeline_short_circuit(
+        &mut self,
+        all: bool,
+        body: &mut Vec<Op>,
+        ops: &mut Vec<Op>,
+        at: &Token,
+    ) -> Result<(Ty, u8)> {
+        let slot = self.slot(Ty::Bool, at)?;
+        ops.extend([Op::PushBool(all), Op::StoreLocal(slot)]);
+        if all {
+            body.push(Op::Not);
+        }
+        body.push(branch(
+            vec![Op::PushBool(!all), Op::StoreLocal(slot), Op::Break],
+            vec![],
+        ));
+        Ok((Ty::Bool, slot))
     }
 
     /// `sum`, `min` and `max`. A borrowed item is read through its reference,

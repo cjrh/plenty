@@ -110,8 +110,8 @@ for x in reversed(&[Guard("reverse")].unwrap()):
     break
 for x in &range(2):
     print(*x).unwrap()
-print(any(&[False, True].unwrap())).unwrap()
-print(all(reversed(&[True, False].unwrap()))).unwrap()
+print(iter(&[False, True].unwrap()).any()).unwrap()
+print(iter(reversed(&[True, False].unwrap())).all()).unwrap()
 print("after").unwrap()
 "#,
         "forward\nforward\nreverse\nreverse\n0\n1\nTrue\nFalse\nafter",
@@ -155,13 +155,13 @@ pub def backwards[T](values: &list[T]) -> i64:
         count += 1
     count
 pub def reduce[T](unused: T, values: &list[bool]) -> bool:
-    any(values) and not all(reversed(values))
+    iter(values).any() and not iter(reversed(values)).all()
 pub def flags(values: list[bool]) -> Generator[bool]:
     for x in reversed(values):
         yield x
 pub def summarize(values: list[bool]) -> Generator[bool]:
-    yield any(&values)
-    yield all(reversed(&values))
+    yield iter(&values).any()
+    yield iter(reversed(&values)).all()
 "#,
     )
     .unwrap();
@@ -174,7 +174,7 @@ def main() -> ():
     values = [False, True].unwrap()
     print(helpers.backwards(&values)).unwrap()
     print(helpers.reduce(0, &values)).unwrap()
-    print(any(helpers.flags([False, True].unwrap()))).unwrap()
+    print(helpers.flags([False, True].unwrap()).any()).unwrap()
     for x in helpers.summarize(values):
         print(x).unwrap()
 "#,
@@ -198,20 +198,20 @@ def main() -> ():
 fn boolean_reductions_handle_empty_owned_borrowed_and_hash_sources() {
     native(
         r#"
-print(any(list[bool]().unwrap())).unwrap()
-print(all(list[bool]().unwrap())).unwrap()
-print(any([False, True, False].unwrap())).unwrap()
-print(all([True, False, True].unwrap())).unwrap()
-print(all([True, True].unwrap())).unwrap()
+print(iter(list[bool]().unwrap()).any()).unwrap()
+print(iter(list[bool]().unwrap()).all()).unwrap()
+print(iter([False, True, False].unwrap()).any()).unwrap()
+print(iter([True, False, True].unwrap()).all()).unwrap()
+print(iter([True, True].unwrap()).all()).unwrap()
 mut flags = [False, True].unwrap()
-print(any(&flags)).unwrap()
-print(all(&mut flags)).unwrap()
+print(iter(&flags).any()).unwrap()
+print(iter(&mut flags).all()).unwrap()
 flags.append(True).unwrap()
 print(flags).unwrap()
-print(any(reversed(&flags))).unwrap()
-print(all(reversed([True, True].unwrap()))).unwrap()
-print(any({False, True}.unwrap())).unwrap()
-print(all({True: 1}.unwrap())).unwrap()
+print(iter(reversed(&flags)).any()).unwrap()
+print(iter(reversed([True, True].unwrap())).all()).unwrap()
+print(iter({False, True}.unwrap()).any()).unwrap()
+print(iter({True: 1}.unwrap()).all()).unwrap()
 "#,
         "False\nTrue\nTrue\nFalse\nTrue\nTrue\nFalse\n[False, True, True]\nTrue\nTrue\nTrue\nTrue",
     );
@@ -230,15 +230,15 @@ def flags(guard: Guard, value: bool) -> Generator[bool]:
     print("second").unwrap()
     yield not value
     print("third").unwrap()
-print(any(flags(Guard(), True))).unwrap()
-print(all(flags(Guard(), False))).unwrap()
-print(any(flags(Guard(), False))).unwrap()
-print(all(flags(Guard(), True))).unwrap()
+print(flags(Guard(), True).any()).unwrap()
+print(flags(Guard(), False).all()).unwrap()
+print(flags(Guard(), False).any()).unwrap()
+print(flags(Guard(), True).all()).unwrap()
 def empty() -> Generator[bool]:
     if False:
         yield True
-print(any(empty())).unwrap()
-print(all(empty())).unwrap()
+print(empty().any()).unwrap()
+print(empty().all()).unwrap()
 "#,
         "first\ndrop frame\nTrue\nfirst\ndrop frame\nFalse\nfirst\nsecond\ndrop frame\nTrue\nfirst\nsecond\ndrop frame\nFalse\nFalse\nTrue",
     );
@@ -251,8 +251,8 @@ fn sources_evaluate_once_and_user_callables_keep_their_names() {
 def source() -> list[bool]:
     print("source").unwrap()
     [False, True].unwrap()
-print(any(source())).unwrap()
-print(all(source())).unwrap()
+print(iter(source()).any()).unwrap()
+print(iter(source()).all()).unwrap()
 for x in reversed(source()):
     print(x).unwrap()
 "#,
@@ -304,15 +304,39 @@ for x in methods.reversed():
     );
 }
 
+#[test]
+fn generator_bodies_consume_pipelines_with_terminals() {
+    native(
+        r#"
+def stats(values: list[i64]) -> Generator[i64]:
+    yield iter(&values).count()
+    yield iter(&values).sum()
+    doubled: list[i64] = iter(&values).map(def(v: &i64) -> i64: *v * 2).collect().unwrap()
+    yield doubled[1]
+    flags = [False, True].unwrap()
+    if iter(&flags).any() and not iter(&flags).all():
+        yield iter(&values).fold(0, def(a: i64, v: &i64) -> i64: a + *v)
+for x in stats([1, 2, 3].unwrap()):
+    print(x).unwrap()
+"#,
+        "3\n6\n4\n6",
+    );
+}
+
 #[rstest]
-#[case("any()", "requires one boolean iterable")]
+#[case("any()", "any is not a builtin function; use the pipeline terminal")]
+#[case("all([True].unwrap())", "iter(flags).all() for bool items")]
+#[case("any(n == 2 for n in range(3))", "iter(source).any(predicate)")]
 #[case(
-    "all([True].unwrap(), [False].unwrap())",
-    "requires one boolean iterable"
+    "iter([1].unwrap()).any()",
+    "any() tests bool items, but this pipeline yields i64"
 )]
-#[case("any([1].unwrap())", "requires bool elements")]
-#[case("all(\"abc\")", "requires bool elements")]
-#[case("any(enumerate([True].unwrap()))", "requires bool elements")]
+#[case(
+    "iter(\"abc\").all()",
+    "all() tests bool items, but this pipeline yields str"
+)]
+#[case("iter([True].unwrap()).enumerate().any()", "pass a predicate")]
+#[case("iter([True].unwrap()).any(True)", "pipeline callback")]
 #[case("for x in reversed():\n    pass", "reversed requires one iterable")]
 #[case(
     "for x in reversed({1, 2}.unwrap()):\n    pass",
@@ -327,6 +351,14 @@ for x in methods.reversed():
     "requires a list, str, bytes, range, or Bytes"
 )]
 #[case("saved = reversed(range(3))", "supported directly in for loops")]
+#[case(
+    "def walk(values: list[i64]) -> Generator[i64]:\n    for x in iter(values):\n        yield x\nfor x in walk([1].unwrap()):\n    pass",
+    "iterator pipelines cannot be held across yield"
+)]
+#[case(
+    "def walk(values: list[i64]) -> Generator[i64]:\n    p = iter(values)\n    yield p.count()\nfor x in walk([1].unwrap()):\n    pass",
+    "iterator pipelines cannot be held across yield"
+)]
 #[case(
     "mut values = [1].unwrap()\nfor x in reversed(&values):\n    values.append(2).unwrap()\n    print(*x).unwrap()",
     "borrow"
@@ -356,8 +388,8 @@ for x in reversed(&values):
 mut count = 0
 for x in reversed(text):
     count += 1
-yes = any(&flags)
-no = all(reversed(&flags))
+yes = iter(&flags).any()
+no = iter(reversed(&flags)).all()
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(total).unwrap()

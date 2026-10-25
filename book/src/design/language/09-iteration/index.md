@@ -9,7 +9,7 @@ no heap allocation.
 - [Comprehensions and collection construction](02-comprehensions.md)
 - [Generators](03-generators.md)
 - [Enumeration and paired iteration](04-adapters.md)
-- [Reverse traversal and boolean reductions](05-reverse-and-reduce.md)
+- [Reverse traversal](05-reverse-and-reduce.md)
 - [Local iterator pipelines](06-pipelines.md)
 
 [Loop control](../04-expressions/loops.md) defines binding scope, `break`,

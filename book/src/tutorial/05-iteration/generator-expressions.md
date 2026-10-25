@@ -1,14 +1,10 @@
 # Pass a lazy expression to a consumer
 
-A generator expression evaluates one element at a time. A consumer such as
-`any` or `all` can stop before evaluating the rest:
+A generator expression evaluates one element at a time, when its consumer
+asks for the next one:
 
 ```plenty
-def qualifies(n: i64) -> bool:
-    n == 2
-
 def main() -> Result[(), AllocError | IoError]:
-    print(any(qualifies(n) for n in range(10)))?
     squares = (n * n for n in range(4) if n != 2)
     print(list[i64].from(squares)?)?
     words = ["tea", "", "café"]?
@@ -16,7 +12,6 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 ```
 ```output
-True
 [0, 1, 9]
 tea, café
 ```
@@ -25,6 +20,8 @@ tea, café
 joined without first collecting them into a list. A generator cannot be
 measured in advance, so `join` grows a scratch buffer as pieces arrive; a list,
 set, or dictionary is measured first and needs only the result's allocation.
+A consumer that stops early, such as the [pipeline](pipelines.md) method
+`any`, leaves the remaining elements unevaluated.
 
 The outer source evaluates when the generator is created. Filters, elements,
 and inner `for` sources evaluate on demand. The generator owns its sources

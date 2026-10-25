@@ -78,7 +78,7 @@ frame follows the specialization, suspension and cleanup rules above.
 The outer source evaluates once at creation; inner sources, filters, and the
 element expression run only as the frame advances. A range outer source is
 stored in the frame and advances as a [counted loop](01-iterables.md). A sole call argument can
-omit parentheses: `any(n == 2 for n in range(10))`. With other arguments,
+omit parentheses: `list(n * n for n in range(4))`. With other arguments,
 parenthesize the generator expression.
 
 Inputs and referenced enclosing local values copy or move into the frame at
