@@ -46,7 +46,10 @@ The [signature index](signatures.md#stddataframe) gives exact declarations.
 
 | Operation | Result value |
 |---|---|
-| `col(name)`, `lit(f64)`, `lit_i64(i64)`, `null_f64()` | `Expr` |
+| `col(name)`, `lit(f64)`, `lit_i64(i64)`, `lit_str(text)`, `lit_bool(value)`, `null_f64()` | `Expr` |
+| `when(predicate, then_value, otherwise)`, `expr.cast(dtype, strict=True)` | `Expr` |
+| `expr.str_lower/str_upper/str_len()`, `str_contains/str_starts_with/str_ends_with(pattern)` | `Expr` |
+| `expr.n_unique()`, `expr.over(partition_by)` | `Expr` |
 | `expr.add/sub/mul/div/gt/eq/lt/ge/le(&other)` | `Expr` |
 | `expr.and_(&other)`, `or_(&other)`, `fill_null(&other)` | `Expr` |
 | `expr.sum/count/mean/min/max/is_null()` | `Expr` |
@@ -59,6 +62,9 @@ The [signature index](signatures.md#stddataframe) gives exact declarations.
 | `query.sort(&keys)`, `slice(offset, length)`, `limit(count)` | `Query` |
 | `query.collect()` | `DataFrame` |
 | `frame.write_parquet(path)` | `()` |
+
+See [expression contracts](dataframe-expressions.md) for conditional evaluation,
+explicit casts, string operations, distinct counts and partitioned windows.
 
 Expressions describe native Polars operations; they are not opaque Plenty
 callbacks. Polars can optimize a complete plan, push projections/filters

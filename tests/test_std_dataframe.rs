@@ -159,3 +159,30 @@ fn typed_nullable_columns_and_schema_with_real_engine() {
         "dataframe types ok\n"
     );
 }
+
+#[test]
+fn expanded_expressions_with_real_engine() {
+    if std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none() {
+        eprintln!("expression execution requires PLENTY_DATAFRAME_TESTS=1");
+        return;
+    }
+    let engine = engine_under_test();
+    let temp = tempfile::tempdir().unwrap();
+    let binary = compile(
+        temp.path(),
+        include_str!("fixtures/dataframe_expressions.plenty"),
+        Some(engine.clone()),
+    )
+    .unwrap();
+    let output = assert_success(
+        Command::new(binary)
+            .env("LD_LIBRARY_PATH", engine.parent().unwrap())
+            .env("POLARS_MAX_THREADS", "2")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "dataframe expressions ok\n"
+    );
+}

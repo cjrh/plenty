@@ -143,6 +143,8 @@ destroy!(pldf_v1_sort_keys_drop, SortKeys);
 
 mod columns;
 pub use columns::*;
+mod expressions;
+pub use expressions::*;
 
 /// # Safety
 /// Borrow a non-null error owner for the call.

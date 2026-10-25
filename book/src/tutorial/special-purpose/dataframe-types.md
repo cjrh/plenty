@@ -52,4 +52,5 @@ Lists are copied across the native boundary. Keep filtering, grouping and
 sorting inside the query, then extract only the columns and rows your
 Plenty code needs. See [the type contracts](../../design/stdlib/dataframe-types.md)
 for Unicode, ownership and conversion details, then continue with
-[Join and rank results](dataframe-joins.md).
+[Join and rank results](dataframe-joins.md) or
+[Clean and compare column values](dataframe-expressions.md).
