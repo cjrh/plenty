@@ -1160,6 +1160,12 @@ impl Lower<'_> {
         }
         let slot = self.slot(ty.clone(), &callback.at)?;
         ops.push(Op::StoreLocal(slot));
+        let source = match &ungroup(callback).kind {
+            Expression::Name(n) => Some(n.clone()),
+            _ => None,
+        };
+        self.pipeline_callbacks
+            .insert(slot, (callback.at.clone(), source));
         let name = format!("<pipeline callback {slot}>");
         self.bind(
             name.clone(),

@@ -502,9 +502,7 @@ impl Lower<'_> {
                 if matches!(ty, Ty::Ref(..)) {
                     shared.push(slot);
                 } else if ty.contains_reference() {
-                    return Err(at.error(
-                        "this pipeline cannot be lent: it holds a borrowing closure or reference-containing value as state; consume it in its creating function",
-                    ));
+                    return Err(self.borrowing_state_error(slot, &ty, at));
                 } else {
                     owned.push(slot);
                 }
@@ -555,6 +553,29 @@ impl Lower<'_> {
             }
         };
         Ok((id, owned, shared))
+    }
+
+    /// Why state `slot`, which holds references inside another value, keeps
+    /// its pipeline from being lent. A closure value is reported where the
+    /// adapter received it, with the literal form that can be lent.
+    fn borrowing_state_error(&self, slot: u8, ty: &Ty, at: &Token) -> Box<dyn Error> {
+        match self.pipeline_callbacks.get(&slot) {
+            Some((site, source)) if matches!(ty, Ty::Closure(_)) => {
+                let what = match source {
+                    Some(name) => format!(
+                        "closure `{name}`, which is stored in a variable and borrows its captures"
+                    ),
+                    None => "a closure value that borrows its captures".into(),
+                };
+                site.error(format!(
+                    "this pipeline cannot be lent (at line {}): it holds {what}; write the closure literal inside the adapter call instead, as in `.filter(def [&limit](x: &i64) -> bool: *x > limit)`",
+                    at.line
+                ))
+            }
+            _ => at.error(format!(
+                "this pipeline cannot be lent: it holds {ty}, which contains a reference, as state; consume it in its creating function"
+            )),
+        }
     }
 
     /// Binds each lent parameter of this borrower to its own copy of the

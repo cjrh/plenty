@@ -2222,6 +2222,41 @@ fn lending_keeps_borrow_and_signature_rules() {
     }
 }
 
+/// A stored closure that borrows its captures is a reference inside the
+/// plan's state, which a borrower cannot receive; the same closure written
+/// inside the adapter call is spliced, and its captures become lent loans.
+#[test]
+fn lending_a_stored_borrowing_closure_explains_the_fix() {
+    let error = support::check_file_error(
+        r#"def first(p: &mut Iter[i64]) -> Option[i64]:
+    next(p)
+
+def main() -> Result[(), AllocError | IoError]:
+    limit = 3
+    keep = def [&limit](x: &i64) -> bool:
+        *x > limit
+    mut p = iter(range(9)).filter(keep)
+    print(first(&mut p))?
+    Ok(())
+"#,
+    );
+    assert!(
+        error.contains(":8:35: this pipeline cannot be lent (at line 9): it holds closure `keep`, which is stored in a variable and borrows its captures; write the closure literal inside the adapter call instead"),
+        "{error}"
+    );
+    output(
+        r#"
+def first(p: &mut Iter[i64]) -> Option[i64]:
+    next(p)
+limit = 3
+mut p = iter(range(9)).filter(def [&limit](x: &i64) -> bool: *x > limit)
+print(first(&mut p)).unwrap()
+print(p.count()).unwrap()
+"#,
+        "Option[i64].Some(4)\n4\n",
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn lending_does_not_allocate_or_leak() {
