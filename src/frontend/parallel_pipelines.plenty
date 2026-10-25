@@ -227,3 +227,26 @@ def extremum[C, T, F: Callable[[C], Option[T]]](pool: &ThreadPoolExecutor, chunk
                     Err(error)
         case Err(error):
             Err(PoolMapError.Allocation(error))
+
+def reduce_chunks[C, T, F: Callable[[C], Option[T]], G: Callable[[T, T], T]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F, combine: G) -> Result[Option[T], PoolMapError]:
+    match chunks:
+        case Ok(inputs):
+            match pool.map(worker, inputs):
+                case Ok(parts):
+                    # Chunk results in input order; empty chunks give Nothing.
+                    mut total: Option[T] = Nothing
+                    for part in parts:
+                        total = match part:
+                            case Some(value):
+                                match total:
+                                    case Some(left):
+                                        Some(combine(left, value))
+                                    case Nothing:
+                                        Some(value)
+                            case Nothing:
+                                total
+                    Ok(total)
+                case Err(error):
+                    Err(error)
+        case Err(error):
+            Err(PoolMapError.Allocation(error))

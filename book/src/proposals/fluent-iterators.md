@@ -771,19 +771,23 @@ Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
   `sum`, `min` and `max` work per chunk, then combine chunk results in input
   order. Integer `sum` traps exactly when the serial sum would; `min`/`max`
   equal the serial results (first NaN wins, `-0.0 < 0.0`); a floating-point
-  `sum` regroups additions by chunk. A parallel `reduce` uses
-  the fixed adjacent-pair tree of `reduce_tree`, which reassociates; it is
-  deterministic for a given input but differs from the serial left fold for
-  non-associative operations such as floating-point addition. There is no
+  `sum` regroups additions by chunk. A parallel `reduce` works like `sum`:
+  each chunk reduces its items left to right, then the chunk results are
+  reduced in input order, skipping empty chunks. It is deterministic for a
+  given input length and chunk count, but differs from the serial left fold
+  for non-associative operations such as floating-point addition.
+  `pool.reduce_tree` keeps one fixed grouping for code that needs it. There is no
   parallel `fold`: it would need an identity and associativity the type system
   cannot check. `for` loops and `for_each` are rejected after `par`, since
   their bodies would run concurrently.
-- **Reduction tree.** Preserve the exact
-  [fixed-tree reduction contract](../design/facilities/03-concurrency/parallel-reduce.md):
-  adjacent pairs in each round, carrying an odd final item forward. After
-  filtering, use the retained items in input order. Worker count and chunk
-  boundaries must not change that tree; independently reducing each chunk and
-  then combining chunk results is not equivalent. Empty input yields `Nothing`.
+- **Reduction grouping.** A parallel `reduce` groups by chunk, as `sum` does,
+  so no list of all items is collected; empty input yields `Nothing`. An
+  earlier version of this proposal used the
+  [fixed-tree reduction contract](../design/facilities/03-concurrency/parallel-reduce.md)
+  of `reduce_tree`, so worker count and chunk boundaries could not change the
+  grouping. That required collecting every item before reducing, which made
+  `reduce` with a cheap function several times slower than serial. Code that
+  needs the fixed tree calls `pool.reduce_tree` directly.
 - **Early termination and effects.** Follow the
   [fallible mapping contract](../design/facilities/03-concurrency/parallel-map.md):
   `try_collect` selects the lowest original input index's worker error, including
@@ -811,7 +815,8 @@ Compile-time checks the type system must enforce: worker eligibility of every
 callback and item type (existing closed-world check), no shared mutable
 borrows, no order-dependent step after `par`, and `reduce` only (not `fold`)
 for parallel combination. Associativity itself cannot be checked; the
-documentation states the tree shape, as `reduce_tree` does now.
+documentation states the grouping: per chunk, then chunk results in input
+order.
 
 ### Automatic parallelization
 

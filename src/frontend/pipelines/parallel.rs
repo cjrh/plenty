@@ -443,7 +443,15 @@ impl Lower<'_> {
         // chunk result needs mutable state rather than one terminal call.
         let mut tail = None;
         let (output, template) = match name {
-            "collect" | "reduce" => {
+            "reduce" => {
+                // Each chunk folds its own items left to right; the template
+                // combines the chunk results in input order.
+                let reducer = reducer.clone().expect("reduce function");
+                chain = method(&at, chain, "reduce", vec![reducer.clone()]);
+                extra.push(reducer);
+                (crate::sum::option(item.clone()), "reduce_chunks")
+            }
+            "collect" => {
                 chain = method(&at, chain, "collect", vec![]);
                 (
                     crate::sum::result(Ty::List(Arc::new(item.clone())), crate::sum::alloc_error()),
@@ -617,32 +625,7 @@ impl Lower<'_> {
             let expected = crate::sum::result(item, crate::sum::pool_map_error());
             return self.match_value(&at, &pair, &cases, Some(expected), ops);
         }
-        let Some(reducer) = reducer else {
-            return Ok(ty);
-        };
-        // reduce: the collected items go through the pool's fixed tree.
-        let collected =
-            self.par_hidden("collected", ty.expect("collect result"), &at, hidden, ops)?;
-        let place = pool.clone();
-        let binding = "__plenty_par_reduced";
-        let failure = "__plenty_par_failure";
-        let reduce = method(
-            &at,
-            place,
-            "reduce_tree",
-            vec![reducer, name_expr(&at, binding)],
-        );
-        let cases = vec![
-            result_case(&at, "Ok", binding, vec![expr_stmt(reduce)]),
-            result_case(
-                &at,
-                "Err",
-                failure,
-                vec![expr_stmt(call(&at, "Err", vec![name_expr(&at, failure)]))],
-            ),
-        ];
-        let expected = crate::sum::result(crate::sum::option(item), crate::sum::pool_map_error());
-        self.match_value(&at, &collected, &cases, Some(expected), ops)
+        Ok(ty)
     }
 
     /// `.par(&pool)` or `.par(&pool, chunks=n)`.

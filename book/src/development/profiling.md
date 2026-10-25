@@ -417,24 +417,31 @@ chunk's storage with `extend` instead of moving items one at a time.
 
 The first round of measurements found two losses: splitting a list moved each
 item on the calling thread with a list append (about 37 ns per item), and
-`reduce_tree` submitted one job per pair. Two changes followed:
+`.par` `reduce` collected every item, then ran `reduce_tree`, which submitted
+one job per pair. Three changes followed:
 
 - A list source is split by an internal list operation that allocates every
   chunk first and then copies each chunk's contiguous rows in one bulk copy;
   the source then forgets its rows, so each item still moves once. The
   generated code calls the operation once and pairs chunks with offsets in a
   loop over chunks, not items.
-- `reduce_tree`, and so `.par` `reduce`, gives one job an aligned run of
-  adjacent inputs, a power of two chosen so there is about one run per worker,
-  and the job reduces it serially through the same rounds. The remaining run
-  results are combined by pair jobs. Because each round maps index `i` to
-  `i / 2`, an aligned run is exactly a subtree of the fixed tree, so the
-  grouping is unchanged; a test compares it with a serial level-by-level
-  evaluation for lengths 0 to 70 and larger odd and even lengths, with 1, 2, 3
-  and 8 workers.
+- `pool.reduce_tree` gives one job an aligned run of adjacent inputs, a power
+  of two chosen so there is about one run per worker, and the job reduces it
+  serially through the same rounds. The remaining run results are combined by
+  pair jobs. Because each round maps index `i` to `i / 2`, an aligned run is
+  exactly a subtree of the fixed tree, so the grouping is unchanged; a test
+  compares it with a serial level-by-level evaluation for lengths 0 to 70 and
+  larger odd and even lengths, with 1, 2, 3 and 8 workers.
+- `.par` `reduce` now groups like `sum`: each chunk reduces its items left to
+  right in its worker, and the chunk results are reduced in input order. No
+  list of all items is collected. The worker's loop makes the same direct calls
+  per item as the serial pipeline (`plenty_list_scalar_get`, the callback and
+  `f`).
 
-Results on an AMD Ryzen 7 7840HS, eight workers, after both changes (load
-average 5 to 9 from other work during this run):
+Results on an AMD Ryzen 7 7840HS, eight workers, after the split and
+`reduce_tree` changes (load average 5 to 9 from other work during this run).
+The `reduce` rows were measured after the chunked `reduce` change, at load
+average 2 to 6; their `pool` column is `pool.reduce_tree` over `pool.map`:
 
 | Case | Callback | Items | Serial | pool | par | par/serial | par/pool |
 |---|---|---:|---:|---:|---:|---:|---:|
@@ -468,16 +475,14 @@ average 5 to 9 from other work during this run):
 | sum f64 | heavy | 1,000 | 0.122 | 1.272 | 0.066 | 0.54 | 0.05 |
 | sum f64 | heavy | 100,000 | 11.672 | 138.603 | 3.222 | 0.28 | 0.02 |
 | sum f64 | heavy | 1,000,000 | 115.819 | 1265.773 | 25.185 | 0.22 | 0.02 |
-| reduce | cheap | 1,000 | 0.012 | 1.422 | 0.124 | 9.91 | 0.09 |
-| reduce | cheap | 100,000 | 0.958 | 150.047 | 4.699 | 4.90 | 0.03 |
-| reduce | cheap | 10,000,000 | 112.649 | 10566.939 | 1216.061 | 10.80 | 0.12 |
-| reduce | heavy | 1,000 | 0.298 | 0.850 | 0.156 | 0.52 | 0.18 |
-| reduce | heavy | 100,000 | 26.683 | 102.877 | 9.245 | 0.35 | 0.09 |
-| reduce | heavy | 1,000,000 | 270.468 | 1009.838 | 70.616 | 0.26 | 0.07 |
+| reduce | cheap | 1,000 | 0.009 | 0.939 | 0.018 | 1.94 | 0.02 |
+| reduce | cheap | 100,000 | 0.961 | 94.659 | 0.613 | 0.64 | 0.01 |
+| reduce | cheap | 10,000,000 | 118.276 | 9709.342 | 206.719 | 1.75 | 0.02 |
+| reduce | heavy | 1,000 | 0.290 | 0.785 | 0.092 | 0.32 | 0.12 |
+| reduce | heavy | 100,000 | 29.397 | 94.482 | 6.060 | 0.21 | 0.06 |
+| reduce | heavy | 1,000,000 | 287.664 | 944.683 | 42.598 | 0.15 | 0.05 |
 
-A second run of the ten-million-item cheap `reduce` gave 644 ms (5.9 times
-serial) against 1,216 ms above; rows at ten million items vary by up to a
-factor of two under this load.
+Rows at ten million items vary by up to a factor of two under this load.
 
 Before these changes (first-round table, same method):
 
@@ -512,20 +517,18 @@ measured `sum i64` over a range of ten million items at 60.1 ms with `.par`
   is limited by memory bandwidth, and the split still writes every item once
   more.
 - `reduce` with an expensive function went from 3.8 times slower than serial
-  to 0.26 to 0.35 times the serial time from 100,000 items. With a cheap
-  function it went from 92 to 104 times slower to 5 to 11 times slower: it
-  still collects every item into one list and moves it into the tree's scratch
-  storage before any reduction. `pool.reduce_tree` alone over a ten-million
-  item range takes about 140 ms; its `pool` column above is dominated by
-  `pool.map`.
+  to 0.15 to 0.21 times the serial time from 100,000 items. With a cheap
+  function it went from 92 to 104 times slower to 0.64 times serial at 100,000
+  items and 1.75 at ten million, the same as `sum`. Before the chunked change,
+  the block `reduce_tree` alone brought cheap `reduce` to 5 to 11 times serial;
+  the rest was collecting every item and moving it into the tree's scratch
+  storage. `pool.reduce_tree` alone over a ten-million item range takes about
+  140 ms; its `pool` column above is dominated by `pool.map`.
 - A range source still scales best: ten million cheap items take 0.71 times
   the serial time.
 
-**Remaining work.** Once scoped pool jobs exist (B22), chunks can borrow the
-source and the split disappears. `reduce` could reduce each chunk in its
-worker and combine the chunk results, avoiding the collected list, but only
-where the chunk boundaries are aligned subtrees of the fixed tree; with the
-current near-equal chunks that would change the grouping, so it is not done.
+**Remaining work.** Once scoped pool jobs exist (B22, issue #455), chunks can
+borrow the source and the split's copy disappears.
 
 ## Fluent generators and explicit conversion
 

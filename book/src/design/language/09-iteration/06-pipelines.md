@@ -389,11 +389,15 @@ With the default count, a different pool size can change the result; pass
 order, so they equal the serial results: the first NaN in input order wins,
 and `-0.0` is less than `0.0`. Empty input gives `Nothing`.
 
-`reduce(f)` takes a named function `(T, T) -> T`. It first collects the items
-into one list, as `collect` does, allocating it and the per-chunk lists; it then
-uses the [fixed-tree reduction](../../facilities/03-concurrency/parallel-reduce.md)
-of `pool.reduce_tree`, so its grouping does not depend on chunking. Empty input
-gives `Nothing`.
+`reduce(f)` takes a named function `(T, T) -> T`. Like `sum`, it reduces each
+chunk serially, left to right, on its worker, then reduces the chunk results in
+input order, skipping chunks with no items; empty input gives `Nothing`. No list
+of all items is built. The result is deterministic for a given input length and
+chunk count, but it can differ from the serial left fold when `f` is not
+associative, and with the default count a different pool size can change it.
+Code that needs one grouping for any pool or chunk count can collect the items
+and use [`pool.reduce_tree`](../../facilities/03-concurrency/parallel-reduce.md),
+whose fixed adjacent-pair tree does not depend on the worker count.
 
 **Errors and order.** Every terminal reports `PoolMapError.Shutdown` for a
 closed pool and `PoolMapError.Allocation` when chunk storage or job submission
@@ -411,13 +415,12 @@ move it.
 chunk's items with one bulk copy on the calling thread; a range is split without
 copying items. Each chunk is one pool job. Collecting terminals allocate one
 output list per chunk, then append each chunk's storage to one reserved result
-list. `reduce` also allocates the collected list and the `reduce_tree` scratch
-storage.
+list. `reduce` allocates nothing beyond the chunk lists and the jobs.
 
 With a cheap callback over a large list, the split's copy of every item can
 cost more than the work saved, so `.par` pays off when the callbacks cost more
-than moving an item. `reduce` collects every item before the fixed-tree
-reduction, so with a cheap `f` it is slower than a serial `reduce`. See the
+than moving an item. Borrowed chunks, which would remove the copy, wait for
+scoped pool jobs (B22, issue #455). See the
 [parallel pipeline measurements](../../../development/profiling.md#parallel-pipelines).
 
 ## Cost

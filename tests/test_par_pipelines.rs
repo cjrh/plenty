@@ -160,8 +160,10 @@ def check(x: i64) -> Result[i64, i64]:
     );
 }
 
+/// Chunks [5, 1, 4], [2, 8], [7, 3] fold to 38, -2 and 18, then 330;
+/// `reduce_tree` groups the same items differently.
 #[test]
-fn reduce_matches_reduce_tree_and_empty_input_gives_nothing() {
+fn reduce_folds_chunks_in_order_and_empty_input_gives_nothing() {
     runs(
         &format!(
             r#"
@@ -175,7 +177,7 @@ def shape(a: i64, b: i64) -> i64:
     Ok(())
 "#
         ),
-        "Option[i64].Some(48)\nOption[i64].Some(48)\nOption[i64].Nothing\nOption[i64].Some(4)\n",
+        "Option[i64].Some(330)\nOption[i64].Some(48)\nOption[i64].Nothing\nOption[i64].Some(4)\n",
     );
 }
 
@@ -204,7 +206,7 @@ def positive(x: i64) -> bool:
 /// aligned subtree. `mix` is not associative, so its result records the
 /// grouping.
 #[test]
-fn reduce_groups_exactly_like_the_level_by_level_pair_tree() {
+fn reduce_tree_groups_exactly_like_the_level_by_level_pair_tree() {
     runs(
         &format!(
             r#"
@@ -243,17 +245,93 @@ def reference(n: i64) -> Result[Option[i64], AllocError]:
     for workers in [1u64, 2u64, 3u64, 8u64]?:
         with ThreadPoolExecutor(workers, 2)? as pool:
             for n in &lengths:
-                expected = reference(*n)?
-                if pool.reduce_tree(mix, inputs(*n)?)? != expected:
+                if pool.reduce_tree(mix, inputs(*n)?)? != reference(*n)?:
                     print("reduce_tree differs")?
                     print(workers)?
                     print(*n)?
-                if iter(inputs(*n)?).par(&pool).reduce(mix)? != expected:
+                checked += 1
+    print(checked)?
+    Ok(())
+"#
+        ),
+        "304\n",
+    );
+}
+
+/// A parallel `reduce` folds each chunk left to right, then folds the
+/// non-empty chunk results in input order, like a parallel `sum`.
+#[test]
+fn par_reduce_folds_each_chunk_then_the_chunk_results() {
+    runs(
+        &format!(
+            r#"
+def mix(a: i64, b: i64) -> i64:
+    a.wrapping_mul(1000003).wrapping_add(b.wrapping_mul(31)).wrapping_add(17)
+
+def keep(x: &i64) -> bool:
+    *x % 3 != 0
+
+def inputs(n: i64) -> Result[list[i64], AllocError]:
+    mut items = list[i64].with_capacity(n)?
+    for i in range(0, n):
+        items.append(i * 7 + 1)?
+    Ok(items)
+
+def fold(acc: Option[i64], x: i64) -> Option[i64]:
+    match acc:
+        case Some(a):
+            Some(mix(a, x))
+        case Nothing:
+            Some(x)
+
+def reference(n: i64, parts: i64, filtered: bool) -> Option[i64]:
+    # Chunk sizes as the split makes them: the first n % c chunks get one more.
+    mut c = n
+    if parts < n:
+        c = parts
+    if c == 0:
+        return Nothing
+    base = n // c
+    extra = n % c
+    mut total: Option[i64] = Nothing
+    mut start = 0
+    for k in range(0, c):
+        mut size = base
+        if k < extra:
+            size += 1
+        mut chunk: Option[i64] = Nothing
+        for i in range(start, start + size):
+            x = i * 7 + 1
+            if not filtered or keep(&x):
+                chunk = fold(chunk, x)
+        start += size
+        match chunk:
+            case Some(value):
+                total = fold(total, value)
+            case Nothing:
+                ()
+    total
+
+{MAIN}    mut lengths = inputs(0)?
+    for n in range(0, 71):
+        lengths.append(n)?
+    for n in [127, 128, 129, 1000, 1025]?:
+        lengths.append(n)?
+    mut checked = 0
+    for workers in [1u64, 2u64, 3u64, 8u64]?:
+        with ThreadPoolExecutor(workers, 2)? as pool:
+            w = i64(workers)
+            for n in &lengths:
+                if iter(inputs(*n)?).par(&pool).reduce(mix)? != reference(*n, w, False):
                     print("par reduce differs")?
                     print(workers)?
                     print(*n)?
-                if iter(inputs(*n)?).par(&pool, chunks=5).reduce(mix)? != expected:
+                if iter(inputs(*n)?).par(&pool, chunks=5).reduce(mix)? != reference(*n, 5, False):
                     print("par reduce (5 chunks) differs")?
+                    print(workers)?
+                    print(*n)?
+                if iter(inputs(*n)?).par(&pool, chunks=4).filter(keep).reduce(mix)? != reference(*n, 4, True):
+                    print("filtered par reduce differs")?
                     print(workers)?
                     print(*n)?
                 checked += 3
