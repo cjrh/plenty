@@ -24,6 +24,7 @@ def main():
     parser.add_argument("--compiler", type=Path, required=True)
     parser.add_argument("--engine", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--cpus", required=True, help="four distinct physical cores, comma separated")
     args = parser.parse_args()
     compiler, engine = args.compiler.resolve(), args.engine.resolve()
     with tempfile.TemporaryDirectory(prefix="plenty-dataframe-final-") as directory:
@@ -36,7 +37,12 @@ def main():
         run(command, env, root)
         warm = [run(command, env, root)[1] for _ in range(5)]
         rows = []
-        cpus = sorted(os.sched_getaffinity(0))
+        cpus = [int(cpu) for cpu in args.cpus.split(",")]
+        assert len(cpus) == 4 and set(cpus) <= os.sched_getaffinity(0)
+        topology = Path("/sys/devices/system/cpu")
+        identities = {( (topology / f"cpu{cpu}/topology/physical_package_id").read_text(),
+                        (topology / f"cpu{cpu}/topology/core_id").read_text()) for cpu in cpus}
+        assert len(identities) == 4, "choose distinct physical cores, not SMT siblings"
         for size in [1024, 1000000]:
             for threads in [1, 4]:
                 reps = 100
@@ -54,6 +60,12 @@ def main():
                       engine_sha256=hashlib.sha256(engine.read_bytes()).hexdigest(),
                       engine_bytes=engine.stat().st_size, executable_bytes=binary.stat().st_size,
                       compile_no_cache_ns=cold, compile_warm_ns=warm, samples=rows)
+        counter = subprocess.run(
+            ["perf", "stat", "-x", ";", "-e", "instructions,cycles",
+             "taskset", "-c", ",".join(map(str, cpus)), str(binary)],
+            env=current, cwd=root, text=True, capture_output=True)
+        result["whole_process_perf"] = dict(returncode=counter.returncode,
+                                            stdout=counter.stdout, stderr=counter.stderr)
         args.out.write_text(json.dumps(result, indent=2) + "\n")
         print("compile medians ms", statistics.median(cold)/1e6, statistics.median(warm)/1e6)
         for size in [1024, 1000000]:

@@ -1,0 +1,312 @@
+{
+  "compiler_sha256": "8be6637339ceb0be63fb8db1055bdf6829e58e736aef89b7ae354d3e290028e7",
+  "engine_sha256": "d2c900cfe2e20a39bf649cd8a5e59898c7d8ed0dce888e19c88a12699467b3f6",
+  "engine_bytes": 93471392,
+  "executable_bytes": 3390240,
+  "compile_no_cache_ns": [
+    82115585,
+    77148534,
+    70851116,
+    73762928,
+    77929373
+  ],
+  "compile_warm_ns": [
+    60903948,
+    39826442,
+    39199580,
+    40181676,
+    40808978
+  ],
+  "samples": [
+    {
+      "rows": 1024,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 92052,
+      "import_ns": 97873,
+      "query_ns": 74768.61,
+      "export_ns": 36728,
+      "process_ns": 23933113,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 102712,
+      "import_ns": 80700,
+      "query_ns": 93090.46,
+      "export_ns": 37670,
+      "process_ns": 15732859,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 99526,
+      "import_ns": 86050,
+      "query_ns": 77637.77,
+      "export_ns": 37099,
+      "process_ns": 14178125,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 97172,
+      "import_ns": 81723,
+      "query_ns": 79330.14,
+      "export_ns": 37471,
+      "process_ns": 14354333,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 96200,
+      "import_ns": 84809,
+      "query_ns": 79903.21,
+      "export_ns": 37300,
+      "process_ns": 14742840,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 100438,
+      "import_ns": 75170,
+      "query_ns": 72999.51,
+      "export_ns": 38312,
+      "process_ns": 12900286,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 103694,
+      "import_ns": 94336,
+      "query_ns": 71304.95,
+      "export_ns": 38502,
+      "process_ns": 12593323,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 95679,
+      "import_ns": 79037,
+      "query_ns": 77018.92,
+      "export_ns": 36478,
+      "process_ns": 13364493,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 93806,
+      "import_ns": 63629,
+      "query_ns": 60191.07,
+      "export_ns": 38732,
+      "process_ns": 11393139,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 93825,
+      "import_ns": 65412,
+      "query_ns": 60097.0,
+      "export_ns": 35957,
+      "process_ns": 11609043,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 95387917,
+      "import_ns": 8645054,
+      "query_ns": 9312862.22,
+      "export_ns": 62471458,
+      "process_ns": 1192661351,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 109926635,
+      "import_ns": 10162269,
+      "query_ns": 10193974.11,
+      "export_ns": 56378282,
+      "process_ns": 1286508298,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 109758721,
+      "import_ns": 9560085,
+      "query_ns": 9970620.34,
+      "export_ns": 56370427,
+      "process_ns": 1261106020,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 108861514,
+      "import_ns": 9665362,
+      "query_ns": 9877605.62,
+      "export_ns": 51646389,
+      "process_ns": 1244219986,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 102652832,
+      "import_ns": 8761933,
+      "query_ns": 8801823.86,
+      "export_ns": 54081921,
+      "process_ns": 1128067588,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 113179854,
+      "import_ns": 9920919,
+      "query_ns": 4815697.17,
+      "export_ns": 71189279,
+      "process_ns": 756255089,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 112657177,
+      "import_ns": 10149055,
+      "query_ns": 4632474.89,
+      "export_ns": 58009380,
+      "process_ns": 718697917,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 116121180,
+      "import_ns": 9624043,
+      "query_ns": 4121752.83,
+      "export_ns": 72798926,
+      "process_ns": 687250082,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 112722509,
+      "import_ns": 9745431,
+      "query_ns": 4461966.96,
+      "export_ns": 62147512,
+      "process_ns": 708117697,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 115885710,
+      "import_ns": 9984257,
+      "query_ns": 4511121.32,
+      "export_ns": 57309792,
+      "process_ns": 708667484,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    }
+  ]
+}
