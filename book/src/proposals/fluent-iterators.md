@@ -270,6 +270,7 @@ Each adapter is lazy and consumes the pipeline it is called on.
 | `.take(n)` | none | `Item`, at most `n` |
 | `.skip(n)` | none | `Item` after the first `n` |
 | `.take_while(keep)` | `(&Elem) -> bool` | `Item` until the first false |
+| `.filter_value(v=True)` | none; `v: Elem` or, for borrowed items, `&Elem` | `Item` equal to `v` |
 | `.chain(other)` | none; same item type | `Item` from self, then other |
 | `.flat_map(f)` | `(Item) -> source` | Items of each returned source |
 

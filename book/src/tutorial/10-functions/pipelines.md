@@ -1,7 +1,8 @@
 # Reduce a borrowed collection with a pipeline
 
-Use `iter` to compose local transformations without making an intermediate
-collection. Borrow the source when the caller should keep it.
+[`iter` pipelines](../05-iteration/pipelines.md) also accept functions, so
+they can transform items without making an intermediate collection. Borrow the
+source when the caller should keep it.
 
 ```plenty
 class Payment:
@@ -89,8 +90,8 @@ For an infallible transformation, use `collect()` with the same annotation.
 `try_fold` and `try_for_each` propagate errors returned by their callbacks;
 they do not automatically unwrap `Result` items.
 
-Use `enumerate` when a transformation needs an index, or `zip` to walk two
-sources together. Their callbacks take two item parameters. Predicates borrow
+After [`enumerate` or `zip`](../05-iteration/pipelines.md), callbacks take two
+item parameters. Predicates borrow
 both components; mapping receives the index by value and the borrowed item:
 
 ```plenty
