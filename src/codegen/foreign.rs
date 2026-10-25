@@ -38,6 +38,11 @@ impl Lowerer<'_, '_> {
                     .params
                     .extend([AbiParam::new(PTR_TY), AbiParam::new(types::I64)]),
                 Argument::CString => signature.params.push(AbiParam::new(PTR_TY)),
+                Argument::Strided => signature.params.extend([
+                    AbiParam::new(PTR_TY),
+                    AbiParam::new(types::I64),
+                    AbiParam::new(types::I64),
+                ]),
             }
         }
         let c_output = declaration.output(sig);
@@ -50,6 +55,7 @@ impl Lowerer<'_, '_> {
         let address = address_index.map(|index| arguments[index]);
         let mut native_arguments = Vec::new();
         let mut buffers = Vec::new();
+        let mut signed_lists = Vec::new();
         for (index, (argument, mode)) in arguments
             .into_iter()
             .zip(&declaration.arguments)
@@ -65,6 +71,27 @@ impl Lowerer<'_, '_> {
             };
             match mode {
                 Argument::Direct => native_arguments.push(argument),
+                Argument::Strided => {
+                    let owner = self
+                        .bcx
+                        .ins()
+                        .load(PTR_TY, MemFlagsData::trusted(), argument, 0);
+                    if matches!(&sig.inputs[index].1, Ty::Ref(t, true) if matches!(t.as_ref(), Ty::List(element) if matches!(element.as_ref(), Ty::I8 | Ty::I16 | Ty::I32)))
+                    {
+                        signed_lists.push(owner);
+                    }
+                    // Reuse the narrow list ABI; Collection/Vec layout stays
+                    // private to the runtime. The source loan covers the call.
+                    for helper in [
+                        self.runtime.list_rows,
+                        self.runtime.list_len,
+                        self.runtime.list_row_bytes,
+                    ] {
+                        let callee = self.module.declare_func_in_func(helper, self.bcx.func);
+                        let call = self.bcx.ins().call(callee, &[owner]);
+                        native_arguments.push(self.bcx.inst_results(call)[0]);
+                    }
+                }
                 Argument::Utf8 | Argument::CString => {
                     let text = self
                         .bcx
@@ -130,6 +157,12 @@ impl Lowerer<'_, '_> {
             self.bcx.ins().call(callee, &native_arguments)
         };
         let result = self.bcx.inst_results(call).first().copied();
+        for owner in signed_lists {
+            let helper = self
+                .module
+                .declare_func_in_func(self.runtime.list_canonicalize_signed, self.bcx.func);
+            self.bcx.ins().call(helper, &[owner]);
+        }
         for buffer in buffers {
             self.release(buffer, &Ty::Str);
         }

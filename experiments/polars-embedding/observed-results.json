@@ -1,0 +1,1407 @@
+{
+  "platform": "Linux-7.2.11-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "cpus": "2,4,6,8",
+  "compiler_sha256": "fc3674d32541cf14241d9ce22ab7a161220de0abbddad57d1dd24668f415106f",
+  "polars": "0.55.2",
+  "library_bytes": 94812224,
+  "build_times": {
+    "example": {
+      "no_cache_ns": 56318175,
+      "warm_cache_ns": [
+        45133954,
+        40544672,
+        42566038
+      ],
+      "bytes": 3342840
+    },
+    "checks": {
+      "no_cache_ns": 69512260,
+      "warm_cache_ns": [
+        62472582,
+        39492597,
+        40598052
+      ],
+      "bytes": 3391008
+    },
+    "bench_polars": {
+      "no_cache_ns": 53117476,
+      "warm_cache_ns": [
+        50015663,
+        40243339,
+        41206469
+      ],
+      "bytes": 3364304
+    },
+    "bench_clist": {
+      "no_cache_ns": 48779594,
+      "warm_cache_ns": [
+        49047564,
+        40785341,
+        38588768
+      ],
+      "bytes": 3317584
+    },
+    "startup": {
+      "no_cache_ns": 43886314,
+      "warm_cache_ns": [
+        47437277,
+        39161128,
+        39003774
+      ],
+      "bytes": 3293800
+    },
+    "startup_plain": {
+      "no_cache_ns": 39114781,
+      "warm_cache_ns": [
+        38928193,
+        40226908,
+        38999717
+      ],
+      "bytes": 2727008
+    }
+  },
+  "checks": "passed",
+  "measurements": [
+    {
+      "rows": 1024,
+      "reps": 500,
+      "mode": "count",
+      "threads": 1,
+      "samples": {
+        "polars": [
+          {
+            "input_ns": 106609,
+            "import_ns": 98774,
+            "query_ns": 41248.066,
+            "process_ns": 26903873
+          },
+          {
+            "input_ns": 97032,
+            "import_ns": 97052,
+            "query_ns": 41224.482,
+            "process_ns": 25919253
+          },
+          {
+            "input_ns": 94086,
+            "import_ns": 80540,
+            "query_ns": 41299.24,
+            "process_ns": 25413119
+          },
+          {
+            "input_ns": 92563,
+            "import_ns": 90329,
+            "query_ns": 40591.48,
+            "process_ns": 25751150
+          },
+          {
+            "input_ns": 100087,
+            "import_ns": 116728,
+            "query_ns": 43500.654,
+            "process_ns": 28170759
+          },
+          {
+            "input_ns": 99826,
+            "import_ns": 92893,
+            "query_ns": 42975.052,
+            "process_ns": 26758401
+          },
+          {
+            "input_ns": 96671,
+            "import_ns": 101940,
+            "query_ns": 45651.752,
+            "process_ns": 29010748
+          }
+        ],
+        "rust": [
+          {
+            "input_ns": 5861,
+            "import_ns": 30878,
+            "query_ns": 40088.06,
+            "process_ns": 24432557
+          },
+          {
+            "input_ns": 6031,
+            "import_ns": 24095,
+            "query_ns": 38891.644,
+            "process_ns": 23578832
+          },
+          {
+            "input_ns": 5951,
+            "import_ns": 28403,
+            "query_ns": 38471.458,
+            "process_ns": 23614970
+          },
+          {
+            "input_ns": 5500,
+            "import_ns": 28593,
+            "query_ns": 38920.138,
+            "process_ns": 23859517
+          },
+          {
+            "input_ns": 15660,
+            "import_ns": 30236,
+            "query_ns": 43418.64,
+            "process_ns": 26019931
+          },
+          {
+            "input_ns": 9287,
+            "import_ns": 33323,
+            "query_ns": 41169.26,
+            "process_ns": 25427626
+          },
+          {
+            "input_ns": 6082,
+            "import_ns": 35997,
+            "query_ns": 39794.792,
+            "process_ns": 24792149
+          }
+        ],
+        "clist": [
+          {
+            "input_ns": 92804,
+            "import_ns": 39825,
+            "query_ns": 939.094,
+            "process_ns": 2309513
+          },
+          {
+            "input_ns": 94416,
+            "import_ns": 40446,
+            "query_ns": 950.936,
+            "process_ns": 2161548
+          },
+          {
+            "input_ns": 103574,
+            "import_ns": 39073,
+            "query_ns": 940.838,
+            "process_ns": 2186584
+          },
+          {
+            "input_ns": 93855,
+            "import_ns": 39163,
+            "query_ns": 956.286,
+            "process_ns": 2066550
+          },
+          {
+            "input_ns": 112500,
+            "import_ns": 44243,
+            "query_ns": 968.568,
+            "process_ns": 2459785
+          },
+          {
+            "input_ns": 95829,
+            "import_ns": 42500,
+            "query_ns": 999.526,
+            "process_ns": 2261895
+          },
+          {
+            "input_ns": 105076,
+            "import_ns": 40105,
+            "query_ns": 968.93,
+            "process_ns": 2301268
+          }
+        ]
+      },
+      "median": {
+        "polars": {
+          "input_ns": 97032,
+          "import_ns": 97052,
+          "query_ns": 41299.24,
+          "process_ns": 26758401
+        },
+        "rust": {
+          "input_ns": 6031,
+          "import_ns": 30236,
+          "query_ns": 39794.792,
+          "process_ns": 24432557
+        },
+        "clist": {
+          "input_ns": 95829,
+          "import_ns": 40105,
+          "query_ns": 956.286,
+          "process_ns": 2261895
+        }
+      }
+    },
+    {
+      "rows": 1024,
+      "reps": 500,
+      "mode": "group",
+      "threads": 1,
+      "samples": {
+        "polars": [
+          {
+            "input_ns": 102281,
+            "import_ns": 103353,
+            "query_ns": 75854.486,
+            "process_ns": 44030995
+          },
+          {
+            "input_ns": 98915,
+            "import_ns": 99896,
+            "query_ns": 72876.524,
+            "process_ns": 42433320
+          },
+          {
+            "input_ns": 93796,
+            "import_ns": 96370,
+            "query_ns": 72663.126,
+            "process_ns": 41836626
+          },
+          {
+            "input_ns": 92623,
+            "import_ns": 101359,
+            "query_ns": 72665.068,
+            "process_ns": 42295642
+          },
+          {
+            "input_ns": 93595,
+            "import_ns": 106990,
+            "query_ns": 76821.852,
+            "process_ns": 44440218
+          },
+          {
+            "input_ns": 99816,
+            "import_ns": 89336,
+            "query_ns": 75794.034,
+            "process_ns": 43991671
+          },
+          {
+            "input_ns": 97792,
+            "import_ns": 97452,
+            "query_ns": 72719.552,
+            "process_ns": 42369952
+          }
+        ],
+        "rust": [
+          {
+            "input_ns": 6002,
+            "import_ns": 31980,
+            "query_ns": 70066.414,
+            "process_ns": 39947937
+          },
+          {
+            "input_ns": 5630,
+            "import_ns": 37951,
+            "query_ns": 70459.25,
+            "process_ns": 40020182
+          },
+          {
+            "input_ns": 8806,
+            "import_ns": 29996,
+            "query_ns": 68990.686,
+            "process_ns": 39063275
+          },
+          {
+            "input_ns": 5780,
+            "import_ns": 29425,
+            "query_ns": 69108.746,
+            "process_ns": 39717097
+          },
+          {
+            "input_ns": 5871,
+            "import_ns": 24736,
+            "query_ns": 69418.986,
+            "process_ns": 39269239
+          },
+          {
+            "input_ns": 5931,
+            "import_ns": 30147,
+            "query_ns": 71510.172,
+            "process_ns": 40604564
+          },
+          {
+            "input_ns": 9568,
+            "import_ns": 29585,
+            "query_ns": 70698.114,
+            "process_ns": 40061921
+          }
+        ],
+        "clist": [
+          {
+            "input_ns": 95578,
+            "import_ns": 39614,
+            "query_ns": 4105.13,
+            "process_ns": 3636653
+          },
+          {
+            "input_ns": 97321,
+            "import_ns": 38852,
+            "query_ns": 4131.858,
+            "process_ns": 3649787
+          },
+          {
+            "input_ns": 94517,
+            "import_ns": 40386,
+            "query_ns": 4849.78,
+            "process_ns": 4229771
+          },
+          {
+            "input_ns": 89667,
+            "import_ns": 39774,
+            "query_ns": 4098.758,
+            "process_ns": 3941933
+          },
+          {
+            "input_ns": 94226,
+            "import_ns": 39684,
+            "query_ns": 4088.678,
+            "process_ns": 3756107
+          },
+          {
+            "input_ns": 99776,
+            "import_ns": 42780,
+            "query_ns": 4243.084,
+            "process_ns": 4097042
+          },
+          {
+            "input_ns": 98454,
+            "import_ns": 38843,
+            "query_ns": 4105.71,
+            "process_ns": 3785831
+          }
+        ]
+      },
+      "median": {
+        "polars": {
+          "input_ns": 97792,
+          "import_ns": 99896,
+          "query_ns": 72876.524,
+          "process_ns": 42433320
+        },
+        "rust": {
+          "input_ns": 5931,
+          "import_ns": 29996,
+          "query_ns": 70066.414,
+          "process_ns": 39947937
+        },
+        "clist": {
+          "input_ns": 95578,
+          "import_ns": 39684,
+          "query_ns": 4105.71,
+          "process_ns": 3785831
+        }
+      }
+    },
+    {
+      "rows": 1000000,
+      "reps": 20,
+      "mode": "count",
+      "threads": 1,
+      "samples": {
+        "polars": [
+          {
+            "input_ns": 94124573,
+            "import_ns": 37882920,
+            "query_ns": 1036533.6,
+            "process_ns": 181124608
+          },
+          {
+            "input_ns": 96283906,
+            "import_ns": 35010074,
+            "query_ns": 728508.75,
+            "process_ns": 171913312
+          },
+          {
+            "input_ns": 93406392,
+            "import_ns": 34978426,
+            "query_ns": 725798.7,
+            "process_ns": 168490849
+          },
+          {
+            "input_ns": 93970294,
+            "import_ns": 35203936,
+            "query_ns": 814190.75,
+            "process_ns": 172770744
+          },
+          {
+            "input_ns": 116899533,
+            "import_ns": 35361070,
+            "query_ns": 727515.9,
+            "process_ns": 191858056
+          },
+          {
+            "input_ns": 93445203,
+            "import_ns": 35039169,
+            "query_ns": 726608.2,
+            "process_ns": 169019396
+          },
+          {
+            "input_ns": 97016224,
+            "import_ns": 35541577,
+            "query_ns": 718530.65,
+            "process_ns": 173126127
+          }
+        ],
+        "rust": [
+          {
+            "input_ns": 5801877,
+            "import_ns": 6481216,
+            "query_ns": 797189.1,
+            "process_ns": 43041967
+          },
+          {
+            "input_ns": 5906804,
+            "import_ns": 6535958,
+            "query_ns": 756424.9,
+            "process_ns": 42058189
+          },
+          {
+            "input_ns": 5774746,
+            "import_ns": 6042387,
+            "query_ns": 704012.5,
+            "process_ns": 39443515
+          },
+          {
+            "input_ns": 5887197,
+            "import_ns": 6410133,
+            "query_ns": 821115.2,
+            "process_ns": 43400637
+          },
+          {
+            "input_ns": 5657708,
+            "import_ns": 6115714,
+            "query_ns": 725419.5,
+            "process_ns": 39718388
+          },
+          {
+            "input_ns": 5673598,
+            "import_ns": 6195633,
+            "query_ns": 831100.35,
+            "process_ns": 43506575
+          },
+          {
+            "input_ns": 5558924,
+            "import_ns": 6035564,
+            "query_ns": 727738.3,
+            "process_ns": 40252747
+          }
+        ],
+        "clist": [
+          {
+            "input_ns": 96574439,
+            "import_ns": 41747699,
+            "query_ns": 1223783.4,
+            "process_ns": 177584996
+          },
+          {
+            "input_ns": 99429161,
+            "import_ns": 40246014,
+            "query_ns": 934854.7,
+            "process_ns": 172732392
+          },
+          {
+            "input_ns": 100394594,
+            "import_ns": 40283344,
+            "query_ns": 930196,
+            "process_ns": 173707594
+          },
+          {
+            "input_ns": 95922671,
+            "import_ns": 40263677,
+            "query_ns": 958604,
+            "process_ns": 169534849
+          },
+          {
+            "input_ns": 94178484,
+            "import_ns": 40434857,
+            "query_ns": 936868.45,
+            "process_ns": 167985395
+          },
+          {
+            "input_ns": 93411631,
+            "import_ns": 40021395,
+            "query_ns": 934288.1,
+            "process_ns": 166578447
+          },
+          {
+            "input_ns": 93018006,
+            "import_ns": 40686227,
+            "query_ns": 934795.05,
+            "process_ns": 166643468
+          }
+        ]
+      },
+      "median": {
+        "polars": {
+          "input_ns": 94124573,
+          "import_ns": 35203936,
+          "query_ns": 727515.9,
+          "process_ns": 172770744
+        },
+        "rust": {
+          "input_ns": 5774746,
+          "import_ns": 6195633,
+          "query_ns": 756424.9,
+          "process_ns": 42058189
+        },
+        "clist": {
+          "input_ns": 95922671,
+          "import_ns": 40283344,
+          "query_ns": 934854.7,
+          "process_ns": 169534849
+        }
+      }
+    },
+    {
+      "rows": 1000000,
+      "reps": 20,
+      "mode": "group",
+      "threads": 1,
+      "samples": {
+        "polars": [
+          {
+            "input_ns": 97027705,
+            "import_ns": 37298208,
+            "query_ns": 4483887.3,
+            "process_ns": 279642476
+          },
+          {
+            "input_ns": 93302036,
+            "import_ns": 35554762,
+            "query_ns": 4824653.3,
+            "process_ns": 279060328
+          },
+          {
+            "input_ns": 94219590,
+            "import_ns": 34987833,
+            "query_ns": 4486020.8,
+            "process_ns": 271899613
+          },
+          {
+            "input_ns": 93509112,
+            "import_ns": 35728377,
+            "query_ns": 4525363.8,
+            "process_ns": 272556640
+          },
+          {
+            "input_ns": 93938495,
+            "import_ns": 36783767,
+            "query_ns": 4951918.05,
+            "process_ns": 288669388
+          },
+          {
+            "input_ns": 94526002,
+            "import_ns": 38384558,
+            "query_ns": 4656073.45,
+            "process_ns": 283946616
+          },
+          {
+            "input_ns": 94425295,
+            "import_ns": 35630342,
+            "query_ns": 4573775.75,
+            "process_ns": 278044581
+          }
+        ],
+        "rust": [
+          {
+            "input_ns": 5733489,
+            "import_ns": 6181276,
+            "query_ns": 7833492,
+            "process_ns": 222288797
+          },
+          {
+            "input_ns": 5580023,
+            "import_ns": 5988084,
+            "query_ns": 7981550.05,
+            "process_ns": 226384528
+          },
+          {
+            "input_ns": 5567279,
+            "import_ns": 6040293,
+            "query_ns": 8193470.85,
+            "process_ns": 230626401
+          },
+          {
+            "input_ns": 5670241,
+            "import_ns": 6304095,
+            "query_ns": 8145887.5,
+            "process_ns": 228939018
+          },
+          {
+            "input_ns": 5568352,
+            "import_ns": 6035323,
+            "query_ns": 8538470.25,
+            "process_ns": 237425681
+          },
+          {
+            "input_ns": 5707712,
+            "import_ns": 6374136,
+            "query_ns": 7955101.1,
+            "process_ns": 227487407
+          },
+          {
+            "input_ns": 5678606,
+            "import_ns": 6106556,
+            "query_ns": 7860508.9,
+            "process_ns": 223216069
+          }
+        ],
+        "clist": [
+          {
+            "input_ns": 97854399,
+            "import_ns": 41381155,
+            "query_ns": 3940025,
+            "process_ns": 232118487
+          },
+          {
+            "input_ns": 96249612,
+            "import_ns": 41381966,
+            "query_ns": 3914592.95,
+            "process_ns": 230406310
+          },
+          {
+            "input_ns": 94399726,
+            "import_ns": 43438859,
+            "query_ns": 3991156.45,
+            "process_ns": 231744019
+          },
+          {
+            "input_ns": 93625300,
+            "import_ns": 40329550,
+            "query_ns": 3887472.3,
+            "process_ns": 225955847
+          },
+          {
+            "input_ns": 99248333,
+            "import_ns": 40554100,
+            "query_ns": 3940883.1,
+            "process_ns": 233706703
+          },
+          {
+            "input_ns": 95438397,
+            "import_ns": 40521279,
+            "query_ns": 4091860.55,
+            "process_ns": 232510319
+          },
+          {
+            "input_ns": 93851393,
+            "import_ns": 42107051,
+            "query_ns": 3980292.65,
+            "process_ns": 230513479
+          }
+        ]
+      },
+      "median": {
+        "polars": {
+          "input_ns": 94219590,
+          "import_ns": 35728377,
+          "query_ns": 4573775.75,
+          "process_ns": 279060328
+        },
+        "rust": {
+          "input_ns": 5670241,
+          "import_ns": 6106556,
+          "query_ns": 7981550.05,
+          "process_ns": 227487407
+        },
+        "clist": {
+          "input_ns": 95438397,
+          "import_ns": 41381155,
+          "query_ns": 3940883.1,
+          "process_ns": 231744019
+        }
+      }
+    },
+    {
+      "rows": 1024,
+      "reps": 500,
+      "mode": "count",
+      "threads": 4,
+      "samples": {
+        "polars": [
+          {
+            "input_ns": 102662,
+            "import_ns": 99917,
+            "query_ns": 28817.448,
+            "process_ns": 19760781
+          },
+          {
+            "input_ns": 95648,
+            "import_ns": 100658,
+            "query_ns": 29601.754,
+            "process_ns": 19950164
+          },
+          {
+            "input_ns": 95568,
+            "import_ns": 77785,
+            "query_ns": 29925.798,
+            "process_ns": 19689477
+          },
+          {
+            "input_ns": 105668,
+            "import_ns": 99336,
+            "query_ns": 28766.852,
+            "process_ns": 20175615
+          },
+          {
+            "input_ns": 95749,
+            "import_ns": 89938,
+            "query_ns": 29636.698,
+            "process_ns": 19938623
+          },
+          {
+            "input_ns": 93855,
+            "import_ns": 78597,
+            "query_ns": 29919.666,
+            "process_ns": 19975693
+          },
+          {
+            "input_ns": 99525,
+            "import_ns": 87533,
+            "query_ns": 29573.078,
+            "process_ns": 19592366
+          }
+        ],
+        "rust": [
+          {
+            "input_ns": 6312,
+            "import_ns": 30357,
+            "query_ns": 27057.2,
+            "process_ns": 17875299
+          },
+          {
+            "input_ns": 14157,
+            "import_ns": 26219,
+            "query_ns": 27957.56,
+            "process_ns": 17884135
+          },
+          {
+            "input_ns": 8545,
+            "import_ns": 48520,
+            "query_ns": 27963.674,
+            "process_ns": 19294730
+          },
+          {
+            "input_ns": 5560,
+            "import_ns": 32611,
+            "query_ns": 25738.356,
+            "process_ns": 17125058
+          },
+          {
+            "input_ns": 6131,
+            "import_ns": 25498,
+            "query_ns": 30349.97,
+            "process_ns": 18815195
+          },
+          {
+            "input_ns": 5921,
+            "import_ns": 28624,
+            "query_ns": 26211.98,
+            "process_ns": 17412945
+          },
+          {
+            "input_ns": 5951,
+            "import_ns": 28273,
+            "query_ns": 29075.97,
+            "process_ns": 18543397
+          }
+        ],
+        "clist": [
+          {
+            "input_ns": 98925,
+            "import_ns": 39694,
+            "query_ns": 944.586,
+            "process_ns": 2125560
+          },
+          {
+            "input_ns": 94497,
+            "import_ns": 39554,
+            "query_ns": 946.288,
+            "process_ns": 2139988
+          },
+          {
+            "input_ns": 94947,
+            "import_ns": 42299,
+            "query_ns": 956.686,
+            "process_ns": 2179851
+          },
+          {
+            "input_ns": 151914,
+            "import_ns": 40135,
+            "query_ns": 943.962,
+            "process_ns": 2219355
+          },
+          {
+            "input_ns": 103694,
+            "import_ns": 40405,
+            "query_ns": 951.378,
+            "process_ns": 2109870
+          },
+          {
+            "input_ns": 140262,
+            "import_ns": 58580,
+            "query_ns": 1395.546,
+            "process_ns": 2515878
+          },
+          {
+            "input_ns": 144499,
+            "import_ns": 59341,
+            "query_ns": 1406.908,
+            "process_ns": 2463662
+          }
+        ]
+      },
+      "median": {
+        "polars": {
+          "input_ns": 95749,
+          "import_ns": 89938,
+          "query_ns": 29601.754,
+          "process_ns": 19938623
+        },
+        "rust": {
+          "input_ns": 6131,
+          "import_ns": 28624,
+          "query_ns": 27957.56,
+          "process_ns": 17884135
+        },
+        "clist": {
+          "input_ns": 103694,
+          "import_ns": 40405,
+          "query_ns": 951.378,
+          "process_ns": 2179851
+        }
+      }
+    },
+    {
+      "rows": 1024,
+      "reps": 500,
+      "mode": "group",
+      "threads": 4,
+      "samples": {
+        "polars": [
+          {
+            "input_ns": 96290,
+            "import_ns": 95989,
+            "query_ns": 62851.78,
+            "process_ns": 36774390
+          },
+          {
+            "input_ns": 102772,
+            "import_ns": 99295,
+            "query_ns": 69068.57,
+            "process_ns": 41065796
+          },
+          {
+            "input_ns": 98985,
+            "import_ns": 88756,
+            "query_ns": 66082.212,
+            "process_ns": 39217163
+          },
+          {
+            "input_ns": 99936,
+            "import_ns": 97181,
+            "query_ns": 63963.454,
+            "process_ns": 39028801
+          },
+          {
+            "input_ns": 99977,
+            "import_ns": 101910,
+            "query_ns": 64397.666,
+            "process_ns": 37715698
+          },
+          {
+            "input_ns": 94747,
+            "import_ns": 83536,
+            "query_ns": 63614.284,
+            "process_ns": 39401827
+          },
+          {
+            "input_ns": 113452,
+            "import_ns": 107411,
+            "query_ns": 65547.374,
+            "process_ns": 39825650
+          }
+        ],
+        "rust": [
+          {
+            "input_ns": 6201,
+            "import_ns": 27882,
+            "query_ns": 63152.78,
+            "process_ns": 36585086
+          },
+          {
+            "input_ns": 6412,
+            "import_ns": 26559,
+            "query_ns": 58967.482,
+            "process_ns": 34287975
+          },
+          {
+            "input_ns": 9177,
+            "import_ns": 31058,
+            "query_ns": 63459.274,
+            "process_ns": 36687247
+          },
+          {
+            "input_ns": 9628,
+            "import_ns": 31830,
+            "query_ns": 60919.67,
+            "process_ns": 35641865
+          },
+          {
+            "input_ns": 5840,
+            "import_ns": 27812,
+            "query_ns": 58755.468,
+            "process_ns": 34210040
+          },
+          {
+            "input_ns": 7874,
+            "import_ns": 46517,
+            "query_ns": 59791.864,
+            "process_ns": 37247393
+          },
+          {
+            "input_ns": 6332,
+            "import_ns": 31639,
+            "query_ns": 61031.618,
+            "process_ns": 35862606
+          }
+        ],
+        "clist": [
+          {
+            "input_ns": 138288,
+            "import_ns": 64110,
+            "query_ns": 4721.76,
+            "process_ns": 4347571
+          },
+          {
+            "input_ns": 94467,
+            "import_ns": 42760,
+            "query_ns": 4110.256,
+            "process_ns": 3637314
+          },
+          {
+            "input_ns": 146223,
+            "import_ns": 61214,
+            "query_ns": 4860.578,
+            "process_ns": 4740485
+          },
+          {
+            "input_ns": 92031,
+            "import_ns": 43010,
+            "query_ns": 4105.73,
+            "process_ns": 3703979
+          },
+          {
+            "input_ns": 96961,
+            "import_ns": 41608,
+            "query_ns": 5233.876,
+            "process_ns": 4286437
+          },
+          {
+            "input_ns": 95198,
+            "import_ns": 40706,
+            "query_ns": 4155.12,
+            "process_ns": 3665487
+          },
+          {
+            "input_ns": 99947,
+            "import_ns": 41587,
+            "query_ns": 4173.776,
+            "process_ns": 3815537
+          }
+        ]
+      },
+      "median": {
+        "polars": {
+          "input_ns": 99936,
+          "import_ns": 97181,
+          "query_ns": 64397.666,
+          "process_ns": 39217163
+        },
+        "rust": {
+          "input_ns": 6412,
+          "import_ns": 31058,
+          "query_ns": 60919.67,
+          "process_ns": 35862606
+        },
+        "clist": {
+          "input_ns": 96961,
+          "import_ns": 42760,
+          "query_ns": 4173.776,
+          "process_ns": 3815537
+        }
+      }
+    },
+    {
+      "rows": 1000000,
+      "reps": 20,
+      "mode": "count",
+      "threads": 4,
+      "samples": {
+        "polars": [
+          {
+            "input_ns": 99386752,
+            "import_ns": 36754984,
+            "query_ns": 710207.05,
+            "process_ns": 178464920
+          },
+          {
+            "input_ns": 95465908,
+            "import_ns": 36436379,
+            "query_ns": 704293.55,
+            "process_ns": 171781385
+          },
+          {
+            "input_ns": 98236303,
+            "import_ns": 36382829,
+            "query_ns": 719408.25,
+            "process_ns": 177573494
+          },
+          {
+            "input_ns": 95695557,
+            "import_ns": 35707156,
+            "query_ns": 696998.4,
+            "process_ns": 172589074
+          },
+          {
+            "input_ns": 94657027,
+            "import_ns": 35123997,
+            "query_ns": 698928.05,
+            "process_ns": 170350473
+          },
+          {
+            "input_ns": 95667424,
+            "import_ns": 37494425,
+            "query_ns": 779871.2,
+            "process_ns": 178346528
+          },
+          {
+            "input_ns": 98092754,
+            "import_ns": 36180281,
+            "query_ns": 725978.5,
+            "process_ns": 176058595
+          }
+        ],
+        "rust": [
+          {
+            "input_ns": 5906944,
+            "import_ns": 6676781,
+            "query_ns": 702078.9,
+            "process_ns": 42005802
+          },
+          {
+            "input_ns": 5579903,
+            "import_ns": 6056884,
+            "query_ns": 708985.8,
+            "process_ns": 40974847
+          },
+          {
+            "input_ns": 5715165,
+            "import_ns": 6468533,
+            "query_ns": 690632,
+            "process_ns": 43581735
+          },
+          {
+            "input_ns": 5615890,
+            "import_ns": 6394976,
+            "query_ns": 696711.85,
+            "process_ns": 42220844
+          },
+          {
+            "input_ns": 6231640,
+            "import_ns": 6664108,
+            "query_ns": 725816.25,
+            "process_ns": 44859582
+          },
+          {
+            "input_ns": 5896443,
+            "import_ns": 6281543,
+            "query_ns": 750811.45,
+            "process_ns": 44742994
+          },
+          {
+            "input_ns": 5634755,
+            "import_ns": 6118298,
+            "query_ns": 814492.35,
+            "process_ns": 47164758
+          }
+        ],
+        "clist": [
+          {
+            "input_ns": 98155041,
+            "import_ns": 41275186,
+            "query_ns": 930498.55,
+            "process_ns": 173583101
+          },
+          {
+            "input_ns": 93620782,
+            "import_ns": 43074918,
+            "query_ns": 961379.75,
+            "process_ns": 170710956
+          },
+          {
+            "input_ns": 95675980,
+            "import_ns": 43622711,
+            "query_ns": 982755.65,
+            "process_ns": 174005360
+          },
+          {
+            "input_ns": 94228507,
+            "import_ns": 40134586,
+            "query_ns": 1039405.95,
+            "process_ns": 170779434
+          },
+          {
+            "input_ns": 96044960,
+            "import_ns": 41251894,
+            "query_ns": 959298.3,
+            "process_ns": 171473010
+          },
+          {
+            "input_ns": 93831164,
+            "import_ns": 43646807,
+            "query_ns": 975133.9,
+            "process_ns": 173040237
+          },
+          {
+            "input_ns": 103433740,
+            "import_ns": 41168067,
+            "query_ns": 942281.55,
+            "process_ns": 180897423
+          }
+        ]
+      },
+      "median": {
+        "polars": {
+          "input_ns": 95695557,
+          "import_ns": 36382829,
+          "query_ns": 710207.05,
+          "process_ns": 176058595
+        },
+        "rust": {
+          "input_ns": 5715165,
+          "import_ns": 6394976,
+          "query_ns": 708985.8,
+          "process_ns": 43581735
+        },
+        "clist": {
+          "input_ns": 95675980,
+          "import_ns": 41275186,
+          "query_ns": 961379.75,
+          "process_ns": 173040237
+        }
+      }
+    },
+    {
+      "rows": 1000000,
+      "reps": 20,
+      "mode": "group",
+      "threads": 4,
+      "samples": {
+        "polars": [
+          {
+            "input_ns": 94987815,
+            "import_ns": 36274245,
+            "query_ns": 2593418.2,
+            "process_ns": 230563172
+          },
+          {
+            "input_ns": 94006452,
+            "import_ns": 35587302,
+            "query_ns": 2619701.75,
+            "process_ns": 228538651
+          },
+          {
+            "input_ns": 94798581,
+            "import_ns": 35755597,
+            "query_ns": 2721198.85,
+            "process_ns": 231120504
+          },
+          {
+            "input_ns": 98000994,
+            "import_ns": 39381259,
+            "query_ns": 2576988,
+            "process_ns": 239044995
+          },
+          {
+            "input_ns": 93996363,
+            "import_ns": 36823001,
+            "query_ns": 3214420.1,
+            "process_ns": 246816051
+          },
+          {
+            "input_ns": 97676106,
+            "import_ns": 35753723,
+            "query_ns": 2823494.4,
+            "process_ns": 235399616
+          },
+          {
+            "input_ns": 100160727,
+            "import_ns": 35245966,
+            "query_ns": 2856416.45,
+            "process_ns": 239347480
+          }
+        ],
+        "rust": [
+          {
+            "input_ns": 5758266,
+            "import_ns": 6304035,
+            "query_ns": 2561964.4,
+            "process_ns": 103684419
+          },
+          {
+            "input_ns": 5783783,
+            "import_ns": 6863701,
+            "query_ns": 2658536.3,
+            "process_ns": 105612080
+          },
+          {
+            "input_ns": 5890904,
+            "import_ns": 6077321,
+            "query_ns": 2915742.3,
+            "process_ns": 107630510
+          },
+          {
+            "input_ns": 5860487,
+            "import_ns": 6514027,
+            "query_ns": 2872879.15,
+            "process_ns": 105883487
+          },
+          {
+            "input_ns": 5872479,
+            "import_ns": 6287405,
+            "query_ns": 2743611.2,
+            "process_ns": 108977065
+          },
+          {
+            "input_ns": 6017200,
+            "import_ns": 6274740,
+            "query_ns": 2707096.5,
+            "process_ns": 104824479
+          },
+          {
+            "input_ns": 5785837,
+            "import_ns": 6033760,
+            "query_ns": 2722834.4,
+            "process_ns": 108291284
+          }
+        ],
+        "clist": [
+          {
+            "input_ns": 101744305,
+            "import_ns": 40803516,
+            "query_ns": 4069457.25,
+            "process_ns": 240735373
+          },
+          {
+            "input_ns": 99506986,
+            "import_ns": 41513783,
+            "query_ns": 3906971.25,
+            "process_ns": 233559960
+          },
+          {
+            "input_ns": 94029014,
+            "import_ns": 42262661,
+            "query_ns": 3997281.85,
+            "process_ns": 231226110
+          },
+          {
+            "input_ns": 94231833,
+            "import_ns": 40810989,
+            "query_ns": 4074768.65,
+            "process_ns": 231616600
+          },
+          {
+            "input_ns": 95269060,
+            "import_ns": 41738893,
+            "query_ns": 3879424.25,
+            "process_ns": 229066116
+          },
+          {
+            "input_ns": 93522418,
+            "import_ns": 40308390,
+            "query_ns": 3889197.55,
+            "process_ns": 225797240
+          },
+          {
+            "input_ns": 97188034,
+            "import_ns": 40227409,
+            "query_ns": 3921518.4,
+            "process_ns": 230433420
+          }
+        ]
+      },
+      "median": {
+        "polars": {
+          "input_ns": 94987815,
+          "import_ns": 35755597,
+          "query_ns": 2721198.85,
+          "process_ns": 235399616
+        },
+        "rust": {
+          "input_ns": 5860487,
+          "import_ns": 6287405,
+          "query_ns": 2722834.4,
+          "process_ns": 105883487
+        },
+        "clist": {
+          "input_ns": 95269060,
+          "import_ns": 40810989,
+          "query_ns": 3921518.4,
+          "process_ns": 231226110
+        }
+      }
+    }
+  ],
+  "startup_ns": {
+    "startup": [
+      3024099,
+      2792957,
+      2855804,
+      2743384,
+      2823114,
+      2742642,
+      2732825,
+      2772288,
+      2775244,
+      2794991,
+      2661882,
+      2828783,
+      2644609,
+      2828944,
+      2847298,
+      2883045,
+      2568778,
+      2883827,
+      2876604,
+      2835106,
+      2759614
+    ],
+    "startup_plain": [
+      1189171,
+      985851,
+      1013764,
+      1146382,
+      1160388,
+      1134800,
+      1074567,
+      1177138,
+      1026086,
+      1126324,
+      1018553,
+      1100877,
+      1485154,
+      1256867,
+      1297254,
+      1243543,
+      1091538,
+      1329763,
+      1229026,
+      1161970,
+      1008934
+    ]
+  },
+  "perf": {
+    "polars": {
+      "status": 0,
+      "output": "9617807308;;instructions:u;656508568;100.00;;\n2783042525;;cycles:u;656508568;100.00;;\n"
+    },
+    "clist": {
+      "status": 0,
+      "output": "12177414588;;instructions:u;548905006;100.00;;\n2455645529;;cycles:u;548905006;100.00;;\n"
+    }
+  },
+  "date": "2026-10-25",
+  "base_commit": "0a416288",
+  "note": "Final run after self-review; current adapter, direct baseline with matching expression plan. CPU affinity uses distinct physical cores. Whole-process perf includes construction and warmups."
+}

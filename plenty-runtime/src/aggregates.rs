@@ -1379,6 +1379,28 @@ pub(crate) unsafe extern "C" fn plenty_list_rows(owner: *mut u8) -> *mut u128 {
     unsafe { (*(owner.cast::<Collection>())).entries.rows() }
 }
 
+/// C writes only each declared scalar's bytes. Restore the sign extension used
+/// by generic list operations after mutable narrow-signed strided views return.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_list_canonicalize_signed(owner: *mut u8) {
+    // SAFETY: the compiler keeps an exclusive numeric-list loan through this
+    // call. Only the payload word changes; slot tags and ownership are intact.
+    unsafe {
+        let list = &mut *owner.cast::<Collection>();
+        let kind = (*list.ty).key().kind;
+        for index in 0..list.entries.len() {
+            let slot = list.entries.slot(index, false).cast::<u64>();
+            let value = slot.read();
+            slot.write(match kind {
+                b'1' => value as i8 as i64 as u64,
+                b'2' => value as i16 as i64 as u64,
+                b'3' => value as i32 as i64 as u64,
+                _ => unreachable!("checked narrow signed strided list"),
+            });
+        }
+    }
+}
+
 /// Narrow ABI: the distance in bytes between a live list's rows.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_list_row_bytes(owner: *const u8) -> u64 {

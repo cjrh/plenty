@@ -1,0 +1,204 @@
+# Experimental binding. Private pointers never escape their owning class.
+# Native inputs are borrowed only for a call; functions clone query/array handles
+# when retaining data. Status errors do not consume inputs. Native OOM can abort.
+opaque RawColumn
+opaque RawFrame
+opaque RawExpr
+opaque RawQuery
+
+extern def column_new(name: &str as utf8, kind: i32, out: &mut RawColumn) -> i32 = "pp_column_new"
+extern def column_i64(raw: RawColumn, value: i64, valid: i32) -> i32 = "pp_column_i64"
+extern def column_f64(raw: RawColumn, value: f64, valid: i32) -> i32 = "pp_column_f64"
+extern def column_drop(raw: RawColumn) -> () = "pp_column_drop"
+extern def frame_two(a: RawColumn, b: RawColumn, out: &mut RawFrame) -> i32 = "pp_frame_two"
+extern def frame_drop(raw: RawFrame) -> () = "pp_frame_drop"
+extern def frame_height(raw: RawFrame, out: &mut u64) -> i32 = "pp_frame_height"
+extern def frame_i64(raw: RawFrame, name: &str as utf8, row: u64, out: &mut i64) -> i32 = "pp_frame_i64"
+extern def frame_f64(raw: RawFrame, name: &str as utf8, row: u64, out: &mut f64) -> i32 = "pp_frame_f64"
+extern def frame_write(raw: RawFrame, path: &str as utf8) -> i32 = "pp_frame_write"
+extern def scan_raw(path: &str as utf8, out: &mut RawQuery) -> i32 = "pp_scan"
+extern def lazy_raw(raw: RawFrame, out: &mut RawQuery) -> i32 = "pp_lazy"
+extern def col_raw(name: &str as utf8, out: &mut RawExpr) -> i32 = "pp_col"
+extern def lit_raw(value: f64, out: &mut RawExpr) -> i32 = "pp_lit"
+extern def expr_binary(a: RawExpr, b: RawExpr, op: i32, out: &mut RawExpr) -> i32 = "pp_expr_binary"
+extern def expr_sum(raw: RawExpr, out: &mut RawExpr) -> i32 = "pp_expr_sum"
+extern def expr_count(raw: RawExpr, out: &mut RawExpr) -> i32 = "pp_expr_count"
+extern def expr_alias(raw: RawExpr, name: &str as utf8, out: &mut RawExpr) -> i32 = "pp_expr_alias"
+extern def expr_drop(raw: RawExpr) -> () = "pp_expr_drop"
+extern def query_filter(raw: RawQuery, expr: RawExpr, out: &mut RawQuery) -> i32 = "pp_filter"
+extern def query_with(raw: RawQuery, expr: RawExpr, out: &mut RawQuery) -> i32 = "pp_with_column"
+extern def query_select(raw: RawQuery, expr: RawExpr, out: &mut RawQuery) -> i32 = "pp_select"
+extern def query_group(raw: RawQuery, key: RawExpr, aggregate: RawExpr, out: &mut RawQuery) -> i32 = "pp_group"
+extern def query_collect(raw: RawQuery, out: &mut RawFrame) -> i32 = "pp_collect"
+extern def query_drop(raw: RawQuery) -> () = "pp_query_drop"
+
+pub enum FrameError:
+    Invalid
+    Query
+    Io
+    NativePanic
+    Type
+    Bounds
+
+def checked(status: i32) -> Result[(), FrameError]:
+    match status:
+        case 0:
+            Ok(())
+        case 2:
+            Err(FrameError.Query)
+        case 3:
+            Err(FrameError.Io)
+        case 4:
+            Err(FrameError.NativePanic)
+        case 6:
+            Err(FrameError.Type)
+        case 7:
+            Err(FrameError.Bounds)
+        case _:
+            Err(FrameError.Invalid)
+
+pub class I64Column:
+    raw: RawColumn
+    def __init__(self) -> ():
+        self.raw = RawColumn.null()
+    def __del__(self) -> ():
+        column_drop(self.raw)
+    pub def append(self: &mut I64Column, value: i64) -> Result[(), FrameError]:
+        checked(column_i64(self.raw, value, 1))
+    pub def append_null(self: &mut I64Column) -> Result[(), FrameError]:
+        checked(column_i64(self.raw, 0, 0))
+
+pub class F64Column:
+    raw: RawColumn
+    def __init__(self) -> ():
+        self.raw = RawColumn.null()
+    def __del__(self) -> ():
+        column_drop(self.raw)
+    pub def append(self: &mut F64Column, value: f64) -> Result[(), FrameError]:
+        checked(column_f64(self.raw, value, 1))
+    pub def append_null(self: &mut F64Column) -> Result[(), FrameError]:
+        checked(column_f64(self.raw, 0.0, 0))
+
+pub def i64_column(name: &str) -> Result[I64Column, FrameError]:
+    mut result = I64Column()
+    checked(column_new(name, 0, &mut result.raw))?
+    Ok(result)
+
+pub def f64_column(name: &str) -> Result[F64Column, FrameError]:
+    mut result = F64Column()
+    checked(column_new(name, 1, &mut result.raw))?
+    Ok(result)
+
+pub def from_lists(group: &list[i64], value: &list[f64]) -> Result[DataFrame, FrameError]:
+    mut groups = i64_column("group")?
+    mut values = f64_column("value")?
+    for item in group:
+        groups.append(*item)?
+    for item in value:
+        values.append(*item)?
+    frame(&groups, &values)
+
+pub def frame(a: &I64Column, b: &F64Column) -> Result[DataFrame, FrameError]:
+    mut result = DataFrame()
+    checked(frame_two(a.raw, b.raw, &mut result.raw))?
+    Ok(result)
+
+pub class DataFrame:
+    raw: RawFrame
+    def __init__(self) -> ():
+        self.raw = RawFrame.null()
+    def __del__(self) -> ():
+        frame_drop(self.raw)
+    pub def height(self) -> Result[u64, FrameError]:
+        mut out = 0u64
+        checked(frame_height(self.raw, &mut out))?
+        Ok(out)
+    pub def get_i64(self, name: &str, row: u64) -> Result[Option[i64], FrameError]:
+        mut out = 0
+        status = frame_i64(self.raw, name, row, &mut out)
+        if status == 5:
+            return Ok(Nothing)
+        checked(status)?
+        Ok(Some(out))
+    pub def get_f64(self, name: &str, row: u64) -> Result[Option[f64], FrameError]:
+        mut out = 0.0
+        status = frame_f64(self.raw, name, row, &mut out)
+        if status == 5:
+            return Ok(Nothing)
+        checked(status)?
+        Ok(Some(out))
+    pub def lazy(self) -> Result[Query, FrameError]:
+        mut out = Query()
+        checked(lazy_raw(self.raw, &mut out.raw))?
+        Ok(out)
+    pub def write_parquet(self, path: &str) -> Result[(), FrameError]:
+        checked(frame_write(self.raw, path))
+
+pub class Expr:
+    raw: RawExpr
+    def __init__(self) -> ():
+        self.raw = RawExpr.null()
+    def __del__(self) -> ():
+        expr_drop(self.raw)
+    pub def gt(self, other: &Expr) -> Result[Expr, FrameError]:
+        mut out = Expr()
+        checked(expr_binary(self.raw, other.raw, 0, &mut out.raw))?
+        Ok(out)
+    pub def mul(self, other: &Expr) -> Result[Expr, FrameError]:
+        mut out = Expr()
+        checked(expr_binary(self.raw, other.raw, 1, &mut out.raw))?
+        Ok(out)
+    pub def sum(self) -> Result[Expr, FrameError]:
+        mut out = Expr()
+        checked(expr_sum(self.raw, &mut out.raw))?
+        Ok(out)
+    pub def count(self) -> Result[Expr, FrameError]:
+        mut out = Expr()
+        checked(expr_count(self.raw, &mut out.raw))?
+        Ok(out)
+    pub def alias(self, name: &str) -> Result[Expr, FrameError]:
+        mut out = Expr()
+        checked(expr_alias(self.raw, name, &mut out.raw))?
+        Ok(out)
+
+pub def col(name: &str) -> Result[Expr, FrameError]:
+    mut out = Expr()
+    checked(col_raw(name, &mut out.raw))?
+    Ok(out)
+
+pub def lit(value: f64) -> Result[Expr, FrameError]:
+    mut out = Expr()
+    checked(lit_raw(value, &mut out.raw))?
+    Ok(out)
+
+pub def scan_parquet(path: &str) -> Result[Query, FrameError]:
+    mut out = Query()
+    checked(scan_raw(path, &mut out.raw))?
+    Ok(out)
+
+pub class Query:
+    raw: RawQuery
+    def __init__(self) -> ():
+        self.raw = RawQuery.null()
+    def __del__(self) -> ():
+        query_drop(self.raw)
+    pub def filter(self, predicate: &Expr) -> Result[Query, FrameError]:
+        mut out = Query()
+        checked(query_filter(self.raw, predicate.raw, &mut out.raw))?
+        Ok(out)
+    pub def with_column(self, expr: &Expr) -> Result[Query, FrameError]:
+        mut out = Query()
+        checked(query_with(self.raw, expr.raw, &mut out.raw))?
+        Ok(out)
+    pub def select(self, expr: &Expr) -> Result[Query, FrameError]:
+        mut out = Query()
+        checked(query_select(self.raw, expr.raw, &mut out.raw))?
+        Ok(out)
+    pub def group_by_sum(self, key: &Expr, aggregate: &Expr) -> Result[Query, FrameError]:
+        mut out = Query()
+        checked(query_group(self.raw, key.raw, aggregate.raw, &mut out.raw))?
+        Ok(out)
+    pub def collect(self) -> Result[DataFrame, FrameError]:
+        mut out = DataFrame()
+        checked(query_collect(self.raw, &mut out.raw))?
+        Ok(out)

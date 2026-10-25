@@ -86,6 +86,9 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
         let valid = match mode {
             Argument::Direct => scalar(ty) || matches!(ty, Ty::Ref(t, _) if scalar(t)),
             Argument::Utf8 | Argument::CString => matches!(ty, Ty::Ref(t, false) if **t == Ty::Str),
+            Argument::Strided => {
+                matches!(ty, Ty::Ref(t, _) if matches!(t.as_ref(), Ty::List(element) if element.is_numeric()))
+            }
         };
         if !valid {
             return Err(f.at.error(format!("`{ty}` has no supported C ABI for {mode:?}; text adapters require &str, raw pointers require scalars or opaque types")));
@@ -146,6 +149,9 @@ pub(super) fn check_symbols<'a>(
                         inputs.extend(["pointer".into(), "u64".into()])
                     }
                     crate::foreign::Argument::CString => inputs.push("pointer".into()),
+                    crate::foreign::Argument::Strided => {
+                        inputs.extend(["pointer".into(), "u64".into(), "u64".into()])
+                    }
                 }
             }
             let signature = (inputs, declaration.output(sig).map(abi));

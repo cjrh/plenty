@@ -366,6 +366,58 @@ class Writer[W]
 def writer[W](inner: W, dialect: &Dialect) -> Result[Writer[W], CsvError]
 ```
 
+## `std.dataframe`
+
+Optional Polars analytical expression plans, bulk numeric columns, grouping, and Parquet. Errors: `DataFrameError`. [Reference](dataframe.md).
+
+```text
+enum DataFrameError
+    Schema(str) | Query(str) | Io(str) | NativePanic(str) | Null(str) | Bounds(str) | Allocation(AllocError) | Message(IoError)
+class Column
+class DataFrame
+    def height(self) -> Result[i64, DataFrameError]
+    def lazy(self) -> Result[Query, DataFrameError]
+    def write_parquet(self, path: &str) -> Result[(), DataFrameError]
+    def get_i64(self, name: &str, row: i64) -> Result[Option[i64], DataFrameError]
+    def values_i64(self, name: &str) -> Result[list[i64], DataFrameError]
+    def get_f64(self, name: &str, row: i64) -> Result[Option[f64], DataFrameError]
+    def values_f64(self, name: &str) -> Result[list[f64], DataFrameError]
+class Expr
+    def gt(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def mul(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def add(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def sub(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def div(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def eq(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def lt(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def ge(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def le(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def and_(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def or_(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def fill_null(self, other: &Expr) -> Result[Expr, DataFrameError]
+    def sum(self) -> Result[Expr, DataFrameError]
+    def count(self) -> Result[Expr, DataFrameError]
+    def mean(self) -> Result[Expr, DataFrameError]
+    def min(self) -> Result[Expr, DataFrameError]
+    def max(self) -> Result[Expr, DataFrameError]
+    def is_null(self) -> Result[Expr, DataFrameError]
+    def alias(self, name: &str) -> Result[Expr, DataFrameError]
+class Query
+    def filter(self, predicate: &Expr) -> Result[Query, DataFrameError]
+    def with_columns(self, expressions: &list[Expr]) -> Result[Query, DataFrameError]
+    def select(self, expressions: &list[Expr]) -> Result[Query, DataFrameError]
+    def group_by(self, keys: &list[Expr], aggregates: &list[Expr]) -> Result[Query, DataFrameError]
+    def collect(self) -> Result[DataFrame, DataFrameError]
+def frame(columns: &list[Column]) -> Result[DataFrame, DataFrameError]
+def column_i64(name: &str, values: &list[i64]) -> Result[Column, DataFrameError]
+def column_f64(name: &str, values: &list[f64]) -> Result[Column, DataFrameError]
+def col(name: &str) -> Result[Expr, DataFrameError]
+def lit(value: f64) -> Result[Expr, DataFrameError]
+def lit_i64(value: i64) -> Result[Expr, DataFrameError]
+def null_f64() -> Result[Expr, DataFrameError]
+def scan_parquet(path: &str) -> Result[Query, DataFrameError]
+```
+
 ## `std.db.sqlite`
 
 SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit. Errors: `DbError`. [Reference](sqlite.md).

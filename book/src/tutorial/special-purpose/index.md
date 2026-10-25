@@ -6,3 +6,7 @@ along with the tradeoffs that make them useful.
 
 Start with [Columnar lists](columnar-lists/index.md): keep an ordinary class-shaped
 interface while storing each primitive field in its own contiguous column.
+
+For analytical queries and Parquet datasets, use
+[Dataframes](dataframes.md): explicit expression plans executed by an optional
+Polars engine. Columnar lists remain the lightweight mutable collection.

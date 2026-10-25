@@ -21,6 +21,10 @@ enum ModuleSource {
 /// modules are compiler-provided and have no Plenty source. Order is the order
 /// the unknown-module diagnostic lists them.
 const STANDARD_MODULES: &[(&str, &str)] = &[
+    (
+        "std.dataframe",
+        include_str!("../../stdlib/std/dataframe.plentyi"),
+    ),
     ("std.math", include_str!("../../stdlib/std/math.plenty")),
     ("std.simd", include_str!("../../stdlib/std/simd.plenty")),
     ("std.fs", include_str!("../../stdlib/std/fs.plenty")),
@@ -136,7 +140,14 @@ impl ModuleSource {
     fn path(&self) -> PathBuf {
         match self {
             Self::File(path) => path.clone(),
-            Self::Standard(name) => PathBuf::from(format!("{}.plenty", name.replace('.', "/"))),
+            Self::Standard(name) => {
+                let extension = if *name == "std.dataframe" {
+                    "plentyi"
+                } else {
+                    "plenty"
+                };
+                PathBuf::from(format!("{}.{extension}", name.replace('.', "/")))
+            }
         }
     }
 

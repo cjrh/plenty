@@ -1,0 +1,25 @@
+import dataframe as df
+from dataframe import FrameError
+
+def summarize(query: &df.Query) -> Result[df.DataFrame, FrameError]:
+    predicate = df.col("value")?.gt(df.lit(50.0)?)?
+    weighted = df.col("value")?.mul(df.lit(2.0)?)?.alias("weighted")?
+    total = df.col("weighted")?.sum()?.alias("total")?
+    query.filter(&predicate)?.with_column(&weighted)?.group_by_sum(df.col("group")?, &total)?.collect()
+
+def show(result: &df.DataFrame) -> Result[(), FrameError | IoError]:
+    # Group output order is unspecified; retrieve the two groups explicitly.
+    for wanted in range(2):
+        for row in range(i64(result.height()?)):
+            if result.get_i64("group", u64(row))? == Some(wanted):
+                print(wanted, result.get_f64("total", u64(row))?)?
+    Ok(())
+
+def main() -> Result[(), AllocError | FrameError | IoError]:
+    groups = [0, 1, 0, 1]?
+    values = [10.0, 60.0, 80.0, 90.0]?
+    data = df.from_lists(&groups, &values)?
+    show(summarize(data.lazy()?)?)?
+    data.write_parquet("example.parquet")?
+    show(summarize(df.scan_parquet("example.parquet")?)?)?
+    Ok(())

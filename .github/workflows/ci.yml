@@ -18,6 +18,37 @@ env:
 # Nightly runs weekly in nightly.yml. See book/src/development/workflow.md
 # ("CI build caches and timings") for the shards and caches below.
 jobs:
+  dataframe:
+    name: Optional Polars dataframe engine
+    runs-on: ubuntu-latest
+    env:
+      PLENTY_DATAFRAME_TESTS: "1"
+      PLENTY_DATAFRAME_ENGINE: ${{ github.workspace }}/target/engine/libplenty_dataframe_v1.so
+      POLARS_MAX_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy && rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: |
+            . -> target
+            plenty-dataframe -> ../target/dataframe-engine
+          key: dataframe-baseline
+          cache-bin: "false"
+      - run: python3 -B scripts/build_dataframe_engine.py --out target/engine --jobs 2
+      - name: Validate native engine
+        env:
+          CARGO_TARGET_DIR: target/dataframe-engine
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc
+          RUSTFLAGS: "-C target-cpu=x86-64 -C link-arg=-Wl,-soname,libplenty_dataframe_v1.so"
+          CFLAGS: "-march=x86-64 -mtune=generic"
+          CXXFLAGS: "-march=x86-64 -mtune=generic"
+        run: |
+          cargo fmt --manifest-path plenty-dataframe/Cargo.toml -- --check
+          cargo test --manifest-path plenty-dataframe/Cargo.toml --locked --release -j 2
+          cargo clippy --manifest-path plenty-dataframe/Cargo.toml --locked --release --all-targets -j 2 -- -D warnings
+      - run: cargo test --locked --test integration test_std_dataframe::
+      - run: cargo test --locked --test integration test_tutorial::dataframe_examples_with_optional_engine
   # The full all-features suite under cargo-nextest, split across runners.
   # Each shard compiles the tests itself: a shared build job plus
   # `cargo nextest archive` would add a dependent job's setup to the critical

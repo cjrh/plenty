@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-25",
+  "host": "AMD Ryzen 7 7840HS, 8 cores / 16 threads",
+  "polars": "0.55.2",
+  "locked_packages_including_adapter": 332,
+  "command": "cargo build --locked --release --workspace -j 3",
+  "rustflags": "-C target-cpu=x86-64-v3 -C link-arg=-fuse-ld=mold -C link-arg=-Wl,--thread-count=3",
+  "linker_driver": "cc",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28), LLVM 23.1.1",
+  "clean_target": true,
+  "status": 0,
+  "wall_seconds": 279.9009887329885,
+  "user_seconds": 782.57,
+  "system_seconds": 34.98,
+  "cpu_percent": 292,
+  "maximum_process_rss_kib": 1709584,
+  "major_page_faults": 16,
+  "swaps": 0,
+  "notes": "Clean target with dependencies already downloaded. GNU time max RSS is the largest process, not aggregate parallel-build RSS. The direct-Rust baseline was subsequently adjusted to remove an unnecessary rename node; that dependency-warm rebuild took 1.12 seconds. No compiler/core runtime changes."
+}

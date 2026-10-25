@@ -1,0 +1,317 @@
+{
+  "compiler_sha256": "8be6637339ceb0be63fb8db1055bdf6829e58e736aef89b7ae354d3e290028e7",
+  "engine_sha256": "989d16d71d28721be6293b94bfbc0fd23b6ce6fc9af7988477ec3ca34011ae94",
+  "engine_bytes": 93547752,
+  "executable_bytes": 3390240,
+  "compile_no_cache_ns": [
+    93524715,
+    81540461,
+    82901264,
+    81676896,
+    83069428
+  ],
+  "compile_warm_ns": [
+    62485785,
+    45636449,
+    45496808,
+    47775235,
+    45193672
+  ],
+  "samples": [
+    {
+      "rows": 1024,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 103002,
+      "import_ns": 7741646,
+      "query_ns": 90328.79,
+      "export_ns": 51115,
+      "process_ns": 50976748,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 105537,
+      "import_ns": 79328,
+      "query_ns": 90983.21,
+      "export_ns": 41447,
+      "process_ns": 16121555,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 103874,
+      "import_ns": 81021,
+      "query_ns": 86029.36,
+      "export_ns": 41357,
+      "process_ns": 15675111,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 104234,
+      "import_ns": 81121,
+      "query_ns": 87874.31,
+      "export_ns": 40746,
+      "process_ns": 15960645,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 100858,
+      "import_ns": 83977,
+      "query_ns": 85312.92,
+      "export_ns": 41107,
+      "process_ns": 15624447,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 104876,
+      "import_ns": 79258,
+      "query_ns": 95390.45,
+      "export_ns": 41989,
+      "process_ns": 15823498,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 100368,
+      "import_ns": 62898,
+      "query_ns": 123870.17,
+      "export_ns": 78376,
+      "process_ns": 19400653,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 117880,
+      "import_ns": 68528,
+      "query_ns": 110947.82,
+      "export_ns": 74920,
+      "process_ns": 17605459,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 105046,
+      "import_ns": 60744,
+      "query_ns": 104491.26,
+      "export_ns": 44573,
+      "process_ns": 16715114,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1024,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 186619,
+      "import_ns": 103353,
+      "query_ns": 126509.21,
+      "export_ns": 42610,
+      "process_ns": 21676747,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 105912724,
+      "import_ns": 16140360,
+      "query_ns": 5661931.69,
+      "export_ns": 53060802,
+      "process_ns": 816551602,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 108289706,
+      "import_ns": 15998445,
+      "query_ns": 5343098.39,
+      "export_ns": 50742560,
+      "process_ns": 774963628,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 174572455,
+      "import_ns": 21551353,
+      "query_ns": 5309819.21,
+      "export_ns": 50087216,
+      "process_ns": 848077352,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 100817965,
+      "import_ns": 15667417,
+      "query_ns": 5454045.72,
+      "export_ns": 51900134,
+      "process_ns": 778239259,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 1,
+      "repetitions": 100,
+      "input_ns": 105364580,
+      "import_ns": 15796107,
+      "query_ns": 5426363.49,
+      "export_ns": 53876336,
+      "process_ns": 780966275,
+      "cpus": [
+        2
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 103142628,
+      "import_ns": 16720816,
+      "query_ns": 4218632.76,
+      "export_ns": 49689101,
+      "process_ns": 657488539,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 110030138,
+      "import_ns": 15416728,
+      "query_ns": 4142087.22,
+      "export_ns": 55034009,
+      "process_ns": 653870648,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 101223020,
+      "import_ns": 15674240,
+      "query_ns": 4045063.72,
+      "export_ns": 61543424,
+      "process_ns": 645918779,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 104743589,
+      "import_ns": 16782451,
+      "query_ns": 4392009.25,
+      "export_ns": 51450845,
+      "process_ns": 680643016,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    {
+      "rows": 1000000,
+      "threads": 4,
+      "repetitions": 100,
+      "input_ns": 106736122,
+      "import_ns": 16160178,
+      "query_ns": 4597341.93,
+      "export_ns": 51556661,
+      "process_ns": 701051974,
+      "cpus": [
+        2,
+        4,
+        6,
+        8
+      ]
+    }
+  ],
+  "whole_process_perf": {
+    "returncode": 0,
+    "stdout": "116823393 17206623 446356376 56722385 7350000000.0 1000000\n",
+    "stderr": "10676100593;;instructions:u;1044050772;100.00;;\n3738009606;;cycles:u;1044050772;100.00;;\n"
+  }
+}

@@ -1,0 +1,73 @@
+import std.dataframe as df
+import std.test as test
+
+def main() -> Result[(), df.DataFrameError | test.TestError | AllocError | IoError]:
+    groups = [1, 2, 1, 2]?
+    values = [10.0, 60.0, 70.0, 80.0]?
+    columns = [df.column_i64("group", &groups)?, df.column_f64("value", &values)?]?
+    data = df.frame(&columns)?
+    test.equal(data.height()?, 4)?
+    test.equal(data.values_i64("group")?, groups)?
+    test.equal(data.values_f64("value")?, values)?
+    test.equal(data.get_f64("value", 2)?, Some(70.0))?
+    match data.get_i64("value", 0):
+        case Err(df.DataFrameError.Query(message)):
+            test.check(len(message) > 0, "native message must be preserved")?
+        case _:
+            test.fail("unexpected result")?
+    match data.get_f64("value", -1):
+        case Err(df.DataFrameError.Bounds(message)):
+            test.check(len(message) > 0, "native message must be preserved")?
+        case _:
+            test.fail("unexpected result")?
+    value = df.col("value")?
+    predicate = value.gt(&df.lit(50.0)?)?
+    derived = value.mul(&df.lit(2.0)?)?.alias("twice")?
+    expressions = [derived]?
+    keys = [df.col("group")?]?
+    aggregates = [df.col("twice")?.sum()?.alias("total")?, df.col("twice")?.count()?.alias("count")?]?
+    output = data.lazy()?.filter(&predicate)?.with_columns(&expressions)?.group_by(&keys, &aggregates)?.collect()?
+    test.equal(output.height()?, 2)?
+    for row in range(2):
+        match output.get_i64("group", row)?:
+            case Some(1):
+                test.equal(output.get_f64("total", row)?, Some(140.0))?
+                test.equal(output.get_i64("count", row)?, Some(1))?
+            case Some(2):
+                test.equal(output.get_f64("total", row)?, Some(280.0))?
+                test.equal(output.get_i64("count", row)?, Some(2))?
+            case _:
+                test.fail("unexpected result")?
+    nullable = [df.null_f64()?.alias("missing")?]?
+    nulls = data.lazy()?.with_columns(&nullable)?.collect()?
+    test.check(nulls.get_f64("missing", 0)?.is_none(), "null remains distinct from failure")?
+    match nulls.values_f64("missing"):
+        case Err(df.DataFrameError.Null(message)):
+            test.check(len(message) > 0, "native message must be preserved")?
+        case _:
+            test.fail("unexpected result")?
+    filled = [df.col("missing")?.fill_null(&df.lit(3.0)?)?.alias("missing")?]?
+    restored = nulls.lazy()?.with_columns(&filled)?.collect()?
+    test.equal(restored.get_f64("missing", 0)?, Some(3.0))?
+    data.write_parquet("roundtrip.parquet")?
+    from_disk = df.scan_parquet("roundtrip.parquet")?.filter(&predicate)?.collect()?
+    test.equal(from_disk.height()?, 3)?
+    test.equal(from_disk.values_f64("value")?, [60.0, 70.0, 80.0]?)?
+    match df.scan_parquet("no-such-file.parquet")?.collect():
+        case Err(df.DataFrameError.Query(message)):
+            test.check(len(message) > 0, "native message must be preserved")?
+        case _:
+            test.fail("unexpected result")?
+    empty_i64: list[i64] = []?
+    empty_columns = [df.column_i64("id", &empty_i64)?]?
+    empty = df.frame(&empty_columns)?
+    test.equal(empty.height()?, 0)?
+    test.equal(empty.values_i64("id")?, empty_i64)?
+    duplicates = [df.column_i64("same", &groups)?, df.column_i64("same", &groups)?]?
+    match df.frame(&duplicates):
+        case Err(df.DataFrameError.Schema(message)):
+            test.check(len(message) > 0, "native message must be preserved")?
+        case _:
+            test.fail("unexpected result")?
+    print("dataframe ok")?
+    Ok(())
