@@ -44,6 +44,54 @@ fn float_method(name: &str) -> Option<NumericOp> {
     })
 }
 
+/// Whether `candidate` replaces `held` in a `min` (`min` true) or `max` scan.
+/// The pipeline terminals and `std.math` (through `__min_replaces` and
+/// `__max_replaces`) share this rule. Floats follow IEEE 754-2019
+/// `minimum`/`maximum`: -0.0 orders below 0.0, and a NaN candidate replaces a
+/// non-NaN `held` while nothing replaces a NaN, so a scan keeps its first NaN.
+/// Other types compare with `<` or `>`, so equal values keep `held`. Both
+/// operands must be places: each is read more than once.
+pub(super) fn extremum_replaces(min: bool, ty: &Ty, candidate: Expr, held: Expr) -> Expr {
+    let at = candidate.at.clone();
+    let node = |kind| Expr {
+        at: at.clone(),
+        kind,
+    };
+    let binary = |op: &str, left: Expr, right: Expr| {
+        node(Expression::Binary(
+            op.into(),
+            Box::new(left),
+            Box::new(right),
+        ))
+    };
+    let (before, at_or_past) = if min { ("<", ">=") } else { (">", "<=") };
+    let unit = match ty {
+        Ty::F32 => "1.0f32",
+        Ty::F64 => "1.0",
+        _ => return binary(before, candidate, held),
+    };
+    // A unit with the operand's sign orders -0.0 before 0.0.
+    let sign = |value: Expr| {
+        node(Expression::Method(
+            Box::new(node(Expression::Number(unit.into()))),
+            "copysign".into(),
+            vec![value],
+            Pos::default(),
+        ))
+    };
+    let not = |value: Expr| node(Expression::Unary("not".into(), Box::new(value)));
+    let zero_sign = binary(
+        "and",
+        binary("==", candidate.clone(), held.clone()),
+        binary(before, sign(candidate.clone()), sign(held.clone())),
+    );
+    binary(
+        "and",
+        binary("==", held.clone(), held.clone()),
+        binary("or", not(binary(at_or_past, candidate, held)), zero_sign),
+    )
+}
+
 fn constant(ty: &Ty, name: &str) -> Option<Op> {
     if let (Some((min, end)), "MIN" | "MAX") = (ty.int_range(), name) {
         let value = if name == "MIN" { min } else { end - 1 };
@@ -125,6 +173,32 @@ impl Lower<'_> {
         self.same(Some(other), Some(ty.clone()), &right.at)?;
         Ok(loans)
     }
+    /// `__min_replaces(candidate, held)` or `__max_replaces`: the
+    /// `extremum_replaces` test, for `std.math`'s generic `min`/`max` helpers.
+    pub(super) fn extremum_call(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let [candidate, held] = args else {
+            return Err(at.error(format!("{name} takes two places")));
+        };
+        let Some(ty) = self.place_type(held) else {
+            return Err(at.error(format!("{name} requires places")));
+        };
+        let test = extremum_replaces(
+            name == "__min_replaces",
+            &ty,
+            candidate.clone(),
+            held.clone(),
+        );
+        let actual = self.expr(&test, ops)?;
+        self.same(actual, Some(Ty::Bool), at)?;
+        Ok(Ty::Bool)
+    }
+
     /// A method named by `method` on the numeric `receiver`, already lowered.
     pub(super) fn numeric_method(
         &mut self,

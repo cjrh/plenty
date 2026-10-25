@@ -462,8 +462,9 @@ rejected for now: a tuple containing a float has no NaN rule yet, so they use
   first item.
 - NaN propagates. For `sum` this is ordinary float addition. For `min` and
   `max` it is an explicit rule, IEEE 754-2019 `minimum`/`maximum`: any NaN
-  item makes the result `Some(NaN)`. A plain `<` loop would instead drop or
-  keep a NaN depending on its position.
+  item makes the result `Some(NaN)`, and `-0.0` orders below `0.0`. A plain
+  `<` loop would instead drop or keep a NaN depending on its position.
+  `std.math.min`, `max`, `min_all` and `max_all` follow the same rule.
 - There is no parameter to ignore NaN. Filter first; the choice is then
   visible at the call. Separately named NaN-ignoring terminals can be added
   if filtering proves too common or slow.

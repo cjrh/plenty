@@ -27,10 +27,10 @@ like the filter and map here, is compiled into that loop rather than called.
 The payments remain available afterwards.
 Trying to consume `selected` again is an ownership error.
 
-`sum` returns zero for no items and traps on integer overflow, like `+`. `min`
-and `max` return an `Option`, `Nothing` when there are no items, and keep the
-first of equal items. They accept numbers and `str`; a float NaN makes the
-result NaN. Use `fold` for any other accumulation.
+`sum` and `max` work as in [Chain iteration steps with
+`iter`](../05-iteration/pipelines.md#add-up-and-find-extremes); here they reduce
+mapped values, since a `Payment` is neither a number nor a `str`. Use `fold` for
+any other accumulation.
 
 A method returning a borrowed list can be used directly as the source. Its
 owner remains borrowed while the pipeline is in use:
