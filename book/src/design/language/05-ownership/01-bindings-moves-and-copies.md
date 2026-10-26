@@ -17,7 +17,7 @@ an independent value. It recursively duplicates owned mutable contents;
 immutable strings can share storage. Copying does not supply mutable aliases.
 Generators, captured closures, recursive data, and types containing custom
 destruction cannot be copied. [Allocation](../08-errors/02-allocation-and-traps.md)
-and [destruction](06-destruction.md) describe failure and cleanup.
+and [destruction](07-destruction.md) describe failure and cleanup.
 
 Only paths that continue contribute to availability at a branch join. Moving on
 some continuing paths makes a binding possibly moved; moving on all makes it

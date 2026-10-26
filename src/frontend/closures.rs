@@ -30,6 +30,15 @@ impl Lower<'_> {
             if self.place_type(&source).as_ref().is_some_and(Ty::key_view) {
                 return Err(at.error("dictionary key views cannot be captured; materialise keys_snapshot() or to_set()"));
             }
+            if self
+                .place_type(&source)
+                .is_some_and(|ty| ty.carried_reference().is_some())
+            {
+                return Err(at.error(format!(
+                    "`{}` holds a borrow and cannot be captured; match it first and pass the reference",
+                    capture.name
+                )));
+            }
             let ty = if capture.borrowed {
                 if self.yield_type.is_some() {
                     return Err(at.error("borrowed captures cannot be suspended in generators"));

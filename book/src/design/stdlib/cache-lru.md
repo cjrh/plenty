@@ -41,10 +41,10 @@ False 2
 | `cache.contains(&key)` | `bool` | Unchanged | Membership test |
 | `cache.get(&key)` | `Option[V]` | Promotes | Copy the value; copyable `V` only |
 | `cache.peek(&key)` | `Option[V]` | Unchanged | Copy the value; copyable `V` only |
-| `cache.get_with(&key, &f)` | `Option[R]` | Promotes | Call `f(&value)` and return its result |
-| `cache.peek_with(&key, &f)` | `Option[R]` | Unchanged | Call `f(&value)` and return its result |
-| `cache.get_ref(&key)` | `&V` | Promotes | Borrow the value; trap if absent |
-| `cache.peek_mut(&key)` | `&mut V` | Unchanged | Borrow the value mutably; trap if absent |
+| `cache.get_ref(&key)` | `Option[&V]` | Promotes | Borrow the value |
+| `cache.get_mut(&key)` | `Option[&mut V]` | Promotes | Borrow the value mutably |
+| `cache.peek_ref(&key)` | `Option[&V]` | Unchanged | Borrow the value |
+| `cache.peek_mut(&key)` | `Option[&mut V]` | Unchanged | Borrow the value mutably |
 | `cache.promote(&key)` | `bool` | Promotes | Mark used; `False` if absent |
 | `cache.put(key, value)` | `Result[Option[(K, V)], AllocError]` | Promotes | Insert or replace, reporting the displaced entry |
 | `cache.remove(&key)` | `Option[V]` | | Remove and transfer the value |
@@ -52,7 +52,6 @@ False 2
 | `cache.clear()` | `()` | | Drop entries from least to most recent |
 
 Mutation, promotion included, requires a mutable owner or exclusive reference.
-`f` has type `Callable[[&V], R]`; it may be a named function or a closure.
 
 `put` with a new key makes it the most recent entry. If the cache was full, it
 removes the least recent entry and returns it as `Some((key, value))`. With an
@@ -73,17 +72,36 @@ a value type is rejected. The error points at the call and names the
 rejected instance, such as `LruCache[i64, list[i64]].get`, with a note
 that its body cannot move out of indexed storage.
 
-For affine values, read through the other accessors. `get_with` and
-`peek_with` call `f(&value)` and return its result. The reference accessors
-`get_ref` and `peek_mut` trap on an absent key, like `dictionary[key]`; test
-with `contains` first when absence is possible. Their result borrows the
-whole cache until its last use, so the cache cannot change meanwhile.
+For affine values, borrow instead. `get_ref` and `peek_ref` return
+`Option[&V]`; `get_mut` and `peek_mut` return `Option[&mut V]`. All four return
+`Nothing` for an absent key. A borrowed result follows the
+[optional reference rules](../language/05-ownership/05-optional-references.md):
+it borrows the whole cache until its last use, so the cache cannot change
+meanwhile. Match it, or use `?` or `unwrap()`, to reach the value:
 
-These four are interim. Plenty cannot yet return `Option[&V]`: references
-cannot be stored in enum payloads. Once the
-[returned reference enums proposal](../../proposals/returned-reference-enums.md)
-is implemented, `get_ref` and `peek_ref` will return `Option[&V]`, `get_mut`
-and `peek_mut` `Option[&mut V]`, and the callback forms will be removed.
+```plenty
+from std.cache.lru import LruCache
+
+def main() -> Result[(), AllocError | IoError]:
+    mut pages = LruCache[str, list[str]](2)?
+    drop(pages.put("home", ["intro"]?)?)
+    match pages.get_mut("home"):
+        case Some(lines):
+            lines.append("news")?
+        case Nothing:
+            pass
+    match pages.peek_ref("home"):
+        case Some(lines):
+            print(len(lines), lines)?
+        case Nothing:
+            print("missing")?
+    print(pages.peek_ref("about").is_none())?
+    Ok(())
+```
+```output
+2 ["intro", "news"]
+True
+```
 
 ## Capacity
 

@@ -2520,8 +2520,18 @@ impl Lower<'_> {
         }
         let operation = crate::sum::EnumOp::Unwrap(t);
         let result = operation.signature().unwrap().1;
+        let carried = if result.carries_loan() {
+            Some(self.reference_origin(base, ops)?)
+        } else {
+            None
+        };
         self.mark(&base.at, ops);
         ops.push(Op::Enum(operation));
+        if let Some(parent) = carried {
+            // The payload reference takes over the operand's loan.
+            let root = self.loans[parent].root;
+            self.new_loan(root, result.carries_mutable_loan(), Some(parent), ops);
+        }
         if result == Ty::Unit {
             ops.push(Op::Drop);
             Ok(None)
@@ -2582,9 +2592,19 @@ impl Lower<'_> {
         if !option.is_option() {
             return Err(base.at.error(format!("{name} requires an Option")));
         }
+        let payload = option.get().variants[1].fields[0].clone();
+        let carried = if payload.carries_loan() {
+            if name == "unwrap_or" {
+                return Err(base
+                    .at
+                    .error("`unwrap_or` cannot choose between two borrows; use `match`"));
+            }
+            Some(self.reference_origin(base, ops)?)
+        } else {
+            None
+        };
         let source = self.slot(Ty::Enum(option.clone()), &base.at)?;
         ops.push(Op::StoreLocal(source));
-        let payload = option.get().variants[1].fields[0].clone();
         let argument_hint = if name == "unwrap_or" {
             Some(payload.clone())
         } else {
@@ -2622,6 +2642,11 @@ impl Lower<'_> {
             name == "ok_or",
             ops,
         );
+        if let Some(parent) = carried {
+            // The Result carries the Option's loan.
+            let root = self.loans[parent].root;
+            self.new_loan(root, payload.carries_mutable_loan(), Some(parent), ops);
+        }
         self.cleanup(start, ops);
         if result == Ty::Unit {
             ops.push(Op::Drop);
@@ -2854,7 +2879,9 @@ impl Lower<'_> {
                 if source.key_view() {
                     return Err(args[0].at.error("dictionary key views cannot be formatted; materialise keys_snapshot(), into_keys(), or to_set()"));
                 }
-                if source.restricted_storage() {
+                if source.restricted_storage()
+                    && (source.carried_reference().is_none() || source.format_blocker().is_some())
+                {
                     let message = source
                         .format_blocker()
                         .map_or("generators cannot be formatted".into(), |b| {

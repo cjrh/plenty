@@ -276,7 +276,7 @@ method, just like a by-value function parameter; the caller cannot reuse an
 affine receiver. It does not allow moving individual fields. Variants are always qualified (`Shape.Dot`), and matching a
 borrowed enum binds references, so payloads are dereferenced with `*`. See
 [classes](../language/03-types/classes.md), [enums](../language/03-types/enums.md),
-and [borrowed matching](../language/05-ownership/05-borrowed-matching.md).
+and [borrowed matching](../language/05-ownership/06-borrowed-matching.md).
 
 Classes and enums can define [arithmetic hooks](../language/04-expressions/operators.md)
 such as `__add__(self, other: &T) -> T`, `__rmul__`, and `__neg__`.

@@ -95,6 +95,8 @@ pub enum StorageBarrier {
     UnresolvedClosure,
     BorrowedClosure,
     GeneratorClosure,
+    /// An `Option`/`Result` whose success payload is a reference.
+    CarriedReference,
 }
 
 impl StorageBarrier {
@@ -108,6 +110,11 @@ impl StorageBarrier {
             Self::ScopedTask => "scoped tasks",
             Self::BorrowedClosure => "closures with borrowed captures",
             Self::GeneratorClosure => "closures that capture generators",
+            Self::CarriedReference => {
+                return format!(
+                    "an Option or Result carrying a reference cannot be stored in {place}; match it and store an owned copy or an index"
+                );
+            }
             Self::UnresolvedClosure => {
                 return format!(
                     "a closure signature does not name a concrete environment, so it cannot be stored in {place}; let the type be inferred from the stored closure or use a generic parameter bounded by Callable"
@@ -258,6 +265,7 @@ impl Ty {
             Self::Closure(_) if self.contains_generator_frame() => {
                 Some(StorageBarrier::GeneratorClosure)
             }
+            _ if self.carried_reference().is_some() => Some(StorageBarrier::CarriedReference),
             Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => t
                 .get()
                 .variants
@@ -301,6 +309,12 @@ impl Ty {
                 Self::Generator(_) => return Some(FormatBlocker::Generator),
                 Self::Closure(_) => return Some(FormatBlocker::Closure),
                 Self::Task(_) => return Some(FormatBlocker::Task),
+                // Only a reference-carrying Option or Result reaches a
+                // reference here; formatting reads through it to a value
+                // held wholly in its slot.
+                Self::Ref(inner, _) if inner.inline_bytes() == 0 && !inner.has_inline_range() => {
+                    work.push(inner)
+                }
                 Self::Ref(..) => return Some(FormatBlocker::Reference),
                 Self::Enum(t) if t.get().restricted_storage && seen.insert(&*t.name) => {
                     work.extend(
@@ -317,9 +331,38 @@ impl Ty {
         None
     }
     pub fn contains_reference(&self) -> bool {
-        // Composite references are rejected at their construction boundary.
+        // Other composite references are rejected at their construction boundary.
         matches!(self, Self::Ref(..) | Self::KeyView(_))
             || matches!(self, Self::Closure(t) if t.borrowed)
+            || self.carried_reference().is_some()
+    }
+    /// The `&T` or `&mut T` that a reference-carrying `Option` or `Result`
+    /// holds in its success payload, directly or through further
+    /// `Option`/`Result` success payloads. Error payloads never carry one.
+    /// See book/src/design/language/05-ownership/05-optional-references.md.
+    pub fn carried_reference(&self) -> Option<Ty> {
+        let Self::Enum(t) = self else {
+            return None;
+        };
+        if !t.propagatable() || !t.try_get().is_some_and(|t| t.restricted_storage) {
+            return None;
+        }
+        match &t.get().variants[usize::from(t.is_option())].fields[0] {
+            reference @ Self::Ref(..) => Some(reference.clone()),
+            success => success.carried_reference(),
+        }
+    }
+    /// Whether a value of this type holds a loan: a reference, or an
+    /// `Option`/`Result` carrying one.
+    pub fn carries_loan(&self) -> bool {
+        matches!(self, Self::Ref(..)) || self.carried_reference().is_some()
+    }
+    /// Whether the direct or carried reference is exclusive.
+    pub fn carries_mutable_loan(&self) -> bool {
+        match self {
+            Self::Ref(_, mutable) => *mutable,
+            ty => matches!(ty.carried_reference(), Some(Self::Ref(_, true))),
+        }
     }
     pub fn key_view(&self) -> bool {
         match self {

@@ -2,7 +2,7 @@
 
 **Status: Investigation complete.** This explores existing facilities and
 limits, not a new language feature. [Moves](../design/language/05-ownership/01-bindings-moves-and-copies.md)
-and [destruction](../design/language/05-ownership/06-destruction.md) define current
+and [destruction](../design/language/05-ownership/07-destruction.md) define current
 behavior. Scheduling belongs in [B72](../backlog.md).
 
 The [owned response experiment](typestate-response-experiment.md) refreshes this

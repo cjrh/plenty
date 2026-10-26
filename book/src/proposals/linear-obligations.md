@@ -3,7 +3,7 @@
 Status: **Not implemented; proposed design for review.** Issue #149, tracked
 under [B72](../backlog.md). No syntax or standard-library conversion is approved.
 The current contracts remain [ownership](../design/language/05-ownership/01-bindings-moves-and-copies.md),
-[destruction](../design/language/05-ownership/06-destruction.md), and
+[destruction](../design/language/05-ownership/07-destruction.md), and
 [error propagation](../design/language/08-errors/01-sums-and-propagation.md).
 
 This proposal defines an opt-in ownership obligation. Its

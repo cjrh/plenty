@@ -20,3 +20,5 @@ enable = true
 "proposals/error-formatting.html" = "completed/error-formatting.html"
 "proposals/entrypoints-modules-and-tutorials.html" = "completed/entrypoints-modules-and-tutorials.html"
 "proposals/next-language-phase.html" = "completed/next-language-phase.html"
+"design/language/05-ownership/05-borrowed-matching.html" = "06-borrowed-matching.html"
+"design/language/05-ownership/06-destruction.html" = "07-destruction.html"
