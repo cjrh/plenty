@@ -497,27 +497,80 @@ pub fn find<'a, T: Send>(
 }
 
 pub fn walk<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
-    let mut pending = vec![ops];
-    while let Some(ops) = pending.pop() {
+    walk_sited(ops, &mut |op, _| visit(op));
+}
+
+/// `walk`, also passing the source position of each operation: the last
+/// `Op::Site` before it in its own sequence or an enclosing one. A function
+/// body starts without a position.
+pub fn walk_sited<'a>(
+    ops: &'a [Op],
+    visit: &mut impl FnMut(&'a Op, Option<crate::ownership::Site>),
+) {
+    let mut pending = vec![(ops, None)];
+    while let Some((ops, mut site)) = pending.pop() {
         for op in ops {
-            visit(op);
+            if let Op::Site(at) = op {
+                site = Some(*at);
+            }
+            visit(op, site);
             match op {
-                Op::DefineFn(_, f) => pending.push(&f.body),
-                Op::Match(arms) => pending.extend(arms.iter().map(|arm| arm.body.as_ref())),
-                Op::Loop { condition, body } => pending.extend([condition.as_ref(), body.as_ref()]),
+                Op::DefineFn(_, f) => pending.push((&f.body, None)),
+                Op::Match(arms) => {
+                    pending.extend(arms.iter().map(|arm| (arm.body.as_ref(), site)));
+                }
+                Op::Loop { condition, body } => {
+                    pending.extend([(condition.as_ref(), site), (body.as_ref(), site)]);
+                }
                 Op::If {
                     then,
                     elifs,
                     otherwise,
                 } => {
-                    pending.extend([then.as_ref(), otherwise.as_ref()]);
+                    pending.extend([(then.as_ref(), site), (otherwise.as_ref(), site)]);
                     for arm in elifs.iter() {
-                        pending.extend([arm.condition.as_ref(), arm.body.as_ref()]);
+                        pending.extend([(arm.condition.as_ref(), site), (arm.body.as_ref(), site)]);
                     }
                 }
-                Op::Try { cleanup, .. } => pending.push(cleanup),
+                Op::Try { cleanup, .. } => pending.push((cleanup, site)),
                 _ => {}
             }
         }
+    }
+}
+
+/// Each function `op` names directly: calls, addresses, workers, closures,
+/// sort keys, and the destructor an armed class runs. Calls that native code
+/// derives from a type target generators only.
+pub fn function_references(op: &Op, require: &mut impl FnMut(&str)) {
+    match op {
+        Op::Call(name)
+        | Op::TailCall(name)
+        | Op::FunctionAddress(name, _)
+        | Op::BoxedCallableNew(_, name, _) => require(name),
+        Op::ClosureNew(t) | Op::ClosureCall(t) => require(&t.name),
+        Op::Thread(ThreadOp::Start(task, _)) => {
+            require(&task.worker);
+            if let Some(closure) = &task.closure {
+                require(&closure.name);
+            }
+        }
+        Op::Executor(operation) => {
+            if let Some(job) = operation.job() {
+                require(&job.worker);
+                for closure in job.closure.iter().chain(job.shared.iter()) {
+                    require(&closure.name);
+                }
+            }
+        }
+        Op::Collection(crate::collection::CollectionOp::ListSortBy(sort)) => {
+            require(&sort.key_of);
+        }
+        Op::Class(crate::record::ClassOp::ArmDrop(t)) => {
+            if let Some(destructor) = &t.get().destructor {
+                require(destructor);
+            }
+        }
+        _ => {}
     }
 }

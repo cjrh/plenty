@@ -33,6 +33,14 @@ instances do not count. Each function with a `Generator` parameter allows
 of generic functions, and a compilation allows 65,536. Type nesting is still
 bounded separately.
 
+A generic class or enum instance records its methods without lowering them
+(issue #515). Lowering a body queues each instance method it names through a
+call, function address, callable adapter, worker, or destructor, which is the
+set native reachability follows. A protocol bound queues the methods it
+matched, and `__del__` is queued with the instance. Methods never queued are
+neither checked nor emitted, so they create no instances, strings, or cache
+entries.
+
 Before native preparation, emission removes unreachable definitions from the
 embedded standard library (issue #400). It keeps every user definition, C export
 and generator as a root, then follows direct/tail calls, function

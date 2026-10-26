@@ -59,11 +59,26 @@ instances, and the instances between them are not listed. Further notes belong
 to the reason. Names longer than 96 characters are cut short.
 
 This covers generic functions, generic methods, functions written inside them,
-and the methods of a generic class instance. All methods of a class instance are
-checked when the instance is first required, whether or not they are called.
+and the methods of a generic class or enum instance. A method of an instance is
+checked when it is first used: called, including by a constructor call for
+`__init__`, or required by a [protocol bound](protocols.md) that the instance
+satisfies. A `__del__` method is checked when the instance is first required,
+because constructing a value arms it. An instance can therefore exist although
+one of its methods would be rejected for it, as long as that method is not used:
+
+```text
+main.plenty:9:13: cannot instantiate `Cell[list[i64]].get`: its definition is rejected
+  main.plenty:5:9: note: in instantiation `Cell[list[i64]].get`: cannot move out of a field
+```
+
+A method required through a protocol bound is reported at the bounded use,
+naming the bounded instance, such as `accept[Holder[Guard]]`. Unused methods are
+not compiled for the instance either.
 
 Since bodies are checked only per instance, a body error that no type argument
 causes, such as an unknown name, is reported the same way, and not at all while
 the declaration is unused. Errors in the declaration itself (type parameters,
 constraints, signature types) and uses that do not satisfy a constraint are
-reported at one location.
+reported at one location. Instance field types, constraints on data
+arguments, and substituted method signatures are checked when the instance is
+first required.
