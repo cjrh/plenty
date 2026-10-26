@@ -454,7 +454,7 @@ def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError | ThreadEr
 fn programs_without_databases_do_not_link_sqlite() {
     use object::{Object, ObjectSymbol, SymbolKind};
     let symbols = |source: &str| {
-        let (_dir, executable) = build(source);
+        let (_dir, executable) = support::build_unstripped(source);
         let data = std::fs::read(&executable).unwrap();
         let file = object::File::parse(&*data).unwrap();
         let count = file

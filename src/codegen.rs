@@ -376,6 +376,18 @@ fn link_object(
 ) -> Result<()> {
     let rt_path = workspace.path().join("libplenty_runtime.a");
     std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
+    // Fuzz and `plenty test` executables are run and debugged where they are
+    // built, never shipped, so they keep their symbols.
+    let unstripped;
+    let options = if (options.fuzz.is_some() || test_hooks) && options.strip {
+        unstripped = crate::CompileOptions {
+            strip: false,
+            ..options.clone()
+        };
+        &unstripped
+    } else {
+        options
+    };
     if let Some(libfuzzer) = &options.fuzz {
         let driver = workspace.path().join("plenty_fuzz_driver.o");
         std::fs::write(&driver, FUZZ_DRIVER)?;
