@@ -1,11 +1,13 @@
 # `std.plot`: a ggplot2-style plotting module
 
-**Status: Not implemented. Design accepted.** Nothing shipped; the
-[decisions](#decisions) record the reviewed choices. No backlog entry exists
-yet. The language facts it relies on are checked against the reference and the
-probes listed in
-[What Plenty offers today](#what-plenty-offers-today). Code fences show proposed
-API and are not compiled.
+**Status: Partially implemented. Design accepted.** The
+[core/SVG reference](../design/stdlib/plot.md) describes the implemented subset:
+tables and record accessors, mappings, six geoms, grouped counts/binning and bar
+positions, basic themes/legends, and streaming SVG. This does not complete
+milestone 1: scales, facets, smoothing, measured layout and the full example
+gallery remain future work, tracked under B80 in the [backlog](../backlog.md).
+The [decisions](#decisions) remain the target design. Code fences here show
+proposed API and are not compiled; use the reference and tutorial for current API.
 
 ## Problem
 

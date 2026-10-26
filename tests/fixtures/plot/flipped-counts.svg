@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="432.00pt" height="288.00pt" viewBox="0 0 432.00 288.00">
+<g font-family="Liberation Sans,Arial,Helvetica,sans-serif" fill="#333333">
+<rect x="0.00" y="0.00" width="432.00" height="288.00" fill="white" stroke="none"/>
+<rect x="55.00" y="35.00" width="257.00" height="203.00" fill="white" stroke="none"/>
+<text x="55.00" y="22.00" font-size="13.20" text-anchor="start"></text>
+<text x="66.68" y="251.20" font-size="8.80" text-anchor="middle">0</text>
+<text x="144.56" y="251.20" font-size="8.80" text-anchor="middle">1</text>
+<text x="222.44" y="251.20" font-size="8.80" text-anchor="middle">2</text>
+<text x="300.32" y="251.20" font-size="8.80" text-anchor="middle">3</text>
+<line x1="55.00" y1="238.00" x2="312.00" y2="238.00" stroke="black" stroke-width="0.50"/>
+<line x1="55.00" y1="35.00" x2="55.00" y2="238.00" stroke="black" stroke-width="0.50"/>
+<text x="50.00" y="172.54" font-size="8.80" text-anchor="end">A</text>
+<text x="50.00" y="107.06" font-size="8.80" text-anchor="end">B</text>
+<line x1="55.00" y1="238.00" x2="312.00" y2="238.00" stroke="black" stroke-width="0.50"/>
+<line x1="55.00" y1="35.00" x2="55.00" y2="238.00" stroke="black" stroke-width="0.50"/>
+<text x="183.50" y="280.00" font-size="11.00" text-anchor="middle">count</text>
+<g transform="translate(14.00,136.50) rotate(-90)">
+<text x="0.00" y="0.00" font-size="11.00" text-anchor="middle">category</text>
+</g>
+<defs><clipPath id="panel"><rect x="55.00" y="35.00" width="257.00" height="203.00"/></clipPath></defs>
+<g clip-path="url(#panel)">
+<g data-geom="bar" opacity="1.00">
+<rect x="144.56" y="74.29" width="155.76" height="58.94" fill="#F8766D" stroke="transparent"/>
+<rect x="144.56" y="139.77" width="77.88" height="58.94" fill="#F8766D" stroke="transparent"/>
+<rect x="66.68" y="139.77" width="77.88" height="58.94" fill="#00BFC4" stroke="transparent"/>
+<rect x="66.68" y="74.29" width="77.88" height="58.94" fill="#00BFC4" stroke="transparent"/>
+</g>
+</g>
+<text x="324.00" y="58.00" font-size="11.00" text-anchor="start">group</text>
+<rect x="324.00" y="65.70" width="11.00" height="11.00" fill="#F8766D" stroke="none"/>
+<text x="339.00" y="74.50" font-size="8.80" text-anchor="start">first</text>
+<rect x="324.00" y="82.20" width="11.00" height="11.00" fill="#00BFC4" stroke="none"/>
+<text x="339.00" y="91.00" font-size="8.80" text-anchor="start">second</text>
+</g>
+</svg>
+

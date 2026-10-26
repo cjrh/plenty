@@ -2562,6 +2562,68 @@ class Normal
 def normal(mean: f64 = 0.0, sigma: f64 = 1.0) -> Result[Normal, StatError]
 ```
 
+## `std.plot`
+
+Layered charts from owned columns or record accessors, validated mappings, grouped statistics, and deterministic streaming SVG. Errors: `PlotError`. [Reference](plot.md).
+
+```text
+enum PlotError
+    Allocation(AllocError) | Format(FormatError) | Bytes(BytesError) | Write(i64, StreamError) | Io(StreamError) | UnknownColumn(str) | DuplicateColumn(str) | ShapeMismatch(str) | MissingAesthetic(str) | WrongKind(str) | Conflict(str) | InvalidSetting(str)
+enum Column
+    Num(list[f64]) | Int(list[i64]) | Text(list[str]) | Bool(list[bool]) | MaybeNum(list[Option[f64]]) | MaybeText(list[Option[str]])
+class Table
+    def share(self) -> Table
+    def height(self) -> i64
+    def names(self) -> Result[list[str], PlotError]
+def table(values: list[(str, Column)]) -> Result[Table, PlotError]
+def columns(values: &dict[str, list[f64]]) -> Result[Table, PlotError]
+enum Field[T]
+    Num(str, BoxedCallable[[&T], f64]) | Int(str, BoxedCallable[[&T], i64]) | Text(str, BoxedCallable[[&T], str]) | Bool(str, BoxedCallable[[&T], bool])
+def num[T, F: Callable[[&T], f64]](name: str, read: F) -> Result[Field[T], PlotError]
+def integer[T, F: Callable[[&T], i64]](name: str, read: F) -> Result[Field[T], PlotError]
+def text[T, F: Callable[[&T], str]](name: str, read: F) -> Result[Field[T], PlotError]
+def flag[T, F: Callable[[&T], bool]](name: str, read: F) -> Result[Field[T], PlotError]
+def rows[T](values: &list[T], fields: list[Field[T]]) -> Result[Table, PlotError]
+class Factor
+def factor(name: str) -> Factor
+class Mapping
+def aes(x: str | Factor = "", y: str | Factor = "", colour: str | Factor = "", color: str | Factor = "", fill: str | Factor = "", group: str = "") -> Mapping
+enum Position
+    Identity | Stack | Dodge | Fill
+def position_identity() -> Position
+def position_stack() -> Position
+def position_dodge() -> Position
+def position_fill() -> Position
+enum Units
+    In | Cm | Mm | Px
+enum Legend
+    Right | Hidden
+class Layer
+class Labels
+class Theme
+enum Component
+    Layer(Layer) | Labels(Labels) | Theme(Theme) | Cartesian(Option[(f64, f64)], Option[(f64, f64)]) | Flip
+enum Unset
+    Unset
+def geom_point(colour: str = "", color: str = "", size: f64 | i64 = 1.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component
+def geom_line(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component
+def geom_path(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component
+def geom_col(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component
+def geom_bar(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component
+def geom_histogram(colour: str = "", color: str = "", fill: str = "", bins: i64 = 30, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component
+def labs(title: str = "", x: str = "", y: str = "", colour: str = "", fill: str = "") -> Component
+def theme_grey(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component
+def theme_minimal(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component
+def theme_classic(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component
+def coord_flip() -> Component
+def coord_cartesian(xlim: (f64, f64) | Unset = Unset.Unset, ylim: (f64, f64) | Unset = Unset.Unset) -> Component
+class Plot
+    def plus(self, components: list[Component]) -> Result[Plot, PlotError]
+    def write_svg[W: Writer](self, writer: &mut W, width: f64 = 6.0, height: f64 = 4.0, units: Units = Units.In, dpi: f64 = 300.0) -> Result[list[str], PlotError]
+    def save(self, path: &str, width: f64 = 6.0, height: f64 = 4.0, units: Units = Units.In, dpi: f64 = 300.0) -> Result[list[str], PlotError]
+def ggplot(data: Table, mapping: Mapping, components: list[Component]) -> Result[Plot, PlotError]
+```
+
 ## `std.linalg`
 
 Dense f64 matrices, products, solves, LU, QR, Cholesky, SVD and eigen decompositions through an optional faer engine. Errors: `AllocError`, `LinalgError`. [Reference](linalg.md).

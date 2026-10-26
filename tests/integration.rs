@@ -454,6 +454,8 @@ mod test_std_markdown;
 mod test_std_math;
 #[path = "test_std_net.rs"]
 mod test_std_net;
+#[path = "test_std_plot.rs"]
+mod test_std_plot;
 #[path = "test_std_random.rs"]
 mod test_std_random;
 #[path = "test_std_ready.rs"]
