@@ -237,13 +237,17 @@ def main() -> Result[(), IoError]:
         assembly
             .split("==== ")
             .find(|part| part.starts_with(&format!("{name} ")))
-            .unwrap()
+            .unwrap_or_else(|| panic!("missing assembly for {name}"))
             .lines()
             .skip(1)
-            .filter(|line| !line.trim().is_empty() && !line.trim().starts_with('#'))
+            // Direct calls carry the callee's symbol as a disassembly comment.
+            // Compare the instruction stream and each callee body separately.
+            .map(|line| line.split('#').next().unwrap().trim_end())
+            .filter(|line| !line.trim().is_empty())
             .collect()
     };
     assert_eq!(section("method_call"), section("function_call"));
+    assert_eq!(section("State.finish"), section("finish"));
 }
 
 #[test]
@@ -271,6 +275,14 @@ fn consuming_methods_do_not_enable_field_moves_or_change_special_hooks() {
         ),
         (
             "class Bad:\n    id: i64\n    def borrow(self: Bad) -> &i64:\n        &self.id",
+            "reference",
+        ),
+        (
+            "class Bad:\n    id: i64\n    def borrow(self: Bad) -> Option[&i64]:\n        Some(&self.id)",
+            "reference",
+        ),
+        (
+            "class Bad:\n    id: i64\n    def borrow(self: Bad, other: &i64) -> Option[&i64]:\n        Some(&self.id)",
             "reference",
         ),
     ] {

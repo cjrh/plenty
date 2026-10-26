@@ -50,19 +50,23 @@ corrected
 The `unwrap` calls assert that the nonempty strings in this example pass
 validation. For input that might fail, recover the owner using `match`, as the
 empty-draft example does. A fallible method does not automatically restore the
-receiver after failure.
+receiver after failure. The same rule applies to a simple finalization method:
 
 ```plenty-error
-import workflow
+class Message:
+    text: str
+
+    def finish(self: Message) -> str:
+        self.text
 
 def main() -> ():
-    draft = workflow.Draft("report")
-    ready = draft.validate().unwrap()
-    print(draft.text).unwrap()
-    drop(ready)
+    message = Message("report")
+    text = message.finish()
+    print(message.text).unwrap()
+    drop(text)
 ```
 ```error
-use of moved binding `draft`
+use of moved binding `message`
 ```
 
 Ownership moves into the method before its other arguments are evaluated.
