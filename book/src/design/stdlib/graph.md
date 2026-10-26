@@ -216,12 +216,8 @@ addition, so very long paths accumulate rounding.
 
 ## Acknowledgements
 
-- [petgraph](https://github.com/petgraph/petgraph): API reference. Node and
-  edge storage, chained adjacency and the algorithm set are modelled on its
-  `Graph`/`StableGraph` and `algo` module. No code was copied.
-- Kahn, "Topological sorting of large networks" (1962): topological order.
-- Tarjan, "Depth-first search and linear graph algorithms" (1972): strongly
-  connected components.
-- Dijkstra (1959), Hart, Nilsson and Raphael (1968, A\*) and Bellman–Ford:
-  shortest paths, from their textbook formulations.
-- Kruskal (1956): minimum spanning forest.
+- API modelled on [petgraph](https://github.com/petgraph/petgraph): node and edge handles, `StableGraph`-style vacant slots, chained adjacency lists and the `algo` set. No code was copied.
+- Topological order uses [Kahn's algorithm](https://doi.org/10.1145/368996.369025) (1962).
+- Strongly connected components use [Tarjan's algorithm](https://doi.org/10.1137/0201010) (1972).
+- Shortest paths use [Dijkstra's algorithm](https://doi.org/10.1007/BF01386390) (1959), [A\*](https://doi.org/10.1109/TSSC.1968.300136) by Hart, Nilsson and Raphael (1968), and [Bellman–Ford](https://doi.org/10.1090/qam/102435) (1958), with negative-cycle recovery as described by [cp-algorithms](https://cp-algorithms.com/graph/finding-negative-cycle-in-graph.html).
+- Minimum spanning forests use [Kruskal's algorithm](https://doi.org/10.1090/S0002-9939-1956-0078686-7) (1956).
