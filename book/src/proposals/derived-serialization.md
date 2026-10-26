@@ -5,7 +5,8 @@ for issue #471. [`std.json`](../design/stdlib/json.md) and
 [`std.toml`](../design/stdlib/toml.md) remain authoritative: neither derives
 codecs, and a typed codec is written by hand over JSON events or a TOML tree.
 No backlog entry exists yet; [B51](../backlog.md) lists derived typed codecs as
-a candidate under B38.
+a candidate under B38. The design questions are decided; see
+[Decisions](#decisions).
 
 ## Problem
 
@@ -182,13 +183,13 @@ expects, so the format parses JSON number text directly into `i64`, `u64` or
 `reject` builds the format's located error from a model-level fault, as
 `json.Decoder.reject` does today. `unknown_key` applies the format's policy for
 a member the type does not declare: skip its value, or return
-`reject(Fault.UnknownField)`. The policy is a decode option, not a per-type
-setting.
+`reject(Fault.UnknownField)`. Rejecting is the default; a per-call decode
+option skips unknown members instead. The policy is never a per-type setting.
 
 | `Fault` | Raised by derived code when |
 | --- | --- |
 | `UnexpectedKind` | The next value is not the requested kind |
-| `MissingField(str)` | A non-`Option` field is absent at the end of an object |
+| `MissingField(str)` | A required field is absent at the end of an object |
 | `DuplicateField(str)` | A field appears twice, whatever the format's duplicate-key policy |
 | `UnknownField(str)` | Raised by the format's `unknown_key` under the reject policy |
 | `UnknownVariant(str)` | An enum tag names no variant |
@@ -214,12 +215,13 @@ Formats supply implementations in their own modules:
 | `u8`..`u64` | unsigned; decoding checks the range | number | integer up to `i64.MAX`, else `Unrepresentable` |
 | `f32`, `f64` | decimal; an integer is accepted when decoding | number; non-finite is the encoder's existing `NonFiniteNumber` | float, including `inf` and `nan` |
 | `str` | text | string | string |
+| `Bytes`, `bytes` | text, standard base64 with padding | string | string |
 | `list[T]`, `set[T]` | array | array | array, or array of tables |
 | `(A, B, ...)` | array of fixed length | array | array |
 | `dict[str, V]` | object, insertion order | object | table |
 | `Box[T]` | `T` | | |
 | Class | object, fields in declaration order | object | table |
-| `Option[T]` field | omitted when `Nothing`; absent or `null` decodes as `Nothing` | | omitted |
+| `Option[T]` field | `null` when `Nothing`; absent or `null` decodes as `Nothing` | `null` | omitted |
 | `Option[T]` elsewhere | `null` or `T` | `null` | `Unrepresentable` for `Nothing` |
 | Nullary variant | its name as text | `"Off"` | `"Off"` |
 | Variant with one payload | object with one key | `{"Fixed": 5}` | `{ Fixed = 5 }` |
@@ -229,8 +231,8 @@ Rejected at the use site with the path to the offending field: references
 (already excluded from fields), closures, generators, handles and
 synchronization types, anonymous sums (their members have no tag names),
 `Result`, `Option[Option[T]]` (its two `Nothing` levels would encode alike),
-`dict` with non-`str` keys, `Bytes` and `bytes`, and any class or enum with
-neither `@serial` nor hand-written hooks:
+`dict` with non-`str` keys (including integer keys), and any class or enum
+with neither `@serial` nor hand-written hooks:
 
 ```text
 error: `Config` cannot be decoded
@@ -251,13 +253,21 @@ instantiation note.
 ### Field names and optional fields
 
 Member names are the declared field names, unchanged. Encoding writes fields in
-declaration order; decoding accepts any order. Missing non-`Option` fields,
-duplicates and (under the default policy) unknown members are errors. Plenty
-has no field defaults, so `Option[T]` is the only way to declare an optional
-member; a defaulted field waits for field defaults in the language.
+declaration order; decoding accepts any order. Missing required fields,
+duplicates and (under the default policy) unknown members are errors. A member
+is optional when its field is `Option[T]`, or when it corresponds to an
+`__init__` parameter with a default (see
+[Invariants and visibility](#invariants-and-visibility)). Plenty has no field
+defaults, so a class without `__init__` has no other optional members.
 
-`Nothing` fields are omitted rather than written as `null`, because TOML has
-no `null` and one derivation should give both formats the same document shape.
+A `Nothing` field is written as `null` in JSON, so every declared member
+appears in the document. TOML has no `null`, so its encoder omits the member
+instead. Both formats decode an absent member as `Nothing`, so a document
+written by one shape reads back in either.
+
+`Bytes` and `bytes` are written as standard base64 text with padding. This
+suits JSON and TOML, which have no byte string; a future binary format can add
+a byte-string method to the model with a default that falls back to base64.
 
 ### Enums
 
@@ -284,20 +294,21 @@ enum it calls the type's hook. This is how a derived `__encode__` handles a
 class. Like `copy` and `==`, they are defined for the types the rule admits
 rather than through a protocol bound, because no protocol can admit `i64`.
 
-Formats add typed entry points beside their existing ones. Names are an open
-question; for example:
+Formats add typed entry points named `dump` and `load` beside their existing
+ones. `options` carries the format's limits and the unknown-member policy:
 
 ```text
-json.to_bytes(&value, &limits) -> Result[Bytes, SerialError[JsonError]]
-json.from_bytes[Config](&source, &limits) -> Result[Config, SerialError[JsonError]]
-json.read_typed[Config, R: Reader](&mut reader, &limits)   # event-driven, bounded window
-toml.to_text(&value, &limits) -> Result[str, SerialError[TomlError]]
-toml.from_text[Config](&text, &limits) -> Result[Config, SerialError[TomlError]]
+json.dump(&value, &options) -> Result[Bytes, SerialError[JsonError]]
+json.load[Config](&source, &options) -> Result[Config, SerialError[JsonError]]
+json.load_from[Config, R: Reader](&mut reader, &options)   # event-driven, bounded window
+toml.dump(&value, &options) -> Result[str, SerialError[TomlError]]
+toml.load[Config](&text, &options) -> Result[Config, SerialError[TomlError]]
 ```
 
-`json.read_typed` decodes straight from events, so memory is the result plus
+`json.load_from` decodes straight from events, so memory is the result plus
 the decoder's window. TOML parses to a tree first and writes from one, as its
-module already requires.
+module already requires. The reader variant's name follows `dump`/`load`; it
+is settled when the entry points are implemented.
 
 ### Errors and field paths
 
@@ -326,15 +337,30 @@ original error. `SerialError` displays as
 
 ### Invariants and visibility
 
-- **Construction.** Derived decoding uses the generated field constructor. A
-  class with an explicit `__init__` may have invariants that field-wise
-  construction would bypass, so `@serial` derives only `__encode__` for it and
-  requires a hand-written `__decode__` that constructs through `__init__`.
+- **Construction.** For a class without `__init__`, derived decoding uses the
+  generated field constructor. An explicit `__init__` may enforce invariants
+  that field-wise construction would bypass, so decoding never bypasses it.
+  When the `__init__` parameters after `self` match the serialized fields
+  exactly, by name and type, `@serial` derives `__decode__` by decoding each
+  member and calling `__init__` with named arguments. A parameter with a
+  default makes its member optional; when the member is absent, the call omits
+  that argument and `__init__` applies the default. An error from `__init__`
+  propagates with the class's path. Otherwise, `@serial` derives only
+  `__encode__`, and the class must define `__decode__` by hand:
+
+  ```text
+  error: `@serial` cannot derive `__decode__` for `Server`
+    note: `Server.__init__` has no parameter for field `tags`
+    help: match the `__init__` parameters to the fields, or write `__decode__`
+  ```
+
+- **Members.** The serialized fields are all declared fields; names are the
+  declared names, with no renaming.
 - **Private fields.** Included. The author opted in, the derived code lives in
   the type's module, and structural printing and equality already include them.
 - **Hook privacy.** Hooks follow the `__del__` rule: the compiler invokes them
   regardless of `pub`, so a module-private configuration class works with
-  `json.from_bytes`. Without this, every serializable type would need to be
+  `json.load`. Without this, every serializable type would need to be
   public, since generic code in `std.json` reaches only public methods.
 - **Destructors.** A failed decode drops the fields already decoded, as a
   failed initializer does; the destructor of the incomplete value never runs.
@@ -375,36 +401,44 @@ many fields could use a length-then-bytes switch; measure first.
 - **Internally or adjacently tagged enums as the default.** Internal tags need
   a reserved member name and buffering when the tag arrives late.
 
-## Open questions
+## Decisions
 
-Each has a recommendation; the user decides.
+Each records the choice and the alternatives considered.
 
-1. **Opt-in spelling.** `@serial` (recommended), separate `@encode` and
-   `@decode`, or a `serial` clause in the class header. A split pair helps
-   types that only ever write; `@serial` with hand-written `__decode__` already
-   covers that.
-2. **Renaming members.** Declared names only (recommended for the first
-   stage), a closed field annotation such as `@serial.name("userId")`, or a
-   per-call naming policy (snake to camel case). Field annotations would be the
-   first annotations on fields.
-3. **Unknown members.** Reject by default with a per-call skip option
-   (recommended, matching the strictness of both parsers), or skip by default
-   as serde and Swift do.
-4. **`Nothing` fields.** Omit (recommended), or write `null` in JSON and omit
-   only in TOML, which makes the two formats' shapes differ.
-5. **Private fields.** Include (recommended), exclude, or reject `@serial` on
-   a class with private fields.
-6. **Hook privacy.** Follow `__del__` (recommended), or require `pub` types
-   and hooks as `std.fmt` display methods do.
-7. **Classes with `__init__`.** Derive encode only and require a written
-   `__decode__` (recommended), or call `__init__` with decoded fields when its
-   parameters match the fields by name.
-8. **Entry point names** in `std.json` and `std.toml`: `to_bytes`/`from_bytes`,
-   `encode_typed`/`decode_typed`, or `dump`/`load`.
-9. **`Bytes`.** Reject (recommended for the first stage), or encode as base64
-   text, which suits JSON but not binary formats.
-10. **`dict` with integer keys.** Reject (recommended), or write keys as
-    decimal text as `serde_json` does.
+1. **Opt-in spelling: `@serial`.** Rejected: separate `@encode` and `@decode`,
+   and a `serial` clause in the class header. A split pair helps types that
+   only ever write; `@serial` with a hand-written `__decode__` covers that.
+2. **Renaming members: declared names only, for now.** Deferred: a closed
+   field annotation such as `@serial.name("userId")`, which would be the first
+   annotation on fields, and a per-call naming policy (snake to camel case).
+3. **Unknown members: reject by default, with a per-call option to skip
+   them.** This matches the strictness of both parsers. Rejected: skipping by
+   default, as serde and Swift do, which hides typos in configuration files.
+4. **`Nothing` fields: `null` in JSON.** Every declared member appears in a
+   JSON document; TOML, which has no `null`, omits the member. Rejected:
+   omitting in both formats for a uniform shape, which makes JSON output less
+   explicit about the schema.
+5. **Private fields: allowed and included.** The author opted in, and printing
+   and equality already include them. Rejected: excluding them, and rejecting
+   `@serial` on a class with private fields.
+6. **Hook privacy: the `__del__` rule.** Generated and hand-written hooks are
+   invoked regardless of `pub`, so private types work. Rejected: requiring
+   `pub` types and hooks, as `std.fmt` display methods do.
+7. **Classes with `__init__`: decode through `__init__` when its parameters
+   exactly match the serialized fields; otherwise require a hand-written
+   `__decode__`.** Parameters with defaults make their members optional, and
+   an absent member takes the default. Rejected: deriving encode only for every
+   class with `__init__`, which forces hand-written decoders for the common
+   case of a validating constructor over the fields; and field-wise
+   construction that bypasses `__init__`.
+8. **Entry points: `dump` and `load`** in `std.json` and `std.toml`. Rejected:
+   `to_bytes`/`from_bytes` and `to_text`/`from_text`, which differ between the
+   two modules, and `encode_typed`/`decode_typed`, which collide with the
+   `Encoder`/`Decoder` vocabulary.
+9. **`Bytes`: base64 text.** Rejected for now: rejecting `Bytes` fields.
+   Binary formats can add a byte-string model method later.
+10. **`dict` with integer keys: rejected for now.** Deferred: writing keys as
+    decimal text, as `serde_json` does.
 
 ## Implementation sketch
 
@@ -417,11 +451,13 @@ Each stage is usable on its own.
 2. **Hooks and entry points.** Accept a receiver-less `__decode__` and an
    `__encode__` with the fixed signatures; expand `std.serial.encode` and
    `decode` per instance for built-ins and hooks; diagnostics naming the
-   offending field path. Add `json.to_bytes`, `from_bytes`, `read_typed`.
+   offending field path. Add `json.dump`, `load` and the reader variant.
 3. **`@serial`.** Parse the annotation on classes and enums and generate hook
    bodies as ordinary checked operations, so ownership, effects and
-   diagnostics need no special path. `--dump` shows the generated bodies.
-4. **TOML.** Tree builder and tree cursor; `toml.to_text` and `from_text`.
+   diagnostics need no special path; decoding through a matching `__init__`
+   is an ordinary call with named arguments. `--dump` shows the generated
+   bodies.
+4. **TOML.** Tree builder and tree cursor; `toml.dump` and `load`.
 5. **Docs.** Reference pages for `std.serial`, the `json` and `toml` additions,
    classes and enums; a tutorial lesson that replaces a hand-written codec.
 
