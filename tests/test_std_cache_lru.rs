@@ -234,41 +234,16 @@ fn copying_lookups_reject_only_calls_with_affine_values() {
 }
 
 #[test]
-fn check_all_methods_reports_lookups_the_value_type_cannot_support() {
-    // `--check-all-methods` checks `get` and `peek` for the instance although
-    // the program calls neither (issue #517), and reports the first at the
-    // instantiation.
-    let accepted = "mut cache = LruCache[i64, list[i64]](1)?\ndrop(cache.put(1, [1]?)?)";
-    let source = program(accepted);
-    let line = source
-        .lines()
-        .position(|line| line.contains("LruCache[i64, list[i64]](1)"))
-        .unwrap()
-        + 1;
+fn check_all_methods_skips_standard_library_types() {
+    // `--check-all-methods` checks only types the program declares (issue
+    // #517). `get` copies `V`, which `list[i64]` cannot be, yet the program
+    // never calls it, so the instance is accepted.
+    let source = program("mut cache = LruCache[i64, list[i64]](1)?\ndrop(cache.put(1, [1]?)?)");
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     std::fs::write(&path, &source).unwrap();
-    plenty::check_file(&path, None).unwrap();
     let options = plenty::CheckOptions { all_methods: true };
-    let error = plenty::check_file_with_options(&path, None, true, &options)
-        .unwrap_err()
-        .to_string();
-    let instance = "std.cache.lru.LruCache[i64, list[i64]].get";
-    assert!(
-        error.starts_with(&format!(
-            "{}:{line}:17: `{instance}` copies `V`, but `list[i64]` cannot be copied\n",
-            path.display()
-        )),
-        "{error}"
-    );
-    assert!(
-        error.ends_with(&format!(
-            "note: in instantiation `{instance}`: cannot move out of indexed storage\n  \
-             note: `{instance}` is checked because of --check-all-methods; \
-             the program does not use it"
-        )),
-        "{error}"
-    );
+    plenty::check_file_with_options(&path, None, true, &options).unwrap();
 }
 
 #[test]

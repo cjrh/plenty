@@ -1113,3 +1113,61 @@ def lists() -> Result[Cell[list[i64]], AllocError]:
         "unexpected argument \"--check-all-methods\"",
     );
 }
+
+#[test]
+fn check_all_methods_skips_types_from_dependencies() {
+    // Only the checked package's own generic types have every method checked
+    // (issue #517); a dependency's author chose which methods each instance
+    // supports.
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "cells",
+        "",
+        &[(
+            "src/lib.plenty",
+            "pub class Cell[T]:
+    pub value: T
+    pub def get(self) -> T:
+        self.value
+
+pub def lists() -> Result[Cell[list[i64]], AllocError]:
+    Ok(Cell([1]?))
+",
+        )],
+    );
+    let main = "import cells
+
+def main() -> Result[(), AllocError]:
+    drop(cells.lists()?)
+    Ok(())
+";
+    package(
+        dir.path(),
+        "app",
+        "cells = { path = \"../cells\" }\n",
+        &[("src/main.plenty", main)],
+    );
+    let app = dir.path().join("app");
+    succeeds(&app, &["check", "--check-all-methods"]);
+    write(
+        &app.join("src/main.plenty"),
+        &format!(
+            "{main}
+class Own[T]:
+    value: T
+    def get(self) -> T:
+        self.value
+
+def own() -> Result[Own[list[i64]], AllocError]:
+    Ok(Own([1]?))
+"
+        ),
+    );
+    succeeds(&app, &["check"]);
+    fails(
+        &app,
+        &["check", "--check-all-methods"],
+        "main.plenty:12:21: `Own[list[i64]].get` copies `T`, but `list[i64]` cannot be copied",
+    );
+}

@@ -405,15 +405,28 @@ impl Engine {
         }
     }
 
-    /// Queues every unused instance method, for `--check-all-methods`, and
-    /// returns whether there were any. No use exists, so an error is
-    /// reported where the method's type was instantiated (issue #517).
+    /// Queues every unused instance method of a type the program's own
+    /// package declares, for `--check-all-methods`, and returns whether there
+    /// were any. No use exists, so an error is reported where the method's
+    /// type was instantiated (issue #517).
     pub(super) fn demand_unused_methods(&mut self) -> bool {
+        // Types from `std` and dependencies are skipped: their authors chose
+        // which methods each instance supports, such as a copying `get` on a
+        // container whose values cannot be copied.
+        let own = |source: &Arc<str>| {
+            !self.standard_sources.contains(source)
+                && self
+                    .source_root
+                    .as_deref()
+                    .is_none_or(|root| std::path::Path::new(&**source).starts_with(root))
+        };
         // Symbols number methods as their types were instantiated, so the
         // first error reported does not depend on hash order.
         let mut unused: Vec<_> = self
             .unused_methods
             .iter()
+            // A standalone source has no path.
+            .filter(|(_, method)| method.function.at.source().is_none_or(|s| own(&s)))
             .map(|(name, method)| (method.symbol, name.clone()))
             .collect();
         unused.sort_unstable();

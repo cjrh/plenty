@@ -109,16 +109,23 @@ modes accept `--check-all-methods`
 ([`plenty --check`, `--check-module`](../../toolchain/01-building/commands.md),
 and [`plenty check`](../../toolchain/01-building/packages.md)): after the used
 methods, every remaining method of every class and enum instance the program
-creates is checked as if it were called, including methods of standard-library
-types. Such an error has no use, so it is reported where the program first
-required the method's type, such as a constructor call or a type annotation,
-with a note naming the flag:
+creates is checked as if it were called. Such an error has no use, so it is
+reported where the program first required the method's type, such as a
+constructor call or a type annotation, with a note naming the flag:
 
 ```text
 main.plenty:8:9: `Cell[list[i64]].get` copies `T`, but `list[i64]` cannot be copied
   main.plenty:4:9: note: in instantiation `Cell[list[i64]].get`: cannot move out of a field
   note: `Cell[list[i64]].get` is checked because of --check-all-methods; the program does not use it
 ```
+
+The flag checks only types the program's own package declares: the entry
+file's directory (or `--root`) for `plenty --check`, and the package's `src/`
+for `plenty check`. Generic types from `std` and from dependencies keep
+per-use checking, because their authors chose which methods each instance
+supports. `LruCache[K, V].get` copies `V`, for example, so an
+`LruCache[str, list[i64]]` is accepted as long as the program does not call
+`get`. An own type is still checked when its type arguments come from `std`.
 
 The flag checks only instances: a generic class or enum with no instance stays
 unchecked, since its bodies are checked with concrete type arguments and there

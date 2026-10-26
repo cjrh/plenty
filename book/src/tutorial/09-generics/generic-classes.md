@@ -63,6 +63,6 @@ and the reason.
 
 When you write a generic class for others to use, `plenty --check
 --check-all-methods FILE` also checks the methods your program never calls,
-for every instance it creates. The
+for every instance it creates of a generic type it declares. The
 [generics reference](../../design/language/07-generics/index.md#checking-every-method)
 describes the check.

@@ -22,9 +22,10 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 | `plenty --version` (`-V`) | Print the compiler's version and target: `plenty X.Y.Z (x86_64-unknown-linux-gnu)`, where `X.Y.Z` is the installed version |
 
 `--check-all-methods` with `--check` or `--check-module` also checks every
-method of every generic class and enum instance the program creates, including
-methods nothing uses, which are otherwise
+method of every instance the program creates of a generic class or enum it
+declares, including methods nothing uses, which are otherwise
 [checked only when used](../../language/07-generics/index.md#checking-every-method).
+Types from `std` keep per-use checking.
 Other modes reject it: compiling would emit those methods, and a reused cached
 object would skip their check.
 
