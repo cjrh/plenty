@@ -293,6 +293,7 @@ boundaries remain narrow.
 | B69 | Archives — issue #106 | Done: `std.archive` TAR (ustar/pax/GNU) and ZIP (ZIP64, stored/DEFLATE) streaming readers and writers, and confined extraction through a staging directory under an explicit `Policy`. Candidates: link creation under an explicit policy, mode/time restoration, streaming ZIP entry writes with data descriptors. |
 | B70 | SQLite — issue #107 | Done: [std.db.sqlite](design/stdlib/sqlite.md) with vendored SQLite 3.54.0, typed prepared statements, owned transactions that roll back on drop, copied-out values and an explicit length limit. Candidates: route SQLite allocation through the runtime allocator (`SQLITE_CONFIG_MALLOC`) for accounting and failure injection; user-defined functions; backup API. |
 | B78 | Diffs — issue #469 | Done: [std.diff](design/stdlib/diff.md) Myers (default) and patience diffs over lists, `Bytes`, and line/word/char tokens, with GNU-compatible unified output (local PR #589). Follow-ups: a cost limit or deadline for large dissimilar inputs; diffs in `std.test` failure messages (with B57). |
+| B79 | Markdown — issue #470 | Done: [std.markdown](design/stdlib/markdown.md) is a Plenty port of commonmark.js targeting CommonMark 0.31.2: an event stream and HTML renderer under input, depth and output limits (local PR #595). Follow-ups: GFM tables, strikethrough and task lists; parser throughput (about 1 MB/s). |
 
 ## Reconciled completed work
 
