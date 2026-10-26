@@ -709,13 +709,31 @@ def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Resul
 
 ## `std.encoding`
 
-Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes`. Errors: `EncodingError`. [Reference](encoding.md).
+Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer packing with explicit byte order, over `std.bytes`. Errors: `EncodingError`. [Reference](encoding.md).
 
 ```text
 enum EncodingError
-    OutOfRange | InvalidLength | InvalidByte(i64) | InvalidPadding(i64) | NonCanonical(i64) | Allocation(AllocError)
+    OutOfRange | InvalidLength | InvalidByte(i64) | InvalidPadding(i64) | NonCanonical(i64) | InvalidAlphabet | Allocation(AllocError)
 enum Endian
     Little | Big
+class Encoding
+    def encode(self, source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+    def decode(self, source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+    def text(self, source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+    def from_text(self, text: &str) -> Result[Bytes, EncodingError]
+def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]
+def base32_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base32_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base32_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base32_from_text(text: &str) -> Result[Bytes, EncodingError]
+def base32hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base32hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base32hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base32hex_from_text(text: &str) -> Result[Bytes, EncodingError]
+def base64mime_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base64mime_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base64mime_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]
 def hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
 def hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
 def hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
