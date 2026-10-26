@@ -1,11 +1,13 @@
-//! Native back end of `std.compress`: DEFLATE, zlib and gzip streams from the
-//! zlib-rs crate. Nothing here implements compression or checksums; buffering,
+//! Native back end of `std.compress`: DEFLATE, zlib and gzip from zlib-rs,
+//! plus Brotli through the reference C codec's fallible callbacks. Nothing
+//! here implements compression or checksums; buffering,
 //! limits and the trailing-data policy live in `std.compress`.
 //!
 //! A codec lives in a runtime object whose prefix is byte storage, so
 //! `std.compress` holds it as an ordinary `Bytes`. That buffer is the codec's
 //! pending output: its capacity is reserved once, at creation, and a step
-//! writes only into the reserved space, so stepping never allocates.
+//! writes only into the reserved space. zlib-rs stepping never allocates;
+//! Brotli can grow its internal working memory and reports failures explicitly.
 //! `std.compress` drains it with ordinary byte operations. Every operation
 //! checks the object's destructor and stops the process on any other buffer.
 //!
@@ -19,6 +21,8 @@ use zlib_rs::c_api::z_stream;
 use zlib_rs::deflate::{self, DeflateConfig, DeflateStream};
 use zlib_rs::inflate::{self, InflateConfig, InflateStream};
 use zlib_rs::{DeflateFlush, InflateFlush, ReturnCode};
+
+mod brotli;
 
 /// Step results shared with `std.compress`; nonnegative values are counts.
 const CORRUPT: i64 = -1;
@@ -93,6 +97,9 @@ unsafe fn release(state: *mut State) {
 /// Kinds 1-3 encode and 4-6 decode raw DEFLATE, zlib and gzip in that order;
 /// `std.compress` has validated the level and the capacity.
 fn create(kind: u128, level: i64, capacity: usize) -> Result<u128, AllocError> {
+    if kind == 7 || kind == 8 {
+        return brotli::create(kind == 7, level, capacity);
+    }
     let (role, format) = match kind {
         1..=3 => (Role::Encoder, kind),
         4..=6 => (Role::Decoder, kind - 3),
@@ -234,6 +241,9 @@ unsafe fn failure(state: *mut State, code: ReturnCode) -> i64 {
 unsafe fn step(value: u128, input: &[u8]) -> i64 {
     // SAFETY: forwarded from the caller.
     unsafe {
+        if brotli::owns(value) {
+            return brotli::step(value, input);
+        }
         let state = state(value);
         if (*state).phase != Phase::Live {
             return FINISHED;
@@ -255,6 +265,9 @@ unsafe fn step(value: u128, input: &[u8]) -> i64 {
 unsafe fn flush(value: u128, mode: i64) -> i64 {
     // SAFETY: forwarded from the caller.
     unsafe {
+        if brotli::owns(value) {
+            return brotli::flush(value, mode);
+        }
         let state = state(value);
         if (*state).role != Role::Encoder {
             crate::fail("std.compress decoders do not flush");
@@ -290,6 +303,9 @@ unsafe fn flush(value: u128, mode: i64) -> i64 {
 unsafe fn restart(value: u128) -> bool {
     // SAFETY: forwarded from the caller.
     unsafe {
+        if brotli::owns(value) {
+            return false;
+        }
         let state = state(value);
         if (*state).role != Role::Decoder || (*state).phase == Phase::Unstarted {
             return false;
@@ -329,7 +345,13 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             }
             321 => step(a, slice(b, c, d)) as u128,
             322 => flush(a, b as i64) as u128,
-            323 => ((*state(a)).phase == Phase::Ended) as u128,
+            323 => {
+                if brotli::owns(a) {
+                    brotli::ended(a) as u128
+                } else {
+                    ((*state(a)).phase == Phase::Ended) as u128
+                }
+            }
             324 => restart(a) as u128,
             325 => zlib_rs::crc32::crc32(a as u32, slice(b, c, d)) as u128,
             _ => crate::fail("unknown compression operation"),

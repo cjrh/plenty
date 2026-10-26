@@ -458,22 +458,237 @@ fn codec_states_cannot_be_forged() {
 }
 
 #[test]
+fn brotli_round_trips_all_qualities_binary_empty_and_large_output() {
+    native(
+        r#"
+empty = std.bytes.empty()?
+data = noise(40000)?
+text = repeated("Brotli is a streaming format. ", 10000)?
+for quality in range(12):
+    print(trip(Format.Brotli, quality, &empty)?, trip(Format.Brotli, quality, &data)?, trip(Format.Brotli, quality, &text)?)?
+print(shown(std.compress.compress(Format.Brotli, &empty, -1))?)?
+print(shown(std.compress.compress(Format.Brotli, &empty, 12))?)?
+print(shown(std.compress.compress(Format.Gzip, &empty, 10))?)?
+"#,
+        &format!(
+            "{}\nOutOfRange\nOutOfRange\nOutOfRange",
+            ["True True True"; 12].join("\n")
+        ),
+    );
+}
+
+#[test]
+fn brotli_independent_fixtures_truncation_trailing_data_and_exact_limit() {
+    // Generated independently by Python Brotli 1.2.0, quality 11. The second
+    // fixture consumes its compressed input before all 100,000 output bytes
+    // fit the 16 KiB output window; an empty-input drain is essential.
+    native(
+        r#"
+fox = unhex("8b158054686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f670a03")?
+print(std.compress.decompress(Format.Brotli, &fox, 44)?.to_text()?)?
+packed = unhex("5b9f86815f22281e0b04b2fc0200")?
+plain = std.compress.decompress(Format.Brotli, &packed, 100000)?
+print(plain.len(), plain.get(99999)?)?
+print(shown(std.compress.decompress(Format.Brotli, &packed, 99999))?)?
+for stop in range(packed.len()):
+    prefix = packed.slice(0, stop)?
+    print(shown(std.compress.decompress(Format.Brotli, &prefix, 100000))?)?
+mut trailing = packed.copy()?
+trailing.push(0u8)?
+print(shown(std.compress.decompress(Format.Brotli, &trailing, 100000))?)?
+mut concatenated = packed.copy()?
+concatenated.extend(&packed)?
+print(shown(std.compress.decompress(Format.Brotli, &concatenated, 200000))?)?
+invalid = unhex("ff")?
+print(shown(std.compress.decompress(Format.Brotli, &invalid, 100000))?)?
+"#,
+        &format!(
+            "The quick brown fox jumps over the lazy dog\n\n100000 65\nLimitExceeded\n{}\nTrailingData\nTrailingData\nCorrupt",
+            vec!["Truncated"; 14].join("\n")
+        ),
+    );
+}
+
+#[test]
+fn brotli_short_io_flush_finish_retry_and_final_output_drain() {
+    native(
+        r#"
+text = repeated("short reads and writes ", 500)?
+mut writer = std.compress.compressor(Format.Brotli, Drip(std.bytes.empty()?, False, False), 5)?
+std.io.write_all(&mut writer, &text, 0, 5000)?
+writer.flush()?
+std.io.write_all(&mut writer, &text, 5000, text.len())?
+writer.inner.broken = True
+print(str.repr(writer.finish())?)?
+writer.inner.broken = False
+writer.finish()?
+writer.finish()?
+print(str.repr(writer.write(&text, 0, 1))?)?
+packed = writer.inner.out.copy()?
+mut reader = std.compress.decompressor(Format.Brotli, Trickle(packed, 0, False), 100000)?
+mut out = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut out, 100000)?)?
+print(hex(&out)? == hex(&text)?)?
+print(str.repr(reader.failure())?)?
+large = unhex("5b9f86815f22281e0b04b2fc0200")?
+mut expanding = std.compress.decompressor(Format.Brotli, Trickle(large, 0, False), 100000)?
+mut expanded = std.bytes.empty()?
+print(std.io.read_up_to(&mut expanding, &mut expanded, 100001)?, expanded.get(99999)?)?
+"#,
+        "Result[(), std.io.StreamError].Err(std.io.StreamError.Io(IoError.Other))\nResult[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.Closed))\n11500\nTrue\nOption[E].Nothing\n100000 65",
+    );
+}
+
+#[test]
+fn brotli_sync_flush_and_sticky_reader_failure() {
+    native(
+        r#"
+text = std.bytes.from_text("first part")?
+mut writer = std.compress.compressor(Format.Brotli, std.io.cursor(std.bytes.empty()?), 5)?
+std.io.write_all(&mut writer, &text, 0, text.len())?
+writer.flush()?
+mut reader = std.compress.decompressor(Format.Brotli, std.io.cursor(writer.inner.data.copy()?), 100)?
+mut out = std.bytes.empty()?
+match std.io.read_up_to(&mut reader, &mut out, 100):
+    case Ok(_):
+        print("wrong")?
+    case Err(partial):
+        print(str.repr(partial.cause)?)?
+print(out.to_text()?)?
+print(str.repr(reader.failure())?)?
+mut scratch = std.bytes.with_capacity(1)?
+scratch.resize(1, 0u8)?
+print(str.repr(reader.read(&mut scratch, 0, 1))?)?
+"#,
+        "std.io.StreamError.UnexpectedEof\nfirst part\nOption[E].Some(Truncated)\nResult[i64, std.io.StreamError].Err(std.io.StreamError.UnexpectedEof)",
+    );
+}
+
+#[test]
+fn brotli_malformed_inputs_are_bounded() {
+    native(
+        r#"
+fixture = unhex("5b9f86815f22281e0b04b2fc0200")?
+for index in range(fixture.len()):
+    for bit in range(8):
+        mut changed = fixture.copy()?
+        original = changed.get(index)?
+        changed.set(index, original ^ (1u8 << u8(bit)))?
+        drop(std.compress.decompress(Format.Brotli, &changed, 4096))
+for size in range(256):
+    data = noise(size)?
+    drop(std.compress.decompress(Format.Brotli, &data, 4096))
+print("bounded")?
+"#,
+        "bounded",
+    );
+}
+
+#[test]
+fn python_brotli_and_plenty_read_each_others_streams() {
+    let available = std::process::Command::new("python3")
+        .args(["-c", "import brotli"])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !available {
+        eprintln!(
+            "skipped live Brotli interop: Python brotli is unavailable; fixed fixtures still run"
+        );
+        return;
+    }
+    let data = sample_text();
+    let packed = system("python3", &["-c", "import brotli,sys;sys.stdout.buffer.write(brotli.compress(sys.stdin.buffer.read(),quality=9))"], &data).unwrap();
+    let decoder = program(
+        r#"
+mut reader = std.compress.decompressor(Format.Brotli, std.io.stdin(), 10000000)?
+mut writer = std.io.stdout()
+mut scratch = std.bytes.with_capacity(777)?
+scratch.resize(777, 0u8)?
+std.io.copy_all(&mut reader, &mut writer, &mut scratch)?
+"#,
+    );
+    assert_eq!(piped(&decoder, &packed), data);
+    let encoder = program(
+        r#"
+mut reader = std.io.stdin()
+mut writer = std.compress.compressor(Format.Brotli, std.io.stdout(), 5)?
+mut scratch = std.bytes.with_capacity(1000)?
+scratch.resize(1000, 0u8)?
+std.io.copy_all(&mut reader, &mut writer, &mut scratch)?
+writer.finish()?
+"#,
+    );
+    let ours = piped(&encoder, &data);
+    assert_eq!(system("python3", &["-c", "import brotli,sys;sys.stdout.buffer.write(brotli.decompress(sys.stdin.buffer.read()))"], &ours).unwrap(), data);
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn brotli_allocation_failures_and_partial_stream_drops_are_leak_free() {
+    let mut helpers = String::new();
+    let mut body = String::from(
+        "data = repeated(\"allocation failure \", 500)?\npacked = std.compress.compress(Format.Brotli, &data, 5)?\n",
+    );
+    for budget in 0..100 {
+        body.push_str(&format!("probe{budget}(&data, &packed)?\n"));
+        helpers.push_str(&format!(r#"
+def probe{budget}(data: &Bytes, packed: &Bytes) -> Result[(), AllocError | IoError | std.bytes.BytesError | CompressError | StreamError | std.io.Partial]:
+    print("__test_fail_allocations_after_{budget}__")?
+    encoded = std.compress.compress(Format.Brotli, data, 5)
+    print("__test_restore_allocations__")?
+    match encoded:
+        case Ok(value):
+            print("encoded")?
+        case Err(error):
+            print(error)?
+    print("__test_fail_allocations_after_{budget}__")?
+    decoded = std.compress.decompress(Format.Brotli, packed, 10000)
+    print("__test_restore_allocations__")?
+    match decoded:
+        case Ok(value):
+            print("decoded")?
+        case Err(error):
+            print(error)?
+    mut unfinished = std.compress.compressor(Format.Brotli, std.io.cursor(std.bytes.empty()?), 5)?
+    std.io.write_all(&mut unfinished, data, 0, data.len())?
+    mut partial = std.compress.decompressor(Format.Brotli, std.io.cursor(packed.copy()?), 10000)?
+    mut scratch = std.bytes.with_capacity(1)?
+    scratch.resize(1, 0u8)?
+    drop(partial.read(&mut scratch, 0, 1)?)
+    Ok(())
+"#));
+    }
+    let out = output(&format!("{}\n{helpers}", program(&body)));
+    assert_eq!(out.lines().count(), 200);
+    assert!(out.contains("encoded") && out.contains("decoded") && out.contains("OutOfMemory"));
+    for line in out.lines() {
+        assert!(
+            line == "encoded" || line == "decoded" || line == "Allocation(AllocError.OutOfMemory)",
+            "{line}"
+        );
+    }
+}
+
+#[test]
 fn compressing_works_in_worker_threads() {
     let source = format!(
         r#"{HEADER}
-def work(text: str) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.compress.CompressError]:
+def work(text: str, format: Format) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.compress.CompressError]:
     data = std.bytes.from_text(text)?
-    packed = std.compress.compress(Format.Gzip, &data, 6)?
-    print(std.compress.decompress(Format.Gzip, &packed, 100)?.to_text()?)?
+    packed = std.compress.compress(format, &data, 6)?
+    print(std.compress.decompress(format, &packed, 100)?.to_text()?)?
     Ok(())
 
 def main() -> Result[(), AllocError | IoError | ThreadError]:
-    with spawn(work, "from a thread")?:
+    with spawn(work, "from a thread", Format.Gzip)?:
+        pass
+    with spawn(work, "Brotli from a thread", Format.Brotli)?:
         pass
     Ok(())
 "#
     );
-    assert_eq!(output(&source), "from a thread");
+    assert_eq!(output(&source), "from a thread\nBrotli from a thread");
 }
 
 #[cfg(feature = "runtime-checks")]

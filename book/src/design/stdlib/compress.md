@@ -1,10 +1,11 @@
 # std.compress
 
 `import std.compress` compresses and decompresses DEFLATE (RFC 1951), zlib
-(RFC 1950) and gzip (RFC 1952) data, whole [`std.bytes`](bytes.md) buffers at
+(RFC 1950), gzip (RFC 1952) and Brotli (RFC 7932) data, whole [`std.bytes`](bytes.md) buffers at
 once or as [`std.io`](io.md) streams. It has one error type, `CompressError`.
 
-The codecs and the CRC-32 are the `zlib-rs` crate, compiled into the runtime.
+DEFLATE codecs and CRC-32 use `zlib-rs`; [Brotli](compress-brotli.md) uses the
+reference codec with fallible allocation callbacks, bundled into the runtime.
 The Plenty module owns buffering, the output limit, and the policy for input
 that follows a stream. The module is available on the supported x86-64 Linux
 GNU target.
@@ -21,10 +22,13 @@ GNU target.
 | `crc32(seed: i64, data: &Bytes, start: i64, stop: i64)` | `Result[i64, CompressError]` | The CRC-32 of `data[start:stop]`, continuing from `seed` |
 | `stream_error(error: CompressError)` | `StreamError` | How a `Decompressor` reports `error` |
 
-`Format` is `Deflate` (raw, no header or checksum), `Zlib` (Adler-32), or
-`Gzip` (CRC-32 and length). `level` runs from 0, which stores the data
+`Format` is `Deflate` (raw, no header or checksum), `Zlib` (Adler-32),
+`Gzip` (CRC-32 and length), or `Brotli` (no checksum). For DEFLATE formats,
+`level` runs from 0, which stores the data
 uncompressed in blocks, to 9, which is smallest and slowest; 6 is a usual
-choice. A level outside 0 to 9 or a negative `limit` is `OutOfRange`.
+choice. Brotli takes qualities 0–11; 5 is a useful starting point, while 10–11
+spend substantially more time and memory. A level outside its format's range
+or a negative `limit` is `OutOfRange`.
 
 `crc32` is the gzip and zip checksum; start a fresh sum with seed 0. The
 check value of the nine bytes `123456789` is 3421780262. `seed` must lie in
@@ -41,9 +45,9 @@ A decoder accepts exactly one stream, with these rules:
   and length are checked.
 - **Trailing data.** Any other byte after the end of a stream is
   `TrailingData`, including the zero padding some tools append to gzip files.
-  Raw DEFLATE and zlib streams never continue.
+  Raw DEFLATE, zlib and Brotli streams never continue.
 - **Integrity.** A gzip CRC-32 or length mismatch, a zlib Adler-32 mismatch,
-  and a gzip header CRC mismatch are `Checksum`. Raw DEFLATE has no checksum.
+  and a gzip header CRC mismatch are `Checksum`. Raw DEFLATE and Brotli have no checksum.
   Any other malformed input, a zlib stream that needs a preset dictionary, or
   a stream of another format is `Corrupt`.
 - **Output limit.** Producing more than `limit` bytes in total, counted across
@@ -124,9 +128,11 @@ input and cannot hand over an `inner` stream, as
 | `clear()` | `()` | Empty the pending output |
 | `complete()` | `bool` | Whether the input so far is a complete stream |
 
-Empty the output with `clear` before each `step`; a step that returns 0
-with no output needs more input. Errors are not sticky: after a failure,
-discard the `Inflater`.
+Empty the output with `clear` before each `step`. After consuming the input,
+call `step` with `start == stop` until `complete()` or a step produces no output:
+Brotli can have pending decoded bytes after consuming its final input byte.
+A step that returns 0 with no output needs more input unless complete. Discard
+the `Inflater` after any error; do not rely on retries of codec errors.
 
 ## Errors
 
@@ -167,7 +173,9 @@ not made by `std.compress` they stop the program with
 
 ## Costs
 
-Memory is fixed when a stream is made and does not grow with the data:
+For the DEFLATE formats, memory is fixed when a stream is made and does not
+grow with the data. Brotli's different allocation contract is described
+[separately](compress-brotli.md#memory-and-failures):
 
 | Value | Allocates |
 |---|---|
@@ -182,9 +190,9 @@ Memory is fixed when a stream is made and does not grow with the data:
 | `crc32` | Nothing | Linear in the range |
 
 Inputs are read directly from the caller's buffer; output is copied once,
-from the codec's buffer to `inner` or the caller's buffer. Each codec makes
-one allocation for its state, so a failure is reported as `Allocation` and
-leaves nothing allocated.
+from the codec's buffer to `inner` or the caller's buffer. Allocation failures
+are reported as `Allocation`; dropping a failed or unfinished codec releases
+its state and buffers.
 
 ## Supply
 
@@ -217,11 +225,11 @@ through their own runtime entry symbols, so a program that does not use
 
 ## Limits
 
-- No bzip2, xz, zstd, brotli, or lz4. ZIP and TAR are in
+- No bzip2, xz, zstd, or lz4. ZIP and TAR are in
   [`std.archive`](archive.md).
 - No preset dictionaries, compression strategies, or window and memory
-  settings; every encoder uses a 32 KiB window and zlib's default memory
-  level.
+  settings; DEFLATE encoders use a 32 KiB window and zlib's default memory
+  level, and Brotli uses the standard 4 MiB encoder window.
 - No access to gzip header fields.
 - Trailing padding after gzip members is an error, not ignored.
 - No seeking within compressed data.

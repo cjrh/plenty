@@ -346,8 +346,10 @@ totals they keep.
 - No cookie jar. Read `Set-Cookie` fields from `response.head` and send a
   `Cookie` field yourself; the client drops it when the origin changes.
 - No content decoding. The client does not send `Accept-Encoding`, so
-  servers send identity bodies; a program that asks for `gzip` decodes the
-  body itself with [`std.compress`](compress.md) under its own size limit.
+  servers normally send identity bodies. A program that asks for `gzip` or
+  `br` checks the response's actual coding and decodes the body itself with
+  [`std.compress`](compress.md) under an independent decoded-size limit.
+  See [Brotli and HTTP](compress-brotli.md#http).
 - No HTTP/2, and no proxy for `https` other than an `http` proxy with
   `CONNECT`.
 - No protocol upgrades on pooled connections. WebSocket clients are in

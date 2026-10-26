@@ -259,11 +259,11 @@ def drain_by[T, F: Callable[[&T, &T], bool]](heap: HeapBy[T, F]) -> Generator[T]
 
 ## `std.compress`
 
-Bounded gzip, zlib, and DEFLATE compression of buffers and `std.io` streams, and CRC-32. Errors: `CompressError`. [Reference](compress.md).
+Bounded gzip, zlib, DEFLATE and Brotli compression of buffers and `std.io` streams, and CRC-32. Errors: `CompressError`. [Reference](compress.md).
 
 ```text
 enum Format
-    Deflate | Zlib | Gzip
+    Deflate | Zlib | Gzip | Brotli
 enum CompressError
     OutOfRange | Corrupt | Checksum | Truncated | TrailingData | LimitExceeded | Allocation(AllocError)
 def stream_error(error: CompressError) -> StreamError
@@ -592,6 +592,40 @@ def column_i64_nullable(name: &str, values: &list[Option[i64]]) -> Result[Column
 def column_f64_nullable(name: &str, values: &list[Option[f64]]) -> Result[Column, DataFrameError]
 def column_bool_nullable(name: &str, values: &list[Option[bool]]) -> Result[Column, DataFrameError]
 def column_str_nullable(name: &str, values: &list[Option[str]]) -> Result[Column, DataFrameError]
+```
+
+## `std.db.kv`
+
+Ordered byte-key maps, atomic transactions and bounded scans over a versioned SQLite store. Errors: `KvError`. [Reference](kv.md).
+
+```text
+enum Mode
+    ReadOnly | ReadWrite | Create
+enum KvError
+    Database(sqlite.DbError) | Allocation(AllocError) | InvalidName | InvalidLimit | ForeignDatabase | UnsupportedVersion(i64)
+const format_version: i64 = 1
+class Entry
+    key: Bytes
+    value: Bytes
+class Scan
+    def next(self: &mut Scan) -> Result[Option[Entry], KvError]
+class Transaction
+    def commit(self: &mut Transaction) -> Result[(), KvError]
+    def rollback(self: &mut Transaction) -> Result[(), KvError]
+class Store
+    def begin(self: &mut Store, immediate: bool = True) -> Result[Transaction, KvError]
+    def set_busy_timeout(self: &mut Store, milliseconds: i64) -> Result[(), KvError]
+    def close(self: &mut Store) -> Result[(), KvError]
+    def put(self: &mut Store, table: &str, key: &Bytes, value: &Bytes) -> Result[(), KvError]
+    def get(self: &mut Store, table: &str, key: &Bytes) -> Result[Option[Bytes], KvError]
+    def contains(self: &mut Store, table: &str, key: &Bytes) -> Result[bool, KvError]
+    def remove(self: &mut Store, table: &str, key: &Bytes) -> Result[bool, KvError]
+    def clear(self: &mut Store, table: &str) -> Result[i64, KvError]
+    def len(self: &mut Store, table: &str) -> Result[i64, KvError]
+    def scan(self: &mut Store, table: &str, start: &Bytes, stop: &Bytes, max_rows: i64, after: bool = False, reverse: bool = False) -> Result[Scan, KvError]
+    def scan_all(self: &mut Store, table: &str, max_rows: i64, reverse: bool = False) -> Result[Scan, KvError]
+def connect(path: &str, mode: Mode = Mode.Create, max_length: i64 = 1048576) -> Result[Store, KvError]
+def memory(max_length: i64 = 1048576) -> Result[Store, KvError]
 ```
 
 ## `std.db.sqlite`
@@ -1800,6 +1834,29 @@ def render(source: &Bytes, bounds: &Limits) -> Result[Bytes, MarkdownError]
 def to_html(text: &str, bounds: &Limits) -> Result[str, MarkdownError]
 ```
 
+## `std.template`
+
+Bounded Jinja-style text templates with explicit JSON values, HTML escaping, conditions, loops and named inheritance. Errors: `TemplateError`. [Reference](template.md).
+
+```text
+enum TemplateError
+    InvalidLimits | LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | Allocation(AllocError) | Bytes(BytesError)
+class Limits
+    max_source: i64
+    max_tokens: i64
+    max_templates: i64
+    max_context_nodes: i64
+    max_context_bytes: i64
+    max_depth: i64
+    max_steps: i64
+    max_output: i64
+def limits() -> Limits
+class Engine
+    def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]
+    def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]
+def engine(bounds: &Limits) -> Result[Engine, TemplateError]
+```
+
 ## `std.math`
 
 Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants. Errors: `MathError`. [Reference](math.md).
@@ -2172,6 +2229,76 @@ def split(text: &str, comments: bool = False) -> Result[list[str], ShlexError | 
 def quote(text: &str) -> Result[str, ShlexError | AllocError]
 ```
 
+## `std.sketch`
+
+Bounded distinct counts, sampled quantiles and frequent-item bounds with versioned checkpoints. Errors: `SketchError`, `AllocError`, `BytesError`. [Reference](sketch.md).
+
+```text
+enum SketchError
+    InvalidArgument | InvalidData | Incompatible | Empty | Limit | ConstructionFailed
+def hash_u64(key: u64, seed: u64 = 0u64) -> u64
+class HyperLogLog
+    def precision(self) -> i64
+    def add(self: &mut HyperLogLog, key: u64) -> ()
+    def estimate(self) -> f64
+    def relative_standard_error(self) -> f64
+    def merge(self: &mut HyperLogLog, other: &HyperLogLog) -> Result[(), SketchError]
+    def to_bytes(self) -> Result[Bytes, BytesError]
+def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog, SketchError | BytesError]
+def hyperloglog_from_bytes[S: ByteSource](data: &S, max_precision: i64 = 18) -> Result[HyperLogLog, SketchError | BytesError]
+class Quantiles
+    def count(self) -> u64
+    def retained(self) -> i64
+    def add(self: &mut Quantiles, value: f64) -> Result[(), SketchError | AllocError]
+    def quantile(self, fraction: f64) -> Result[f64, SketchError]
+    def to_bytes(self) -> Result[Bytes, BytesError]
+def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError | AllocError]
+def quantiles_from_bytes(data: &Bytes, max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]
+class Frequency
+    key: u64
+    lower: u64
+    upper: u64
+class FrequentItems
+    def count(self) -> u64
+    def error_bound(self) -> u64
+    def add(self: &mut FrequentItems, key: u64) -> Result[(), SketchError]
+    def frequency(self, key: u64) -> Frequency
+    def candidates(self) -> Result[list[Frequency], AllocError]
+    def to_bytes(self) -> Result[Bytes, BytesError]
+def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError | AllocError]
+def frequent_items_from_bytes[S: ByteSource](data: &S, max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError | AllocError]
+```
+
+## `std.sketch.xor`
+
+Static approximate membership over numeric identities with bounded construction. Errors: `SketchError`, `AllocError`, `BytesError`. [Reference](sketch-xor.md).
+
+```text
+class XorFilter
+    def len(self) -> i64
+    def contains(self, key: u64) -> bool
+    def to_bytes(self) -> Result[Bytes, BytesError]
+def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFilter, SketchError | AllocError | BytesError]
+def from_bytes[S: ByteSource](data: &S, max_keys: i64) -> Result[XorFilter, SketchError | BytesError]
+```
+
+## `std.sketch.cuckoo`
+
+Scalable approximate membership with bounded growth and receipt-directed deletion. Errors: `SketchError`, `AllocError`, `BytesError`. [Reference](sketch-cuckoo.md).
+
+```text
+class CuckooFilter
+    def len(self) -> u64
+    def layers(self) -> i64
+    def buckets(self) -> i64
+    def contains(self, key: u64) -> bool
+    def insert(self: &mut CuckooFilter, key: u64) -> Result[i64, SketchError | AllocError | BytesError]
+    def remove(self: &mut CuckooFilter, key: u64, layer_index: i64) -> Result[bool, SketchError]
+    def to_bytes(self) -> Result[Bytes, BytesError]
+def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
+def from_bytes[S: ByteSource](data: &S, max_buckets: i64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
+```
+
 ## `std.signal`
 
 `SIGTERM` and `SIGINT` as an event to wait or select on, and a helper that cancels a token on one. Errors: `SignalError`, `WaitError`. [Reference](signal.md).
@@ -2292,6 +2419,41 @@ enum mask64x2
     def and_mask(self, other: &mask64x2) -> mask64x2
     def or_mask(self, other: &mask64x2) -> mask64x2
     def xor_mask(self, other: &mask64x2) -> mask64x2
+```
+
+## `std.stat`
+
+Descriptive f64 statistics, inclusive quantiles, and normal, uniform and exponential distributions with explicit RNG sampling. Errors: `StatError`. [Reference](stat.md).
+
+```text
+enum StatError
+    Empty | InsufficientData | NonFinite | Domain | Overflow | Allocation(AllocError)
+def mean(values: &list[f64]) -> Result[f64, StatError]
+def pstdev(values: &list[f64]) -> Result[f64, StatError]
+def stdev(values: &list[f64]) -> Result[f64, StatError]
+def pvariance(values: &list[f64]) -> Result[f64, StatError]
+def variance(values: &list[f64]) -> Result[f64, StatError]
+def quantile(values: &list[f64], p: f64) -> Result[f64, StatError]
+def median(values: &list[f64]) -> Result[f64, StatError]
+def quantiles(values: &list[f64], n: i64 = 4) -> Result[list[f64], StatError]
+class Uniform
+    def pdf(self, x: f64) -> Result[f64, StatError]
+    def cdf(self, x: f64) -> Result[f64, StatError]
+    def inverse_cdf(self, p: f64) -> Result[f64, StatError]
+    def sample(self, rng: &mut random.Rng) -> f64
+def uniform(low: f64 = 0.0, high: f64 = 1.0) -> Result[Uniform, StatError]
+class Exponential
+    def pdf(self, x: f64) -> Result[f64, StatError]
+    def cdf(self, x: f64) -> Result[f64, StatError]
+    def inverse_cdf(self, p: f64) -> Result[f64, StatError]
+    def sample(self, rng: &mut random.Rng) -> Result[f64, StatError]
+def exponential(rate: f64 = 1.0) -> Result[Exponential, StatError]
+class Normal
+    def pdf(self, x: f64) -> Result[f64, StatError]
+    def cdf(self, x: f64) -> Result[f64, StatError]
+    def inverse_cdf(self, p: f64) -> Result[f64, StatError]
+    def sample(self, rng: &mut random.Rng) -> Result[f64, StatError]
+def normal(mean: f64 = 0.0, sigma: f64 = 1.0) -> Result[Normal, StatError]
 ```
 
 ## `std.sync`

@@ -22,11 +22,12 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.cli`](cli.md) | Explicit typed options/positionals, repeatable values, generated help and lossless path arguments | `CliError` |
 | [`std.cli.progress`](cli-progress.md) | Terminal-only stderr bars and spinners with counts, rates, ETA and throttled redraws | `ProgressError` |
 | [`std.collections`](collections.md) | Owned binary heaps ordered by `<` or by a stored comparator | `AllocError` |
-| [`std.compress`](compress.md) | Bounded gzip, zlib, and DEFLATE compression of buffers and `std.io` streams, and CRC-32 | `CompressError` |
+| [`std.compress`](compress.md) | Bounded gzip, zlib, DEFLATE and Brotli compression of buffers and `std.io` streams, and CRC-32 | `CompressError` |
 | [`std.concurrent`](concurrent.md) | Executors, futures and parallel operations | Pool/submission/future/parallel errors |
 | [`std.crypto`](crypto.md) | SHA-256, SHA-512, and HMAC over `std.bytes`, incremental or one-shot, and constant-time comparison | `CryptoError` |
 | [`std.csv`](csv.md) | Streaming CSV readers and writers over `std.io` with explicit dialects, size limits, and positioned errors | `CsvError` |
 | [`std.dataframe`](dataframe.md) | Optional Polars analytical expression plans, typed nullable columns, schema inspection, grouping, and CSV/Parquet I/O | `DataFrameError` |
+| [`std.db.kv`](kv.md) | Ordered byte-key maps, atomic transactions and bounded scans over a versioned SQLite store | `KvError` |
 | [`std.db.sqlite`](sqlite.md) | SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit | `DbError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
 | [`std.diff`](diff.md) | Line, word, character, byte, and list differences as edit operations, with Myers and patience algorithms and unified-diff output | `AllocError` |
@@ -55,6 +56,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.json`](json.md) | Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree | `JsonError` |
 | [`std.log`](log.md) | Leveled events with typed fields, delivered to caller-chosen sinks: logfmt lines, bounded memory, or a nonblocking channel | `LogError` |
 | [`std.markdown`](markdown.md) | CommonMark 0.31.2 parsing into events and HTML rendering, under input, depth, and output limits | `MarkdownError` |
+| [`std.template`](template.md) | Bounded Jinja-style text templates with explicit JSON values, HTML escaping, conditions, loops and named inheritance | `TemplateError` |
 | [`std.math`](math.md) | Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants | `MathError` |
 | [`std.net`](net.md) | TCP listeners and streams, UDP sockets, IP addresses and name lookup, with deadlines and cancellation | `NetError` |
 | [`std.path`](path.md) | Lossless Linux paths, lexical operations, checked text conversion and escaped display | `IoError`, `AllocError` |
@@ -65,8 +67,12 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.report`](report.md) | A bounded formatter for human-readable reports, to standard error or an owned collector | `FormatError` |
 | [`std.secrets`](secrets.md) | Operating-system entropy: secret bytes, hex and base64url tokens, and unbiased integers, with no fallback source | `SecretsError` |
 | [`std.shlex`](shlex.md) | Shell-style word splitting and POSIX argument quoting, without execution or expansion | `ShlexError`, `AllocError` |
+| [`std.sketch`](sketch.md) | Bounded distinct counts, sampled quantiles and frequent-item bounds with versioned checkpoints | `SketchError`, `AllocError`, `BytesError` |
+| [`std.sketch.xor`](sketch-xor.md) | Static approximate membership over numeric identities with bounded construction | `SketchError`, `AllocError`, `BytesError` |
+| [`std.sketch.cuckoo`](sketch-cuckoo.md) | Scalable approximate membership with bounded growth and receipt-directed deletion | `SketchError`, `AllocError`, `BytesError` |
 | [`std.signal`](signal.md) | `SIGTERM` and `SIGINT` as an event to wait or select on, and a helper that cancels a token on one | `SignalError`, `WaitError` |
 | [`std.simd`](simd.md) | Portable fixed-lane values, masks, checked and wrapping arithmetic, selection, and bounded list loads/stores | None |
+| [`std.stat`](stat.md) | Descriptive f64 statistics, inclusive quantiles, and normal, uniform and exponential distributions with explicit RNG sampling | `StatError` |
 | [`std.sync`](sync.md) | Shared cooperative cancellation tokens | `AllocError` |
 | [`std.system`](system.md) | Bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status | `IoError`, `SystemError` |
 | [`std.tempfile`](tempfile.md) | Unnamed and named temporary files, recursively cleaned directories, context managers and explicit ownership transfer | `IoError`, `FsError`, `StreamError`, `AllocError` |

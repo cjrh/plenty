@@ -4,6 +4,10 @@
 prepared statements with typed parameters and typed column reads. It has one
 error type, `DbError`.
 
+For named byte-key maps without application SQL, use [`std.db.kv`](kv.md),
+which shares this engine. Use this module for relational schemas, SQL queries,
+or reusable prepared statements. See the [storage comparison](kv-engine.md).
+
 SQLite is vendored C code compiled into the runtime. The Plenty module owns
 the error model, row state, value limits, and transaction ownership. It is
 not an ORM: SQL is written by the program, and values are bound, never

@@ -158,6 +158,18 @@ def main() -> Result[(), DbError]:
         patterns: &[Pattern::Operations(440..470), Pattern::Library("sqlite3_")],
     },
     NativeModule {
+        module: "std.db.kv",
+        program: r#"import std.db.kv
+from std.db.kv import KvError
+
+def main() -> Result[(), KvError]:
+    mut store = std.db.kv.memory()?
+    store.close()?
+    Ok(())
+"#,
+        patterns: &[Pattern::Operations(440..470), Pattern::Library("sqlite3_")],
+    },
+    NativeModule {
         module: "std.tls",
         program: r#"import std.tls
 from std.tls import TlsError
