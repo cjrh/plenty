@@ -13,6 +13,8 @@ exposes allocation failure; indexed assignment remains allocation-free.
 order, including references. It copies or retains only non-affine values;
 collections, classes, and enums containing affine payloads are rejected.
 Lookup allocates nothing. Results outlive source replacement or destruction.
+[Copying and borrowed lookup](collections.md#copying-and-borrowed-lookup)
+explains why `get` copies and how borrowed lookups are named.
 
 `dictionary.get(key, default) -> V` accepts a second positional argument of
 the value type and returns it only when the key is absent. Receiver, key, and
