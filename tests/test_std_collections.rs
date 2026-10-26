@@ -440,7 +440,7 @@ fn unsupported_orders_sources_and_escaping_borrows_are_rejected() {
         unordered.contains("operator `<` does not accept Guard"),
         "{unordered}"
     );
-    let tuple = rejected("mut heap = Heap[(i64, bool)]()?");
+    let tuple = rejected("mut heap = Heap[(i64, bool)]()?\nheap.push((1, True))?");
     assert!(tuple.contains("operator `<` does not accept"), "{tuple}");
     let reference = rejected("mut heap = Heap[&i64]()?");
     assert!(

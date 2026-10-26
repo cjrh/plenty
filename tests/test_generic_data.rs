@@ -224,47 +224,44 @@ fn class_instance_method_errors_are_reported_at_the_requiring_use() {
     def get(self) -> T:
         self.value
 ";
-    let note = "\n  4:9: note: in instantiation `Cell[list[i64]]`: cannot move out of a field; \
-        use copy(value.field).unwrap(), &value.field (or &mut value.field), or \
-        replace(value.field, replacement) on a mutable owner";
-    // All methods of an instance are checked when the instance is first
-    // required, whether or not the failing one is called.
-    for (code, at) in [
-        (
-            "def main() -> Result[(), AllocError]:\n    a = Cell(1)\n    b = Cell([1, 2]?)\n    Ok(())\n",
-            "8:9",
-        ),
-        (
-            "def main() -> Result[(), AllocError]:\n    b = Cell[list[i64]]([1, 2]?)\n    b.get()\n    Ok(())\n",
-            "7:9",
-        ),
-        (
-            "def size(cell: &Cell[list[i64]]) -> i64:\n    1\n\ndef main() -> ():\n    pass\n",
-            "6:17",
-        ),
+    let note = |instance: &str| {
+        format!(
+            "\n  4:9: note: in instantiation `{instance}`: cannot move out of a field; \
+             use copy(value.field).unwrap(), &value.field (or &mut value.field), or \
+             replace(value.field, replacement) on a mutable owner"
+        )
+    };
+    // A method body is checked for an instance only when the method is used
+    // (issue #515), so an instance whose `get` would fail is accepted until
+    // `get` is called.
+    for code in [
+        "def main() -> Result[(), AllocError]:\n    a = Cell(1)\n    b = Cell([1, 2]?)\n    Ok(())\n",
+        "def size(cell: &Cell[list[i64]]) -> i64:\n    1\n\ndef main() -> ():\n    pass\n",
     ] {
-        let error = plenty::check_source(&format!("{cell}\n{code}"))
-            .unwrap_err()
-            .to_string();
-        assert_eq!(
-            error,
-            format!("{at}: cannot instantiate `Cell[list[i64]]`: its definition is rejected{note}")
-        );
+        plenty::check_source(&format!("{cell}\n{code}")).unwrap();
     }
-    // An instance required by another declaration is attributed to the use
-    // that required the outer one.
+    let error = plenty::check_source(&format!(
+        "{cell}\ndef main() -> Result[(), AllocError]:\n    b = Cell[list[i64]]([1, 2]?)\n    c = b.get()\n    Ok(())\n"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert_eq!(
+        error,
+        format!(
+            "8:9: cannot instantiate `Cell[list[i64]].get`: its definition is rejected{}",
+            note("Cell[list[i64]].get")
+        )
+    );
+    // A method required by another generic body is attributed to the use
+    // that required the outer instance.
     let error = plenty::check_source(&format!(
         "{cell}
-class Pair[T]:
-    left: Cell[T]
-    right: Cell[T]
-
-def wrap[T](left: T, right: T) -> Pair[T]:
-    Pair(Cell(left), Cell(right))
+def first[T](value: T) -> T:
+    Cell(value).get()
 
 def main() -> Result[(), AllocError]:
-    a = wrap(1, 2)
-    b = wrap([1]?, [2]?)
+    a = first(1)
+    b = first([1]?)
     Ok(())
 "
     ))
@@ -272,6 +269,111 @@ def main() -> Result[(), AllocError]:
     .to_string();
     assert_eq!(
         error,
-        format!("15:9: cannot instantiate `wrap[list[i64]]`: its definition is rejected{note}")
+        format!(
+            "11:9: cannot instantiate `first[list[i64]]`: its definition is rejected{}",
+            note("Cell[list[i64]].get")
+        )
+    );
+}
+
+#[test]
+fn unused_copying_methods_do_not_restrict_instances() {
+    let holder = "class Holder[T]:
+    item: T
+    def take(self) -> T:
+        self.item
+    def borrow(self: &Holder[T]) -> &T:
+        &self.item
+
+class Guard:
+    value: i64
+    def __del__(self: &mut Guard) -> ():
+        pass
+";
+    let output = run(&format!(
+        "{holder}
+def main() -> Result[(), IoError]:
+    holder = Holder(Guard(3))
+    print(holder.borrow().value)?
+    Ok(())
+"
+    ));
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    let error = check_source(&format!(
+        "{holder}
+def main() -> ():
+    holder = Holder(Guard(3))
+    guard = holder.take()
+"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert_eq!(
+        error,
+        "15:13: cannot instantiate `Holder[Guard].take`: its definition is rejected
+  4:9: note: in instantiation `Holder[Guard].take`: cannot move out of a field; \
+         use &value.field (or &mut value.field), or replace(value.field, replacement) \
+         on a mutable owner"
+    );
+}
+
+#[test]
+fn protocol_conformance_and_destructors_check_unused_methods() {
+    let guard = "class Guard:
+    def __del__(self: &mut Guard) -> ():
+        pass
+";
+    // A protocol bound requires the matched methods, even when the bounded
+    // body never calls them.
+    let error = check_source(&format!(
+        "{guard}
+protocol Sized:
+    def size(self) -> i64:
+        pass
+
+class Holder[T]:
+    item: T
+    def size(self) -> i64:
+        taken = self.item
+        1
+
+def accept[S: Sized](value: &S) -> i64:
+    0
+
+def main() -> ():
+    holder = Holder(Guard())
+    n = accept(&holder)
+"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert_eq!(
+        error,
+        "20:9: cannot instantiate `accept[Holder[Guard]]`: its definition is rejected
+  12:17: note: in instantiation `Holder[Guard].size`: cannot move out of a field; \
+         use &value.field (or &mut value.field), or replace(value.field, replacement) \
+         on a mutable owner"
+    );
+    // Construction arms the destructor, so `__del__` is checked with the instance.
+    let error = check_source(&format!(
+        "{guard}
+class Holder[T]:
+    item: T
+    def __del__(self: &mut Holder[T]) -> ():
+        taken = self.item
+
+def main() -> ():
+    holder = Holder(Guard())
+"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert_eq!(
+        error,
+        "11:14: cannot instantiate `Holder[Guard]`: its definition is rejected
+  8:17: note: in instantiation `Holder[Guard]`: cannot move out of a field; \
+         use &value.field (or &mut value.field), or replace(value.field, replacement) \
+         on a mutable owner"
     );
 }

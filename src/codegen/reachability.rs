@@ -65,36 +65,9 @@ pub(super) fn prune(ops: &mut Vec<Op>, exports: &[crate::exports::Export]) {
 }
 
 fn references(ops: &[Op], require: &mut impl FnMut(&str)) {
-    crate::threading::walk(ops, &mut |op| match op {
-        Op::Call(name)
-        | Op::TailCall(name)
-        | Op::FunctionAddress(name, _)
-        | Op::BoxedCallableNew(_, name, _) => require(name),
-        Op::ClosureNew(t) | Op::ClosureCall(t) => require(&t.name),
-        Op::Thread(crate::threading::ThreadOp::Start(task, _)) => {
-            require(&task.worker);
-            if let Some(closure) = &task.closure {
-                require(&closure.name);
-            }
-        }
-        Op::Executor(operation) => {
-            if let Some(job) = operation.job() {
-                require(&job.worker);
-                for closure in job.closure.iter().chain(job.shared.iter()) {
-                    require(&closure.name);
-                }
-            }
-        }
-        Op::Collection(crate::collection::CollectionOp::ListSortBy(sort)) => {
-            require(&sort.key_of);
-        }
-        Op::Class(crate::record::ClassOp::ArmDrop(t)) => {
-            if let Some(destructor) = &t.get().destructor {
-                require(destructor);
-            }
-        }
-        // Type-driven calls target generators, which remain roots.
-        _ => {}
+    // Type-driven calls target generators, which remain roots.
+    crate::threading::walk(ops, &mut |op| {
+        crate::threading::function_references(op, require);
     });
 }
 

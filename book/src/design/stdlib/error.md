@@ -175,9 +175,9 @@ and `report_with` APIs keep their description-based behavior.
 
 ## Limits
 
-- `E` must be a type `str.repr` accepts. A cause holding recursive data or a
-  generator is rejected where `Context[E]` is first used, because every method
-  of a class instance is checked together.
+- `describe` and `report` require a cause type `str.repr` accepts. A cause
+  holding recursive data or a generator is rejected where one of them is first
+  called for that `Context[E]`.
 - No OS description text is added to a native code.
 - The legacy `report` and `report_with` methods use `write_stderr`: a pipe whose
   reader has gone terminates the process with `SIGPIPE`. The `std.report`

@@ -164,6 +164,7 @@ pub(super) fn prepare(
         defaults: HashMap::default(),
         call_wrappers: HashMap::default(),
         deferred_reporting: HashMap::default(),
+        unused_methods: HashMap::default(),
         cache: HashMap::default(),
         template_ids: HashMap::default(),
         instantiated: Vec::new(),
@@ -233,6 +234,10 @@ pub(super) struct Engine {
     /// Conditional Context methods retain their declarations without lowering
     /// an unsupported cause's formatting body merely by constructing Context.
     deferred_reporting: HashMap<String, (functions::Symbol, Arc<Function>)>,
+    /// Methods of generic data instances that no lowered code has used yet,
+    /// by function name. Their signatures are registered; their bodies are
+    /// checked only once a use queues them (`demand_method`).
+    unused_methods: HashMap<String, UnusedMethod>,
     /// Function instance symbols by template (its index in `instantiated`)
     /// and type arguments.
     cache: HashMap<(u32, Vec<Ty>), String>,
@@ -300,6 +305,15 @@ pub(super) struct Declared {
     pub(super) lowered: bool,
 }
 
+/// A method of a generic data instance, declared but not queued.
+pub(super) struct UnusedMethod {
+    symbol: functions::Symbol,
+    function: Arc<Function>,
+    /// `Type[Arguments].method`, for diagnostics.
+    display: Arc<str>,
+    generator_input: bool,
+}
+
 impl Engine {
     pub(super) fn defer_reporting_method(
         &mut self,
@@ -316,6 +330,110 @@ impl Engine {
         let (symbol, function) = self.deferred_reporting.remove(name)?;
         self.pending.push_back((symbol, Arc::clone(&function)));
         Some(function)
+    }
+
+    /// Records a method of a generic data instance without queueing its body.
+    /// A body that only some type arguments support is then rejected only
+    /// for an instance that uses it (issue #515).
+    pub(super) fn defer_method(
+        &mut self,
+        function: Function,
+        signature: &Signature,
+        display: Arc<str>,
+        table: &mut functions::Functions,
+    ) {
+        let function = Arc::new(function);
+        let symbol = self.record(&function, table);
+        self.unused_methods.insert(
+            function.name.clone(),
+            UnusedMethod {
+                symbol,
+                function,
+                display,
+                generator_input: signature.0.iter().any(Ty::unresolved_generator),
+            },
+        );
+    }
+
+    pub(super) fn is_unused_method(&self, name: &str) -> bool {
+        self.unused_methods.contains_key(name)
+    }
+
+    /// Queues `name` if it is an unused instance method. Errors in its body
+    /// are reported at `at`, the use, or at the use that first required
+    /// `outer` when the use is itself in generic code.
+    pub(super) fn demand_method(
+        &mut self,
+        name: &str,
+        at: impl FnOnce() -> Arc<str>,
+        outer: Option<&Arc<Instantiation>>,
+    ) {
+        let Some(UnusedMethod {
+            symbol,
+            function,
+            display,
+            generator_input,
+        }) = self.unused_methods.remove(name)
+        else {
+            return;
+        };
+        let required = match outer {
+            Some(outer) => Instantiation {
+                instance: display,
+                ..(**outer).clone()
+            },
+            None => Instantiation {
+                at: at(),
+                requested: Arc::clone(&display),
+                instance: display,
+            },
+        };
+        self.required.insert(symbol, Arc::new(required));
+        // Each frame specialization copies such a declaration, which is
+        // never lowered itself.
+        if !generator_input {
+            self.pending.push_back((symbol, function));
+        }
+    }
+
+    /// Queues the unused instance methods that `compiled[start..]` names.
+    /// Within one function, the earliest use in source order is reported.
+    pub(super) fn demand_references(&mut self, start: usize) {
+        if self.unused_methods.is_empty() {
+            return;
+        }
+        let mut uses = Vec::new();
+        for op in &self.compiled[start..] {
+            let Op::DefineFn(caller, f) = op else {
+                continue;
+            };
+            let first = uses.len();
+            crate::threading::walk_sited(&f.body, &mut |op, site| {
+                crate::threading::function_references(op, &mut |name| {
+                    if self.unused_methods.contains_key(name) {
+                        uses.push((site.map(|s| (s.line, s.column)), name.to_owned(), caller, f));
+                    }
+                });
+            });
+            // Positionless uses sort first and report the function itself.
+            uses[first..].sort_by_key(|(site, ..)| *site);
+        }
+        let uses: Vec<_> = uses
+            .into_iter()
+            .map(|(site, name, caller, f)| {
+                let at: Arc<str> = match (site, &f.origins.source) {
+                    (Some((line, column)), Some(source)) => {
+                        format!("{source}:{line}:{column}").into()
+                    }
+                    (Some((line, column)), None) => format!("{line}:{column}").into(),
+                    (None, _) => f.location.clone().unwrap_or_else(|| caller.as_str().into()),
+                };
+                (name, at, f.origins.required.clone())
+            })
+            .collect();
+        for (name, at, outer) in uses {
+            self.demand_method(&name, || at, outer.as_ref());
+        }
     }
 
     pub(super) fn reporting_protocol(&self) -> Option<&protocols::Protocol> {
@@ -1311,6 +1429,7 @@ impl Engine {
             .map(|(n, _)| n.clone())
             .zip(actual.iter().map(|ty| type_ref(ty, at)))
             .collect();
+        let mut demanded = Vec::new();
         for ((_, bound), ty) in template.type_params.iter().zip(actual) {
             if ty.key_view() {
                 return Err(at.error("dictionary key views are local-only and cannot be user-function type arguments; materialise keys_snapshot() or to_set()"));
@@ -1352,6 +1471,16 @@ impl Engine {
                         &bound.at,
                         at,
                     )?;
+                    // Satisfying a bound uses the methods it requires, whether
+                    // or not this instance's body calls them.
+                    if let Some(owner) = classes::method_owner(ty) {
+                        demanded.extend(
+                            protocol
+                                .methods
+                                .iter()
+                                .map(|requirement| crate::record::method(owner, &requirement.name)),
+                        );
+                    }
                 }
             }
         }
@@ -1431,6 +1560,21 @@ impl Engine {
             display,
             depth,
         };
+        if !demanded.is_empty() {
+            // A body error is attributed to the bounded instance, as if the
+            // instance had called the method.
+            let outer = self.required.get(&parent).cloned().unwrap_or_else(|| {
+                let requested: Arc<str> = crate::record::method_display(&instance.display).into();
+                Arc::new(Instantiation {
+                    at: at.location().into(),
+                    instance: Arc::clone(&requested),
+                    requested,
+                })
+            });
+            for callee in demanded {
+                self.demand_method(&callee, || unreachable!(), Some(&outer));
+            }
+        }
         Ok((symbol, Some(instance)))
     }
 

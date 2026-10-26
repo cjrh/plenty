@@ -476,12 +476,12 @@ fn a_cause_without_automatic_formatting_is_rejected_at_the_first_use() {
     let file = workspace.path().join("entry.plenty");
     std::fs::write(
         &file,
-        "from std.error import Context, Subject\nenum Chain:\n    End\n    Link(Box[Chain])\ndef main() -> ():\n    error = Context(\"walk\", Subject.Absent, Chain.End)\n",
+        "from std.error import Context, Subject\nenum Chain:\n    End\n    Link(Box[Chain])\ndef main() -> Result[(), AllocError]:\n    error = Context(\"walk\", Subject.Absent, Chain.End)\n    text = error.describe()?\n    Ok(())\n",
     )
     .unwrap();
     let error = plenty::check_file(&file, None).unwrap_err().to_string();
     assert!(
-        error.contains("cannot instantiate `std.error.Context[Chain]`")
+        error.contains("cannot instantiate `std.error.Context[Chain].describe`")
             && error.contains("automatic formatting is not supported for recursive data"),
         "{error}"
     );
