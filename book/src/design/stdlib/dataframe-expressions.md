@@ -29,8 +29,10 @@ but this API does not translate Plenty `if` statements automatically.
 
 `expr.cast(dtype: DType, strict: bool = True)` supports the boundary targets
 `DType.I64`, `F64`, `Bool` and `String`.
-`DType.Other(...)` fails immediately with `DataFrameError.Schema`;
+Temporal targets and `DType.Other(...)` fail immediately with `DataFrameError.Schema`;
 native dtype descriptions are not executable cast specifications.
+Use the explicit [temporal parsing and calendar methods](dataframe-datetime.md)
+to construct dates/datetimes in a query.
 
 The default strict mode reports invalid conversions as a query error.
 With `strict=False`, failed value conversions become null when Polars

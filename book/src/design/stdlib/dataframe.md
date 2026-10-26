@@ -38,6 +38,8 @@ to preserve missing values, or `fill_null` when replacement is appropriate.
 Strings, booleans, nullable input/output and schema inspection are described
 in [Column types and schemas](dataframe-types.md). No implicit casts or
 zero-copy borrowing occur at the Plenty boundary.
+Logical [Date and Datetime columns](dataframe-datetime.md) add checked temporal
+interchange, parsing, formatting and calendar expressions.
 
 ## Expression plans
 
@@ -128,10 +130,10 @@ create-new output behavior and buffering limits.
 
 Polars 0.55.2 semantics apply inside expressions, not Plenty scalar
 semantics. Schemas are checked at runtime. Input/extraction supports
-`i64`, `f64`, `str` and `bool`, including nullable columns. Parquet can
+`i64`, `f64`, `str`, `bool`, Date and naive/UTC Datetime, including nullable columns. Parquet can
 contain other native types that schema inspection describes and expressions
 can carry, but this API cannot extract them. Paths are UTF-8 strings.
-There is no automatic lambda translation, mutation API, date/nested-value
+There is no automatic lambda translation, mutation API, nested-value
 construction, cloud credential configuration or stable serialization of plans.
 
 Null is missing data, distinct from floating-point NaN. Comparisons with

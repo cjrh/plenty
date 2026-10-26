@@ -11,6 +11,9 @@ names and dtypes are checked at runtime. No implicit cast is performed.
 | `str` | `column_str(name, values)` | `frame.values_str(name)` |
 | `bool` | `column_bool(name, values)` | `frame.values_bool(name)` |
 
+Logical [Date and Datetime columns](dataframe-datetime.md) have separate checked
+constructors/getters with explicit epoch-day or timestamp-unit interchange.
+
 Constructors borrow `list[T]`; extraction returns an owned `list[T]`.
 All four also have `column_TYPE_nullable(name, &list[Option[T]])` and
 `frame.values_TYPE_nullable(name) -> Result[list[Option[T]], DataFrameError]`.
@@ -56,10 +59,12 @@ All these allocations remain subject to the [native OOM limitation](dataframe.md
 `Result[list[Field], DataFrameError]`, in column order.
 Each `Field` has public `name: str` and `dtype: DType` fields.
 
-`DType` has `I64`, `F64`, `Bool`, `String` and `Other(str)` variants.
-The first four identify types this facade can construct and extract.
+`DType` has `I64`, `F64`, `Bool`, `String`, `Date`,
+`Datetime(TimeUnit, Option[str])` and `Other(str)` variants.
+Datetime metadata identifies its unit and optional timezone label; construction
+and extraction currently support naive and UTC values only.
 `Other(description)` preserves the engine's native dtype description,
-including narrower numeric, date or nested types. It does not imply that
+including narrower numeric or nested types. It does not imply that
 a type can be extracted or that the description is a stable serialization
 format. Do not parse that text to manufacture a cast.
 

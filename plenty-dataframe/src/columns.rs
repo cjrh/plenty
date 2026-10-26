@@ -200,7 +200,12 @@ fn schema_strings(schema: &Schema) -> NativeStrings {
     NativeStrings(
         schema
             .iter()
-            .flat_map(|(name, dtype)| [Some(name.to_string()), Some(format!("{dtype:?}"))])
+            .flat_map(|(name, dtype)| {
+                [
+                    Some(name.to_string()),
+                    Some(super::temporal::dtype_descriptor(dtype)),
+                ]
+            })
             .collect(),
     )
 }
