@@ -18,6 +18,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.archive`](archive.md) | TAR and ZIP readers and writers over `std.io`, and extraction into a new directory under explicit path, link, and size limits | `ArchiveError` |
 | [`std.atomic`](atomic.md) | Inline atomic integers and booleans with compile-time checked orderings, and fences | None |
 | [`std.bytes`](bytes.md) | Compact owning byte buffers with checked ranges, explicit copies and validated text conversion | `BytesError` |
+| [`std.cache.lru`](cache-lru.md) | Fixed-capacity caches that evict the least recently used entry, with constant-time lookup, promotion and eviction | `AllocError` |
 | [`std.channel`](channel.md) | Bounded channels, endpoints and selection | Channel/send/receive/selection errors |
 | [`std.cli`](cli.md) | Explicit typed options/positionals, repeatable values, generated help and lossless path arguments | `CliError` |
 | [`std.cli.progress`](cli-progress.md) | Terminal-only stderr bars and spinners with counts, rates, ETA and throttled redraws | `ProgressError` |

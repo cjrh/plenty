@@ -166,6 +166,28 @@ def compress_state(kind: u8, level: i64, capacity: i64) -> Result[Bytes, BytesEr
 def sqlite_column(statement: &ByteStorage, column: i64) -> Result[Bytes, BytesError]
 ```
 
+## `std.cache.lru`
+
+Fixed-capacity caches that evict the least recently used entry, with constant-time lookup, promotion and eviction. Errors: `AllocError`. [Reference](cache-lru.md).
+
+```text
+class LruCache[K, V]
+    def __init__(self, capacity: i64) -> Result[(), AllocError]
+    def capacity(self) -> i64
+    def len(self) -> i64
+    def is_empty(self) -> bool
+    def contains(self, key: &K) -> bool
+    def get_with[R, F: Callable[[&V], R]](self: &mut LruCache[K, V], key: &K, f: &F) -> Option[R]
+    def peek_with[R, F: Callable[[&V], R]](self, key: &K, f: &F) -> Option[R]
+    def get_ref(self: &mut LruCache[K, V], key: &K) -> &V
+    def peek_mut(self: &mut LruCache[K, V], key: &K) -> &mut V
+    def promote(self: &mut LruCache[K, V], key: &K) -> bool
+    def put(self: &mut LruCache[K, V], key: K, value: V) -> Result[Option[(K, V)], AllocError]
+    def remove(self: &mut LruCache[K, V], key: &K) -> Option[V]
+    def pop_lru(self: &mut LruCache[K, V]) -> Option[(K, V)]
+    def clear(self: &mut LruCache[K, V]) -> ()
+```
+
 ## `std.channel`
 
 Bounded channels, endpoints and selection. Errors: Channel/send/receive/selection errors. [Reference](channel.md).

@@ -1,0 +1,177 @@
+# Entries live in dense parallel lists whose `_prev`/`_next` slots link them
+# from most to least recently used; the dictionary maps each key to its slot.
+# Removal moves the last slot into the gap, so every operation touches a
+# constant number of slots. All storage is reserved at construction for
+# `capacity + 1` entries: `put` inserts before it evicts, and neither step can
+# grow a collection afterwards.
+pub class LruCache[K, V]:
+    _index: dict[K, i64]
+    _keys: list[K]
+    _values: list[V]
+    _prev: list[i64]
+    _next: list[i64]
+    _head: i64
+    _tail: i64
+    _capacity: i64
+
+    pub def __init__(self, capacity: i64) -> Result[(), AllocError]:
+        # A negative count makes `with_capacity` return CapacityOverflow; this
+        # also keeps `capacity + 1` from overflowing.
+        slots = capacity + 1 if capacity >= 0 and capacity < i64.MAX else -1
+        self._keys = list[K].with_capacity(slots)?
+        self._values = list[V].with_capacity(slots)?
+        self._prev = list[i64].with_capacity(slots)?
+        self._next = list[i64].with_capacity(slots)?
+        self._index = dict[K, i64].with_capacity(slots)?
+        for slot in range(slots):
+            self._prev.append(-1)?
+            self._next.append(-1)?
+        self._head = -1
+        self._tail = -1
+        self._capacity = capacity
+        Ok(())
+
+    pub def capacity(self) -> i64:
+        self._capacity
+
+    pub def len(self) -> i64:
+        len(self._keys)
+
+    pub def is_empty(self) -> bool:
+        len(self._keys) == 0
+
+    pub def contains(self, key: &K) -> bool:
+        key in self._index
+
+    def unlink(self: &mut LruCache[K, V], slot: i64) -> ():
+        before = self._prev[slot]
+        after = self._next[slot]
+        if before == -1:
+            self._head = after
+        else:
+            self._next[before] = after
+        if after == -1:
+            self._tail = before
+        else:
+            self._prev[after] = before
+
+    def link_front(self: &mut LruCache[K, V], slot: i64) -> ():
+        self._prev[slot] = -1
+        self._next[slot] = self._head
+        if self._head == -1:
+            self._tail = slot
+        else:
+            self._prev[self._head] = slot
+        self._head = slot
+
+    def touch(self: &mut LruCache[K, V], slot: i64) -> ():
+        if slot != self._head:
+            self.unlink(slot)
+            self.link_front(slot)
+
+    # Unlinks `slot`, moves the last entry into it, and transfers the entry out.
+    def take(self: &mut LruCache[K, V], slot: i64) -> (K, V):
+        self.unlink(slot)
+        last = len(self._keys) - 1
+        if slot != last:
+            self._keys.swap(slot, last)
+            self._values.swap(slot, last)
+            before = self._prev[last]
+            after = self._next[last]
+            self._prev[slot] = before
+            self._next[slot] = after
+            if before == -1:
+                self._head = slot
+            else:
+                self._next[before] = slot
+            if after == -1:
+                self._tail = slot
+            else:
+                self._prev[after] = slot
+            moved = self._keys[slot]
+            self._index[moved] = slot
+        key = self._keys.pop().unwrap()
+        value = self._values.pop().unwrap()
+        drop(self._index.pop(&key))
+        (key, value)
+
+    pub def get_with[R, F: Callable[[&V], R]](self: &mut LruCache[K, V], key: &K, f: &F) -> Option[R]:
+        match self._index.get(key):
+            case Some(slot):
+                self.touch(slot)
+                Some(f(&self._values[slot]))
+            case Nothing:
+                Nothing
+
+    pub def peek_with[R, F: Callable[[&V], R]](self, key: &K, f: &F) -> Option[R]:
+        match self._index.get(key):
+            case Some(slot):
+                Some(f(&self._values[slot]))
+            case Nothing:
+                Nothing
+
+    pub def get_ref(self: &mut LruCache[K, V], key: &K) -> &V:
+        slot = self._index[key]
+        self.touch(slot)
+        &self._values[slot]
+
+    pub def peek_mut(self: &mut LruCache[K, V], key: &K) -> &mut V:
+        slot = self._index[key]
+        &mut self._values[slot]
+
+    pub def promote(self: &mut LruCache[K, V], key: &K) -> bool:
+        match self._index.get(key):
+            case Some(slot):
+                self.touch(slot)
+                True
+            case Nothing:
+                False
+
+    pub def put(self: &mut LruCache[K, V], key: K, value: V) -> Result[Option[(K, V)], AllocError]:
+        if self._capacity == 0:
+            return Ok(Some((key, value)))
+        match self._index.get(&key):
+            case Some(slot):
+                old = replace(self._values[slot], value)
+                self.touch(slot)
+                return Ok(Some((key, old)))
+            case Nothing:
+                pass
+        slot = len(self._keys)
+        # Each step is reserved, but its Result stays fallible; undo earlier
+        # steps so a failure leaves the cache unchanged.
+        self._keys.append(key)?
+        match self._values.append(value):
+            case Ok(_):
+                pass
+            case Err(error):
+                drop(self._keys.pop())
+                return Err(error)
+        match self._index.insert(key, slot):
+            case Ok(_):
+                pass
+            case Err(error):
+                drop(self._keys.pop())
+                drop(self._values.pop())
+                return Err(error)
+        self.link_front(slot)
+        if slot < self._capacity:
+            return Ok(Nothing)
+        Ok(Some(self.take(self._tail)))
+
+    pub def remove(self: &mut LruCache[K, V], key: &K) -> Option[V]:
+        match self._index.get(key):
+            case Some(slot):
+                _, value = self.take(slot)
+                Some(value)
+            case Nothing:
+                Nothing
+
+    pub def pop_lru(self: &mut LruCache[K, V]) -> Option[(K, V)]:
+        if self._tail == -1:
+            return Nothing
+        Some(self.take(self._tail))
+
+    pub def clear(self: &mut LruCache[K, V]) -> ():
+        while self._tail != -1:
+            drop(self.take(self._tail))

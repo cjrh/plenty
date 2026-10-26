@@ -38,6 +38,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ),
     ("std.path", include_str!("../../stdlib/std/path.plenty")),
     ("std.deque", include_str!("../../stdlib/std/deque.plenty")),
+    (
+        "std.cache.lru",
+        include_str!("../../stdlib/std/cache/lru.plenty"),
+    ),
     ("std.error", include_str!("../../stdlib/std/error.plenty")),
     ("std.bytes", include_str!("../../stdlib/std/bytes.plenty")),
     ("std.time", include_str!("../../stdlib/std/time.plenty")),
