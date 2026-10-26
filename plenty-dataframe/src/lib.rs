@@ -143,6 +143,8 @@ destroy!(pldf_v1_sort_keys_drop, SortKeys);
 
 mod columns;
 pub use columns::*;
+mod binary;
+pub use binary::*;
 mod expressions;
 pub use expressions::*;
 mod io;

@@ -1,0 +1,118 @@
+import std.dataframe as df
+import std.bytes as buffers
+from std.bytes import Bytes, BytesError
+import std.test as test
+
+def retained() -> Result[df.Query, df.DataFrameError | AllocError | BytesError]:
+    values = [buffers.from_bytes(b"\xff\0\x80")?, buffers.empty()?]?
+    data = df.frame([df.column_binary("payload", values)?]?)?
+    data.lazy()
+
+def roundtrip() -> Result[(), df.DataFrameError | AllocError | BytesError | test.TestError]:
+    mut source = [buffers.from_bytes(b"original")?]?
+    copied = df.column_binary("payload", source)?
+    source[0].set(0, 0u8)?
+    independent = df.frame([copied]?)?
+    test.equal(independent.get_binary("payload", 0)?.unwrap(), buffers.from_bytes(b"original")?)?
+    query = retained()?
+    schema = query.schema()?
+    test.equal(schema[0].dtype, df.DType.Binary)?
+    data = query.collect()?
+    expected = [buffers.from_bytes(b"\xff\0\x80")?, buffers.empty()?]?
+    test.equal(data.values_binary("payload")?, expected)?
+    test.equal(data.get_binary("payload", 0)?.unwrap(), expected[0])?
+    test.equal(data.get_binary("payload", 1)?.unwrap().len(), 0)?
+    data.write_parquet("binary.parquet")?
+    scanned = df.scan_parquet("binary.parquet")?
+    test.equal(scanned.schema()?, schema)?
+    test.equal(scanned.collect()?.values_binary("payload")?, expected)?
+    predicate = df.col("payload")?.eq(df.lit_binary(expected[0])?)?
+    filtered = query.filter(predicate)?.collect()?
+    test.equal(filtered.height()?, 1)?
+    test.equal(filtered.get_binary("payload", 0)?.unwrap(), expected[0])?
+    mut extracted = data.values_binary("payload")?
+    extracted[0].set(0, 42u8)?
+    test.equal(data.get_binary("payload", 0)?.unwrap(), expected[0])?
+    match data.get_binary("payload", -1):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("negative row accepted")?
+    match data.get_binary("payload", 2):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("row past end accepted")?
+    match data.values_binary("absent"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("missing column accepted")?
+    match data.values_str("payload"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("binary implicitly decoded as text")?
+    text = df.frame([df.column_str("text", ["snow: 雪", ""]?)?]?)?
+    match text.values_binary("text"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("text implicitly extracted as binary")?
+    encoded = text.lazy()?.select([df.col("text")?.cast(df.DType.Binary)?.alias("payload")?]?)?.collect()?
+    test.equal(encoded.get_binary("payload", 0)?.unwrap(), buffers.from_text("snow: 雪")?)?
+    decoded = encoded.lazy()?.select([df.col("payload")?.cast(df.DType.String)?.alias("text")?]?)?.collect()?
+    test.equal(decoded.values_str("text")?, ["snow: 雪", ""]?)?
+    for strict in [True, False]?:
+        invalid = data.lazy()?.select([df.col("payload")?.cast(df.DType.String, strict=strict)?]?)?
+        match invalid.collect():
+            case Err(df.DataFrameError.Query(_)):
+                pass
+            case _:
+                test.fail("invalid UTF-8 binary conversion did not fail")?
+    match df.scan_csv("not-read.csv", schema_overrides=Some([df.Field("payload", df.DType.Binary)]?)):
+        case Err(df.DataFrameError.Schema(_)):
+            pass
+        case _:
+            test.fail("binary CSV override accepted")?
+    Ok(())
+
+def nullable() -> Result[(), df.DataFrameError | AllocError | BytesError | test.TestError]:
+    values: list[Option[Bytes]] = [Some(buffers.empty()?), Nothing, Some(buffers.from_bytes(b"\xff\0")?)]?
+    data = df.frame([df.column_binary_nullable("payload", values)?]?)?
+    test.equal(data.values_binary_nullable("payload")?, values)?
+    test.check(data.get_binary("payload", 1)?.is_none(), "null preserved")?
+    test.equal(data.get_binary("payload", 0)?.unwrap().len(), 0)?
+    match data.values_binary("payload"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("non-nullable extraction accepted null")?
+    data.write_parquet("nullable-binary.parquet")?
+    restored = df.scan_parquet("nullable-binary.parquet")?.collect()?
+    test.equal(restored.values_binary_nullable("payload")?, values)?
+    replacement = buffers.from_bytes(b"fallback")?
+    filled = data.lazy()?.select([df.col("payload")?.fill_null(df.lit_binary(replacement)?)?]?)?.collect()?
+    test.equal(filled.get_binary("payload", 1)?.unwrap(), replacement)?
+    nulls: list[Option[Bytes]] = [Nothing, Nothing]?
+    all_null = df.frame([df.column_binary_nullable("payload", nulls)?]?)?
+    test.equal(all_null.schema()?[0].dtype, df.DType.Binary)?
+    test.equal(all_null.values_binary_nullable("payload")?, nulls)?
+    all_null.write_parquet("all-null-binary.parquet")?
+    test.equal(df.scan_parquet("all-null-binary.parquet")?.collect()?.values_binary_nullable("payload")?, nulls)?
+    empty: list[Bytes] = []?
+    empty_nulls: list[Option[Bytes]] = []?
+    zero = df.frame([df.column_binary("payload", empty)?, df.column_binary_nullable("nullable", empty_nulls)?]?)?
+    test.equal(zero.height()?, 0)?
+    test.equal(zero.schema()?[0].dtype, df.DType.Binary)?
+    test.equal(zero.values_binary("payload")?, empty)?
+    test.equal(zero.values_binary_nullable("nullable")?, empty_nulls)?
+    zero.write_parquet("empty-binary.parquet")?
+    test.equal(df.scan_parquet("empty-binary.parquet")?.collect()?.schema()?, zero.schema()?)?
+    Ok(())
+
+def main() -> Result[(), df.DataFrameError | AllocError | BytesError | test.TestError | IoError]:
+    roundtrip()?
+    nullable()?
+    print("dataframe binary ok")?
+    Ok(())

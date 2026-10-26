@@ -12,6 +12,8 @@ can fail during schema resolution or collection.
 `lit_str(value: &str)` copies a UTF-8 literal into the native plan;
 `lit_bool(value: bool)` creates a boolean literal. Alongside `lit(f64)`
 and `lit_i64(i64)`, these distinguish literal values from `col(name)`.
+`lit_binary(value: &std.bytes.Bytes)` copies an arbitrary byte payload into
+the native plan without decoding it as text.
 
 `when(predicate, then_value, otherwise)` accepts three expressions.
 For each row, a true boolean predicate selects `then_value`; false or null
@@ -28,7 +30,7 @@ but this API does not translate Plenty `if` statements automatically.
 ## Explicit casts
 
 `expr.cast(dtype: DType, strict: bool = True)` supports the boundary targets
-`DType.I64`, `F64`, `Bool` and `String`.
+`DType.I64`, `F64`, `Bool`, `String` and `Binary`.
 Temporal targets and `DType.Other(...)` fail immediately with `DataFrameError.Schema`;
 native dtype descriptions are not executable cast specifications.
 Use the explicit [temporal parsing and calendar methods](dataframe-datetime.md)
@@ -45,6 +47,9 @@ can lose precision. Numeric-to-boolean converts zero to false and nonzero
 values to true. String parsing and boolean formatting follow Polars, not
 Plenty's scalar parsing/formatting rules. Use the typed nullable getters
 when a non-strict cast can introduce missing values.
+String-to-binary casts preserve the UTF-8 bytes. Binary-to-string casts validate
+UTF-8: the pinned engine rejects invalid sequences even with `strict=False`.
+Extraction itself never performs these conversions.
 
 ## String expressions
 

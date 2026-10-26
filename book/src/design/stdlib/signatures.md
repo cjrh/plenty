@@ -374,7 +374,7 @@ Optional Polars analytical expression plans, typed nullable columns, schema insp
 enum TimeUnit
     Milliseconds | Microseconds | Nanoseconds
 enum DType
-    I64 | F64 | Bool | String | Date | Datetime(TimeUnit, Option[str]) | Other(str)
+    I64 | F64 | Bool | String | Binary | Date | Datetime(TimeUnit, Option[str]) | Other(str)
 class Field
     name: str
     dtype: DType
@@ -404,6 +404,9 @@ class DataFrame
     def values_f64(self, name: &str) -> Result[list[f64], DataFrameError]
     def schema(self) -> Result[list[Field], DataFrameError]
     def get_bool(self, name: &str, row: i64) -> Result[Option[bool], DataFrameError]
+    def get_binary(self, name: &str, row: i64) -> Result[Option[Bytes], DataFrameError]
+    def values_binary(self, name: &str) -> Result[list[Bytes], DataFrameError]
+    def values_binary_nullable(self, name: &str) -> Result[list[Option[Bytes]], DataFrameError]
     def get_str(self, name: &str, row: i64) -> Result[Option[str], DataFrameError]
     def values_bool(self, name: &str) -> Result[list[bool], DataFrameError]
     def values_str(self, name: &str) -> Result[list[str], DataFrameError]
@@ -476,11 +479,14 @@ def lit(value: f64) -> Result[Expr, DataFrameError]
 def lit_i64(value: i64) -> Result[Expr, DataFrameError]
 def lit_str(value: &str) -> Result[Expr, DataFrameError]
 def lit_bool(value: bool) -> Result[Expr, DataFrameError]
+def lit_binary(value: &Bytes) -> Result[Expr, DataFrameError]
 def when(predicate: &Expr, then_value: &Expr, otherwise: &Expr) -> Result[Expr, DataFrameError]
 def null_f64() -> Result[Expr, DataFrameError]
 def scan_parquet(path: &str) -> Result[Query, DataFrameError]
 def scan_csv(path: &str, has_header: bool = True, separator: &str = ",", infer_rows: i64 = 100, null_value: Option[str] = Nothing, schema_overrides: Option[list[Field]] = Nothing) -> Result[Query, DataFrameError]
 def column_bool(name: &str, values: &list[bool]) -> Result[Column, DataFrameError]
+def column_binary(name: &str, values: &list[Bytes]) -> Result[Column, DataFrameError]
+def column_binary_nullable(name: &str, values: &list[Option[Bytes]]) -> Result[Column, DataFrameError]
 def column_str(name: &str, values: &list[str]) -> Result[Column, DataFrameError]
 def column_i64_nullable(name: &str, values: &list[Option[i64]]) -> Result[Column, DataFrameError]
 def column_f64_nullable(name: &str, values: &list[Option[f64]]) -> Result[Column, DataFrameError]

@@ -10,24 +10,26 @@ names and dtypes are checked at runtime. No implicit cast is performed.
 | `f64` | `column_f64(name, values)` | `frame.values_f64(name)` |
 | `str` | `column_str(name, values)` | `frame.values_str(name)` |
 | `bool` | `column_bool(name, values)` | `frame.values_bool(name)` |
+| Binary (`std.bytes.Bytes`) | `column_binary(name, values)` | `frame.values_binary(name)` |
 
 Logical [Date and Datetime columns](dataframe-datetime.md) have separate checked
 constructors/getters with explicit epoch-day or timestamp-unit interchange.
 
 Constructors borrow `list[T]`; extraction returns an owned `list[T]`.
-All four also have `column_TYPE_nullable(name, &list[Option[T]])` and
+All five also have `column_TYPE_nullable(name, &list[Option[T]])` and
 `frame.values_TYPE_nullable(name) -> Result[list[Option[T]], DataFrameError]`.
 Use these when nulls are meaningful. Non-nullable extraction fails with
 `DataFrameError.Null` if any cell is null, even if the column was originally
 constructed without nulls and a later join introduced them.
 
-`get_i64`, `get_f64`, `get_str` and `get_bool` accept a column name and
+`get_i64`, `get_f64`, `get_str`, `get_bool` and `get_binary` accept a column name and
 zero-based row index and return `Result[Option[T], DataFrameError]`.
 A null cell is `Ok(Nothing)`; an unknown name, wrong dtype or invalid index
 is an error. Empty and all-null typed columns retain their declared dtype.
 Native columns support at most `2**32 - 1` rows. String input currently
 has the slightly lower limit `2**32 - 2`: its offset buffer needs one
-entry beyond the number of rows.
+entry beyond the number of rows. Binary input has the same offset limit and
+currently accepts at most `2**32 - 1` packed payload bytes per call.
 
 ## Text, booleans and missing values
 
@@ -53,13 +55,37 @@ and additional per-string allocations, not Arrow zero-copy interchange.
 It avoids per-cell foreign calls, but conversion can dominate small queries.
 All these allocations remain subject to the [native OOM limitation](dataframe.md#semantics-and-limits).
 
+## Binary payloads
+
+Binary columns contain arbitrary byte sequences, including embedded NUL and
+invalid UTF-8. Their Plenty values are owned [`std.bytes.Bytes`](bytes.md)
+buffers. `Some(empty_buffer)` is a present zero-byte payload; `Nothing` is
+missing data. Constructors borrow buffers and copy their contents. Extraction
+returns independent mutable buffers; changing them cannot change the frame.
+
+`lit_binary(value: &Bytes)` copies a constant payload into a native expression.
+Use it with equality, filtering, or `fill_null`. `cast(DType.Binary)` explicitly
+converts strings to UTF-8 bytes. Binary-to-string casts require valid UTF-8;
+the pinned engine rejects invalid sequences even with `strict=False`.
+Binary columns round-trip
+through Parquet, but are not supported by the CSV interface.
+
+Transfers pack bytes, offsets, and validity into whole-column native calls.
+The current foreign interface stages payload bytes in `list[u8]`, whose
+elements occupy general collection slots rather than one byte each. Extraction
+also copies through a packed `Bytes` before allocating each result buffer.
+These are copying APIs with temporary memory overhead, not zero-copy views;
+select/filter in Polars before extracting large payloads.
+
+See the [binary-column lesson](../../tutorial/special-purpose/dataframe-binary.md).
+
 ## Inspect a schema before collecting
 
 `DataFrame.schema()` and `Query.schema()` return
 `Result[list[Field], DataFrameError]`, in column order.
 Each `Field` has public `name: str` and `dtype: DType` fields.
 
-`DType` has `I64`, `F64`, `Bool`, `String`, `Date`,
+`DType` has `I64`, `F64`, `Bool`, `String`, `Binary`, `Date`,
 `Datetime(TimeUnit, Option[str])` and `Other(str)` variants.
 Datetime metadata identifies its unit and optional timezone label; construction
 and extraction currently support naive and UTC values only.
