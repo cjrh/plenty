@@ -1,6 +1,6 @@
 # Owned response typestate experiment
 
-This is a deterministic response-lifecycle model using existing Plenty syntax.
+This is a deterministic response-lifecycle model using explicit owned receivers.
 It is not an HTTP implementation or a replacement for `std.http.server`.
 The assessment is in
 [`typestate-response-experiment.md`](../../book/src/proposals/typestate-response-experiment.md).
@@ -22,10 +22,10 @@ cleanup and ordering. Its `unwrap` is test instrumentation, not production
 cleanup advice. The wire simulates counts only; it does not encode or transmit
 bytes, implement deadlines, or model real socket failures.
 
-`check.py` builds and runs a native program, then checks 13 rejected programs
-across the module boundary. Two rejection probes document the current B72
-language limits (owned receivers and field extraction); replace those probes
-when the features are intentionally implemented. Temporary files are removed
+`check.py` builds and runs a native program, then checks 12 rejected programs
+across the module boundary, including the retained B72 field-extraction limit.
+Temporary files are removed
 after each run; compiler/linker failures and timeouts fail the runner.
 
-No compiler or production standard-library changes are part of this experiment.
+The accompanying compiler change adds consuming methods; `std.text.Builder.finish`
+is its first stdlib adoption. The model itself is not production HTTP code.

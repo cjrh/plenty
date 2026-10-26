@@ -76,24 +76,23 @@ impl Parser {
                 .filter(|(n, _)| n == "self")
                 .map(|(_, t)| t);
             if !receiver.is_some_and(|t| {
-                matches!(t.name.as_deref(), Some("&" | "&mut"))
-                    && t.args.len() == 1
-                    && t.args[0].name.as_deref() == Some(&name)
-                    && (t.args[0].args.is_empty()
-                        || (t.args[0].args.len() == type_params.len()
-                            && t.args[0]
-                                .args
-                                .iter()
-                                .zip(&type_params)
-                                .all(|(t, (name, _))| {
-                                    t.name.as_ref() == Some(name) && t.args.is_empty()
-                                })))
+                let owner = if matches!(t.name.as_deref(), Some("&" | "&mut")) {
+                    &t.args[0]
+                } else {
+                    t
+                };
+                owner.name.as_deref() == Some(&name)
+                    && (owner.args.is_empty()
+                        || (owner.args.len() == type_params.len()
+                            && owner.args.iter().zip(&type_params).all(|(t, (name, _))| {
+                                t.name.as_ref() == Some(name) && t.args.is_empty()
+                            })))
             }) {
                 return Err(f.at.error(
-                    "protocol methods require self borrowed as &Protocol or &mut Protocol",
+                    "protocol methods require self: Protocol, self: &Protocol, or self: &mut Protocol",
                 ));
             }
-            f.inputs[0].1.args[0].args.clear();
+            classes::receiver_owner_mut(&mut f.inputs[0].1).args.clear();
             methods.push(f);
         }
         self.kind(Kind::Dedent, "the end of the protocol")?;

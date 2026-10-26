@@ -271,7 +271,9 @@ def main() -> Result[(), IoError]:
 
 Classes have typed fields and a generated positional constructor; there is no
 inheritance. Bare `self` is a shared borrow; mutating methods declare
-`self: &mut Class`. Variants are always qualified (`Shape.Dot`), and matching a
+`self: &mut Class`. Explicit `self: Class` transfers an owned receiver into the
+method, just like a by-value function parameter; the caller cannot reuse an
+affine receiver. It does not allow moving individual fields. Variants are always qualified (`Shape.Dot`), and matching a
 borrowed enum binds references, so payloads are dereferenced with `*`. See
 [classes](../language/03-types/classes.md), [enums](../language/03-types/enums.md),
 and [borrowed matching](../language/05-ownership/05-borrowed-matching.md).

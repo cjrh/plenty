@@ -34,7 +34,7 @@ a responsible execution owner and suspension rules; it is not a core prerequisit
 | Responsibility | Implemented baseline | Proposed owner / dependency | Deferred |
 | --- | --- | --- | --- |
 | Ownership and permission to discard | Affine moves, borrows, destruction | Linear core adds non-discardability, seal transfer, and checks at every cleanup edge | General user-defined trusted terminal declarations |
-| Legal state transitions | Nominal classes, consuming free functions, runtime enums | Existing typestate exploration; linear states additionally preserve seals | Consuming receiver methods and state-specialized generics |
+| Legal state transitions | Nominal classes, consuming functions/methods, runtime enums | Existing typestate exploration; linear states additionally preserve seals | State-specialized generics |
 | Permitted effects / worker eligibility | Reachable native-effect walk, concrete callable/destructor checks | Reuse it for terminal calls and inserted resolvers; no stdlib exemption | General indirect-effect certification / effect polymorphism |
 | Cleanup policy | Deterministic fallback drop, unit borrowed `__exit__` | Separate consuming scope resolver; policy explicitly named | Fallible exit syntax and async destructors |
 | Execution responsibility / suspension | Native worker retention, joins, cooperative cancellation | Initially restrict discard-capable APIs; new completion contract needs runtime ownership audit | Suspended computation ownership and driving async cleanup |

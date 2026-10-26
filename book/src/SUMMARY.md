@@ -80,6 +80,7 @@
         - [Creating enum values](tutorial/06-data/07-enum-payload-ownership.md)
         - [Match borrowed values](tutorial/06-data/08-borrowed-matching.md)
         - [Clean up owned instances](tutorial/06-data/09-cleanup.md)
+        - [Consume a value to change its state](tutorial/06-data/consuming-methods.md)
         - [Borrow records in a collection](tutorial/06-data/10-iterate-records.md)
     - [7. Special-purpose data structures](tutorial/special-purpose/index.md)
         - [Dataframes with Polars](tutorial/special-purpose/dataframes.md)

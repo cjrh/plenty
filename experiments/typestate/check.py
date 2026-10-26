@@ -23,35 +23,35 @@ before scope exit
 close 7 0
 """
 
-WRITER = "writer = response.begin(response.unanswered(1), 0).unwrap()\n"
+WRITER = "writer = response.unanswered(1).begin(0).unwrap()\n"
 REJECTIONS = {
     "write_before_begin": (
-        "drop(response.write(response.unanswered(1), 1))",
-        "expected response.Writer",
+        "drop(response.unanswered(1).write(1))",
+        "unknown method `write`",
     ),
     "finish_before_begin": (
-        "drop(response.finish(response.unanswered(1)))",
-        "expected response.Writer",
+        "drop(response.unanswered(1).finish())",
+        "unknown method `finish`",
     ),
     "begin_twice": (
         "first = response.unanswered(1)\n"
-        "drop(response.begin(first, 0))\n"
-        "drop(response.begin(first, 0))",
+        "drop(first.begin(0))\n"
+        "drop(first.begin(0))",
         "use of moved binding `first`",
     ),
     "finish_twice": (
-        WRITER + "response.finish(writer).unwrap()\n"
-        "response.finish(writer).unwrap()",
+        WRITER + "writer.finish().unwrap()\n"
+        "writer.finish().unwrap()",
         "use of moved binding `writer`",
     ),
     "write_after_finish": (
-        WRITER + "response.finish(writer).unwrap()\n"
-        "drop(response.write(writer, 0))",
+        WRITER + "writer.finish().unwrap()\n"
+        "drop(writer.write(0))",
         "use of moved binding `writer`",
     ),
     "reuse_after_fallible_write": (
-        WRITER + "drop(response.write(writer, 1))\n"
-        "drop(response.finish(writer))",
+        WRITER + "drop(writer.write(1))\n"
+        "drop(writer.finish())",
         "use of moved binding `writer`",
     ),
     "forge_writer": (
@@ -65,22 +65,13 @@ REJECTIONS = {
     "read_private_transport": (WRITER + "drop(writer.wire)", "private"),
     "copy_writer": (WRITER + "drop(copy(writer))", "cannot be copied"),
     "consume_borrowed_writer": (
-        WRITER + "borrowed = &writer\ndrop(response.finish(borrowed))",
+        WRITER + "borrowed = &writer\ndrop(borrowed.finish())",
         "expected response.Writer",
     ),
 }
 
-# B72 boundary probes: these document current restrictions, not desirable
-# permanent rejections. Replace them when either feature is intentionally added.
+# B72 field extraction remains outside the consuming-method implementation.
 BOUNDARIES = {
-    "consuming_receiver": (
-        "class State:\n"
-        "    def finish(self: State) -> ():\n"
-        "        drop(self)\n"
-        "def main() -> ():\n"
-        "    State().finish()\n",
-        "method receiver must be",
-    ),
     "owned_field_extraction": (
         "class Resource:\n"
         "    value: i64\n"

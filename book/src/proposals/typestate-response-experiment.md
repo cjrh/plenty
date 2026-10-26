@@ -1,19 +1,21 @@
 # Owned response experiment and consuming receivers
 
-**Status: bounded experiment complete, 2026-10-26.** The source is in
-`experiments/typestate/`; the compiler baseline is `344dfdbd`. This refreshes the
-[typestate assessment](typestate-and-owned-transitions.md). It does not add
-language syntax or change the HTTP server. Scheduling remains in [B72](../backlog.md).
+**Status: experiment complete; consuming methods implemented.** The source is
+in `experiments/typestate/`. The original model used consuming free functions
+against baseline `344dfdbd`; it now exercises explicit owned receivers. This
+refreshes the [typestate assessment](typestate-and-owned-transitions.md).
+The HTTP server is unchanged and individual field moves remain out of scope.
+Scheduling remains in [B72](../backlog.md).
 
 ## What the experiment establishes
 
 Two public classes, `Unanswered` and `Writer`, hide their resource fields and
-constructors. Consuming free functions implement these transitions:
+constructors. Consuming methods implement these transitions:
 
 ```text
-begin(Unanswered, length) -> Result[Writer, StartError]
-write(Writer, count)      -> Result[Writer, WriteError]
-finish(Writer)           -> Result[(), FinishError]
+Unanswered.begin(self: Unanswered, length) -> Result[Writer, StartError]
+Writer.write(self: Writer, count)          -> Result[Writer, WriteError]
+Writer.finish(self: Writer)                -> Result[(), FinishError]
 ```
 
 The wire is a deterministic counter with an injected failure position, not a
@@ -30,11 +32,13 @@ error, and cleanup when a later function argument propagates an error. The
 partial-write case accepted two bytes, then one of the requested three; it
 reported `(1, 3)` and destroyed the connection before returning the error.
 
-Thirteen compile-fail probes cover writing/finishing before begin, repeated
+Twelve compile-fail probes cover writing/finishing before begin, repeated
 begin/finish, writing after finish, reusing the owner after a fallible write,
 forging either state, reading private storage, copying a resource-bearing state,
-consuming a borrowed writer, and the two current language restrictions discussed
-below. These are reproducible assertions, not only a successful smoke check.
+consuming a borrowed writer, and the continuing restriction on field extraction.
+Compiler integration tests separately exercise owned receiver lowering, generics,
+protocols, generators and cleanup. These are reproducible assertions, not only
+a successful smoke check.
 
 The cost is visible in the API: two public states and three error enums,
 new writer bindings after successful writes, and explicit matching to recover
@@ -67,37 +71,40 @@ an unfinished writer remains legal: deterministic resource cleanup is not a
 guarantee that a response completed. That stronger requirement belongs to
 [linear obligations](linear-obligations.md).
 
-## Consuming methods are a separate, moderate extension
+## Consuming methods use existing ownership
 
-There is no fundamental ownership obstacle to explicit `self: Class`. The
-existing owned-argument path already transfers an entire value, rejects reuse
-and conflicting borrows, and transfers its cleanup responsibility. The intended
-model would be `value.finish()` behaving like `finish(value)`, with static
-dispatch and no new allocation required by the call itself. This is an
-implementation assessment, not a measured compiler patch.
+Explicit `self: Class` reuses the owned-argument path: it transfers an entire
+value, rejects reuse and conflicting borrows, and transfers cleanup
+responsibility. `value.finish()` behaves like `finish(value)`, with static
+dispatch and no new allocation required by the call itself. A compiler test
+compares optimized assembly for equivalent method and free-function calls.
 
-It is more than relaxing one signature check. `src/frontend/classes.rs` checks
-borrowed receivers and lowers ordinary calls by borrowing the base;
-`src/frontend/enums.rs` and `src/frontend/protocols.rs` also constrain receivers.
-Generic, named/default-argument and temporary-receiver paths need the same owned
-call behavior. Some current paths assume a reference unconditionally.
+`src/frontend/classes.rs`, `src/frontend/enums.rs` and
+`src/frontend/protocols.rs` admit owned receivers. Ordinary and generic method
+calls forward them as values; named/default-argument calls use the existing
+wrappers. Temporary borrowed views cannot be turned into owners by dispatch.
 
-A bounded implementation should preserve bare `self` as a shared borrow and
-`self: &mut Class` as an exclusive borrow, adding explicit owned receivers for
-ordinary methods. Lifecycle methods and operator hooks keep their existing
-contracts. Owned parameters remain immutable bindings; a body can move `self`
-into a mutable local. Protocol matching must distinguish owned and borrowed
-requirements. An owned receiver must not silently move through a reference,
-field or indexed element, or return a reference to its dying storage.
+Bare `self` remains a shared borrow and `self: &mut Class` an exclusive borrow.
+Lifecycle methods and operator hooks keep their existing contracts. Owned
+parameters remain immutable bindings; a body can move `self` into a mutable
+local. Protocol matching distinguishes owned and borrowed requirements. An owned
+receiver cannot silently move through an affine reference, class field or indexed
+element, or return a reference to its dying storage. Copyable enums keep ordinary
+copy semantics rather than becoming affine solely because a method takes a value.
 
-Tests must cover enums and generic classes/methods, temporary and named
-receivers, protocol calls, named/default arguments, live loans, failure in a
-later argument, conditional moves, and exactly-once destruction. Evaluation
-order deserves explicit documentation: moving the receiver before evaluating
-later arguments cannot reuse mutable borrowing's two-phase reservation to read
-the moved owner again. Ordinary owned-function-call rules are the starting point.
+Tests cover enums and generic classes/methods, temporary and named receivers,
+protocol calls, named/default arguments, live loans, failure in a later argument,
+conditional moves and exactly-once destruction. Receiver evaluation precedes
+later arguments; mutable borrowing's two-phase reservation does not allow reading
+the moved owner again. These are ordinary owned-function-call rules.
 
-## Field extraction requires a stronger ownership decision
+The first stdlib adoption is `std.text.Builder.finish()`. It consumes the builder
+on success or allocation failure; `to_text()` remains a borrowed snapshot for
+reuse and retry. `std.text.join` and `wrap` now finish their builders explicitly.
+Both finalization paths still copy output bytes; no zero-copy improvement is
+claimed. SQLite and HTTP lifecycle contracts are not converted.
+
+## Individual field moves remain deferred
 
 Moving `self` as a whole does not permit returning `self.resource`. Today a
 class's destructor runs with initialized fields, followed by automatic field
@@ -106,12 +113,6 @@ rules across branches, loops, reassignment and early returns, plus a rule for
 custom destructors that might inspect an extracted field. Initialization
 tracking alone does not settle those later lifetime rules.
 
-A narrower future candidate is consuming whole-object destructuring for classes
-without a custom destructor: the object ceases to exist, each field transfers
-or drops, and no partially moved object remains usable. Nested resource fields
-would still need their ordinary cleanup. This could be easier to specify than
-general partial moves, but neither is necessary for the tested `Option`/`replace`
-pattern, and neither is implemented here.
-
-The evidence supports exploring consuming receivers independently. It does not
-justify a blanket HTTP/SQLite conversion or a general partial-move feature.
+The tested `Option`/`replace` pattern remains sufficient for this experiment.
+Neither partial field moves nor whole-object destructuring is included in the
+consuming-method change.

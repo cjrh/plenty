@@ -12,9 +12,43 @@ class Wire:
 pub class Unanswered:
     wire: Option[Wire]
 
+    pub def begin(self: Unanswered, length: i64) -> Result[Writer, StartError]:
+        if length < 0:
+            return Err(StartError.InvalidLength(self))
+        mut owned = self
+        # Keep the old wrapper initialized without allocating a dummy connection.
+        wire = replace(owned.wire, Nothing).unwrap()
+        Ok(Writer(wire, length))
+
 pub class Writer:
     wire: Wire
     remaining: i64
+
+    pub def write(self: Writer, count: i64) -> Result[Writer, WriteError]:
+        if count < 0 or count > self.remaining:
+            return Err(WriteError.OutOfRange(self))
+        mut owned = self
+        mut accepted = count
+        mut broken = False
+        if owned.wire.fail_after >= 0 and count > owned.wire.fail_after - owned.wire.sent:
+            accepted = owned.wire.fail_after - owned.wire.sent
+            broken = True
+        owned.wire.sent += accepted
+        total = owned.wire.sent
+        owned.remaining -= accepted
+        if broken:
+            # A partial write cannot return an owner that might replay bytes.
+            return Err(WriteError.Broken(accepted, total))
+        Ok(owned)
+
+    pub def finish(self: Writer) -> Result[(), FinishError]:
+        if self.remaining != 0:
+            return Err(FinishError.Incomplete(self))
+        drop(self)
+        Ok(())
+
+    pub def cancel(self: Writer) -> ():
+        drop(self)
 
 pub enum StartError:
     InvalidLength(Unanswered)
@@ -29,39 +63,3 @@ pub enum FinishError:
 # This creates a fresh model connection, never a writer in an arbitrary state.
 pub def unanswered(id: i64, fail_after: i64 = -1) -> Unanswered:
     Unanswered(Some(Wire(id, fail_after, 0)))
-
-pub def begin(response: Unanswered, length: i64) -> Result[Writer, StartError]:
-    if length < 0:
-        return Err(StartError.InvalidLength(response))
-    mut owned = response
-    # Field extraction is expressed with an initialized empty slot. No dummy
-    # connection, allocation or deep copy is needed, but the invariant is ours.
-    wire = replace(owned.wire, Nothing).unwrap()
-    Ok(Writer(wire, length))
-
-pub def write(writer: Writer, count: i64) -> Result[Writer, WriteError]:
-    if count < 0 or count > writer.remaining:
-        return Err(WriteError.OutOfRange(writer))
-    mut owned = writer
-    mut accepted = count
-    mut broken = False
-    if owned.wire.fail_after >= 0 and count > owned.wire.fail_after - owned.wire.sent:
-        accepted = owned.wire.fail_after - owned.wire.sent
-        broken = True
-    owned.wire.sent += accepted
-    total = owned.wire.sent
-    owned.remaining -= accepted
-    if broken:
-        # A partial write is terminal: report progress, destroy the connection,
-        # and do not return a writer that could replay already accepted bytes.
-        return Err(WriteError.Broken(accepted, total))
-    Ok(owned)
-
-pub def finish(writer: Writer) -> Result[(), FinishError]:
-    if writer.remaining != 0:
-        return Err(FinishError.Incomplete(writer))
-    drop(writer)
-    Ok(())
-
-pub def cancel(writer: Writer) -> ():
-    drop(writer)

@@ -6,8 +6,9 @@ and [destruction](../design/language/05-ownership/06-destruction.md) define curr
 behavior. Scheduling belongs in [B72](../backlog.md).
 
 The [owned response experiment](typestate-response-experiment.md) refreshes this
-assessment against `344dfdbd`, with native cleanup/retry checks and compiler
-rejections. It also assesses consuming receivers separately from field moves.
+assessment, with native cleanup/retry checks and compiler rejections. Explicit
+owned receivers now support method-shaped transitions; individual field moves
+remain out of scope.
 
 The separate [linear-obligations proposal](linear-obligations.md) (issue #149)
 addresses non-abandonment of an owner, including retry errors. Typestate can
@@ -31,15 +32,17 @@ the current [ownership](../design/language/05-ownership/index.md),
 [classes](../design/language/03-types/classes.md), and
 [function](../design/language/06-functions/01-signatures-and-calls.md) contracts.
 
-Ordinary methods currently borrow their receiver; do not assume Rust-style
-consuming `self` methods or specialized method sets on `Connection[Open]` versus
-`Connection[Closed]`. Generic classes exist, but a marker parameter alone does
-not prove state-specific method availability. Distinct classes and consuming
-free functions are the conservative starting point.
+Ordinary methods borrow their receiver by default. Explicit `self: Class` or
+`self: Enum` uses the same by-value rules as a function argument. For affine
+states, a successful call or an error both consume the previous binding; a
+retryable error must explicitly carry the owner back. Copyable enums still copy.
+There are no specialized method declarations for `Connection[Open]` versus
+`Connection[Closed]`; distinct classes remain the conservative starting point.
 
 Generic instance methods are now checked only when used (issue #515), so an
 unused method need not work for every argument type. This improves flexibility
-but does not add consuming receivers or explicit state-specialized method sets.
+but does not add explicit state-specialized method sets. Owned receivers are
+an independent feature, documented with [method contracts](../design/language/06-functions/01-signatures-and-calls.md).
 
 Moving an entire owner is supported; extracting affine class fields is not.
 Transitions that rebuild a wrapper around an owned connection may need an enum

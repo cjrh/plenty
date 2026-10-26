@@ -298,7 +298,7 @@ after `records` ships, rather than designing it now.
 
 ### Composition
 
-Plenty has operator hooks but no consuming method receivers. For this API,
+Plenty has operator hooks and explicit consuming method receivers. For this API,
 `+` would be a poor fit: every step can allocate, and
 Plenty makes that visible, so a chain would read
 `((ggplot(t, m)? + geom_point())? + labs(title="x"))?`, as `str` already
