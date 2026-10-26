@@ -209,13 +209,23 @@ archive ships `LICENSE-MIT` and `LICENSE-APACHE` from the repository root and
 from `cargo metadata`. It lists every crate linked into the compiler or its
 embedded runtime (normal dependencies only; build scripts and procedural macros
 do not ship) with each crate's own license files, plus the vendored SQLite
-amalgamation and the third-party code and data that standard library modules
-embed (`EMBEDDED`): `std.markdown` derives from commonmark.js 0.31.2
-(BSD-2-Clause) and carries tables generated from the Unicode Character Database
-(Unicode License v3) and the WHATWG HTML named character references
-(BSD-3-Clause for portions in source code). Their reviewed license texts are
-bundled in `scripts/release/licenses/`; update the entry and its text together
-when the upstream version changes. The Rust standard library's notices come from the build
+amalgamation and Brotli codec, and the third-party code and data that standard
+library modules and the runtime embed. `VENDORED_SOURCES` lists source copied
+from a published package with its license files kept beside the copy:
+`plenty-runtime/src/unicode/vendor` holds unicode-normalization 0.1.25
+(MIT OR Apache-2.0). `EMBEDDED` lists the rest: `std.markdown` derives from
+commonmark.js 0.31.2 (BSD-2-Clause) and carries tables generated from the
+Unicode Character Database 16.0.0 and the WHATWG HTML named character
+references (BSD-3-Clause for portions in source code), and the
+unicode-normalization tables derive from the Unicode Character Database 17.0.0
+(Unicode License v3). `std.diff` derives its Myers and patience
+algorithms from the `similar` crate 3.2.1 (Apache-2.0). Their reviewed license texts are bundled in
+`scripts/release/licenses/`; update the entry and its text together when the
+upstream version changes. The compiler notices fail when a directory named
+`vendor`, or a subdirectory of `plenty-runtime/native`, has no notice: a
+child of a `vendor` directory named after a shipped crate (`NAME-VERSION`, as in
+`plenty-runtime/vendor`) is covered by that crate's entry, and any other vendored
+directory needs a `VENDORED_SOURCES` or native-library entry. The Rust standard library's notices come from the build
 toolchain's `share/doc/rust`. The script fails when a shipped crate has no
 license file or reviewed fallback, so a new dependency's license is reviewed
 before it ships. For `iced-x86 1.21.0`, whose published crate omits its license

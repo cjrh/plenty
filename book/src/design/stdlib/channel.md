@@ -35,3 +35,7 @@ do not weaken the checks for live opposite endpoints across joins or future
 waits. Timeouts are budgets, not hard deadlines. Use
 [`std.time`](time.md) to compute remaining milliseconds; tokens do not interrupt
 an ordinary channel wait. No unbounded channel or arbitrary selector is added.
+
+## Acknowledgements
+
+- Contracts follow Rust's [`sync_channel`](https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html) and [crossbeam-channel](https://docs.rs/crossbeam-channel/); no Crossbeam code is used.

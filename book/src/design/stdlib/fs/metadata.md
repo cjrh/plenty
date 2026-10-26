@@ -48,3 +48,7 @@ Linux's stable 256-byte `statx` ABI, also used by Rust's Unix fs backend, to avo
 std's infallible long-path CString allocation. It requires 64-bit Linux and
 libc/kernel statx support; absent kernel support or required basic fields returns
 `IoError.Unsupported`. Native layouts and descriptors are private.
+
+## Acknowledgements
+
+- Follows Rust's [`metadata`/`symlink_metadata`](https://doc.rust-lang.org/std/fs/fn.symlink_metadata.html) split and its Unix `statx` backend.

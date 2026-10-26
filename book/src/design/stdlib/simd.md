@@ -150,3 +150,7 @@ not replace the packed-column lowering used by `clist`. Wider vectors, packed vi
 lane counts, gathers/scatters, casts, shifts and integer division are not in this
 initial surface. See the [tutorial](../../tutorial/07-modules/19-portable-simd.md)
 and the [implementation evidence](../../proposals/std-simd/implementation.md).
+
+## Acknowledgements
+
+- Design follows Rust's portable [`std::simd`](https://doc.rust-lang.org/std/simd/index.html).

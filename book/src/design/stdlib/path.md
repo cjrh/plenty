@@ -40,3 +40,7 @@ The Rust implementation baseline is `library/std/src/path.rs`; Python's
 representations remain [B12/B39 candidates](../../backlog.md); issue #76 owns
 compact buffers/views. Closed issue #61 records the initial raw transport,
 and issue #49 records the catalogue's decomposition rather than implementation.
+
+## Acknowledgements
+
+- Lexical rules follow Rust's [`std::path::Path`](https://doc.rust-lang.org/std/path/struct.Path.html); the lexical/filesystem split follows Python's [`PurePath`/`Path`](https://docs.python.org/3/library/pathlib.html).

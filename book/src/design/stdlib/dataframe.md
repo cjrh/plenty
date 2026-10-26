@@ -163,3 +163,7 @@ not make arbitrary native failures recoverable.
 `POLARS_MAX_THREADS` configures the engine's global pool before first use.
 It is independent of Plenty executors. Avoid oversubscribing both pools
 when running many analytical queries concurrently.
+
+## Acknowledgements
+
+- Wraps [Polars](https://pola.rs/) 0.55.2, built into the optional dataframe engine library (MIT).
