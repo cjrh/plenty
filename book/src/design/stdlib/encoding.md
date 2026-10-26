@@ -1,7 +1,7 @@
 # std.encoding
 
-`import std.encoding` provides hex and base64 codecs and fixed-width integer
-packing over [`std.bytes`](bytes.md) buffers, with one error type,
+`import std.encoding` provides hex, base32, base64 and custom codecs and
+fixed-width integer packing over [`std.bytes`](bytes.md) buffers, with one error type,
 `EncodingError`.
 
 The module is checked Plenty code with no native primitives of its own: every
@@ -31,9 +31,13 @@ turning decoded bytes into a `str` is the separate, strict
 Each result is a new buffer whose capacity equals its length. Encoders produce
 ASCII only.
 
+For base32/base32hex, MIME line wrapping, and reusable custom alphabets, see
+[additional codecs](encoding-codecs.md). They use the same ranges, result
+types, and absolute byte indexes as the functions here.
+
 ### Accepted forms
 
-Each codec accepts one form. Decoders never skip, trim, or repair input:
+The codecs in this table accept one form. They never skip, trim, or repair input:
 whitespace, line breaks, and any other byte outside the alphabet are errors.
 
 | Codec | Alphabet | Length | Padding |
@@ -81,6 +85,7 @@ pub enum EncodingError:
     InvalidByte(i64)
     InvalidPadding(i64)
     NonCanonical(i64)
+    InvalidAlphabet
     Allocation(AllocError)
 ```
 
@@ -89,8 +94,9 @@ pub enum EncodingError:
 | `OutOfRange` | A range or offset lies outside the buffer |
 | `InvalidLength` | The encoded length is impossible for the codec |
 | `InvalidByte(index)` | The byte at `index` is outside the alphabet |
-| `InvalidPadding(index)` | `=` at `index` where the codec does not accept it |
+| `InvalidPadding(index)` | A configured padding byte at `index` where the codec does not accept it |
 | `NonCanonical(index)` | The symbol at `index` has nonzero bits that encode no byte |
+| `InvalidAlphabet` | A custom alphabet or padding symbol violates its construction rules |
 | `Allocation(cause)` | Storage for the result could not be allocated |
 
 An index is a position in the source buffer, not relative to `start`; for the
@@ -108,6 +114,10 @@ global state. Its functions pass the ordinary worker-effect checks and may run
 in any thread.
 
 ## Costs
+
+This table covers the original hex/base64 codecs and integer packing. See
+[additional codec costs](encoding-codecs.md#allocation-and-limits) for custom
+table construction and MIME's temporary buffers.
 
 | Operation | Allocates | Time |
 |---|---|---|
@@ -140,6 +150,6 @@ are not implemented.
 ## Limits
 
 - No streaming or incremental codecs: input and output are whole buffers.
-- No line-wrapped (MIME) base64, base32, or user-supplied alphabets.
+- No arbitrary line widths, automatic case folding, or permissive recovery from damaged encodings.
 - No `f32`/`f64` packing, variable-length integers, or 128-bit integers.
 - No record-layout description: pack fields one call at a time.
