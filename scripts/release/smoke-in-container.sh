@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run smoke-test.sh against ARCHIVE in a clean container of IMAGE.
 #
-# Usage: smoke-in-container.sh IMAGE ARCHIVE [smoke-test options]
+# Usage: smoke-in-container.sh IMAGE ARCHIVE [--dataframe-archive ENGINE] [smoke-test options]
 #
 # Starts IMAGE, installs only the prerequisites the archive README documents
 # for that distribution, disconnects the container from the network, copies
@@ -14,6 +14,11 @@ image="$1"
 archive="$2"
 shift 2
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+engine=""
+if [ "${1:-}" = --dataframe-archive ]; then
+    engine="$2"
+    shift 2
+fi
 
 # Keep in step with the commands in README.dist.md and the installation page.
 case "${image%%[:@]*}" in
@@ -37,3 +42,10 @@ docker cp "$archive.sha256" "$container:/opt/check/"
 docker cp "$here/smoke-test.sh" "$container:/opt/check/"
 docker exec -w / "$container" bash /opt/check/smoke-test.sh \
     "/opt/check/$(basename "$archive")" --clean-environment "$@"
+if [ -n "$engine" ]; then
+    docker cp "$engine" "$container:/opt/check/"
+    docker cp "$engine.sha256" "$container:/opt/check/"
+    docker cp "$here/smoke-dataframe.sh" "$container:/opt/check/"
+    docker exec -w / "$container" bash /opt/check/smoke-dataframe.sh \
+        "/opt/check/$(basename "$archive")" "/opt/check/$(basename "$engine")"
+fi

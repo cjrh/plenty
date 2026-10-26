@@ -254,3 +254,58 @@ fn full_semi_anti_joins_with_real_engine() {
         "dataframe joins ok\n"
     );
 }
+
+#[test]
+fn checked_integer_asof_joins_with_real_engine() {
+    if std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none() {
+        eprintln!("as-of execution requires PLENTY_DATAFRAME_TESTS=1");
+        return;
+    }
+    let engine = engine_under_test();
+    let temp = tempfile::tempdir().unwrap();
+    let binary = compile(
+        temp.path(),
+        include_str!("fixtures/dataframe_asof.plenty"),
+        Some(engine.clone()),
+    )
+    .unwrap();
+    let output = assert_success(
+        Command::new(binary)
+            .env("LD_LIBRARY_PATH", engine.parent().unwrap())
+            .env("POLARS_MAX_THREADS", "2")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "dataframe asof ok\n"
+    );
+}
+
+#[test]
+fn dates_and_datetimes_with_real_engine() {
+    if std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none() {
+        eprintln!("datetime execution requires PLENTY_DATAFRAME_TESTS=1");
+        return;
+    }
+    let engine = engine_under_test();
+    let temp = tempfile::tempdir().unwrap();
+    let binary = compile(
+        temp.path(),
+        include_str!("fixtures/dataframe_datetime.plenty"),
+        Some(engine.clone()),
+    )
+    .unwrap();
+    let output = assert_success(
+        Command::new(binary)
+            .current_dir(temp.path())
+            .env("LD_LIBRARY_PATH", engine.parent().unwrap())
+            .env("POLARS_MAX_THREADS", "2")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "dataframe datetime ok\n"
+    );
+}

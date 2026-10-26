@@ -1,0 +1,138 @@
+import std.dataframe as df
+import std.test as test
+
+def columns() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    days = [-1i32, 0i32, 11016i32]?
+    ticks = [-1, 0, 1]?
+    frame = df.frame([
+        df.column_date("day", days)?,
+        df.column_datetime("stamp", ticks, df.TimeUnit.Milliseconds, utc=True)?
+    ]?)?
+    test.equal(frame.values_date_days("day")?, days)?
+    test.equal(frame.get_date_days("day", 0)?, Some(-1i32))?
+    test.equal(frame.values_datetime_ticks("stamp", df.TimeUnit.Milliseconds, utc=True)?, ticks)?
+    test.equal(frame.get_datetime_ticks("stamp", 0, df.TimeUnit.Milliseconds, utc=True)?, Some(-1))?
+    schema = frame.schema()?
+    test.equal(schema[0].dtype, df.DType.Date)?
+    test.equal(schema[1].dtype, df.DType.Datetime(df.TimeUnit.Milliseconds, Some("UTC")))?
+    match frame.values_datetime_ticks("stamp", df.TimeUnit.Microseconds, utc=True):
+        case Err(_):
+            pass
+        case _:
+            test.fail("datetime extraction silently converted units")?
+    match frame.values_datetime_ticks("stamp", df.TimeUnit.Milliseconds):
+        case Err(_):
+            pass
+        case _:
+            test.fail("datetime extraction discarded UTC metadata")?
+    match df.column_date("bad", [i32.MAX]?):
+        case Err(_):
+            pass
+        case _:
+            test.fail("out-of-calendar date accepted")?
+    match df.column_datetime("bad", [i64.MAX]?, df.TimeUnit.Milliseconds):
+        case Err(_):
+            pass
+        case _:
+            test.fail("out-of-calendar datetime accepted")?
+    Ok(())
+
+def nullable() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    days: list[Option[i32]] = [Some(-1i32), Nothing, Some(0i32)]?
+    ticks: list[Option[i64]] = [Some(-1), Nothing, Some(1)]?
+    frame = df.frame([
+        df.column_date_nullable("day", days)?,
+        df.column_datetime_nullable("stamp", ticks, df.TimeUnit.Nanoseconds)?
+    ]?)?
+    test.equal(frame.values_date_days_nullable("day")?, days)?
+    test.equal(frame.values_datetime_ticks_nullable("stamp", df.TimeUnit.Nanoseconds)?, ticks)?
+    test.check(frame.get_date_days("day", 1)?.is_none(), "null date")?
+    match frame.values_date_days("day"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nonnull date extraction accepted null")?
+    empty: list[i32] = []?
+    test.equal(df.frame([df.column_date("day", empty)?]?)?.values_date_days("day")?, empty)?
+    all_null: list[Option[i64]] = [Nothing, Nothing]?
+    null_frame = df.frame([df.column_datetime_nullable("stamp", all_null, df.TimeUnit.Microseconds, utc=True)?]?)?
+    test.equal(null_frame.values_datetime_ticks_nullable("stamp", df.TimeUnit.Microseconds, utc=True)?, all_null)?
+    Ok(())
+
+def parsed_query() -> Result[df.Query, df.DataFrameError | AllocError]:
+    source = df.frame([df.column_str("text", ["2000-02-29 12:34:56", "1969-12-31 23:59:59"]?)?]?)?
+    parsed = df.col("text")?.str_to_datetime("%Y-%m-%d %H:%M:%S", df.TimeUnit.Microseconds, utc=True)?.alias("stamp")?
+    source.lazy()?.with_columns([parsed]?)
+
+def expressions() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    query = parsed_query()?
+    result = query.select([
+        df.col("stamp")?.dt_year()?.alias("year")?,
+        df.col("stamp")?.dt_month()?.alias("month")?,
+        df.col("stamp")?.dt_day()?.alias("day")?,
+        df.col("stamp")?.dt_hour()?.alias("hour")?,
+        df.col("stamp")?.dt_minute()?.alias("minute")?,
+        df.col("stamp")?.dt_second()?.alias("second")?,
+        df.col("stamp")?.dt_date()?.alias("date")?,
+        df.col("stamp")?.dt_format("年%Y 月%m 日%d")?.alias("display")?
+    ]?)?.collect_streaming()?
+    test.equal(result.values_i64("year")?, [2000, 1969]?)?
+    test.equal(result.values_i64("month")?, [2, 12]?)?
+    test.equal(result.values_i64("day")?, [29, 31]?)?
+    test.equal(result.values_i64("hour")?, [12, 23]?)?
+    test.equal(result.values_i64("minute")?, [34, 59]?)?
+    test.equal(result.values_i64("second")?, [56, 59]?)?
+    test.equal(result.values_date_days("date")?, [11016i32, -1i32]?)?
+    test.equal(result.values_str("display")?, ["年2000 月02 日29", "年1969 月12 日31"]?)?
+    Ok(())
+
+def parsing_errors() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    source = df.frame([df.column_str("text", ["1970-01-01 00:00:00.000000001", "1969-12-31 23:59:59.999999999", "2263-01-01 00:00:00.000000000"]?)?]?)?
+    expr = df.col("text")?.str_to_datetime("%Y-%m-%d %H:%M:%S%.f", df.TimeUnit.Nanoseconds, strict=False)?.alias("stamp")?
+    result = source.lazy()?.select([expr]?)?.collect()?
+    expected: list[Option[i64]] = [Some(1), Some(-1), Nothing]?
+    test.equal(result.values_datetime_ticks_nullable("stamp", df.TimeUnit.Nanoseconds)?, expected)?
+    strict = df.col("text")?.str_to_datetime("%Y-%m-%d %H:%M:%S%.f", df.TimeUnit.Nanoseconds)?.alias("stamp")?
+    match source.lazy()?.select([strict]?)?.collect():
+        case Err(df.DataFrameError.Query(_)):
+            pass
+        case _:
+            test.fail("nanosecond parse overflow wrapped")?
+    match df.col("text")?.str_to_datetime("%+", df.TimeUnit.Milliseconds, utc=True):
+        case Err(_):
+            pass
+        case _:
+            test.fail("offset format accepted")?
+    source_dates = df.frame([df.column_str("text", ["1970-01-01", "2001-02-29", "not a date"]?)?]?)?
+    dates = source_dates.lazy()?.select([df.col("text")?.str_to_date(strict=False)?.alias("date")?]?)?.collect()?
+    expected_days: list[Option[i32]] = [Some(0i32), Nothing, Nothing]?
+    test.equal(dates.values_date_days_nullable("date")?, expected_days)?
+    Ok(())
+
+def roundtrip() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    original = parsed_query()?.select([df.col("stamp")?, df.col("stamp")?.dt_date()?.alias("day")?]?)?.collect()?
+    original.write_parquet("temporal.parquet")?
+    restored = df.scan_parquet("temporal.parquet")?.collect()?
+    test.equal(restored.schema()?, original.schema()?)?
+    test.equal(restored.values_datetime_ticks("stamp", df.TimeUnit.Microseconds, utc=True)?, original.values_datetime_ticks("stamp", df.TimeUnit.Microseconds, utc=True)?)?
+    text = original.lazy()?.select([
+        df.col("stamp")?.dt_format("%Y-%m-%d %H:%M:%S%.6f")?.alias("stamp")?,
+        df.col("day")?.dt_format("%Y-%m-%d")?.alias("day")?
+    ]?)?.collect()?
+    text.write_csv("temporal.csv")?
+    csv = df.scan_csv("temporal.csv")?.select([
+        df.col("stamp")?.str_to_datetime("%Y-%m-%d %H:%M:%S%.6f", df.TimeUnit.Microseconds, utc=True)?,
+        df.col("day")?.str_to_date()?
+    ]?)?.collect_streaming()?
+    test.equal(csv.schema()?, original.schema()?)?
+    test.equal(csv.values_date_days("day")?, original.values_date_days("day")?)?
+    Ok(())
+
+def main() -> Result[(), df.DataFrameError | AllocError | test.TestError | IoError]:
+    columns()?
+    nullable()?
+    expressions()?
+    parsing_errors()?
+    roundtrip()?
+    print("dataframe datetime ok")?
+    Ok(())

@@ -371,13 +371,17 @@ def writer[W](inner: W, dialect: &Dialect) -> Result[Writer[W], CsvError]
 Optional Polars analytical expression plans, typed nullable columns, schema inspection, grouping, and CSV/Parquet I/O. Errors: `DataFrameError`. [Reference](dataframe.md).
 
 ```text
+enum TimeUnit
+    Milliseconds | Microseconds | Nanoseconds
 enum DType
-    I64 | F64 | Bool | String | Other(str)
+    I64 | F64 | Bool | String | Date | Datetime(TimeUnit, Option[str]) | Other(str)
 class Field
     name: str
     dtype: DType
 enum JoinKind
     Inner | Left | Full | Semi | Anti
+enum AsOfStrategy
+    Backward | Forward | Nearest
 class SortKey
     def __init__(self, expression: Expr, descending: bool = False, nulls_last: bool = True) -> ()
 enum DataFrameError
@@ -388,6 +392,12 @@ class DataFrame
     def lazy(self) -> Result[Query, DataFrameError]
     def write_parquet(self, path: &str) -> Result[(), DataFrameError]
     def write_csv(self, path: &str, has_header: bool = True, separator: &str = ",", null_value: &str = "") -> Result[(), DataFrameError]
+    def get_date_days(self, name: &str, row: i64) -> Result[Option[i32], DataFrameError]
+    def get_datetime_ticks(self, name: &str, row: i64, unit: TimeUnit, utc: bool = False) -> Result[Option[i64], DataFrameError]
+    def values_date_days(self, name: &str) -> Result[list[i32], DataFrameError]
+    def values_date_days_nullable(self, name: &str) -> Result[list[Option[i32]], DataFrameError]
+    def values_datetime_ticks(self, name: &str, unit: TimeUnit, utc: bool = False) -> Result[list[i64], DataFrameError]
+    def values_datetime_ticks_nullable(self, name: &str, unit: TimeUnit, utc: bool = False) -> Result[list[Option[i64]], DataFrameError]
     def get_i64(self, name: &str, row: i64) -> Result[Option[i64], DataFrameError]
     def values_i64(self, name: &str) -> Result[list[i64], DataFrameError]
     def get_f64(self, name: &str, row: i64) -> Result[Option[f64], DataFrameError]
@@ -402,6 +412,16 @@ class DataFrame
     def values_f64_nullable(self, name: &str) -> Result[list[Option[f64]], DataFrameError]
     def values_bool_nullable(self, name: &str) -> Result[list[Option[bool]], DataFrameError]
 class Expr
+    def str_to_date(self, format: &str = "%Y-%m-%d", strict: bool = True) -> Result[Expr, DataFrameError]
+    def str_to_datetime(self, format: &str, unit: TimeUnit, utc: bool = False, strict: bool = True) -> Result[Expr, DataFrameError]
+    def dt_year(self) -> Result[Expr, DataFrameError]
+    def dt_month(self) -> Result[Expr, DataFrameError]
+    def dt_day(self) -> Result[Expr, DataFrameError]
+    def dt_hour(self) -> Result[Expr, DataFrameError]
+    def dt_minute(self) -> Result[Expr, DataFrameError]
+    def dt_second(self) -> Result[Expr, DataFrameError]
+    def dt_date(self) -> Result[Expr, DataFrameError]
+    def dt_format(self, format: &str) -> Result[Expr, DataFrameError]
     def cast(self, dtype: DType, strict: bool = True) -> Result[Expr, DataFrameError]
     def str_lower(self) -> Result[Expr, DataFrameError]
     def str_upper(self) -> Result[Expr, DataFrameError]
@@ -440,11 +460,16 @@ class Query
     def collect_streaming(self) -> Result[DataFrame, DataFrameError]
     def sink_parquet(self, path: &str) -> Result[(), DataFrameError]
     def join(self, other: &Query, left_keys: &list[Expr], right_keys: &list[Expr], how: JoinKind = JoinKind.Inner, suffix: &str = "_right", nulls_equal: bool = False) -> Result[Query, DataFrameError]
+    def join_asof(self, other: &Query, left_on: &str, right_on: &str, strategy: AsOfStrategy = AsOfStrategy.Backward, tolerance: Option[i64] = Nothing, allow_exact_matches: bool = True, suffix: &str = "_right") -> Result[Query, DataFrameError]
     def sort(self, keys: &list[SortKey]) -> Result[Query, DataFrameError]
     def slice(self, offset: i64, length: i64) -> Result[Query, DataFrameError]
     def limit(self, count: i64) -> Result[Query, DataFrameError]
 def frame(columns: &list[Column]) -> Result[DataFrame, DataFrameError]
 def column_i64(name: &str, values: &list[i64]) -> Result[Column, DataFrameError]
+def column_date(name: &str, days: &list[i32]) -> Result[Column, DataFrameError]
+def column_date_nullable(name: &str, days: &list[Option[i32]]) -> Result[Column, DataFrameError]
+def column_datetime(name: &str, ticks: &list[i64], unit: TimeUnit, utc: bool = False) -> Result[Column, DataFrameError]
+def column_datetime_nullable(name: &str, ticks: &list[Option[i64]], unit: TimeUnit, utc: bool = False) -> Result[Column, DataFrameError]
 def column_f64(name: &str, values: &list[f64]) -> Result[Column, DataFrameError]
 def col(name: &str) -> Result[Expr, DataFrameError]
 def lit(value: f64) -> Result[Expr, DataFrameError]

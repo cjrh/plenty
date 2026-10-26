@@ -5,6 +5,10 @@ Parquet files. Plenty describes the query; a separately compiled Polars
 engine optimizes and executes it. This exposes native columnar processing,
 parallelism and SIMD without asking you to manage vector instructions.
 Install the [optional engine](../../design/stdlib/dataframe-engine.md) once.
+Binary releases provide it as a separate download; no local Polars build is
+needed. When distributing a compiled application, follow
+[shipping dataframe applications](../../design/stdlib/dataframe-deployment.md)
+to include its shared library and notices.
 These examples require it when compiled and run.
 
 `clist[T]` remains useful for lightweight mutable records, a compile-time

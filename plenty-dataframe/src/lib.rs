@@ -147,6 +147,10 @@ mod expressions;
 pub use expressions::*;
 mod io;
 pub use io::*;
+mod asof;
+pub use asof::*;
+mod temporal;
+pub use temporal::*;
 
 /// # Safety
 /// Borrow a non-null error owner for the call.

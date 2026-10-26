@@ -4,6 +4,8 @@ Polars-backed analytical dataframes, expression plans and CSV/Parquet files.
 The optional, separately compiled engine is reused by every Plenty program.
 See [installation and deployment](dataframe-engine.md) and the
 [tutorial](../../tutorial/special-purpose/dataframes.md).
+The [daily sales report application](../../tutorial/special-purpose/dataframe-application.md)
+combines ingestion, checked catalogue joins, row quarantine and typed exports.
 
 Use `clist[T]` for a lightweight mutable columnar collection with a
 compile-time class schema and Plenty arithmetic. Use `std.dataframe` for
@@ -38,6 +40,8 @@ to preserve missing values, or `fill_null` when replacement is appropriate.
 Strings, booleans, nullable input/output and schema inspection are described
 in [Column types and schemas](dataframe-types.md). No implicit casts or
 zero-copy borrowing occur at the Plenty boundary.
+Logical [Date and Datetime columns](dataframe-datetime.md) add checked temporal
+interchange, parsing, formatting and calendar expressions.
 
 ## Expression plans
 
@@ -59,6 +63,7 @@ The [signature index](signatures.md#stddataframe) gives exact declarations.
 | `query.with_columns(&expressions)`, `select(&expressions)` | `Query` |
 | `query.group_by(&keys, &aggregates)` | `Query` |
 | `query.join(&other, &left_keys, &right_keys, how=JoinKind.Inner, suffix="_right", nulls_equal=False)` | `Query` |
+| `query.join_asof(&other, "key", "key", strategy=AsOfStrategy.Backward, tolerance=Nothing, allow_exact_matches=True, suffix="_right")` | `Query` |
 | `query.sort(&keys)`, `slice(offset, length)`, `limit(count)` | `Query` |
 | `query.collect()`, `collect_streaming()` | `DataFrame` |
 | `scan_csv(path, ...)` | `Query` |
@@ -85,6 +90,10 @@ derived query. Each handle is freed by the engine that allocated it.
 There are no public raw pointers or user-created native handles.
 
 ## Joins, ordering and row windows
+
+For sorted integer keys, [as-of joins](dataframe-asof.md) attach the previous,
+next or nearest right row with an optional distance bound. Unlike equality
+joins, they produce at most one match for each left row.
 
 These operations return new immutable query plans; neither input is consumed
 or mutated. They execute inside Polars, with no Plenty row callbacks or
@@ -123,10 +132,10 @@ create-new output behavior and buffering limits.
 
 Polars 0.55.2 semantics apply inside expressions, not Plenty scalar
 semantics. Schemas are checked at runtime. Input/extraction supports
-`i64`, `f64`, `str` and `bool`, including nullable columns. Parquet can
+`i64`, `f64`, `str`, `bool`, Date and naive/UTC Datetime, including nullable columns. Parquet can
 contain other native types that schema inspection describes and expressions
 can carry, but this API cannot extract them. Paths are UTF-8 strings.
-There is no automatic lambda translation, mutation API, date/nested-value
+There is no automatic lambda translation, mutation API, nested-value
 construction, cloud credential configuration or stable serialization of plans.
 
 Null is missing data, distinct from floating-point NaN. Comparisons with

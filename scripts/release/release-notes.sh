@@ -7,17 +7,21 @@
 set -euo pipefail
 
 dist="$1"
-archive="$(cd "$dist" && ls plenty-*.tar.gz)"
+archive="$(cd "$dist" && ls plenty-[0-9]*.tar.gz)"
 name="${archive%.tar.gz}"
+engine="plenty-dataframe-${archive#plenty-}"
 cat <<EOF
 Download \`$archive\`. SHA-256:
 
 \`\`\`text
 $(cat "$dist/$archive.sha256")
+$(cat "$dist/$engine.sha256")
 \`\`\`
 
 Linux x86-64 with glibc 2.28 or later, plus a C compiler driver (\`cc\`) for
 linking. This is not a self-contained toolchain; see Requirements below.
+For \`std.dataframe\`, also download \`$engine\`. Its README explains how to
+install the optional shared library and distribute it with your own apps.
 
 EOF
 # The README with its title demoted under the release title.

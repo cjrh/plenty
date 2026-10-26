@@ -1,10 +1,16 @@
 # Installing a release
 
-Each Plenty release on the project's GitHub Releases page provides one archive,
+Each Plenty release on the project's GitHub Releases page provides a compiler archive,
 `plenty-VERSION-x86_64-unknown-linux-gnu.tar.gz`, and its `.sha256` checksum.
 Extract it anywhere and put its `bin/` directory on `PATH`. No installer, root
 access, fixed location, Rust, Cargo, or source checkout is needed. The README
 in the archive repeats these instructions.
+
+For `std.dataframe`, also download the optional
+`plenty-dataframe-VERSION-x86_64-unknown-linux-gnu.tar.gz` and checksum from
+the same release. Follow [engine installation](../../stdlib/dataframe-engine.md)
+and [application deployment](../../stdlib/dataframe-deployment.md). Ordinary
+programs do not need this additional asset.
 
 For a step-by-step download guide and persistent PATH examples for Bash, Zsh,
 and Fish, start with [Setting up](../../../tutorial/00-setting-up.md).
@@ -20,8 +26,9 @@ plenty-VERSION-x86_64-unknown-linux-gnu/
   licenses/rust/              the Rust standard library's notices
 ```
 
-The standard library and the runtime are built into the executables, so the
-archive has no other support files and works from any directory.
+The standard-library sources and ordinary runtime are built into the
+executables, so the compiler works from any directory. Dataframe execution
+uses the separately installed shared engine.
 
 ## Requirements
 

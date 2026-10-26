@@ -76,3 +76,6 @@ dataframe. A failed write can leave a partial new file; existing files are
 never overwritten by these two new output methods.
 See the [I/O contracts](../../design/stdlib/dataframe-io.md) for options,
 error timing and execution limits.
+
+Continue with [Application: a daily sales report](dataframe-application.md)
+to combine file scans, cleaning, dates, joins and exports in a complete program.
