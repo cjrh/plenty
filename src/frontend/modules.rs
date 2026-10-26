@@ -144,6 +144,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         include_str!("../../stdlib/std/http/websocket.plenty"),
     ),
     (
+        "std.http.sse",
+        include_str!("../../stdlib/std/http/sse.plenty"),
+    ),
+    (
         "std.http.wss",
         include_str!("../../stdlib/std/http/wss.plenty"),
     ),

@@ -242,7 +242,8 @@ pipelined requests from memory and writes a chunked response. The tests in
 - HTTP/1.0 and HTTP/1.1 only. No HTTP/2, or `100-continue` handling
   beyond returning the interim response. Upgrades are not handled here:
   [`std.http.server`](http-server.md#switching-protocols) hands a `101`
-  connection to [`std.http.websocket`](websocket.md).
+  connection to [`std.http.websocket`](websocket.md), and `detach` hands a
+  long-lived response to [`std.http.sse`](sse.md).
 - No connection pool, redirects, proxies, cookies, or TLS here; the server
   is [`std.http.server`](http-server.md) and the client
   [`std.http.client`](http-client.md). Deadlines are the caller's: use

@@ -1,0 +1,304 @@
+# Server-Sent Events (the WHATWG HTML `text/event-stream` format) for
+# std.http.server: a handler turns its exchange into an event stream that
+# outlives the server's response deadline, then sends events with `event`,
+# `id` and multi-line `data` fields, comments and `retry` hints. Each call
+# writes and flushes whole fields before it returns. `wait` paces a stream
+# while watching for the client to go away and for server shutdown. There is
+# no client-side reader. See book/src/design/stdlib/sse.md.
+import std.bytes
+import std.http
+import std.http.server
+import std.io
+import std.time
+from std.bytes import Bytes, BytesError
+from std.http import HttpError, ResponseHead
+from std.http.server import Exchange, Transport
+from std.io import StreamError
+from std.net import NetError, Shutdown
+from std.sync import CancellationToken
+from std.time import Deadline
+
+pub enum SseError:
+    Net(NetError)
+    Allocation(AllocError)
+    Http(HttpError)
+    # An event name or id holding a line break, or an id holding NUL.
+    InvalidField
+    # Data that is not UTF-8.
+    InvalidText
+    # A byte range out of bounds, or a negative retry time.
+    OutOfRange
+    # The client closed the connection.
+    Disconnected
+    # The stream was closed, or failed earlier.
+    Closed
+    # Server shutdown began while waiting.
+    Stopping
+
+const line_feed: u8 = 10u8
+const carriage_return: u8 = 13u8
+const space: u8 = 32u8
+const colon: u8 = 58u8
+
+def bytes_of[T](result: Result[T, BytesError]) -> Result[T, SseError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(SseError.Allocation(cause))
+                case BytesError.InvalidUtf8:
+                    Err(SseError.InvalidText)
+                case BytesError.OutOfRange:
+                    Err(SseError.OutOfRange)
+
+def http_of[T](result: Result[T, HttpError]) -> Result[T, SseError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case HttpError.Allocation(cause):
+                    Err(SseError.Allocation(cause))
+                case _ as other:
+                    Err(SseError.Http(other))
+
+# A connection the client ended or reset is Disconnected.
+def net_error(error: NetError) -> SseError:
+    match error:
+        case NetError.Reset:
+            SseError.Disconnected
+        case NetError.Stream(StreamError.Allocation(cause)):
+            SseError.Allocation(cause)
+        case _ as other:
+            SseError.Net(other)
+
+# Appends `name: ` and then text[start:stop] and a line feed.
+def field(out: &mut Bytes, name: &str, text: &Bytes, start: i64, stop: i64) -> Result[(), SseError]:
+    bytes_of(out.extend(&bytes_of(std.bytes.from_text(name))?))?
+    bytes_of(out.push(colon))?
+    bytes_of(out.push(space))?
+    bytes_of(out.extend_range(text, start, stop))?
+    bytes_of(out.push(line_feed))
+
+# Appends one `name: line` field for each line of text[start:stop]. CRLF, CR
+# and LF all end a line, as the format's readers split them; a line break
+# at the end leaves a last, empty line.
+def lines(out: &mut Bytes, name: &str, text: &Bytes, start: i64, stop: i64) -> Result[(), SseError]:
+    mut at = start
+    while True:
+        match bytes_of(text.find_in(b"\r\n", at, stop))?:
+            case Some(end):
+                field(out, name, text, at, end)?
+                at = end + 1
+                if text[end] == carriage_return and at < stop and text[at] == line_feed:
+                    at += 1
+            case Nothing:
+                return field(out, name, text, at, stop)
+    Ok(())
+
+# An event name or id, which must be one line.
+def single(out: &mut Bytes, name: &str, value: &str, id: bool) -> Result[(), SseError]:
+    text = bytes_of(std.bytes.from_text(value))?
+    if bytes_of(text.find_in(b"\r\n", 0, text.len()))?.is_some():
+        return Err(SseError.InvalidField)
+    if id and bytes_of(text.find(0u8, 0, text.len()))?.is_some():
+        return Err(SseError.InvalidField)
+    field(out, name, &text, 0, text.len())
+
+# An event stream: a response that the handler keeps writing to until it
+# closes it, the client goes away, or the server shuts down. One caller at a
+# time: every method borrows the stream exclusively.
+pub class EventStream[T]:
+    # The request's `Last-Event-ID` field: the last id a reconnecting client
+    # received, so the handler can resume after it.
+    pub last_event_id: Option[str]
+    _stream: Option[T]
+    # The fields of the event being sent; kept to reuse its capacity.
+    _out: Bytes
+    # Input the client sends, read and discarded while waiting.
+    _input: Bytes
+    # Shutdown ends `wait` with Stopping when `_stop` is cancelled; the drain
+    # deadline ends every wait when `_cancel` is.
+    _stop: CancellationToken
+    _cancel: CancellationToken
+    _open: bool
+
+    # Whether events can still be sent.
+    pub def is_open(self) -> bool:
+        self._open
+
+    # Sends `data` as one event, a `data` field for each of its lines, after
+    # an `event` field naming its type unless `event` is empty and an `id`
+    # field when `id` is given. An empty `id` resets the client's last event
+    # id.
+    pub def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]:
+        text = bytes_of(std.bytes.from_text(data))?
+        self.send_bytes(&text, 0, text.len(), deadline, event, id)
+
+    # `send` of data[start:stop], which must be UTF-8. It is not copied
+    # except into the stream's output buffer.
+    pub def send_bytes(self: &mut EventStream[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]:
+        self.usable()?
+        if start < 0 or start > stop or stop > data.len():
+            return Err(SseError.OutOfRange)
+        if bytes_of(data.utf8_run(start, stop))? != stop:
+            return Err(SseError.InvalidText)
+        self._out.clear()
+        if event.byte_len() > 0:
+            single(&mut self._out, "event", &event, False)?
+        match &id:
+            case Some(value):
+                single(&mut self._out, "id", value, True)?
+            case Nothing:
+                pass
+        lines(&mut self._out, "data", data, start, stop)?
+        bytes_of(self._out.push(line_feed))?
+        self.flush(deadline)
+
+    # Sends `text` as comment lines, which clients ignore: a keep-alive that
+    # also finds a client that has gone away.
+    pub def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline) -> Result[(), SseError]:
+        self.usable()?
+        source = bytes_of(std.bytes.from_text(text))?
+        self._out.clear()
+        lines(&mut self._out, "", &source, 0, source.len())?
+        self.flush(deadline)
+
+    # Asks the client to wait `milliseconds` before reconnecting after the
+    # connection is lost.
+    pub def retry(self: &mut EventStream[T], milliseconds: i64, deadline: &Deadline) -> Result[(), SseError]:
+        self.usable()?
+        if milliseconds < 0:
+            return Err(SseError.OutOfRange)
+        digits = bytes_of(std.bytes.from_text(&allocated(str.from(milliseconds))?))?
+        self._out.clear()
+        field(&mut self._out, "retry", &digits, 0, digits.len())?
+        bytes_of(self._out.push(line_feed))?
+        self.flush(deadline)
+
+    # Waits until `deadline`, returning Ok then. Ends early with
+    # Disconnected when the client closes the connection, and with Stopping,
+    # leaving the stream open, when server shutdown begins. Input the client
+    # sends is read and discarded.
+    pub def wait(self: &mut EventStream[T], deadline: &Deadline) -> Result[(), SseError]:
+        self.usable()?
+        if self._stop.is_cancelled():
+            return Err(SseError.Stopping)
+        while True:
+            size = self._input.len()
+            outcome: Result[i64, NetError] = match &mut self._stream:
+                case Some(stream):
+                    stream.read_before(&mut self._input, 0, size, deadline, &self._stop)
+                case Nothing:
+                    Err(NetError.Reset)
+            match outcome:
+                case Ok(count):
+                    if count == 0:
+                        return self.failed(SseError.Disconnected)
+                    if deadline.expired(&std.time.monotonic_now()):
+                        return Ok(())
+                case Err(NetError.TimedOut):
+                    return Ok(())
+                case Err(NetError.Cancelled):
+                    if self._cancel.is_cancelled():
+                        return self.failed(SseError.Net(NetError.Cancelled))
+                    return Err(SseError.Stopping)
+                case Err(error):
+                    return self.failed(net_error(error))
+        Ok(())
+
+    # Ends the response: the client sees the connection close. Closing a
+    # closed stream does nothing.
+    pub def close(self: &mut EventStream[T]) -> ():
+        self.shut()
+
+    def usable(self) -> Result[(), SseError]:
+        if not self._open:
+            return Err(SseError.Closed)
+        Ok(())
+
+    def shut(self: &mut EventStream[T]) -> ():
+        if self._open:
+            self._open = False
+            match &mut self._stream:
+                case Some(stream):
+                    drop(stream.shutdown(Shutdown.Both))
+                case Nothing:
+                    pass
+
+    def failed(self: &mut EventStream[T], error: SseError) -> Result[(), SseError]:
+        self.shut()
+        Err(error)
+
+    # Writes the output buffer. A failure part-way leaves the client inside
+    # an event, so it closes the stream.
+    def flush(self: &mut EventStream[T], deadline: &Deadline) -> Result[(), SseError]:
+        size = self._out.len()
+        mut at = 0
+        while at < size:
+            outcome: Result[i64, NetError] = match &mut self._stream:
+                case Some(stream):
+                    stream.write_before(&self._out, at, size, deadline, &self._cancel)
+                case Nothing:
+                    Err(NetError.Reset)
+            match outcome:
+                case Ok(written):
+                    if written == 0:
+                        return self.failed(SseError.Disconnected)
+                    at += written
+                case Err(error):
+                    return self.failed(net_error(error))
+        Ok(())
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, SseError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(SseError.Allocation(cause))
+
+# The head `accept` sends: `200 OK` with `Content-Type: text/event-stream`
+# and `Cache-Control: no-cache`.
+pub def head() -> Result[ResponseHead, HttpError]:
+    mut made = std.http.response(200, "OK")?
+    made.add("Content-Type", "text/event-stream")?
+    made.add("Cache-Control", "no-cache")?
+    Ok(made)
+
+# Answers `exchange` with `head()` and returns the event stream.
+pub def accept[T: Transport](exchange: &mut Exchange[T]) -> Result[EventStream[T], SseError]:
+    accept_with(exchange, http_of(head())?)
+
+# Answers `exchange` with `head`, a `200` response the caller has added
+# fields to, such as CORS fields. `Content-Type: text/event-stream` and
+# `Cache-Control: no-cache` are added unless `head` names those fields. The
+# connection then leaves the server, as with Exchange.detach: the server's
+# response deadline no longer applies, and dropping the stream closes the
+# connection. It keeps the server's tokens: shutdown ends `wait` with
+# Stopping, and the drain deadline cancels every other wait. A HEAD request
+# is answered with the head alone, and the result is Closed.
+pub def accept_with[T: Transport](exchange: &mut Exchange[T], head: ResponseHead) -> Result[EventStream[T], SseError]:
+    if head.status != 200:
+        return Err(SseError.Http(HttpError.InvalidStatusLine))
+    mut owned = head
+    if std.http.find(&owned.headers, "content-type").is_none():
+        http_of(owned.add("Content-Type", "text/event-stream"))?
+    if std.http.find(&owned.headers, "cache-control").is_none():
+        http_of(owned.add("Cache-Control", "no-cache"))?
+    mut last: Option[str] = Nothing
+    match std.http.find(&exchange.request.headers, "last-event-id"):
+        case Some(index):
+            last = Some(exchange.request.headers[index].value)
+        case Nothing:
+            pass
+    if exchange.request.method == "HEAD":
+        http_of(exchange.start(owned))?
+        http_of(exchange.end())?
+        return Err(SseError.Closed)
+    out = bytes_of(std.bytes.with_capacity(256))?
+    mut input = bytes_of(std.bytes.with_capacity(512))?
+    bytes_of(input.resize(512, 0u8))?
+    stream = http_of(exchange.detach(owned))?
+    Ok(EventStream(last, Some(stream), out, input, exchange.stop_token(), exchange.cancel_token(), True))
