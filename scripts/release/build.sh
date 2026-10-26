@@ -9,7 +9,8 @@
 # or scripts/release/local-check.sh). Installs RUST_VERSION with a verified
 # rustup-init when no matching toolchain is present, builds both executables
 # with the tracked lockfile, optionally runs the full test suite with the same
-# toolchain, rejects binaries above the glibc baseline, and packages them.
+# toolchain, builds the optional dataframe engine, rejects binaries above the
+# glibc baseline, and packages separate compiler and engine archives.
 # Set CARGO_TARGET_DIR to keep these outputs apart from host builds.
 set -euo pipefail
 
@@ -64,3 +65,11 @@ if [ "$run_tests" = 1 ]; then
 fi
 "$here/package.sh" --bin-dir "$target_dir/release" --out-dir "$out_dir" \
     --rust-sysroot "$(rustc --print sysroot)"
+
+# Keep the engine optional in normal compiler builds and in its own download.
+# This uses the same pinned toolchain, libc and source as the compiler archive.
+python3 -B scripts/build_dataframe_engine.py --out "$target_dir/dataframe-install" \
+    --target-dir "$target_dir/dataframe-engine" --jobs "${CARGO_BUILD_JOBS:-3}"
+python3 -B "$here/package-dataframe.py" \
+    --engine "$target_dir/dataframe-install/libplenty_dataframe_v1.so" \
+    --out-dir "$out_dir" --rust-sysroot "$(rustc --print sysroot)"

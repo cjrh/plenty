@@ -5,7 +5,7 @@
 # Usage: local-check.sh [--test] [--skip-smoke]
 #
 # Builds in BUILD_IMAGE into target/release-container/ (separate from host
-# builds), then smoke-tests the archive in every SMOKE_IMAGES container.
+# builds), then smoke-tests both archives in every SMOKE_IMAGES container.
 # --test also runs the full test suite in the build container.
 set -euo pipefail
 
@@ -39,10 +39,11 @@ docker run --rm --label org.plenty.release-build=1 \
     "$BUILD_IMAGE" \
     scripts/release/build.sh --out-dir /work/target/release-container/dist "${build_args[@]}"
 
-archive="$(ls "$out"/dist/plenty-*.tar.gz)"
+archive="$(ls "$out"/dist/plenty-[0-9]*.tar.gz)"
+engine="$(ls "$out"/dist/plenty-dataframe-*.tar.gz)"
 if [ "$smoke" = 1 ]; then
     for image in $SMOKE_IMAGES; do
-        "$here/smoke-in-container.sh" "$image" "$archive"
+        "$here/smoke-in-container.sh" "$image" "$archive" --dataframe-archive "$engine"
     done
 fi
 echo "local-check: $archive"

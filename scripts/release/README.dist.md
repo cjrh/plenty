@@ -11,7 +11,11 @@ ahead of time to native code. This archive contains the compiler:
 | `THIRD-PARTY-NOTICES.md`, `licenses/` | Licenses of software built into the compiler |
 
 The standard library and runtime are built into `bin/plenty`. You do not need
-Rust, Cargo, or the Plenty source code.
+Rust, Cargo, or the Plenty source code. `std.dataframe` uses a separate optional
+download from the same release:
+`plenty-dataframe-@VERSION@-@TARGET@.tar.gz` and its `.sha256` checksum.
+Its README explains installation and how to ship the shared engine with your
+applications. Programs that do not use dataframe operations need no engine.
 
 ## Requirements
 
