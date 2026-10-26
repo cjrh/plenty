@@ -66,6 +66,36 @@ reference. Arguments and indices evaluate before the target is exclusively
 borrowed, so `items.append(len(items))` is valid. Active conflicting loans
 still reject mutation; temporary mutation receivers are unsupported.
 
+## Copying and borrowed lookup
+
+Optional lookups named `get`, and `peek` for containers with an order such as
+caches and heaps, return a copy: `dictionary.get(key) -> Option[V]` and
+`list.get(index) -> Option[T]`. Indexing traps on a missing key or index
+instead.
+
+A copying `get` has no hidden cost. It accepts only
+[copyable values](../../language/05-ownership/01-bindings-moves-and-copies.md):
+scalars, immutable strings, ranges, function values, and tuples or enums of
+those. Copying one is a fixed-size copy; a string shares its immutable storage.
+Neither allocates nor duplicates a buffer. Values that own storage, including
+every class instance and every collection, are affine, and `get` rejects them
+at compile time ("get cannot return owned dictionary values"), so owned data is
+never copied by accident.
+
+Copying is the default because the common case reads a small value and uses it
+directly, as in `counts.get(key, 0) + 1`. A borrowing `get` would need a
+dereference at each such use, and its `get(key, default)` form could not exist:
+returning either the stored value or the default would choose between two
+borrows, which [returned references](../../language/05-ownership/04-returned-references.md)
+do not allow.
+
+Borrowed forms take a suffix: `get_ref` and `peek_ref` for shared references,
+`get_mut` and `peek_mut` for exclusive ones. Builtin and standard library
+containers follow the same rule, so the method name tells the reader whether
+they hold a copy or a borrow. Optional borrowed lookup returning `Option[&V]`
+is not implemented yet; see the
+[returned reference enums proposal](../../../proposals/returned-reference-enums.md).
+
 `collection.clear() -> ()` removes all entries while retaining capacity and
 allocating no runtime storage. Removed owners drop before return: lists in
 element order, dictionaries in insertion order with keys before values, sets in
