@@ -75,7 +75,7 @@ that its body cannot move out of indexed storage.
 For affine values, borrow instead. `get_ref` and `peek_ref` return
 `Option[&V]`; `get_mut` and `peek_mut` return `Option[&mut V]`. All four return
 `Nothing` for an absent key. A borrowed result follows the
-[optional reference rules](../language/05-ownership/optional-references.md):
+[optional reference rules](../language/05-ownership/05-optional-references.md):
 it borrows the whole cache until its last use, so the cache cannot change
 meanwhile. Match it, or use `?` or `unwrap()`, to reach the value:
 
