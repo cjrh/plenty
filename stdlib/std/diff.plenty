@@ -106,8 +106,10 @@ def frontier(old_len: i64, new_len: i64) -> Result[Frontier, AllocError]:
 
 # Myers' middle snake over nonempty ranges with no common prefix or suffix.
 # Returns a point on a shortest edit path that splits it into two smaller
-# problems.
-def middle_snake(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64, v: &mut Frontier) -> (i64, i64):
+# problems. The search stops after `half` rounds, each extending the forward
+# and backward paths by one edit; a range whose shortest script has at most
+# `2 * half` edits is always split on a shortest path.
+def middle_snake(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64, v: &mut Frontier, half: i64) -> (i64, i64):
     n = old_end - old_start
     m = new_end - new_start
     delta = n - m
@@ -115,7 +117,10 @@ def middle_snake(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64],
     at = v.offset
     v.forward[at + 1] = 0
     v.backward[at + 1] = 0
-    for d in range((n + m + 1) // 2 + 1):
+    mut last = (n + m + 1) // 2
+    if half < last:
+        last = half
+    for d in range(last + 1):
         mut k = d
         while k >= -d:
             mut x = 0
@@ -149,10 +154,40 @@ def middle_snake(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64],
                 if x + v.forward[at - (k - delta)] >= n:
                     return (old_end - x, new_end - y)
             k -= 2
-    # A shortest path has at most n + m edits, so the loop always returns.
-    (old_start, new_start)
+    furthest(n, m, v, last, old_start, old_end, new_start, new_end)
 
-def conquer(out: &mut Script, old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64, v: &mut Frontier) -> Result[(), AllocError]:
+# The cost limit stopped the search after `d` rounds. As git's xdiff does
+# without --minimal, split at the in-range end of a forward or backward path
+# that covers the most elements. Such a point covers at least `d` elements and
+# lies strictly inside the range, so both halves are smaller. Returns
+# `(old_start, new_start)`, which callers treat as no split, only if no point
+# qualifies.
+def furthest(n: i64, m: i64, v: &Frontier, d: i64, old_start: i64, old_end: i64, new_start: i64, new_end: i64) -> (i64, i64):
+    at = v.offset
+    mut best = 0
+    mut split_old = old_start
+    mut split_new = new_start
+    mut k = -d
+    while k <= d:
+        x = v.forward[at + k]
+        y = x - k
+        if x >= 0 and x <= n and y >= 0 and y <= m and x + y > best and x + y < n + m:
+            best = x + y
+            split_old = old_start + x
+            split_new = new_start + y
+        k += 2
+    k = -d
+    while k <= d:
+        x = v.backward[at + k]
+        y = x - k
+        if x >= 0 and x <= n and y >= 0 and y <= m and x + y > best and x + y < n + m:
+            best = x + y
+            split_old = old_end - x
+            split_new = new_end - y
+        k += 2
+    (split_old, split_new)
+
+def conquer(out: &mut Script, old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64, v: &mut Frontier, half: i64) -> Result[(), AllocError]:
     prefix = common_prefix(old, old_start, old_end, new, new_start, new_end)
     out.equal(old_start, new_start, prefix)?
     first_old = old_start + prefix
@@ -161,14 +196,17 @@ def conquer(out: &mut Script, old: &list[i64], old_start: i64, old_end: i64, new
     last_old = old_end - suffix
     last_new = new_end - suffix
     if first_old < last_old and first_new < last_new:
-        split_old, split_new = middle_snake(old, first_old, last_old, new, first_new, last_new, v)
-        conquer(out, old, first_old, split_old, new, first_new, split_new, v)?
-        conquer(out, old, split_old, last_old, new, split_new, last_new, v)?
+        split_old, split_new = middle_snake(old, first_old, last_old, new, first_new, last_new, v, half)
+        # No split leaves the range unmatched: `Script.gap` turns it into a
+        # deletion and an insertion.
+        if split_old != first_old or split_new != first_new:
+            conquer(out, old, first_old, split_old, new, first_new, split_new, v, half)?
+            conquer(out, old, split_old, last_old, new, split_new, last_new, v, half)?
     out.equal(last_old, last_new, suffix)
 
-def myers(out: &mut Script, old: &list[i64], new: &list[i64]) -> Result[(), AllocError]:
+def myers(out: &mut Script, old: &list[i64], new: &list[i64], half: i64) -> Result[(), AllocError]:
     mut v = frontier(len(old), len(new))?
-    conquer(out, old, 0, len(old), new, 0, len(new), &mut v)
+    conquer(out, old, 0, len(old), new, 0, len(new), &mut v, half)
 
 def counts(ids: &list[i64], distinct: i64) -> Result[list[i64], AllocError]:
     mut seen = [0 for _ in range(distinct)]?
@@ -185,7 +223,7 @@ def unique(ids: &list[i64], mine: &list[i64], theirs: &list[i64]) -> Result[list
             positions.append(index)?
     Ok(positions)
 
-def patience(out: &mut Script, old: &list[i64], new: &list[i64], distinct: i64) -> Result[(), AllocError]:
+def patience(out: &mut Script, old: &list[i64], new: &list[i64], distinct: i64, half: i64) -> Result[(), AllocError]:
     old_counts = counts(old, distinct)?
     new_counts = counts(new, distinct)?
     old_unique = unique(old, &old_counts, &new_counts)?
@@ -197,7 +235,7 @@ def patience(out: &mut Script, old: &list[i64], new: &list[i64], distinct: i64) 
     for position in &new_unique:
         new_keys.append(new[*position])?
     mut anchors = script()?
-    myers(&mut anchors, &old_keys, &new_keys)?
+    myers(&mut anchors, &old_keys, &new_keys, half)?
     mut v = frontier(len(old), len(new))?
     mut old_at = 0
     mut new_at = 0
@@ -206,19 +244,31 @@ def patience(out: &mut Script, old: &list[i64], new: &list[i64], distinct: i64) 
             for step in range(op.old_len()):
                 old_anchor = old_unique[op.old_start + step]
                 new_anchor = new_unique[op.new_start + step]
-                conquer(out, old, old_at, old_anchor, new, new_at, new_anchor, &mut v)?
+                conquer(out, old, old_at, old_anchor, new, new_at, new_anchor, &mut v, half)?
                 out.equal(old_anchor, new_anchor, 1)?
                 old_at = old_anchor + 1
                 new_at = new_anchor + 1
-    conquer(out, old, old_at, len(old), new, new_at, len(new), &mut v)
+    conquer(out, old, old_at, len(old), new, new_at, len(new), &mut v, half)
 
-def run(old: &list[i64], new: &list[i64], distinct: i64, algorithm: Algorithm) -> Result[list[Op], AllocError]:
+# Middle-snake rounds allowed by `max_cost`: half the edits, rounded up, and
+# at least one so that a stopped search always has a split point.
+def rounds(max_cost: Option[i64]) -> i64:
+    match max_cost:
+        case Some(cost):
+            if cost <= 2:
+                return 1
+            cost // 2 + cost % 2
+        case Nothing:
+            i64.MAX
+
+def run(old: &list[i64], new: &list[i64], distinct: i64, algorithm: Algorithm, max_cost: Option[i64]) -> Result[list[Op], AllocError]:
     mut out = script()?
+    half = rounds(max_cost)
     match algorithm:
         case Algorithm.Myers:
-            myers(&mut out, old, new)?
+            myers(&mut out, old, new, half)?
         case Algorithm.Patience:
-            patience(&mut out, old, new, distinct)?
+            patience(&mut out, old, new, distinct, half)?
     out.gap(len(old), len(new))?
     Ok(replace(out.ops, list[Op]()?))
 
@@ -236,12 +286,14 @@ def intern[T](ids: &mut dict[T, i64], items: &list[T]) -> Result[list[i64], Allo
     Ok(out)
 
 # The edit operations that turn `old` into `new`, in order. Elements need
-# equality and hashing, as dictionary keys do.
-pub def diff[T](old: &list[T], new: &list[T], algorithm: Algorithm = Algorithm.Myers) -> Result[list[Op], AllocError]:
+# equality and hashing, as dictionary keys do. With `max_cost`, the search
+# for each split stops after about that many deletions and insertions and
+# the script may be longer than necessary; see the std.diff reference.
+pub def diff[T](old: &list[T], new: &list[T], algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]:
     mut ids: dict[T, i64] = {}?
     old_ids = intern(&mut ids, old)?
     new_ids = intern(&mut ids, new)?
-    run(&old_ids, &new_ids, len(ids), algorithm)
+    run(&old_ids, &new_ids, len(ids), algorithm, max_cost)
 
 def allocated[T](result: Result[T, BytesError]) -> Result[T, AllocError]:
     match result:
@@ -265,10 +317,10 @@ def byte_ids(data: &Bytes) -> Result[list[i64], AllocError]:
     Ok(out)
 
 # The edit operations that turn the bytes of `old` into those of `new`.
-pub def diff_bytes(old: &Bytes, new: &Bytes, algorithm: Algorithm = Algorithm.Myers) -> Result[list[Op], AllocError]:
+pub def diff_bytes(old: &Bytes, new: &Bytes, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]:
     old_ids = byte_ids(old)?
     new_ids = byte_ids(new)?
-    run(&old_ids, &new_ids, 256, algorithm)
+    run(&old_ids, &new_ids, 256, algorithm, max_cost)
 
 # A difference between two texts split into tokens. Each side's tokens
 # concatenate to its original text; the operations index these tokens.
@@ -388,8 +440,8 @@ def hunks(ops: &list[Op], context: i64) -> Result[list[list[Op]], AllocError]:
         groups.append(group)?
     Ok(groups)
 
-def text_diff(old: list[str], new: list[str], algorithm: Algorithm) -> Result[TextDiff, AllocError]:
-    ops = diff(&old, &new, algorithm)?
+def text_diff(old: list[str], new: list[str], algorithm: Algorithm, max_cost: Option[i64]) -> Result[TextDiff, AllocError]:
+    ops = diff(&old, &new, algorithm, max_cost)?
     Ok(TextDiff(old, new, ops))
 
 # Lines, each keeping its LF; a final line without one is its own token.
@@ -435,13 +487,13 @@ def split_chars(text: &str) -> Result[list[str], AllocError]:
 
 # Compare line by line. Lines keep their LF, so a last line without one
 # differs from the same line with one.
-pub def lines(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]:
-    text_diff(split_lines(old)?, split_lines(new)?, algorithm)
+pub def lines(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]:
+    text_diff(split_lines(old)?, split_lines(new)?, algorithm, max_cost)
 
 # Compare runs of whitespace and of other scalars.
-pub def words(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]:
-    text_diff(split_words(old)?, split_words(new)?, algorithm)
+pub def words(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]:
+    text_diff(split_words(old)?, split_words(new)?, algorithm, max_cost)
 
 # Compare Unicode scalar by scalar.
-pub def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]:
-    text_diff(split_chars(old)?, split_chars(new)?, algorithm)
+pub def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]:
+    text_diff(split_chars(old)?, split_chars(new)?, algorithm, max_cost)

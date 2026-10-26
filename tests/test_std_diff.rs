@@ -510,6 +510,107 @@ for old, new, context in [{cases}]?:
     }
 }
 
+#[test]
+fn a_cost_limit_keeps_scripts_valid_and_shortest_within_the_limit() {
+    let mut rng = Lcg(510);
+    let mut pairs = Vec::new();
+    for round in 0..120 {
+        let alphabet: &[char] = if round % 2 == 0 {
+            &['a', 'b', 'c', 'd']
+        } else {
+            &['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+        };
+        pairs.push((rng.text(alphabet, 40), rng.text(alphabet, 40)));
+    }
+    let costs = [0, 1, 2, 3, 6, 15];
+    let cases = pairs
+        .iter()
+        .map(|(old, new)| format!("({}, {})", literal(old), literal(new)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let text = output(&format!(
+        r#"
+for old, new in [{cases}]?:
+    for cost in {costs:?}?:
+        limited = std.diff.chars(old, new, max_cost=Some(cost))?
+        show(limited.ops())?
+        anchored = std.diff.chars(old, new, Algorithm.Patience, Some(cost))?
+        show(anchored.ops())?
+    unlimited = std.diff.chars(old, new, max_cost=Nothing)?
+    show(unlimited.ops())?
+"#
+    ));
+    let scripts = scripts(&text);
+    let per_pair = 2 * costs.len() + 1;
+    assert_eq!(scripts.len(), per_pair * pairs.len());
+    let mut longer = 0;
+    for (index, (old, new)) in pairs.iter().enumerate() {
+        let a: Vec<char> = old.chars().collect();
+        let b: Vec<char> = new.chars().collect();
+        let common = lcs(&a, &b);
+        let shortest = a.len() + b.len() - 2 * common;
+        let base = per_pair * index;
+        for (step, cost) in costs.iter().enumerate() {
+            let equal = validate(&a, &b, &scripts[base + 2 * step]);
+            if shortest <= *cost {
+                assert_eq!(equal, common, "cost {cost} on {old:?} -> {new:?}");
+            }
+            if equal < common {
+                longer += 1;
+            }
+            validate(&a, &b, &scripts[base + 2 * step + 1]);
+        }
+        let unlimited = validate(&a, &b, &scripts[base + per_pair - 1]);
+        assert_eq!(unlimited, common, "unlimited on {old:?} -> {new:?}");
+    }
+    // The limit must actually stop some searches for this test to cover the
+    // fallback split.
+    assert!(longer > 0);
+}
+
+#[test]
+fn a_cost_limit_bounds_work_on_large_dissimilar_inputs() {
+    // A permutation of 40,000 distinct elements has a longest common
+    // subsequence of a few hundred, so an unlimited search needs about
+    // 80,000 rounds over 80,000 elements: minutes. The limited one is linear.
+    const SIZE: usize = 40_000;
+    let old: Vec<usize> = (0..SIZE).collect();
+    let new: Vec<usize> = (0..SIZE).map(|i| i * 7919 % SIZE).collect();
+    let program = program(&format!(
+        r#"
+old = [i for i in range({SIZE})]?
+new = [i * 7919 % {SIZE} for i in range({SIZE})]?
+show(&std.diff.diff(&old, &new, max_cost=Some(64))?)?
+bytes_old = std.bytes.from_text("{bytes_old}")?
+bytes_new = std.bytes.from_text("{bytes_new}")?
+show(&std.diff.diff_bytes(&bytes_old, &bytes_new, max_cost=Some(64))?)?
+"#,
+        bytes_old = "ab".repeat(20_000),
+        bytes_new = "ba".repeat(20_000) + "c",
+    ));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, &program).unwrap();
+    plenty::compile_file_to_executable(&path, &executable, None).unwrap();
+    let started = std::time::Instant::now();
+    let run = std::process::Command::new(executable).output().unwrap();
+    let elapsed = started.elapsed();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    // A generous bound: the limited diffs take well under a second.
+    assert!(elapsed < std::time::Duration::from_secs(20), "{elapsed:?}");
+    let scripts = scripts(&String::from_utf8_lossy(&run.stdout));
+    assert_eq!(scripts.len(), 2);
+    validate(&old, &new, &scripts[0]);
+    let a = "ab".repeat(20_000).into_bytes();
+    let b = ("ba".repeat(20_000) + "c").into_bytes();
+    validate(&a, &b, &scripts[1]);
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn diffing_reports_every_allocation_failure_as_alloc_error() {
@@ -524,12 +625,17 @@ while not done:
     marker = (("__test_fail_allocations_after_" + str.from(after)?)? + "__")?
     print(marker)?
     result = std.diff.lines("a\nb\nlong line here\nc\n", "a\nlong line here\nc\nd\n", Algorithm.Patience)
+    limited = std.diff.chars("abcabcabcxyz", "cbacbaxyzcab", max_cost=Some(2))
     mut succeeded = False
     match result:
         case Ok(diff):
             match diff.unified(1, "old", "new"):
                 case Ok(_):
-                    succeeded = True
+                    match limited:
+                        case Ok(_):
+                            succeeded = True
+                        case Err(_):
+                            pass
                 case Err(_):
                     pass
         case Err(_):
