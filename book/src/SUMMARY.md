@@ -392,6 +392,7 @@
         - [`std.regex`](design/stdlib/regex.md)
         - [`std.report`](design/stdlib/report.md)
         - [`std.secrets`](design/stdlib/secrets.md)
+        - [`std.shlex`](design/stdlib/shlex.md)
         - [`std.signal`](design/stdlib/signal.md)
         - [`std.simd`](design/stdlib/simd.md)
         - [`std.sync`](design/stdlib/sync.md)

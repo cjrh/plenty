@@ -1939,6 +1939,17 @@ def random_u64() -> Result[u64, SecretsError]
 def below(bound: u64) -> Result[u64, SecretsError]
 ```
 
+## `std.shlex`
+
+Shell-style word splitting and POSIX argument quoting, without execution or expansion. Errors: `ShlexError`, `AllocError`. [Reference](shlex.md).
+
+```text
+enum ShlexError
+    UnclosedQuote(i64) | TrailingEscape(i64) | Nul(i64)
+def split(text: &str, comments: bool = False) -> Result[list[str], ShlexError | AllocError]
+def quote(text: &str) -> Result[str, ShlexError | AllocError]
+```
+
 ## `std.signal`
 
 `SIGTERM` and `SIGINT` as an event to wait or select on, and a helper that cancels a token on one. Errors: `SignalError`, `WaitError`. [Reference](signal.md).
