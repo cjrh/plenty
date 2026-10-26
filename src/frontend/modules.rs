@@ -32,6 +32,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         "std.fs.dirs",
         include_str!("../../stdlib/std/fs/dirs.plenty"),
     ),
+    (
+        "std.fs.watch",
+        include_str!("../../stdlib/std/fs/watch.plenty"),
+    ),
     ("std.path", include_str!("../../stdlib/std/path.plenty")),
     ("std.deque", include_str!("../../stdlib/std/deque.plenty")),
     ("std.error", include_str!("../../stdlib/std/error.plenty")),
@@ -69,6 +73,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         include_str!("../../stdlib/std/collections.plenty"),
     ),
     ("std.url", include_str!("../../stdlib/std/url.plenty")),
+    ("std.uuid", include_str!("../../stdlib/std/uuid.plenty")),
     ("std.csv", include_str!("../../stdlib/std/csv.plenty")),
     ("std.random", include_str!("../../stdlib/std/random.plenty")),
     (
@@ -99,6 +104,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ),
     ("std.signal", include_str!("../../stdlib/std/signal.plenty")),
     ("std.shlex", include_str!("../../stdlib/std/shlex.plenty")),
+    ("std.system", include_str!("../../stdlib/std/system.plenty")),
     ("std.ready", include_str!("../../stdlib/std/ready.plenty")),
     ("std.net", include_str!("../../stdlib/std/net.plenty")),
     ("std.tls", include_str!("../../stdlib/std/tls.plenty")),
@@ -142,6 +148,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     (
         "std.http.websocket",
         include_str!("../../stdlib/std/http/websocket.plenty"),
+    ),
+    (
+        "std.http.sse",
+        include_str!("../../stdlib/std/http/sse.plenty"),
     ),
     (
         "std.http.wss",

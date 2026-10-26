@@ -404,6 +404,8 @@ mod test_std_env_process;
 mod test_std_fmt;
 #[path = "test_std_fs_dirs.rs"]
 mod test_std_fs_dirs;
+#[path = "test_std_fs_watch.rs"]
+mod test_std_fs_watch;
 #[path = "test_std_http.rs"]
 mod test_std_http;
 #[path = "test_std_http_client.rs"]
@@ -422,6 +424,8 @@ mod test_std_http_server_proxy;
 mod test_std_http_server_qualification;
 #[path = "test_std_http_shared_client.rs"]
 mod test_std_http_shared_client;
+#[path = "test_std_http_sse.rs"]
+mod test_std_http_sse;
 #[path = "test_std_http_websocket.rs"]
 mod test_std_http_websocket;
 #[path = "test_std_io.rs"]
@@ -457,6 +461,8 @@ mod test_std_simd;
 mod test_std_sqlite;
 #[path = "test_std_sync_mutex.rs"]
 mod test_std_sync_mutex;
+#[path = "test_std_system.rs"]
+mod test_std_system;
 #[path = "test_std_tempfile.rs"]
 mod test_std_tempfile;
 #[path = "test_std_test.rs"]
@@ -471,6 +477,8 @@ mod test_std_tls;
 mod test_std_toml;
 #[path = "test_std_url.rs"]
 mod test_std_url;
+#[path = "test_std_uuid.rs"]
+mod test_std_uuid;
 #[path = "test_stdlib_index.rs"]
 mod test_stdlib_index;
 #[path = "test_storage_diagnostics.rs"]

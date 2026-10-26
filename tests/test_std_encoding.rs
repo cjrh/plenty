@@ -1,4 +1,4 @@
-//! `std.encoding`: hex, base64, and fixed-width integer packing over `Bytes`.
+//! `std.encoding`: canonical binary codecs and integer packing over `Bytes`.
 mod support;
 use support::{check_file_error as rejected, hex};
 
@@ -81,6 +81,215 @@ const VECTORS: [(&str, &str); 7] = [
     ("fooba", "Zm9vYmE="),
     ("foobar", "Zm9vYmFy"),
 ];
+
+#[test]
+fn base32_rfc_vectors_cover_every_partial_group() {
+    let vectors = [
+        ("", "", ""),
+        ("f", "MY======", "CO======"),
+        ("fo", "MZXQ====", "CPNG===="),
+        ("foo", "MZXW6===", "CPNMU==="),
+        ("foob", "MZXW6YQ=", "CPNMUOG="),
+        ("fooba", "MZXW6YTB", "CPNMUOJ1"),
+        ("foobar", "MZXW6YTBOI======", "CPNMUOJ1E8======"),
+    ];
+    let mut body = String::new();
+    let mut expected = String::new();
+    for (n, (plain, base32, extended)) in vectors.into_iter().enumerate() {
+        body.push_str(&format!(
+            r#"
+data{n} = std.bytes.from_text("{plain}")?
+print("[", std.encoding.base32_text(&data{n}, 0, data{n}.len())?, "]")?
+print("[", std.encoding.base32hex_text(&data{n}, 0, data{n}.len())?, "]")?
+print(std.encoding.base32_from_text("{base32}")? == data{n}, std.encoding.base32hex_from_text("{extended}")? == data{n})?
+"#
+        ));
+        expected.push_str(&format!("[ {base32} ]\n[ {extended} ]\nTrue True\n"));
+    }
+    native(&body, &expected);
+}
+
+// An intentionally different reference: materialize a bit string, then read
+// fixed-width chunks. Production code keeps only a small pending-bit value.
+fn reference_radix(data: &[u8], alphabet: &str, padding: Option<char>) -> String {
+    let width = alphabet.len().ilog2() as usize;
+    let bits: String = data.iter().map(|byte| format!("{byte:08b}")).collect();
+    let mut out = String::new();
+    for chunk in bits.as_bytes().chunks(width) {
+        let text = std::str::from_utf8(chunk).unwrap();
+        let value = usize::from_str_radix(text, 2).unwrap() << (width - chunk.len());
+        out.push(alphabet.as_bytes()[value] as char);
+    }
+    if let Some(pad) = padding {
+        while !(out.len() * width).is_multiple_of(8) {
+            out.push(pad);
+        }
+    }
+    out
+}
+
+#[test]
+fn custom_radices_match_independent_encoding_and_roundtrip_every_length() {
+    let alphabets = [
+        "01",
+        "ACTG",
+        "76543210",
+        "fedcba9876543210",
+        "abcdefghijklmnopqrstuvwxyz234567",
+        "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+    ];
+    let data: Vec<u8> = (0..=255).collect();
+    let mut body = String::from(
+        "mut data = std.bytes.with_capacity(256)?\nfor n in range(256):\n    data.push(u8(n))?\nmut failures = 0\n",
+    );
+    let mut expected = String::new();
+    for (n, alphabet) in alphabets.into_iter().enumerate() {
+        body.push_str(&format!(
+            r#"
+padded{n} = std.encoding.custom("{alphabet}", Some(126u8))?
+bare{n} = std.encoding.custom("{alphabet}", Nothing)?
+for stop in range(257):
+    start = stop % 4
+    if start <= stop:
+        plain = data.slice(start, stop)?
+        encoded = padded{n}.encode(&data, start, stop)?
+        unpadded = bare{n}.encode(&data, start, stop)?
+        decoded = padded{n}.decode(&encoded, 0, encoded.len())?
+        if decoded != plain or bare{n}.decode(&unpadded, 0, unpadded.len())? != plain:
+            failures += 1
+        if encoded.len() != encoded.capacity() or decoded.len() != decoded.capacity():
+            failures += 1
+print(padded{n}.text(&data, 1, data.len())?)?
+print(bare{n}.text(&data, 1, data.len())?)?
+"#
+        ));
+        expected.push_str(&reference_radix(&data[1..], alphabet, Some('~')));
+        expected.push('\n');
+        expected.push_str(&reference_radix(&data[1..], alphabet, None));
+        expected.push('\n');
+    }
+    body.push_str(
+        r#"
+for stop in range(257):
+    plain = data.slice(0, stop)?
+    a = std.encoding.base32_encode(&plain, 0, plain.len())?
+    b = std.encoding.base32hex_encode(&plain, 0, plain.len())?
+    if std.encoding.base32_decode(&a, 0, a.len())? != plain or std.encoding.base32hex_decode(&b, 0, b.len())? != plain:
+        failures += 1
+print(failures)?
+"#,
+    );
+    expected.push('0');
+    native(&body, &expected);
+}
+
+#[test]
+fn base32_and_custom_decoders_reject_ambiguous_encodings_and_preserve_indexes() {
+    let cases = [
+        ("MY", "InvalidLength"),
+        ("M=======", "InvalidLength"),
+        ("MZX=====", "InvalidLength"),
+        ("MZXW6Y==", "InvalidLength"),
+        ("========", "InvalidPadding(0)"),
+        ("MY==============", "InvalidPadding(2)"),
+        ("M=Y=====", "InvalidLength"),
+        ("MY======MY======", "InvalidPadding(2)"),
+        ("my======", "InvalidByte(0)"),
+        ("M0======", "InvalidByte(1)"),
+        ("MZ======", "NonCanonical(1)"),
+        ("MZXR====", "NonCanonical(3)"),
+        ("MZXW7===", "NonCanonical(4)"),
+        ("MZXW6YR=", "NonCanonical(6)"),
+        ("M ======", "InvalidByte(1)"),
+    ];
+    let mut body = String::new();
+    let mut expected = String::new();
+    for (input, error) in cases {
+        body.push_str(&format!(
+            "print(str.repr(std.encoding.base32_from_text(\"{input}\"))?)?\n"
+        ));
+        expected.push_str(&format!("Result[Bytes, E].Err(E.{error})\n"));
+    }
+    body.push_str(
+        r#"
+frame = std.bytes.from_text("..MZ======..")?
+print(str.repr(std.encoding.base32_decode(&frame, 2, 10))?)?
+print(str.repr(std.encoding.base32_decode(&frame, -1, 0))?)?
+print(str.repr(std.encoding.base32_encode(&frame, 0, 99))?)?
+print(str.repr(std.encoding.base32hex_from_text("CP======"))?)?
+print(str.repr(std.encoding.base32hex_from_text("CW======"))?)?
+codec = std.encoding.custom("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", Nothing)?
+print(codec.from_text("MY")?.to_text()?)?
+print(str.repr(codec.from_text("MZ"))?)?
+print(str.repr(codec.from_text("MY======"))?)?
+custom_pad = std.encoding.custom("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", Some(126u8))?
+print(custom_pad.from_text("MY~~~~~~")?.to_text()?)?
+print(str.repr(custom_pad.from_text("MY======"))?)?
+"#,
+    );
+    expected.push_str("Result[Bytes, E].Err(E.NonCanonical(3))\nResult[Bytes, E].Err(E.OutOfRange)\nResult[Bytes, E].Err(E.OutOfRange)\nResult[Bytes, E].Err(E.NonCanonical(1))\nResult[Bytes, E].Err(E.InvalidByte(1))\nf\nResult[Bytes, E].Err(E.NonCanonical(1))\nResult[Bytes, E].Err(E.InvalidByte(2))\nf\nResult[Bytes, E].Err(E.InvalidByte(2))");
+    native(&body, &expected);
+}
+
+#[test]
+fn custom_alphabets_are_validated_before_use() {
+    native(
+        r#"
+print(std.encoding.custom("").is_err(), std.encoding.custom("0").is_err(), std.encoding.custom("012").is_err())?
+print(std.encoding.custom("00").is_err(), std.encoding.custom("0 ").is_err(), std.encoding.custom("0\n").is_err())?
+print(std.encoding.custom("0é").is_err(), std.encoding.custom("0=", Some(61u8)).is_err())?
+print(std.encoding.custom("01", Some(32u8)).is_err(), std.encoding.custom("01", Some(128u8)).is_err())?
+print(std.encoding.custom("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+-_=").is_err())?
+codec = std.encoding.custom("=x", Nothing)?
+value = std.bytes.from_list(&[129u8]?)?
+print(codec.text(&value, 0, 1)?, codec.from_text("x======x")? == value)?
+print(std.encoding.custom("0123456789ABCDEF").is_ok())?
+"#,
+        "True True True\nTrue True True\nTrue True\nTrue True\nTrue\nx======x True\nTrue",
+    );
+}
+
+#[test]
+fn mime_wraps_at_76_columns_and_only_ignores_explicit_whitespace() {
+    let data: Vec<u8> = (0..=255).collect();
+    let mut body = String::from(
+        "mut data = std.bytes.with_capacity(256)?\nfor n in range(256):\n    data.push(u8(n))?\n",
+    );
+    let mut expected = String::new();
+    for stop in [0, 1, 56, 57, 58, 113, 114, 115, 256] {
+        let encoded = reference_base64(&data[..stop], false);
+        let wrapped = encoded
+            .as_bytes()
+            .chunks(76)
+            .map(|c| std::str::from_utf8(c).unwrap())
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        body.push_str(&format!(
+            r#"
+wrapped{stop} = std.encoding.base64mime_encode(&data, 0, {stop})?
+print("[", std.encoding.hex_text(&wrapped{stop}, 0, wrapped{stop}.len())?, "]")?
+print(wrapped{stop}.capacity() == wrapped{stop}.len(), std.encoding.base64mime_decode(&wrapped{stop}, 0, wrapped{stop}.len())? == data.slice(0, {stop})?)?
+"#
+        ));
+        expected.push_str(&format!("[ {} ]\nTrue True\n", hex(wrapped.as_bytes())));
+    }
+    body.push_str(
+        r#"
+print(std.encoding.base64mime_from_text(" \tZ m\r\n9 v\n")?.to_text()?)?
+print(std.encoding.base64mime_from_text("\t \r\n")?.len())?
+print(str.repr(std.encoding.base64mime_from_text("Z!g=="))?)?
+print(str.repr(std.encoding.base64mime_from_text("Z\tg= =A==="))?)?
+print(str.repr(std.encoding.base64mime_from_text(" \tZ h==\r\n"))?)?
+print(str.repr(std.encoding.base64mime_from_text("Zg"))?)?
+frame = std.bytes.from_text(".. Z !g= ..")?
+print(str.repr(std.encoding.base64mime_decode(&frame, 2, 9))?)?
+print(str.repr(std.encoding.base64mime_decode(&frame, 9, 2))?)?
+print(std.encoding.base64mime_text(&data, 0, 1)?)?
+"#,
+    );
+    expected.push_str("foo\n0\nResult[Bytes, E].Err(E.InvalidLength)\nResult[Bytes, E].Err(E.InvalidPadding(3))\nResult[Bytes, E].Err(E.NonCanonical(4))\nResult[Bytes, E].Err(E.InvalidLength)\nResult[Bytes, E].Err(E.InvalidByte(5))\nResult[Bytes, E].Err(E.OutOfRange)\nAA==");
+    native(&body, &expected);
+}
 
 #[test]
 fn rfc_4648_vectors_encode_and_decode() {
@@ -525,6 +734,50 @@ print(a, b, c, buffer.len(), buffer.capacity(), str.repr(short)?)?
 "#,
         "578437695752307201 -2 258 26 32 Result[u64, E].Err(E.OutOfRange)",
     );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn extended_codecs_propagate_every_allocation_failure() {
+    let source = format!(
+        "{HEADER}{}",
+        r#"
+import std.fmt
+
+def exercise(data: &Bytes) -> Result[(), EncodingError]:
+    codec = std.encoding.custom("abcdefghijklmnopqrstuvwxyz234567", Nothing)?
+    a = std.encoding.base32_encode(data, 0, data.len())?
+    drop(std.encoding.base32_decode(&a, 0, a.len())?)
+    b = std.encoding.base32hex_text(data, 0, data.len())?
+    drop(std.encoding.base32hex_from_text(&b)?)
+    c = std.encoding.base64mime_text(data, 0, data.len())?
+    drop(std.encoding.base64mime_from_text(&c)?)
+    d = codec.text(data, 0, data.len())?
+    drop(codec.from_text(&d)?)
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | EncodingError | std.fmt.FormatError]:
+    data = std.bytes.from_text("a long input that exercises heap strings and MIME line wrapping across its seventy-six-column boundary")?
+    mut failed = 0
+    mut succeeded = 0
+    for budget in range(50):
+        print(f"__test_fail_allocations_after_{budget}__"?)?
+        result = exercise(&data)
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(_):
+                succeeded += 1
+            case Err(error):
+                match error:
+                    case EncodingError.Allocation(_):
+                        failed += 1
+                    case _:
+                        return Err(error)
+    print(failed > 0, succeeded > 0, data.len())?
+    Ok(())
+"#
+    );
+    assert_eq!(output(&source), "True True 102");
 }
 
 #[cfg(feature = "runtime-checks")]

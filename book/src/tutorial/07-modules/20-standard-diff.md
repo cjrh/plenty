@@ -77,6 +77,12 @@ and `std.diff.diff_bytes` compares `Bytes`.
 
 The default algorithm finds the fewest deletions and insertions. Passing
 `Algorithm.Patience` as the last argument anchors the comparison on lines that
-occur once in each text, which often reads better for source code. See the
-[`std.diff` reference](../../design/stdlib/diff.md) for both algorithms and
-their costs.
+occur once in each text, which often reads better for source code.
+
+Finding the fewest edits takes time quadratic in the input size when two large
+inputs have little in common. For large or untrusted input, pass a cost limit
+such as `std.diff.lines(old, new, max_cost=Some(512))`: the work stays roughly
+linear and the operations still turn the old text into the new one, but may
+include more deletions and insertions than necessary. See the
+[`std.diff` reference](../../design/stdlib/diff.md) for both algorithms, the
+cost limit, and their costs.

@@ -164,6 +164,7 @@ The handler receives an `Exchange[T]` for one request.
 | `status()`, `sent()` | Status sent (0 before), body bytes written (0 for `HEAD`) |
 | `stop_token()`, `cancel_token()` | Shares of the tokens behind `stopping()` and `cancelled()`, for work that outlives a call |
 | `switch_protocols(head)` | `Result[(T, Bytes), HttpError]`: answer `101` and take the connection; see [Switching protocols](#switching-protocols) |
+| `detach(head)` | `Result[T, HttpError]`: answer with a close-delimited body and take the connection; see [Detaching a connection](#detaching-a-connection) |
 
 The response methods return `Result[(), HttpError]`. A handler answers once.
 `respond` refuses a head that declares `Content-Length` or
@@ -195,6 +196,22 @@ nor closes the connection, and the handler owns it until it returns or
 drops it. The connection still occupies the worker for as long as the
 handler runs. [`std.http.websocket`](websocket.md)'s `accept` is built on
 it.
+
+### Detaching a connection
+
+`detach(head)` sends `head` with `Connection: close` added and hands the
+connection to the caller, which writes a body that ends when it closes the
+connection: a long-lived stream that the server's `response_timeout` would
+otherwise cut off. The status must be 200 to 999 (`InvalidStatusLine`
+otherwise) and allow a body (`LengthMismatch` for `204` and `304`), and the
+head must not declare `Content-Length` or `Transfer-Encoding`
+(`ConflictingFraming`). A `HEAD` request cannot detach (`Broken`), since its
+response has no body; answer it with `start` and `end`. The rules for the
+request body and the handler's ownership are those of `switch_protocols`;
+input that arrived after the request head is dropped. A refused head leaves
+the exchange unanswered. To watch for shutdown, take shares of
+`stop_token()` and `cancel_token()` and pass them to the stream's waits.
+[`std.http.sse`](sse.md)'s `accept` is built on it.
 
 ### When a handler fails
 
@@ -432,8 +449,9 @@ timed out`, `handshake failed` and `accept failed`, most with a
   HTTP/1.x, so its `ServerConfig` should offer no ALPN protocol but
   `http/1.1`.
 - No `Date` header, compression, request trailers in the exchange, or
-  HTTP/2. A connection taken by `switch_protocols` holds its worker until
-  the handler returns, so long-lived WebSockets count against `workers`. Forms, JSON, uploads, cookies and forwarded clients are in
+  HTTP/2. A connection taken by `switch_protocols` or `detach` holds its
+  worker until the handler returns, so long-lived WebSockets and event
+  streams count against `workers`. Forms, JSON, uploads, cookies and forwarded clients are in
   [`std.http.body`](http-body.md), [`std.http.cookie`](http-cookie.md)
   and [`std.http.proxy`](http-proxy.md); static files in
   [`std.http.files`](http-files.md).

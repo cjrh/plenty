@@ -75,14 +75,14 @@ A native wrapper must:
   it, following the [engine contract](../design/toolchain/01-building/engines.md)
   that the [`std.dataframe` engine](../design/stdlib/dataframe-engine.md) uses.
 
-### Open module issues
+### Module implementation choices
 
 The policy applied to issues #461–#499. "Decide" means the issue settles the
 choice with a measurement or allocation check before implementation.
 
 | Issue | Module | Choice | Reason |
 |---|---|---|---|
-| #461 | `std.uuid` | Plenty | Byte formatting over `std.secrets` and `std.time` |
+| #461 | [`std.uuid`](../design/stdlib/uuid.md) | Plenty | Implemented: byte formatting over `std.secrets` and `std.time` |
 | #462 | `std.xml` | Plenty | Streaming parser like `std.json`; `quick-xml` allocates infallibly |
 | #463 | Time zones | Plenty | Package; packages carry only Plenty source |
 | #464 | AEAD, signatures, key exchange | Native | Cryptography; `ring` is already linked for `std.tls` |
@@ -157,7 +157,7 @@ in SQLite and serves a routed JSON API meeting the HTTP acceptance gates.
 Accurate summation/norms, float decomposition/adjacent values and special
 functions need numerical contracts; basic math has already shipped. Optional
 scope still includes timezone/calendar data, statistics, decimal/big-integer/
-complex arithmetic, UUIDs, MIME types, HTML escaping/context-aware templates,
+complex arithmetic, MIME types, HTML escaping/context-aware templates,
 WebSockets, diff tools, terminals and signals. Evaluate each against a concrete
 use case before adding an implementation issue/backlog entry. HTTP/2 is a
 follow-on protocol candidate; HTTP/3 needs a separate decision.
