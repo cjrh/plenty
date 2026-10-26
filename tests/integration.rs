@@ -406,6 +406,8 @@ mod test_std_fmt;
 mod test_std_fs_dirs;
 #[path = "test_std_fs_watch.rs"]
 mod test_std_fs_watch;
+#[path = "test_std_graph.rs"]
+mod test_std_graph;
 #[path = "test_std_http.rs"]
 mod test_std_http;
 #[path = "test_std_http_client.rs"]

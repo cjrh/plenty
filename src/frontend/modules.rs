@@ -90,6 +90,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.csv", include_str!("../../stdlib/std/csv.plenty")),
     ("std.random", include_str!("../../stdlib/std/random.plenty")),
     ("std.stat", include_str!("../../stdlib/std/stat.plenty")),
+    ("std.graph", include_str!("../../stdlib/std/graph.plenty")),
     (
         "std.secrets",
         include_str!("../../stdlib/std/secrets.plenty"),
