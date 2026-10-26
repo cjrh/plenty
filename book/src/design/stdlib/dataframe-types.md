@@ -26,7 +26,7 @@ Use these when nulls are meaningful. Non-nullable extraction fails with
 constructed without nulls and a later join introduced them.
 
 `get_TYPE` (for each numeric type, `str`, `bool` and binary) accepts a column name and
-zero-based row index and return `Result[Option[T], DataFrameError]`.
+zero-based row index and returns `Result[Option[T], DataFrameError]`.
 A null cell is `Ok(Nothing)`; an unknown name, wrong dtype or invalid index
 is an error. Empty and all-null typed columns retain their declared dtype.
 Native columns support at most `2**32 - 1` rows. String input currently

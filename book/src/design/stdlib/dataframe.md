@@ -134,11 +134,11 @@ Polars 0.55.2 semantics apply inside expressions, not Plenty scalar
 semantics. Schemas are checked at runtime. Input/extraction supports
 all Plenty numeric widths (`i8/i16/i32/i64`, `u8/u16/u32/u64`, `f32/f64`),
 `str`, `bool`, Binary (`std.bytes.Bytes`), Date and naive/UTC Datetime,
-including nullable columns. Parquet can
-contain other native types that schema inspection describes and expressions
-can carry, but this API cannot extract them. Paths are UTF-8 strings.
+including nullable columns.
 Lists and structs have [column-oriented construction and extraction](dataframe-nested.md),
-native access expressions and structured schema inspection. There is no automatic
+native access expressions and structured schema inspection. Other unexposed native
+types may pass through Parquet queries and appear in schema inspection, but cannot
+be extracted through this API. Paths are UTF-8 strings. There is no automatic
 lambda translation, mutation API, cloud credential configuration or stable
 serialization of plans.
 
