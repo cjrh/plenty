@@ -295,7 +295,7 @@ as `Result[i64, IoError]`, and never changes the buffer's length or capacity.
 | `read_file(file: &mut File, start, stop)` | exclusive | Read into `self[start:stop]`; zero for a nonempty range is end of input |
 | `write_file(file: &mut File, start, stop)` | shared | Write a prefix of `self[start:stop]` |
 | `read_stdin(start, stop)` | exclusive | Read standard input into `self[start:stop]` |
-| `write_stdout(start, stop)`, `write_stderr(start, stop)` | shared | Write a prefix of the range to the process stream's buffer |
+| `write_stdout(start, stop)`, `write_stderr(start, stop)` | shared | Write a prefix of the range to the process stream (buffered stdout, unbuffered stderr) |
 | `read_os_entropy(start, stop)` | exclusive | One `getrandom(2)` request into `self[start:stop]` |
 
 A count below the range length is normal. A range outside the buffer is

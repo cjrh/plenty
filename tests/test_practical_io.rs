@@ -213,6 +213,45 @@ print(str.repr(flush_stdout()).unwrap()).unwrap()
     assert!(support::check_source("write_stderr(1)").is_err());
 }
 
+// Rust's `Stderr` reports EBADF as a complete write (issue #508); the pipe's
+// read end is a descriptor open for reading only.
+#[cfg(target_os = "linux")]
+#[test]
+fn read_only_stderr_reports_bad_descriptor() {
+    let dir = tempfile::tempdir().unwrap();
+    let executable = dir.path().join("program");
+    support::compile_source_to_executable(
+        r#"
+import std.io
+import std.bytes
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
+    print(str.repr(write_stderr("text"))?)?
+    data = std.bytes.from_text("bytes")?
+    print(str.repr(data.write_stderr(0, 5))?)?
+    mut stream = std.io.stderr()
+    print(str.repr(stream.write(b"stream", 0, 6))?)?
+    print(str.repr(flush_stderr())?)?
+    Ok(())
+"#,
+        &executable,
+    )
+    .unwrap();
+    let (reader, writer) = std::io::pipe().unwrap();
+    let output = std::process::Command::new(executable)
+        .stderr(reader)
+        .output()
+        .unwrap();
+    drop(writer);
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "Result[i64, IoError].Err(IoError.System(9))\n\
+         Result[i64, IoError].Err(IoError.System(9))\n\
+         Result[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.System(9)))\n\
+         Result[(), IoError].Ok(())\n"
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn buffered_failure_is_reported_by_flush() {
