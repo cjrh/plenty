@@ -401,6 +401,7 @@
         - [`std.time`](design/stdlib/time.md)
         - [`std.tls`](design/stdlib/tls.md)
         - [`std.toml`](design/stdlib/toml.md)
+            - [Editing TOML documents](design/stdlib/toml-editing.md)
         - [`std.unicode`](design/stdlib/unicode.md)
         - [`std.url`](design/stdlib/url.md)
     - [Toolchain and implementation](design/toolchain/index.md)
