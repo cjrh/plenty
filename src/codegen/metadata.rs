@@ -200,6 +200,8 @@ fn define_type(
     let hook = class_definition
         .as_ref()
         .and_then(|t| t.destructor.as_ref())
-        .map(|name| runtime.drop_hooks[name]);
+        // Absent only when no live body arms the class (`reachability`), so
+        // no instance can reach the hook.
+        .and_then(|name| runtime.drop_hooks.get(name).copied());
     define(module, id, bytes, &links, hook)
 }

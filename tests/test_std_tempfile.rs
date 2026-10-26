@@ -130,6 +130,16 @@ fn run(body: &str, remaining: &[&str]) {
 }
 
 fn run_with_setup(body: &str, remaining: &[&str], setup: impl FnOnce(&std::path::Path)) {
+    run_program("", body, remaining, setup);
+}
+
+/// `prelude` holds top-level definitions placed before `main`.
+fn run_program(
+    prelude: &str,
+    body: &str,
+    remaining: &[&str],
+    setup: impl FnOnce(&std::path::Path),
+) {
     let build = tempfile::tempdir().unwrap();
     let resources = tempfile::tempdir().unwrap();
     setup(resources.path());
@@ -139,7 +149,7 @@ fn run_with_setup(body: &str, remaining: &[&str], setup: impl FnOnce(&std::path:
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    std::fs::write(&source, format!("import std.tempfile\nimport std.path\nimport std.fs\nimport std.io\nimport std.bytes\nimport std.test\nimport std.env\ndef main() -> Result[(), AllocError | IoError | std.fs.FsError | std.io.StreamError | std.io.Partial | std.bytes.BytesError | std.test.TestError]:\n{indented}    Ok(())\n")).unwrap();
+    std::fs::write(&source, format!("import std.tempfile\nimport std.path\nimport std.fs\nimport std.io\nimport std.bytes\nimport std.test\nimport std.env\n{prelude}def main() -> Result[(), AllocError | IoError | std.fs.FsError | std.io.StreamError | std.io.Partial | std.bytes.BytesError | std.test.TestError]:\n{indented}    Ok(())\n")).unwrap();
     plenty::compile_file_to_executable(&source, &executable, None).unwrap();
     let output = Command::new(executable)
         .env("TMPDIR", resources.path())
@@ -327,5 +337,43 @@ match path.file_name()?:
         std.test.check(False, "missing filename")?
 "#,
         &["moved", "replacement"],
+    );
+}
+
+/// Only destructors run here: no `with`, `cleanup`, or `close`. Each owner
+/// leaves through a different holder, and the nested file shows that the
+/// destructor reaches the directory-removal code (issue #506).
+#[test]
+fn destructors_remove_resources_dropped_through_any_holder() {
+    run_program(
+        r#"
+class Holder:
+    directory: std.tempfile.TemporaryDirectory
+def fill(directory: &std.tempfile.TemporaryDirectory) -> Result[(), IoError | AllocError]:
+    path = directory.path().join(&std.path.from_text("note")?)?
+    write_text(&path.to_text()?, "hello")?
+    Ok(())
+"#,
+        r#"
+plain = std.tempfile.directory()?
+fill(&plain)?
+drop(plain)
+listed = [std.tempfile.directory()?]?
+fill(&listed[0])?
+drop(listed)
+result = std.tempfile.directory()
+drop(result)
+optional = Some(std.tempfile.directory()?)
+drop(optional)
+held = Holder(std.tempfile.directory()?)
+drop(held)
+named = [std.tempfile.named_file()?]?
+drop(named)
+scratch = std.test.scratch()?
+write_text(&scratch.file("note")?, "hello")?
+drop(scratch)
+"#,
+        &[],
+        |_| {},
     );
 }

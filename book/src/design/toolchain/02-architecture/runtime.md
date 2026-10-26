@@ -43,10 +43,10 @@ shared between modules takes an operation number. `--gc-sections` keeps only the
 entries a program calls and the code they reach, so a program that never
 calls `std.net`, `std.process`, `std.crypto`, `std.compress`, `std.tls` or
 `std.db.sqlite` links none of their runtime code. A dispatcher shared by
-several modules would keep every module it reaches. `hello world` calls two
-entries, and its stripped executable is 356 KB rather than 790 KB (issue #501).
-`NATIVE_MODULES` in `tests/test_executable_size.rs` checks this for every
-module with native code; a new module adds a row there (see
+several modules would keep every module it reaches (issue #501). `hello world`
+calls two entries. `BUDGETS` in `tests/test_executable_size.rs` bounds the
+size of `hello world` and an empty program, and `NATIVE_MODULES` there checks
+this for every module with native code; a new module adds a row there (see
 [size budgets](../01-building/linking.md#size-budgets)).
 
 The argument block holds three 16-byte inputs at offsets 0, 16 and 32, the
@@ -96,8 +96,9 @@ std's panic handler would link its panic hook and backtrace symbolizer into
 every executable, even with abort-on-panic. The application archive's link
 arguments therefore redirect std's `rust_begin_unwind` and
 `__rust_alloc_error_handler` to the runtime's handlers with `-Wl,--defsym`, and
-`--gc-sections` drops std's versions. This removes about 190 KB of code from
-hello world. Libraries keep std's handlers, since their host links them.
+`--gc-sections` drops std's versions. Measured on 2026-10-26, hello world's
+`.text` is 69 KB with the redirect and 271 KB without it. Libraries keep std's
+handlers, since their host links them.
 
 ## Trap sites
 

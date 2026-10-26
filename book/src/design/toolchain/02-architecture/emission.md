@@ -34,10 +34,14 @@ of generic functions, and a compilation allows 65,536. Type nesting is still
 bounded separately.
 
 Before native preparation, emission removes unreachable definitions from the
-embedded standard library (issue #400). It keeps every user definition, C export,
-destructor and generator as a root, then follows direct/tail calls, function
+embedded standard library (issue #400). It keeps every user definition, C export
+and generator as a root, then follows direct/tail calls, function
 addresses, closure and boxed-callable adapters, thread/executor workers and sort
-key adapters through nested operations. Standard-library provenance comes from
+key adapters through nested operations. A standard class's `__del__` is retained
+when a retained body arms the class after construction (issue #506). Release runs
+the hook only for an armed instance, so this covers values dropped through
+fields, containers, payloads, captures and queues; a descriptor of a class that
+no retained body arms has no hook. Standard-library provenance comes from
 the embedded-module loader, not a filename or symbol prefix. Retained definitions
 keep their declaration order. All frontend and ownership checks run before this
 step, including checks of bodies subsequently omitted. This saves native work
