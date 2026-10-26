@@ -83,3 +83,7 @@ untrusted, arbitrarily large input should bound that input before parsing.
 The API draws on [Python's `shlex`](https://docs.python.org/3/library/shlex.html)
 and the [Rust `shlex` crate](https://docs.rs/shlex/2.0.1/shlex/), with the
 specific splitting rules above rather than a compatibility mode switch.
+
+## Acknowledgements
+
+- API modelled on [Python's `shlex`](https://docs.python.org/3/library/shlex.html) and the Rust [`shlex`](https://docs.rs/shlex/2.0.1/shlex/) crate 2.0.1.

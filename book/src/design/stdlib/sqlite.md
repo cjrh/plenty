@@ -270,3 +270,7 @@ A program that uses SQLite includes the database engine and its enabled features
 - No borrowed row views: every text and blob read is a copy.
 - SQLite's allocations are outside Plenty's allocation accounting.
 - One target, x86-64 Linux GNU.
+
+## Acknowledgements
+
+- Wraps [SQLite](https://sqlite.org/) 3.54.0, vendored as the C amalgamation and compiled into the runtime (public domain).

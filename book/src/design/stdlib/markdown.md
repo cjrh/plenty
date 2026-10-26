@@ -232,3 +232,10 @@ The parser and renderer are derived from commonmark.js 0.31.2, Copyright (c)
 derives from the Unicode Character Database (Unicode License v3) and the entity
 table from the WHATWG HTML Standard (BSD-3-Clause for portions in source code).
 Release archives include these notices in `THIRD-PARTY-NOTICES.md`.
+
+## Acknowledgements
+
+- Parser and renderer ported from [commonmark.js](https://github.com/commonmark/commonmark.js) 0.31.2 (BSD-2-Clause).
+- Punctuation table generated from the [Unicode Character Database](https://www.unicode.org/ucd/) 16.0.0 (Unicode-3.0).
+- Entity table generated from the [WHATWG HTML Standard named character references](https://html.spec.whatwg.org/multipage/named-characters.html) (BSD-3-Clause).
+- The link parenthesis nesting limit follows [cmark](https://github.com/commonmark/cmark).

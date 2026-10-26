@@ -84,3 +84,7 @@ CSV schema overrides and `Expr.cast` accept numeric, boolean and string target
 types; they do not construct temporal types. As-of joins remain integer-key
 operations. See the [runnable lesson](../../tutorial/special-purpose/dataframe-datetime.md)
 and [signature index](signatures.md#stddataframe).
+
+## Acknowledgements
+
+- Date parsing, calendar validation and format directives use [Chrono](https://github.com/chronotope/chrono) 0.4.45, built into the dataframe engine (MIT OR Apache-2.0).

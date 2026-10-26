@@ -234,3 +234,7 @@ through their own runtime entry symbols, so a program that does not use
 - Trailing padding after gzip members is an error, not ignored.
 - No seeking within compressed data.
 - One target, x86-64 Linux GNU.
+
+## Acknowledgements
+
+- Wraps [zlib-rs](https://github.com/trifectatechfoundation/zlib-rs) 0.6.8, vendored in the runtime (Zlib).

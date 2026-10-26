@@ -253,3 +253,7 @@ pipelined requests from memory and writes a chunked response. The tests in
 - `read_request` returns the target as text; `request_target` splits the
   forms a server accepts. Use [`std.url`](url.md) for other URLs.
 - Field values must be UTF-8; a peer that sends Latin-1 bytes is rejected.
+
+## Acknowledgements
+
+- Bundling a client and a server follows the scope of [Go's `net/http`](https://pkg.go.dev/net/http).

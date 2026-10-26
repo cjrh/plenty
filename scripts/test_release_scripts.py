@@ -87,6 +87,8 @@ class ThirdPartyNotices(unittest.TestCase):
         self.assertIn("Copyright (c) 2014, John MacFarlane", output)
         self.assertIn("UNICODE LICENSE V3", output)
         self.assertIn("Copyright © WHATWG", output)
+        self.assertIn("## similar 3.2.1 (std.diff algorithms)", output)
+        self.assertIn("Apache License\n                        Version 2.0", output)
 
     def test_compiler_notices_include_vendored_unicode_normalization(self):
         output = self.notices.render([self.package])

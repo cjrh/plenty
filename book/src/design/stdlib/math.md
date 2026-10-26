@@ -129,3 +129,7 @@ design questions. `%` remains integer-only; use `fmod` or
 `divmod_float` for floats. Powers use `.pow()` or `math.pow`; `**` is rejected
 with a diagnostic naming `.pow()`. Remaining scheduling belongs in the
 [backlog](../../backlog.md).
+
+## Acknowledgements
+
+- API modelled on [Python's `math`](https://docs.python.org/3/library/math.html), including CPython's domain and overflow policy.

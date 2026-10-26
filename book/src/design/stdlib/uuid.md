@@ -93,3 +93,7 @@ especially sections 5.4/5.7 and appendices A.3/A.6. API references are
 Plenty deliberately accepts fewer text spellings than either reference and
 does not adopt Python's v7 counter or Rust's stateful `now_v7` ordering policy.
 Name-based v3/v5 and v1/v6/v8 generators are not implemented.
+
+## Acknowledgements
+
+- API modelled on [Python's `uuid`](https://docs.python.org/3/library/uuid.html) and Rust's [`uuid::Uuid`](https://docs.rs/uuid/latest/uuid/struct.Uuid.html).

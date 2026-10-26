@@ -105,3 +105,7 @@ Updates require source/license/digest and security review, plus all codec,
 external-interop, malformed-input, allocation-failure, cleanup, executable-size
 and installed-compiler checks. Output bytes may change with a codec update;
 the interoperability and error contracts are the stable API.
+
+## Acknowledgements
+
+- Wraps the [Brotli](https://github.com/google/brotli) reference C codec 1.2.1, vendored in the runtime (MIT).

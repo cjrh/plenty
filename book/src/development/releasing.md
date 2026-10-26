@@ -218,7 +218,8 @@ commonmark.js 0.31.2 (BSD-2-Clause) and carries tables generated from the
 Unicode Character Database 16.0.0 and the WHATWG HTML named character
 references (BSD-3-Clause for portions in source code), and the
 unicode-normalization tables derive from the Unicode Character Database 17.0.0
-(Unicode License v3). Their reviewed license texts are bundled in
+(Unicode License v3). `std.diff` derives its Myers and patience
+algorithms from the `similar` crate 3.2.1 (Apache-2.0). Their reviewed license texts are bundled in
 `scripts/release/licenses/`; update the entry and its text together when the
 upstream version changes. The compiler notices fail when a directory named
 `vendor`, or a subdirectory of `plenty-runtime/native`, has no notice: a
