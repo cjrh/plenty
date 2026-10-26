@@ -3,6 +3,8 @@ incremental = false
 debug = "line-tables-only"
 
 [profile.dev.package."*"]
+# Optimize third-party dependencies while keeping workspace code easy to debug.
+opt-level = 3
 debug = false
 
 [profile.dev.build-override]
