@@ -179,10 +179,10 @@ class LruCache[K, V]
     def contains(self, key: &K) -> bool
     def get(self: &mut LruCache[K, V], key: &K) -> Option[V]
     def peek(self, key: &K) -> Option[V]
-    def get_with[R, F: Callable[[&V], R]](self: &mut LruCache[K, V], key: &K, f: &F) -> Option[R]
-    def peek_with[R, F: Callable[[&V], R]](self, key: &K, f: &F) -> Option[R]
-    def get_ref(self: &mut LruCache[K, V], key: &K) -> &V
-    def peek_mut(self: &mut LruCache[K, V], key: &K) -> &mut V
+    def get_ref(self: &mut LruCache[K, V], key: &K) -> Option[&V]
+    def get_mut(self: &mut LruCache[K, V], key: &K) -> Option[&mut V]
+    def peek_ref(self, key: &K) -> Option[&V]
+    def peek_mut(self: &mut LruCache[K, V], key: &K) -> Option[&mut V]
     def promote(self: &mut LruCache[K, V], key: &K) -> bool
     def put(self: &mut LruCache[K, V], key: K, value: V) -> Result[Option[(K, V)], AllocError]
     def remove(self: &mut LruCache[K, V], key: &K) -> Option[V]

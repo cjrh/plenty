@@ -113,29 +113,36 @@ pub class LruCache[K, V]:
             case Nothing:
                 Nothing
 
-    pub def get_with[R, F: Callable[[&V], R]](self: &mut LruCache[K, V], key: &K, f: &F) -> Option[R]:
+    # Borrowed lookups. The result borrows the whole cache until its last use.
+    pub def get_ref(self: &mut LruCache[K, V], key: &K) -> Option[&V]:
         match self._index.get(key):
             case Some(slot):
                 self.touch(slot)
-                Some(f(&self._values[slot]))
+                Some(&self._values[slot])
             case Nothing:
                 Nothing
 
-    pub def peek_with[R, F: Callable[[&V], R]](self, key: &K, f: &F) -> Option[R]:
+    pub def get_mut(self: &mut LruCache[K, V], key: &K) -> Option[&mut V]:
         match self._index.get(key):
             case Some(slot):
-                Some(f(&self._values[slot]))
+                self.touch(slot)
+                Some(&mut self._values[slot])
             case Nothing:
                 Nothing
 
-    pub def get_ref(self: &mut LruCache[K, V], key: &K) -> &V:
-        slot = self._index[key]
-        self.touch(slot)
-        &self._values[slot]
+    pub def peek_ref(self, key: &K) -> Option[&V]:
+        match self._index.get(key):
+            case Some(slot):
+                Some(&self._values[slot])
+            case Nothing:
+                Nothing
 
-    pub def peek_mut(self: &mut LruCache[K, V], key: &K) -> &mut V:
-        slot = self._index[key]
-        &mut self._values[slot]
+    pub def peek_mut(self: &mut LruCache[K, V], key: &K) -> Option[&mut V]:
+        match self._index.get(key):
+            case Some(slot):
+                Some(&mut self._values[slot])
+            case Nothing:
+                Nothing
 
     pub def promote(self: &mut LruCache[K, V], key: &K) -> bool:
         match self._index.get(key):
