@@ -54,3 +54,4 @@ Plenty code needs. See [the type contracts](../../design/stdlib/dataframe-types.
 for Unicode, ownership and conversion details, then continue with
 [Join and rank results](dataframe-joins.md) or
 [Clean and compare column values](dataframe-expressions.md).
+For logical calendar data, see [Dates and daily reports](dataframe-datetime.md).

@@ -87,11 +87,38 @@ extern def values_f64_nullable_raw(frame: RawFrame, name: &str as utf8, values: 
 extern def native_bool_nullable(name: &str as utf8, values: &list[u8] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_bool_nullable"
 extern def values_bool_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u8] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_bool_nullable"
 
+extern def date_raw(name: &str as utf8, days: &list[i32] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_date"
+extern def datetime_raw(name: &str as utf8, ticks: &list[i64] as strided, valid: &list[u8] as strided, unit: i32, utc: u8, out: &mut RawColumn) -> RawError = "pldf_v1_datetime"
+extern def get_date_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut i32, valid: &mut u8) -> RawError = "pldf_v1_get_date"
+extern def get_datetime_raw(frame: RawFrame, name: &str as utf8, row: i64, unit: i32, utc: u8, out: &mut i64, valid: &mut u8) -> RawError = "pldf_v1_get_datetime"
+extern def values_date_raw(frame: RawFrame, name: &str as utf8, nullable: u8, out: &mut list[i32] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_date"
+extern def values_datetime_raw(frame: RawFrame, name: &str as utf8, unit: i32, utc: u8, nullable: u8, out: &mut list[i64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_datetime"
+extern def str_to_date_raw(expr: RawExpr, format: &str as utf8, strict: u8, out: &mut RawExpr) -> RawError = "pldf_v1_str_to_date"
+extern def str_to_datetime_raw(expr: RawExpr, format: &str as utf8, unit: i32, utc: u8, strict: u8, out: &mut RawExpr) -> RawError = "pldf_v1_str_to_datetime"
+extern def dt_component_raw(expr: RawExpr, kind: i32, out: &mut RawExpr) -> RawError = "pldf_v1_dt_component"
+extern def dt_format_raw(expr: RawExpr, format: &str as utf8, out: &mut RawExpr) -> RawError = "pldf_v1_dt_format"
+
+pub enum TimeUnit:
+    Milliseconds
+    Microseconds
+    Nanoseconds
+
+def time_unit_code(unit: TimeUnit) -> i32:
+    match unit:
+        case TimeUnit.Milliseconds:
+            0i32
+        case TimeUnit.Microseconds:
+            1i32
+        case TimeUnit.Nanoseconds:
+            2i32
+
 pub enum DType:
     I64
     F64
     Bool
     String
+    Date
+    Datetime(TimeUnit, Option[str])
     Other(str)
 
 pub class Field:
@@ -108,8 +135,8 @@ def scalar_dtype(dtype: DType) -> Result[i32, DataFrameError]:
             Ok(2i32)
         case DType.String:
             Ok(3i32)
-        case DType.Other(_):
-            Err(DataFrameError.Schema("dtype must be I64, F64, Bool or String"))
+        case _:
+            Err(DataFrameError.Schema("cast and CSV schema overrides require I64, F64, Bool or String"))
 
 class CsvSchema:
     raw: RawCsvSchema
@@ -241,6 +268,19 @@ class Strings:
                 allocated(out.append(Some(value)))?
         Ok(out)
 
+def datetime_dtype(native: &str, unit: TimeUnit) -> Result[DType, DataFrameError]:
+    zone = allocated(native.slice(12, len(native)))?
+    Ok(DType.Datetime(unit, Nothing if len(zone) == 0 else Some(zone)))
+
+def temporal_dtype(native: &str) -> Result[DType, DataFrameError]:
+    if native.startswith("Datetime:ms:"):
+        return datetime_dtype(native, TimeUnit.Milliseconds)
+    elif native.startswith("Datetime:us:"):
+        return datetime_dtype(native, TimeUnit.Microseconds)
+    elif native.startswith("Datetime:ns:"):
+        return datetime_dtype(native, TimeUnit.Nanoseconds)
+    Ok(DType.Other(*native))
+
 def fields(strings: &Strings) -> Result[list[Field], DataFrameError]:
     entries = strings.unpack()?
     mut out = allocated(list[Field]())?
@@ -256,8 +296,10 @@ def fields(strings: &Strings) -> Result[list[Field], DataFrameError]:
                 DType.Bool
             case "String":
                 DType.String
+            case "Date":
+                DType.Date
             case _:
-                DType.Other(native)
+                temporal_dtype(native)?
         allocated(out.append(Field(name, dtype)))?
     Ok(out)
 
@@ -294,6 +336,38 @@ pub class DataFrame:
         checked(write_raw(self.raw, path))
     pub def write_csv(self, path: &str, has_header: bool = True, separator: &str = ",", null_value: &str = "") -> Result[(), DataFrameError]:
         checked(write_csv_raw(self.raw, path, 1u8 if has_header else 0u8, separator, null_value))
+    pub def get_date_days(self, name: &str, row: i64) -> Result[Option[i32], DataFrameError]:
+        mut out = 0i32
+        mut valid = 0u8
+        checked(get_date_raw(self.raw, name, row, &mut out, &mut valid))?
+        Ok(optional(out, valid))
+    pub def get_datetime_ticks(self, name: &str, row: i64, unit: TimeUnit, utc: bool = False) -> Result[Option[i64], DataFrameError]:
+        mut out = 0
+        mut valid = 0u8
+        checked(get_datetime_raw(self.raw, name, row, time_unit_code(unit), 1u8 if utc else 0u8, &mut out, &mut valid))?
+        Ok(optional(out, valid))
+    pub def values_date_days(self, name: &str) -> Result[list[i32], DataFrameError]:
+        mut out = allocated([0i32 for _ in range(self.height()?)])?
+        mut valid = allocated(list[u8]())?
+        checked(values_date_raw(self.raw, name, 0u8, &mut out, &mut valid))?
+        Ok(out)
+    pub def values_date_days_nullable(self, name: &str) -> Result[list[Option[i32]], DataFrameError]:
+        count = self.height()?
+        mut out = allocated([0i32 for _ in range(count)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(values_date_raw(self.raw, name, 1u8, &mut out, &mut valid))?
+        allocated([optional(out[i], valid[i]) for i in range(count)])
+    pub def values_datetime_ticks(self, name: &str, unit: TimeUnit, utc: bool = False) -> Result[list[i64], DataFrameError]:
+        mut out = allocated([0 for _ in range(self.height()?)])?
+        mut valid = allocated(list[u8]())?
+        checked(values_datetime_raw(self.raw, name, time_unit_code(unit), 1u8 if utc else 0u8, 0u8, &mut out, &mut valid))?
+        Ok(out)
+    pub def values_datetime_ticks_nullable(self, name: &str, unit: TimeUnit, utc: bool = False) -> Result[list[Option[i64]], DataFrameError]:
+        count = self.height()?
+        mut out = allocated([0 for _ in range(count)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(values_datetime_raw(self.raw, name, time_unit_code(unit), 1u8 if utc else 0u8, 1u8, &mut out, &mut valid))?
+        allocated([optional(out[i], valid[i]) for i in range(count)])
     pub def get_i64(self, name: &str, row: i64) -> Result[Option[i64], DataFrameError]:
         mut out = 0
         mut valid = 0u8
@@ -372,6 +446,46 @@ pub class Expr:
         self.raw = RawExpr.null()
     def __del__(self) -> ():
         expr_drop(self.raw)
+    pub def str_to_date(self, format: &str = "%Y-%m-%d", strict: bool = True) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(str_to_date_raw(self.raw, format, 1u8 if strict else 0u8, &mut out.raw))?
+        Ok(out)
+    pub def str_to_datetime(self, format: &str, unit: TimeUnit, utc: bool = False, strict: bool = True) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(str_to_datetime_raw(self.raw, format, time_unit_code(unit), 1u8 if utc else 0u8, 1u8 if strict else 0u8, &mut out.raw))?
+        Ok(out)
+    pub def dt_year(self) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(dt_component_raw(self.raw, 0i32, &mut out.raw))?
+        Ok(out)
+    pub def dt_month(self) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(dt_component_raw(self.raw, 1i32, &mut out.raw))?
+        Ok(out)
+    pub def dt_day(self) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(dt_component_raw(self.raw, 2i32, &mut out.raw))?
+        Ok(out)
+    pub def dt_hour(self) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(dt_component_raw(self.raw, 3i32, &mut out.raw))?
+        Ok(out)
+    pub def dt_minute(self) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(dt_component_raw(self.raw, 4i32, &mut out.raw))?
+        Ok(out)
+    pub def dt_second(self) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(dt_component_raw(self.raw, 5i32, &mut out.raw))?
+        Ok(out)
+    pub def dt_date(self) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(dt_component_raw(self.raw, 6i32, &mut out.raw))?
+        Ok(out)
+    pub def dt_format(self, format: &str) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(dt_format_raw(self.raw, format, &mut out.raw))?
+        Ok(out)
     pub def cast(self, dtype: DType, strict: bool = True) -> Result[Expr, DataFrameError]:
         kind = scalar_dtype(dtype)?
         mut out = Expr()
@@ -601,6 +715,32 @@ pub def frame(columns: &list[Column]) -> Result[DataFrame, DataFrameError]:
 pub def column_i64(name: &str, values: &list[i64]) -> Result[Column, DataFrameError]:
     mut out = Column()
     checked(native_i64(name, values, &mut out.raw))?
+    Ok(out)
+
+pub def column_date(name: &str, days: &list[i32]) -> Result[Column, DataFrameError]:
+    valid = allocated(list[u8]())?
+    mut out = Column()
+    checked(date_raw(name, days, valid, &mut out.raw))?
+    Ok(out)
+
+pub def column_date_nullable(name: &str, days: &list[Option[i32]]) -> Result[Column, DataFrameError]:
+    scalars = allocated([payload(value, 0i32) for value in days])?
+    valid = allocated([validity(value) for value in days])?
+    mut out = Column()
+    checked(date_raw(name, scalars, valid, &mut out.raw))?
+    Ok(out)
+
+pub def column_datetime(name: &str, ticks: &list[i64], unit: TimeUnit, utc: bool = False) -> Result[Column, DataFrameError]:
+    valid = allocated(list[u8]())?
+    mut out = Column()
+    checked(datetime_raw(name, ticks, valid, time_unit_code(unit), 1u8 if utc else 0u8, &mut out.raw))?
+    Ok(out)
+
+pub def column_datetime_nullable(name: &str, ticks: &list[Option[i64]], unit: TimeUnit, utc: bool = False) -> Result[Column, DataFrameError]:
+    scalars = allocated([payload(value, 0) for value in ticks])?
+    valid = allocated([validity(value) for value in ticks])?
+    mut out = Column()
+    checked(datetime_raw(name, scalars, valid, time_unit_code(unit), 1u8 if utc else 0u8, &mut out.raw))?
     Ok(out)
 
 pub def column_f64(name: &str, values: &list[f64]) -> Result[Column, DataFrameError]:

@@ -20,8 +20,10 @@ The path names one file; wildcard characters are literal, not a glob.
 
 Overrides reuse [schema fields](dataframe-types.md). The optional list is
 consumed, so `schema_overrides=Some(frame.schema()?)` is convenient for
-CSV round-trips that must preserve the four supported types. Duplicate or
-unknown override names and `DType.Other` targets fail with `Schema`.
+CSV round-trips that must preserve the four scalar override types. Duplicate or
+unknown override names, temporal targets and `DType.Other` fail with `Schema`.
+For [temporal columns](dataframe-datetime.md), explicitly format to strings
+before CSV output and parse those strings after input; Parquet preserves their metadata.
 Overrides select types by name; they are not a full schema or a column
 rename/reorder facility. Headerless empty input has no width/names to infer.
 
