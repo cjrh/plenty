@@ -54,3 +54,7 @@ The native tables add no external libraries or build-time network access and
 ship inside both runtime archives. Supported target: x86_64 Linux GNU. See
 [the lesson](../../tutorial/08-resources/25-text-unicode.md) and
 [`std.text`](text.md) for bounded output construction and error variants.
+
+## Acknowledgements
+
+- Normalization uses tables and lookups from [unicode-normalization](https://github.com/unicode-rs/unicode-normalization) 0.1.25, vendored in the runtime (MIT OR Apache-2.0), with data from the [Unicode Character Database](https://www.unicode.org/ucd/) 17.0.0 (Unicode-3.0).

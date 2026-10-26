@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -86,6 +87,45 @@ class ThirdPartyNotices(unittest.TestCase):
         self.assertIn("Copyright (c) 2014, John MacFarlane", output)
         self.assertIn("UNICODE LICENSE V3", output)
         self.assertIn("Copyright © WHATWG", output)
+        self.assertIn("## similar 3.2.1 (std.diff algorithms)", output)
+        self.assertIn("Apache License\n                        Version 2.0", output)
+
+    def test_compiler_notices_include_vendored_unicode_normalization(self):
+        output = self.notices.render([self.package])
+        vendor = REPO / "plenty-runtime/src/unicode/vendor"
+        self.assertIn("## unicode-normalization 0.1.25", output)
+        self.assertIn("## Unicode Character Database 17.0.0", output)
+        for name in ("COPYRIGHT", "LICENSE-APACHE", "LICENSE-MIT"):
+            self.assertIn((vendor / name).read_text().rstrip(), output)
+        self.assertIn("UNICODE_VERSION: (u8, u8, u8) = (17, 0, 0)", (vendor / "tables.rs").read_text())
+        self.assertNotIn("unicode-normalization", self.notices.render([self.package], "dataframe"))
+
+    def test_every_repository_vendor_directory_has_a_notice(self):
+        # Cargo.lock stands in for `cargo metadata`, which this test avoids so
+        # it runs without a Rust toolchain; the release build checks the
+        # shipped packages themselves.
+        lock = tomllib.loads((REPO / "Cargo.lock").read_text())
+        packages = [p for p in lock["package"] if "source" in p]
+        self.assertEqual(self.notices.uncovered_vendor_dirs(REPO, packages), [])
+
+    def test_uncovered_vendor_directory_fails(self):
+        crate = {"name": "covered", "version": "1.0.0"}
+        (self.root / "a/vendor/covered-1.0.0").mkdir(parents=True)
+        self.assertEqual(self.notices.uncovered_vendor_dirs(self.root, [crate]), [])
+        (self.root / "a/vendor/covered-2.0.0").mkdir()
+        (self.root / "b/vendor").mkdir(parents=True)
+        (self.root / "b/vendor/tables.rs").write_text("")
+        (self.root / "plenty-runtime/native/zlib-1.3").mkdir(parents=True)
+        (self.root / "target/vendor/build-output").mkdir(parents=True)
+        (self.root / "plenty-linalg/vendor/faer").mkdir(parents=True)
+        self.assertEqual(
+            self.notices.uncovered_vendor_dirs(self.root, [crate]),
+            ["a/vendor/covered-2.0.0", "b/vendor", "plenty-runtime/native/zlib-1.3"],
+        )
+        self.notices.VENDORED_SOURCES = (("", "", "", "", "b/vendor", ()),)
+        self.notices.NATIVE_DIRS = ("plenty-runtime/native/zlib-1.3",)
+        self.assertEqual(self.notices.uncovered_vendor_dirs(self.root, [crate]),
+                         ["a/vendor/covered-2.0.0"])
 
     def test_missing_embedded_license_fails(self):
         self.notices.LICENSE_DIR = self.root

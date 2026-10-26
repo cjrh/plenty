@@ -3,9 +3,11 @@
 
 The compiler executable links its normal Rust dependencies and embeds the
 runtime archives, which contain `plenty-runtime`'s dependencies, the Rust
-standard library, vendored SQLite amalgamation and Brotli codec. It also embeds the
-standard library modules, some derived from third-party code or data (EMBEDDED). The optional dataframe
-component uses its own workspace/lockfile and has neither vendored library. Build scripts,
+standard library, vendored SQLite amalgamation and Brotli codec, and vendored
+sources (VENDORED_SOURCES). It also embeds the standard library modules, some
+derived from third-party code or data (EMBEDDED). The optional dataframe
+component uses its own workspace/lockfile and has neither vendored library.
+A `vendor/` directory that no notice covers fails the compiler build. Build scripts,
 procedural macros, and dev-dependencies do not ship and are not listed.
 
 Every listed crate must provide its license text in its source package or
@@ -25,6 +27,7 @@ from pathlib import Path
 TARGET = "x86_64-unknown-linux-gnu"
 ROOTS = ("plenty", "plenty-runtime")
 LICENSE_PREFIXES = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "COPYRIGHT", "UNLICENSE")
+REPO = Path(__file__).resolve().parents[2]
 LICENSE_DIR = Path(__file__).resolve().parent / "licenses"
 
 # The published crate omits the repository license. Pin the fallback to the
@@ -80,8 +83,74 @@ notice, here is a blessing:
 See https://sqlite.org/copyright.html.
 """
 
+# Vendored native libraries rendered above; recorded so the vendor coverage
+# check below knows their directories are covered.
+NATIVE_DIRS = (
+    "plenty-runtime/native/sqlite-3.54.0",
+    "plenty-runtime/native/brotli-1.2.1",
+)
+
+# Source copied into the repository from a published package that is not a
+# Cargo dependency. Each entry reproduces the license files kept beside the
+# copy: (heading, license, use, source, directory, license files).
+VENDORED_SOURCES = (
+    (
+        "unicode-normalization 0.1.25 (std.unicode normalization)",
+        "MIT OR Apache-2.0",
+        "plenty-runtime/src/unicode/vendor contains unmodified lookups.rs, "
+        "normalize.rs, perfect_hash.rs and tables.rs from this crates.io release.",
+        "https://github.com/unicode-rs/unicode-normalization/tree/"
+        "5a69b3bafb625caccdec7871a42bed0d9a6604d1",
+        "plenty-runtime/src/unicode/vendor",
+        ("COPYRIGHT", "LICENSE-APACHE", "LICENSE-MIT"),
+    ),
+)
+
+
+def vendored_source_notices():
+    out = []
+    for heading, license_id, use, source, directory, names in VENDORED_SOURCES:
+        out.extend([f"## {heading}\n", f"License: {license_id}", f"Source: {source}", "", use, ""])
+        for name in names:
+            text = (REPO / directory / name).read_text(encoding="utf-8").rstrip()
+            out.extend([f"### {name}\n", "```text", text, "```\n"])
+    return "\n".join(out)
+
+
+def uncovered_vendor_dirs(repo, packages):
+    """Vendored directories that no notice covers.
+
+    A directory named `vendor`, or a subdirectory of `plenty-runtime/native`,
+    is covered when it is listed in NATIVE_DIRS or VENDORED_SOURCES. A child of
+    a `vendor` directory is also covered when it is named `NAME-VERSION` after
+    a package in `packages`, whose notice comes from Cargo metadata.
+    """
+    covered = set(NATIVE_DIRS) | {entry[4] for entry in VENDORED_SOURCES}
+    crates = {f"{p['name']}-{p['version']}" for p in packages}
+    uncovered = []
+    for current, dirs, _ in os.walk(repo):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != "target")
+        if Path(current) == Path(repo):
+            # Independent engines have separate dependency graphs and notices;
+            # none of their sources ships in the compiler archive.
+            dirs[:] = [d for d in dirs if d not in ("plenty-dataframe", "plenty-linalg")]
+        relative = Path(current).relative_to(repo).as_posix()
+        if relative == "plenty-runtime/native":
+            uncovered.extend(f"{relative}/{d}" for d in dirs if f"{relative}/{d}" not in covered)
+            dirs[:] = []
+        elif Path(current).name == "vendor":
+            if relative not in covered:
+                if any(f.is_file() for f in Path(current).iterdir()):
+                    uncovered.append(relative)
+                uncovered.extend(f"{relative}/{d}" for d in dirs
+                                 if d not in crates and f"{relative}/{d}" not in covered)
+            dirs[:] = []
+    return uncovered
+
+
 # Code and data the compiler embeds that come from neither a Cargo package nor
-# a vendored directory: std modules are compiled into the compiler executable.
+# a vendored directory's own license files: std modules are compiled into the
+# compiler executable, and runtime tables can derive from external data.
 # Each entry names a reviewed license text in LICENSE_DIR; update the entry and
 # the text together when the upstream version changes.
 EMBEDDED = (
@@ -103,6 +172,15 @@ EMBEDDED = (
         "unicode-license-v3.txt",
     ),
     (
+        "Unicode Character Database 17.0.0 (std.unicode normalization tables)",
+        "Unicode-3.0",
+        "plenty-runtime/src/unicode/vendor/tables.rs contains decomposition, "
+        "composition and canonical combining class tables that unicode-normalization "
+        "0.1.25 generated from the Unicode Character Database.",
+        "https://www.unicode.org/license.txt",
+        "unicode-license-v3.txt",
+    ),
+    (
         "WHATWG HTML Standard named character references (std.markdown entity table)",
         "BSD-3-Clause",
         "stdlib/std/markdown.plenty contains the HTML named character "
@@ -110,6 +188,15 @@ EMBEDDED = (
         "is CC-BY-4.0; portions incorporated into source code are BSD-3-Clause.",
         "https://html.spec.whatwg.org/multipage/named-characters.html",
         "whatwg-html-BSD-3-Clause.txt",
+    ),
+    (
+        "similar 3.2.1 (std.diff algorithms)",
+        "Apache-2.0",
+        "stdlib/std/diff.plenty follows the similar crate's linear-space Myers "
+        "and patience diff algorithms.",
+        "https://github.com/mitsuhiko/similar/blob/"
+        "71d4831349a61efa5c9fe521a344d8b335844d3a/LICENSE",
+        "similar-3.2.1-LICENSE.txt",
     ),
 )
 
@@ -207,8 +294,9 @@ def render(packages, component="compiler"):
         "and notice files from its source package or a reviewed upstream source.\n",
         VENDORED if component == "compiler" else "",
         ("## Brotli 1.2.1 (vendored reference C codec)\n\nLicense: MIT\n\n"
-         + (Path(__file__).resolve().parents[2] / "plenty-runtime/native/brotli-1.2.1/LICENSE").read_text()
+         + (REPO / "plenty-runtime/native/brotli-1.2.1/LICENSE").read_text()
          if component == "compiler" else ""),
+        vendored_source_notices() if component == "compiler" else "",
         embedded_notices() if component == "compiler" else "",
         RUST_STD,
     ]
@@ -270,6 +358,10 @@ def main():
         ).stdout
     )
     packages = shipped_packages(metadata, (f"plenty-{args.component}-engine",) if args.component != "compiler" else ROOTS)
+    if args.component == "compiler":
+        uncovered = uncovered_vendor_dirs(args.repo, packages)
+        if uncovered:
+            raise SystemExit("vendored directories without a notice: " + ", ".join(uncovered))
     if args.list:
         for p in packages:
             print(p["name"], p["version"], p.get("license"), len(license_files(p, args.component != "compiler")), file=sys.stderr)

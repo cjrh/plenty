@@ -15,6 +15,8 @@ scratch allocation. Do not replace that path with infallible tinyvec iterators.
 
 To upgrade: download a pinned crates.io release, copy these four files and all
 three license/copyright files unchanged, inspect API/version changes, update
+the unicode-normalization and Unicode Character Database entries in
+`scripts/release/third_party_notices.py`,
 `stdlib/std/unicode.plenty` and the reference version, and replace
 `tests/fixtures/unicode-17/NormalizationTest.txt` with the matching official UCD
 fixture (renaming the fixture directory and test include when appropriate).

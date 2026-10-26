@@ -209,8 +209,10 @@ Dropping an unclosed `FileStream` closes the file and discards any close error.
 
 `Stdin`, `Stdout`, and `Stderr` hold no state and never close the process
 descriptors. `Stdin.read` makes one native read. `Stdout` and `Stderr` share the
-process buffers used by `print` and the text writers, so output keeps its order
-across both; `flush` delivers it.
+process streams used by `print` and the text writers, so output keeps its order
+across both; `flush` delivers buffered stdout. Stderr is unbuffered: each
+`Stderr.write` makes one native write on descriptor 2, so a closed or read-only
+stderr is `Io(IoError.System(9))` (`EBADF`).
 
 Each process stream has `is_terminal() -> bool`. It asks the OS on each call and
 returns false for redirected, closed or undetectable streams. This query neither
@@ -251,6 +253,9 @@ per call. Seeking a `BufReader` discards up to `capacity` bytes already read.
 
 - Only x86-64 Linux GNU is supported. Nonblocking descriptors are not handled:
   `EAGAIN` arrives as `Io(IoError.System(11))`.
+- Stdout writes pass through the Rust standard library's buffered stdout,
+  which reports `EBADF` as success: writes to a closed or read-only stdout
+  succeed and discard their bytes.
 - Streams are bytes only. Text decoding, line iteration over streams, and
   formatted writes are not provided; use `read_until` and `Bytes.to_text`.
 - There are no vectored operations, no read-ahead peeking, and no stream

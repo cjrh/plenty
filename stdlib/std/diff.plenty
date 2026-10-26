@@ -6,6 +6,12 @@ from std.bytes import Bytes, BytesError
 # anchoring on elements unique to both sides with Myers between anchors.
 # Elements are interned to dense integer ids first, so comparisons inside the
 # search are integer compares and patience can count occurrences in lists.
+#
+# The Myers and patience implementations are derived from the `similar` crate
+# 3.2.1 (commit 71d4831349a61efa5c9fe521a344d8b335844d3a) by Armin Ronacher
+# and contributors, under the Apache License 2.0; its full text is in
+# scripts/release/licenses/similar-3.2.1-LICENSE.txt and in release archives'
+# THIRD-PARTY-NOTICES.md.
 
 pub enum Algorithm:
     Myers

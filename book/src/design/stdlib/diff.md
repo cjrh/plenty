@@ -121,3 +121,9 @@ becomes its own output line.
 
 There is no inline (word-level) rendering, patch parsing or application, or
 three-way merge. See the runnable [diff lesson](../../tutorial/07-modules/20-standard-diff.md).
+
+## Acknowledgements
+
+- Myers and patience implementations derived from [similar](https://github.com/mitsuhiko/similar) 3.2.1 by Armin Ronacher and contributors (Apache-2.0).
+- Uses the linear-space variant of [Myers' O(ND) algorithm](https://doi.org/10.1007/BF01840446) (1986).
+- Unified output matches [GNU diffutils](https://www.gnu.org/software/diffutils/manual/html_node/Unified-Format.html) `diff -U`.

@@ -265,7 +265,7 @@ pub(super) unsafe fn call(
                 // The process streams keep their existing buffering, so bytes
                 // stay ordered with `print` and the text writers.
                 let written = if d == 2 {
-                    std::io::stderr().lock().write(source)
+                    crate::io::stderr().write(source)
                 } else {
                     std::io::stdout().lock().write(source)
                 };

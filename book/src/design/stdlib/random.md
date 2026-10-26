@@ -129,3 +129,7 @@ been measured on an idle machine.
 - No `f32` draws and no inclusive ranges.
 - `sample_indices` returns indices; there is no element-sampling or
   reservoir form.
+
+## Acknowledgements
+
+- Uses the [xoshiro256\*\*](https://prng.di.unimi.it/) generator by David Blackman and Sebastiano Vigna, seeded with [SplitMix64](https://doi.org/10.1145/2714064.2660195) by Guy Steele, Doug Lea and Christine Flood.

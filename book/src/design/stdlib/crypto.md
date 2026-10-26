@@ -165,3 +165,7 @@ only through its own runtime entry symbols, so a program that does not use
 - No MD5, SHA-3, BLAKE2, or truncated SHA-512 variants.
 - No zero-on-drop buffer type; see [Key material](#key-material).
 - One target, x86-64 Linux GNU.
+
+## Acknowledgements
+
+- Wraps the RustCrypto [`sha2`](https://github.com/RustCrypto/hashes) 0.10.9, [`sha1`](https://github.com/RustCrypto/hashes) 0.10.6 and [`hmac`](https://github.com/RustCrypto/MACs) 0.12.1 crates (MIT OR Apache-2.0) and [`subtle`](https://github.com/dalek-cryptography/subtle) 2.6.1 (BSD-3-Clause), vendored in the runtime.

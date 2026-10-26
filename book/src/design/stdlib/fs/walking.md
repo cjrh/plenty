@@ -49,3 +49,7 @@ directory symlinks with files follows `pathlib.Path.walk` with link following
 disabled. The explicit next/error continuation is Plenty's adaptation of an
 error callback; failures are visible by default. The implementation is embedded
 Plenty source in `stdlib/std/fs.plenty`, not a separate native traversal engine.
+
+## Acknowledgements
+
+- Follows Python's [`os.walk`](https://docs.python.org/3/library/os.html#os.walk) and [`pathlib.Path.walk`](https://docs.python.org/3/library/pathlib.html#pathlib.Path.walk).
