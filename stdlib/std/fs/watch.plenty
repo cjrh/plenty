@@ -1,0 +1,196 @@
+# Linux inotify, with bounded reusable batches. Native filenames stay bytes;
+# the caller rescans after overflow and decides how to pair rename cookies.
+import std.bytes
+import std.path
+import std.ready
+from std.bytes import Bytes, BytesError
+from std.path import Path
+from std.ready import Interest, Selector, WaitError
+from std.sync import CancellationToken
+from std.time import Deadline
+
+pub enum WatchError:
+    OutOfRange
+    InvalidData
+    Io(IoError)
+    Wait(WaitError)
+    Allocation(AllocError)
+
+def io[T](result: Result[T, IoError]) -> Result[T, WatchError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(WatchError.Io(error))
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, WatchError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(WatchError.Allocation(error))
+
+def buffered[T](result: Result[T, BytesError]) -> Result[T, WatchError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(error)):
+            Err(WatchError.Allocation(error))
+        case Err(_):
+            Err(WatchError.OutOfRange)
+
+# inotify_event's four 32-bit fields, on the current little-endian target.
+def word(buffer: &Bytes, at: i64) -> u32:
+    mut value = 0u32
+    for offset in range(4):
+        value = (value << 8u32) | u32(buffer[at + 3 - offset])
+    value
+
+pub class Event:
+    pub watch: i32
+    pub cookie: u32
+    pub name: Path
+    _mask: u32
+
+    pub def created(self) -> bool:
+        self._mask & 256u32 != 0u32
+
+    pub def deleted(self) -> bool:
+        self._mask & 512u32 != 0u32
+
+    pub def modified(self) -> bool:
+        self._mask & 2u32 != 0u32
+
+    pub def metadata_changed(self) -> bool:
+        self._mask & 4u32 != 0u32
+
+    pub def closed_after_write(self) -> bool:
+        self._mask & 8u32 != 0u32
+
+    pub def moved_from(self) -> bool:
+        self._mask & 64u32 != 0u32
+
+    pub def moved_to(self) -> bool:
+        self._mask & 128u32 != 0u32
+
+    pub def deleted_self(self) -> bool:
+        self._mask & 1024u32 != 0u32
+
+    pub def moved_self(self) -> bool:
+        self._mask & 2048u32 != 0u32
+
+    pub def unmounted(self) -> bool:
+        self._mask & 8192u32 != 0u32
+
+    pub def overflowed(self) -> bool:
+        self._mask & 16384u32 != 0u32
+
+    pub def ignored(self) -> bool:
+        self._mask & 32768u32 != 0u32
+
+    pub def is_directory(self) -> bool:
+        self._mask & 1073741824u32 != 0u32
+
+# Owns one close-on-exec nonblocking descriptor and preallocated batch storage.
+pub class Watcher:
+    _file: File
+    _buffer: Bytes
+    _offsets: list[i64]
+
+    # Files and immediate directory children, following the path's symlinks.
+    # Adding the same inode returns its existing watch ID.
+    pub def add(self: &mut Watcher, path: &Path) -> Result[i32, WatchError]:
+        io(__fs_watch_add(self._file, path.as_bytes()))
+
+    # Queued records remain; the kernel also queues an ignored event.
+    pub def remove(self: &mut Watcher, watch: i32) -> Result[(), WatchError]:
+        io(__fs_watch_remove(self._file, watch))
+
+    # Replaces the last batch with one nonblocking read. A zero count means
+    # no events arrived (or the read was interrupted); no events are dropped
+    # merely because this batch is full. More remain in the kernel queue.
+    pub def poll(self: &mut Watcher) -> Result[i64, WatchError]:
+        self._offsets.clear()
+        mut used = 0
+        match self._buffer.read_file(&mut self._file, 0, self._buffer.len()):
+            case Ok(count):
+                used = count
+            case Err(IoError.System(11i32)) | Err(IoError.System(4i32)):
+                return Ok(0)
+            case Err(error):
+                return Err(WatchError.Io(error))
+        mut at = 0
+        while at < used:
+            if used - at < 16:
+                self._offsets.clear()
+                return Err(WatchError.InvalidData)
+            size = i64(word(&self._buffer, at + 12))
+            if size > used - at - 16:
+                self._offsets.clear()
+                return Err(WatchError.InvalidData)
+            # Constructor reserved at least one slot per possible header;
+            # appending within that capacity performs no allocation.
+            allocated(self._offsets.append(at))?
+            at += 16 + size
+        Ok(len(self._offsets))
+
+    # A ready event wins over an expired deadline; cancellation requested
+    # before the call wins over both. No background thread is started.
+    pub def wait(self: &mut Watcher, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WatchError]:
+        self._offsets.clear()
+        while True:
+            if cancel.is_cancelled():
+                return Err(WatchError.Wait(WaitError.Cancelled))
+            count = self.poll()?
+            if count != 0:
+                return Ok(count)
+            match std.ready.wait(&self._file, Interest.Read, deadline, cancel):
+                case Ok(_):
+                    pass
+                case Err(error):
+                    return Err(WatchError.Wait(error))
+        Ok(0)
+
+    pub def count(self) -> i64:
+        len(self._offsets)
+
+    # Owns its filename and survives the next poll or the watcher's drop.
+    # Allocation failure leaves the batch intact so this call can be retried.
+    pub def event(self, index: i64) -> Result[Event, WatchError]:
+        if index < 0 or index >= len(self._offsets):
+            return Err(WatchError.OutOfRange)
+        at = self._offsets[index]
+        size = i64(word(&self._buffer, at + 12))
+        start = at + 16
+        mut end = start
+        while end < start + size and self._buffer[end] != 0u8:
+            end += 1
+        if size > 0 and end == start + size:
+            return Err(WatchError.InvalidData)
+        mut name = allocated(list[u8].with_capacity(end - start))?
+        for offset in range(start, end):
+            allocated(name.append(self._buffer[offset]))?
+        Ok(Event(i32.wrapping_from(word(&self._buffer, at)), word(&self._buffer, at + 8), std.path.from_bytes(name), word(&self._buffer, at + 4)))
+
+    # Register once, then poll after the selector reports `key` readable.
+    pub def register(self, selector: &mut Selector, key: u64) -> Result[(), WaitError]:
+        selector.watch(&self._file, key, Interest.Read)
+
+    pub def unregister(self, selector: &mut Selector) -> Result[(), WaitError]:
+        selector.unwatch(&self._file)
+
+    pub def close(self: &mut Watcher) -> Result[(), WatchError]:
+        self._offsets.clear()
+        io(self._file.close())
+
+# A read holds at most batch_bytes/16 events. 272 bytes accommodates Linux's
+# largest filename in one event. The default bounds each read to 4 KiB;
+# offsets reserve batch_bytes/16 list slots once. No reads allocate.
+pub def watcher(batch_bytes: i64 = 4096) -> Result[Watcher, WatchError]:
+    if batch_bytes < 272 or batch_bytes > 65536:
+        return Err(WatchError.OutOfRange)
+    mut buffer = buffered(std.bytes.with_capacity(batch_bytes))?
+    buffered(buffer.resize(batch_bytes, 0u8))?
+    offsets = allocated(list[i64].with_capacity(batch_bytes // 16))?
+    file = io(__fs_watch_open())?
+    Ok(Watcher(file, buffer, offsets))

@@ -70,9 +70,12 @@ impl Effect {
 impl FsOp {
     pub fn effect(self) -> Effect {
         match self {
-            Self::Open | Self::EntryMetadata | Self::Metadata | Self::ReadLink | Self::Root => {
-                Effect::Path
-            }
+            Self::Open
+            | Self::EntryMetadata
+            | Self::Metadata
+            | Self::ReadLink
+            | Self::Root
+            | Self::WatchAdd => Effect::Path,
             Self::Next
             | Self::Close
             | Self::Closed
@@ -88,7 +91,9 @@ impl FsOp {
             | Self::SameDir
             | Self::DuplicateRoot
             | Self::MakeTemporaryDir
-            | Self::FileMetadata => Effect::Handle,
+            | Self::FileMetadata
+            | Self::WatchOpen
+            | Self::WatchRemove => Effect::Handle,
             Self::Name
             | Self::Path
             | Self::FileType

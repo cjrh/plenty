@@ -396,10 +396,12 @@ mod test_std_csv;
 mod test_std_encoding;
 #[path = "test_std_env_process.rs"]
 mod test_std_env_process;
-#[path = "test_std_fs_dirs.rs"]
-mod test_std_fs_dirs;
 #[path = "test_std_fmt.rs"]
 mod test_std_fmt;
+#[path = "test_std_fs_dirs.rs"]
+mod test_std_fs_dirs;
+#[path = "test_std_fs_watch.rs"]
+mod test_std_fs_watch;
 #[path = "test_std_http.rs"]
 mod test_std_http;
 #[path = "test_std_http_client.rs"]
