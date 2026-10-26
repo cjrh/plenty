@@ -1,7 +1,7 @@
 //! Bulk scans over byte slices behind `std.bytes`. Each is one runtime call
 //! over a validated range, so a parser's inner loop costs one call per token
-//! rather than one per byte. The runtime has no dependencies, so the word-at-
-//! a-time search is written out here.
+//! rather than one per byte. The word-at-a-time and subsequence searches are
+//! written out here rather than taken from a third-party crate.
 
 const LOW: u64 = 0x0101_0101_0101_0101;
 const HIGH: u64 = 0x8080_8080_8080_8080;
@@ -83,22 +83,87 @@ pub(super) fn text_find_in(text: &[u8], set: &[u8], member: bool) -> Option<usiz
     })
 }
 
-/// Searches by first byte, then compares: at most `haystack.len()` candidate
-/// positions of `needle.len()` bytes each.
+/// The first index of `needle` in `haystack`, in time linear in both lengths
+/// and without allocation (issue #474). This is the Crochemore–Perrin
+/// two-way algorithm, as in `core`'s `str` search: split the needle at a
+/// critical position, compare the right part forwards and then the left part
+/// backwards, and shift by an amount that never skips a match. Where nothing
+/// of the needle is known to match, the word-at-a-time `find` skips to the
+/// next occurrence of its first byte.
 pub(super) fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    let Some((first, rest)) = needle.split_first() else {
-        return Some(0);
+    let length = needle.len();
+    match length {
+        0 => return Some(0),
+        1 => return find(haystack, needle[0]),
+        _ => {}
+    }
+    let last = haystack.len().checked_sub(length)?;
+    let (critical, mut period) = {
+        let less = maximal_suffix(needle, false);
+        let greater = maximal_suffix(needle, true);
+        if less.0 > greater.0 { less } else { greater }
     };
-    let last = haystack.len().checked_sub(needle.len())?;
-    let mut from = 0;
-    while from <= last {
-        let index = from + find(&haystack[from..=last], *first)?;
-        if haystack[index + 1..index + needle.len()] == *rest {
-            return Some(index);
+    // A periodic needle keeps `memory`, the length of its prefix known to
+    // match after a shift by `period`. Otherwise the period is replaced by a
+    // safe lower bound and nothing is remembered.
+    let periodic = needle[..critical] == needle[period..period + critical];
+    if !periodic {
+        period = critical.max(length - critical) + 1;
+    }
+    let mut position = 0;
+    let mut memory = 0;
+    'search: while position <= last {
+        if memory == 0 && haystack[position] != needle[0] {
+            position += find(&haystack[position..=last], needle[0])?;
         }
-        from = index + 1;
+        let window = &haystack[position..position + length];
+        for index in critical.max(memory)..length {
+            if needle[index] != window[index] {
+                position += index - critical + 1;
+                memory = 0;
+                continue 'search;
+            }
+        }
+        for index in (memory..critical).rev() {
+            if needle[index] != window[index] {
+                position += period;
+                if periodic {
+                    memory = length - period;
+                }
+                continue 'search;
+            }
+        }
+        return Some(position);
     }
     None
+}
+
+/// The start and period of the maximal suffix of `needle` under byte order,
+/// or reversed order when `greater`. The later of the two starts is a
+/// critical position.
+fn maximal_suffix(needle: &[u8], greater: bool) -> (usize, usize) {
+    let (mut start, mut candidate, mut offset, mut period) = (0, 1, 0, 1);
+    while let Some(&next) = needle.get(candidate + offset) {
+        let current = needle[start + offset];
+        if (next < current) != greater && next != current {
+            candidate += offset + 1;
+            offset = 0;
+            period = candidate - start;
+        } else if next == current {
+            if offset + 1 == period {
+                candidate += offset + 1;
+                offset = 0;
+            } else {
+                offset += 1;
+            }
+        } else {
+            start = candidate;
+            candidate += 1;
+            offset = 0;
+            period = 1;
+        }
+    }
+    (start, period)
 }
 
 pub(super) fn count(haystack: &[u8], needle: u8) -> usize {
@@ -254,6 +319,84 @@ mod tests {
         assert_eq!(find_bytes(b"line\r\nnext", b"\r\n"), Some(4));
         let long = [b"a".repeat(100), b"b".to_vec()].concat();
         assert_eq!(find_bytes(&long, b"aaab"), Some(97));
+    }
+
+    fn slow_find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        (0..=haystack.len().checked_sub(needle.len())?)
+            .find(|start| haystack[*start..].starts_with(needle))
+    }
+
+    /// Every needle up to seven bytes and haystack up to eleven bytes over a
+    /// two-letter alphabet, where periodic needles and repeated partial
+    /// matches are common; then longer mixed needles over three letters.
+    #[test]
+    fn subsequence_search_agrees_with_the_naive_search() {
+        fn words(alphabet: &[u8], max: usize) -> Vec<Vec<u8>> {
+            let mut all = vec![vec![]];
+            let mut from = 0;
+            for _ in 0..max {
+                let to = all.len();
+                for index in from..to {
+                    for letter in alphabet {
+                        let mut word = all[index].clone();
+                        word.push(*letter);
+                        all.push(word);
+                    }
+                }
+                from = to;
+            }
+            all
+        }
+        let needles = words(b"ab", 7);
+        for haystack in words(b"ab", 11) {
+            for needle in &needles {
+                assert_eq!(
+                    find_bytes(&haystack, needle),
+                    slow_find_bytes(&haystack, needle),
+                    "{haystack:?} {needle:?}"
+                );
+            }
+        }
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut letter = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            b"abc"[(state % 3) as usize]
+        };
+        for _ in 0..2000 {
+            let haystack: Vec<u8> = (0..200).map(|_| letter()).collect();
+            let needle: Vec<u8> = (0..1 + letter() as usize % 16).map(|_| letter()).collect();
+            for start in [0, 50, 150] {
+                assert_eq!(
+                    find_bytes(&haystack[start..], &needle),
+                    slow_find_bytes(&haystack[start..], &needle),
+                    "{haystack:?} {needle:?}"
+                );
+            }
+        }
+    }
+
+    /// A first-byte scan followed by comparison does about 2^37 byte
+    /// comparisons on these inputs (issue #474); the linear search does a
+    /// few million, so this finishes in milliseconds instead of hours.
+    #[test]
+    fn subsequence_search_is_linear_on_repetitive_input() {
+        let haystack = vec![b'a'; 1 << 22];
+        let mut needle = vec![b'a'; 1 << 15];
+        needle.push(b'b');
+        assert_eq!(find_bytes(&haystack, &needle), None);
+        needle[0] = b'b';
+        needle.pop();
+        assert_eq!(find_bytes(&haystack, &needle), None);
+        let mut haystack = b"ab".repeat(1 << 21);
+        haystack.extend_from_slice(b"abb");
+        let mut needle = b"ab".repeat(1 << 14);
+        needle.push(b'b');
+        assert_eq!(
+            find_bytes(&haystack, &needle),
+            Some(haystack.len() - needle.len())
+        );
     }
 
     #[test]
