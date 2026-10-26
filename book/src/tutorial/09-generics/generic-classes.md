@@ -50,7 +50,7 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 ```
 ```error
-lesson.plenty:9:13: `Cell[list[i64]].get` copies `T` implicitly, but `list[i64]` is affine
+lesson.plenty:9:13: `Cell[list[i64]].get` copies `T`, but `list[i64]` cannot be copied
 lesson.plenty:5:9: note: in instantiation `Cell[list[i64]].get`: cannot move out of a field
 ```
 

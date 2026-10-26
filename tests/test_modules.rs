@@ -1057,7 +1057,7 @@ fn imported_generic_body_errors_are_reported_in_the_importing_file() {
         plenty::check_file(&main, None).unwrap_err().to_string(),
         format!(
             "{}:4:12: `cells.wrap[list[i64]]` requires `cells.Cell[list[i64]].get`, which \
-             copies `T` implicitly, but `list[i64]` is affine\n  \
+             copies `T`, but `list[i64]` cannot be copied\n  \
              {cells}:4:9: note: in instantiation `cells.Cell[list[i64]].get`: cannot move out of a field",
             main.display()
         )
@@ -1066,7 +1066,7 @@ fn imported_generic_body_errors_are_reported_in_the_importing_file() {
     assert_eq!(
         plenty::check_file(&main, None).unwrap_err().to_string(),
         format!(
-            "{}:4:12: `cells.twice[list[i64]]` copies `T` implicitly, but `list[i64]` is affine\n  \
+            "{}:4:12: `cells.twice[list[i64]]` copies `T`, but `list[i64]` cannot be copied\n  \
              {cells}:7:13: note: in instantiation `cells.twice[list[i64]]`: use of moved binding `value`\n  \
              {cells}:7:6: note: `value` is moved here",
             main.display()

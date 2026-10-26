@@ -64,7 +64,7 @@ a moved binding of it), an operator the argument does not support, and a method
 the argument does not have:
 
 ```text
-main.plenty:8:9: `outer[list[i64]]` requires `pairs.twice[list[i64]]`, which copies `T` implicitly, but `list[i64]` is affine
+main.plenty:8:9: `outer[list[i64]]` requires `pairs.twice[list[i64]]`, which copies `T`, but `list[i64]` cannot be copied
   pairs.plenty:2:13: note: in instantiation `pairs.twice[list[i64]]`: use of moved binding `value`
   pairs.plenty:2:6: note: `value` is moved here
 ```
@@ -85,7 +85,7 @@ because constructing a value arms it. An instance can therefore exist although
 one of its methods would be rejected for it, as long as that method is not used:
 
 ```text
-main.plenty:9:13: `Cell[list[i64]].get` copies `T` implicitly, but `list[i64]` is affine
+main.plenty:9:13: `Cell[list[i64]].get` copies `T`, but `list[i64]` cannot be copied
   main.plenty:5:9: note: in instantiation `Cell[list[i64]].get`: cannot move out of a field
 ```
 

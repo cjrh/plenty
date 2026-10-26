@@ -111,7 +111,7 @@ impl Instantiation {
         }
         let instance = short(&self.instance);
         let cause = match demand {
-            Demand::Copy(..) => format!("copies `{parameter}` implicitly, but `{ty}` is affine"),
+            Demand::Copy(..) => format!("copies `{parameter}`, but `{ty}` cannot be copied"),
             Demand::Operator(op, _) => {
                 format!("applies `{op}` to `{parameter}`, but `{ty}` does not support `{op}`")
             }

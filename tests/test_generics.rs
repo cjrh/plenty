@@ -219,7 +219,7 @@ def main() -> Result[(), AllocError]:
     helper()
 "
         ),
-        "6:9: `twice[list[i64]]` copies `T` implicitly, but `list[i64]` is affine
+        "6:9: `twice[list[i64]]` copies `T`, but `list[i64]` cannot be copied
   2:13: note: in instantiation `twice[list[i64]]`: use of moved binding `value`
   2:6: note: `value` is moved here"
     );
@@ -277,8 +277,8 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "
         ),
-        "12:9: `outer[list[i64]]` requires `twice[list[i64]]`, which copies `T` implicitly, \
-         but `list[i64]` is affine
+        "12:9: `outer[list[i64]]` requires `twice[list[i64]]`, which copies `T`, \
+         but `list[i64]` cannot be copied
   2:13: note: in instantiation `twice[list[i64]]`: use of moved binding `value`
   2:6: note: `value` is moved here"
     );
@@ -300,7 +300,7 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "
         ),
-        "9:9: `Holder.both[list[i64]]` copies `T` implicitly, but `list[i64]` is affine
+        "9:9: `Holder.both[list[i64]]` copies `T`, but `list[i64]` cannot be copied
   4:17: note: in instantiation `Holder.both[list[i64]]`: use of moved binding `value`
   4:10: note: `value` is moved here"
     );
@@ -340,7 +340,7 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "
         ),
-        "9:12: `Holder[list[i64]].first` copies `T` implicitly, but `list[i64]` is affine
+        "9:12: `Holder[list[i64]].first` copies `T`, but `list[i64]` cannot be copied
   5:9: note: in instantiation `Holder[list[i64]].first`: cannot move out of indexed storage"
     );
     // A generic function copying through a reference.
@@ -355,7 +355,7 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "
         ),
-        "6:14: `deref[list[i64]]` copies `T` implicitly, but `list[i64]` is affine
+        "6:14: `deref[list[i64]]` copies `T`, but `list[i64]` cannot be copied
   2:5: note: in instantiation `deref[list[i64]]`: cannot move out of a reference"
     );
     // A class method required by a generic function names both instances.
@@ -376,8 +376,8 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "
         ),
-        "12:12: `read[list[i64]]` requires `Holder[list[i64]].get`, which copies `T` \
-         implicitly, but `list[i64]` is affine
+        "12:12: `read[list[i64]]` requires `Holder[list[i64]].get`, which copies `T`, \
+         but `list[i64]` cannot be copied
   5:9: note: in instantiation `Holder[list[i64]].get`: cannot move out of a field"
     );
     // A method the argument does not have, on a class and on a built-in type.

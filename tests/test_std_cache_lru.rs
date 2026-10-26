@@ -217,7 +217,7 @@ fn copying_lookups_reject_only_calls_with_affine_values() {
         assert!(
             error.contains(&format!(
                 "main.plenty:{call}:13: `std.cache.lru.LruCache[i64, list[i64]].{method}` copies \
-                 `V` implicitly, but `list[i64]` is affine"
+                 `V`, but `list[i64]` cannot be copied"
             )),
             "{error}"
         );

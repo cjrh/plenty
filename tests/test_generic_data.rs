@@ -244,7 +244,7 @@ fn class_instance_method_errors_are_reported_at_the_requiring_use() {
     assert_eq!(
         error,
         format!(
-            "8:9: `Cell[list[i64]].get` copies `T` implicitly, but `list[i64]` is affine{}",
+            "8:9: `Cell[list[i64]].get` copies `T`, but `list[i64]` cannot be copied{}",
             note("Cell[list[i64]].get")
         )
     );
@@ -266,8 +266,8 @@ def main() -> Result[(), AllocError]:
     assert_eq!(
         error,
         format!(
-            "11:9: `first[list[i64]]` requires `Cell[list[i64]].get`, which copies `T` \
-             implicitly, but `list[i64]` is affine{}",
+            "11:9: `first[list[i64]]` requires `Cell[list[i64]].get`, which copies `T`, \
+             but `list[i64]` cannot be copied{}",
             note("Cell[list[i64]].get")
         )
     );
@@ -308,7 +308,7 @@ def main() -> ():
     .to_string();
     assert_eq!(
         error,
-        "15:13: `Holder[Guard].take` copies `T` implicitly, but `Guard` is affine
+        "15:13: `Holder[Guard].take` copies `T`, but `Guard` cannot be copied
   4:9: note: in instantiation `Holder[Guard].take`: cannot move out of a field"
     );
 }
@@ -345,8 +345,8 @@ def main() -> ():
     .to_string();
     assert_eq!(
         error,
-        "20:9: `accept[Holder[Guard]]` requires `Holder[Guard].size`, which copies `T` \
-         implicitly, but `Guard` is affine
+        "20:9: `accept[Holder[Guard]]` requires `Holder[Guard].size`, which copies `T`, \
+         but `Guard` cannot be copied
   12:17: note: in instantiation `Holder[Guard].size`: cannot move out of a field"
     );
     // Construction arms the destructor, so `__del__` is checked with the instance.
@@ -365,7 +365,7 @@ def main() -> ():
     .to_string();
     assert_eq!(
         error,
-        "11:14: `Holder[Guard]` copies `T` implicitly, but `Guard` is affine
+        "11:14: `Holder[Guard]` copies `T`, but `Guard` cannot be copied
   8:17: note: in instantiation `Holder[Guard]`: cannot move out of a field"
     );
 }
