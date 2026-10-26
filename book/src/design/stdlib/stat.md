@@ -96,3 +96,9 @@ Algorithm references: [Python statistics](https://docs.python.org/3/library/stat
 [statrs distributions](https://docs.rs/statrs/latest/statrs/distribution/index.html),
 and [Lee's analysis of the Laplace fraction](https://www.ism.ac.jp/editsec/aism/pdf/044_1_0107.pdf).
 See the [statistics tutorial](../../tutorial/07-modules/22-statistics.md) for examples.
+
+## Acknowledgements
+
+- API modelled on [Python's `statistics`](https://docs.python.org/3/library/statistics.html); distributions follow [statrs](https://docs.rs/statrs/).
+- Quantiles use type 7 of [Hyndman and Fan](https://doi.org/10.2307/2684934) (1996).
+- Normal tails use Laplace's continued fraction, following [Lee's analysis](https://www.ism.ac.jp/editsec/aism/pdf/044_1_0107.pdf).

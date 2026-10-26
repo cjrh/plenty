@@ -51,3 +51,7 @@ Allocation failure is `IoError.Data(DataError.Allocation(...))`.
   `getpwuid_r`, but `home_dir()` returns `Nothing`.
 - No runtime, executable, or system-wide (`XDG_CONFIG_DIRS`, `XDG_DATA_DIRS`)
   directories.
+
+## Acknowledgements
+
+- Follows the [XDG Base Directory specification](https://specifications.freedesktop.org/basedir-spec/latest/) as the Rust [`dirs`](https://crates.io/crates/dirs) crate applies it on Linux.

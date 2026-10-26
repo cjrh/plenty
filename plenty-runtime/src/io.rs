@@ -42,11 +42,56 @@ pub(crate) fn io_result(result: std::io::Result<u128>) -> u128 {
     }
 }
 
+/// Standard error written through its descriptor. Rust's `Stderr` reports
+/// EBADF (fd 2 closed or opened read-only) as a complete write; this writer
+/// returns it. Standard error is unbuffered in Rust too, so bypassing it
+/// preserves output order. The held lock serializes with Rust's own users,
+/// such as caller-location prefixes.
+pub(crate) struct Stderr {
+    _lock: std::io::StderrLock<'static>,
+}
+
+pub(crate) fn stderr() -> Stderr {
+    Stderr {
+        _lock: std::io::stderr().lock(),
+    }
+}
+
+impl Write for Stderr {
+    /// One `write(2)` call: a short count and EINTR (as `Interrupted`) reach
+    /// the caller, so `write_all` and the reporting loop keep their retries.
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        #[cfg(unix)]
+        {
+            unsafe extern "C" {
+                fn write(fd: i32, buffer: *const std::ffi::c_void, count: usize) -> isize;
+            }
+            let count = bytes.len().min(isize::MAX as usize);
+            // SAFETY: the slice is readable for `count` bytes. The process
+            // owns fd 2; a closed descriptor is an ordinary OS error.
+            let written = unsafe { write(2, bytes.as_ptr().cast(), count) };
+            if written < 0 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(written as usize)
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            std::io::stderr().write(bytes)
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 pub(crate) unsafe fn write_stream(text: *const Text, stderr: bool) -> u128 {
     // SAFETY: the dispatcher borrows a live text throughout this call.
     let source = unsafe { strings::utf8(&text) };
     let result = if stderr {
-        std::io::stderr().lock().write_all(source.as_bytes())
+        self::stderr().write_all(source.as_bytes())
     } else {
         std::io::stdout().lock().write_all(source.as_bytes())
     };
@@ -55,7 +100,7 @@ pub(crate) unsafe fn write_stream(text: *const Text, stderr: bool) -> u128 {
 
 pub(crate) fn flush_stream(stderr: bool) -> u128 {
     let result = if stderr {
-        std::io::stderr().lock().flush()
+        self::stderr().flush()
     } else {
         std::io::stdout().lock().flush()
     };
@@ -68,7 +113,7 @@ pub(crate) unsafe fn report_write(text: *const Text, offset: i64) -> u128 {
     // SAFETY: the dispatcher borrows the text throughout the operation.
     let source = unsafe { strings::bytes(&text) };
     let result = match usize::try_from(offset).ok().and_then(|at| source.get(at..)) {
-        Some(bytes) => crate::files::without_sigpipe(|| std::io::stderr().lock().write(bytes)),
+        Some(bytes) => crate::files::without_sigpipe(|| stderr().write(bytes)),
         None => Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
     };
     io_result(result.map(|written| written as u128))

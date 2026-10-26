@@ -20,6 +20,8 @@
 
 - Prefer implementing standard-library functionality directly in Plenty when it is reasonably small and straightforward to express in the language. Wrapping a Rust or C library needs a concrete justification, such as substantial complexity (SQLite or Polars) or security-sensitive details requiring specialist expertise (cryptography and timing-attack resistance). Do not recreate complex storage engines or security primitives merely to avoid a dependency. Explain the reason for a wrapper when choosing one; existing allocation-failure and other API contracts still apply.
 
+- Credit sources on a `std` module's reference page in a final `## Acknowledgements` section: one bullet per wrapped library, ported code or data, published algorithm, or project the API is modelled on, with a link, its role, and its license when its code or data ships. Credit only what the code, module header, issues, PRs, proposals, or commit messages record. Omit the section when there is nothing to credit. Code or data that ships also needs an entry in `scripts/release/third_party_notices.py` (see `book/src/development/releasing.md`) and a credit in the module header.
+
 - Use the [plenty-search skill](.agents/skills/plenty-search/SKILL.md) for related concepts across docs, source documentation and local issue/PR descriptions. It covers freshness checks, synchronization, source verification and missing setup. Use `rg` for exact symbols and implementation code.
 
 - Docs are an mdBook in `book/src/`. `SUMMARY.md` lists every page in reading order.

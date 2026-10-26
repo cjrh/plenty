@@ -70,6 +70,8 @@ and digit writes may interleave with output from other threads.
 - `OutputClosed`: an emission attempted after a terminal output failure.
 
 Stderr writes retry interruptions and account for each successful partial write.
+Each makes one native write on descriptor 2, so a closed or read-only stderr is
+`Output(IoError.System(9))` (`EBADF`).
 On the supported x86-64 Linux target, the native write suppresses SIGPIPE for
 that operation, so a closed pipe becomes
 an error value and normal cleanup still runs. A failed transport is sticky:

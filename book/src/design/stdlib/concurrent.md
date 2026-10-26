@@ -34,3 +34,7 @@ the same state as the prelude methods. Use [`std.sync`](sync.md) tokens for
 cooperative stopping. Pool exit drains and joins; dropping a future does not
 cancel its job. Live-receiver shutdown and result-wait diagnostics also apply
 through imports. There is no second future or cancellation model.
+
+## Acknowledgements
+
+- `ThreadPoolExecutor` is modelled on [Python's `concurrent.futures`](https://docs.python.org/3/library/concurrent.futures.html).
