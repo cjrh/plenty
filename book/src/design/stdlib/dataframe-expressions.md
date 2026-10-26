@@ -27,8 +27,9 @@ but this API does not translate Plenty `if` statements automatically.
 
 ## Explicit casts
 
-`expr.cast(dtype: DType, strict: bool = True)` supports the boundary targets
-`DType.I64`, `F64`, `Bool` and `String`.
+`expr.cast(dtype: DType, strict: bool = True)` supports
+all numeric `DType` variants (`I8/I16/I32/I64`, `U8/U16/U32/U64`, `F32/F64`),
+`Bool` and `String`.
 Temporal targets and `DType.Other(...)` fail immediately with `DataFrameError.Schema`;
 native dtype descriptions are not executable cast specifications.
 Use the explicit [temporal parsing and calendar methods](dataframe-datetime.md)

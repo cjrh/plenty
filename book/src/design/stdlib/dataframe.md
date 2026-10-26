@@ -132,7 +132,8 @@ create-new output behavior and buffering limits.
 
 Polars 0.55.2 semantics apply inside expressions, not Plenty scalar
 semantics. Schemas are checked at runtime. Input/extraction supports
-`i64`, `f64`, `str`, `bool`, Date and naive/UTC Datetime, including nullable columns. Parquet can
+all Plenty numeric widths (`i8/i16/i32/i64`, `u8/u16/u32/u64`, `f32/f64`),
+`str`, `bool`, Date and naive/UTC Datetime, including nullable columns. Parquet can
 contain other native types that schema inspection describes and expressions
 can carry, but this API cannot extract them. Paths are UTF-8 strings.
 There is no automatic lambda translation, mutation API, nested-value

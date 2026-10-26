@@ -31,6 +31,14 @@ Preserve the installed CLI/data, JSON-service and mutual-TLS acceptance checks.
 
 ### Next batches
 
+The B76 dataframe datatype expansion links complete native numeric widths
+(issue #458), binary columns backed by owned byte buffers (issue #459), and
+composable nested list/struct columns (issue #460). Target the pinned Polars
+engine's Parquet capabilities, with uncommon representations deferred explicitly.
+Other analytical types remain deferred; decimal dataframe columns should follow
+a separate `std.decimal` design and implementation rather than invent another
+numeric representation at the dataframe boundary.
+
 The B76 [daily sales report application](tutorial/special-purpose/dataframe-application.md)
 exercises CSV/partitioned Parquet ingestion, catalogue validation, nullable
 cleaning, UTC daily grouping and audited CSV/Parquet exports using the existing

@@ -16,7 +16,7 @@ fn flag(value: u8) -> Result<bool> {
     }
 }
 
-unsafe fn validity(
+pub(super) unsafe fn validity(
     data: *const u8,
     len: usize,
     stride: usize,

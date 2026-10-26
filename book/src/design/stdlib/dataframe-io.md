@@ -16,11 +16,11 @@ The path names one file; wildcard characters are literal, not a glob.
 | `separator: &str` | One ASCII byte, excluding NUL, double quote, CR and LF; tab is allowed |
 | `infer_rows: i64` | Positive: sample that many rows; zero: infer strings; `-1`: inspect the whole file |
 | `null_value: Option[str]` | One optional exact token treated as null in every column |
-| `schema_overrides: Option[list[Field]]` | Named overrides using `DType.I64/F64/Bool/String`; other columns retain inference |
+| `schema_overrides: Option[list[Field]]` | Named overrides using any numeric `DType`, `Bool` or `String`; other columns retain inference |
 
 Overrides reuse [schema fields](dataframe-types.md). The optional list is
 consumed, so `schema_overrides=Some(frame.schema()?)` is convenient for
-CSV round-trips that must preserve the four scalar override types. Duplicate or
+CSV round-trips that must preserve these scalar override types. Duplicate or
 unknown override names, temporal targets and `DType.Other` fail with `Schema`.
 For [temporal columns](dataframe-datetime.md), explicitly format to strings
 before CSV output and parse those strings after input; Parquet preserves their metadata.
