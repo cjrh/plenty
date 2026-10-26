@@ -55,4 +55,5 @@ window are reserved before execution; submitted cells remain fallible.
 
 A [parallel pipeline](../../language/09-iteration/06-pipelines.md#parallel-pipelines)
 builds on `map` and `map_result`: `iter(items).par(&pool)` maps and filters
-contiguous chunks on the pool.
+contiguous chunks on the pool. Unlike `pool.map`, it also accepts a borrowed
+list, `iter(&items)`, whose chunks read the caller's rows in place.

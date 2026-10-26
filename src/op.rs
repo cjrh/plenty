@@ -1987,6 +1987,7 @@ fn step(
                 | crate::collection::CollectionOp::ListRowsRef(ty)
                 | crate::collection::CollectionOp::ListRowBytesRef(ty)
                 | crate::collection::CollectionOp::ListRowRef(ty, _)
+                | crate::collection::CollectionOp::ListRowTake(ty)
                     if !matches!(ty, Ty::List(_)) =>
                 {
                     return Err("list length and rows require a list reference".into());

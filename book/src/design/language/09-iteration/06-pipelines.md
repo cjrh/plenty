@@ -326,15 +326,15 @@ with ThreadPoolExecutor(8, 64)? as pool:
 
 | Part | Accepted |
 |---|---|
-| Source | an owned `list[T]` or a `range[i64]`, through `iter(source)`, `iter(source).enumerate(start)` or `enumerate(source, start)` |
+| Source | an owned `list[T]`, a borrowed `&list[T]`, or a `range[i64]`, through `iter(source)`, `iter(source).enumerate(start)` or `enumerate(source, start)` |
 | Steps after `par` | `map`, `filter`, and `filter_value` |
 | Callbacks | named functions, or reusable immutable closures that own their captures |
 | Terminals | `collect`, `try_collect`, `count`, `any`, `all`, `sum`, `min`, `max`, `reduce` |
 
 `enumerate` must come before `par`. Other steps (`take`, `skip`, `take_while`,
 `zip`, `chain`, `flat_map`) are rejected after `par`, as are
-steps before it other than `enumerate`. Borrowed lists wait for scoped pool
-jobs (B22); generators and other range types are rejected. A parallel pipeline
+steps before it other than `enumerate`. Generators, other range types, and
+lists reached through `&mut` are rejected. A parallel pipeline
 must end in a terminal: it cannot be stored, looped over with `for`, converted
 to a generator, or advanced with `next`. `fold`, `try_fold`, `for_each`, and
 `try_for_each` are rejected because their callbacks have no associativity
@@ -342,10 +342,21 @@ guarantee or would run in no fixed order. Mutable, one-shot, and borrowing
 closures are rejected; callbacks also pass the
 [worker eligibility checks](../../facilities/03-concurrency/parallel-map.md).
 
+**Borrowed sources.** As in a serial pipeline, `iter(&xs).par(&pool)` yields
+`&T` items, and the list stays usable afterward. Every chunk reads its rows of
+`xs` in place. `collect`, `try_collect` and `reduce` cannot store `&T` items;
+`map` them to owned values first. `sum`, `min`, `max` and `filter_value` read
+through the reference, as in the serial form.
+
+An owned list is consumed: each chunk moves its items out of the list's rows,
+and the list is dropped after every chunk has finished, which drops any items a
+chunk did not consume (after an early `any`/`all` exit or a callback error, or
+in chunks never submitted). Each item is dropped exactly once.
+
 `filter_value(value=True)` follows the serial rules: `value` is evaluated once,
 on the calling thread, takes the item type, and is compared with `==`. Every
-chunk compares against that one value, so the items must be copyable (scalars,
-`str`, and tuples of them); use `filter` for other item types. The value must
+chunk compares against that one value, so the items (or, for `&T` items, the
+referenced values) must be copyable (scalars, `str`, and tuples of them); use `filter` for other item types. The value must
 also pass the worker checks.
 
 **Chunks.** The source is split into contiguous chunks, and each chunk runs the
@@ -401,9 +412,10 @@ whose fixed adjacent-pair tree does not depend on the worker count.
 
 **Errors and order.** Every terminal reports `PoolMapError.Shutdown` for a
 closed pool and `PoolMapError.Allocation` when chunk storage or job submission
-cannot allocate. Callbacks may run in any order and on any worker; accepted
-chunks finish before the terminal returns, and partial outputs and captures
-are dropped once.
+cannot allocate. Callbacks may run in any order and on any worker. Every
+submitted chunk finishes before the terminal returns, on success, on a callback
+error and after a failed submission; this is what lets chunks read the source's
+rows without owning them. Partial outputs and captures are dropped once.
 
 Arguments are evaluated in written order, as in a serial pipeline: the source,
 the `enumerate` start, the pool and `chunks` arguments of `par`, then each later
@@ -411,16 +423,14 @@ step's value or callback captures and the terminal's arguments, left to right.
 The pool stays borrowed until the terminal returns, so a later argument cannot
 move it.
 
-**Cost.** Splitting a list allocates one list per chunk, then moves each
-chunk's items with one bulk copy on the calling thread; a range is split without
-copying items. Each chunk is one pool job. Collecting terminals allocate one
+**Cost.** Splitting a list or range allocates one small list of chunk bounds;
+no item is copied or moved on the calling thread. Each chunk is one pool job,
+and its worker reads the items from the source's rows. Collecting terminals allocate one
 output list per chunk, then append each chunk's storage to one reserved result
 list. `reduce` allocates nothing beyond the chunk lists and the jobs.
 
-With a cheap callback over a large list, the split's copy of every item can
-cost more than the work saved, so `.par` pays off when the callbacks cost more
-than moving an item. Borrowed chunks, which would remove the copy, wait for
-scoped pool jobs (B22, issue #455). See the
+Each chunk is still a pool job, so with fewer than a few thousand cheap items
+the job overhead exceeds the work. See the
 [parallel pipeline measurements](../../../development/profiling.md#parallel-pipelines).
 
 ## Cost

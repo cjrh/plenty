@@ -1342,6 +1342,17 @@ impl Lower<'_> {
         reverse: bool,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
+        if let Expression::GenericCall(function, types, args) = &ungroup(iterable).kind
+            && function == super::pipelines::parallel::ROWS
+            && let [
+                TypeRef {
+                    concrete: Some(source),
+                    ..
+                },
+            ] = types.as_slice()
+        {
+            return self.par_rows_iteration(names, source.clone(), args, &iterable.at, ops);
+        }
         if names.len() == 1
             && let Some((first, stride, count)) = literal_progression(iterable)
         {
@@ -1873,6 +1884,99 @@ impl Lower<'_> {
             Op::Collection(CollectionOp::ListRowRef(ty, mutable)),
             Op::StoreLocal(target),
         ]);
+        Ok(Iteration {
+            exact_len: Some(vec![Op::LoadLocal(length)]),
+            cleanup: vec![],
+            condition,
+            absent: vec![],
+            body,
+            step,
+            target,
+        })
+    }
+
+    /// A `.par` chunk's rows of the caller's list: `&T` items from a borrowed
+    /// list; otherwise each item is copied, or taken when affine, leaving an
+    /// empty row for the list's later drop. The caller keeps the list alive
+    /// and unmodified until this chunk's job has finished
+    /// (`pipelines::parallel`), so no loan here reaches the list itself.
+    fn par_rows_iteration(
+        &mut self,
+        names: &[String],
+        source: Ty,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        let [name] = names else {
+            unreachable!("par rows bind one item")
+        };
+        let (list, borrowed) = match source {
+            Ty::Ref(list, _) => ((*list).clone(), true),
+            list => (list, false),
+        };
+        let element = list.element().expect("par rows of a list");
+        let mut slots = Vec::new();
+        for arg in args {
+            self.value(arg, ops)?;
+            let slot = self.slot(Ty::I64, at)?;
+            ops.push(Op::StoreLocal(slot));
+            slots.push(slot);
+        }
+        let [rows, row_bytes, length] = slots[..] else {
+            unreachable!("par rows take three integers")
+        };
+        let index = self.slot(Ty::I64, at)?;
+        ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
+        let item = if borrowed {
+            Ty::Ref(Arc::new(element.clone()), false)
+        } else {
+            element.clone()
+        };
+        let target = self.slot(item.clone(), at)?;
+        let mut body = vec![
+            Op::LoadLocal(rows),
+            Op::LoadLocal(row_bytes),
+            Op::LoadLocal(index),
+        ];
+        if !borrowed && element.affine() {
+            body.push(Op::Collection(CollectionOp::ListRowTake(list)));
+        } else {
+            body.push(Op::Collection(CollectionOp::ListRowRef(list, false)));
+            if !borrowed {
+                body.push(Op::ReadRef(element.clone()));
+            }
+        }
+        body.push(Op::StoreLocal(target));
+        let mut step = Vec::new();
+        increment(index, &mut step);
+        let mut condition = vec![Op::LoadLocal(index), Op::LoadLocal(length), Op::Lt];
+        if borrowed {
+            // Item references are rooted in this chunk's row cursor, which
+            // stays unchanged for the loop.
+            let loan = self.new_loan(rows, false, None, ops);
+            self.loans[loan].precise = false;
+            for op in ops.iter_mut() {
+                if let Op::Loan(fact) = op
+                    && fact.id == loan
+                {
+                    fact.precise = false;
+                }
+            }
+            self.reference_locals.insert(target, loan);
+            condition.push(Op::UseLoan(loan));
+            body.push(Op::UseLoan(loan));
+        } else if element.managed() {
+            step.push(Op::DropLocal(target));
+        }
+        self.bind(
+            name.clone(),
+            Local {
+                slot: target,
+                ty: item,
+                mutable: false,
+            },
+        );
         Ok(Iteration {
             exact_len: Some(vec![Op::LoadLocal(length)]),
             cleanup: vec![],

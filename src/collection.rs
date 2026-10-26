@@ -225,6 +225,10 @@ pub enum CollectionOp {
     /// First-row address, row size, in-bounds index -> reference to that row's
     /// element, the address `ElementRef` returns. The index is not checked.
     ListRowRef(Ty, bool),
+    /// Internal to `.par`: first-row address, row size, in-bounds index ->
+    /// the owned element, leaving an empty row so the list's drop skips it.
+    /// The index is not checked.
+    ListRowTake(Ty),
     IterGet(Ty),
     // Hash cursors are stable slot IDs plus one; zero terminates traversal.
     HashIterFirst(Ty),
@@ -237,8 +241,6 @@ pub enum CollectionOp {
     TryKeys(Ty),
     TryValues(Ty),
     ListTrySlice(Ty),
-    /// Internal to `.par`: move an owned list's rows into adjacent chunks.
-    ListTrySplit(Ty),
     TextByteLen,
     TextIndex,
     TextTryConcat,
@@ -658,6 +660,7 @@ impl CollectionOp {
                 vec![Ty::I64, Ty::I64, Ty::I64],
                 Ty::Ref(Arc::new(t.element().unwrap()), *mutable),
             ),
+            ListRowTake(t) => (vec![Ty::I64, Ty::I64, Ty::I64], t.element().unwrap()),
             QueryRef(query) => (query.inputs(), query.output()),
             ListScalarGetRef(t) => (
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
@@ -723,10 +726,6 @@ impl CollectionOp {
             ListTrySlice(t) => (
                 vec![t.clone(), Ty::I64, Ty::I64],
                 crate::sum::result(t.clone(), crate::sum::alloc_error()),
-            ),
-            ListTrySplit(t) => (
-                vec![t.clone(), Ty::I64],
-                crate::sum::result(Ty::List(Arc::new(t.clone())), crate::sum::alloc_error()),
             ),
         }
     }
@@ -854,6 +853,7 @@ impl CollectionOp {
             | Self::ListRowsRef(_)
             | Self::ListRowBytesRef(_)
             | Self::ListRowRef(..)
+            | Self::ListRowTake(_)
             | Self::ListSortBy(_)
             | Self::OrderCompare(_)
             | Self::QueryRef(_) => {
@@ -872,7 +872,6 @@ impl CollectionOp {
             Self::TryKeys(_) => 43,
             Self::TryValues(_) => 44,
             Self::ListTrySlice(_) => 45,
-            Self::ListTrySplit(_) => 168,
             Self::TextByteLen => 12,
             Self::TextIndex => 114,
             Self::TextTryRemovePrefix => 71,

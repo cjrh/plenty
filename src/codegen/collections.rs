@@ -556,6 +556,26 @@ impl Lowerer<'_, '_> {
                 .push((reference, Ty::Ref(Arc::new(element), *mutable)));
             return Ok(());
         }
+        if let CollectionOp::ListRowTake(ty) = operation {
+            let (index, _) = self.pop_typed(Ty::I64)?;
+            let (row_bytes, _) = self.pop_typed(Ty::I64)?;
+            let (rows, _) = self.pop_typed(Ty::I64)?;
+            let offset = self.bcx.ins().imul(index, row_bytes);
+            let address = self.bcx.ins().iadd(rows, offset);
+            let element = ty.element().unwrap();
+            let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+            let value = self.bcx.ins().load(types::I128, flags, address, 0);
+            let value = self.unpack(value, &element);
+            // The row is emptied below: relocate an inline payload out of it
+            // first, as `ReplaceRef` does, then leave value word zero so the
+            // list's drop skips the row, as `IterTake` does.
+            let value = self.snapshot_inline(value, &element);
+            let zero = self.bcx.ins().iconst(types::I64, 0);
+            let zero = self.bcx.ins().uextend(types::I128, zero);
+            self.bcx.ins().store(flags, zero, address, 0);
+            self.stack.push((value, element));
+            return Ok(());
+        }
         if let CollectionOp::ElementRef(ty @ Ty::List(element), mutable) = operation {
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), *mutable))?;
@@ -726,8 +746,7 @@ impl Lowerer<'_, '_> {
             | CollectionOp::TextTrySplitWhitespace
             | CollectionOp::TextTrySplitLines
             | CollectionOp::TryKeys(_)
-            | CollectionOp::TryValues(_)
-            | CollectionOp::ListTrySplit(_) => Some(&output),
+            | CollectionOp::TryValues(_) => Some(&output),
             CollectionOp::Len(Ty::Str)
             | CollectionOp::Get(Ty::Str)
             | CollectionOp::IterGet(Ty::Str)

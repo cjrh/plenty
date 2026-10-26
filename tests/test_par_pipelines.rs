@@ -343,9 +343,9 @@ def reference(n: i64, parts: i64, filtered: bool) -> Option[i64]:
     );
 }
 
-/// Chunks take the source's rows in one copy each; every owned item still
-/// moves once and drops once, including when a worker stops early and drops
-/// the rest of its chunk.
+/// Chunks read the source's rows in place; every owned item moves once and
+/// drops once, including the rest of a chunk whose worker stopped early, which
+/// the caller drops with the source list.
 #[test]
 fn list_chunks_move_owned_items_once() {
     runs(
@@ -370,6 +370,53 @@ def stop(item: &Tracked) -> bool:
 "#
         ),
         "drop\ndrop\ndrop\ndrop\ndrop\n[1, 2, 3, 4, 5]\ndrop\ndrop\ndrop\ndrop\nTrue\n[Option[range].Some(range(1, 3, 1)), Option[range].Nothing, Option[range].Some(range(4, 6, 1)), Option[range].Some(range(7, 9, 1)), Option[range].Nothing]\n[(10, [1, 2]), (11, [3]), (12, [4, 5, 6])]\n",
+    );
+}
+
+/// `iter(&xs).par(&pool)` yields `&T` items like serial `iter(&xs)`; chunk
+/// jobs read the caller's rows in place and leave the list unchanged.
+#[test]
+fn borrowed_sources_match_serial_results() {
+    runs(
+        &format!(
+            r#"
+def odd(x: &i64) -> bool:
+    *x % 2 == 1
+def shout(s: &str) -> str:
+    s.upper().unwrap()
+def short(s: &str) -> bool:
+    len(*s) < 2
+def add(a: i64, b: i64) -> i64:
+    a + b
+def at(index: i64, value: &i64) -> i64:
+    index * 100 + *value
+{MAIN}    with ThreadPoolExecutor(3, 1)? as pool:
+        xs = [5, 2, 7, 1, -4, 9, 3]?
+        print(iter(&xs).par(&pool).map(def(x: &i64) -> i64: *x * 2).collect()?)?
+        print(iter(&xs).par(&pool, chunks=2).filter(odd).count()?)?
+        print(iter(&xs).par(&pool).filter_value(7).count()?)?
+        print(iter(&xs).par(&pool).sum()?)?
+        print(iter(&xs).par(&pool).min()?)?
+        print(iter(&xs).par(&pool).max()?)?
+        print(iter(&xs).par(&pool).any(odd)?)?
+        print(iter(&xs).par(&pool).all(odd)?)?
+        print(iter(&xs).par(&pool).map(def(x: &i64) -> i64: *x).reduce(add)?)?
+        print(enumerate(&xs, 10).par(&pool, chunks=3).map(at).collect()?)?
+        print(xs)?
+        words = ["a", "bb", "c"]?
+        print(iter(&words).par(&pool).map(shout).collect()?)?
+        print(iter(&words).par(&pool).filter(short).count()?)?
+        print(iter(&words).par(&pool).filter_value("bb").count()?)?
+        print(iter(&words).par(&pool).max()?)?
+        view = &words
+        print(iter(view).par(&pool).count()?)?
+        print(words)?
+        flags = [False, True]?
+        print(iter(&flags).par(&pool).any()?)?
+    Ok(())
+"#
+        ),
+        "[10, 4, 14, 2, -8, 18, 6]\n5\n1\n23\nOption[i64].Some(-4)\nOption[i64].Some(9)\nTrue\nFalse\nOption[i64].Some(23)\n[1005, 1102, 1207, 1301, 1396, 1509, 1603]\n[5, 2, 7, 1, -4, 9, 3]\n[\"A\", \"BB\", \"C\"]\n2\n1\nOption[str].Some(\"c\")\n3\n[\"a\", \"bb\", \"c\"]\nTrue\n",
     );
 }
 
@@ -498,6 +545,21 @@ def double(x: i64) -> i64:
     );
 }
 
+/// A borrowed chunk's items are checked like any worker local, though the
+/// job's argument is only a span of row addresses.
+#[test]
+fn borrowed_items_must_be_worker_eligible() {
+    let source = "def one() -> i64:\n    1\ndef keep(f: &Future[i64]) -> bool:\n    True\ndef main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | SubmitError[OnceClosure[[], i64]]]:\n    with ThreadPoolExecutor(2, 4)? as pool:\n        fs = [pool.submit(one)?]?\n        print(iter(&fs).par(&pool).filter(keep).count()?)?\n    Ok(())\n";
+    let directory = tempfile::tempdir().unwrap();
+    let error = support::compile_source_to_executable(source, &directory.path().join("x"))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("future handles cannot enter worker threads"),
+        "{error}"
+    );
+}
+
 #[test]
 fn par_rejects_unsupported_shapes() {
     let header = "def add(a: i64, b: i64) -> i64:\n    a + b\ndef double(x: i64) -> i64:\n    x * 2\ndef show(x: i64) -> ():\n    pass\ndef main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | ParallelError[AllocError]]:\n    with ThreadPoolExecutor(3, 1)? as pool:\n        xs = [1, 2, 3]?\n";
@@ -556,8 +618,16 @@ fn par_rejects_unsupported_shapes() {
             "par takes a borrowed ThreadPoolExecutor",
         ),
         (
-            "print(iter(&xs).par(&pool).count()?)?",
-            "par needs an owned list or range",
+            "mut ys = [1]?\n        print(iter(&mut ys).par(&pool).count()?)?",
+            "par reads a borrowed list through a shared reference",
+        ),
+        (
+            "print(iter(&xs).par(&pool).collect()?)?",
+            "collect after .par cannot store borrowed items, found &i64",
+        ),
+        (
+            "print(iter(&xs).par(&pool).reduce(add)?)?",
+            "reduce after .par cannot store borrowed items",
         ),
         (
             "print(iter(range(0u8, 3u8)).par(&pool).count()?)?",
@@ -643,21 +713,76 @@ class Capture:
     assert!(failures > 0, "no budget made the pipeline fail");
 }
 
+/// Each owned item drops exactly once whatever stops the pipeline: success,
+/// a worker error, or a failed submission. The runtime's allocation balance
+/// check at exit catches a leaked `str` or a double release.
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn allocation_failure_while_splitting_a_list_drops_each_item_once() {
+fn owned_affine_items_drop_once_on_every_path() {
+    let program = |body: &str| {
+        format!(
+            r#"
+class Tracked:
+    name: str
+    def __del__(self) -> ():
+        print("dropped").unwrap()
+def checked(t: Tracked) -> Result[i64, str]:
+    if t.name == "b":
+        return Err("first")
+    if t.name == "d":
+        return Err("second")
+    Ok(len(t.name))
+def tracked() -> Result[list[Tracked], AllocError]:
+    [Tracked("a"), Tracked("b"), Tracked("c"), Tracked("d"), Tracked("e")]
+{MAIN}    with ThreadPoolExecutor(2, 1)? as pool:
+{body}
+    Ok(())
+"#
+        )
+    };
+    for (body, expected) in [
+        (
+            "        print(iter(tracked()?).par(&pool, chunks=3).map(def(t: Tracked) -> i64: len(t.name)).collect()?)?",
+            "[1, 1, 1, 1, 1]\n",
+        ),
+        (
+            "        print(str.repr(iter(tracked()?).par(&pool, chunks=5).map(checked).try_collect())?)?",
+            "Err(ParallelError[AllocError | str].Worker(\"first\"))\n",
+        ),
+        (
+            "        pool.shutdown()\n        print(str.repr(iter(tracked()?).par(&pool, chunks=2).count())?)?",
+            "Result[i64, PoolMapError].Err(PoolMapError.Shutdown)\n",
+        ),
+    ] {
+        let output = output(&program(body));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{body}\n{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(stdout.matches("dropped").count(), 5, "{body}\n{stdout}");
+        assert!(stdout.ends_with(expected), "{body}\n{stdout}");
+    }
+}
+
+/// Allocation failures at every point, including a submission that fails
+/// after earlier chunks were submitted, leave each item dropped once.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn allocation_failure_drops_each_owned_item_once() {
     let mut failures = 0;
-    for budget in 0..16 {
+    for budget in 0..24 {
         let output = output(&format!(
             r#"
 class Tracked:
-    id: i64
+    name: str
     def __del__(self) -> ():
         print("dropped").unwrap()
 {MAIN}    with ThreadPoolExecutor(2, 1)? as pool:
-        xs = [Tracked(1), Tracked(2), Tracked(3)]?
+        xs = [Tracked("a"), Tracked("bb"), Tracked("c"), Tracked("dd"), Tracked("e")]?
         print("__test_fail_allocations_after_{budget}__").unwrap()
-        result = iter(xs).par(&pool, chunks=2).map(def(t: Tracked) -> i64: t.id).collect()
+        result = iter(xs).par(&pool, chunks=5).map(def(t: Tracked) -> i64: len(t.name)).collect()
         print("__test_restore_allocations__").unwrap()
         match result:
             case Ok(values):
@@ -675,14 +800,14 @@ class Tracked:
         );
         assert_eq!(
             stdout.matches("dropped").count(),
-            3,
+            5,
             "budget {budget}: {stdout}"
         );
         assert!(
-            stdout.ends_with("[1, 2, 3]\n") || stdout.ends_with("failed\n"),
+            stdout.ends_with("[1, 2, 1, 2, 1]\n") || stdout.ends_with("failed\n"),
             "budget {budget}: {stdout}"
         );
         failures += usize::from(stdout.ends_with("failed\n"));
     }
-    assert!(failures > 1, "too few budgets made the pipeline fail");
+    assert!(failures > 2, "too few budgets made the pipeline fail");
 }

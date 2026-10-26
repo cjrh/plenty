@@ -87,8 +87,8 @@ CASES = {
         "pool": "out = pool.reduce_tree(add, pool.map({f}, xs)?)?.unwrap_or(0)",
         "par": "out = iter(xs).par(&pool).map({f}).sum()?",
     }),
-    # A range source is split without copying items, which separates the cost
-    # of splitting a list from the cost of the chunked work.
+    # A range source needs no rows, which separates the cost of reading a
+    # list's rows from the cost of the chunked work.
     "sum i64 range": ("span", {
         "serial": "out = iter(xs).map({f}).sum()",
         "pool": "out = pool.reduce_tree(add, pool.map({f}, xs)?)?.unwrap_or(0)",

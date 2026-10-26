@@ -41,7 +41,10 @@ disjointness and enum-payload rules apply. `yield` inside a task scope is reject
 
 Scoped work may borrow or own its inputs. Named arguments use ordinary call
 semantics: `&T` and `&mut T` borrow, copyable values copy, and affine values move
-into the worker. Pool work must own its inputs instead. Borrowing callbacks
+into the worker. Pool jobs must own their inputs instead; only
+[`.par` chunks](../../language/09-iteration/06-pipelines.md#parallel-pipelines)
+read a borrowed list internally, because the terminal waits for every chunk
+before it returns. Borrowing callbacks
 from a collection protects the collection through scope exit; separate tuple
 slots can have disjoint loans. All workers satisfy the
 [shared eligibility rules](index.md).

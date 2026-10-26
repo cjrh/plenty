@@ -30,6 +30,29 @@ chunk runs the fused steps as one job. Results come back in input order. Every
 terminal returns a `Result`, because submitting work can fail or the pool can
 be shut down.
 
+A list source works the same way. `iter(xs)` consumes the list; `iter(&xs)`
+borrows it, yields `&i64` items as a serial pipeline does, and leaves `xs`
+usable afterward. The chunks read the list in place instead of copying it.
+
+```plenty
+def big(n: &i64) -> bool:
+    *n > 10
+
+def main() -> Result[(), AllocError | IoError | PoolMapError | PoolError]:
+    with ThreadPoolExecutor(4, 4)? as pool:
+        xs = [3, 14, 15, 9, 26]?
+        print(iter(&xs).par(&pool).filter(big).count()?)?
+        print(iter(&xs).par(&pool).sum()?)?
+        print(xs)?
+    Ok(())
+```
+
+```output
+3
+67
+[3, 14, 15, 9, 26]
+```
+
 Callbacks run concurrently, so they must be named functions or closures that
 own their captures and change nothing. Put `enumerate` before `.par`:
 the chunk offsets carry the index.

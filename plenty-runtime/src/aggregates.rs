@@ -86,6 +86,11 @@ impl Type {
                     | b'J'
             )
     }
+    /// True when `release_next` would only clear the slot: no heap owner,
+    /// record, sum payload, closure environment or inline generator.
+    fn owns_nothing(&self) -> bool {
+        !self.managed() && self.kind != b'H'
+    }
     fn key(&self) -> &Type {
         self.key.expect("collection key type")
     }
@@ -415,7 +420,13 @@ unsafe extern "C" fn collection_destroy(header: *mut Header) {
     unsafe {
         let c = header.cast::<Collection>();
         let ty = &*(*c).ty;
-        let mut entry = (*c).drop_entry.or_else(|| (*c).entries.indices().next());
+        // A list of values that own nothing needs no per-row release; skipping
+        // the walk avoids touching every row before the buffer is freed.
+        let mut entry = if ty.kind == b'L' && ty.key().owns_nothing() {
+            None
+        } else {
+            (*c).drop_entry.or_else(|| (*c).entries.indices().next())
+        };
         while let Some(index) = entry {
             (*c).drop_entry = Some(index);
             if let Some(child) = release_next((*c).entries.slot(index, false), ty.key()) {
@@ -1109,49 +1120,6 @@ unsafe fn try_list_slice(
                 value: 0,
             });
         }
-        Ok(result as u128)
-    }
-}
-
-/// Split an owned list into at most `parts` adjacent chunks of near-equal
-/// length; the first `len % chunks` chunks hold one extra item. Every buffer is
-/// allocated before any item moves, so on failure the source still owns all of
-/// its items and nothing is dropped twice. `ty` is `list[list[T]]`.
-unsafe fn try_list_split(
-    source: &mut Collection,
-    parts: i64,
-    ty: &'static Type,
-) -> Result<u128, AllocError> {
-    unsafe {
-        let n = source.entries.len();
-        let count = usize::try_from(parts.max(1)).unwrap_or(usize::MAX).min(n);
-        let result = try_collection_new(ty, count)?;
-        let inner = ty.key.expect("list element type");
-        let base = n.checked_div(count).unwrap_or(0);
-        let extra = n.checked_rem(count).unwrap_or(0);
-        for index in 0..count {
-            match try_collection_new(inner, base + usize::from(index < extra)) {
-                Ok(chunk) => (*result).entries.push(Entry {
-                    key: chunk as u128,
-                    value: 0,
-                }),
-                Err(error) => {
-                    // Only empty chunks exist yet.
-                    release(result as u128, ty);
-                    return Err(error);
-                }
-            }
-        }
-        let mut start = 0;
-        for index in 0..count {
-            let size = base + usize::from(index < extra);
-            let chunk = (*result).entries.get(index).key as *mut Collection;
-            source
-                .entries
-                .copy_rows_to(start, size, &mut (*chunk).entries);
-            start += size;
-        }
-        source.entries.forget_all();
         Ok(result as u128)
     }
 }
@@ -2164,14 +2132,6 @@ pub(crate) unsafe fn collection_at(
             }
             46 => match strings::try_slice(a as *const Text, b as i64, value as i64) {
                 Ok(text) => wrap(text as u128, 0),
-                Err(error) => wrap(wrap(0, error as u64), 1),
-            },
-            168 => match try_list_split(
-                &mut *(a as *mut Collection),
-                b as i64,
-                (*descriptor).variants[0].fields[0],
-            ) {
-                Ok(list) => wrap(list, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
             },
             45 => match try_list_slice(
