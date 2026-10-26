@@ -18,7 +18,7 @@ source → lexer/parser → name and alias resolution → signatures → checkin
 - [Generators and closure environments](environments.md): frames and captures.
 - [Tail-call ABI](tail-calls.md): approved transfers and hidden result storage.
 - [Inspecting generated code](dump.md): `--dump` text for each function's IR and machine code.
-- [Runtime packaging](runtime.md): archives, platform checks, and stack overflow.
+- [Runtime packaging](runtime.md): archives, platform checks, stack overflow, and Rust panics.
 - [Concurrent mechanisms](concurrency.md): pinned storage, locks, and waiters.
 - [Native interfaces](interop.md): adapters, metadata, and resident code.
 - [Support index](support.md): links to implemented contracts and major restrictions.
