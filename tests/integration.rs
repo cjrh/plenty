@@ -358,6 +358,8 @@ mod test_runtime_interface_cli;
 mod test_runtime_libraries;
 #[path = "test_runtime_packaging.rs"]
 mod test_runtime_packaging;
+#[path = "test_runtime_panics.rs"]
+mod test_runtime_panics;
 #[path = "test_set_operations.rs"]
 mod test_set_operations;
 #[path = "test_set_removal.rs"]

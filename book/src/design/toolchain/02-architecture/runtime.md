@@ -81,6 +81,21 @@ than one page below the faulting stack pointer; other faults retain the default
 action. Foreign code skipping stack pages is outside this detection. Stack sizes
 remain the system's limits, and core-file policy follows the system.
 
+## Rust panics
+
+A Rust panic in the runtime is a runtime defect, not a Plenty error. An
+executable reports it as `error: internal runtime panic at FILE:LINE:COLUMN:
+MESSAGE` on standard error and aborts with `SIGABRT`, without unwinding or a
+backtrace. A failed Rust allocation reports `error: memory allocation of N bytes
+failed` and aborts. Plenty's own traps and errors are unaffected.
+
+std's panic handler would link its panic hook and backtrace symbolizer into
+every executable, even with abort-on-panic. The application archive's link
+arguments therefore redirect std's `rust_begin_unwind` and
+`__rust_alloc_error_handler` to the runtime's handlers with `-Wl,--defsym`, and
+`--gc-sections` drops std's versions. This removes about 190 KB of code from
+hello world. Libraries keep std's handlers, since their host links them.
+
 ## Trap sites
 
 An operation that can [trap](../../language/08-errors/02-allocation-and-traps.md)
