@@ -95,6 +95,24 @@ pub class LruCache[K, V]:
         drop(self._index.pop(&key))
         (key, value)
 
+    # Copying lookups, like `dict.get`. Only a copyable `V` type-checks; generic
+    # class methods are checked when used, so other value types are rejected
+    # at the call rather than for the whole cache.
+    pub def get(self: &mut LruCache[K, V], key: &K) -> Option[V]:
+        match self._index.get(key):
+            case Some(slot):
+                self.touch(slot)
+                Some(self._values[slot])
+            case Nothing:
+                Nothing
+
+    pub def peek(self, key: &K) -> Option[V]:
+        match self._index.get(key):
+            case Some(slot):
+                Some(self._values[slot])
+            case Nothing:
+                Nothing
+
     pub def get_with[R, F: Callable[[&V], R]](self: &mut LruCache[K, V], key: &K, f: &F) -> Option[R]:
         match self._index.get(key):
             case Some(slot):
