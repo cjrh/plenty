@@ -1,0 +1,374 @@
+# Bounded streaming summaries. Wire version 1 is Plenty-specific, not an
+# Apache DataSketches format. No native dependency or global random state.
+import std.bytes
+import std.math
+import std.random
+from std.bytes import Bytes, BytesError, ByteSource
+from std.random import Rng
+
+pub enum SketchError:
+    InvalidArgument
+    InvalidData
+    Incompatible
+    Empty
+    Limit
+    ConstructionFailed
+
+# Stable SplitMix64 finalizer. Keys are caller-owned 64-bit identities; this
+# mixer is not a cryptographic hash and does not make hostile keys safe.
+pub def hash_u64(key: u64, seed: u64 = 0u64) -> u64:
+    mut value = key.wrapping_add(seed).wrapping_add(11400714819323198485u64)
+    value = (value ^ (value >> 30u64)).wrapping_mul(13787848793156543929u64)
+    value = (value ^ (value >> 27u64)).wrapping_mul(10723151780598845931u64)
+    value ^ (value >> 31u64)
+
+def word(out: &mut Bytes, value: u64) -> Result[(), BytesError]:
+    for shift in range(0, 64, 8):
+        out.push(u8((value >> u64(shift)) & 255u64))?
+    Ok(())
+
+def read_word[S: ByteSource](data: &S, offset: i64) -> u64:
+    mut result = 0u64
+    for index in range(8):
+        result = result | (u64(data[offset + index]) << u64(index * 8))
+    result
+
+pub class HyperLogLog:
+    _precision: i64
+    _seed: u64
+    _registers: Bytes
+
+    pub def precision(self) -> i64:
+        self._precision
+
+    pub def add(self: &mut HyperLogLog, key: u64) -> ():
+        value = hash_u64(key, self._seed)
+        index = i64(value & u64(self._registers.len() - 1))
+        mut tail = value >> u64(self._precision)
+        mut rank = 1u8
+        while tail & 1u64 == 0u64 and rank <= u8(64 - self._precision):
+            rank += 1u8
+            tail = tail >> 1u64
+        if rank > self._registers[index]:
+            drop(self._registers.set(index, rank))
+
+    pub def estimate(self) -> f64:
+        size = f64(self._registers.len())
+        mut harmonic = 0.0
+        mut zeros = 0
+        for index in range(self._registers.len()):
+            register = self._registers[index]
+            harmonic += (2.0).pow(-f64(register))
+            if register == 0u8:
+                zeros += 1
+        mut alpha = 0.7213 / (1.0 + 1.079 / size)
+        if self._registers.len() == 16:
+            alpha = 0.673
+        elif self._registers.len() == 32:
+            alpha = 0.697
+        elif self._registers.len() == 64:
+            alpha = 0.709
+        estimate = alpha * size * size / harmonic
+        if estimate <= 2.5 * size and zeros > 0:
+            return size * (size / f64(zeros)).log()
+        estimate
+
+    pub def relative_standard_error(self) -> f64:
+        1.04 / f64(self._registers.len()).sqrt()
+
+    pub def merge(self: &mut HyperLogLog, other: &HyperLogLog) -> Result[(), SketchError]:
+        if self._precision != other._precision or self._seed != other._seed:
+            return Err(SketchError.Incompatible)
+        for index in range(self._registers.len()):
+            if other._registers[index] > self._registers[index]:
+                drop(self._registers.set(index, other._registers[index]))
+        Ok(())
+
+    pub def to_bytes(self) -> Result[Bytes, BytesError]:
+        mut out = std.bytes.with_capacity(20 + self._registers.len())?
+        out.extend(&b"PSH1")?
+        word(&mut out, u64(self._precision))?
+        word(&mut out, self._seed)?
+        out.extend(&self._registers)?
+        Ok(out)
+
+pub def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog, SketchError | BytesError]:
+    if precision < 4 or precision > 18:
+        return Err(SketchError.InvalidArgument)
+    size = 1 << precision
+    mut registers = std.bytes.with_capacity(size)?
+    registers.resize(size, 0u8)?
+    Ok(HyperLogLog(precision, seed, registers))
+
+pub def hyperloglog_from_bytes[S: ByteSource](data: &S, max_precision: i64 = 18) -> Result[HyperLogLog, SketchError | BytesError]:
+    if data.len() < 20:
+        return Err(SketchError.InvalidData)
+    if data[0] != 80u8 or data[1] != 83u8 or data[2] != 72u8 or data[3] != 49u8:
+        return Err(SketchError.InvalidData)
+    precision = read_word(data, 4)
+    if precision < 4u64 or precision > 18u64:
+        return Err(SketchError.InvalidData)
+    if i64(precision) > max_precision:
+        return Err(SketchError.Limit)
+    size = 1 << i64(precision)
+    if data.len() != 20 + size:
+        return Err(SketchError.InvalidData)
+    for index in range(size):
+        if data[20 + index] > u8(65u64 - precision):
+            return Err(SketchError.InvalidData)
+    mut result = hyperloglog(i64(precision), read_word(data, 12))?
+    for index in range(size):
+        drop(result._registers.set(index, data[20 + index]))
+    Ok(result)
+
+# Algorithm R keeps a uniform sample without replacement. Samples are kept
+# sorted, so quantile queries allocate nothing. Update is O(capacity).
+pub class Quantiles:
+    _samples: list[f64]
+    _capacity: i64
+    _count: u64
+    _low: f64
+    _high: f64
+    _rng: Rng
+
+    pub def count(self) -> u64:
+        self._count
+
+    pub def retained(self) -> i64:
+        len(self._samples)
+
+    pub def add(self: &mut Quantiles, value: f64) -> Result[(), SketchError | AllocError]:
+        if not std.math.isfinite(value):
+            return Err(SketchError.InvalidArgument)
+        if self._count == u64.MAX:
+            return Err(SketchError.Limit)
+        next_count = self._count + 1u64
+        mut slot = len(self._samples)
+        if slot < self._capacity:
+            self._samples.append(value)?
+        else:
+            match self._rng.below(next_count):
+                case Ok(index):
+                    if index < u64(self._capacity):
+                        slot = i64(index)
+                        self._samples[slot] = value
+                case Err(_):
+                    return Err(SketchError.InvalidArgument)
+        if slot < self._capacity:
+            while slot > 0 and self._samples[slot] < self._samples[slot - 1]:
+                self._samples.swap(slot, slot - 1)
+                slot -= 1
+            while slot + 1 < len(self._samples) and self._samples[slot] > self._samples[slot + 1]:
+                self._samples.swap(slot, slot + 1)
+                slot += 1
+        if self._count == 0u64 or value < self._low:
+            self._low = value
+        if self._count == 0u64 or value > self._high:
+            self._high = value
+        self._count = next_count
+        Ok(())
+
+    # Nearest-rank order statistic; endpoint queries retain exact extrema.
+    pub def quantile(self, fraction: f64) -> Result[f64, SketchError]:
+        if not std.math.isfinite(fraction) or fraction < 0.0 or fraction > 1.0:
+            return Err(SketchError.InvalidArgument)
+        if self._count == 0u64:
+            return Err(SketchError.Empty)
+        if fraction == 0.0:
+            return Ok(self._low)
+        if fraction == 1.0:
+            return Ok(self._high)
+        index = i64((fraction * f64(len(self._samples))).ceil()) - 1
+        Ok(self._samples[index])
+
+    pub def to_bytes(self) -> Result[Bytes, BytesError]:
+        mut out = std.bytes.with_capacity(116 + 32 * len(self._samples))?
+        out.extend(&b"PSQ1")?
+        mut scratch = std.bytes.with_capacity(32)?
+        scratch.resize(32, 32u8)?
+        word(&mut out, u64(self._capacity))?
+        word(&mut out, self._count)?
+        (a, b, c, d) = self._rng.state()
+        word(&mut out, a)?
+        word(&mut out, b)?
+        word(&mut out, c)?
+        word(&mut out, d)?
+        float_word(&mut out, &mut scratch, self._low)?
+        float_word(&mut out, &mut scratch, self._high)?
+        for value in &self._samples:
+            float_word(&mut out, &mut scratch, *value)?
+        Ok(out)
+
+# Decimal round-trip text avoids exposing platform float representation. Each
+# finite f64 fits in 32 ASCII bytes; fixed slots make length validation simple.
+def float_word(out: &mut Bytes, scratch: &mut Bytes, value: f64) -> Result[(), BytesError]:
+    scratch.fill(0, 32, 32u8)?
+    drop(scratch.write_float(value)?)
+    out.extend(scratch)?
+    Ok(())
+
+def read_float(data: &Bytes, offset: i64) -> Result[f64, SketchError | BytesError | AllocError]:
+    text = data.to_text_range(offset, offset + 32)?
+    match f64.parse(text):
+        case Ok(value):
+            if std.math.isfinite(value):
+                return Ok(value)
+            Err(SketchError.InvalidData)
+        case Err(_):
+            Err(SketchError.InvalidData)
+
+pub def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError | AllocError]:
+    if capacity < 1 or capacity > 1048576:
+        return Err(SketchError.InvalidArgument)
+    samples = list[f64].with_capacity(capacity)?
+    Ok(Quantiles(samples, capacity, 0u64, 0.0, 0.0, std.random.seeded(seed)))
+
+pub def quantiles_from_bytes(data: &Bytes, max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]:
+    if data.len() < 116:
+        return Err(SketchError.InvalidData)
+    if not data.matches_text(0, "PSQ1")?:
+        return Err(SketchError.InvalidData)
+    capacity = read_word(data, 4)
+    count = read_word(data, 12)
+    if capacity < 1u64 or capacity > 1048576u64:
+        return Err(SketchError.InvalidData)
+    if i64(capacity) > max_capacity:
+        return Err(SketchError.Limit)
+    retained = i64(std.math.min(capacity, count))
+    if data.len() != 116 + 32 * retained:
+        return Err(SketchError.InvalidData)
+    mut result = quantiles(i64(capacity))?
+    match std.random.from_state(read_word(data, 20), read_word(data, 28), read_word(data, 36), read_word(data, 44)):
+        case Ok(rng):
+            result._rng = rng
+        case Err(_):
+            return Err(SketchError.InvalidData)
+    result._low = read_float(data, 52)?
+    result._high = read_float(data, 84)?
+    if result._low > result._high:
+        return Err(SketchError.InvalidData)
+    if count == 0u64 and (result._low != 0.0 or result._high != 0.0):
+        return Err(SketchError.InvalidData)
+    mut previous = result._low
+    for index in range(retained):
+        value = read_float(data, 116 + index * 32)?
+        if value < previous or value > result._high:
+            return Err(SketchError.InvalidData)
+        result._samples.append(value)?
+        previous = value
+    if count > 0u64 and count <= capacity:
+        if result._samples[0] != result._low or result._samples[retained - 1] != result._high:
+            return Err(SketchError.InvalidData)
+    result._count = count
+    Ok(result)
+
+pub class Frequency:
+    pub key: u64
+    pub lower: u64
+    pub upper: u64
+
+pub class FrequentItems:
+    _keys: list[u64]
+    _counts: list[u64]
+    _capacity: i64
+    _total: u64
+    _decrements: u64
+
+    pub def count(self) -> u64:
+        self._total
+
+    pub def error_bound(self) -> u64:
+        self._decrements
+
+    pub def add(self: &mut FrequentItems, key: u64) -> Result[(), SketchError]:
+        if self._total == u64.MAX:
+            return Err(SketchError.Limit)
+        mut empty = -1
+        for index in range(self._capacity):
+            if self._counts[index] == 0u64:
+                empty = index
+            elif self._keys[index] == key:
+                self._counts[index] += 1u64
+                self._total += 1u64
+                return Ok(())
+        if empty >= 0:
+            self._keys[empty] = key
+            self._counts[empty] = 1u64
+        else:
+            for index in range(self._capacity):
+                self._counts[index] -= 1u64
+            self._decrements += 1u64
+        self._total += 1u64
+        Ok(())
+
+    pub def frequency(self, key: u64) -> Frequency:
+        mut lower = 0u64
+        for index in range(self._capacity):
+            if self._counts[index] > 0u64 and self._keys[index] == key:
+                lower = self._counts[index]
+        Frequency(key, lower, lower + self._decrements)
+
+    # Every key with true frequency > error_bound is among these candidates.
+    pub def candidates(self) -> Result[list[Frequency], AllocError]:
+        mut result = list[Frequency].with_capacity(self._capacity)?
+        for index in range(self._capacity):
+            count = self._counts[index]
+            if count > 0u64:
+                result.append(Frequency(self._keys[index], count, count + self._decrements))?
+        Ok(result)
+
+    pub def to_bytes(self) -> Result[Bytes, BytesError]:
+        mut out = std.bytes.with_capacity(28 + self._capacity * 16)?
+        out.extend(&b"PSF1")?
+        word(&mut out, u64(self._capacity))?
+        word(&mut out, self._total)?
+        word(&mut out, self._decrements)?
+        for index in range(self._capacity):
+            word(&mut out, self._keys[index] if self._counts[index] > 0u64 else 0u64)?
+            word(&mut out, self._counts[index])?
+        Ok(out)
+
+pub def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError | AllocError]:
+    if capacity < 1 or capacity > 65536:
+        return Err(SketchError.InvalidArgument)
+    mut keys = list[u64].with_capacity(capacity)?
+    mut counts = list[u64].with_capacity(capacity)?
+    for _ in range(capacity):
+        keys.append(0u64)?
+        counts.append(0u64)?
+    Ok(FrequentItems(keys, counts, capacity, 0u64, 0u64))
+
+pub def frequent_items_from_bytes[S: ByteSource](data: &S, max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError | AllocError]:
+    if data.len() < 28:
+        return Err(SketchError.InvalidData)
+    if data[0] != 80u8 or data[1] != 83u8 or data[2] != 70u8 or data[3] != 49u8:
+        return Err(SketchError.InvalidData)
+    capacity = read_word(data, 4)
+    total = read_word(data, 12)
+    decrements = read_word(data, 20)
+    if capacity < 1u64 or capacity > 65536u64:
+        return Err(SketchError.InvalidData)
+    if i64(capacity) > max_capacity:
+        return Err(SketchError.Limit)
+    if data.len() != 28 + 16 * i64(capacity) or decrements > total // (capacity + 1u64):
+        return Err(SketchError.InvalidData)
+    mut result = frequent_items(i64(capacity))?
+    mut sum = decrements * (capacity + 1u64)
+    mut seen = set[u64]()?
+    for index in range(i64(capacity)):
+        key = read_word(data, 28 + index * 16)
+        count = read_word(data, 36 + index * 16)
+        if count > total - sum or (count == 0u64 and key != 0u64):
+            return Err(SketchError.InvalidData)
+        if count > 0u64:
+            if key in seen:
+                return Err(SketchError.InvalidData)
+            seen.add(key)?
+        result._keys[index] = key
+        result._counts[index] = count
+        sum += count
+    if sum != total:
+        return Err(SketchError.InvalidData)
+    result._total = total
+    result._decrements = decrements
+    Ok(result)

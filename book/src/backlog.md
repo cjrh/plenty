@@ -239,6 +239,12 @@ record encountered language gaps in the issues register.
 inclusive quantiles and normal/uniform/exponential distributions with explicit,
 fixed-draw RNG sampling. Broader statistics need separate numerical contracts.
 
+`std.sketch` (B38, issues #496–#498) provides dense HyperLogLog, reservoir
+quantiles, Misra–Gries frequent-item bounds, static xor filters and scalable
+cuckoo filters in Plenty, with bounded memory and versioned checkpoints.
+Later candidates: mergeable quantiles/frequent items, stronger tail accuracy,
+and tuned xor/fuse construction after concrete workload evidence.
+
 `std.uuid` (B38, issue #461) provides canonical UUID text/network bytes and
 OS-backed v4/v7 generation in Plenty. Numeric sorting keys avoid formatting
 allocations; v7 ordering within a millisecond and across clock rollback is not

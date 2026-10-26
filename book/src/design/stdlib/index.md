@@ -66,6 +66,9 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.report`](report.md) | A bounded formatter for human-readable reports, to standard error or an owned collector | `FormatError` |
 | [`std.secrets`](secrets.md) | Operating-system entropy: secret bytes, hex and base64url tokens, and unbiased integers, with no fallback source | `SecretsError` |
 | [`std.shlex`](shlex.md) | Shell-style word splitting and POSIX argument quoting, without execution or expansion | `ShlexError`, `AllocError` |
+| [`std.sketch`](sketch.md) | Bounded distinct counts, sampled quantiles and frequent-item bounds with versioned checkpoints | `SketchError`, `AllocError`, `BytesError` |
+| [`std.sketch.xor`](sketch-xor.md) | Static approximate membership over numeric identities with bounded construction | `SketchError`, `AllocError`, `BytesError` |
+| [`std.sketch.cuckoo`](sketch-cuckoo.md) | Scalable approximate membership with bounded growth and receipt-directed deletion | `SketchError`, `AllocError`, `BytesError` |
 | [`std.signal`](signal.md) | `SIGTERM` and `SIGINT` as an event to wait or select on, and a helper that cancels a token on one | `SignalError`, `WaitError` |
 | [`std.simd`](simd.md) | Portable fixed-lane values, masks, checked and wrapping arithmetic, selection, and bounded list loads/stores | None |
 | [`std.stat`](stat.md) | Descriptive f64 statistics, inclusive quantiles, and normal, uniform and exponential distributions with explicit RNG sampling | `StatError` |

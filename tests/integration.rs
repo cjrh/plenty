@@ -457,6 +457,8 @@ mod test_std_shlex;
 mod test_std_signal;
 #[path = "test_std_simd.rs"]
 mod test_std_simd;
+#[path = "test_std_sketch.rs"]
+mod test_std_sketch;
 #[path = "test_std_sqlite.rs"]
 mod test_std_sqlite;
 #[path = "test_std_stat.rs"]
