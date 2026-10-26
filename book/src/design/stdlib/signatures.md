@@ -2363,3 +2363,28 @@ def decode(text: &str) -> Result[str, UrlError]
 def query_pairs(query: &str) -> Result[list[Pair], UrlError]
 def query_text(pairs: &list[Pair]) -> Result[str, UrlError]
 ```
+
+## `std.uuid`
+
+UUID values, canonical text and network bytes, random v4 and timestamp-prefixed v7 generation. Errors: `ParseError`, `BytesError`, `SecretsError`, `RangeError`. [Reference](uuid.md).
+
+```text
+class Uuid
+    def as_u64_pair(self) -> (u64, u64)
+    def compare(self, other: &Uuid) -> i64
+    def is_nil(self) -> bool
+    def is_rfc_variant(self) -> bool
+    def version(self) -> Option[u8]
+    def unix_milliseconds(self) -> Option[u64]
+    def write_bytes(self, target: &mut Bytes, offset: i64) -> Result[(), BytesError]
+    def to_bytes(self) -> Result[Bytes, BytesError]
+    def to_string(self) -> Result[str, BytesError]
+def nil() -> Uuid
+def from_u64_pair(high: u64, low: u64) -> Uuid
+def parse(text: &str) -> Result[Uuid, ParseError]
+def from_bytes[S: ByteSource](source: &S) -> Result[Uuid, ParseError]
+def v4_from[R: Reader](source: &mut Source[R]) -> Result[Uuid, SecretsError]
+def v4() -> Result[Uuid, SecretsError]
+def v7_from[R: Reader](at: &Timestamp, source: &mut Source[R]) -> Result[Uuid, RangeError | SecretsError]
+def v7() -> Result[Uuid, RangeError | SecretsError]
+```
