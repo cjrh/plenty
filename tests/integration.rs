@@ -443,6 +443,8 @@ mod test_std_report;
 mod test_std_report_sums;
 #[path = "test_std_secrets.rs"]
 mod test_std_secrets;
+#[path = "test_std_shlex.rs"]
+mod test_std_shlex;
 #[path = "test_std_signal.rs"]
 mod test_std_signal;
 #[path = "test_std_simd.rs"]

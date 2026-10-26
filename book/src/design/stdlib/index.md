@@ -59,6 +59,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.regex`](regex.md) | Linear-time regular expressions over text and bytes: search, captures, iteration, split, and replacement under explicit pattern, memory, and work limits | `RegexError` |
 | [`std.report`](report.md) | A bounded formatter for human-readable reports, to standard error or an owned collector | `FormatError` |
 | [`std.secrets`](secrets.md) | Operating-system entropy: secret bytes, hex and base64url tokens, and unbiased integers, with no fallback source | `SecretsError` |
+| [`std.shlex`](shlex.md) | Shell-style word splitting and POSIX argument quoting, without execution or expansion | `ShlexError`, `AllocError` |
 | [`std.signal`](signal.md) | `SIGTERM` and `SIGINT` as an event to wait or select on, and a helper that cancels a token on one | `SignalError`, `WaitError` |
 | [`std.simd`](simd.md) | Portable fixed-lane values, masks, checked and wrapping arithmetic, selection, and bounded list loads/stores | None |
 | [`std.sync`](sync.md) | Shared cooperative cancellation tokens | `AllocError` |
