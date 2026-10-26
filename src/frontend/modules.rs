@@ -175,6 +175,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         "std.db.sqlite",
         include_str!("../../stdlib/std/db/sqlite.plenty"),
     ),
+    ("std.db.kv", include_str!("../../stdlib/std/db/kv.plenty")),
     ("std.test", include_str!("../../stdlib/std/test.plenty")),
     (
         "std.tempfile",

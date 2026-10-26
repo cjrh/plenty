@@ -245,6 +245,10 @@ cuckoo filters in Plenty, with bounded memory and versioned checkpoints.
 Later candidates: mergeable quantiles/frequent items, stronger tail accuracy,
 and tuned xor/fuse construction after concrete workload evidence.
 
+`std.db.kv` (B38, issue #495) supplies named ordered byte maps, transactions
+and bounded scans in Plenty over the existing SQLite engine. Its versioned
+file schema and [engine decision](design/stdlib/kv-engine.md) are documented.
+
 `std.uuid` (B38, issue #461) provides canonical UUID text/network bytes and
 OS-backed v4/v7 generation in Plenty. Numeric sorting keys avoid formatting
 allocations; v7 ordering within a millisecond and across clock rollback is not

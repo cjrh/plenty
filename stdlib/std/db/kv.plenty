@@ -1,0 +1,212 @@
+# An ordered byte store over the existing SQLite engine. SQL values are always
+# bound; logical table names are data, never SQL identifiers.
+import std.db.sqlite as sqlite
+from std.bytes import Bytes
+
+pub enum Mode:
+    ReadOnly
+    ReadWrite
+    Create
+
+pub enum KvError:
+    Database(sqlite.DbError)
+    Allocation(AllocError)
+    InvalidName
+    InvalidLimit
+    ForeignDatabase
+    UnsupportedVersion(i64)
+
+const application_id: i64 = 1347177302
+pub const format_version: i64 = 1
+
+def checked[T](result: Result[T, sqlite.DbError]) -> Result[T, KvError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match &error:
+                case sqlite.DbError.Allocation(cause):
+                    return Err(KvError.Allocation(*cause))
+                case _:
+                    pass
+            Err(KvError.Database(error))
+
+def scalar(connection: &mut sqlite.Connection, query: str) -> Result[i64, KvError]:
+    mut statement = checked(connection.prepare(&query))?
+    if not checked(statement.step())?:
+        return Err(KvError.ForeignDatabase)
+    checked(statement.integer(0))
+
+def inspect(connection: &mut sqlite.Connection) -> Result[(), KvError]:
+    if scalar(connection, "PRAGMA application_id")? != application_id:
+        return Err(KvError.ForeignDatabase)
+    version = scalar(connection, "PRAGMA user_version")?
+    if version != format_version:
+        return Err(KvError.UnsupportedVersion(version))
+    # Also reject missing/renamed columns before returning a usable store.
+    drop(checked(connection.prepare("SELECT table_name, key, value FROM plenty_kv LIMIT 0"))?)
+    Ok(())
+
+def initialized(connection: &mut sqlite.Connection) -> Result[(), KvError]:
+    mut transaction = checked(connection.begin(sqlite.Begin.Immediate))?
+    owner = scalar(connection, "PRAGMA application_id")?
+    if owner == application_id:
+        inspect(connection)?
+    elif owner == 0:
+        if scalar(connection, "PRAGMA user_version")? != 0 or scalar(connection, "SELECT count(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'")? != 0:
+            return Err(KvError.ForeignDatabase)
+        checked(connection.execute("CREATE TABLE plenty_kv(table_name TEXT NOT NULL, key BLOB NOT NULL, value BLOB NOT NULL, PRIMARY KEY(table_name,key)) STRICT, WITHOUT ROWID; PRAGMA application_id=1347177302; PRAGMA user_version=1;"))?
+    else:
+        return Err(KvError.ForeignDatabase)
+    checked(transaction.commit())
+
+def table_name(name: &str) -> Result[(), KvError]:
+    if name.byte_len() == 0:
+        return Err(KvError.InvalidName)
+    Ok(())
+
+pub class Entry:
+    pub key: Bytes
+    pub value: Bytes
+
+# A copied-out row is independent of the cursor. Keep the current SQLite row
+# pending on allocation failure, so retrying next() cannot silently skip it.
+pub class Scan:
+    _statement: sqlite.Statement
+    _pending: bool
+    _finished: bool
+
+    pub def next(self: &mut Scan) -> Result[Option[Entry], KvError]:
+        if self._finished:
+            return Ok(Nothing)
+        if not self._pending:
+            advanced = match checked(self._statement.step()):
+                case Ok(value):
+                    value
+                case Err(error):
+                    self._finished = True
+                    return Err(error)
+            if not advanced:
+                self._finished = True
+                return Ok(Nothing)
+            self._pending = True
+        key = checked(self._statement.blob(0))?
+        value = checked(self._statement.blob(1))?
+        self._pending = False
+        Ok(Some(Entry(key, value)))
+
+pub class Transaction:
+    _inner: sqlite.Transaction
+
+    pub def commit(self: &mut Transaction) -> Result[(), KvError]:
+        checked(self._inner.commit())
+
+    pub def rollback(self: &mut Transaction) -> Result[(), KvError]:
+        checked(self._inner.rollback())
+
+pub class Store:
+    _connection: sqlite.Connection
+
+    # All operations on this Store participate until completion. Dropping the
+    # returned transaction rolls back, including propagation with `?`.
+    pub def begin(self: &mut Store, immediate: bool = True) -> Result[Transaction, KvError]:
+        mode = sqlite.Begin.Immediate if immediate else sqlite.Begin.Deferred
+        Ok(Transaction(checked(self._connection.begin(mode))?))
+
+    pub def set_busy_timeout(self: &mut Store, milliseconds: i64) -> Result[(), KvError]:
+        checked(self._connection.set_busy_timeout(milliseconds))
+
+    pub def close(self: &mut Store) -> Result[(), KvError]:
+        checked(self._connection.close())
+
+    pub def put(self: &mut Store, table: &str, key: &Bytes, value: &Bytes) -> Result[(), KvError]:
+        table_name(table)?
+        mut statement = checked(self._connection.prepare("INSERT INTO plenty_kv(table_name,key,value) VALUES(?1,?2,?3) ON CONFLICT(table_name,key) DO UPDATE SET value=excluded.value"))?
+        checked(statement.bind_text(1, table))?
+        checked(statement.bind_blob(2, key))?
+        checked(statement.bind_blob(3, value))?
+        checked(statement.run())
+
+    pub def get(self: &mut Store, table: &str, key: &Bytes) -> Result[Option[Bytes], KvError]:
+        table_name(table)?
+        mut statement = checked(self._connection.prepare("SELECT value FROM plenty_kv WHERE table_name=?1 AND key=?2"))?
+        checked(statement.bind_text(1, table))?
+        checked(statement.bind_blob(2, key))?
+        if checked(statement.step())?:
+            return Ok(Some(checked(statement.blob(0))?))
+        Ok(Nothing)
+
+    pub def contains(self: &mut Store, table: &str, key: &Bytes) -> Result[bool, KvError]:
+        table_name(table)?
+        mut statement = checked(self._connection.prepare("SELECT 1 FROM plenty_kv WHERE table_name=?1 AND key=?2"))?
+        checked(statement.bind_text(1, table))?
+        checked(statement.bind_blob(2, key))?
+        checked(statement.step())
+
+    pub def remove(self: &mut Store, table: &str, key: &Bytes) -> Result[bool, KvError]:
+        table_name(table)?
+        mut statement = checked(self._connection.prepare("DELETE FROM plenty_kv WHERE table_name=?1 AND key=?2"))?
+        checked(statement.bind_text(1, table))?
+        checked(statement.bind_blob(2, key))?
+        checked(statement.run())?
+        Ok(self._connection.changes() != 0)
+
+    pub def clear(self: &mut Store, table: &str) -> Result[i64, KvError]:
+        table_name(table)?
+        mut statement = checked(self._connection.prepare("DELETE FROM plenty_kv WHERE table_name=?1"))?
+        checked(statement.bind_text(1, table))?
+        checked(statement.run())?
+        Ok(self._connection.changes())
+
+    pub def len(self: &mut Store, table: &str) -> Result[i64, KvError]:
+        table_name(table)?
+        mut statement = checked(self._connection.prepare("SELECT count(*) FROM plenty_kv WHERE table_name=?1"))?
+        checked(statement.bind_text(1, table))?
+        drop(checked(statement.step())?)
+        checked(statement.integer(0))
+
+    # Inclusive start, exclusive stop. Set after=True to exclude start too,
+    # for continuing after the final key of an ascending limited scan.
+    pub def scan(self: &mut Store, table: &str, start: &Bytes, stop: &Bytes, max_rows: i64, after: bool = False, reverse: bool = False) -> Result[Scan, KvError]:
+        table_name(table)?
+        if max_rows < 0:
+            return Err(KvError.InvalidLimit)
+        query = "SELECT key,value FROM plenty_kv WHERE table_name=?1 AND key>=?2 AND key<?3 AND (?5=0 OR key>?2) ORDER BY key DESC LIMIT ?4" if reverse else "SELECT key,value FROM plenty_kv WHERE table_name=?1 AND key>=?2 AND key<?3 AND (?5=0 OR key>?2) ORDER BY key ASC LIMIT ?4"
+        mut statement = checked(self._connection.prepare(&query))?
+        checked(statement.bind_text(1, table))?
+        checked(statement.bind_blob(2, start))?
+        checked(statement.bind_blob(3, stop))?
+        checked(statement.bind_integer(4, max_rows))?
+        checked(statement.bind_integer(5, 1 if after else 0))?
+        Ok(Scan(statement, False, False))
+
+    pub def scan_all(self: &mut Store, table: &str, max_rows: i64, reverse: bool = False) -> Result[Scan, KvError]:
+        table_name(table)?
+        if max_rows < 0:
+            return Err(KvError.InvalidLimit)
+        query = "SELECT key,value FROM plenty_kv WHERE table_name=?1 ORDER BY key DESC LIMIT ?2" if reverse else "SELECT key,value FROM plenty_kv WHERE table_name=?1 ORDER BY key ASC LIMIT ?2"
+        mut statement = checked(self._connection.prepare(&query))?
+        checked(statement.bind_text(1, table))?
+        checked(statement.bind_integer(2, max_rows))?
+        Ok(Scan(statement, False, False))
+
+pub def connect(path: &str, mode: Mode = Mode.Create, max_length: i64 = 1048576) -> Result[Store, KvError]:
+    sql_mode = match mode:
+        case Mode.ReadOnly:
+            sqlite.Mode.ReadOnly
+        case Mode.ReadWrite:
+            sqlite.Mode.ReadWrite
+        case Mode.Create:
+            sqlite.Mode.Create
+    mut connection = checked(sqlite.connect(path, sql_mode, max_length))?
+    match mode:
+        case Mode.Create:
+            initialized(&mut connection)?
+        case _:
+            inspect(&mut connection)?
+    Ok(Store(connection))
+
+pub def memory(max_length: i64 = 1048576) -> Result[Store, KvError]:
+    mut connection = checked(sqlite.memory(max_length))?
+    initialized(&mut connection)?
+    Ok(Store(connection))
