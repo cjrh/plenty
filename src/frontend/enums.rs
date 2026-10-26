@@ -68,21 +68,19 @@ impl Parser {
                         .at
                         .error("method type parameters cannot shadow enum type parameters"));
                 }
-                if let Some((_, receiver)) = f.inputs.first_mut()
-                    && let Some(owner) = receiver
-                        .args
-                        .first_mut()
-                        .filter(|t| t.name.as_ref() == Some(&name) && t.args.is_empty())
-                {
-                    owner.args = type_params
-                        .iter()
-                        .map(|(n, _)| TypeRef {
-                            concrete: None,
-                            at: at.clone(),
-                            name: Some(n.clone()),
-                            args: vec![],
-                        })
-                        .collect();
+                if let Some((_, receiver)) = f.inputs.first_mut() {
+                    let owner = classes::receiver_owner_mut(receiver);
+                    if owner.name.as_ref() == Some(&name) && owner.args.is_empty() {
+                        owner.args = type_params
+                            .iter()
+                            .map(|(n, _)| TypeRef {
+                                concrete: None,
+                                at: at.clone(),
+                                name: Some(n.clone()),
+                                args: vec![],
+                            })
+                            .collect();
+                    }
                 }
                 if public {
                     public_members.insert(f.name.clone());
@@ -161,7 +159,7 @@ impl Parser {
     }
 }
 
-/// Methods use the same statically resolved symbols and borrowed receivers as
+/// Methods use the same statically resolved symbols and receiver rules as
 /// class methods; enum layout and variant destruction remain unchanged.
 pub(super) fn expand(enums: Vec<EnumDecl>, aliases: &TypeAliases) -> Result<Vec<Function>> {
     let mut functions = Vec::new();
@@ -174,14 +172,18 @@ pub(super) fn expand(enums: Vec<EnumDecl>, aliases: &TypeAliases) -> Result<Vec<
             let receiver = function.inputs.first();
             let valid = if let Some((name, receiver)) = receiver {
                 name == "self"
-                    && matches!(receiver.resolve(aliases)?, Some(Ty::Ref(owner, _)) if *owner == ty)
+                    && match receiver.resolve(aliases)? {
+                        Some(Ty::Ref(owner, _)) => *owner == ty,
+                        Some(owner) => owner == ty,
+                        None => false,
+                    }
             } else {
                 false
             };
             if !valid {
                 return Err(function
                     .at
-                    .error("method receiver must be self: &Enum (or self: &mut Enum)"));
+                    .error("method receiver must be self: Enum, self: &Enum, or self: &mut Enum"));
             }
             function.name = crate::record::method(&declaration.name, &function.name);
             functions.push(function);

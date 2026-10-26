@@ -15,7 +15,9 @@ even requirements unused by the generic body. Receiver borrowing, arity,
 parameter types, and return type must match exactly; parameter names may differ.
 There is no inheritance, registration, or import-driven method activation.
 
-Bare `self` means a shared receiver. Mutable requirements use
+Bare `self` means a shared receiver. An owned requirement uses `self: Readable[T]`
+or `self: Readable`; its implementation must also take its receiver by value.
+Owned, shared and mutable receivers are distinct requirements. Mutable requirements use
 `self: &mut Readable[T]` or `self: &mut Readable`. Within requirements the protocol's
 own name denotes the implementing type, including in returned references.
 

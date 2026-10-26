@@ -77,13 +77,11 @@ impl Parser {
                         .at
                         .error("method type parameters cannot shadow class type parameters"));
                 }
-                if let Some((_, receiver)) = f.inputs.first_mut()
-                    && let Some(owner) = receiver
-                        .args
-                        .first_mut()
-                        .filter(|t| t.name.as_ref() == Some(&name) && t.args.is_empty())
-                {
-                    owner.args = type_params.iter().map(|(n, _)| type_ref(&at, n)).collect();
+                if let Some((_, receiver)) = f.inputs.first_mut() {
+                    let owner = receiver_owner_mut(receiver);
+                    if owner.name.as_ref() == Some(&name) && owner.args.is_empty() {
+                        owner.args = type_params.iter().map(|(n, _)| type_ref(&at, n)).collect();
+                    }
                 }
                 let member = f.name.clone();
                 methods.push(f);
@@ -255,10 +253,13 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 return Err(f.at.error("methods require a self receiver"));
             };
             let resolved = receiver_type.resolve(aliases)?;
-            if receiver != "self"
-                || !matches!(&resolved, Some(Ty::Ref(t, m)) if **t == Ty::Class(ty.clone()) && (!special || *m))
-            {
-                return Err(f.at.error("method receiver must be self: &Class (or self: &mut Class); lifecycle methods require &mut"));
+            let valid = match &resolved {
+                Some(Ty::Ref(t, m)) => **t == Ty::Class(ty.clone()) && (!special || *m),
+                Some(t) => !special && *t == Ty::Class(ty.clone()),
+                None => false,
+            };
+            if receiver != "self" || !valid {
+                return Err(f.at.error("method receiver must be self: Class, self: &Class, or self: &mut Class; lifecycle methods require &mut"));
             }
             let output = if f.type_params.is_empty() {
                 f.output.resolve(aliases)?
@@ -953,12 +954,12 @@ impl Lower<'_> {
         }
         modules::check_member(self.access, owner, name, &base.at)?;
         if let Some(template) = self.generics.templates.get(&callee) {
-            let receiver = Expr {
-                at: base.at.clone(),
-                kind: Expression::Unary(
-                    template.inputs[0].1.name.clone().unwrap(),
-                    Box::new(base.clone()),
-                ),
+            let receiver = match template.inputs[0].1.name.as_deref() {
+                Some(op @ ("&" | "&mut")) => Expr {
+                    at: base.at.clone(),
+                    kind: Expression::Unary(op.into(), Box::new(base.clone())),
+                },
+                _ => base.clone(),
             };
             let arguments: Vec<_> = std::iter::once(receiver)
                 .chain(args.iter().cloned())
@@ -983,6 +984,14 @@ impl Lower<'_> {
                 }
             })?
             .clone();
+        if !matches!(sig.inputs.first(), Some((_, Ty::Ref(..)))) {
+            // Owned receivers are ordinary first arguments: evaluate and move
+            // them before later arguments, with the same unwind/drop behavior.
+            let arguments: Vec<_> = std::iter::once(base.clone())
+                .chain(args.iter().cloned())
+                .collect();
+            return self.call_named_with_receiver(&callee, &arguments, &base.at, true, ops);
+        }
         let receiver = Expr {
             at: base.at.clone(),
             kind: Expression::Unary(
@@ -1134,8 +1143,25 @@ impl Lower<'_> {
                 .at
                 .error("generic methods require a class or enum receiver"));
         };
+        self.sync_data()?;
+        let callee = method(owner, name);
+        let consumes = if let Some(template) = self.generics.templates.get(&callee) {
+            !matches!(template.inputs[0].1.name.as_deref(), Some("&" | "&mut"))
+        } else {
+            self.generics
+                .methods
+                .get(&callee)
+                .is_some_and(|(inputs, _)| {
+                    inputs.first().is_some_and(|t| !matches!(t, Ty::Ref(..)))
+                })
+        };
+        if consumes && ty.affine() && !loans.is_empty() {
+            return Err(base
+                .at
+                .error("cannot consume a borrowed method receiver; pass an owned value"));
+        }
         // `observe` may already hold the temporary owner in a slot and push a
-        // view of it; borrow that owner rather than storing a second copy.
+        // view of it; reuse that owner for either receiver mode, not a second copy.
         let held = match ops.as_slice() {
             [.., Op::StoreLocal(a), Op::LoadLocal(b)]
                 if a == b && self.expression_temps.last() == Some(a) =>
@@ -1176,6 +1202,16 @@ impl Lower<'_> {
         self.expression_temps.push(slot);
         Self::end_reads(loans, ops);
         Ok(result)
+    }
+}
+
+/// A receiver's owner spelling, shared by generic class/enum completion and
+/// protocol Self substitution. Only reference syntax wraps the owner type.
+pub(super) fn receiver_owner_mut(receiver: &mut TypeRef) -> &mut TypeRef {
+    if matches!(receiver.name.as_deref(), Some("&" | "&mut")) {
+        &mut receiver.args[0]
+    } else {
+        receiver
     }
 }
 

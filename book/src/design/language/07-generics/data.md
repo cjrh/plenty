@@ -25,7 +25,9 @@ complete instances. Different arguments produce different nominal identities
 even when a parameter is absent from every payload.
 
 Bare `self` uses the current concrete class or enum; an explicit mutable receiver is
-`self: &mut Cell[T]` or `self: &mut Choice[T]`. Ordinary methods may declare their own parameters and
+`self: &mut Cell[T]` or `self: &mut Choice[T]`. A by-value receiver is
+`self: Cell[T]` or `self: Choice[T]` (the current-owner spellings `Cell` and
+`Choice` also infer their declared parameters). Ordinary methods may declare their own parameters and
 integer, protocol, or callable constraints. Data parameters are already fixed
 by the receiver; method parameters cannot shadow them. Lifecycle methods cannot
 add parameters.

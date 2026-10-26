@@ -121,7 +121,7 @@ fn invalid_enum_methods_have_actionable_diagnostics() {
             "lifecycle hooks",
         ),
         (
-            "enum E:\n    V\n    def read(self: E) -> ():\n        pass\n",
+            "enum E:\n    V\n    def read(self: i64) -> ():\n        pass\n",
             "method receiver",
         ),
         (

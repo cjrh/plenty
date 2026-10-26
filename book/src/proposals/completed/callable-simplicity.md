@@ -39,8 +39,9 @@ environment with explicit storage, or a type spelling that sometimes denotes a
 code address and sometimes a producer-specific layout. Neither makes storage
 costs easier to predict. Keep the distinction visible at interfaces while letting
 ordinary local bindings infer it. `OnceCallable` could not be an ordinary
-method-only protocol today: invocation and consuming `self` are compiler-checked
-operations, and the existing protocols do not describe those operations.
+method-only protocol today: function-call syntax and capture transfer remain
+compiler-checked operations. Ordinary protocols can now require a by-value
+`self`, but that alone does not describe callable invocation and captures.
 
 Inferring `once` from moving a capture out would make a body edit change whether
 callers can invoke it again. An explicit word gives a local ownership contract,

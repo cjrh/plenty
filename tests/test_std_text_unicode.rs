@@ -40,7 +40,7 @@ builder.append("\0")?
 print(builder.byte_len(), len(builder.to_text()?))?
 builder.clear()
 builder.append("again")?
-print(builder.to_text()?)?
+print(builder.finish()?)?
 pieces = ["é", "", "🙂"]?
 print(std.text.join(&pieces, ":", 8)?)?
 print(failed(std.text.join(&pieces, ":", 7)))?
@@ -48,7 +48,7 @@ print(str.repr(std.text.wrap("é🙂ab\nc\n", 2, 32)?)?)?
 print(str.repr(std.text.wrap("éx", 1, 32)?)?)?
 print(failed(std.text.wrap("x", 0, 4)), failed(std.text.builder(-1)))?
 empty = std.text.builder(0)?
-print(empty.to_text()? == "", std.text.join(&list[str].new()?, "", 0)? == "")?
+print(empty.finish()? == "", std.text.join(&list[str].new()?, "", 0)? == "")?
 bad = std.bytes.from_list(&[255u8]?)?
 print(failed(bad.to_text()))?
 "#),
@@ -83,6 +83,10 @@ fn builders_keep_ordinary_ownership_and_loan_checks() {
         ),
         ("moved = builder\n    print(builder.byte_len())?", "moved"),
         ("other = copy(builder)?", "cannot be copied"),
+        (
+            "drop(builder.finish())\n    print(builder.byte_len())?",
+            "moved",
+        ),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("main.plenty");
@@ -90,6 +94,36 @@ fn builders_keep_ordinary_ownership_and_loan_checks() {
         let error = plenty::check_file(&path, None).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn finishing_builder_preserves_errors_and_cleans_up_on_allocation_failure() {
+    let mut succeeded = false;
+    let mut failed = false;
+    for budget in 0..=8 {
+        let output = run(&format!(
+            r#"
+mut builder = std.text.builder(32)?
+builder.append("final é🙂")?
+print("__test_fail_allocations_after_{budget}__")?
+result = builder.finish()
+print("__test_restore_allocations__")?
+match result:
+    case Ok(text):
+        print(text == "final é🙂")?
+    case Err(error):
+        print(error)?
+"#
+        ));
+        if output == "True" {
+            succeeded = true;
+            break;
+        }
+        assert!(output.contains("Allocation"), "{output}");
+        failed = true;
+    }
+    assert!(failed && succeeded, "must exercise failure and success");
 }
 
 #[test]

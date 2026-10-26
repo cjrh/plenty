@@ -35,6 +35,8 @@ Point(x=20, y=5)
 Ordinary methods borrow `self` read-only by default: `self` is shorthand for
 `self: &Point` here. A method that changes fields declares `self: &mut Point`.
 Calling it requires a `mut` binding or an exclusive reference.
+An explicit `self: Point` instead takes ownership; see
+[consuming methods](consuming-methods.md) for state transitions and finalization.
 
 Methods can share names with integer built-ins. A class receiver selects its
 own method, including its parameter and return types:

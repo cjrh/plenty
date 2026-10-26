@@ -1,0 +1,65 @@
+# A deterministic model of an owned HTTP response, not a std.http replacement.
+# The scripted wire counts accepted body bytes; it does not encode HTTP.
+class Wire:
+    id: i64
+    fail_after: i64
+    sent: i64
+
+    def __del__(self) -> ():
+        # Test instrumentation only: production cleanup must not depend on stdout.
+        print("close", self.id, self.sent).unwrap()
+
+pub class Unanswered:
+    wire: Option[Wire]
+
+    pub def begin(self: Unanswered, length: i64) -> Result[Writer, StartError]:
+        if length < 0:
+            return Err(StartError.InvalidLength(self))
+        mut owned = self
+        # Keep the old wrapper initialized without allocating a dummy connection.
+        wire = replace(owned.wire, Nothing).unwrap()
+        Ok(Writer(wire, length))
+
+pub class Writer:
+    wire: Wire
+    remaining: i64
+
+    pub def write(self: Writer, count: i64) -> Result[Writer, WriteError]:
+        if count < 0 or count > self.remaining:
+            return Err(WriteError.OutOfRange(self))
+        mut owned = self
+        mut accepted = count
+        mut broken = False
+        if owned.wire.fail_after >= 0 and count > owned.wire.fail_after - owned.wire.sent:
+            accepted = owned.wire.fail_after - owned.wire.sent
+            broken = True
+        owned.wire.sent += accepted
+        total = owned.wire.sent
+        owned.remaining -= accepted
+        if broken:
+            # A partial write cannot return an owner that might replay bytes.
+            return Err(WriteError.Broken(accepted, total))
+        Ok(owned)
+
+    pub def finish(self: Writer) -> Result[(), FinishError]:
+        if self.remaining != 0:
+            return Err(FinishError.Incomplete(self))
+        drop(self)
+        Ok(())
+
+    pub def cancel(self: Writer) -> ():
+        drop(self)
+
+pub enum StartError:
+    InvalidLength(Unanswered)
+
+pub enum WriteError:
+    OutOfRange(Writer)
+    Broken(i64, i64)
+
+pub enum FinishError:
+    Incomplete(Writer)
+
+# This creates a fresh model connection, never a writer in an arbitrary state.
+pub def unanswered(id: i64, fail_after: i64 = -1) -> Unanswered:
+    Unanswered(Some(Wire(id, fail_after, 0)))

@@ -11,6 +11,7 @@ scans. Import `std.text`; every allocating operation returns
 | `Builder.append(text: &str)` | Append a copy, or leave contents unchanged on failure |
 | `Builder.clear()` | Empty the builder, retaining its allocation |
 | `Builder.to_text()` | Independent UTF-8 string snapshot; builder remains reusable |
+| `Builder.finish()` | Final UTF-8 string; consumes the builder on success or failure |
 | `join(pieces: &list[str], separator: &str, max_bytes: i64)` | Separator between pieces, including empty pieces; empty list yields empty text |
 | `wrap(text: &str, width: i64, max_bytes: i64)` | Hard wrap at `width` Unicode scalars, inserting LF; width must be positive |
 | `find_in[S: ByteSource](text: &str, set: &S)` | `Option[i64]`: scalar position of the first ASCII scalar whose byte is in `set` |
@@ -57,7 +58,10 @@ True False False Option[i64].Some(1)
 `find_in` costs O(text bytes), plus counting the scalars before a match;
 `find_not_in` costs O(bytes up to the first non-member).
 
-The builder owns a compact `Bytes` buffer. Methods borrow it; `append` and
+The builder owns a compact `Bytes` buffer. `finish(self: Builder)` consumes it;
+use `to_text` if the builder must survive an allocation failure for retry or
+remain available for reuse. Both operations currently copy the bytes into a
+new string; `finish` does not promise zero-copy conversion. Other methods borrow it; `append` and
 `clear` require exclusive access, and ordinary loan checking rejects mutation
 while shared access remains live. There is no global mutable state or thread
 affinity. Appending takes O(input bytes) amortized time and a temporary copy of

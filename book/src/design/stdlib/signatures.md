@@ -2769,6 +2769,7 @@ class Builder
     def append(self: &mut Builder, text: &str) -> Result[(), TextError]
     def clear(self: &mut Builder) -> ()
     def to_text(self) -> Result[str, TextError]
+    def finish(self: Builder) -> Result[str, TextError]
 def builder(max_bytes: i64) -> Result[Builder, TextError]
 def join(pieces: &list[str], separator: &str, max_bytes: i64) -> Result[str, TextError]
 def wrap(text: &str, width: i64, max_bytes: i64) -> Result[str, TextError]

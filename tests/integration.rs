@@ -122,6 +122,8 @@ mod test_concurrency_control;
 mod test_concurrency_modules;
 #[path = "test_constant_guards.rs"]
 mod test_constant_guards;
+#[path = "test_consuming_methods.rs"]
+mod test_consuming_methods;
 #[path = "test_consuming_threads.rs"]
 mod test_consuming_threads;
 #[path = "test_container_conveniences.rs"]

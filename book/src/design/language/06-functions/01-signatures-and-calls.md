@@ -77,7 +77,7 @@ or enum immutably in ordinary methods. Class lifecycle methods `__init__` and
 `__del__` instead borrow `&mut Class`; enums have no lifecycle methods.
 Mutating ordinary methods declare `self: &mut Class` (or the enum type);
 their receiver must be a mutable owner or exclusive
-reference. Methods resolve statically and borrow their receiver. Temporary
+reference. Methods resolve statically. Temporary
 owned receivers are supported when no reference escapes. Attempting mutation
 through an ordinary method's bare `self` reports the explicit
 `self: &mut Class` annotation needed for an exclusive receiver. For a generic
@@ -87,3 +87,24 @@ particular specialization. See
 [classes](../03-types/classes.md) for initialization and field rules and
 [returned references](../05-ownership/04-returned-references.md) for receiver
 lifetime restrictions.
+
+An explicit `self: Class` (or `self: Enum`) is a by-value receiver. Calling
+`value.finish(args)` transfers an affine receiver just like passing it as the
+first owned argument to a function; the old binding is unusable even when the
+method returns an error. Copyable enums retain ordinary copy semantics. Generic
+owners can use `self: Cell[T]` or the current-owner shorthand `self: Cell`.
+There is no dynamic dispatch or allocation introduced by this call syntax.
+
+The receiver is evaluated before the remaining arguments, including named
+arguments. Once moved, it cannot be used in a later argument; save needed values
+before the call. If a later argument propagates an error, the pending owned
+receiver is cleaned up. Two-phase mutable-receiver reservation does not apply.
+The callee owns cleanup unless it returns or otherwise transfers the receiver.
+To support retry, return the owner in the error payload explicitly.
+
+Owned `self` is an immutable binding, like any value parameter; use `mut owned =
+self` to modify it. Consuming methods do not permit moving individual class
+fields, consuming through an affine reference or indexed element, or returning
+a borrow of the consumed owner's storage. Constructor/destructor receivers and
+operator-hook contracts are unchanged. See the
+[consuming-method lesson](../../../tutorial/06-data/consuming-methods.md).
