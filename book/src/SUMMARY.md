@@ -371,6 +371,7 @@
             - [Rooted filesystem helpers](design/stdlib/fs/helpers.md)
             - [Temporary resources](design/stdlib/fs/temporary.md)
             - [Bounded operations](design/stdlib/fs/operations.md)
+            - [User directories](design/stdlib/fs/dirs.md)
         - [`std.http`](design/stdlib/http.md)
         - [`std.http.body`](design/stdlib/http-body.md)
         - [`std.http.client`](design/stdlib/http-client.md)

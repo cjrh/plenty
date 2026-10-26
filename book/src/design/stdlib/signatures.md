@@ -899,6 +899,18 @@ class Walk
 def walk(root: &Path, top_down: bool) -> Result[Walk, AllocError]
 ```
 
+## `std.fs.dirs`
+
+The home directory and the XDG configuration, cache, data, and state directories, from the environment. Errors: `IoError`. [Reference](fs/dirs.md).
+
+```text
+def home_dir() -> Result[Option[Path], IoError]
+def config_dir() -> Result[Option[Path], IoError]
+def cache_dir() -> Result[Option[Path], IoError]
+def data_dir() -> Result[Option[Path], IoError]
+def state_dir() -> Result[Option[Path], IoError]
+```
+
 ## `std.http`
 
 Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams. Errors: `HttpError`. [Reference](http.md).

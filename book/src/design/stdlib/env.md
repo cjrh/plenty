@@ -70,5 +70,6 @@ it (see [native effects](../facilities/03-concurrency/effects.md)).
 
 - Linux x86-64 GNU only.
 - No mutation of the program's own environment.
-- No home-directory or executable-path lookups. Temporary-directory selection
-  is provided by [`std.tempfile.default_dir`](tempfile.md#constructors).
+- No executable-path lookup. The home and XDG base directories are
+  [`std.fs.dirs`](fs/dirs.md); temporary-directory selection is
+  [`std.tempfile.default_dir`](tempfile.md#constructors).
