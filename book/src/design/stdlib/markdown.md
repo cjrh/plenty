@@ -239,3 +239,4 @@ Release archives include these notices in `THIRD-PARTY-NOTICES.md`.
 - Punctuation table generated from the [Unicode Character Database](https://www.unicode.org/ucd/) 16.0.0 (Unicode-3.0).
 - Entity table generated from the [WHATWG HTML Standard named character references](https://html.spec.whatwg.org/multipage/named-characters.html) (BSD-3-Clause).
 - The link parenthesis nesting limit follows [cmark](https://github.com/commonmark/cmark).
+- The event API takes [pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark) as a design reference; no code is taken from it.

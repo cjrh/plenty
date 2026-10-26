@@ -30,3 +30,7 @@ The deque moves and requires explicit `copy` for independent duplication. It
 has no indexed access, iteration protocol, bounded capacity, rotation, or bulk
 extension API. To consume it, repeatedly pop an end. See the runnable
 [queue lesson](../../tutorial/04-collections/deque.md).
+
+## Acknowledgements
+
+- API modelled on Python's [`collections.deque`](https://docs.python.org/3/library/collections.html#collections.deque).

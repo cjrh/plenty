@@ -73,3 +73,7 @@ it (see [native effects](../facilities/03-concurrency/effects.md)).
 - No executable-path lookup. The home and XDG base directories are
   [`std.fs.dirs`](fs/dirs.md); temporary-directory selection is
   [`std.tempfile.default_dir`](tempfile.md#constructors).
+
+## Acknowledgements
+
+- API modelled on Rust's [`std::env`](https://doc.rust-lang.org/std/env/index.html); the `get`/`get_bytes` pair follows Python's [`os.getenv` and `os.getenvb`](https://docs.python.org/3/library/os.html#os.getenv).

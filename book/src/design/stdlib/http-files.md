@@ -110,3 +110,7 @@ A refused or missing path is not an error.
 - A file is read with ordinary blocking reads on the worker; a slow
   filesystem holds the worker.
 - Linux only, like `std.fs`.
+
+## Acknowledgements
+
+- `media_type` returns types registered in the [IANA Media Types registry](https://www.iana.org/assignments/media-types/media-types.xhtml).
