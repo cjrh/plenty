@@ -2172,6 +2172,76 @@ def split(text: &str, comments: bool = False) -> Result[list[str], ShlexError | 
 def quote(text: &str) -> Result[str, ShlexError | AllocError]
 ```
 
+## `std.sketch`
+
+Bounded distinct counts, sampled quantiles and frequent-item bounds with versioned checkpoints. Errors: `SketchError`, `AllocError`, `BytesError`. [Reference](sketch.md).
+
+```text
+enum SketchError
+    InvalidArgument | InvalidData | Incompatible | Empty | Limit | ConstructionFailed
+def hash_u64(key: u64, seed: u64 = 0u64) -> u64
+class HyperLogLog
+    def precision(self) -> i64
+    def add(self: &mut HyperLogLog, key: u64) -> ()
+    def estimate(self) -> f64
+    def relative_standard_error(self) -> f64
+    def merge(self: &mut HyperLogLog, other: &HyperLogLog) -> Result[(), SketchError]
+    def to_bytes(self) -> Result[Bytes, BytesError]
+def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog, SketchError | BytesError]
+def hyperloglog_from_bytes[S: ByteSource](data: &S, max_precision: i64 = 18) -> Result[HyperLogLog, SketchError | BytesError]
+class Quantiles
+    def count(self) -> u64
+    def retained(self) -> i64
+    def add(self: &mut Quantiles, value: f64) -> Result[(), SketchError | AllocError]
+    def quantile(self, fraction: f64) -> Result[f64, SketchError]
+    def to_bytes(self) -> Result[Bytes, BytesError]
+def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError | AllocError]
+def quantiles_from_bytes(data: &Bytes, max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]
+class Frequency
+    key: u64
+    lower: u64
+    upper: u64
+class FrequentItems
+    def count(self) -> u64
+    def error_bound(self) -> u64
+    def add(self: &mut FrequentItems, key: u64) -> Result[(), SketchError]
+    def frequency(self, key: u64) -> Frequency
+    def candidates(self) -> Result[list[Frequency], AllocError]
+    def to_bytes(self) -> Result[Bytes, BytesError]
+def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError | AllocError]
+def frequent_items_from_bytes[S: ByteSource](data: &S, max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError | AllocError]
+```
+
+## `std.sketch.xor`
+
+Static approximate membership over numeric identities with bounded construction. Errors: `SketchError`, `AllocError`, `BytesError`. [Reference](sketch-xor.md).
+
+```text
+class XorFilter
+    def len(self) -> i64
+    def contains(self, key: u64) -> bool
+    def to_bytes(self) -> Result[Bytes, BytesError]
+def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFilter, SketchError | AllocError | BytesError]
+def from_bytes[S: ByteSource](data: &S, max_keys: i64) -> Result[XorFilter, SketchError | BytesError]
+```
+
+## `std.sketch.cuckoo`
+
+Scalable approximate membership with bounded growth and receipt-directed deletion. Errors: `SketchError`, `AllocError`, `BytesError`. [Reference](sketch-cuckoo.md).
+
+```text
+class CuckooFilter
+    def len(self) -> u64
+    def layers(self) -> i64
+    def buckets(self) -> i64
+    def contains(self, key: u64) -> bool
+    def insert(self: &mut CuckooFilter, key: u64) -> Result[i64, SketchError | AllocError | BytesError]
+    def remove(self: &mut CuckooFilter, key: u64, layer_index: i64) -> Result[bool, SketchError]
+    def to_bytes(self) -> Result[Bytes, BytesError]
+def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
+def from_bytes[S: ByteSource](data: &S, max_buckets: i64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
+```
+
 ## `std.signal`
 
 `SIGTERM` and `SIGINT` as an event to wait or select on, and a helper that cancels a token on one. Errors: `SignalError`, `WaitError`. [Reference](signal.md).
