@@ -90,37 +90,34 @@ impl Demand {
 }
 
 impl Instantiation {
-    /// The rendered diagnostic of a body error that only a type argument
-    /// causes: the primary message names the parameter and the argument at
-    /// the use, and the body position becomes a note for the body's author.
-    /// `None` when the demanded type is not exactly one parameter's argument,
-    /// so the body is not known to be correct for other arguments.
+    /// The rendered diagnostic of a body error that a type argument causes:
+    /// the primary message names the parameter and its argument at the use,
+    /// and the body position becomes a note for the body's author. `None`
+    /// when the rejected type is not exactly one parameter's argument; the
+    /// caller then uses `report`. A body that names the argument's type
+    /// itself is attributed to the parameter too, since types carry no record
+    /// of substitution.
     pub fn explain(&self, body: &str, detail: &str, demand: &Demand) -> Option<String> {
-        let (ty, action) = match demand {
-            Demand::Copy(ty, _) => (ty, None),
-            Demand::Operator(op, ty) => (ty, Some(format!("applies `{op}` to"))),
-            Demand::Method(name, ty) => (ty, Some(format!("calls `{name}` on"))),
-        };
         if self.requested.starts_with("__plenty_fstring_") {
             return None;
         }
+        let ty = match demand {
+            Demand::Copy(ty, _) | Demand::Operator(_, ty) | Demand::Method(_, ty) => ty,
+        };
         let mut matching = self.parameters.iter().filter(|(_, t)| t == ty);
         let (parameter, _) = matching.next()?;
         if matching.next().is_some() {
             return None;
         }
         let instance = short(&self.instance);
-        let cause = match (demand, action) {
-            (Demand::Copy(..), _) => {
-                format!("copies `{parameter}` implicitly, but `{ty}` is affine")
+        let cause = match demand {
+            Demand::Copy(..) => format!("copies `{parameter}` implicitly, but `{ty}` is affine"),
+            Demand::Operator(op, _) => {
+                format!("applies `{op}` to `{parameter}`, but `{ty}` does not support `{op}`")
             }
-            (Demand::Operator(op, _), Some(action)) => {
-                format!("{action} `{parameter}`, but `{ty}` does not support `{op}`")
+            Demand::Method(name, _) => {
+                format!("calls `{name}` on `{parameter}`, but `{ty}` has no method `{name}`")
             }
-            (Demand::Method(name, _), Some(action)) => {
-                format!("{action} `{parameter}`, but `{ty}` has no method `{name}`")
-            }
-            _ => unreachable!("only a copy has no action"),
         };
         let subject = if self.requested == self.instance {
             format!("`{instance}` {cause}")
@@ -477,11 +474,13 @@ impl fmt::Display for Error {
             ),
             Kind::Uncancelled { message } => message.clone(),
         };
-        let explained = self.required.as_ref().zip(self.copied.as_ref()).and_then(
-            |(required, ty)| {
-                required.explain(&location, &message, &Demand::Copy(ty.clone(), ""))
-            },
-        );
+        let explained =
+            self.required
+                .as_ref()
+                .zip(self.copied.as_ref())
+                .and_then(|(required, ty)| {
+                    required.explain(&location, &message, &Demand::Copy(ty.clone(), ""))
+                });
         match (&self.required, explained) {
             (_, Some(explained)) => f.write_str(&explained)?,
             (Some(required), None) => f.write_str(&required.report(&location, &message))?,

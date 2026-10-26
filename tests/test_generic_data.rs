@@ -225,9 +225,7 @@ fn class_instance_method_errors_are_reported_at_the_requiring_use() {
         self.value
 ";
     let note = |instance: &str| {
-        format!(
-            "\n  4:9: note: in instantiation `{instance}`: cannot move out of a field"
-        )
+        format!("\n  4:9: note: in instantiation `{instance}`: cannot move out of a field")
     };
     // A method body is checked for an instance only when the method is used
     // (issue #515), so an instance whose `get` would fail is accepted until

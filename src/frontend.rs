@@ -3581,7 +3581,10 @@ impl Lower<'_> {
                     if ty.affine() {
                         return Err(e.at.demand_error(
                             "cannot move out of a reference; use copy or borrow",
-                            crate::ownership::Demand::Copy((*ty).clone(), "cannot move out of a reference"),
+                            crate::ownership::Demand::Copy(
+                                (*ty).clone(),
+                                "cannot move out of a reference",
+                            ),
                         ));
                     }
                     ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
