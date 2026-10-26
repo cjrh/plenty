@@ -1,0 +1,94 @@
+import std.dataframe as df
+import std.test as test
+
+def retained() -> Result[df.Column, df.DataFrameError | AllocError]:
+    values: list[Option[i64]] = [Some(7), Nothing, Some(9)]?
+    df.column_list_nullable("items", df.column_i64_nullable("child", values)?, [0, 2, 2, 2, 3]?, [True, False, True, True]?)
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError | test.TestError]:
+    column = retained()?
+    data = column.to_frame()?
+    parts = data.column("items")?.list_parts()?
+    test.equal(parts.offsets, [0, 2, 2, 2, 3]?)?
+    test.equal(parts.valid, [True, False, True, True]?)?
+    values: list[Option[i64]] = [Some(7), Nothing, Some(9)]?
+    test.equal(parts.values.to_frame()?.values_i64_nullable("item")?, values)?
+    reconstructed = df.column_list_nullable("items", parts.values, parts.offsets, parts.valid)?.to_frame()?
+    test.equal(reconstructed.schema()?[0].dtype, df.DType.List)?
+    projected = data.lazy()?.select([
+        df.col("items")?.list_len()?.alias("length")?,
+        df.col("items")?.list_get(0)?.alias("first")?,
+        df.col("items")?.list_get(-1)?.alias("last")?,
+        df.col("items")?.list_get(99)?.alias("missing")?
+    ]?)?.collect()?
+    lengths: list[Option[i64]] = [Some(2), Nothing, Some(0), Some(1)]?
+    first: list[Option[i64]] = [Some(7), Nothing, Nothing, Some(9)]?
+    last: list[Option[i64]] = [Nothing, Nothing, Nothing, Some(9)]?
+    test.equal(projected.values_i64_nullable("length")?, lengths)?
+    test.equal(projected.values_i64_nullable("first")?, first)?
+    test.equal(projected.values_i64_nullable("last")?, last)?
+    test.check(projected.get_i64("missing", 0)?.is_none(), "out of bounds list access is null")?
+
+    fields = df.frame([
+        df.column_list_nullable("numbers", parts.values, parts.offsets, parts.valid)?,
+        df.column_str("label", ["a", "b", "c", "d"]?)?
+    ]?)?
+    record = df.column_struct_nullable("record", fields, [True, False, True, True]?)?
+    record_parts = record.struct_parts()?
+    test.equal(record_parts.valid, [True, False, True, True]?)?
+    test.equal(record_parts.fields.get_str("label", 0)?, Some("a"))?
+    test.check(record_parts.fields.get_str("label", 1)?.is_none(), "null parent masks child")?
+    outer = df.column_list("records", record, [0, 2, 4]?)?.to_frame()?
+    tree = outer.schema_tree()?
+    test.equal(len(tree), 5)?
+    test.equal([tree[0].parent, tree[1].parent, tree[2].parent, tree[3].parent, tree[4].parent]?, [-1, 0, 1, 2, 1]?)?
+    test.equal(tree[0].dtype, df.DType.List)?
+    test.equal(tree[1].dtype, df.DType.Struct)?
+    test.equal(tree[2].name, "numbers")?
+    test.equal(tree[3].dtype, df.DType.I64)?
+    test.equal(tree[4].name, "label")?
+    outer.write_parquet("nested.parquet")?
+    scanned = df.scan_parquet("nested.parquet")?
+    test.equal(scanned.schema_tree()?, tree)?
+    read = scanned.collect_streaming()?
+    last_record = read.lazy()?.select([df.col("records")?.list_get(-1)?.struct_field("label")?.alias("label")?]?)?.collect()?
+    test.check(last_record.get_str("label", 0)?.is_none(), "null struct survives parquet")?
+    test.equal(last_record.get_str("label", 1)?, Some("d"))?
+    outer_parts = read.column("records")?.list_parts()?
+    nested_parts = outer_parts.values.struct_parts()?
+    test.equal(nested_parts.valid, [True, False, True, True]?)?
+    number_parts = nested_parts.fields.column("numbers")?.list_parts()?
+    test.equal(number_parts.offsets, [0, 2, 2, 2, 3]?)?
+
+    empty_values: list[i64] = []?
+    empty = df.column_i64("item", empty_values)?
+    zero = df.column_list("zero", empty, [0]?)?
+    test.equal(zero.len()?, 0)?
+    zero_parts = zero.list_parts()?
+    test.equal(zero_parts.offsets, [0]?)?
+    nulls = df.column_list_nullable("nulls", empty, [0, 0, 0]?, [False, False]?)?
+    null_parts = nulls.list_parts()?
+    test.equal(null_parts.valid, [False, False]?)?
+    test.equal(nulls.to_frame()?.schema_tree()?[1].dtype, df.DType.I64)?
+    match df.column_list("bad", empty, [1]?):
+        case Err(df.DataFrameError.Schema(_)):
+            pass
+        case _:
+            test.fail("invalid offsets accepted")?
+    match df.column_list_nullable("bad", parts.values, [0, 3]?, [False]?):
+        case Err(df.DataFrameError.Schema(_)):
+            pass
+        case _:
+            test.fail("null list with hidden children accepted")?
+    match empty.struct_parts():
+        case Err(_):
+            pass
+        case _:
+            test.fail("wrong nested dtype accepted")?
+    match record.to_frame()?.lazy()?.select([df.col("record")?.struct_field("absent")?]?)?.collect():
+        case Err(_):
+            pass
+        case _:
+            test.fail("missing struct field accepted")?
+    print("dataframe nested ok")?
+    Ok(())

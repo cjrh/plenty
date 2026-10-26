@@ -151,6 +151,8 @@ mod asof;
 pub use asof::*;
 mod temporal;
 pub use temporal::*;
+mod nested;
+pub use nested::*;
 
 /// # Safety
 /// Borrow a non-null error owner for the call.

@@ -9,6 +9,23 @@ opaque RawExprs
 opaque RawQuery
 opaque RawSortKeys
 opaque RawCsvSchema
+opaque RawSchemaTree
+
+extern def nested_list_raw(name: &str as utf8, child: RawColumn, offsets: &list[i64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_list"
+extern def nested_struct_raw(name: &str as utf8, fields: RawFrame, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_struct"
+extern def frame_column_raw(frame: RawFrame, name: &str as utf8, out: &mut RawColumn) -> RawError = "pldf_v1_frame_column"
+extern def column_frame_raw(column: RawColumn, out: &mut RawFrame) -> RawError = "pldf_v1_column_frame"
+extern def column_len_raw(column: RawColumn, out: &mut i64) -> RawError = "pldf_v1_column_len"
+extern def list_parts_raw(column: RawColumn, child: &mut RawColumn, offsets: &mut list[i64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_list_parts"
+extern def struct_parts_raw(column: RawColumn, fields: &mut RawFrame, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_struct_parts"
+extern def schema_tree_drop(tree: RawSchemaTree) -> () = "pldf_v1_schema_tree_drop"
+extern def frame_schema_tree_raw(frame: RawFrame, out: &mut RawSchemaTree) -> RawError = "pldf_v1_frame_schema_tree"
+extern def query_schema_tree_raw(query: RawQuery, out: &mut RawSchemaTree) -> RawError = "pldf_v1_query_schema_tree"
+extern def schema_tree_len_raw(tree: RawSchemaTree, out: &mut i64) -> RawError = "pldf_v1_schema_tree_len"
+extern def schema_tree_copy_raw(tree: RawSchemaTree, parents: &mut list[i64] as strided, fields: &mut RawStrings) -> RawError = "pldf_v1_schema_tree_copy"
+extern def list_len_raw(expr: RawExpr, out: &mut RawExpr) -> RawError = "pldf_v1_list_len"
+extern def list_get_raw(expr: RawExpr, index: i64, out: &mut RawExpr) -> RawError = "pldf_v1_list_get"
+extern def struct_field_raw(expr: RawExpr, name: &str as utf8, out: &mut RawExpr) -> RawError = "pldf_v1_struct_field"
 
 extern def error_drop(raw: RawError) -> () = "pldf_v1_error_drop"
 extern def column_drop(raw: RawColumn) -> () = "pldf_v1_column_drop"
@@ -119,11 +136,43 @@ pub enum DType:
     String
     Date
     Datetime(TimeUnit, Option[str])
+    List
+    Struct
     Other(str)
 
 pub class Field:
     pub name: str
     pub dtype: DType
+
+# Preorder indexes describe a tree without making ordinary DType values recursive.
+pub class SchemaNode:
+    pub parent: i64
+    pub name: str
+    pub dtype: DType
+
+class SchemaTree:
+    raw: RawSchemaTree
+    def __init__(self) -> ():
+        self.raw = RawSchemaTree.null()
+    def __del__(self) -> ():
+        schema_tree_drop(self.raw)
+    def unpack(self) -> Result[list[SchemaNode], DataFrameError]:
+        mut count = 0
+        checked(schema_tree_len_raw(self.raw, &mut count))?
+        mut parents = allocated([0 for _ in range(count)])?
+        mut strings = Strings()
+        checked(schema_tree_copy_raw(self.raw, &mut parents, &mut strings.raw))?
+        descriptions = fields(strings)?
+        allocated([SchemaNode(parents[i], descriptions[i].name, descriptions[i].dtype) for i in range(count)])
+
+pub class ListParts:
+    pub values: Column
+    pub offsets: list[i64]
+    pub valid: list[bool]
+
+pub class StructParts:
+    pub fields: DataFrame
+    pub valid: list[bool]
 
 def scalar_dtype(dtype: DType) -> Result[i32, DataFrameError]:
     match dtype:
@@ -298,6 +347,10 @@ def fields(strings: &Strings) -> Result[list[Field], DataFrameError]:
                 DType.String
             case "Date":
                 DType.Date
+            case "List":
+                DType.List
+            case "Struct":
+                DType.Struct
             case _:
                 temporal_dtype(native)?
         allocated(out.append(Field(name, dtype)))?
@@ -317,6 +370,29 @@ pub class Column:
         self.raw = RawColumn.null()
     def __del__(self) -> ():
         column_drop(self.raw)
+    pub def len(self) -> Result[i64, DataFrameError]:
+        mut out = 0
+        checked(column_len_raw(self.raw, &mut out))?
+        Ok(out)
+    pub def to_frame(self) -> Result[DataFrame, DataFrameError]:
+        mut out = DataFrame()
+        checked(column_frame_raw(self.raw, &mut out.raw))?
+        Ok(out)
+    pub def list_parts(self) -> Result[ListParts, DataFrameError]:
+        count = self.len()?
+        mut values = Column()
+        mut offsets = allocated([0 for _ in range(count + 1)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(list_parts_raw(self.raw, &mut values.raw, &mut offsets, &mut valid))?
+        present = allocated([*v != 0u8 for v in &valid])?
+        Ok(ListParts(values, offsets, present))
+    pub def struct_parts(self) -> Result[StructParts, DataFrameError]:
+        count = self.len()?
+        mut fields = DataFrame()
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(struct_parts_raw(self.raw, &mut fields.raw, &mut valid))?
+        present = allocated([*v != 0u8 for v in &valid])?
+        Ok(StructParts(fields, present))
 
 pub class DataFrame:
     raw: RawFrame
@@ -324,6 +400,14 @@ pub class DataFrame:
         self.raw = RawFrame.null()
     def __del__(self) -> ():
         frame_drop(self.raw)
+    pub def column(self, name: &str) -> Result[Column, DataFrameError]:
+        mut out = Column()
+        checked(frame_column_raw(self.raw, name, &mut out.raw))?
+        Ok(out)
+    pub def schema_tree(self) -> Result[list[SchemaNode], DataFrameError]:
+        mut out = SchemaTree()
+        checked(frame_schema_tree_raw(self.raw, &mut out.raw))?
+        out.unpack()
     pub def height(self) -> Result[i64, DataFrameError]:
         mut out = 0
         checked(height_raw(self.raw, &mut out))?
@@ -446,6 +530,18 @@ pub class Expr:
         self.raw = RawExpr.null()
     def __del__(self) -> ():
         expr_drop(self.raw)
+    pub def list_len(self) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(list_len_raw(self.raw, &mut out.raw))?
+        Ok(out)
+    pub def list_get(self, index: i64) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(list_get_raw(self.raw, index, &mut out.raw))?
+        Ok(out)
+    pub def struct_field(self, name: &str) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(struct_field_raw(self.raw, name, &mut out.raw))?
+        Ok(out)
     pub def str_to_date(self, format: &str = "%Y-%m-%d", strict: bool = True) -> Result[Expr, DataFrameError]:
         mut out = Expr()
         checked(str_to_date_raw(self.raw, format, 1u8 if strict else 0u8, &mut out.raw))?
@@ -617,6 +713,10 @@ class SortKeys:
 
 pub class Query:
     raw: RawQuery
+    pub def schema_tree(self) -> Result[list[SchemaNode], DataFrameError]:
+        mut out = SchemaTree()
+        checked(query_schema_tree_raw(self.raw, &mut out.raw))?
+        out.unpack()
     def __init__(self) -> ():
         self.raw = RawQuery.null()
     def __del__(self) -> ():
@@ -703,6 +803,26 @@ def expression_list(expressions: &list[Expr]) -> Result[Exprs, DataFrameError]:
     checked(exprs_new_raw(&mut out.raw))?
     for expr in expressions:
         checked(exprs_add_raw(out.raw, expr.raw))?
+    Ok(out)
+
+pub def column_list(name: &str, values: &Column, offsets: &list[i64]) -> Result[Column, DataFrameError]:
+    valid = allocated([True for _ in range(len(offsets) - 1)])?
+    column_list_nullable(name, values, offsets, valid)
+
+pub def column_list_nullable(name: &str, values: &Column, offsets: &list[i64], valid: &list[bool]) -> Result[Column, DataFrameError]:
+    flags = allocated([1u8 if *v else 0u8 for v in valid])?
+    mut out = Column()
+    checked(nested_list_raw(name, values.raw, offsets, flags, &mut out.raw))?
+    Ok(out)
+
+pub def column_struct(name: &str, fields: &DataFrame) -> Result[Column, DataFrameError]:
+    valid = allocated([True for _ in range(fields.height()?)])?
+    column_struct_nullable(name, fields, valid)
+
+pub def column_struct_nullable(name: &str, fields: &DataFrame, valid: &list[bool]) -> Result[Column, DataFrameError]:
+    flags = allocated([1u8 if *v else 0u8 for v in valid])?
+    mut out = Column()
+    checked(nested_struct_raw(name, fields.raw, flags, &mut out.raw))?
     Ok(out)
 
 pub def frame(columns: &list[Column]) -> Result[DataFrame, DataFrameError]:

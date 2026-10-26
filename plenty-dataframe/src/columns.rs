@@ -2,7 +2,7 @@
 use super::*;
 
 #[derive(Debug)]
-pub struct NativeStrings(Vec<Option<String>>);
+pub struct NativeStrings(pub(super) Vec<Option<String>>);
 destroy!(pldf_v1_strings_drop, NativeStrings);
 
 fn flag(value: u8) -> Result<bool> {
@@ -603,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn parquet_schema_reports_unsupported_types_without_collecting_rows() {
+    fn parquet_schema_reports_types_without_collecting_rows() {
         let nested = Series::new("nested".into(), &[Series::new("".into(), &[1i64, 2])]);
         let mut frame = DataFrame::new(
             1,
@@ -632,7 +632,7 @@ mod tests {
                     Some("small".into()),
                     Some("Int32".into()),
                     Some("nested".into()),
-                    Some("List(Int64)".into())
+                    Some("List".into())
                 ]
             );
             assert_eq!(packed_copy(eager), packed_copy(lazy));

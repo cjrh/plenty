@@ -17,4 +17,4 @@ strip = "debuginfo"
 chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
 # Polars 0.55.2's string dispatch imports polars_time unconditionally. Temporal
 # enables that supported dependency path and the Date/Datetime expression kernels.
-polars = { version = "=0.55.2", default-features = false, features = ["asof_join", "csv", "dtype-date", "dtype-datetime", "lazy", "parquet", "regex", "semi_anti_join", "strings", "temporal"] }
+polars = { version = "=0.55.2", default-features = false, features = ["asof_join", "csv", "dtype-date", "dtype-datetime", "dtype-struct", "lazy", "parquet", "regex", "semi_anti_join", "strings", "temporal"] }

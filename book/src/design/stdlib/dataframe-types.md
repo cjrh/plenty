@@ -60,11 +60,11 @@ All these allocations remain subject to the [native OOM limitation](dataframe.md
 Each `Field` has public `name: str` and `dtype: DType` fields.
 
 `DType` has `I64`, `F64`, `Bool`, `String`, `Date`,
-`Datetime(TimeUnit, Option[str])` and `Other(str)` variants.
+`Datetime(TimeUnit, Option[str])`, `List`, `Struct` and `Other(str)` variants.
 Datetime metadata identifies its unit and optional timezone label; construction
 and extraction currently support naive and UTC values only.
 `Other(description)` preserves the engine's native dtype description,
-including narrower numeric or nested types. It does not imply that
+including unexposed numeric or fixed-size array types. It does not imply that
 a type can be extracted or that the description is a stable serialization
 format. Do not parse that text to manufacture a cast.
 
@@ -77,3 +77,6 @@ or consume the query.
 
 See the [runnable lesson](../../tutorial/special-purpose/dataframe-types.md)
 and the [signature index](signatures.md#stddataframe).
+
+[Nested columns](dataframe-nested.md) add `List` and `Struct` dtype variants,
+column-oriented construction/extraction and structured `schema_tree()` inspection.
