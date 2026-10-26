@@ -1800,6 +1800,29 @@ def render(source: &Bytes, bounds: &Limits) -> Result[Bytes, MarkdownError]
 def to_html(text: &str, bounds: &Limits) -> Result[str, MarkdownError]
 ```
 
+## `std.template`
+
+Bounded Jinja-style text templates with explicit JSON values, HTML escaping, conditions, loops and named inheritance. Errors: `TemplateError`. [Reference](template.md).
+
+```text
+enum TemplateError
+    InvalidLimits | LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | Allocation(AllocError) | Bytes(BytesError)
+class Limits
+    max_source: i64
+    max_tokens: i64
+    max_templates: i64
+    max_context_nodes: i64
+    max_context_bytes: i64
+    max_depth: i64
+    max_steps: i64
+    max_output: i64
+def limits() -> Limits
+class Engine
+    def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]
+    def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]
+def engine(bounds: &Limits) -> Result[Engine, TemplateError]
+```
+
 ## `std.math`
 
 Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants. Errors: `MathError`. [Reference](math.md).
