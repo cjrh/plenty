@@ -1,0 +1,22 @@
+import report
+import std.dataframe as df
+
+# Convert the raw text ingestion schema, or inspect a typed daily result.
+def main() -> Result[i32, df.DataFrameError | AllocError | IoError]:
+    argv = args()?
+    if len(argv) != 4:
+        write_stderr("Usage: convert ingest|inspect INPUT OUTPUT\n")?
+        return Ok(2)
+    if argv[1] == "ingest":
+        report.scan_orders("csv", argv[2])?.sink_parquet(argv[3])?
+    elif argv[1] == "inspect":
+        result = df.scan_parquet(argv[2])?.collect()?
+        # The typed getter rejects String/I64: it verifies the Parquet Date.
+        drop(result.values_date_days("day")?)
+        result.lazy()?.with_columns([
+            df.col("day")?.dt_format("%Y-%m-%d")?
+        ]?)?.collect()?.write_csv(argv[3])?
+    else:
+        write_stderr("convert: expected ingest or inspect\n")?
+        return Ok(2)
+    Ok(0)

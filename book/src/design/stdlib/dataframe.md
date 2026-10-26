@@ -4,6 +4,8 @@ Polars-backed analytical dataframes, expression plans and CSV/Parquet files.
 The optional, separately compiled engine is reused by every Plenty program.
 See [installation and deployment](dataframe-engine.md) and the
 [tutorial](../../tutorial/special-purpose/dataframes.md).
+The [daily sales report application](../../tutorial/special-purpose/dataframe-application.md)
+combines ingestion, checked catalogue joins, row quarantine and typed exports.
 
 Use `clist[T]` for a lightweight mutable columnar collection with a
 compile-time class schema and Plenty arithmetic. Use `std.dataframe` for
