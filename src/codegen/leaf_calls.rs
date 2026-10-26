@@ -16,6 +16,10 @@ pub(super) fn scalar(ty: &Ty) -> bool {
     ty.is_numeric() || *ty == Ty::Bool
 }
 
+fn borrowed_input(ty: &Ty) -> bool {
+    matches!(ty, Ty::Ref(t, false) if scalar(t) || matches!(**t, Ty::Class(_)))
+}
+
 fn marker(op: &Op) -> bool {
     matches!(
         op,
@@ -46,7 +50,7 @@ pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<St
                 .sig
                 .inputs
                 .iter()
-                .all(|(_, ty)| scalar(ty) || matches!(ty, Ty::Ref(t, false) if scalar(t)))
+                .all(|(_, ty)| scalar(ty) || borrowed_input(ty))
             || !matches!(function.sig.outputs.as_slice(), [ty] if scalar(ty))
         {
             continue;
@@ -61,6 +65,10 @@ pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<St
                 && match op {
                     Op::LoadLocal(slot) => (*slot as usize) < function.sig.inputs.len(),
                     Op::ReadRef(ty) => scalar(ty),
+                    Op::Reborrow(ty) => borrowed_input(ty),
+                    Op::Class(crate::record::ClassOp::FieldRef(class, index, false)) => {
+                        scalar(&class.get().fields[*index].1)
+                    }
                     Op::PushInt(_)
                     | Op::PushFloat { .. }
                     | Op::PushBool(_)

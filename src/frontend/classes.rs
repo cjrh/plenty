@@ -249,6 +249,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
         let mut constructor_inputs = Vec::new();
         let mut constructor_defaults = Vec::new();
         for f in &mut methods {
+            operators::validate(f, aliases)?;
             let special = matches!(f.name.as_str(), "__init__" | "__del__");
             let Some((receiver, receiver_type)) = f.inputs.first() else {
                 return Err(f.at.error("methods require a self receiver"));
