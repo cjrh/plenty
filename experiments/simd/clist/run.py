@@ -43,7 +43,8 @@ assert sys.argv[-2] == "-o"
 subprocess.run(["cc", "-fuse-ld=bfd", *sys.argv[1:]], check=True)
 ''')
     wrapper.chmod(0o755)
-    subprocess.run([str(compiler), "--release", "--compile", str(source),
+    # Unstripped, so link.json carries no `--strip-all` and nm can read the harness.
+    subprocess.run([str(compiler), "--release", "--compile", "--no-strip", str(source),
                     "--linker", str(wrapper), "-o", str(out / "seed")], env=env, check=True)
     subprocess.run([str(compiler), "--release", "--dump", "clif,asm", str(source),
                     "-o", str(out / "dump")], env=env, check=True)

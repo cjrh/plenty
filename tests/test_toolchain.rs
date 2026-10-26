@@ -492,20 +492,21 @@ fn artifacts_are_reproducible_across_processes_and_paths() {
         };
         let mut artifacts = Vec::new();
         for (mode, name) in [
-            ("--emit-object", format!("app-{index}.o")),
-            ("--compile", format!("app-{index}")),
-            ("--static-library", format!("fixture-{index}.a")),
-            ("--shared-library", format!("fixture-{index}.so")),
+            (&["--emit-object"][..], format!("app-{index}.o")),
+            (&["--compile"], format!("app-{index}")),
+            (&["--compile", "--no-strip"], format!("unstripped-{index}")),
+            (&["--static-library"], format!("fixture-{index}.a")),
+            (&["--shared-library"], format!("fixture-{index}.so")),
         ] {
             let mut command = plenty();
             command
-                .arg(mode)
+                .args(mode)
                 .arg(&source)
                 .arg("-o")
                 .arg(out.join(&name));
             // The library name is an input: it names the exports and the
             // header, interface, and link-argument files written beside OUT.
-            if mode.ends_with("library") {
+            if mode[0].ends_with("library") {
                 command.args(["--library-name", "fixture"]);
             }
             success(command.output().unwrap());
@@ -531,5 +532,89 @@ fn artifacts_are_reproducible_across_processes_and_paths() {
         for (index, (first, next)) in snapshots[0].iter().zip(snapshot).enumerate() {
             assert!(first == next, "artifact {index} differs");
         }
+    }
+}
+
+/// Section names of the ELF file at `path`, and whether it has a symbol table.
+fn sections(path: &std::path::Path) -> (Vec<String>, bool) {
+    use object::{Object, ObjectSection};
+    let data = std::fs::read(path).unwrap();
+    let file = object::File::parse(&*data).unwrap();
+    let names = file
+        .sections()
+        .filter_map(|section| section.name().ok().map(str::to_owned))
+        .collect();
+    (names, file.symbol_table().is_some())
+}
+
+/// Executables and shared libraries drop the symbol table and debug sections
+/// unless `--no-strip` asks to keep them (issue #500). Trap reports read the
+/// compiler's site tables, not symbols, so a stripped program still reports
+/// where it failed; shared libraries keep their dynamic exports.
+#[test]
+fn outputs_are_stripped_unless_no_strip_is_given() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("main.plenty");
+    std::fs::write(
+        &source,
+        "export def answer(x: i64) -> i64 = \"fixture_answer\":\n    x + 1\n\ndef main() -> Result[(), AllocError | IoError]:\n    big: i8 = 127\n    print(big + 1i8)?\n    Ok(())\n",
+    )
+    .unwrap();
+    let build = |args: &[&str], output: &str| {
+        let path = temp.path().join(output);
+        let mut command = Command::new(env!("CARGO_BIN_EXE_plenty"));
+        command.args(args).arg(&source).arg("-o").arg(&path);
+        if args[0] == "--shared-library" {
+            command.args(["--library-name", "fixture"]);
+        }
+        success(command.output().unwrap());
+        path
+    };
+    for (args, kept) in [
+        (&["--compile"][..], false),
+        (&["--compile", "--no-strip"], true),
+    ] {
+        let program = build(args, if kept { "kept" } else { "stripped" });
+        let (names, symbols) = sections(&program);
+        let debug = names.iter().any(|name| name.starts_with(".debug_"));
+        assert_eq!((debug, symbols), (kept, kept), "{args:?}: {names:?}");
+        let output = Command::new(&program).output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("6:11: integer overflow"),
+            "{args:?}: {stderr}"
+        );
+    }
+    for (args, kept) in [
+        (&["--shared-library"][..], false),
+        (&["--shared-library", "--no-strip"], true),
+    ] {
+        let library = build(args, if kept { "kept.so" } else { "stripped.so" });
+        let (names, symbols) = sections(&library);
+        let debug = names.iter().any(|name| name.starts_with(".debug_"));
+        assert_eq!((debug, symbols), (kept, kept), "{args:?}: {names:?}");
+        let exports = success(
+            Command::new("nm")
+                .args(["-D", "--defined-only"])
+                .arg(&library)
+                .output()
+                .unwrap(),
+        );
+        assert!(String::from_utf8_lossy(&exports.stdout).contains(" fixture_answer\n"));
+    }
+    for mode in ["--emit-object", "--check", "--fuzz"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .args([mode, "--no-strip"])
+            .arg(&source)
+            .args(["-o", "unused"])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{mode}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("--no-strip requires --compile or --shared-library"),
+            "{mode}"
+        );
     }
 }

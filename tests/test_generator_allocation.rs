@@ -79,6 +79,7 @@ def main() -> ():
     .unwrap();
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
         .arg("--compile")
+        .arg("--no-strip")
         .arg(source)
         .arg("-o")
         .arg(&path)

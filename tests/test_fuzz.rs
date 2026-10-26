@@ -419,6 +419,10 @@ def main() -> Result[(), IoError]:
 "#,
         &archive,
     );
+    // Fuzz targets are debugged where they run, so they are never stripped.
+    let data = std::fs::read(&target).unwrap();
+    let file = object::File::parse(&*data).unwrap();
+    assert!(object::Object::symbol_table(&file).is_some());
     let output = Command::new(&target).output().unwrap();
     assert!(output.status.success(), "{output:?}");
     let text = String::from_utf8(output.stdout).unwrap();
