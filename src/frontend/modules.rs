@@ -76,6 +76,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.uuid", include_str!("../../stdlib/std/uuid.plenty")),
     ("std.csv", include_str!("../../stdlib/std/csv.plenty")),
     ("std.random", include_str!("../../stdlib/std/random.plenty")),
+    ("std.stat", include_str!("../../stdlib/std/stat.plenty")),
     (
         "std.secrets",
         include_str!("../../stdlib/std/secrets.plenty"),
