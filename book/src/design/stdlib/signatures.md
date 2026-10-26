@@ -650,6 +650,37 @@ class Deque[T]
     def clear(self: &mut Deque[T]) -> ()
 ```
 
+## `std.diff`
+
+Line, word, character, byte, and list differences as edit operations, with Myers and patience algorithms and unified-diff output. Errors: `AllocError`. [Reference](diff.md).
+
+```text
+enum Algorithm
+    Myers | Patience
+enum Kind
+    Equal | Delete | Insert
+class Op
+    kind: Kind
+    old_start: i64
+    old_end: i64
+    new_start: i64
+    new_end: i64
+    def old_len(self) -> i64
+    def new_len(self) -> i64
+    def is_equal(self) -> bool
+def diff[T](old: &list[T], new: &list[T], algorithm: Algorithm = Algorithm.Myers) -> Result[list[Op], AllocError]
+def diff_bytes(old: &Bytes, new: &Bytes, algorithm: Algorithm = Algorithm.Myers) -> Result[list[Op], AllocError]
+class TextDiff
+    def ops(self) -> &list[Op]
+    def old_tokens(self) -> &list[str]
+    def new_tokens(self) -> &list[str]
+    def has_changes(self) -> bool
+    def unified(self, context: i64, old_name: &str, new_name: &str) -> Result[str, AllocError]
+def lines(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]
+def words(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]
+def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]
+```
+
 ## `std.encoding`
 
 Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes`. Errors: `EncodingError`. [Reference](encoding.md).
@@ -867,6 +898,18 @@ class Walk
     def close(self: &mut Walk) -> ()
     def next(self: &mut Walk) -> Result[bool, WalkError]
 def walk(root: &Path, top_down: bool) -> Result[Walk, AllocError]
+```
+
+## `std.fs.dirs`
+
+The home directory and the XDG configuration, cache, data, and state directories, from the environment. Errors: `IoError`. [Reference](fs/dirs.md).
+
+```text
+def home_dir() -> Result[Option[Path], IoError]
+def config_dir() -> Result[Option[Path], IoError]
+def cache_dir() -> Result[Option[Path], IoError]
+def data_dir() -> Result[Option[Path], IoError]
+def state_dir() -> Result[Option[Path], IoError]
 ```
 
 ## `std.http`
@@ -2328,7 +2371,7 @@ def accept(tcp: TcpStream, config: &ServerConfig, deadline: &Deadline, cancel: &
 
 ## `std.toml`
 
-Strict TOML 1.0 parsing into a value tree and writing back as text, under depth, input, and output limits. Errors: `TomlError`. [Reference](toml.md).
+Strict TOML 1.0 parsing, value-tree writing and format-preserving document edits, under depth, input, and output limits. Errors: `TomlError`. [Reference](toml.md).
 
 ```text
 enum TomlFault
@@ -2367,6 +2410,14 @@ def find(entries: &list[Entry], key: &str) -> Option[i64]
 def encode(value: &Toml, bounds: &Limits) -> Result[Bytes, TomlError]
 def encode_text(value: &Toml, bounds: &Limits) -> Result[str, TomlError]
 def write_value[W: Writer](writer: &mut W, value: &Toml, bounds: &Limits) -> Result[(), TomlError]
+class Document
+    def text(self) -> Result[str, TomlError]
+    def get(self, path: &list[str]) -> Result[Option[Toml], TomlError]
+    def set(self: &mut Document, path: &list[str], value: &Toml) -> Result[(), TomlError]
+    def insert(self: &mut Document, path: &list[str], value: &Toml) -> Result[(), TomlError]
+    def remove(self: &mut Document, path: &list[str]) -> Result[bool, TomlError]
+def document(source: &Bytes, bounds: &Limits) -> Result[Document, TomlError]
+def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]
 ```
 
 ## `std.unicode`

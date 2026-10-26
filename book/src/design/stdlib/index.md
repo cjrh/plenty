@@ -28,11 +28,13 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.dataframe`](dataframe.md) | Optional Polars analytical expression plans, typed nullable columns, schema inspection, grouping, and CSV/Parquet I/O | `DataFrameError` |
 | [`std.db.sqlite`](sqlite.md) | SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit | `DbError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
+| [`std.diff`](diff.md) | Line, word, character, byte, and list differences as edit operations, with Myers and patience algorithms and unified-diff output | `AllocError` |
 | [`std.encoding`](encoding.md) | Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |
 | [`std.env`](env.md) | Environment variables as text or bytes, a detached snapshot, and the working directory | `IoError` |
 | [`std.error`](error.md) | Explicit error mapping, operation/path context, descriptions, and standard-error reports | Mapper-selected error, `Context[E]`, `AllocError` |
 | [`std.fmt`](fmt.md) | Static display/debug, bounded writer output and fallible strings | `FormatError` |
 | [`std.fs`](fs.md) | Directories, metadata/walking, rooted mutation, owned temporary resources, bounded copy/delete/glob | `IoError`, `AllocError`, `WalkError`, `FsError` |
+| [`std.fs.dirs`](fs/dirs.md) | The home directory and the XDG configuration, cache, data, and state directories, from the environment | `IoError` |
 | [`std.http`](http.md) | Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams | `HttpError` |
 | [`std.http.body`](http-body.md) | Bounded request bodies for handlers: URL-encoded forms, JSON, and multipart uploads into unnamed temporary files | `BodyError` |
 | [`std.http.client`](http-client.md) | HTTP/1.1 client: pooled connections, deadlines and cancellation, bounded redirects, an explicit proxy, and replay of idempotent requests only | `ClientError` |
@@ -67,7 +69,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.thread`](thread.md) | Explicit scoped thread and owned-job imports | `ThreadError`, `SpawnError[F]` |
 | [`std.time`](time.md) | Checked durations, monotonic instants and deadlines, wall timestamps, and sleep | `RangeError` |
 | [`std.tls`](tls.md) | TLS 1.2 and 1.3 client and server streams over `std.net` TCP, with verified certificates, client certificates, ALPN, deadlines, and cancellation | `TlsError` |
-| [`std.toml`](toml.md) | Strict TOML 1.0 parsing into a value tree and writing back as text, under depth, input, and output limits | `TomlError` |
+| [`std.toml`](toml.md) | Strict TOML 1.0 parsing, value-tree writing and format-preserving document edits, under depth, input, and output limits | `TomlError` |
 | [`std.unicode`](unicode.md) | Unicode 17 normalization, combining classes, and Mark classification | `TextError` |
 | [`std.url`](url.md) | Strict RFC 3986 absolute URL parsing and formatting without normalization, component-aware percent encoding, and query pairs | `UrlError` |
 
