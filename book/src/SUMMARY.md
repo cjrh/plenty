@@ -574,6 +574,7 @@
         - [Stack, scheduler and allocation choices](proposals/stackful-tasks/runtime.md)
         - [Native stackful-task spike evidence](proposals/stackful-tasks/evidence.md)
     - [Keyword arguments, defaults, and static unpacking](proposals/keyword-arguments-and-unpacking.md)
+    - [Returned enums that carry references](proposals/returned-reference-enums.md)
     - [Typestate and owned transitions](proposals/typestate-and-owned-transitions.md)
     - [Linear obligations](proposals/linear-obligations.md)
         - [Linear values, aggregates, and errors](proposals/linear-obligations/values-and-errors.md)
