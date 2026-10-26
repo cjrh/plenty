@@ -45,6 +45,9 @@ calls `std.net`, `std.process`, `std.crypto`, `std.compress`, `std.tls` or
 `std.db.sqlite` links none of their runtime code. A dispatcher shared by
 several modules would keep every module it reaches. `hello world` calls two
 entries, and its stripped executable is 356 KB rather than 790 KB (issue #501).
+`NATIVE_MODULES` in `tests/test_executable_size.rs` checks this for every
+module with native code; a new module adds a row there (see
+[size budgets](../01-building/linking.md#size-budgets)).
 
 The argument block holds three 16-byte inputs at offsets 0, 16 and 32, the
 result at 48, and further operands at 64 and 80. Each entry inlines the

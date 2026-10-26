@@ -2,7 +2,6 @@
 //! against published vectors (FIPS 180-2 examples, RFC 4231).
 mod support;
 use support::check_file_error as rejected;
-use support::operation_in;
 
 const HEADER: &str = r#"import std.bytes
 import std.crypto
@@ -362,42 +361,6 @@ def main() -> Result[(), AllocError | IoError | ThreadError]:
     assert_eq!(
         output(&source),
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-    );
-}
-
-/// Every program links with `--gc-sections`, and the hashing code sits behind
-/// its own runtime entry, so only programs that hash carry it.
-#[test]
-fn programs_that_never_hash_do_not_link_the_hashing_code() {
-    use object::{Object, ObjectSymbol, SymbolKind};
-    let symbols = |source: &str| {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("main.plenty");
-        let executable = dir.path().join("program");
-        std::fs::write(&path, source).unwrap();
-        support::compile_unstripped(&path, &executable);
-        let data = std::fs::read(&executable).unwrap();
-        let file = object::File::parse(&*data).unwrap();
-        file.symbols()
-            // Functions only: mold also names each GOT entry, `NAME$got`.
-            .filter(|symbol| symbol.kind() == SymbolKind::Text)
-            .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
-            .filter(|name| operation_in(name, 300..320) || name.contains("compress256"))
-            .collect::<Vec<_>>()
-    };
-    let plain = "def main() -> Result[(), AllocError | IoError]:\n    print(\"hi\")?\n    Ok(())\n";
-    assert_eq!(symbols(plain), Vec::<String>::new());
-    // Each `std.crypto` operation the program calls has its own entry.
-    let hashing = symbols(&program(
-        "print(hex(&std.crypto.sha256(&std.bytes.empty()?)?)?)?\n",
-    ));
-    assert!(
-        hashing.iter().any(|name| name.contains("compress256")),
-        "{hashing:?}"
-    );
-    assert!(
-        hashing.iter().any(|name| name.starts_with("plenty_op_")),
-        "{hashing:?}"
     );
 }
 

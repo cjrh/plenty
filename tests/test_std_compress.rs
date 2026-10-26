@@ -2,7 +2,7 @@
 //! fixtures from CPython's zlib and gzip modules and against the system
 //! `gzip` tool.
 mod support;
-use support::{build_file as build, operation_in, run_file as run};
+use support::{build_file as build, run_file as run};
 
 const HEADER: &str = r#"import std.bytes
 import std.compress
@@ -474,35 +474,6 @@ def main() -> Result[(), AllocError | IoError | ThreadError]:
 "#
     );
     assert_eq!(output(&source), "from a thread");
-}
-
-/// Every program links with `--gc-sections`, and the codecs sit behind their
-/// own runtime entry, so only programs that compress carry zlib-rs.
-#[test]
-fn programs_that_never_compress_do_not_link_the_codecs() {
-    use object::{Object, ObjectSymbol, SymbolKind};
-    let symbols = |source: &str| {
-        let (_dir, executable) = support::build_unstripped(source);
-        let data = std::fs::read(&executable).unwrap();
-        let file = object::File::parse(&*data).unwrap();
-        let count = file
-            .symbols()
-            // The linker keeps a file symbol for every archive member it
-            // opened, including ones whose sections were all discarded.
-            .filter(|symbol| symbol.kind() != SymbolKind::File)
-            .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
-            .filter(|name| operation_in(name, 320..340) || name.contains("zlib_rs"))
-            .count();
-        (count, data.len())
-    };
-    let plain = "def main() -> Result[(), AllocError | IoError]:\n    print(\"hi\")?\n    Ok(())\n";
-    let (count, plain_size) = symbols(plain);
-    assert_eq!(count, 0);
-    let (count, size) = symbols(&program(
-        "print(std.compress.compress(Format.Gzip, &std.bytes.empty()?, 6)?.len())?\n",
-    ));
-    assert!(count > 0);
-    assert!(size > plain_size);
 }
 
 #[cfg(feature = "runtime-checks")]
