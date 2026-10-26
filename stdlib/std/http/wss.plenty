@@ -1,0 +1,33 @@
+# `wss://` clients for std.http.websocket: the handshake over a std.tls
+# session verified against the caller's trust roots, with the URL's host as
+# the server name. A separate module so that plain WebSocket programs do
+# not link TLS. Servers accept `wss` through std.http.tls, whose exchanges
+# std.http.websocket.accept upgrades as plain ones. See
+# book/src/design/stdlib/websocket.md.
+import std.http.https
+import std.http.websocket
+import std.tls
+from std.http.client import ClientError
+from std.http.tls import TlsTransport
+from std.http.websocket import Config, WebSocket, WebSocketError
+from std.sync import CancellationToken
+from std.time import Deadline
+from std.tls import ClientConfig
+
+# Connects to a `wss://` URL. A `ws://` URL is UnsupportedScheme: use
+# std.http.websocket.connect. TLS failures are Connect(ClientError.Tls).
+pub def connect(url: &str, tls: &ClientConfig, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TlsTransport], WebSocketError]:
+    found = std.http.websocket.target(url)?
+    if not found.secure:
+        return Err(WebSocketError.UnsupportedScheme)
+    tcp = std.http.websocket.dial(&found, deadline, cancel)?
+    stream = match std.tls.connect(tcp, tls, &found.host, deadline, cancel):
+        case Ok(session):
+            session
+        case Err(error):
+            match std.http.https.secure_error(error):
+                case ClientError.Allocation(cause):
+                    return Err(WebSocketError.Allocation(cause))
+                case _ as other:
+                    return Err(WebSocketError.Connect(other))
+    std.http.websocket.handshake(TlsTransport(stream), &found, config, deadline, cancel)

@@ -350,4 +350,6 @@ totals they keep.
   body itself with [`std.compress`](compress.md) under its own size limit.
 - No HTTP/2, and no proxy for `https` other than an `http` proxy with
   `CONNECT`.
+- No protocol upgrades on pooled connections. WebSocket clients are in
+  [`std.http.websocket`](websocket.md), which opens connections with [`dial`](#transports).
 - Connecting tries addresses one after another, not in parallel.

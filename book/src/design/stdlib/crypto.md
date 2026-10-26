@@ -1,11 +1,11 @@
 # std.crypto
 
-`import std.crypto` computes SHA-256 and SHA-512 digests and HMAC tags over
+`import std.crypto` computes SHA-256, SHA-512 and legacy SHA-1 digests and HMAC tags over
 [`std.bytes`](bytes.md) buffers, and compares byte buffers in constant time.
 It has one error type, `CryptoError`.
 
-Every primitive is audited third-party code: the RustCrypto `sha2`, `hmac`,
-and `subtle` crates, compiled into the runtime. The Plenty module validates
+Every primitive is audited third-party code: the RustCrypto `sha2`, `sha1`,
+`hmac`, and `subtle` crates, compiled into the runtime. The Plenty module validates
 arguments and reports errors; it implements no cryptography. The module is
 available on the supported x86-64 Linux GNU target.
 
@@ -15,17 +15,23 @@ available on the supported x86-64 Linux GNU target.
 |---|---|---|
 | `sha256(data: &Bytes)` | `Result[Bytes, CryptoError]` | The 32-byte SHA-256 digest of `data` |
 | `sha512(data: &Bytes)` | `Result[Bytes, CryptoError]` | The 64-byte SHA-512 digest of `data` |
+| `sha1(data: &Bytes)` | `Result[Bytes, CryptoError]` | The 20-byte SHA-1 digest of `data`; legacy, see below |
 | `hmac_sha256(key: &Bytes, data: &Bytes)` | `Result[Bytes, CryptoError]` | The 32-byte HMAC-SHA-256 tag |
 | `hmac_sha512(key: &Bytes, data: &Bytes)` | `Result[Bytes, CryptoError]` | The 64-byte HMAC-SHA-512 tag |
 | `digest(algorithm: Algorithm)` | `Result[Digest, CryptoError]` | A new incremental digest |
 | `hmac(algorithm: Algorithm, key: &Bytes)` | `Result[Mac, CryptoError]` | A new incremental HMAC under `key` |
 | `equal(a: &Bytes, b: &Bytes)` | `bool` | Whether `a` and `b` hold the same bytes, in constant time |
-| `output_size(algorithm: Algorithm)` | `i64` | 32 for `Sha256`, 64 for `Sha512` |
+| `output_size(algorithm: Algorithm)` | `i64` | 32 for `Sha256`, 64 for `Sha512`, 20 for `Sha1` |
 
-`Algorithm` is `Sha256` or `Sha512`. HMAC follows RFC 2104 and accepts a key
+`Algorithm` is `Sha256`, `Sha512` or `Sha1`. HMAC follows RFC 2104 and accepts a key
 of any length, including empty; a key longer than the hash block (64 bytes for
-SHA-256, 128 for SHA-512) is hashed first. Choose a key of at least the output
+SHA-256 and SHA-1, 128 for SHA-512) is hashed first. Choose a key of at least the output
 size from [`std.secrets`](secrets.md).
+
+SHA-1 is broken for collision resistance: an attacker can make two inputs
+with the same digest. It is here only for protocols that fix it, such as the
+[WebSocket handshake](websocket.md) and Git object names. Do not use it for
+signatures, integrity checks against an adversary, or new designs.
 
 ## Incremental states
 
@@ -134,6 +140,7 @@ installed compiler needs neither the sources nor a Rust toolchain:
 | Crate | Version | Licence |
 |---|---|---|
 | `sha2` | 0.10.9 | MIT or Apache-2.0 |
+| `sha1` | 0.10.6 | MIT or Apache-2.0 |
 | `hmac` | 0.12.1 | MIT or Apache-2.0 |
 | `subtle` | 2.6.1 | BSD-3-Clause |
 | `digest`, `block-buffer`, `crypto-common` | 0.10.7, 0.10.4, 0.1.7 | MIT or Apache-2.0 |
@@ -155,6 +162,6 @@ only through its own runtime entry symbols, so a program that does not use
 
 - No encryption, authenticated encryption, signatures, or key exchange.
 - No key derivation (HKDF, PBKDF2, Argon2) and no password hashing.
-- No SHA-1, MD5, SHA-3, BLAKE2, or truncated SHA-512 variants.
+- No MD5, SHA-3, BLAKE2, or truncated SHA-512 variants.
 - No zero-on-drop buffer type; see [Key material](#key-material).
 - One target, x86-64 Linux GNU.
