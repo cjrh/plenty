@@ -1,0 +1,52 @@
+# The user's home directory and the XDG base directories for configuration,
+# caches, data and state, read from the environment on every call. Paths keep
+# the exact native bytes and are never created or checked for existence. See
+# book/src/design/stdlib/fs/dirs.md.
+import std.env
+from std.path import Path, from_bytes, from_text
+
+# An empty value counts as unset, as the XDG Base Directory specification and
+# the Rust `dirs` crate treat it.
+def nonempty(name: &str) -> Result[Option[Path], IoError]:
+    key = encode_utf8(name)?
+    match std.env.get_bytes(&key)?:
+        case Some(bytes):
+            if len(bytes) == 0:
+                return Ok(Nothing)
+            Ok(Some(from_bytes(bytes)))
+        case Nothing:
+            Ok(Nothing)
+
+# The specification says a relative value is invalid and must be ignored.
+def base(variable: &str, below_home: &str) -> Result[Option[Path], IoError]:
+    match nonempty(variable)?:
+        case Some(path):
+            if path.is_absolute():
+                return Ok(Some(path))
+        case Nothing:
+            pass
+    match home_dir()?:
+        case Some(home):
+            Ok(Some(home.join(&from_text(below_home)?)?))
+        case Nothing:
+            Ok(Nothing)
+
+# `HOME`, unchanged; `Nothing` when it is unset or empty.
+pub def home_dir() -> Result[Option[Path], IoError]:
+    nonempty("HOME")
+
+# `XDG_CONFIG_HOME` when absolute, otherwise `$HOME/.config`.
+pub def config_dir() -> Result[Option[Path], IoError]:
+    base("XDG_CONFIG_HOME", ".config")
+
+# `XDG_CACHE_HOME` when absolute, otherwise `$HOME/.cache`.
+pub def cache_dir() -> Result[Option[Path], IoError]:
+    base("XDG_CACHE_HOME", ".cache")
+
+# `XDG_DATA_HOME` when absolute, otherwise `$HOME/.local/share`.
+pub def data_dir() -> Result[Option[Path], IoError]:
+    base("XDG_DATA_HOME", ".local/share")
+
+# `XDG_STATE_HOME` when absolute, otherwise `$HOME/.local/state`.
+pub def state_dir() -> Result[Option[Path], IoError]:
+    base("XDG_STATE_HOME", ".local/state")
