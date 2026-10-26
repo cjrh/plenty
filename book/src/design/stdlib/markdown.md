@@ -226,3 +226,9 @@ See the runnable [Markdown lesson](../../tutorial/07-modules/21-standard-markdow
 The Unicode punctuation ranges and the HTML5 entity table are generated into
 the module by `scripts/gen_markdown_tables.py` from Python's `unicodedata` and
 `html.entities`; rerun it to move to a newer Unicode version.
+
+The parser and renderer are derived from commonmark.js 0.31.2, Copyright (c)
+2014 John MacFarlane, under the BSD-2-Clause license. The punctuation table
+derives from the Unicode Character Database (Unicode License v3) and the entity
+table from the WHATWG HTML Standard (BSD-3-Clause for portions in source code).
+Release archives include these notices in `THIRD-PARTY-NOTICES.md`.

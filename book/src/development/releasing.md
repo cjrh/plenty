@@ -209,7 +209,13 @@ archive ships `LICENSE-MIT` and `LICENSE-APACHE` from the repository root and
 from `cargo metadata`. It lists every crate linked into the compiler or its
 embedded runtime (normal dependencies only; build scripts and procedural macros
 do not ship) with each crate's own license files, plus the vendored SQLite
-amalgamation. The Rust standard library's notices come from the build
+amalgamation and the third-party code and data that standard library modules
+embed (`EMBEDDED`): `std.markdown` derives from commonmark.js 0.31.2
+(BSD-2-Clause) and carries tables generated from the Unicode Character Database
+(Unicode License v3) and the WHATWG HTML named character references
+(BSD-3-Clause for portions in source code). Their reviewed license texts are
+bundled in `scripts/release/licenses/`; update the entry and its text together
+when the upstream version changes. The Rust standard library's notices come from the build
 toolchain's `share/doc/rust`. The script fails when a shipped crate has no
 license file or reviewed fallback, so a new dependency's license is reviewed
 before it ships. For `iced-x86 1.21.0`, whose published crate omits its license
