@@ -43,3 +43,25 @@ Upgrades must re-audit these paths and rerun denial tests and residual tests.
 The patch deliberately favors recoverable allocation and bounded working
 storage over upstream heap-packed GEMM performance. Do not cite upstream faer timings as
 timings for this build.
+
+## Reproducible kernel comparison
+
+`python3 plenty-linalg/bench.py ENGINE [UPSTREAM_CONTROL] --cpu CPU` checks an
+all-ones product and reports medians/minima of seven samples. Each sample runs
+for at least 80 ms; setup/allocation is outside timing. The control uses this
+same C wrapper with unmodified faer 0.24.4, identical features and baseline
+`-C target-cpu=x86-64` flags. It is a measurement control only: its hidden
+allocations do not meet Plenty's failure contract.
+
+One local run on 2026-10-26, pinned to CPU 15, gave these median milliseconds
+for square f64 products using Plenty's 16-byte element slots:
+
+| Size | Allocation-safe engine | Upstream control |
+| --- | ---: | ---: |
+| 32 | 0.00532 | 0.00535 |
+| 128 | 0.15380 | 0.09946 |
+| 512 | 10.64561 | 5.27053 |
+
+These are kernel comparisons on one machine, not end-to-end Plenty timings or
+a portable speed guarantee. Larger products remain slower than upstream;
+preserve allocation-denial and residual tests when improving that path.
