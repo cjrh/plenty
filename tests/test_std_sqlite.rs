@@ -447,34 +447,6 @@ def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError | ThreadEr
     );
 }
 
-/// SQLite sits behind its own runtime entry and is compiled with function
-/// and data sections, so `--gc-sections` drops it from programs that never
-/// open a database.
-#[test]
-fn programs_without_databases_do_not_link_sqlite() {
-    use object::{Object, ObjectSymbol, SymbolKind};
-    let symbols = |source: &str| {
-        let (_dir, executable) = support::build_unstripped(source);
-        let data = std::fs::read(&executable).unwrap();
-        let file = object::File::parse(&*data).unwrap();
-        let count = file
-            .symbols()
-            .filter(|symbol| symbol.kind() != SymbolKind::File)
-            .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
-            .filter(|name| name == "plenty_sqlite" || name.starts_with("sqlite3"))
-            .count();
-        (count, data.len())
-    };
-    let plain = "def main() -> Result[(), AllocError | IoError]:\n    print(\"hi\")?\n    Ok(())\n";
-    let (count, plain_size) = symbols(plain);
-    assert_eq!(count, 0);
-    let (count, size) = symbols(&program(
-        "std.db.sqlite.memory(4096)?.execute(\"SELECT 1\")?\n",
-    ));
-    assert!(count > 0);
-    assert!(size > plain_size + 500_000, "{size} vs {plain_size}");
-}
-
 #[test]
 fn the_vendored_sources_are_the_documented_release() {
     let root = env!("CARGO_MANIFEST_DIR");

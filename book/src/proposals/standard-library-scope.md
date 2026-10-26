@@ -68,6 +68,9 @@ A native wrapper must:
 - give each operation its own runtime entry symbol, as the `std.crypto`
   digests have, so the linker drops what a program does not call;
 - add no case to a shared runtime dispatcher;
+- add a row to `NATIVE_MODULES` in `tests/test_executable_size.rs`, which
+  checks that hello links none of the wrapper's code and a program using it
+  does ([size budgets](../design/toolchain/01-building/linking.md#size-budgets));
 - when large, ship as a separate engine needed only by programs that import
   it, following the [engine contract](../design/toolchain/01-building/engines.md)
   that the [`std.dataframe` engine](../design/stdlib/dataframe-engine.md) uses.

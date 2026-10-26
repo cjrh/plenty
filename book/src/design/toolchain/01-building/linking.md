@@ -94,6 +94,28 @@ stripping to the external link (see below). In the Rust API,
 Stripping is part of the linker's deterministic output and does not change the
 reproducibility contract below; package build fingerprints include it.
 
+## Size budgets
+
+`tests/test_executable_size.rs` fails when a small program grows past its
+budget. Measured with the runtime from issues #500, #501 and #503:
+
+| Program | Stripped file | `.text` | Budget (file, `.text`) |
+|---|---:|---:|---:|
+| empty `main` | 47,648 bytes | 21,153 bytes | 54,000, 24,000 |
+| `print("hello")` | 113,544 bytes | 69,137 bytes | 128,000, 78,000 |
+
+The `runtime-checks` test feature links a runtime with allocation accounting,
+about 6–9 KB larger; it has its own budgets.
+
+The same file checks, for each `std` module with runtime native code, that
+hello links none of that code, that importing any `std` module links none of
+it, and that a program calling the module does link it. Its `NATIVE_MODULES`
+table names each module, a program, and the symbols that prove the code is
+linked: the module's [entry symbols](../02-architecture/runtime.md#entry-symbols)
+and, for a vendored library, part of its symbol names. A new native wrapper
+adds a row. Raising a budget is a reviewed change that records the new
+measurement beside `BUDGETS`.
+
 ## Reproducible artifacts
 
 Generated code uses the original x86-64/SSE2 baseline, regardless of the
