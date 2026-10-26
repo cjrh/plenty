@@ -31,3 +31,7 @@ fingerprint bytes. Readers validate the count/shape and exact length before
 allocation, and reject values beyond the caller's limit. It is a Plenty-specific
 versioned checkpoint, not the `xorf` crate's representation. It has no integrity
 checksum: valid-looking corruption can introduce false negatives.
+
+## Acknowledgements
+
+- Uses the [xor filter](https://arxiv.org/abs/1912.08258) by Thomas Mueller Graf and Daniel Lemire (2020).

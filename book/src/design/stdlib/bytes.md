@@ -295,7 +295,7 @@ as `Result[i64, IoError]`, and never changes the buffer's length or capacity.
 | `read_file(file: &mut File, start, stop)` | exclusive | Read into `self[start:stop]`; zero for a nonempty range is end of input |
 | `write_file(file: &mut File, start, stop)` | shared | Write a prefix of `self[start:stop]` |
 | `read_stdin(start, stop)` | exclusive | Read standard input into `self[start:stop]` |
-| `write_stdout(start, stop)`, `write_stderr(start, stop)` | shared | Write a prefix of the range to the process stream's buffer |
+| `write_stdout(start, stop)`, `write_stderr(start, stop)` | shared | Write a prefix of the range to the process stream (buffered stdout, unbuffered stderr) |
 | `read_os_entropy(start, stop)` | exclusive | One `getrandom(2)` request into `self[start:stop]` |
 
 A count below the range length is normal. A range outside the buffer is
@@ -319,3 +319,8 @@ progress.
 The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with
 `from_list` and `to_list`; each conversion allocates and copies.
+
+## Acknowledgements
+
+- `find_bytes` uses the [two-way](https://doi.org/10.1145/116825.116845) string-matching algorithm by Maxime Crochemore and Dominique Perrin (1991), as Rust's `core` string search does.
+- Word-at-a-time scans use the zero-byte test from Sean Eron Anderson's [Bit Twiddling Hacks](https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord), which credits a 1987 newsgroup post by Alan Mycroft.

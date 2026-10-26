@@ -116,3 +116,7 @@ type mismatches, cycles, allocation failures and byte-buffer errors. Syntax
 locations are UTF-8 byte offsets at the containing template construct, rather
 than at an individual expression character. Allocation errors remain explicit, including those
 wrapped by `BytesError`.
+
+## Acknowledgements
+
+- Syntax is a subset of [Jinja](https://jinja.palletsprojects.com/), with [Tera](https://keats.github.io/tera/) as the syntax and behaviour reference.

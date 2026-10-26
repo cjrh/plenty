@@ -71,3 +71,7 @@ Algorithms are checked Plenty using `std.bytes`; no new OS backend is required.
 Sources and storage primitives are bundled for offline compilation with a
 relocated matching toolchain on x86_64 Linux GNU. See the
 [runnable lesson](../../tutorial/08-resources/25-text-unicode.md).
+
+## Acknowledgements
+
+- `Builder` is modelled on Go's [`strings.Builder`](https://pkg.go.dev/strings#Builder); `join` follows Python's [`str.join`](https://docs.python.org/3/library/stdtypes.html#str.join).

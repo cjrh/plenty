@@ -89,3 +89,7 @@ complete program.
   signal, and no way to catch a signal more than once.
 - A library compiled from Plenty does not catch signals unless its code
   calls `listen`; the host's dispositions are its own.
+
+## Acknowledgements
+
+- Uses D. J. Bernstein's [self-pipe trick](https://cr.yp.to/docs/selfpipe.html), with a socket pair in place of the pipe.

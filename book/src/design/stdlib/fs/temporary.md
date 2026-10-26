@@ -68,3 +68,7 @@ Temporary names/owners and copies are allocated fallibly. A temporary file
 holds its file descriptor and a duplicate root descriptor. A temporary
 directory holds its directory and parent descriptors plus its name bytes.
 See [root rules](helpers.md) and [bounded operations](operations.md).
+
+## Acknowledgements
+
+- Design references: the Rust [`tempfile`](https://crates.io/crates/tempfile) crate and the directory-rooted operations of [`cap-std`](https://crates.io/crates/cap-std).

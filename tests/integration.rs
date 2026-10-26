@@ -386,6 +386,8 @@ mod test_std_archive;
 mod test_std_atomic;
 #[path = "test_std_bytes.rs"]
 mod test_std_bytes;
+#[path = "test_std_cache_lru.rs"]
+mod test_std_cache_lru;
 #[path = "test_std_cli_progress.rs"]
 mod test_std_cli_progress;
 #[path = "test_std_collections.rs"]

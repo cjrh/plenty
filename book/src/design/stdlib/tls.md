@@ -352,3 +352,8 @@ certificates and application protocols.
 - HTTPS in [`std.http`](http.md) is not built in; wrap a `TlsStream` with its
   framing.
 - One target, x86-64 Linux GNU.
+
+## Acknowledgements
+
+- Wraps [rustls](https://github.com/rustls/rustls) 0.23.46 with the [ring](https://github.com/briansmith/ring) 0.17.14 crypto provider and [rustls-webpki](https://github.com/rustls/webpki) 0.103.15, vendored in the runtime; see [Supply](#supply) for licences.
+- The CA bundle paths are drawn from the Linux list in Go's [`crypto/x509`](https://go.dev/src/crypto/x509/root_linux.go).

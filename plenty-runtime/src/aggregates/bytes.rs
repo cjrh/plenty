@@ -119,7 +119,7 @@ pub(super) unsafe fn call(
                 Ok(strings::try_new(text)? as u128)
             }
             146 => write(&*(a as *const Collection), &mut std::io::stdout().lock()),
-            147 => write(&*(a as *const Collection), &mut std::io::stderr().lock()),
+            147 => write(&*(a as *const Collection), &mut crate::io::stderr()),
             148 | 149 => {
                 let path = contiguous(&*(a as *const Collection))?;
                 let mut file = text_io::open_file_bytes(

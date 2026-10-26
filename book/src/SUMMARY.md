@@ -355,6 +355,7 @@
         - [`std.archive`](design/stdlib/archive.md)
         - [`std.atomic`](design/stdlib/atomic.md)
         - [`std.bytes`](design/stdlib/bytes.md)
+        - [`std.cache.lru`](design/stdlib/cache-lru.md)
         - [`std.channel`](design/stdlib/channel.md)
         - [`std.cli`](design/stdlib/cli.md)
         - [`std.cli.progress`](design/stdlib/cli-progress.md)

@@ -91,3 +91,8 @@ The crate audit for issues #496–#498 found infallible allocations in
 (`prelude/mod.rs`), and `scalable_cuckoo_filter` 0.5.1 (`bits.rs`). Small direct
 implementations keep Plenty's recoverable allocation policy without a native
 dependency or ABI.
+
+## Acknowledgements
+
+- Uses the [HyperLogLog](https://algo.inria.fr/flajolet/Publications/FlFuGaMe07.pdf) algorithm by Philippe Flajolet, Éric Fusy, Olivier Gandouet and Frédéric Meunier (2007).
+- Uses reservoir Algorithm R as described by [Jeffrey Vitter](https://doi.org/10.1145/3147.3165) (1985).

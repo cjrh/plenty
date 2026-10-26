@@ -186,3 +186,8 @@ its Unicode tables would enlarge every program that imports `std.regex`. The
 syntax is the subset of the Rust crate's syntax with the same meaning, except
 that Perl classes and `\b` are ASCII-only, which the tests check against
 the crate.
+
+## Acknowledgements
+
+- Syntax and match semantics follow the Rust [`regex`](https://docs.rs/regex/1.12.3/regex/) crate 1.12.3.
+- Matching uses Rob Pike's virtual machine, as described by Russ Cox in ["Regular Expression Matching: the Virtual Machine Approach"](https://swtch.com/~rsc/regexp/regexp2.html) (2009).

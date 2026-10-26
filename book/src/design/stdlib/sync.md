@@ -79,3 +79,7 @@ it.
 Atomic integers and booleans are in [`std.atomic`](atomic.md). The shared
 owner `Shared[T]` is a [prelude type](../facilities/01-builtins/shared.md).
 Semaphores, condition variables, and read-write locks are not exported.
+
+## Acknowledgements
+
+- `Mutex` uses mutex 2 from Ulrich Drepper's ["Futexes Are Tricky"](https://www.akkadia.org/drepper/futex.pdf).

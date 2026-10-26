@@ -468,3 +468,7 @@ timed out`, `handshake failed` and `accept failed`, most with a
 - `OPTIONS *` and `CONNECT` targets get `400`.
 - A trap in a handler ends the process; see
   [handler errors and traps](http-qualification.md#handler-errors-and-traps).
+
+## Acknowledgements
+
+- Route patterns (`{name}`, `{name...}`) follow Go's [`net/http` `ServeMux` patterns](https://pkg.go.dev/net/http#hdr-Patterns).

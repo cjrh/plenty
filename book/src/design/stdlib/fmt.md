@@ -167,3 +167,7 @@ Formatters are affine because they own `Bytes`; copying is rejected. Loans and
 worker transfers follow the underlying writer's normal ownership/effect rules.
 The embedded module works offline with a relocated matching toolchain on the
 supported x86-64 Linux GNU target and adds no external library dependency.
+
+## Acknowledgements
+
+- Format specs follow [Python's format specification mini-language](https://docs.python.org/3/library/string.html#formatspec).
