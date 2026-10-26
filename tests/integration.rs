@@ -404,6 +404,8 @@ mod test_std_env_process;
 mod test_std_fmt;
 #[path = "test_std_fs_dirs.rs"]
 mod test_std_fs_dirs;
+#[path = "test_std_fs_watch.rs"]
+mod test_std_fs_watch;
 #[path = "test_std_http.rs"]
 mod test_std_http;
 #[path = "test_std_http_client.rs"]

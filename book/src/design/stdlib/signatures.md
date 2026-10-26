@@ -938,6 +938,43 @@ def data_dir() -> Result[Option[Path], IoError]
 def state_dir() -> Result[Option[Path], IoError]
 ```
 
+## `std.fs.watch`
+
+Bounded Linux filesystem change batches, rename cookies, overflow and readiness waits. Errors: `WatchError`, `WaitError`. [Reference](fs/watch.md).
+
+```text
+enum WatchError
+    OutOfRange | InvalidData | Io(IoError) | Wait(WaitError) | Allocation(AllocError)
+class Event
+    watch: i32
+    cookie: u32
+    name: Path
+    def created(self) -> bool
+    def deleted(self) -> bool
+    def modified(self) -> bool
+    def metadata_changed(self) -> bool
+    def closed_after_write(self) -> bool
+    def moved_from(self) -> bool
+    def moved_to(self) -> bool
+    def deleted_self(self) -> bool
+    def moved_self(self) -> bool
+    def unmounted(self) -> bool
+    def overflowed(self) -> bool
+    def ignored(self) -> bool
+    def is_directory(self) -> bool
+class Watcher
+    def add(self: &mut Watcher, path: &Path) -> Result[i32, WatchError]
+    def remove(self: &mut Watcher, watch: i32) -> Result[(), WatchError]
+    def poll(self: &mut Watcher) -> Result[i64, WatchError]
+    def wait(self: &mut Watcher, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WatchError]
+    def count(self) -> i64
+    def event(self, index: i64) -> Result[Event, WatchError]
+    def register(self, selector: &mut Selector, key: u64) -> Result[(), WaitError]
+    def unregister(self, selector: &mut Selector) -> Result[(), WaitError]
+    def close(self: &mut Watcher) -> Result[(), WatchError]
+def watcher(batch_bytes: i64 = 4096) -> Result[Watcher, WatchError]
+```
+
 ## `std.http`
 
 Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams. Errors: `HttpError`. [Reference](http.md).

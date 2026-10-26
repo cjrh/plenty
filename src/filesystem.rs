@@ -33,6 +33,9 @@ pub enum FsOp {
     DuplicateRoot,
     MakeTemporaryDir,
     FileMetadata,
+    WatchOpen,
+    WatchAdd,
+    WatchRemove,
 }
 
 impl FsOp {
@@ -67,6 +70,9 @@ impl FsOp {
             "__fs_duplicate_root" => Self::DuplicateRoot,
             "__fs_make_temporary_dir" => Self::MakeTemporaryDir,
             "__fs_file_metadata" => Self::FileMetadata,
+            "__fs_watch_open" => Self::WatchOpen,
+            "__fs_watch_add" => Self::WatchAdd,
+            "__fs_watch_remove" => Self::WatchRemove,
             _ => return None,
         })
     }
@@ -101,6 +107,9 @@ impl FsOp {
             Self::Publish => (vec![Ty::File, Ty::File, bytes()], Ty::Unit),
             Self::SameDir => (vec![Ty::File, Ty::File, bytes()], Ty::Bool),
             Self::FileMetadata => (vec![Ty::File], Ty::FsMetadata),
+            Self::WatchOpen => (vec![], Ty::File),
+            Self::WatchAdd => (vec![Ty::File, bytes()], Ty::I32),
+            Self::WatchRemove => (vec![Ty::File, Ty::I32], Ty::Unit),
         };
         (inputs, sum::result(output, sum::io_error()))
     }
@@ -112,7 +121,8 @@ impl FsOp {
     pub fn opcode(self) -> i64 {
         match self as i64 {
             index @ 0..=14 => 150 + index,
-            index => 260 + index - 15,
+            index @ 15..=28 => 260 + index - 15,
+            index => 512 + index - 29,
         }
     }
 }
