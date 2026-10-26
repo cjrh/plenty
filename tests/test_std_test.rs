@@ -844,7 +844,7 @@ fn only_test_builds_link_the_hooks() {
         "import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n    std.test.fail_allocations_after(0u32)?\n    Ok(())\n",
     );
     let shipped = root.join("shipped");
-    plenty::compile_file_to_executable(&source, &shipped, None).unwrap();
+    support::compile_unstripped(&source, &shipped);
     let shipped = symbols(&shipped);
     for hook in ["plenty_test_fault", "__wrap_malloc", "__wrap_read"] {
         assert!(!shipped.contains(hook), "{hook} in a shipped program");

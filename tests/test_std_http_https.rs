@@ -298,8 +298,8 @@ def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetErro
 fn plain_clients_do_not_link_the_tls_stack() {
     use object::{Object, ObjectSymbol};
     let symbols = |source: &str| {
-        let dir = tempfile::tempdir().unwrap();
-        let data = std::fs::read(compile(source, dir.path())).unwrap();
+        let (_dir, executable) = support::build_unstripped(source);
+        let data = std::fs::read(executable).unwrap();
         let file = object::File::parse(&*data).unwrap();
         file.symbols()
             .filter_map(|symbol| symbol.name().ok().map(str::to_owned))

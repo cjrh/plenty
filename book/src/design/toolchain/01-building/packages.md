@@ -12,8 +12,8 @@ graph; imports never fetch or resolve packages.
 | `plenty new PATH [--lib] [--name NAME]` | Create `PATH` with a manifest, `src/main.plenty` (or `src/lib.plenty`), and `.gitignore` |
 | `plenty init [--lib] [--name NAME]` | Create a package in the current directory; refuses to replace a manifest or source |
 | `plenty check [--locked] [--offline]` | Check the library (without requiring `main`) and every executable |
-| `plenty build [--release] [--locked] [--offline]` | Check the library and compile every executable to `target/PROFILE/NAME` |
-| `plenty run [--release] [--locked] [--offline] [--bin NAME] [-- ARGS...]` | Build one executable and run it with `ARGS` |
+| `plenty build [--release] [--no-strip] [--locked] [--offline]` | Check the library and compile every executable to `target/PROFILE/NAME` |
+| `plenty run [--release] [--no-strip] [--locked] [--offline] [--bin NAME] [-- ARGS...]` | Build one executable and run it with `ARGS` |
 | `plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]` | Compile and run the package's [tests](#tests) |
 | `plenty add [ALIAS] SOURCE [--version REQ] [--offline]` | Add a [dependency](#adding-dependencies) to the manifest and lock it |
 | `plenty fetch [--locked] [--offline]` | Resolve, download, and lock every dependency without compiling |
@@ -23,7 +23,9 @@ graph; imports never fetch or resolve packages.
 | `plenty lsp` | Serve the [language server](language-server.md) on stdin and stdout |
 
 `--locked` fails instead of creating or changing `plenty.lock`. `--offline`
-never runs `git fetch`; it uses only the package cache in `.pkg/`.
+never runs `git fetch`; it uses only the package cache in `.pkg/`. Executables
+are [stripped](linking.md#symbols-and-debug-information) of their symbol table
+and debug sections in both profiles; `--no-strip` keeps them.
 
 The package name defaults to the directory name and must be a lowercase
 identifier other than `std`. Status lines go to standard error.

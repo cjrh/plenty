@@ -24,6 +24,10 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 `--release` before `FILE`, `--compile`, `--fuzz`, or `--dump` selects Cranelift's speed
 optimizations, like the [release profile](packages.md#profiles).
 
+`--compile` and `--shared-library` output is
+[stripped](linking.md#symbols-and-debug-information) of its symbol table and
+debug sections; `--no-strip` keeps them.
+
 Compiled functions are reused from the
 [compile cache](../02-architecture/cache.md), and so is a whole program's
 object when none of its sources changed. `--no-cache` compiles without it,

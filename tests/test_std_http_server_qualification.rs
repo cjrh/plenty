@@ -1293,6 +1293,7 @@ def main() -> Result[(), AllocError | ThreadError | std.http.server.ServerError 
     let executable = dir.path().join("service");
     let built = Command::new(&compiler)
         .arg("--compile")
+        .arg("--no-strip")
         .arg(&source)
         .arg("-o")
         .arg(&executable)
@@ -1640,11 +1641,13 @@ fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
     let mut offline = std::ffi::OsString::from(&stubs);
     offline.push(":");
     offline.push(&path);
-    plenty(&offline, &["build", "--offline", "--locked"]);
+    // Unstripped, so `backends` below can read the symbol table.
+    plenty(&offline, &["build", "--no-strip", "--offline", "--locked"]);
     let ran = plenty(
         &offline,
         &[
             "run",
+            "--no-strip",
             "--offline",
             "--locked",
             "--bin",

@@ -66,7 +66,8 @@ Every block of every function, including the standard library's, increments
 its own byte counter when it runs. The counters and a table of their
 functions are laid out as clang's `-fsanitize-coverage=inline-8bit-counters,pc-table`
 lays them out, in sections `__sancov_cntrs` and `__sancov_pcs`; the driver
-passes both to libFuzzer. `cov:` in libFuzzer's output counts the blocks
+passes both to libFuzzer. Fuzz targets keep their symbol table and debug
+sections, unlike [`--compile` output](linking.md#symbols-and-debug-information). `cov:` in libFuzzer's output counts the blocks
 reached, and `ft:` the features, which also distinguish how often a block
 ran.
 
