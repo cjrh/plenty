@@ -277,7 +277,7 @@ SHA-256, SHA-512, and HMAC over `std.bytes`, incremental or one-shot, and consta
 enum CryptoError
     OutOfRange | Finished | Allocation(AllocError)
 enum Algorithm
-    Sha256 | Sha512
+    Sha256 | Sha512 | Sha1
 def output_size(algorithm: Algorithm) -> i64
 class Digest
     def size(self) -> i64
@@ -296,6 +296,7 @@ def digest(algorithm: Algorithm) -> Result[Digest, CryptoError]
 def hmac(algorithm: Algorithm, key: &Bytes) -> Result[Mac, CryptoError]
 def sha256(data: &Bytes) -> Result[Bytes, CryptoError]
 def sha512(data: &Bytes) -> Result[Bytes, CryptoError]
+def sha1(data: &Bytes) -> Result[Bytes, CryptoError]
 def hmac_sha256(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def equal(a: &Bytes, b: &Bytes) -> bool
@@ -1234,6 +1235,8 @@ class Exchange[T]
     peer: Option[SocketAddress]
     def stopping(self) -> bool
     def cancelled(self) -> bool
+    def stop_token(self) -> CancellationToken
+    def cancel_token(self) -> CancellationToken
     def status(self) -> i64
     def sent(self) -> i64
     def read_body(self: &mut Exchange[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]
@@ -1244,6 +1247,7 @@ class Exchange[T]
     def start(self: &mut Exchange[T], head: ResponseHead) -> Result[(), HttpError]
     def write(self: &mut Exchange[T], source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]
     def end(self: &mut Exchange[T]) -> Result[(), HttpError]
+    def switch_protocols(self: &mut Exchange[T], head: ResponseHead) -> Result[(T, Bytes), HttpError]
 def reason(status: i64) -> str
 def serve_connection[T: Transport, R, E, H: Handler[T, R, E]](stream: T, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken) -> Report
 def serve_connection_from[T: Transport, R, E, H: Handler[T, R, E]](stream: T, peer: Option[SocketAddress], router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken) -> Report
@@ -1311,6 +1315,51 @@ class Body[E, R]
     def trailers(self) -> &list[Header]
     def read(self: &mut Body[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
     def finish(self: &mut Body[E, R]) -> Result[R, FramingError[E]]
+```
+
+## `std.http.websocket`
+
+RFC 6455 WebSocket connections: the handshake as a server exchange or a `ws` client, bounded framed messages, pings and the closing handshake. Errors: `WebSocketError`. [Reference](websocket.md).
+
+```text
+enum WebSocketError
+    Net(NetError) | Allocation(AllocError) | Http(HttpError) | Connect(ClientError) | Entropy(StreamError) | InvalidConfig | InvalidUrl | UnsupportedScheme | OutOfRange | Refused(i64) | Rejected(i64) | InvalidHandshake | Protocol | TooLarge | InvalidText | Closed | Stopping
+class Config
+    max_frame: i64
+    max_message: i64
+    subprotocol: Option[str]
+def config() -> Config
+enum Message
+    Text | Binary | Close(i64)
+enum Kind
+    Text | Binary
+class WebSocket[T]
+    subprotocol: Option[str]
+    def is_open(self) -> bool
+    def receive(self: &mut WebSocket[T], out: &mut Bytes, deadline: &Deadline) -> Result[Message, WebSocketError]
+    def send(self: &mut WebSocket[T], kind: Kind, data: &Bytes, start: i64, stop: i64, deadline: &Deadline) -> Result[(), WebSocketError]
+    def send_text(self: &mut WebSocket[T], text: &str, deadline: &Deadline) -> Result[(), WebSocketError]
+    def ping(self: &mut WebSocket[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline) -> Result[(), WebSocketError]
+    def close(self: &mut WebSocket[T], code: i64, reason: &str, deadline: &Deadline) -> Result[(), WebSocketError]
+def accept[T: Transport](exchange: &mut Exchange[T], config: &Config) -> Result[WebSocket[T], WebSocketError]
+class Target
+    secure: bool
+    host: str
+    port: u16
+def target(url: &str) -> Result[Target, WebSocketError]
+def dial(target: &Target, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, WebSocketError]
+class Wire[T]
+    def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
+def handshake[T: Transport](stream: T, target: &Target, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[T], WebSocketError]
+def connect(url: &str, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TcpStream], WebSocketError]
+```
+
+## `std.http.wss`
+
+`std.http.websocket` clients for `wss` URLs through [`std.tls`](tls.md). Errors: `WebSocketError`. [Reference](websocket.md#wss).
+
+```text
+def connect(url: &str, tls: &ClientConfig, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TlsTransport], WebSocketError]
 ```
 
 ## `std.io`

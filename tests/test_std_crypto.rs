@@ -1,4 +1,4 @@
-//! `std.crypto`: SHA-256, SHA-512, HMAC and constant-time comparison, checked
+//! `std.crypto`: SHA-256, SHA-512, legacy SHA-1, HMAC and constant-time comparison, checked
 //! against published vectors (FIPS 180-2 examples, RFC 4231).
 mod support;
 use support::check_file_error as rejected;
@@ -99,6 +99,31 @@ fn digests_match_the_fips_examples() {
         expected.extend([*sha256, *sha512]);
     }
     native(&body, &expected.join("\n"));
+}
+
+/// Legacy SHA-1 (FIPS 180-2 examples) and HMAC-SHA-1 (RFC 2202 case 2),
+/// kept for protocols such as the WebSocket handshake (issue #473).
+#[test]
+fn sha1_matches_the_fips_and_rfc_2202_examples() {
+    native(
+        r#"
+print(std.crypto.output_size(Algorithm.Sha1))?
+print(hex(&std.crypto.sha1(&std.bytes.from_text("")?)?)?)?
+print(hex(&std.crypto.sha1(&std.bytes.from_text("abc")?)?)?)?
+mut pieces = std.crypto.digest(Algorithm.Sha1)?
+pieces.update_text("abcdbcdecdefdefgefghfghighijhi")?
+pieces.update_text("jkijkljklmklmnlmnomnopnopq")?
+print(pieces.size(), hex(&pieces.finish()?)?)?
+mut mac = std.crypto.hmac(Algorithm.Sha1, &std.bytes.from_text("Jefe")?)?
+mac.update_text("what do ya want for nothing?")?
+print(mac.verify(&unhex("effcdf6ae5eb2fa2d27416d5f184df9c259a7c79")?, 0, 20)?)?
+"#,
+        "20\n\
+         da39a3ee5e6b4b0d3255bfef95601890afd80709\n\
+         a9993e364706816aba3e25717850c26c9cd0d89d\n\
+         20 84983e441c3bd26ebaae4aa1f95129e5e54670f1\n\
+         True",
+    );
 }
 
 #[test]
@@ -375,7 +400,7 @@ fn vendored_runtime_crates_match_the_lockfile() {
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
     vendored.sort();
-    assert_eq!(vendored.len(), 21, "{vendored:?}");
+    assert_eq!(vendored.len(), 22, "{vendored:?}");
     for directory in vendored {
         let (name, version) = directory.rsplit_once('-').unwrap();
         let entry = format!("name = \"{name}\"\nversion = \"{version}\"\n");

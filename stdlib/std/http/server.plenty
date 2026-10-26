@@ -632,6 +632,14 @@ pub class Exchange[T]:
     pub def cancelled(self) -> bool:
         self._cancel.is_cancelled()
 
+    # A share of the token cancelled when server shutdown begins.
+    pub def stop_token(self) -> CancellationToken:
+        self._stop.share()
+
+    # A share of the token cancelled when the drain deadline passes.
+    pub def cancel_token(self) -> CancellationToken:
+        self._cancel.share()
+
     # The status sent, or 0 before the response starts.
     pub def status(self) -> i64:
         self._status
@@ -871,7 +879,58 @@ pub class Exchange[T]:
         self._state = ended
         Ok(())
 
+    # Answers with `head`, a `101 Switching Protocols` response, and hands the
+    # connection to the protocol it names, such as std.http.websocket. The
+    # head is sent as given, so it carries the Upgrade and Connection fields.
+    # A request with a body that has not been read to its end cannot switch.
+    # The exchange counts as answered; the server neither reuses nor closes
+    # the connection. The result is the stream, now the caller's, and any
+    # input that arrived after the request head.
+    pub def switch_protocols(self: &mut Exchange[T], head: ResponseHead) -> Result[(T, Bytes), HttpError]:
+        if self._state != unanswered:
+            return Err(HttpError.Broken)
+        if head.status != 101:
+            return Err(HttpError.InvalidStatusLine)
+        match &self._body:
+            case Some(body):
+                if not body.is_done():
+                    return Err(HttpError.Unfinished)
+            case Nothing:
+                return Err(HttpError.Broken)
+        self.connection()?
+        self._keep = False
+        self._status = 101
+        self._state = broken
+        mut taken = match replace(self._conn, Nothing):
+            case Some(conn):
+                conn
+            case Nothing:
+                return Err(HttpError.Broken)
+        std.http.write_response(&mut taken.inner, &head)?
+        flushed(taken.inner.flush())?
+        # Input read past the head: first what the buffered reader holds,
+        # then what the connection gathered behind it.
+        held = taken.buffered()
+        mut input = http_bytes(std.bytes.with_capacity(held + taken.inner._input.data.len() - taken.inner._at))?
+        http_bytes(input.resize(held, 0u8))?
+        if held > 0:
+            match taken.read(&mut input, 0, held):
+                case Ok(_):
+                    pass
+                case Err(cause):
+                    return Err(HttpError.Stream(cause))
+        http_bytes(input.extend_range(&taken.inner._input.data, taken.inner._at, taken.inner._input.data.len()))?
+        stream = match replace(taken.inner._stream, Nothing):
+            case Some(found):
+                found
+            case Nothing:
+                return Err(HttpError.Broken)
+        self._state = ended
+        Ok((stream, input))
+
 pub def reason(status: i64) -> str:
+    if status == 101:
+        return "Switching Protocols"
     if status == 200:
         return "OK"
     if status == 201:
@@ -902,6 +961,8 @@ pub def reason(status: i64) -> str:
         return "URI Too Long"
     if status == 415:
         return "Unsupported Media Type"
+    if status == 426:
+        return "Upgrade Required"
     if status == 431:
         return "Request Header Fields Too Large"
     if status == 500:
