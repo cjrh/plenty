@@ -52,16 +52,29 @@ until mutation or receiver release; codegen snapshots it before either.
 
 ## Narrow native helpers
 
-List length and integer/float/bool element reads and writes use
-`plenty_list_len`, `plenty_list_scalar_get`, and `plenty_list_scalar_set`,
-bypassing the argument block of a [runtime operation](runtime.md#entry-symbols). This applies to any
+Integer, float and `bool` element reads and writes through a list place are
+inline machine code, with no runtime call (issue #509). This applies to any
 list place: a local, a field (`self.xs[i]`, `a.b.xs[i] = v`), a borrowed
-receiver, or an inner row (`grid[i][j] += 1`). The helpers take a live owner
-pointer and an `i64` index; reads preserve payload bits before narrowing or
-bitcasting, and writes store the same bits a write through an element reference
-would. Bounds traps report the same site and message as the generic path. Codegen does not depend
-on `Vec` layout. Named receivers are borrowed without
-temporary retain/release; temporary owners are released after obtaining the result.
+receiver, or an inner row (`grid[i][j] += 1`), in any loop. Codegen loads the
+list's first-row address, stored word count and popped-row flag from the owner
+at the offsets in `plenty-runtime/src/list_layout.rs`, which the runtime
+asserts against its `repr(C)` `Collection` and `Entries`; a scalar row is 32
+bytes. It normalizes a negative index, checks it against the live row count,
+and loads or stores the row's payload word. Reads preserve payload bits before
+narrowing or bitcasting, and writes store the same bits a write through an
+element reference would. An index out of bounds calls
+`plenty_trap_list_index`, which reports the index as written, the length and
+the site, as the generic path does. The length of a borrowed scalar list is
+read the same way. The list's loan keeps the rows in place for each access;
+codegen does not cache the address across source operations, so growth between
+accesses is observed.
+
+The length of other lists and of owned temporaries uses `plenty_list_len`, and
+indexing an owned temporary scalar list or iterating one by value uses
+`plenty_list_scalar_get`, bypassing the argument block of a
+[runtime operation](runtime.md#entry-symbols). These helpers take a live owner
+pointer and an `i64` index. Named receivers are borrowed without temporary
+retain/release; temporary owners are released after obtaining the result.
 
 Text and `bytes` queries that return a scalar (`len`, `byte_len`, `isascii`,
 indexing, `ord`) call one narrow helper each, such as `plenty_text_len` or

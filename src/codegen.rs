@@ -940,7 +940,6 @@ struct Runtime {
     /// element references (`&xs[i]`, `&mut xs[i]`).
     list_row: FuncId,
     list_scalar_get: FuncId,
-    list_scalar_set: FuncId,
     /// `plenty_list_sort_by(list, comparator, environment, descending)`.
     list_sort_by: FuncId,
     /// `plenty_order_compare(a_low, a_high, b_low, b_high, descriptor) -> i64`.
@@ -1014,6 +1013,9 @@ struct Runtime {
     /// from the range-check branch of a bare numeric cast.
     trap_cast_range: FuncId,
     trap_clist_index: FuncId,
+    /// `plenty_trap_list_index(index, length, site) -> !`: an inline scalar
+    /// list row index out of bounds.
+    trap_list_index: FuncId,
     /// In an executable whose failed checks trap ([`traps`]):
     /// `plenty_traps_register(table)` and the object's check table. `None`
     /// keeps the helper calls.
@@ -1194,18 +1196,6 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.returns.push(AbiParam::new(PTR_TY));
             module.declare_function("plenty_list_row", Linkage::Import, &sig)?
         },
-        list_scalar_set: {
-            let mut sig = module.make_signature();
-            sig.call_conv = CallConv::SystemV;
-            // List, index, payload bits, trap site.
-            sig.params.extend([
-                AbiParam::new(PTR_TY),
-                AbiParam::new(types::I64),
-                AbiParam::new(types::I64),
-                AbiParam::new(PTR_TY),
-            ]);
-            module.declare_function("plenty_list_scalar_set", Linkage::Import, &sig)?
-        },
         list_sort_by: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;
@@ -1349,6 +1339,17 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         },
         trap_cast_range: one_arg(module, "plenty_trap_cast_range", PTR_TY)?,
         trap_clist_index: one_arg(module, "plenty_trap_clist_index", PTR_TY)?,
+        trap_list_index: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            // Index as written, length, trap site.
+            sig.params.extend([
+                AbiParam::new(types::I64),
+                AbiParam::new(types::I64),
+                AbiParam::new(PTR_TY),
+            ]);
+            module.declare_function("plenty_trap_list_index", Linkage::Import, &sig)?
+        },
         signal_traps: None,
         readline: {
             let mut sig = module.make_signature();
