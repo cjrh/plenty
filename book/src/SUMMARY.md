@@ -350,6 +350,7 @@
             - [Integer as-of joins](design/stdlib/dataframe-asof.md)
             - [CSV and streaming I/O](design/stdlib/dataframe-io.md)
             - [Install the dataframe engine](design/stdlib/dataframe-engine.md)
+            - [Ship a dataframe application](design/stdlib/dataframe-deployment.md)
         - [`std.db.sqlite`](design/stdlib/sqlite.md)
         - [`std.deque`](design/stdlib/deque.md)
         - [`std.encoding`](design/stdlib/encoding.md)

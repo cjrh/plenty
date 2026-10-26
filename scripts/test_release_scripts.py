@@ -29,7 +29,7 @@ case "$1 $2" in
       draft) echo true ;;
       published) echo false ;;
     esac ;;
-  "release download") cp "$FAKE_GH_PUBLISHED" "${@: -1}/" ;;
+  "release download") cp "$FAKE_GH_PUBLISHED"/*.sha256 "${@: -1}/" ;;
 esac
 """
 
@@ -74,6 +74,20 @@ class ThirdPartyNotices(unittest.TestCase):
         self.notices.LICENSE_DIR = self.root / "missing"
         with self.assertRaises(FileNotFoundError):
             self.notices.render([self.package])
+
+    def test_dataframe_notices_have_pinned_parquet_licenses_without_sqlite(self):
+        nested = self.root / "src/thrift/varint/LICENSE"
+        nested.parent.mkdir(parents=True)
+        nested.write_text("Nested implementation license")
+        package = {**self.package, "name": "polars-parquet-format", "version": "0.1.0", "license": "MIT AND Apache-2.0"}
+        output = self.notices.render([package], "dataframe")
+        self.assertIn("Copyright (c) 2022 Jorge C Leitao", output)
+        self.assertIn("Apache License", output)
+        self.assertIn("src/thrift/varint/LICENSE", output)
+        self.assertIn("Nested implementation license", output)
+        self.assertNotIn("## SQLite", output)
+        with self.assertRaisesRegex(SystemExit, "no license file"):
+            self.notices.render([{**package, "version": "0.2.0"}], "dataframe")
 
 
 class CheckVersion(unittest.TestCase):
@@ -122,6 +136,13 @@ class Publish(unittest.TestCase):
         subprocess.run(["tar", "-czf", self.dist / archive, "-C", stage.parent, stage.name], check=True)
         subprocess.run(f"sha256sum {archive} > {archive}.sha256", shell=True, cwd=self.dist, check=True)
         self.checksum = self.dist / f"{archive}.sha256"
+        engine = stage.parent / "plenty-dataframe-0.4.0-x86_64-unknown-linux-gnu"
+        engine.mkdir()
+        (engine / "README.md").write_text("# Dataframe engine\n")
+        engine_archive = f"{engine.name}.tar.gz"
+        subprocess.run(["tar", "-czf", self.dist / engine_archive, "-C", engine.parent, engine.name], check=True)
+        subprocess.run(f"sha256sum {engine_archive} > {engine_archive}.sha256", shell=True, cwd=self.dist, check=True)
+        self.engine_checksum = self.dist / f"{engine_archive}.sha256"
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         (bin_dir / "gh").write_text(FAKE_GH)
@@ -136,7 +157,7 @@ class Publish(unittest.TestCase):
 
     def publish(self, state, tag="v0.4.0", prerelease="false", published=None):
         self.log.write_text("")
-        env = {**self.env, "FAKE_GH_STATE": state, "FAKE_GH_PUBLISHED": str(published or self.checksum)}
+        env = {**self.env, "FAKE_GH_STATE": state, "FAKE_GH_PUBLISHED": str(published or self.dist)}
         result = run([RELEASE / "publish.sh", tag, prerelease, self.dist], env=env)
         calls = [re.sub(r"--notes-file \S+", "--notes-file N", line) for line in self.log.read_text().splitlines()]
         return result, [c.split(" --repo")[0] for c in calls]
@@ -166,10 +187,40 @@ class Publish(unittest.TestCase):
         self.assertEqual([c.split(" ")[2] for c in calls], ["view", "download"])
         other = self.root / "other.sha256"
         other.write_text("0" * 64 + "  plenty-0.4.0-x86_64-unknown-linux-gnu.tar.gz\n")
-        other = other.rename(self.root / self.checksum.name)
-        result, calls = self.publish("published", published=other)
+        published = self.root / "published"
+        published.mkdir()
+        other.rename(published / self.checksum.name)
+        shutil.copy(self.engine_checksum, published)
+        result, calls = self.publish("published", published=published)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual([c.split(" ")[2] for c in calls], ["view", "download"])
+
+    def test_published_engine_must_also_match(self):
+        published = self.root / "published"
+        published.mkdir()
+        shutil.copy(self.checksum, published)
+        for contents in [None, "different engine checksum\n"]:
+            if contents:
+                (published / self.engine_checksum.name).write_text(contents)
+            result, calls = self.publish("published", published=published)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual([c.split(" ")[2] for c in calls], ["view", "download"])
+
+    def test_incomplete_or_mismatched_assets_never_publish(self):
+        result, calls = self.publish("missing", tag="v0.4.1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+        self.engine_checksum.unlink()
+        result, calls = self.publish("missing")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+
+    def test_notes_include_optional_engine_and_both_checksums(self):
+        result = run([RELEASE / "release-notes.sh", self.dist])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(self.checksum.read_text().strip(), result.stdout)
+        self.assertIn(self.engine_checksum.read_text().strip(), result.stdout)
+        self.assertIn("optional shared library", result.stdout)
 
     def test_unknown_lookup_failure_creates_nothing(self):
         result, calls = self.publish("broken")
