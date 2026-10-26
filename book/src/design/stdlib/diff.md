@@ -126,4 +126,5 @@ three-way merge. See the runnable [diff lesson](../../tutorial/07-modules/20-sta
 
 - Myers and patience implementations derived from [similar](https://github.com/mitsuhiko/similar) 3.2.1 by Armin Ronacher and contributors (Apache-2.0).
 - Uses the linear-space variant of [Myers' O(ND) algorithm](https://doi.org/10.1007/BF01840446) (1986).
+- Patience diff was devised by [Bram Cohen](https://bramcohen.livejournal.com/73318.html).
 - Unified output matches [GNU diffutils](https://www.gnu.org/software/diffutils/manual/html_node/Unified-Format.html) `diff -U`.

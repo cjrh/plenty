@@ -312,3 +312,7 @@ the central directory and once per opened entry.
 - No ZIP encryption, and no methods other than stored and DEFLATE.
 - No sparse TAR files, and no TAR archives split across volumes.
 - One target, x86-64 Linux GNU.
+
+## Acknowledgements
+
+- Streaming readers and writers are modelled on Go's [`archive/tar`](https://pkg.go.dev/archive/tar) and [`archive/zip`](https://pkg.go.dev/archive/zip), with Python's [`tarfile`](https://docs.python.org/3/library/tarfile.html) and [`zipfile`](https://docs.python.org/3/library/zipfile.html) as further references.

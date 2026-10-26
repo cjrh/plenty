@@ -190,4 +190,4 @@ the crate.
 ## Acknowledgements
 
 - Syntax and match semantics follow the Rust [`regex`](https://docs.rs/regex/1.12.3/regex/) crate 1.12.3.
-- Matching uses a [Pike VM](https://swtch.com/~rsc/regexp/regexp2.html).
+- Matching uses Rob Pike's virtual machine, as described by Russ Cox in ["Regular Expression Matching: the Virtual Machine Approach"](https://swtch.com/~rsc/regexp/regexp2.html) (2009).

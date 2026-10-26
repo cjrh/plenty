@@ -276,6 +276,13 @@ borrowed enum binds references, so payloads are dereferenced with `*`. See
 [classes](../language/03-types/classes.md), [enums](../language/03-types/enums.md),
 and [borrowed matching](../language/05-ownership/05-borrowed-matching.md).
 
+Classes and enums can define [arithmetic hooks](../language/04-expressions/operators.md)
+such as `__add__(self, other: &T) -> T`, `__rmul__`, and `__neg__`.
+Operators borrow their operands and dispatch statically. Fallible hooks return
+`Result`: write `(a + b)?`. In-place hooks such as
+`__iadd__(self: &mut T, other: &T) -> ()` mutate an existing destination;
+there is no automatic `+=` fallback. Equality remains structural.
+
 ## Option, Result, and errors
 
 ```plenty

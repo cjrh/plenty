@@ -53,3 +53,8 @@ validates shape, counts, length and the caller limit before constructing storage
 and returns `SketchError | AllocError | BytesError`. The caller limit bounds the serialized
 **configured maximum**, not only today's occupancy. Serialization exposes
 `BytesError`. The format is versioned, Plenty-specific and unauthenticated.
+
+## Acknowledgements
+
+- Uses the cuckoo filter from ["Cuckoo Filter: Practically Better Than Bloom"](https://doi.org/10.1145/2674005.2674994) by Bin Fan, David G. Andersen, Michael Kaminsky and Michael D. Mitzenmacher (2014).
+- Layered growth takes the Rust [`scalable_cuckoo_filter`](https://crates.io/crates/scalable_cuckoo_filter) crate as a design reference; no code is taken from it.

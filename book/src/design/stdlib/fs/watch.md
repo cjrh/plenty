@@ -92,3 +92,7 @@ The native implementation currently targets x86-64 Linux. Unsupported hosts
 report `IoError.Unsupported`; there is no polling fallback. This module shares
 the existing `File`, `Bytes`, path, and readiness runtime facilities, adding only
 three operations for inotify creation, registration and removal.
+
+## Acknowledgements
+
+- The Rust [`notify`](https://crates.io/crates/notify) crate served as a design reference; no code is taken from it.

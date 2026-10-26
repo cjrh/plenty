@@ -80,3 +80,7 @@ program uses its path.
 
 See the [temporary-resource tutorial](../../tutorial/08-resources/tempfile.md)
 for complete examples.
+
+## Acknowledgements
+
+- Type names follow Python's [`tempfile`](https://docs.python.org/3/library/tempfile.html); `keep` and fallible `close` follow the Rust [`tempfile`](https://crates.io/crates/tempfile) crate.

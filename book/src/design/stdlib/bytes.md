@@ -323,3 +323,4 @@ The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 ## Acknowledgements
 
 - `find_bytes` uses the [two-way](https://doi.org/10.1145/116825.116845) string-matching algorithm by Maxime Crochemore and Dominique Perrin (1991), as Rust's `core` string search does.
+- Word-at-a-time scans use the zero-byte test from Sean Eron Anderson's [Bit Twiddling Hacks](https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord), which credits a 1987 newsgroup post by Alan Mycroft.

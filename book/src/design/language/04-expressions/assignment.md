@@ -38,7 +38,8 @@ or a named field instead.
 
 ## Augmented assignment
 
-`target += value`, `-=`, `*=`, `/=`, `//=`, and `%=` update an existing numeric
+`target += value`, `-=`, `*=`, `/=`, `//=`, `%=` and integer bitwise updates
+`&=`, `|=`, `^=`, `<<=`, `>>=` update an existing numeric
 destination. The destination can be a mutable binding, field, collection element,
 or exclusive reference, including nested paths. The right side takes the
 destination's numeric type. Integer division uses `//=`, float division uses
@@ -62,6 +63,10 @@ the right side propagates an error, the update performs no write. Missing keys
 and invalid indices trap as in ordinary indexed assignment. The update itself
 allocates nothing, introduces no binding, and cannot initialize an unread
 constructor field.
+
+User-defined classes and enums can provide explicit mutable in-place hooks;
+see [operator overloading](operators.md#in-place-operations). Those calls use the
+method's implementation rather than the scalar read/compute/write sequence.
 
 ## Several targets
 

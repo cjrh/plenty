@@ -355,3 +355,7 @@ totals they keep.
 - No protocol upgrades on pooled connections. WebSocket clients are in
   [`std.http.websocket`](websocket.md), which opens connections with [`dial`](#transports).
 - Connecting tries addresses one after another, not in parallel.
+
+## Acknowledgements
+
+- Design references: Go's [`net/http` `Client`](https://pkg.go.dev/net/http#Client) and Python's [`requests`](https://requests.readthedocs.io/), including dropping credentials on cross-origin redirects.

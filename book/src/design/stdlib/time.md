@@ -166,3 +166,7 @@ Supported target: `x86_64-unknown-linux-gnu`. See the lessons
   arithmetic that feeds them.
 - **One timestamp type.** `std.fs` reuses `Timestamp` instead of declaring its
   own, so file times and clock readings subtract directly.
+
+## Acknowledgements
+
+- `Duration`, `Instant` and their checked and saturating operations are modelled on Rust's [`std::time`](https://doc.rust-lang.org/std/time/index.html).

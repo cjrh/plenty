@@ -3550,10 +3550,26 @@ impl Lowerer<'_, '_> {
     /// internal invariant violation, never an ordinary-call substitution.
     fn lower_tail_call(&mut self, name: &str) -> Result<()> {
         let caller_standard = self.in_standard_library();
+        let cleanup_free = !self.locals.iter().any(|(_, ty)| ty.managed());
         let (decl, mut args) = self.pop_call_args(name)?;
         // Only user code sets a site; std would pass null, which changes
         // nothing.
         let track_caller = !caller_standard && (decl.standard_library || decl.source.is_none());
+        // A real tail call destroys owned locals before entering its callee.
+        // Keep that ordering when the leaf may trap: only substitute callers
+        // whose final local cleanup has no observable work.
+        if let Some(inline) = decl.inline.clone()
+            && cleanup_free
+        {
+            let saved = if track_caller {
+                self.enter_call()?
+            } else {
+                None
+            };
+            self.lower_leaf_call(&inline, &args, &[])?;
+            self.leave_call(saved);
+            return self.lower(&Op::Return);
+        }
         let func_id = decl.id;
         let sig = decl.sig.clone();
         self.tail_arguments(&sig, &mut args)?;

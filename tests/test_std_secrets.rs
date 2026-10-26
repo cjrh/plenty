@@ -280,7 +280,11 @@ fn the_os_source_cannot_be_forged_and_random_is_a_separate_module() {
     let seeded = rejected(&program("rng = std.secrets.seeded(1u64)\n"));
     assert!(seeded.contains("seeded"), "{seeded}");
     let unknown = rejected("import std.entropy\n\ndef main() -> ():\n    pass\n");
-    assert!(unknown.contains("std.random, std.secrets"), "{unknown}");
+    // The available-modules list names both; their order follows registration.
+    assert!(
+        unknown.contains("std.random,") && unknown.contains("std.secrets,"),
+        "{unknown}"
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
