@@ -259,11 +259,11 @@ def drain_by[T, F: Callable[[&T, &T], bool]](heap: HeapBy[T, F]) -> Generator[T]
 
 ## `std.compress`
 
-Bounded gzip, zlib, and DEFLATE compression of buffers and `std.io` streams, and CRC-32. Errors: `CompressError`. [Reference](compress.md).
+Bounded gzip, zlib, DEFLATE and Brotli compression of buffers and `std.io` streams, and CRC-32. Errors: `CompressError`. [Reference](compress.md).
 
 ```text
 enum Format
-    Deflate | Zlib | Gzip
+    Deflate | Zlib | Gzip | Brotli
 enum CompressError
     OutOfRange | Corrupt | Checksum | Truncated | TrailingData | LimitExceeded | Allocation(AllocError)
 def stream_error(error: CompressError) -> StreamError
