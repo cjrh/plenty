@@ -146,3 +146,7 @@ complete program.
   and a wait reports at most 64 events.
 - A token does not wake an unbounded `read`, `write` or child `wait`.
 - Sockets and name lookup are in [`std.net`](net.md).
+
+## Acknowledgements
+
+- `Selector` is modelled on Python's [`selectors`](https://docs.python.org/3/library/selectors.html) module and the Rust [`mio`](https://crates.io/crates/mio) crate, from which `Interest` and caller-chosen event keys come.

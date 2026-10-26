@@ -105,3 +105,7 @@ The repository's `examples/countbytes.plenty` is a complete byte-counting tool:
 compile it with `plenty --compile examples/countbytes.plenty -o countbytes`, then
 run `./countbytes --total FILE...`. It reads each file fully and handles parsing,
 help, path context, and exit statuses explicitly.
+
+## Acknowledgements
+
+- Schema design draws on Python's [`argparse`](https://docs.python.org/3/library/argparse.html) and the Rust [`clap`](https://crates.io/crates/clap) crate.

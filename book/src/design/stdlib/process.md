@@ -195,3 +195,7 @@ A child that outlives the program is adopted by the system as usual.
   detached children.
 - `communicate` holds whole outputs in memory. For streaming, take the pipes
   and give each its own [thread](thread.md).
+
+## Acknowledgements
+
+- API modelled on Rust's [`std::process::Command`](https://doc.rust-lang.org/std/process/struct.Command.html) and Python's [`subprocess`](https://docs.python.org/3/library/subprocess.html), whose `communicate` it follows.

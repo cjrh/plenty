@@ -185,3 +185,7 @@ fields.
   custom sink that writes to both.
 - `LineBuffer` is public only because `std.fmt` writes into it; it is not
   meant for direct use.
+
+## Acknowledgements
+
+- Typed fields and caller-chosen sinks are modelled on Go's [`log/slog`](https://pkg.go.dev/log/slog); the five levels match the Rust [`tracing`](https://crates.io/crates/tracing) crate.

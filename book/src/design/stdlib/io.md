@@ -268,3 +268,7 @@ per call. Seeking a `BufReader` discards up to `capacity` bytes already read.
   standard library, reached through `Bytes.read_file`, `write_file`,
   `read_stdin`, `write_stdout`, `write_stderr`, and `FileStream.seek`.
   `__io_is_terminal` is the private process-stream terminal query.
+
+## Acknowledgements
+
+- Stream protocols follow Go's [`io`](https://pkg.go.dev/io) package (`Reader`, `Writer`, `Seeker`, `Closer`) and Rust's [`std::io::Read`](https://doc.rust-lang.org/std/io/trait.Read.html) and [`std::io::Write`](https://doc.rust-lang.org/std/io/trait.Write.html).

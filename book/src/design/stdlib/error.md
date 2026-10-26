@@ -188,3 +188,7 @@ and `report_with` APIs keep their description-based behavior.
 A `Context[E]` can cross threads when `E` can. Every operation takes time linear
 in the text it produces. Supported target: x86_64 Linux GNU. The lesson is
 [Say which operation failed](../../tutorial/08-resources/23-error-context.md).
+
+## Acknowledgements
+
+- `context` and `path_context` are modelled on the [`Context`](https://docs.rs/anyhow/latest/anyhow/trait.Context.html) trait of the Rust [`anyhow`](https://crates.io/crates/anyhow) crate.
