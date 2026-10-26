@@ -1,10 +1,16 @@
 //! Omit unused standard-library functions from native emission.
 //!
-//! Checking has already visited every body. Destructors and generators remain
-//! roots: their implicit type-driven references do not have to be reconstructed
-//! here. User definitions remain roots too, preserving the existing
-//! object/debug contract. This is deliberately narrower than general
-//! dead-code elimination.
+//! Checking has already visited every body. Generators remain roots: their
+//! implicit type-driven references do not have to be reconstructed here. User
+//! definitions remain roots too, preserving the existing object/debug
+//! contract. This is deliberately narrower than general dead-code elimination.
+//!
+//! A class's `__del__` is live when a live body arms it (`ClassOp::ArmDrop`,
+//! issue #506). Release runs the hook only for an instance whose state word
+//! was armed, and only `ArmDrop` arms one, so this covers every path that can
+//! destroy an instance: fields, containers, payloads, captures, messages, and
+//! jobs all hold values some live body constructed. A descriptor of an
+//! unarmed class can still be emitted; it then has no hook.
 use super::*;
 use crate::hash::HashSet;
 
@@ -13,11 +19,7 @@ pub(super) fn prune(ops: &mut Vec<Op>, exports: &[crate::exports::Export]) {
     let candidates: HashMap<&str, &crate::op::CompiledFn> = ops
         .iter()
         .filter_map(|op| match op {
-            Op::DefineFn(name, f)
-                if f.origins.standard_library
-                    && !name.ends_with(".__del__")
-                    && f.generator.is_none() =>
-            {
+            Op::DefineFn(name, f) if f.origins.standard_library && f.generator.is_none() => {
                 Some((name.as_str(), f.as_ref()))
             }
             _ => None,
@@ -86,8 +88,12 @@ fn references(ops: &[Op], require: &mut impl FnMut(&str)) {
         Op::Collection(crate::collection::CollectionOp::ListSortBy(sort)) => {
             require(&sort.key_of);
         }
-        // Type-driven calls target destructors or generators, which are
-        // retained as roots regardless of these explicit references.
+        Op::Class(crate::record::ClassOp::ArmDrop(t)) => {
+            if let Some(destructor) = &t.get().destructor {
+                require(destructor);
+            }
+        }
+        // Type-driven calls target generators, which remain roots.
         _ => {}
     });
 }
@@ -149,11 +155,6 @@ mod tests {
         f.generator = Some(Ty::I64);
         let mut ops = vec![
             definition("std.user_name", false, vec![]),
-            definition(
-                "__plenty_class_std.Owner.__del__",
-                true,
-                vec![Op::Call("std.helper".into())],
-            ),
             generator,
             definition("std.helper", true, vec![]),
             definition("std.export", true, vec![]),
@@ -172,12 +173,63 @@ mod tests {
         prune(&mut ops, &exports);
         assert_eq!(
             names(&ops),
+            ["std.user_name", "std.generator", "std.helper", "std.export"]
+        );
+    }
+
+    fn armed(name: &str) -> Op {
+        Op::Class(crate::record::ClassOp::ArmDrop(
+            crate::nominal::Nominal::new(crate::record::ClassType {
+                name: name.into(),
+                fields: vec![],
+                destructor: Some(crate::record::method(name, "__del__")),
+                fallible_init: false,
+                bytes: Default::default(),
+                managed: Default::default(),
+            }),
+        ))
+    }
+
+    #[test]
+    fn keeps_a_standard_destructor_only_when_a_live_body_arms_its_class() {
+        let destructor = |class: &str, helper: &str| {
+            definition(
+                &crate::record::method(class, "__del__"),
+                true,
+                vec![Op::Call(helper.into())],
+            )
+        };
+        let mut ops = vec![
+            destructor("std.Armed", "std.armed_helper"),
+            destructor("std.Unused", "std.unused_helper"),
+            destructor("std.Nested", "std.nested_helper"),
+            // Arming happens in a std constructor reached only from `main`,
+            // inside control flow; the armed destructor arms another class.
+            definition(
+                "std.make",
+                true,
+                vec![Op::If {
+                    then: vec![armed("std.Armed")].into(),
+                    elifs: Arc::default(),
+                    otherwise: Arc::default(),
+                }],
+            ),
+            definition("std.unused_make", true, vec![armed("std.Unused")]),
+            definition("std.armed_helper", true, vec![armed("std.Nested")]),
+            definition("std.unused_helper", true, vec![]),
+            definition("std.nested_helper", true, vec![]),
+            definition("main", false, vec![Op::Call("std.make".into())]),
+        ];
+        prune(&mut ops, &[]);
+        assert_eq!(
+            names(&ops),
             [
-                "std.user_name",
-                "__plenty_class_std.Owner.__del__",
-                "std.generator",
-                "std.helper",
-                "std.export"
+                "__plenty_class_std.Armed.__del__",
+                "__plenty_class_std.Nested.__del__",
+                "std.make",
+                "std.armed_helper",
+                "std.nested_helper",
+                "main"
             ]
         );
     }

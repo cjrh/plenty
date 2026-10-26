@@ -313,17 +313,6 @@ fn programs_link_only_the_native_modules_they_call() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Imports that link native code they never call, as `(import, module)`.
-/// Phase guard: every standard destructor is an emission root, so these hold
-/// only until issue #506 roots a destructor only when its type is reachable;
-/// then this list becomes empty and is removed.
-const KNOWN_IMPORT_LINKS: &[(&str, &str)] = &[
-    ("std.tempfile", "std.fs"),
-    ("std.tempfile", "std.sync"),
-    ("std.test", "std.fs"),
-    ("std.test", "std.sync"),
-];
-
 /// Importing a module, even one that imports native-backed modules, links
 /// none of their code: only calls do.
 #[test]
@@ -353,17 +342,33 @@ fn importing_a_module_links_no_native_code() {
     }
     let unexpected: Vec<_> = found
         .iter()
-        .filter(|(module, native, _)| !KNOWN_IMPORT_LINKS.contains(&(module, native)))
         .map(|(module, native, symbols)| format!("importing {module} links {native} {symbols}"))
         .collect();
     assert!(unexpected.is_empty(), "{}", unexpected.join("\n"));
-    // A fixed exception must leave the list.
-    for known in KNOWN_IMPORT_LINKS {
-        assert!(
-            found
-                .iter()
-                .any(|(module, native, _)| (*module, *native) == *known),
-            "{known:?} no longer links; remove it from KNOWN_IMPORT_LINKS"
-        );
-    }
+}
+
+/// A standard destructor links only when a live body arms its class (issue
+/// #506). Naming the type in a live signature emits its descriptor, without
+/// the hook, since no instance can exist.
+#[test]
+fn a_standard_destructor_links_only_when_its_class_is_constructed() {
+    const DESTRUCTOR: &str = "__plenty_class_std.tempfile.TemporaryDirectory.__del__";
+    const REMOVAL: &str = "std.fs.delete_directory_contents";
+    let has = |functions: &[String], part: &str| functions.iter().any(|name| name.contains(part));
+    let named = functions(&format!(
+        "import std.tempfile\ndef take(directory: std.tempfile.TemporaryDirectory) -> ():\n    drop(directory)\n{HELLO}"
+    ));
+    assert!(
+        !has(&named, DESTRUCTOR) && !has(&named, REMOVAL),
+        "{named:?}"
+    );
+    assert!(
+        linked_modules(&named).is_empty(),
+        "{:?}",
+        linked_modules(&named)
+    );
+    let constructed = functions(
+        "import std.tempfile\nimport std.fs\ndef main() -> Result[(), std.fs.FsError]:\n    directory = std.tempfile.directory()?\n    drop(directory)\n    Ok(())\n",
+    );
+    assert!(has(&constructed, DESTRUCTOR) && has(&constructed, REMOVAL));
 }
