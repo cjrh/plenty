@@ -93,6 +93,14 @@ class ThirdPartyNotices(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.notices.render([self.package])
 
+    def test_compiler_bundles_brotli_license_but_dataframe_does_not(self):
+        license_text = (REPO / "plenty-runtime/native/brotli-1.2.1/LICENSE").read_text().rstrip()
+        compiler = self.notices.render([self.package])
+        self.assertIn("## Brotli 1.2.1", compiler)
+        self.assertIn(license_text, compiler)
+        dataframe = self.notices.render([self.package], "dataframe")
+        self.assertNotIn("## Brotli", dataframe)
+
     def test_dataframe_notices_have_pinned_parquet_licenses_without_sqlite(self):
         nested = self.root / "src/thrift/varint/LICENSE"
         nested.parent.mkdir(parents=True)
