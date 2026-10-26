@@ -1,5 +1,9 @@
 # Store records in SQLite
 
+For a dedicated file of byte-keyed records without SQL, the next lesson's
+[`std.db.kv`](key-value-store.md) supplies a smaller interface over this same
+engine. This lesson uses SQL to describe and query structured rows.
+
 `std.db.sqlite` keeps data in a SQLite database: a single file, or memory.
 Values travel only through prepared statements, so a value is never
 mistaken for SQL.

@@ -47,6 +47,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         include_str!("../../stdlib/std/cli/progress.plenty"),
     ),
     ("std.text", include_str!("../../stdlib/std/text.plenty")),
+    (
+        "std.template",
+        include_str!("../../stdlib/std/template.plenty"),
+    ),
     ("std.diff", include_str!("../../stdlib/std/diff.plenty")),
     ("std.fmt", include_str!("../../stdlib/std/fmt.plenty")),
     ("std.report", include_str!("../../stdlib/std/report.plenty")),
@@ -74,8 +78,18 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ),
     ("std.url", include_str!("../../stdlib/std/url.plenty")),
     ("std.uuid", include_str!("../../stdlib/std/uuid.plenty")),
+    ("std.sketch", include_str!("../../stdlib/std/sketch.plenty")),
+    (
+        "std.sketch.xor",
+        include_str!("../../stdlib/std/sketch/xor.plenty"),
+    ),
+    (
+        "std.sketch.cuckoo",
+        include_str!("../../stdlib/std/sketch/cuckoo.plenty"),
+    ),
     ("std.csv", include_str!("../../stdlib/std/csv.plenty")),
     ("std.random", include_str!("../../stdlib/std/random.plenty")),
+    ("std.stat", include_str!("../../stdlib/std/stat.plenty")),
     (
         "std.secrets",
         include_str!("../../stdlib/std/secrets.plenty"),
@@ -161,6 +175,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         "std.db.sqlite",
         include_str!("../../stdlib/std/db/sqlite.plenty"),
     ),
+    ("std.db.kv", include_str!("../../stdlib/std/db/kv.plenty")),
     ("std.test", include_str!("../../stdlib/std/test.plenty")),
     (
         "std.tempfile",

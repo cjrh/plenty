@@ -1,0 +1,218 @@
+# Four fingerprints per bucket. Layers double geometrically; each has its own
+# bucket mask. Failed eviction chains roll back before growth or an error.
+import std.bytes
+from std.bytes import Bytes, BytesError, ByteSource
+from std.sketch import SketchError, hash_u64
+
+class Layer:
+    slots: Bytes
+    buckets: i64
+
+def slot_value(current: &Layer, slot: i64) -> u16:
+    u16(current.slots[slot * 2]) | (u16(current.slots[slot * 2 + 1]) << 8u16)
+
+def set_slot(current: &mut Layer, slot: i64, value: u16) -> ():
+    drop(current.slots.set(slot * 2, u8(value & 255u16)))
+    drop(current.slots.set(slot * 2 + 1, u8(value >> 8u16)))
+
+def fingerprint(hash: u64) -> u16:
+    value = u16((hash >> 32u64) & 65535u64)
+    1u16 if value == 0u16 else value
+
+def alternate(bucket: i64, print: u16, buckets: i64) -> i64:
+    bucket ^ i64(hash_u64(u64(print)) & u64(buckets - 1))
+
+def locate(layer: &Layer, first: i64, second: i64, print: u16) -> i64:
+    for offset in range(4):
+        if slot_value(layer, first * 4 + offset) == print:
+            return first * 4 + offset
+        if slot_value(layer, second * 4 + offset) == print:
+            return second * 4 + offset
+    -1
+
+def empty_slot(layer: &Layer, bucket: i64) -> i64:
+    for offset in range(4):
+        if slot_value(layer, bucket * 4 + offset) == 0u16:
+            return bucket * 4 + offset
+    -1
+
+def layer(buckets: i64) -> Result[Layer, BytesError]:
+    mut slots = std.bytes.with_capacity(buckets * 8)?
+    slots.resize(buckets * 8, 0u8)?
+    Ok(Layer(slots, buckets))
+
+pub class CuckooFilter:
+    _layers: list[Layer]
+    _max_buckets: i64
+    _used_buckets: i64
+    _count: u64
+    _seed: u64
+    _path: list[i64]
+    _old: list[u16]
+
+    pub def len(self) -> u64:
+        self._count
+
+    pub def layers(self) -> i64:
+        len(self._layers)
+
+    pub def buckets(self) -> i64:
+        self._used_buckets
+
+    pub def contains(self, key: u64) -> bool:
+        hash = hash_u64(key, self._seed)
+        print = fingerprint(hash)
+        for current in &self._layers:
+            first = i64(hash & u64(current.buckets - 1))
+            second = alternate(first, print, current.buckets)
+            if locate(current, first, second, print) >= 0:
+                return True
+        False
+
+    # Inserts every occurrence, including duplicates. Skipping insertion after
+    # a positive contains would make subsequent deletion unsound.
+    pub def insert(self: &mut CuckooFilter, key: u64) -> Result[i64, SketchError | AllocError | BytesError]:
+        if self._count == u64.MAX:
+            return Err(SketchError.Limit)
+        hash = hash_u64(key, self._seed)
+        print = fingerprint(hash)
+        for index in range(len(self._layers)):
+            if place(&mut self._layers[index], hash, print, &mut self._path, &mut self._old):
+                self._count += 1u64
+                return Ok(index)
+        next_buckets = self._layers[len(self._layers) - 1].buckets * 2
+        if next_buckets > self._max_buckets - self._used_buckets:
+            return Err(SketchError.Limit)
+        mut next = layer(next_buckets)?
+        first = i64(hash & u64(next_buckets - 1))
+        set_slot(&mut next, first * 4, print)
+        self._layers.append(next)?
+        self._used_buckets += next_buckets
+        self._count += 1u64
+        Ok(len(self._layers) - 1)
+
+    # Caller must know this occurrence was inserted and not yet removed.
+    # A membership test cannot establish that precondition (false positives).
+    pub def remove(self: &mut CuckooFilter, key: u64, layer_index: i64) -> Result[bool, SketchError]:
+        if layer_index < 0 or layer_index >= len(self._layers):
+            return Err(SketchError.InvalidArgument)
+        hash = hash_u64(key, self._seed)
+        print = fingerprint(hash)
+        first = i64(hash & u64(self._layers[layer_index].buckets - 1))
+        second = alternate(first, print, self._layers[layer_index].buckets)
+        slot = locate(&self._layers[layer_index], first, second, print)
+        if slot >= 0:
+            set_slot(&mut self._layers[layer_index], slot, 0u16)
+            self._count -= 1u64
+            return Ok(True)
+        Ok(False)
+
+    pub def to_bytes(self) -> Result[Bytes, BytesError]:
+        mut out = std.bytes.with_capacity(44 + self._used_buckets * 8)?
+        out.extend(&b"PSC1")?
+        word(&mut out, self._seed)?
+        word(&mut out, u64(self._max_buckets))?
+        word(&mut out, u64(self._layers[0].buckets))?
+        word(&mut out, u64(len(self._layers)))?
+        word(&mut out, self._count)?
+        for current in &self._layers:
+            out.extend(&current.slots)?
+        Ok(out)
+
+# Scratch storage is allocated at construction, so failed insertion can undo
+# all writes without allocating or retaining the evicted fingerprint.
+def place(current: &mut Layer, hash: u64, print: u16, path: &mut list[i64], old: &mut list[u16]) -> bool:
+    first = i64(hash & u64(current.buckets - 1))
+    second = alternate(first, print, current.buckets)
+    mut slot = empty_slot(current, first)
+    if slot < 0:
+        slot = empty_slot(current, second)
+    if slot >= 0:
+        set_slot(current, slot, print)
+        return True
+    mut bucket = first
+    mut pending = print
+    mut state = hash
+    for step in range(256):
+        state = hash_u64(state, u64(step))
+        slot = bucket * 4 + i64(state & 3u64)
+        displaced = slot_value(current, slot)
+        path[step] = slot
+        old[step] = displaced
+        set_slot(current, slot, pending)
+        pending = displaced
+        bucket = alternate(bucket, pending, current.buckets)
+        vacant = empty_slot(current, bucket)
+        if vacant >= 0:
+            set_slot(current, vacant, pending)
+            return True
+    mut step = 256
+    while step > 0:
+        step -= 1
+        set_slot(current, path[step], old[step])
+    False
+
+pub def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]:
+    if initial_buckets < 1 or initial_buckets > 1048576 or initial_buckets & (initial_buckets - 1) != 0:
+        return Err(SketchError.InvalidArgument)
+    if max_buckets < initial_buckets or max_buckets > 16777216:
+        return Err(SketchError.InvalidArgument)
+    mut layers = list[Layer].with_capacity(25)?
+    layers.append(layer(initial_buckets)?)?
+    mut path = list[i64].with_capacity(256)?
+    mut old = list[u16].with_capacity(256)?
+    for _ in range(256):
+        path.append(0)?
+        old.append(0u16)?
+    Ok(CuckooFilter(layers, max_buckets, initial_buckets, 0u64, seed, path, old))
+
+def word(out: &mut Bytes, value: u64) -> Result[(), BytesError]:
+    for shift in range(0, 64, 8):
+        out.push(u8((value >> u64(shift)) & 255u64))?
+    Ok(())
+
+def read_word[S: ByteSource](data: &S, offset: i64) -> u64:
+    mut result = 0u64
+    for index in range(8):
+        result = result | (u64(data[offset + index]) << u64(index * 8))
+    result
+
+pub def from_bytes[S: ByteSource](data: &S, max_buckets: i64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]:
+    if max_buckets < 1 or max_buckets > 16777216:
+        return Err(SketchError.InvalidArgument)
+    if data.len() < 44:
+        return Err(SketchError.InvalidData)
+    if data[0] != 80u8 or data[1] != 83u8 or data[2] != 67u8 or data[3] != 49u8:
+        return Err(SketchError.InvalidData)
+    limit = read_word(data, 12)
+    initial = read_word(data, 20)
+    layers = read_word(data, 28)
+    count = read_word(data, 36)
+    if initial < 1u64 or initial > 1048576u64 or initial & (initial - 1u64) != 0u64 or layers < 1u64 or layers > 25u64:
+        return Err(SketchError.InvalidData)
+    if limit < initial or limit > 16777216u64:
+        return Err(SketchError.InvalidData)
+    used = initial * ((1u64 << layers) - 1u64)
+    if used > limit or data.len() != 44 + i64(used) * 8:
+        return Err(SketchError.InvalidData)
+    if limit > u64(max_buckets):
+        return Err(SketchError.Limit)
+    mut occupied = 0u64
+    for offset in range(44, data.len(), 2):
+        if data[offset] != 0u8 or data[offset + 1] != 0u8:
+            occupied += 1u64
+    if occupied != count:
+        return Err(SketchError.InvalidData)
+    mut result = cuckoo(i64(initial), i64(limit), read_word(data, 4))?
+    mut offset = 44
+    mut buckets = i64(initial)
+    for index in range(i64(layers)):
+        if index > 0:
+            result._layers.append(layer(buckets)?)?
+        for slot in range(buckets * 8):
+            drop(result._layers[index].slots.set(slot, data[offset]))
+            offset += 1
+        buckets *= 2
+    result._used_buckets = i64(used)
+    result._count = count
+    Ok(result)

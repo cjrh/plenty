@@ -432,6 +432,8 @@ mod test_std_http_websocket;
 mod test_std_io;
 #[path = "test_std_json.rs"]
 mod test_std_json;
+#[path = "test_std_kv.rs"]
+mod test_std_kv;
 #[path = "test_std_log.rs"]
 mod test_std_log;
 #[path = "test_std_markdown.rs"]
@@ -457,14 +459,20 @@ mod test_std_shlex;
 mod test_std_signal;
 #[path = "test_std_simd.rs"]
 mod test_std_simd;
+#[path = "test_std_sketch.rs"]
+mod test_std_sketch;
 #[path = "test_std_sqlite.rs"]
 mod test_std_sqlite;
+#[path = "test_std_stat.rs"]
+mod test_std_stat;
 #[path = "test_std_sync_mutex.rs"]
 mod test_std_sync_mutex;
 #[path = "test_std_system.rs"]
 mod test_std_system;
 #[path = "test_std_tempfile.rs"]
 mod test_std_tempfile;
+#[path = "test_std_template.rs"]
+mod test_std_template;
 #[path = "test_std_test.rs"]
 mod test_std_test;
 #[path = "test_std_text_set_scans.rs"]
