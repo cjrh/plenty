@@ -7,6 +7,7 @@ book/src/development/releasing.md.
 """
 
 import os
+import hashlib
 import importlib.util
 import re
 import shutil
@@ -88,6 +89,49 @@ class ThirdPartyNotices(unittest.TestCase):
         self.assertNotIn("## SQLite", output)
         with self.assertRaisesRegex(SystemExit, "no license file"):
             self.notices.render([{**package, "version": "0.2.0"}], "dataframe")
+
+
+class InstallMold(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.script = self.root / "install-mold.sh"
+        shutil.copy(RELEASE / "install-mold.sh", self.script)
+        package = self.root / "mold-test-x86_64-linux"
+        (package / "bin").mkdir(parents=True)
+        mold = package / "bin" / "mold"
+        mold.write_text('#!/bin/sh\necho "mold test"\n')
+        mold.chmod(0o755)
+        self.archive = self.root / "mold.tar.gz"
+        subprocess.run(["tar", "-czf", self.archive, "-C", self.root, package.name], check=True)
+        digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
+        (self.root / "toolchain.env").write_text(f"MOLD_VERSION=test\nMOLD_SHA256={digest}\n")
+        commands = self.root / "commands"
+        commands.mkdir()
+        curl = commands / "curl"
+        curl.write_text('#!/bin/sh\nwhile [ "$1" != -o ]; do shift; done\ncp "$MOLD_TEST_ARCHIVE" "$2"\n')
+        curl.chmod(0o755)
+        self.env = {**os.environ, "PATH": f"{commands}:{os.environ['PATH']}",
+                    "MOLD_TEST_ARCHIVE": str(self.archive)}
+        self.destination = self.root / "installed linker"
+
+    def test_verified_archive_installs_without_root(self):
+        result = run(["bash", self.script, self.destination], env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("mold test", result.stdout)
+        self.assertTrue((self.destination / "bin" / "mold").is_file())
+
+    def test_checksum_failure_never_extracts_or_runs(self):
+        self.archive.write_bytes(self.archive.read_bytes() + b"corrupt")
+        result = run(["bash", self.script, self.destination], env=self.env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.destination.exists())
+        self.assertNotIn("mold test", result.stdout)
+
+    def test_missing_custom_linker_fails_early(self):
+        result = run([REPO / "scripts" / "ci_check_mold.sh"],
+                     env={**os.environ, "COMPILER_PATH": str(self.root / "missing")})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is missing", result.stdout)
 
 
 class CheckVersion(unittest.TestCase):
