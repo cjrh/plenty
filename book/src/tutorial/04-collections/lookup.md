@@ -33,8 +33,9 @@ default argument.
 `get` leaves the dictionary and key available and does not allocate. It
 supports numbers, booleans, strings, and enums of such values. It cannot return
 mutable collections or classes: use `pop` to take ownership or
-`&dictionary[key]` to borrow an existing value. Optional borrowed lookup is not
-implemented.
+`&dictionary[key]` to borrow an existing value. Dictionaries have no optional
+borrowed lookup yet; your own functions can
+[return a borrow that may be absent](../06-data/borrowing-methods.md#return-a-borrow-that-may-be-absent).
 
 ## Read a list element that might be missing
 

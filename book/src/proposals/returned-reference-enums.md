@@ -1,13 +1,14 @@
 # Returned enums that carry references
 
-**Status: Not implemented.** Nothing shipped; this page is the design record
-for returning `Option[&T]` and `Result[&T, E]`. The reference remains
-authoritative: [returned references](../design/language/05-ownership/04-returned-references.md)
-and [borrowing](../design/language/05-ownership/02-borrowing.md) reject every
-reference inside an enum payload. No backlog entry exists yet; the work extends
-B11 (broader borrowing) and unblocks the getter follow-ups in issue #516
-(`std.cache.lru`) and `std.graph`. [Open questions](#open-questions) list the
-decisions still needed.
+**Status: Phase 1 implemented (issue #520).** Functions and methods can return
+`Option[&T]`, `Option[&mut T]`, `Result[&T, E]`, and nested success payloads of
+these; callers match, propagate, unwrap, inspect, print, forward, or hold the
+result in an immutable local. The reference is authoritative:
+[optional and fallible references](../design/language/05-ownership/05-optional-references.md).
+Phase 2 (`mut` holders, parameters) and phase 3 (pipelines) are not
+implemented, and standard library getters such as `dict.get_ref` remain
+follow-up work under B11. This page is the design record; examples below may
+predate the implemented diagnostics.
 
 ## Problem
 
@@ -175,7 +176,7 @@ not contain references; an error that borrows its input would escape through
 
 - **`match` by value** on a reference-carrying enum binds payload names as the
   reference type itself (`item: &Item`, `slot: &mut V`). Each binding is a child
-  of the enum local's loan, like a [borrowed-match payload](../design/language/05-ownership/05-borrowed-matching.md).
+  of the enum local's loan, like a [borrowed-match payload](../design/language/05-ownership/06-borrowed-matching.md).
   In an arm without payload bindings, the enum's last use is the scrutinee, so
   the loan ends there; this is what lets the `Nothing` arm above mutate `items`.
 - **`match &o`** is rejected: a reference to a reference-carrying enum would be

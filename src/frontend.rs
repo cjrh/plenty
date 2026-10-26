@@ -969,10 +969,21 @@ impl TypeRef {
                     .at
                     .error("concrete type name exceeds the implementation limit"));
             }
-            if args.iter().any(Ty::contains_reference) {
-                return Err(self
-                    .at
-                    .error("references cannot be stored in enum payloads"));
+            // Only the success payload of an Option or Result may carry a
+            // reference: book/src/design/language/05-ownership/05-optional-references.md.
+            let success = match name.as_str() {
+                "Option" | "Result" => Some(0),
+                _ => None,
+            };
+            for (i, arg) in args.iter().enumerate() {
+                if !arg.contains_reference() || Some(i) == success && references::carriable(arg) {
+                    continue;
+                }
+                return Err(self.at.error(if name == "Result" && i == 1 {
+                    "Result errors cannot carry references; copy the part of the input the error reports"
+                } else {
+                    "references cannot be stored in enum payloads"
+                }));
             }
             if args
                 .iter()
@@ -3269,11 +3280,22 @@ impl Lower<'_> {
         if !self.contexts.is_empty() {
             self.cleanup(0, &mut cleanup);
         }
+        let carried = Ty::Enum(source.clone()).carries_loan();
         ops.push(Op::Try {
             source: Box::new(source),
             target: Box::new(target),
             cleanup: cleanup.into(),
         });
+        if carried && payload.carries_loan() {
+            // The payload reference takes over the operand's loan.
+            let parent = self.reference_origin(value, ops)?;
+            self.new_loan(
+                self.loans[parent].root,
+                payload.carries_mutable_loan(),
+                Some(parent),
+                ops,
+            );
+        }
         if payload == Ty::Unit {
             ops.push(Op::Drop);
             Ok(None)
@@ -4603,7 +4625,7 @@ impl Lower<'_> {
         // binding, to drop it before the join.
         let marker = self.returning(at, &returned);
         self.refine_return(ty, at)?;
-        let returned_loan = if self.return_origin.is_some() {
+        let returned_loan = if self.return_origin.is_some() && !references::loan_free(e.unwrap()) {
             Some(self.check_return_reference(e.unwrap(), &returned)?)
         } else {
             None
@@ -4874,7 +4896,11 @@ impl Lower<'_> {
                             "a `match` block used as a value cannot produce a reference or a closure with borrowed captures; produce an owned value, or assign in each case",
                         ));
                     }
-                    if last && self.return_origin.is_some() && matches!(ty, Some(Ty::Ref(..))) {
+                    if last
+                        && self.return_origin.is_some()
+                        && ty.as_ref().is_some_and(Ty::carries_loan)
+                        && !references::loan_free(e)
+                    {
                         let loan = self.check_return_reference(e, ops)?;
                         ops.push(Op::UseLoan(loan));
                     }
@@ -5055,6 +5081,12 @@ impl Lower<'_> {
                                 stmt.at
                                     .error("at most 256 parameter/local slots are supported")
                             })?;
+                        if *mutable && ty.carried_reference().is_some() {
+                            // A later phase of book/src/proposals/returned-reference-enums.md.
+                            return Err(stmt.at.error(format!(
+                                "`mut {name}` cannot hold {ty}; bind each result to its own local"
+                            )));
+                        }
                         self.locals.push(ty.clone());
                         ide::local_type(&stmt.at, &ty);
                         self.bind(
@@ -5543,10 +5575,42 @@ fn producer_conflict_hint(target: &Ty, source: &Ty) -> String {
         .unwrap_or_default()
 }
 
-const NO_ORIGIN: &str =
-    "returned references borrow from the first reference parameter; add a reference parameter";
-const IMMUTABLE_ORIGIN: &str =
-    "a mutable returned reference borrows from the first reference parameter, which must be `&mut`";
+/// The diagnostic for a reference-returning signature without a reference parameter.
+fn no_origin(output: &Ty) -> String {
+    if matches!(output, Ty::Ref(..)) {
+        "returned references borrow from the first reference parameter; add a reference parameter"
+            .into()
+    } else {
+        format!("a function returning {output} needs a reference parameter to borrow from")
+    }
+}
+
+/// The diagnostic for an exclusive result whose origin is a shared reference.
+fn immutable_origin(output: &Ty) -> String {
+    if matches!(output, Ty::Ref(..)) {
+        "a mutable returned reference borrows from the first reference parameter, which must be `&mut`".into()
+    } else {
+        format!("{output} requires the first reference parameter to be `&mut`")
+    }
+}
+
+/// Rejects parameters that would hold a reference-carrying `Option` or
+/// `Result`, or a reference to one. Such parameters are a later phase of
+/// book/src/proposals/returned-reference-enums.md.
+fn check_carried_parameters(f: &Function, inputs: &[(String, Ty)]) -> Result<()> {
+    for ((name, ty), (_, written)) in inputs.iter().zip(&f.inputs) {
+        let carried = match ty {
+            Ty::Ref(inner, _) => inner.carried_reference().is_some(),
+            ty => ty.carried_reference().is_some(),
+        };
+        if carried {
+            return Err(written.at.error(format!(
+                "parameter `{name}` cannot be {ty}: an Option or Result carrying a reference may only be returned or held in a local; pass the reference after matching"
+            )));
+        }
+    }
+    Ok(())
+}
 const UNRESOLVED_SUM_MEMBER: &str = "a closure signature in an anonymous sum names no concrete environment; only a function's declared return type can infer it, from the closure the body returns or propagates; use a generic parameter bounded by OnceCallable or Callable";
 
 fn register_signature(
@@ -5655,14 +5719,15 @@ fn register_with_body(
     if f.export.is_some() {
         crate::exports::check_signature(&inputs, &output).map_err(|message| f.at.error(message))?;
     }
-    if let Some(Ty::Ref(_, mutable)) = &output {
+    check_carried_parameters(f, &inputs)?;
+    if let Some(output) = output.as_ref().filter(|ty| ty.carries_loan()) {
         // The first reference parameter is the result's origin; later ones
         // are ordinary inputs whose loans end with the call.
         let Some((_, origin)) = inputs.iter().find(|(_, ty)| matches!(ty, Ty::Ref(..))) else {
-            return Err(f.at.error(NO_ORIGIN));
+            return Err(f.at.error(no_origin(output)));
         };
-        if *mutable && !matches!(origin, Ty::Ref(_, true)) {
-            return Err(f.at.error(IMMUTABLE_ORIGIN));
+        if output.carries_mutable_loan() && !matches!(origin, Ty::Ref(_, true)) {
+            return Err(f.at.error(immutable_origin(output)));
         }
     }
     if generators::yields(body)
@@ -5837,7 +5902,7 @@ fn lower_body(
                 indexed_lists: Vec::new(),
                 expression_temps: Vec::new(),
                 contexts: Vec::new(),
-                return_origin: if matches!(sig.outputs.first(), Some(Ty::Ref(..))) {
+                return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
                     sig.inputs
                         .iter()
                         .position(|(_, ty)| matches!(ty, Ty::Ref(..)))

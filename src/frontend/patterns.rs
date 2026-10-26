@@ -839,6 +839,8 @@ pub(super) struct Subject {
     pub(super) source: u8,
     /// The scrutinee's loan and mutability when it is a reference.
     pub(super) borrowed: Option<(usize, bool)>,
+    /// The loan an owned reference-carrying `Option` or `Result` holds.
+    pub(super) carried: Option<usize>,
 }
 
 impl Lower<'_> {
@@ -1523,6 +1525,13 @@ impl Lower<'_> {
                 let mut fill = Vec::new();
                 owned_root(pattern, subject.source, slots, false, &mut fill);
                 fills.push(fill);
+            }
+        }
+        if let Some(parent) = subject.carried {
+            for (name, ty) in bound.iter().filter(|(_, ty)| ty.carries_loan()) {
+                let root = self.loans[parent].root;
+                let loan = self.new_loan(root, ty.carries_mutable_loan(), Some(parent), body);
+                self.reference_locals.insert(slots[name.as_str()], loan);
             }
         }
         if !fills.is_empty() {

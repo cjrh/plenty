@@ -121,7 +121,10 @@ fn native(#[case] source: &str, #[case] expected: &str) {
     "match Some(()):\n    case Some(u):\n        r = &u\n    case Nothing:\n        pass",
     "expected a value, got ()"
 )]
-#[case("x = 42\ny = Some(&x)", "references cannot be stored")]
+#[case(
+    "x = 42\ny = [Some(&x)].unwrap()",
+    "carrying a reference cannot be stored in collections"
+)]
 #[case(
     "mut xs = [1.0].unwrap()\nr = &xs\nxs.append(2.0).unwrap()\nprint(r).unwrap()",
     "borrow"

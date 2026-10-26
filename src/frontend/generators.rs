@@ -188,7 +188,7 @@ impl Lower<'_> {
     pub(super) fn refine_return(&mut self, actual: Type, at: &Token) -> Result<()> {
         if actual
             .as_ref()
-            .is_some_and(|t| !matches!(t, Ty::Ref(..)) && t.contains_reference())
+            .is_some_and(|t| !t.carries_loan() && t.contains_reference())
         {
             return Err(at.error("a closure with borrowed captures cannot escape its function"));
         }

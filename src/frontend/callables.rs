@@ -68,12 +68,20 @@ pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
             "callable signatures do not yet support generator frames or closure environments",
         ));
     }
-    if let Some(Ty::Ref(_, mutable)) = &sig.output {
+    if let Some(ty) = sig.inputs.iter().find(|ty| match ty {
+        Ty::Ref(inner, _) => inner.carried_reference().is_some(),
+        ty => ty.carried_reference().is_some(),
+    }) {
+        return Err(at.error(format!(
+            "callable parameters cannot be {ty}: an Option or Result carrying a reference may only be returned or held in a local"
+        )));
+    }
+    if let Some(output) = sig.output.as_ref().filter(|ty| ty.carries_loan()) {
         let Some(origin) = sig.inputs.iter().find(|ty| matches!(ty, Ty::Ref(..))) else {
-            return Err(at.error(super::NO_ORIGIN));
+            return Err(at.error(super::no_origin(output)));
         };
-        if *mutable && !matches!(origin, Ty::Ref(_, true)) {
-            return Err(at.error(super::IMMUTABLE_ORIGIN));
+        if output.carries_mutable_loan() && !matches!(origin, Ty::Ref(_, true)) {
+            return Err(at.error(super::immutable_origin(output)));
         }
     }
     Ok(())
