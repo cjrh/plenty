@@ -30,12 +30,13 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.db.sqlite`](sqlite.md) | SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit | `DbError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
 | [`std.diff`](diff.md) | Line, word, character, byte, and list differences as edit operations, with Myers and patience algorithms and unified-diff output | `AllocError` |
-| [`std.encoding`](encoding.md) | Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |
+| [`std.encoding`](encoding.md) | Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |
 | [`std.env`](env.md) | Environment variables as text or bytes, a detached snapshot, and the working directory | `IoError` |
 | [`std.error`](error.md) | Explicit error mapping, operation/path context, descriptions, and standard-error reports | Mapper-selected error, `Context[E]`, `AllocError` |
 | [`std.fmt`](fmt.md) | Static display/debug, bounded writer output and fallible strings | `FormatError` |
 | [`std.fs`](fs.md) | Directories, metadata/walking, rooted mutation, owned temporary resources, bounded copy/delete/glob | `IoError`, `AllocError`, `WalkError`, `FsError` |
 | [`std.fs.dirs`](fs/dirs.md) | The home directory and the XDG configuration, cache, data, and state directories, from the environment | `IoError` |
+| [`std.fs.watch`](fs/watch.md) | Bounded Linux filesystem change batches, rename cookies, overflow and readiness waits | `WatchError`, `WaitError` |
 | [`std.http`](http.md) | Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams | `HttpError` |
 | [`std.http.body`](http-body.md) | Bounded request bodies for handlers: URL-encoded forms, JSON, and multipart uploads into unnamed temporary files | `BodyError` |
 | [`std.http.client`](http-client.md) | HTTP/1.1 client: pooled connections, deadlines and cancellation, bounded redirects, an explicit proxy, and replay of idempotent requests only | `ClientError` |
@@ -67,6 +68,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.signal`](signal.md) | `SIGTERM` and `SIGINT` as an event to wait or select on, and a helper that cancels a token on one | `SignalError`, `WaitError` |
 | [`std.simd`](simd.md) | Portable fixed-lane values, masks, checked and wrapping arithmetic, selection, and bounded list loads/stores | None |
 | [`std.sync`](sync.md) | Shared cooperative cancellation tokens | `AllocError` |
+| [`std.system`](system.md) | Bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status | `IoError`, `SystemError` |
 | [`std.tempfile`](tempfile.md) | Unnamed and named temporary files, recursively cleaned directories, context managers and explicit ownership transfer | `IoError`, `FsError`, `StreamError`, `AllocError` |
 | [`std.test`](test.md) | Assertions that explain their failure on standard error, self-removing scratch directories, the seeded generator for `plenty test`, and fake clocks and streams | `TestError` |
 | [`std.text`](text.md) | Bounded reusable builders, joining, and scalar wrapping | `TextError` |
@@ -76,6 +78,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.toml`](toml.md) | Strict TOML 1.0 parsing, value-tree writing and format-preserving document edits, under depth, input, and output limits | `TomlError` |
 | [`std.unicode`](unicode.md) | Unicode 17 normalization, combining classes, and Mark classification | `TextError` |
 | [`std.url`](url.md) | Strict RFC 3986 absolute URL parsing and formatting without normalization, component-aware percent encoding, and query pairs | `UrlError` |
+| [`std.uuid`](uuid.md) | UUID values, canonical text and network bytes, random v4 and timestamp-prefixed v7 generation | `ParseError`, `BytesError`, `SecretsError`, `RangeError` |
 
 The generated [signature index](signatures.md) lists every public declaration
 of every module on one page.

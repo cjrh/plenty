@@ -1,22 +1,247 @@
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes, BytesError, ByteSource
 
 # Binary-to-text codecs and fixed-width integer packing over `std.bytes`.
 # Everything here is checked Plenty: ranges are validated before reads and
 # writes, and an index outside the buffer would trap rather than reach past
-# it. Each codec has
-# one accepted form; nothing is skipped, trimmed, or repaired.
+# it. Ordinary codecs accept one canonical form; only the explicitly named
+# MIME decoder skips ASCII whitespace.
 pub enum EncodingError:
     OutOfRange
     InvalidLength
     InvalidByte(i64)
     InvalidPadding(i64)
     NonCanonical(i64)
+    InvalidAlphabet
     Allocation(AllocError)
 
 pub enum Endian:
     Little
     Big
+
+# Validated reusable tables. Public construction goes through `custom` so
+# symbols are distinct printable ASCII and padding cannot be a symbol.
+pub class Encoding:
+    _symbols: Bytes
+    _values: Bytes
+    _bits: i64
+    _padding: i64
+
+    pub def encode(self, source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+        encode_radix(source, start, stop, &self._symbols, self._bits, self._padding)
+
+    pub def decode(self, source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+        decode_radix(source, start, stop, &self._values, 0, self._bits, self._padding)
+
+    pub def text(self, source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
+        lifted(self.encode(source, start, stop)?.to_text())
+
+    pub def from_text(self, text: &str) -> Result[Bytes, EncodingError]:
+        source = lifted(std.bytes.from_text(text))?
+        self.decode(&source, 0, source.len())
+
+pub def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]:
+    count = len(symbols)
+    if count < 2 or count > 64 or count & (count - 1) != 0:
+        return Err(EncodingError.InvalidAlphabet)
+    alphabet = lifted(std.bytes.from_text(symbols))?
+    if alphabet.len() != count:
+        return Err(EncodingError.InvalidAlphabet)
+    mut pad = -1
+    match padding:
+        case Some(value):
+            pad = i64(value)
+            if pad < 33 or pad > 126:
+                return Err(EncodingError.InvalidAlphabet)
+        case Nothing:
+            pass
+    mut values = lifted(std.bytes.with_capacity(128))?
+    lifted(values.resize(128, 255u8))?
+    for index in range(count):
+        code = i64(alphabet[index])
+        if code < 33 or code > 126 or code == pad:
+            return Err(EncodingError.InvalidAlphabet)
+        if values[code] != 255u8:
+            return Err(EncodingError.InvalidAlphabet)
+        values[code] = u8(index)
+    mut bits = 1
+    while 1 << bits < count:
+        bits += 1
+    Ok(Encoding(alphabet, values, bits, pad))
+
+pub def base32_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    encode_radix(source, start, stop, b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", 5, 61)
+
+pub def base32_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    decode_radix(source, start, stop, b"", 1, 5, 61)
+
+pub def base32_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
+    lifted(base32_encode(source, start, stop)?.to_text())
+
+pub def base32_from_text(text: &str) -> Result[Bytes, EncodingError]:
+    source = lifted(std.bytes.from_text(text))?
+    base32_decode(&source, 0, source.len())
+
+pub def base32hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    encode_radix(source, start, stop, b"0123456789ABCDEFGHIJKLMNOPQRSTUV", 5, 61)
+
+pub def base32hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    decode_radix(source, start, stop, b"", 2, 5, 61)
+
+pub def base32hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
+    lifted(base32hex_encode(source, start, stop)?.to_text())
+
+pub def base32hex_from_text(text: &str) -> Result[Bytes, EncodingError]:
+    source = lifted(std.bytes.from_text(text))?
+    base32hex_decode(&source, 0, source.len())
+
+# MIME's 76-column layout, CRLF between lines, no final line terminator.
+pub def base64mime_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    encoded = base64_encode(source, start, stop)?
+    mut breaks = 0
+    if encoded.len() > 0:
+        breaks = (encoded.len() - 1) // 76
+    mut wrapped = lifted(std.bytes.with_capacity(encoded.len() + breaks * 2))?
+    for index in range(encoded.len()):
+        if index > 0 and index % 76 == 0:
+            emit(&mut wrapped, 13)?
+            emit(&mut wrapped, 10)?
+        emit(&mut wrapped, i64(encoded[index]))?
+    Ok(wrapped)
+
+# Deliberately narrower than MIME's liberal recovery: skip SP/HT/CR/LF only,
+# and retain the strict base64 alphabet, padding and trailing-bit checks.
+pub def base64mime_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    checked(start, stop, source.len())?
+    mut size = 0
+    for index in range(start, stop):
+        if not mime_space(source[index]):
+            size += 1
+    mut compact = lifted(std.bytes.with_capacity(size))?
+    for index in range(start, stop):
+        if not mime_space(source[index]):
+            emit(&mut compact, i64(source[index]))?
+    match base64_decode(&compact, 0, compact.len()):
+        case Ok(decoded):
+            Ok(decoded)
+        case Err(error):
+            match error:
+                case EncodingError.InvalidByte(index):
+                    Err(EncodingError.InvalidByte(mime_index(source, start, stop, index)))
+                case EncodingError.InvalidPadding(index):
+                    Err(EncodingError.InvalidPadding(mime_index(source, start, stop, index)))
+                case EncodingError.NonCanonical(index):
+                    Err(EncodingError.NonCanonical(mime_index(source, start, stop, index)))
+                case _:
+                    Err(error)
+
+pub def base64mime_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
+    lifted(base64mime_encode(source, start, stop)?.to_text())
+
+pub def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]:
+    source = lifted(std.bytes.from_text(text))?
+    base64mime_decode(&source, 0, source.len())
+
+def mime_space(code: u8) -> bool:
+    code == 32u8 or code == 9u8 or code == 13u8 or code == 10u8
+
+def mime_index(source: &Bytes, start: i64, stop: i64, compact_index: i64) -> i64:
+    mut seen = 0
+    for index in range(start, stop):
+        if not mime_space(source[index]):
+            if seen == compact_index:
+                return index
+            seen += 1
+    stop
+
+# The smallest number of symbols encoding a whole number of bytes.
+def quantum(bits: i64) -> i64:
+    mut count = 1
+    while count * bits % 8 != 0:
+        count += 1
+    count
+
+def encode_radix[S: ByteSource](source: &Bytes, start: i64, stop: i64, symbols: &S, bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
+    checked(start, stop, source.len())?
+    count = stop - start
+    if count > (i64.MAX - 7) // 8:
+        return Err(EncodingError.InvalidLength)
+    mut size = (count * 8 + bits - 1) // bits
+    if padding >= 0:
+        group = quantum(bits)
+        size += (group - size % group) % group
+    mut encoded = lifted(std.bytes.with_capacity(size))?
+    mask = (1 << bits) - 1
+    mut pending = 0
+    mut available = 0
+    for index in range(start, stop):
+        pending = pending << 8 | i64(source[index])
+        available += 8
+        while available >= bits:
+            available -= bits
+            emit(&mut encoded, i64(symbols[(pending >> available) & mask]))?
+        pending = pending & ((1 << available) - 1)
+    if available > 0:
+        emit(&mut encoded, i64(symbols[(pending << (bits - available)) & mask]))?
+    while encoded.len() < size:
+        emit(&mut encoded, padding)?
+    Ok(encoded)
+
+# Fixed alphabets avoid allocating a lookup table on every call; a custom
+# Encoding pays for its 128-byte table once and reuses it.
+def radix_value[V: ByteSource](code: i64, values: &V, kind: i64) -> i64:
+    if kind == 1:
+        if code >= 65 and code <= 90:
+            return code - 65
+        if code >= 50 and code <= 55:
+            return code - 24
+    elif kind == 2:
+        if code >= 48 and code <= 57:
+            return code - 48
+        if code >= 65 and code <= 86:
+            return code - 55
+    elif code < 128:
+        value = i64(values[code])
+        if value != 255:
+            return value
+    -1
+
+def decode_radix[V: ByteSource](source: &Bytes, start: i64, stop: i64, values: &V, kind: i64, bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
+    checked(start, stop, source.len())?
+    group = quantum(bits)
+    if padding >= 0 and (stop - start) % group != 0:
+        return Err(EncodingError.InvalidLength)
+    mut end = stop
+    if padding >= 0:
+        while end > start and i64(source[end - 1]) == padding:
+            end -= 1
+    count = end - start
+    # An incomplete byte needs fewer unused bits than one whole symbol.
+    trailing = (count % 8) * bits % 8
+    if trailing >= bits:
+        return Err(EncodingError.InvalidLength)
+    if padding >= 0 and stop - end != (group - count % group) % group:
+        return Err(EncodingError.InvalidPadding(end))
+    size = (count // 8) * bits + (count % 8) * bits // 8
+    mut decoded = lifted(std.bytes.with_capacity(size))?
+    mut pending = 0
+    mut available = 0
+    for index in range(start, end):
+        code = i64(source[index])
+        value = radix_value(code, values, kind)
+        if value < 0:
+            if code == padding:
+                return Err(EncodingError.InvalidPadding(index))
+            return Err(EncodingError.InvalidByte(index))
+        pending = pending << bits | value
+        available += bits
+        if available >= 8:
+            available -= 8
+            emit(&mut decoded, pending >> available)?
+            pending = pending & ((1 << available) - 1)
+    if pending != 0:
+        return Err(EncodingError.NonCanonical(end - 1))
+    Ok(decoded)
 
 # Lowercase digits. Sizes below cannot overflow: a buffer large enough to make
 # them wrap cannot have been allocated.

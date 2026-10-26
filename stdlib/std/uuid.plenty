@@ -1,0 +1,165 @@
+# RFC 9562 UUIDs in network byte order. The value owns only two integers;
+# generation reuses std.secrets and std.time rather than adding native hooks.
+import std.bytes
+import std.secrets
+import std.time
+from std.bytes import Bytes, BytesError, ByteSource
+from std.io import Reader
+from std.secrets import Source, SecretsError
+from std.time import Timestamp
+
+const max_milliseconds: u64 = 281474976710655
+
+pub class Uuid:
+    _high: u64
+    _low: u64
+
+    # A numeric sorting key, most significant half first.
+    pub def as_u64_pair(self) -> (u64, u64):
+        (self._high, self._low)
+
+    pub def compare(self, other: &Uuid) -> i64:
+        if self.as_u64_pair() < other.as_u64_pair():
+            -1
+        elif self.as_u64_pair() > other.as_u64_pair():
+            1
+        else:
+            0
+
+    pub def is_nil(self) -> bool:
+        self._high == 0u64 and self._low == 0u64
+
+    pub def is_rfc_variant(self) -> bool:
+        self._low >> 62u64 == 2u64
+
+    # The version nibble is meaningful only for the RFC variant.
+    pub def version(self) -> Option[u8]:
+        if not self.is_rfc_variant():
+            return Nothing
+        Some(u8((self._high >> 12u64) & 15u64))
+
+    pub def unix_milliseconds(self) -> Option[u64]:
+        if self.version() == Some(7u8):
+            Some(self._high >> 16u64)
+        else:
+            Nothing
+
+    # Writes into existing storage without allocating or growing it. Validate
+    # the entire span before changing any byte, using subtraction to avoid
+    # overflow for an untrusted offset.
+    pub def write_bytes(self, target: &mut Bytes, offset: i64) -> Result[(), BytesError]:
+        if offset < 0 or offset > target.len() or target.len() - offset < 16:
+            return Err(BytesError.OutOfRange)
+        for index in range(8):
+            shift = u64((7 - index) * 8)
+            target.set(offset + index, u8((self._high >> shift) & 255u64))?
+            target.set(offset + index + 8, u8((self._low >> shift) & 255u64))?
+        Ok(())
+
+    pub def to_bytes(self) -> Result[Bytes, BytesError]:
+        mut result = std.bytes.with_capacity(16)?
+        result.resize(16, 0u8)?
+        self.write_bytes(&mut result, 0)?
+        Ok(result)
+
+    pub def to_string(self) -> Result[str, BytesError]:
+        mut text = std.bytes.with_capacity(36)?
+        digits = b"0123456789abcdef"
+        for index in range(32):
+            if index == 8 or index == 12 or index == 16 or index == 20:
+                text.push(45u8)?
+            word = self._high if index < 16 else self._low
+            shift = u64((15 - index % 16) * 4)
+            text.push(digits[i64((word >> shift) & 15u64)])?
+        text.to_text()
+
+pub def nil() -> Uuid:
+    Uuid(0u64, 0u64)
+
+pub def from_u64_pair(high: u64, low: u64) -> Uuid:
+    Uuid(high, low)
+
+# Parsing preserves all 128 bits, including unknown versions and variants.
+# The one accepted spelling is 8-4-4-4-12 ASCII hex digits, either case.
+pub def parse(text: &str) -> Result[Uuid, ParseError]:
+    if text.byte_len() != 36:
+        return Err(ParseError.Invalid)
+    mut high = 0u64
+    mut low = 0u64
+    mut position = 0
+    mut digit = 0
+    for scalar in text:
+        if position == 8 or position == 13 or position == 18 or position == 23:
+            if scalar != "-":
+                return Err(ParseError.Invalid)
+        else:
+            code = ord(scalar)?
+            mut value = 0u64
+            if code >= 48u32 and code <= 57u32:
+                value = u64(code - 48u32)
+            elif code >= 65u32 and code <= 70u32:
+                value = u64(code - 65u32) + 10u64
+            elif code >= 97u32 and code <= 102u32:
+                value = u64(code - 97u32) + 10u64
+            else:
+                return Err(ParseError.Invalid)
+            if digit < 16:
+                high = (high << 4u64) | value
+            else:
+                low = (low << 4u64) | value
+            digit += 1
+        position += 1
+    Ok(Uuid(high, low))
+
+# The caller has checked the length; indexing cannot leave the source.
+def decoded[S: ByteSource](source: &S) -> Uuid:
+    mut high = 0u64
+    mut low = 0u64
+    for index in range(8):
+        high = (high << 8u64) | u64(source[index])
+        low = (low << 8u64) | u64(source[index + 8])
+    Uuid(high, low)
+
+pub def from_bytes[S: ByteSource](source: &S) -> Result[Uuid, ParseError]:
+    if source.len() != 16:
+        return Err(ParseError.Invalid)
+    Ok(decoded(source))
+
+# Advanced/test entry points keep entropy injection explicit. Only a source
+# backed by cryptographic entropy is suitable for production identifiers.
+pub def v4_from[R: Reader](source: &mut Source[R]) -> Result[Uuid, SecretsError]:
+    random = source.token_bytes(16)?
+    value = decoded(&random)
+    high = (value._high & ~(15u64 << 12u64)) | (4u64 << 12u64)
+    low = (value._low & (u64.MAX >> 2u64)) | (2u64 << 62u64)
+    Ok(Uuid(high, low))
+
+pub def v4() -> Result[Uuid, SecretsError]:
+    mut source = std.secrets.os()
+    v4_from(&mut source)
+
+def milliseconds(at: &Timestamp) -> Result[u64, RangeError]:
+    if at.seconds < 0 or at.nanoseconds >= 1000000000u32:
+        return Err(RangeError.OutOfRange)
+    if u64(at.seconds) > max_milliseconds // 1000u64:
+        return Err(RangeError.OutOfRange)
+    value = u64(at.seconds) * 1000u64 + u64(at.nanoseconds) // 1000000u64
+    if value > max_milliseconds:
+        return Err(RangeError.OutOfRange)
+    Ok(value)
+
+pub def v7_from[R: Reader](at: &Timestamp, source: &mut Source[R]) -> Result[Uuid, RangeError | SecretsError]:
+    time = milliseconds(at)?
+    # Ten bytes supply the 74 random bits. Six bits are replaced by the
+    # version/variant. No shared counter or hidden process state is needed.
+    random = source.token_bytes(10)?
+    high = (time << 16u64) | (7u64 << 12u64) | (u64(random[0] & 15u8) << 8u64) | u64(random[1])
+    mut low = u64((random[2] & 63u8) | 128u8)
+    for index in range(3, 10):
+        low = (low << 8u64) | u64(random[index])
+    Ok(Uuid(high, low))
+
+pub def v7() -> Result[Uuid, RangeError | SecretsError]:
+    at = std.time.wall_now()
+    mut source = std.secrets.os()
+    v7_from(&at, &mut source)

@@ -3,7 +3,8 @@
 Import `std.fs` and pass a borrowed [Path](path.md).
 For owned temporary resources, copy/move/remove and bounded glob filtering,
 see [rooted helpers](fs/helpers.md). The home and XDG base directories are in
-[`std.fs.dirs`](fs/dirs.md).
+[`std.fs.dirs`](fs/dirs.md). For change notifications, see
+[`std.fs.watch`](fs/watch.md).
 `read_dir(&path) -> Result[ReadDir, IoError]` opens one directory immediately.
 `ReadDir` is affine and owns a lazy native stream. `next()` requires a mutable
 owner and returns `Result[Option[DirEntry], IoError]`: `Some` is one entry,

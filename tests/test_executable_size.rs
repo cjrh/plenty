@@ -206,6 +206,15 @@ def main() -> Result[(), IoError]:
         patterns: &[Pattern::Operations(150..165)],
     },
     NativeModule {
+        module: "std.fs.watch",
+        program: r#"import std.fs.watch
+def main() -> Result[(), std.fs.watch.WatchError]:
+    _watcher = std.fs.watch.watcher()?
+    Ok(())
+"#,
+        patterns: &[Pattern::Operations(512..515)],
+    },
+    NativeModule {
         module: "std.regex",
         program: r#"import std.regex
 from std.regex import RegexError
