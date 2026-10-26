@@ -248,6 +248,27 @@ pub fn build_file(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     (dir, executable)
 }
 
+/// Compile `path` into `executable` with its symbol table, which ordinary
+/// builds strip, for tests that check what the linker kept.
+pub fn compile_unstripped(path: &Path, executable: &Path) {
+    let options = plenty::CompileOptions {
+        strip: false,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(path, executable, None, &options)
+        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+}
+
+/// [`build_file`] keeping the symbol table; see [`compile_unstripped`].
+pub fn build_unstripped(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    compile_unstripped(&path, &executable);
+    (dir, executable)
+}
+
 /// Compile and run a complete program; see [`build_file`].
 pub fn run_file(source: &str) -> Output {
     let (_dir, executable) = build_file(source);

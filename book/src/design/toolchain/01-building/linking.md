@@ -50,6 +50,50 @@ drivers and nonempty `link_args` also disable discovery. `verbose` reports the
 command. The caller must explicitly disable `auto_linker` when selecting `cc`
 itself, since assigning that default value cannot record an explicit override.
 
+## Symbols and debug information
+
+Executables and shared libraries are linked with `-Wl,--strip-all`, which
+drops the symbol table (`.symtab`, `.strtab`) and every `.debug_*` section.
+Generated code carries no debug information; these sections come from the Rust
+runtime archive and its precompiled standard library, and were about three
+quarters of a hello-world executable:
+
+| Program | Unstripped | Stripped |
+|---|---:|---:|
+| empty `main` | 2,727,008 bytes | 302,280 bytes |
+| `print("hello")` | 3,289,728 bytes | 789,776 bytes |
+
+Measured with mold. Stripping leaves the loaded segments unchanged (`size`
+reports the same `text`, `data` and `bss`), so it affects file size, not
+memory use or speed.
+
+Nothing reads these sections at run time. Trap reports find the failed check
+through the compiler's site and `ud2` tables, which the linker resolves as
+relocations, not through symbols; the runtime prints no backtraces. A shared
+library keeps its dynamic symbol table (`.dynsym`), so its exports and
+`--verify-interface` are unaffected, and its embedded `.plenty.interface.*`
+metadata is not a debug section.
+
+`--no-strip` keeps both, for `--compile` and `--shared-library`; `plenty build`
+and `plenty run` accept it too. Use it to inspect an executable with `nm`,
+`perf`, or a debugger, or to split the debug information into a separate
+file:
+
+```text
+plenty --compile --no-strip app.plenty -o app
+objcopy --only-keep-debug app app.debug
+objcopy --strip-all --add-gnu-debuglink=app.debug app
+```
+
+`--fuzz` targets and `plenty test` executables are never stripped: they run
+and are debugged where they are built. Static libraries are archives of
+unlinked objects, so the final link decides; `--emit-object` likewise leaves
+stripping to the external link (see below). In the Rust API,
+`CompileOptions::strip` is `true` by default.
+
+Stripping is part of the linker's deterministic output and does not change the
+reproducibility contract below; package build fingerprints include it.
+
 ## Reproducible artifacts
 
 Generated code uses the original x86-64/SSE2 baseline, regardless of the
@@ -89,7 +133,9 @@ reach, including the unused functions of imported `std` modules, and then the
 runtime code only they call, such as the [`std.crypto`](../../stdlib/crypto.md)
 hashes, the [`std.compress`](../../stdlib/compress.md) codecs and the
 [`std.tls`](../../stdlib/tls.md) stack. The
-runtime supplies C `main`. Neither object emission nor runtime extraction needs
+runtime supplies C `main`. `link-args.txt` lists only what linking requires,
+so it does not strip; add `-Wl,--strip-all` (or `-s`) to match `plenty
+--compile`. Neither object emission nor runtime extraction needs
 Cargo or rustc on `PATH`.
 
 Ordinary Plenty functions, including `pub` functions, use private symbols and

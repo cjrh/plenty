@@ -112,6 +112,12 @@ pub struct CompileOptions {
     /// `libclang_rt.fuzzer_no_main.a`): count every block's runs and enter
     /// through the fuzz driver. See book/src/design/toolchain/01-building/fuzzing.md.
     pub fuzz: Option<PathBuf>,
+    /// Link executables and shared libraries with `-Wl,--strip-all`, dropping
+    /// the symbol table and the debug sections the Rust runtime brings. No
+    /// run-time path reads them; `.dynsym` and trap tables stay. `plenty test`
+    /// and `--fuzz` builds keep them regardless. See
+    /// book/src/design/toolchain/01-building/linking.md.
+    pub strip: bool,
 }
 
 impl Default for CompileOptions {
@@ -128,6 +134,7 @@ impl Default for CompileOptions {
             program_cache: true,
             cache_stats: false,
             fuzz: None,
+            strip: true,
         }
     }
 }
@@ -339,9 +346,12 @@ pub(crate) fn link(
         .args(&options.link_args)
         .args(trailing_args)
         .args(dataframe)
-        .args(native_args.split_whitespace())
-        .arg("-o")
-        .arg(output);
+        .args(native_args.split_whitespace());
+    // Last before `-o`, so wrapper drivers still see the inputs first.
+    if options.strip {
+        command.arg("-Wl,--strip-all");
+    }
+    command.arg("-o").arg(output);
     if options.verbose {
         eprintln!("link: {command:?}");
     }

@@ -55,6 +55,8 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
   Without either override, prefer installed mold, then lld, then cc's default.
   PLENTY_LINKER_THREADS=N limits that mold or lld to N threads.
 --verbose: report the effective linker command.
+--no-strip: keep the symbol table and debug sections in --compile and
+  --shared-library output (stripped by default; --fuzz never strips).
 --target TRIPLE: require this target to match the supported packaged runtime.
 --release: optimize generated code for FILE, --compile, or --fuzz (slower
   compilation).
@@ -227,6 +229,16 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             return Err("--release requires FILE, --compile, --fuzz, or --dump".into());
         }
         options.optimize = true;
+    }
+    if let Some(index) = args.iter().position(|a| a == "--no-strip") {
+        args.remove(index);
+        if !args
+            .first()
+            .is_some_and(|a| a == "--compile" || a == "--shared-library")
+        {
+            return Err("--no-strip requires --compile or --shared-library".into());
+        }
+        options.strip = false;
     }
     if dump_options && !args.first().is_some_and(|a| a == "--dump") {
         return Err("--dump-std and --dump-filter require --dump".into());

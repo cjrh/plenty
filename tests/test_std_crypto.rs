@@ -374,7 +374,7 @@ fn programs_that_never_hash_do_not_link_the_hashing_code() {
         let path = dir.path().join("main.plenty");
         let executable = dir.path().join("program");
         std::fs::write(&path, source).unwrap();
-        plenty::compile_file_to_executable(&path, &executable, None).unwrap();
+        support::compile_unstripped(&path, &executable);
         let data = std::fs::read(&executable).unwrap();
         let file = object::File::parse(&*data).unwrap();
         file.symbols()
