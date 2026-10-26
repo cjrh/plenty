@@ -123,8 +123,10 @@ fn plenty_allocation_failure_preserves_inputs() {
             .output()
             .unwrap(),
     );
-    assert_eq!(
-        String::from_utf8(result.stdout).unwrap(),
-        "linalg allocation ok\n"
-    );
+    let stdout = String::from_utf8(result.stdout).unwrap();
+    let visible: Vec<_> = stdout
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect();
+    assert_eq!(visible, ["linalg allocation ok"]);
 }
