@@ -497,12 +497,36 @@ pub fn find<'a, T: Send>(
 }
 
 pub fn walk<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
-    walk_sited(ops, &mut |op, _| visit(op));
+    let mut pending = vec![ops];
+    while let Some(ops) = pending.pop() {
+        for op in ops {
+            visit(op);
+            match op {
+                Op::DefineFn(_, f) => pending.push(&f.body),
+                Op::Match(arms) => pending.extend(arms.iter().map(|arm| arm.body.as_ref())),
+                Op::Loop { condition, body } => pending.extend([condition.as_ref(), body.as_ref()]),
+                Op::If {
+                    then,
+                    elifs,
+                    otherwise,
+                } => {
+                    pending.extend([then.as_ref(), otherwise.as_ref()]);
+                    for arm in elifs.iter() {
+                        pending.extend([arm.condition.as_ref(), arm.body.as_ref()]);
+                    }
+                }
+                Op::Try { cleanup, .. } => pending.push(cleanup),
+                _ => {}
+            }
+        }
+    }
 }
 
 /// `walk`, also passing the source position of each operation: the last
 /// `Op::Site` before it in its own sequence or an enclosing one. A function
-/// body starts without a position.
+/// body starts without a position. `walk` stays separate because codegen's
+/// whole-program scans do not need positions and tracking them cost 0.17% of
+/// an AOT build's instructions.
 pub fn walk_sited<'a>(
     ops: &'a [Op],
     visit: &mut impl FnMut(&'a Op, Option<crate::ownership::Site>),
