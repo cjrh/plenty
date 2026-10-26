@@ -158,7 +158,8 @@ without a `get` call per byte.
   `find_not_in` returns `start` for a nonempty range. Build a set once and
   reuse it. The set, needle, or source may be the buffer being scanned.
 - `find_bytes` reports a match only when the whole needle lies inside the
-  range. An empty needle is found at `start`.
+  range. An empty needle is found at `start`. It takes time linear in the
+  range and needle lengths, even on repetitive input, and does not allocate.
 - `matches` and `matches_text` require `0 <= offset <= len`. When fewer bytes
   remain after `offset` than the comparison needs, the result is `False`, not
   an error. An empty comparison is `True`.

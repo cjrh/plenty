@@ -786,6 +786,32 @@ print(str.repr(none.find_bytes(&none, 0, 0)?)?, str.repr(none.find_bytes(&line, 
 }
 
 #[test]
+fn find_bytes_handles_periodic_needles_inside_a_range() {
+    // Repetitive input made the first-byte search quadratic (issue #474);
+    // the runtime unit tests cover the worst case at scale.
+    native(
+        r#"
+mut data = std.bytes.with_capacity(4100)?
+for _ in range(2000):
+    data.extend(b"ab")?
+data.extend(b"abbab")?
+mut needle = std.bytes.with_capacity(201)?
+for _ in range(100):
+    needle.extend(b"ab")?
+needle.push(98u8)?
+print(str.repr(data.find_bytes(&needle, 0, data.len())?)?)?
+print(str.repr(data.find_bytes(&needle, 0, data.len() - 3)?)?)?
+print(str.repr(data.find_bytes(&needle, 3900, data.len())?)?)?
+print(str.repr(data.find_bytes(b"bb", 1, data.len())?)?)?
+"#,
+        "Option[i64].Some(3802)\n\
+         Option[i64].Nothing\n\
+         Option[i64].Nothing\n\
+         Option[i64].Some(4001)",
+    );
+}
+
+#[test]
 fn scans_agree_with_a_byte_loop_on_every_range_of_a_long_buffer() {
     // Longer than the native eight-byte step, with every byte value present.
     native(
