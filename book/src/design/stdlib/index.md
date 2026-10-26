@@ -163,3 +163,7 @@ The filesystem walker adds `WalkError` to retain attempted paths and operations.
 native codes, and allocation failure. Module functions accept
 [named arguments and defaults](../language/06-functions/01-signatures-and-calls.md);
 the [signature index](signatures.md) shows each default.
+
+## Acknowledgements
+
+- The breadth of [Python's standard library](https://docs.python.org/3/library/index.html) motivated the module catalogue.

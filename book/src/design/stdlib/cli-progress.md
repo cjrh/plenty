@@ -87,3 +87,7 @@ labels, colors, terminal resizing or iterator adapters. It follows the manually
 updated, terminal-only stderr model of
 [indicatif](https://docs.rs/indicatif/0.18.6/indicatif/), without embedding it.
 See [Show progress](../../tutorial/08-resources/progress.md) for a small example.
+
+## Acknowledgements
+
+- Design follows [indicatif](https://docs.rs/indicatif/0.18.6/indicatif/) 0.18.6; no indicatif code is used.

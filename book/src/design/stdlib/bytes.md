@@ -319,3 +319,7 @@ progress.
 The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with
 `from_list` and `to_list`; each conversion allocates and copies.
+
+## Acknowledgements
+
+- `find_bytes` uses the [two-way](https://doi.org/10.1145/116825.116845) string-matching algorithm by Maxime Crochemore and Dominique Perrin (1991), as Rust's `core` string search does.

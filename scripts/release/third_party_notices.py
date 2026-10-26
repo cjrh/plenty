@@ -164,6 +164,15 @@ EMBEDDED = (
         "https://html.spec.whatwg.org/multipage/named-characters.html",
         "whatwg-html-BSD-3-Clause.txt",
     ),
+    (
+        "similar 3.2.1 (std.diff algorithms)",
+        "Apache-2.0",
+        "stdlib/std/diff.plenty follows the similar crate's linear-space Myers "
+        "and patience diff algorithms.",
+        "https://github.com/mitsuhiko/similar/blob/"
+        "71d4831349a61efa5c9fe521a344d8b335844d3a/LICENSE",
+        "similar-3.2.1-LICENSE.txt",
+    ),
 )
 
 

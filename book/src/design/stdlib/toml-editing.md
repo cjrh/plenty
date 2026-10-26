@@ -69,3 +69,7 @@ incremental editing. `Limits` are captured at construction: input and depth
 limits apply to both original and candidate text, and output limits bound
 candidate construction. No Rust dependency or infallible allocator wrapper is
 introduced.
+
+## Acknowledgements
+
+- Design follows the Rust [`toml_edit`](https://docs.rs/toml_edit/) crate.

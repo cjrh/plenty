@@ -106,3 +106,7 @@ supported target), `fetch_update` (write a `compare_exchange` loop),
 For a lesson see [count with atomics](../../tutorial/11-concurrency/atomic-counters.md);
 the [architecture page](../toolchain/02-architecture/concurrency.md#atomics)
 describes the lowering.
+
+## Acknowledgements
+
+- Operations and orderings follow Rust's [`std::sync::atomic`](https://doc.rust-lang.org/std/sync/atomic/).
