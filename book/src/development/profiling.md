@@ -293,6 +293,44 @@ controls are noise rather than evidence for tuning smaller matches. This run
 does not measure allocation or peak memory, nor justify a broader sparse-table
 policy.
 
+## Inline scalar list rows
+
+Issue #509 found `std.diff`'s Myers loop spending most of its time in runtime
+calls: on 3,000 dissimilar lines, `perf` attributed 30% of cycles to
+`plenty_list_scalar_get`, 27% to the `Entries::get` it called and 19% to
+`plenty_list_scalar_set`, against 21% in the `std.diff` functions. The access
+forms were borrowed `&list[i64]` parameters indexed in `while` loops and list
+fields of a `&mut` record read and written in the same loop. Only `for` loops
+over an unchanged borrowed parameter hoisted a row view, so these forms called
+the runtime per element.
+
+Codegen now reads and writes borrowed scalar list rows inline through the
+fixed offsets in `plenty-runtime/src/list_layout.rs` ([collections](../design/toolchain/02-architecture/collections.md#narrow-native-helpers)).
+Screening came first: `--dump asm` of `std.diff.common_prefix` shows each read
+as three loads from the owner, the index normalization, an unsigned compare
+and the row load, with a cold call to `plenty_trap_list_index`; afterwards
+`perf` attributes 94% of the cycles to `std.diff` functions and none to list
+helpers. User-space instructions and cycles (`perf stat`, one run, pinned to
+the eight physical cores):
+
+| Benchmark | Instructions before / after | Cycles before / after |
+|---|---:|---:|
+| `dis.plenty` (3k dissimilar lines, Myers) | 33.31 / 12.85 billion | 7.79 / 3.49 billion |
+| `bench.plenty` (all cases) | 81.10 / 38.73 billion | 17.90 / 9.24 billion |
+| `large.plenty` (50k lines, 150 edits) | 7.51 / 7.18 billion | 2.59 / 2.37 billion |
+
+Best of three interleaved runs of `bench.plenty`'s five-repetition minimums
+(load average 0.5): dissimilar 3k Myers 265 to 100 ms, patience 265 to 100 ms;
+repetitive 3k 7.8 to 3.9 ms for both; similar 3k Myers 2.03 to 1.94 ms;
+large 50k Myers 38.4 to 36.2 ms, patience unchanged at 54 ms. Edit counts are
+identical. The large case is dominated by splitting and interning lines. The
+benchmark programs are outside the repository; issue #509 names them.
+
+Compile cost is small: `--compile` of `bench.plenty` rose from 418.9 to 423.0
+million instructions (1.0%), its executable's `.text` grew 644 bytes, and
+`compile_bench 1000 10 --workload aot` stayed at 76.2 billion instructions.
+`std.diff.middle_snake` grew from 3,320 to 4,168 bytes of machine code.
+
 ## Serial pipeline callbacks
 
 `scripts/bench_pipelines.py` compares an inline range/filter/map/fold loop with

@@ -54,8 +54,9 @@ def main() -> ():
     assert!(!instructions.iter().any(|(offset, text)| (*offset >= target && *offset <= end) && text.starts_with("call")), "{asm}");
     assert_eq!(asm.matches("# plenty_list_rows").count(), 2, "{asm}");
     assert_eq!(asm.matches("# plenty_list_row_bytes").count(), 2, "{asm}");
-    // Only the out-of-bounds cold blocks retain this helper for its diagnostic.
-    assert_eq!(asm.matches("# plenty_list_scalar_get").count(), 2, "{asm}");
+    // Only the out-of-bounds cold blocks call out, to report the index.
+    assert_eq!(asm.matches("# plenty_trap_list_index").count(), 2, "{asm}");
+    assert!(!asm.contains("plenty_list_scalar_get"), "{asm}");
 }
 
 #[test]
@@ -375,12 +376,14 @@ fn borrowed_access_has_only_narrow_runtime_relocations() {
             _ => None,
         })
         .collect();
-    assert!(
-        calls.iter().any(|name| name == "plenty_list_scalar_get"),
-        "{calls:?}"
-    );
-    assert!(
-        calls.iter().any(|name| name == "plenty_list_len"),
+    // Issue #509: scalar reads and length are inline; only the
+    // out-of-bounds report calls out.
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|name| name.starts_with("plenty_"))
+            .collect::<Vec<_>>(),
+        ["plenty_trap_list_index"],
         "{calls:?}"
     );
     assert!(

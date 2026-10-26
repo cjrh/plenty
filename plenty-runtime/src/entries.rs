@@ -4,6 +4,9 @@ use crate::aggregates::Type;
 use crate::entry_order::Order;
 use crate::{memory, ranges};
 use std::cmp::Ordering;
+use std::mem::ManuallyDrop;
+use std::ops::{Deref, DerefMut};
+use std::ptr::NonNull;
 
 mod sort;
 
@@ -16,21 +19,104 @@ pub(crate) struct Entry {
     pub value: u128,
 }
 
+/// A `Vec<u128>` with a fixed layout: generated code reads a list's rows,
+/// word count, and `removed` flag at the offsets in `list_layout` (issue #509).
+/// Growth and shrinking go through `Vec` itself, so allocation is unchanged.
+#[repr(C)]
+pub(crate) struct Words {
+    ptr: NonNull<u128>,
+    len: usize,
+    capacity: usize,
+}
+
+impl Words {
+    const fn new() -> Self {
+        Self {
+            ptr: NonNull::dangling(),
+            len: 0,
+            capacity: 0,
+        }
+    }
+    /// Runs `f` on the buffer as a `Vec`, then records its new parts.
+    fn with<R>(&mut self, f: impl FnOnce(&mut Vec<u128>) -> R) -> R {
+        // SAFETY: the parts always describe a Global allocation of `capacity`
+        // words, `len` of them initialized, or the empty dangling buffer.
+        // ManuallyDrop keeps ownership here if `f` unwinds.
+        let mut vec = ManuallyDrop::new(unsafe {
+            Vec::from_raw_parts(self.ptr.as_ptr(), self.len, self.capacity)
+        });
+        let result = f(&mut vec);
+        // SAFETY: a Vec's pointer is never null.
+        self.ptr = unsafe { NonNull::new_unchecked(vec.as_mut_ptr()) };
+        self.len = vec.len();
+        self.capacity = vec.capacity();
+        result
+    }
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+    fn clear(&mut self) {
+        self.truncate(0);
+    }
+    fn truncate(&mut self, len: usize) {
+        // Words are plain integers; payload owners are released by callers.
+        self.len = self.len.min(len);
+    }
+    fn resize(&mut self, len: usize, value: u128) {
+        self.with(|vec| vec.resize(len, value));
+    }
+}
+
+// SAFETY: `Words` owns its buffer exactly as `Vec<u128>` does.
+unsafe impl Send for Words {}
+// SAFETY: as for `Send`.
+unsafe impl Sync for Words {}
+
+impl Deref for Words {
+    type Target = [u128];
+    fn deref(&self) -> &[u128] {
+        // SAFETY: `len` words from `ptr` are initialized.
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl DerefMut for Words {
+    fn deref_mut(&mut self) -> &mut [u128] {
+        // SAFETY: as for `deref`, and `&mut self` is exclusive.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl Drop for Words {
+    fn drop(&mut self) {
+        // SAFETY: the parts describe this buffer's allocation, as in `with`.
+        drop(unsafe { Vec::from_raw_parts(self.ptr.as_ptr(), self.len, self.capacity) });
+    }
+}
+
+#[repr(C)]
 pub(crate) struct Entries {
-    data: Vec<u128>,
-    key: &'static Type,
-    value: Option<&'static Type>,
-    stride: usize,
+    data: Words,
     /// A removed dense row stays initialized at the end until the next mutation.
     /// Its owners have transferred to the caller; it is not a live member.
     removed: bool,
+    key: &'static Type,
+    value: Option<&'static Type>,
+    stride: usize,
     order: Option<Order>,
 }
+
+const _: () = {
+    assert!(std::mem::offset_of!(Entries, data) == 0);
+    assert!(std::mem::offset_of!(Words, ptr) == 0);
+    assert!(std::mem::offset_of!(Words, len) == 8);
+    assert!(std::mem::offset_of!(Entries, removed) == 24);
+};
 
 impl Entries {
     pub fn new(key: &'static Type, value: Option<&'static Type>) -> Self {
         Self {
-            data: Vec::new(),
+            data: Words::new(),
             key,
             value,
             stride: key.slot_words() + value.map_or(1, Type::slot_words),
@@ -171,7 +257,7 @@ impl Entries {
                 .checked_mul(self.stride)
                 .ok_or(memory::AllocError::CapacityOverflow)?;
             let previous = self.data.as_ptr();
-            memory::try_reserve(&mut self.data, words)?;
+            self.data.with(|data| memory::try_reserve(data, words))?;
             if previous != self.data.as_ptr() {
                 self.relocate(0);
             }
@@ -185,7 +271,7 @@ impl Entries {
             .checked_mul(self.stride)
             .ok_or(memory::AllocError::CapacityOverflow)?;
         let previous = self.data.as_ptr();
-        memory::try_reserve(&mut self.data, words)?;
+        self.data.with(|data| memory::try_reserve(data, words))?;
         if previous != self.data.as_ptr() {
             self.relocate(0);
         }

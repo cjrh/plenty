@@ -373,15 +373,16 @@ fn borrowed_scalar_iteration_loads_rows_directly() {
         ],
     );
     let calls: Vec<&str> = asm.lines().filter(|line| line.contains("call ")).collect();
-    assert_eq!(calls.len(), 3, "{asm}");
-    for helper in [
-        "plenty_list_len",
-        "plenty_list_rows",
-        "plenty_list_row_bytes",
-    ] {
+    assert_eq!(calls.len(), 2, "{asm}");
+    for helper in ["plenty_list_rows", "plenty_list_row_bytes"] {
         assert!(calls.iter().any(|call| call.ends_with(helper)), "{asm}");
     }
-    for absent in ["plenty_op_", "plenty_retain", "plenty_release"] {
+    for absent in [
+        "plenty_op_",
+        "plenty_retain",
+        "plenty_release",
+        "plenty_list_len",
+    ] {
         assert!(!asm.contains(absent), "{asm}");
     }
 }

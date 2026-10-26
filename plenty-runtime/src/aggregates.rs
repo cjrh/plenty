@@ -153,7 +153,13 @@ struct Collection {
     /// The live row to resume after a heap child finishes destruction.
     drop_entry: Option<usize>,
 }
-const _: () = assert!(std::mem::offset_of!(Collection, ty) == 16);
+const _: () = {
+    use crate::list_layout::{REMOVED, ROWS, WORDS};
+    assert!(std::mem::offset_of!(Collection, ty) == 16);
+    // `Entries` checks its own field offsets; these add the owner header.
+    assert!(std::mem::offset_of!(Collection, entries) == ROWS as usize);
+    assert!(ROWS + 8 == WORDS && ROWS + 24 == REMOVED);
+};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Fields<'a> {
@@ -1372,8 +1378,9 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
     }
 }
 
-/// Narrow ABI: a live borrowed list owner, with no ownership transfer. The
-/// compiler never reads Collection, Entries, or Vec layout across this boundary.
+/// Narrow ABI: a live borrowed list owner, with no ownership transfer. Besides
+/// these helpers, generated code reads only the dense row fields named in
+/// `list_layout`, to index scalar lists inline.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_list_len(owner: *const u8) -> u64 {
     // SAFETY: the compiler keeps the list's owner alive through the call.
@@ -1471,6 +1478,8 @@ pub(crate) unsafe extern "C" fn plenty_list_sort_by(
 
 /// Returns the low 64 payload bits of an integer, float, or boolean list row.
 /// No pointer into the buffer escapes, including across later growing mutations.
+/// Generated code reads a borrowed list's rows inline (issue #509); this
+/// serves owned temporaries and iteration.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
     owner: *const u8,
@@ -1481,27 +1490,21 @@ pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
     // negative indices use the same normalization as the generic dispatcher.
     unsafe {
         let collection = &*owner.cast::<Collection>();
+        debug_assert_eq!(
+            collection.entries.row_bytes(),
+            1 << crate::list_layout::SCALAR_ROW_SHIFT
+        );
         let i = index(i, collection.entries.len(), site);
         collection.entries.get(i).key as u64
     }
 }
 
-/// Stores the low 64 payload bits of an integer, float, or boolean list row,
-/// exactly as a write through the generic `ElementRef` would.
+/// Reports list index `index`, as written, out of bounds for `len` rows.
+/// Generated code calls it from inline scalar row reads and writes, which
+/// normalize and check the index as `index` does (issue #509).
 #[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_list_scalar_set(
-    owner: *mut u8,
-    i: i64,
-    value: u64,
-    site: *const crate::Site,
-) {
-    // SAFETY: generated callers hold an exclusive loan of a live list of
-    // scalars. Bounds use the same normalization as the generic dispatcher.
-    unsafe {
-        let collection = &mut *owner.cast::<Collection>();
-        let i = index(i, collection.entries.len(), site);
-        *collection.entries.slot(i, false) = value as u128;
-    }
+extern "C" fn plenty_trap_list_index(index: i64, len: u64, site: *const crate::Site) -> ! {
+    out_of_bounds(index, len as usize, site)
 }
 
 /// Narrow ABI: the address of row `i` of a live borrowed list, the slot a

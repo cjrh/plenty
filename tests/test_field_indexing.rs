@@ -1,6 +1,6 @@
-//! Scalar lists reached through a field place use the same narrow get/set
-//! helpers as local lists, not the generic `ElementRef` runtime call
-//! (issue #122).
+//! Scalar list elements reached through any borrowed place, including a field
+//! (issue #122), are read and written inline, with no runtime call except the
+//! out-of-bounds trap (issue #509).
 mod support;
 use support::assert_stdout as expect;
 
@@ -85,48 +85,126 @@ def main() -> Result[(), AllocError | IoError]:
 "#;
 
 #[test]
-fn scalar_field_elements_use_only_narrow_helpers() {
-    for (function, expected) in [
-        ("read", &["plenty_list_scalar_get"][..]),
-        (
-            "write",
-            &[
-                "plenty_list_scalar_set",
-                "plenty_list_scalar_set",
-                "plenty_list_scalar_set",
-            ][..],
-        ),
-        (
-            "augment",
-            &[
-                "plenty_list_scalar_get",
-                "plenty_list_scalar_set",
-                "plenty_list_scalar_get",
-                "plenty_list_scalar_set",
-            ][..],
-        ),
-        (
-            "Outer.bump",
-            &[
-                "plenty_list_scalar_get",
-                "plenty_list_scalar_set",
-                "plenty_list_scalar_get",
-            ][..],
-        ),
-    ] {
-        assert_eq!(runtime_calls(PLACES, function), expected, "{function}");
+fn scalar_field_elements_need_no_runtime_calls() {
+    for function in ["read", "write", "augment", "Outer.bump"] {
+        assert_eq!(
+            runtime_calls(PLACES, function),
+            [] as [&str; 0],
+            "{function}"
+        );
+        assert!(
+            calls(PLACES, function)
+                .iter()
+                .any(|name| name == "plenty_trap_list_index"),
+            "{function} keeps its bounds check"
+        );
     }
-    // The outer row is a list, so only the inner scalar row is narrow.
-    let nested = runtime_calls(PLACES, "nested");
-    assert_eq!(
-        nested
-            .iter()
-            .filter(|name| *name == "plenty_list_scalar_set")
-            .count(),
-        1,
-        "{nested:?}"
-    );
+    // The outer row is a list, found by `plenty_list_row`; the inner scalar
+    // row is inline.
+    assert_eq!(runtime_calls(PLACES, "nested"), ["plenty_list_row"; 2]);
     expect(PLACES, "21 1 2 True False\n1.0 1.75\n5\n");
+}
+
+/// The access forms `std.diff` uses: borrowed parameters indexed in `while`
+/// loops, and list fields of a mutably borrowed record read and written in
+/// the same loop.
+const LOOPS: &str = r#"
+class Frontier:
+    forward: list[i64]
+    offset: i64
+
+def prefix(old: &list[i64], new: &list[i64]) -> i64:
+    mut count = 0
+    while count < len(old) and count < len(new) and old[count] == new[count]:
+        count += 1
+    count
+
+def sweep(v: &mut Frontier, steps: i64) -> i64:
+    at = v.offset
+    mut k = steps
+    while k >= -steps:
+        if v.forward[at + k - 1] < v.forward[at + k + 1]:
+            v.forward[at + k] = v.forward[at + k + 1]
+        else:
+            v.forward[at + k] = v.forward[at + k - 1] + 1
+        k -= 2
+    v.forward[at]
+
+def main() -> Result[(), AllocError | IoError]:
+    old = [1, 2, 3, 4]?
+    new = [1, 2, 5]?
+    mut v = Frontier([0, 3, 1, 4, 1, 5, 9]?, 3)
+    print(prefix(&old, &new), sweep(&mut v, 2), v.forward)?
+    Ok(())
+"#;
+
+#[test]
+fn loop_indexing_of_borrowed_lists_is_inline() {
+    for function in ["prefix", "sweep"] {
+        assert_eq!(
+            runtime_calls(LOOPS, function),
+            [] as [&str; 0],
+            "{function}"
+        );
+    }
+    expect(LOOPS, "2 2 [0, 1, 1, 2, 1, 9, 9]\n");
+}
+
+#[test]
+fn inline_rows_follow_pops_growth_and_negative_indices() {
+    let source = r#"
+def at(xs: &list[i64], i: i64) -> i64:
+    xs[i]
+
+def put(xs: &mut list[i64], i: i64, v: i64) -> ():
+    xs[i] = v
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [10, 20, 30]?
+    print(at(&xs, -1), at(&xs, -3))?
+    put(&mut xs, -2, 21)
+    for i in range(100):
+        xs.append(i)?
+    print(at(&xs, 1), at(&xs, 102), len(&xs))?
+    xs.pop()
+    print(at(&xs, -1), len(&xs))?
+    at(&xs, 102)
+    Ok(())
+"#;
+    let result = support::run(source);
+    assert!(!result.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&result.stdout),
+        "30 10\n21 99 103\n98 102\n"
+    );
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        stderr.contains("index out of bounds: index 102, length 102"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn inline_writes_report_negative_indices_as_written() {
+    let source = r#"
+def put(xs: &mut list[bool], i: i64) -> ():
+    xs[i] = True
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [False, False]?
+    put(&mut xs, -2)
+    print(xs)?
+    put(&mut xs, -3)
+    Ok(())
+"#;
+    let result = support::run(source);
+    assert!(!result.status.success());
+    assert_eq!(String::from_utf8_lossy(&result.stdout), "[True, False]\n");
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        stderr.contains("index out of bounds: index -3, length 2"),
+        "{stderr}"
+    );
 }
 
 #[test]
