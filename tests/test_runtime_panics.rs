@@ -2,6 +2,8 @@
 //! do not link std's panic hook or backtrace symbolizer (issue #503).
 #![cfg(target_os = "linux")]
 
+mod support;
+
 use object::{Object, ObjectSymbol, SymbolKind};
 use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
@@ -10,13 +12,10 @@ const SIGABRT: i32 = 6;
 
 #[test]
 fn hello_links_no_backtrace_symbolizer() {
-    let workspace = tempfile::tempdir().unwrap();
-    let executable = workspace.path().join("hello");
-    plenty::compile_source_to_executable(
+    // Unstripped, so the symbol check below sees every linked function.
+    let (_dir, executable) = support::build_unstripped(
         "def main() -> Result[(), AllocError | IoError]:\n    print(\"hello\")?\n    Ok(())\n",
-        &executable,
-    )
-    .unwrap();
+    );
     let bytes = std::fs::read(&executable).unwrap();
     // std's default panic hook text, present even in a stripped executable.
     for text in ["RUST_BACKTRACE", "panicked at"] {
