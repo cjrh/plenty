@@ -77,6 +77,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install pinned mold
+        run: |
+          bash scripts/release/install-mold.sh "$RUNNER_TEMP/plenty-mold"
+          echo "$RUNNER_TEMP/plenty-mold/bin" >> "$GITHUB_PATH"
+          echo "COMPILER_PATH=$RUNNER_TEMP/plenty-mold/libexec/mold" >> "$GITHUB_ENV"
+      - name: Check mold is cc's linker
+        run: scripts/ci_check_mold.sh
       - run: |
           . scripts/release/toolchain.env
           rustup toolchain install "$RUST_VERSION" --profile minimal
