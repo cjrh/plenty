@@ -28,6 +28,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.math", include_str!("../../stdlib/std/math.plenty")),
     ("std.simd", include_str!("../../stdlib/std/simd.plenty")),
     ("std.fs", include_str!("../../stdlib/std/fs.plenty")),
+    (
+        "std.fs.dirs",
+        include_str!("../../stdlib/std/fs/dirs.plenty"),
+    ),
     ("std.path", include_str!("../../stdlib/std/path.plenty")),
     ("std.deque", include_str!("../../stdlib/std/deque.plenty")),
     ("std.error", include_str!("../../stdlib/std/error.plenty")),
@@ -39,6 +43,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         include_str!("../../stdlib/std/cli/progress.plenty"),
     ),
     ("std.text", include_str!("../../stdlib/std/text.plenty")),
+    ("std.diff", include_str!("../../stdlib/std/diff.plenty")),
     ("std.fmt", include_str!("../../stdlib/std/fmt.plenty")),
     ("std.report", include_str!("../../stdlib/std/report.plenty")),
     (

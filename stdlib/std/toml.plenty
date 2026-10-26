@@ -1,5 +1,5 @@
-# TOML 1.0 documents: a strict parser that builds a value tree and a writer
-# that turns a tree back into text. Everything is checked Plenty over
+# TOML 1.0 documents: a strict parser, a value-tree writer, and a source editor
+# that preserves untouched statement bytes. Everything is checked Plenty over
 # `std.bytes`; every size the input controls is bounded by `Limits`.
 # See book/src/design/stdlib/toml.md.
 import std.bytes
@@ -233,6 +233,15 @@ class Node:
     key: str
     value: Toml
     children: list[i64]
+    parent: i64
+
+class Statement:
+    node: i64
+    start: i64
+    stop: i64
+    value_start: i64
+    value_stop: i64
+    header: bool
 
 # Parses a whole document held in `src` into an arena of nodes, then assembles
 # the tree. Named children are found through `index`, so a lookup costs the
@@ -251,6 +260,9 @@ class Parser:
     literal_stop: Bytes
     comment_stop: Bytes
     numeric: Bytes
+    tracking: bool
+    statements: list[Statement]
+    value_start: i64
 
     def byte_at(self, where: i64) -> i64:
         if where >= 0 and where < self.src.len():
@@ -308,7 +320,7 @@ class Parser:
                 return Err(TomlFault.DepthExceeded)
         child = len(self.nodes)
         children = reserved(list[i64]())?
-        reserved(self.nodes.append(Node(kind, origin, level, key, Toml.Bool(False), children)))?
+        reserved(self.nodes.append(Node(kind, origin, level, key, Toml.Bool(False), children, parent)))?
         reserved(self.nodes[parent].children.append(child))?
         if named:
             reserved(self.index.insert((parent, key), child))?
@@ -357,15 +369,23 @@ class Parser:
 
     def document(self: &mut Parser) -> Result[(), TomlFault]:
         while True:
+            start = self.at
             self.blank()
             byte = self.peek(0)
             if byte < 0:
                 return Ok(())
-            if byte == 91:
+            mut node = -1
+            header = byte == 91
+            if header:
                 self.header()?
+                node = self.table
             elif byte != 35 and byte != 10 and byte != 13:
-                self.entry(self.table)?
+                node = self.entry(self.table)?
+            value_start = self.value_start
+            value_stop = self.at
             self.end_line()?
+            if self.tracking and node >= 0:
+                reserved(self.statements.append(Statement(node, start, self.at, value_start, value_stop, header)))?
         Ok(())
 
     def key_part(self: &mut Parser) -> Result[str, TomlFault]:
@@ -454,7 +474,7 @@ class Parser:
 
     # `key = value` within `table`. Dotted keys create or continue tables
     # that other dotted keys made; they never reopen a header or inline table.
-    def entry(self: &mut Parser, table: i64) -> Result[(), TomlFault]:
+    def entry(self: &mut Parser, table: i64) -> Result[i64, TomlFault]:
         start = self.at
         parts = self.key_path()?
         if self.peek(0) != 61:
@@ -483,7 +503,10 @@ class Parser:
             case Nothing:
                 pass
         self.at = value_at
-        self.value(parent, name, True)
+        node = len(self.nodes)
+        self.value(parent, name, True)?
+        self.value_start = value_at
+        Ok(node)
 
     def value(self: &mut Parser, parent: i64, name: str, named: bool) -> Result[(), TomlFault]:
         byte = self.peek(0)
@@ -525,7 +548,7 @@ class Parser:
             self.at += 1
             return Ok(())
         while True:
-            self.entry(node)?
+            drop(self.entry(node)?)
             self.blank()
             byte = self.peek(0)
             if byte == 44:
@@ -901,7 +924,7 @@ class Parser:
 def parser(source: Bytes, bounds: &Limits) -> Result[Parser, TomlFault]:
     mut nodes = reserved(list[Node]())?
     root = reserved(list[i64]())?
-    reserved(nodes.append(Node(kind_table, origin_header, 0, "", Toml.Bool(False), root)))?
+    reserved(nodes.append(Node(kind_table, origin_header, 0, "", Toml.Bool(False), root, -1)))?
     index = reserved(dict[(i64, str), i64]())?
     scratch = faulted(std.bytes.empty())?
     bare = bare_bytes()?
@@ -909,7 +932,8 @@ def parser(source: Bytes, bounds: &Limits) -> Result[Parser, TomlFault]:
     literal_stop = control_bytes(39, -1)?
     comment_stop = control_bytes(-1, -1)?
     numeric = numeric_bytes()?
-    Ok(Parser(source, 0, nodes, index, 0, bounds.max_depth, scratch, bare, basic_stop, literal_stop, comment_stop, numeric))
+    statements = reserved(list[Statement]())?
+    Ok(Parser(source, 0, nodes, index, 0, bounds.max_depth, scratch, bare, basic_stop, literal_stop, comment_stop, numeric, False, statements, 0))
 
 # Parses one document held in `source`, which the parser owns.
 def run(source: Bytes, bounds: &Limits) -> Result[Toml, TomlError]:
@@ -1073,6 +1097,10 @@ class Emitter:
     spelling: Bytes
     max_depth: i64
     max_output: i64
+
+    def take(self: &mut Emitter) -> Result[Bytes, TomlFault]:
+        fresh = faulted(std.bytes.empty())?
+        Ok(replace(self.out, fresh))
 
     def put(self: &mut Emitter, byte: i64) -> Result[(), TomlFault]:
         if self.out.len() >= self.max_output:
@@ -1386,3 +1414,240 @@ pub def write_value[W: Writer](writer: &mut W, value: &Toml, bounds: &Limits) ->
             Ok(())
         case Err(partial):
             Err(TomlError(TomlFault.Stream(partial.cause), partial.completed, 0, 0))
+
+# A validated source document. Edits prepare and reparse a candidate before
+# replacing this state, so errors never leave a partially changed document.
+pub class Document:
+    state: Parser
+    bounds: Limits
+
+    pub def text(self) -> Result[str, TomlError]:
+        unplaced(faulted(self.state.src.to_text()))
+
+    pub def get(self, path: &list[str]) -> Result[Option[Toml], TomlError]:
+        match unplaced(document_node(&self.state, path))?:
+            case Nothing:
+                Ok(Nothing)
+            case Some(node):
+                # Building consumes arena values; copy only the requested tree.
+                Ok(Some(unplaced(document_value(&self.state, node))?))
+
+    # Replace a value, or insert a missing one. Table values become sections;
+    # replacing an assignment replaces only its value token (inline if a table).
+    pub def set(self: &mut Document, path: &list[str], value: &Toml) -> Result[(), TomlError]:
+        self.change(path, value, False)
+
+    pub def insert(self: &mut Document, path: &list[str], value: &Toml) -> Result[(), TomlError]:
+        self.change(path, value, True)
+
+    pub def remove(self: &mut Document, path: &list[str]) -> Result[bool, TomlError]:
+        if len(path) == 0:
+            return Err(TomlError(TomlFault.KeyConflict, 0, 0, 0))
+        match unplaced(document_node(&self.state, path))?:
+            case Nothing:
+                Ok(False)
+            case Some(node):
+                source = unplaced(document_without(&self.state, node, &self.bounds))?
+                candidate = document_state(source, &self.bounds)?
+                self.state = candidate
+                Ok(True)
+
+    def change(self: &mut Document, path: &list[str], value: &Toml, insert_only: bool) -> Result[(), TomlError]:
+        if len(path) == 0:
+            return Err(TomlError(TomlFault.KeyConflict, 0, 0, 0))
+        found = unplaced(document_node(&self.state, path))?
+        match found:
+            case Some(node):
+                if insert_only:
+                    return Err(TomlError(TomlFault.DuplicateKey, 0, 0, 0))
+                mut value_start = -1
+                mut value_stop = -1
+                for statement in &self.state.statements:
+                    if statement.node == node and not statement.header:
+                        value_start = statement.value_start
+                        value_stop = statement.value_stop
+                if value_start >= 0:
+                    mut target = unplaced(emitter(&self.bounds))?
+                    unplaced(target.extend(&self.state.src, 0, value_start))?
+                    parent = self.state.nodes[node].parent
+                    unplaced(target.inline(value, self.state.nodes[parent].level))?
+                    unplaced(target.extend(&self.state.src, value_stop, self.state.src.len()))?
+                    candidate = document_state(unplaced(target.take())?, &self.bounds)?
+                    self.state = candidate
+                    return Ok(())
+                # A section can be replaced with another table, but converting
+                # it to a scalar could silently reparent subsequent statements.
+                match value:
+                    case Toml.Table(entries):
+                        source = unplaced(document_without(&self.state, node, &self.bounds))?
+                        mut target = unplaced(emitter(&self.bounds))?
+                        unplaced(target.extend(&source, 0, source.len()))?
+                        target.path = unplaced(reserved(copy(path)))?
+                        unplaced(target.heading(False))?
+                        unplaced(target.body(entries, len(path)))?
+                        candidate = document_state(unplaced(target.take())?, &self.bounds)?
+                        self.state = candidate
+                        return Ok(())
+                    case _:
+                        return Err(TomlError(TomlFault.KeyConflict, 0, 0, 0))
+            case Nothing:
+                pass
+        mut target = unplaced(emitter(&self.bounds))?
+        match value:
+            case Toml.Table(entries):
+                unplaced(target.extend(&self.state.src, 0, self.state.src.len()))?
+                target.path = unplaced(reserved(copy(path)))?
+                unplaced(target.heading(False))?
+                unplaced(target.body(entries, len(path)))?
+            case _:
+                parent_path = unplaced(reserved(path.slice(0, len(path) - 1)))?
+                mut parent = 0
+                match unplaced(document_node(&self.state, &parent_path))?:
+                    case Some(node):
+                        parent = node
+                    case Nothing:
+                        return Err(TomlError(TomlFault.KeyConflict, 0, 0, 0))
+                if self.state.nodes[parent].kind != kind_table or self.state.nodes[parent].origin == origin_inline:
+                    return Err(TomlError(TomlFault.KeyConflict, 0, 0, 0))
+                # Dotted-key tables belong to the nearest enclosing section;
+                # qualify the new key relative to that section, not the root.
+                mut section = parent
+                mut relative_start = len(path) - 1
+                while self.state.nodes[section].origin == origin_dotted:
+                    section = self.state.nodes[section].parent
+                    relative_start -= 1
+                mut at = self.state.src.len()
+                mut active = section == 0
+                mut located = active
+                for statement in &self.state.statements:
+                    if statement.header:
+                        if active:
+                            at = statement.start
+                            break
+                        if statement.node == section:
+                            active = True
+                            located = True
+                if not located:
+                    # An implicit parent can be made explicit at EOF.
+                    unplaced(target.extend(&self.state.src, 0, self.state.src.len()))?
+                    target.path = unplaced(reserved(copy(&parent_path)))?
+                    unplaced(target.heading(False))?
+                else:
+                    unplaced(target.extend(&self.state.src, 0, at))?
+                    unplaced(document_newline(&mut target))?
+                    for position in range(relative_start, len(path) - 1):
+                        part = path[position]
+                        unplaced(target.key(&part))?
+                        unplaced(target.put(46))?
+                name = path[len(path) - 1]
+                unplaced(target.key(&name))?
+                unplaced(target.raw(b" = "))?
+                unplaced(target.inline(value, len(path) - 1))?
+                unplaced(target.put(10))?
+                if located:
+                    unplaced(target.extend(&self.state.src, at, self.state.src.len()))?
+        candidate = document_state(unplaced(target.take())?, &self.bounds)?
+        self.state = candidate
+        Ok(())
+
+def document_newline(target: &mut Emitter) -> Result[(), TomlFault]:
+    count = target.out.len()
+    if count > 0 and faulted(target.out.get(count - 1))? != 10u8:
+        target.put(10)?
+    Ok(())
+
+# Paths address decoded table keys. Arrays (including arrays of tables) are
+# atomic values: traversing one is ambiguous without an explicit row index.
+def document_node(state: &Parser, path: &list[str]) -> Result[Option[i64], TomlFault]:
+    mut node = 0
+    for part in path:
+        if state.nodes[node].kind != kind_table:
+            return Err(TomlFault.KeyConflict)
+        match state.index.get((node, *part)):
+            case Some(child):
+                node = child
+            case Nothing:
+                return Ok(Nothing)
+    Ok(Some(node))
+
+def document_value(state: &Parser, node: i64) -> Result[Toml, TomlFault]:
+    if state.nodes[node].kind == kind_value:
+        match &state.nodes[node].value:
+            case Toml.Bool(value):
+                return Ok(Toml.Bool(*value))
+            case Toml.Int(value):
+                return Ok(Toml.Int(*value))
+            case Toml.Float(value):
+                return Ok(Toml.Float(*value))
+            case Toml.Text(value):
+                return Ok(Toml.Text(*value))
+            case Toml.DateTime(value):
+                return Ok(Toml.DateTime(reserved(copy(value))?))
+            case _:
+                return Err(TomlFault.KeyConflict)
+    if state.nodes[node].kind == kind_table:
+        mut entries = reserved(list[Entry]())?
+        for child in &state.nodes[node].children:
+            reserved(entries.append(Entry(state.nodes[*child].key, document_value(state, *child)?)))?
+        return Ok(Toml.Table(entries))
+    mut values = reserved(list[Toml]())?
+    for child in &state.nodes[node].children:
+        reserved(values.append(document_value(state, *child)?))?
+    Ok(Toml.Array(values))
+
+def document_descendant(state: &Parser, child: i64, ancestor: i64) -> bool:
+    mut node = child
+    while node >= 0:
+        if node == ancestor:
+            return True
+        node = state.nodes[node].parent
+    False
+
+def document_without(state: &Parser, node: i64, bounds: &Limits) -> Result[Bytes, TomlFault]:
+    mut target = emitter(bounds)?
+    mut at = 0
+    mut found = False
+    for statement in &state.statements:
+        if document_descendant(state, statement.node, node):
+            target.extend(&state.src, at, statement.start)?
+            at = statement.stop
+            found = True
+    if not found:
+        # Inline fields have no independent statement to delete safely.
+        return Err(TomlFault.KeyConflict)
+    target.extend(&state.src, at, state.src.len())?
+    target.take()
+
+def document_state(source: Bytes, bounds: &Limits) -> Result[Parser, TomlError]:
+    if not valid(bounds):
+        return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
+    if source.len() > bounds.max_input:
+        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
+    mut state = started(parser(source, bounds))?
+    state.tracking = True
+    count = state.src.len()
+    valid_end = started(faulted(state.src.utf8_run(0, count)))?
+    if valid_end != count:
+        state.at = valid_end
+        return Err(state.located(TomlFault.InvalidUtf8))
+    match state.document():
+        case Ok(_):
+            Ok(state)
+        case Err(fault):
+            Err(state.located(fault))
+
+pub def document(source: &Bytes, bounds: &Limits) -> Result[Document, TomlError]:
+    if not valid(bounds):
+        return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
+    if source.len() > bounds.max_input:
+        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
+    state = document_state(started(faulted(source.copy()))?, bounds)?
+    Ok(Document(state, Limits(bounds.max_depth, bounds.max_input, bounds.max_output)))
+
+pub def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]:
+    if not valid(bounds):
+        return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
+    if text.byte_len() > bounds.max_input:
+        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
+    state = document_state(started(faulted(std.bytes.from_text(text)))?, bounds)?
+    Ok(Document(state, Limits(bounds.max_depth, bounds.max_input, bounds.max_output)))

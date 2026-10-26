@@ -394,12 +394,16 @@ mod test_std_compress;
 mod test_std_crypto;
 #[path = "test_std_csv.rs"]
 mod test_std_csv;
+#[path = "test_std_diff.rs"]
+mod test_std_diff;
 #[path = "test_std_encoding.rs"]
 mod test_std_encoding;
 #[path = "test_std_env_process.rs"]
 mod test_std_env_process;
 #[path = "test_std_fmt.rs"]
 mod test_std_fmt;
+#[path = "test_std_fs_dirs.rs"]
+mod test_std_fs_dirs;
 #[path = "test_std_http.rs"]
 mod test_std_http;
 #[path = "test_std_http_client.rs"]
