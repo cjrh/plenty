@@ -240,6 +240,8 @@ few sampled pages establish the quality of the whole tutorial.
 
 ## Project conventions
 
+- Prefer implementing manageable standard-library functionality directly in Plenty. Wrap Rust or C libraries when there is a concrete reason, such as substantial complexity (SQLite or Polars) or specialist security requirements (cryptography and timing-attack resistance). Explain that choice and preserve allocation-failure and other API contracts. See `AGENTS.md` for the shared preference.
+
 - **Don't add comments that just restate the code.** Comments should give the
   *why*: invariants, non-obvious constraints, links to the reference.
 - **Phase-guard tests**: a test that asserts a feature is *rejected* only until

@@ -16,6 +16,8 @@
 
 # Project conventions
 
+- Prefer implementing standard-library functionality directly in Plenty when it is reasonably small and straightforward to express in the language. Wrapping a Rust or C library needs a concrete justification, such as substantial complexity (SQLite or Polars) or security-sensitive details requiring specialist expertise (cryptography and timing-attack resistance). Do not recreate complex storage engines or security primitives merely to avoid a dependency. Explain the reason for a wrapper when choosing one; existing allocation-failure and other API contracts still apply.
+
 - Use the [plenty-search skill](.agents/skills/plenty-search/SKILL.md) for related concepts across docs, source documentation and local issue/PR descriptions. It covers freshness checks, synchronization, source verification and missing setup. Use `rg` for exact symbols and implementation code.
 
 - Docs are an mdBook in `book/src/`. `SUMMARY.md` lists every page in reading order.
