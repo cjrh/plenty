@@ -27,6 +27,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.crypto`](crypto.md) | SHA-256, SHA-512, and HMAC over `std.bytes`, incremental or one-shot, and constant-time comparison | `CryptoError` |
 | [`std.csv`](csv.md) | Streaming CSV readers and writers over `std.io` with explicit dialects, size limits, and positioned errors | `CsvError` |
 | [`std.dataframe`](dataframe.md) | Optional Polars analytical expression plans, typed nullable columns, schema inspection, grouping, and CSV/Parquet I/O | `DataFrameError` |
+| [`std.db.kv`](kv.md) | Ordered byte-key maps, atomic transactions and bounded scans over a versioned SQLite store | `KvError` |
 | [`std.db.sqlite`](sqlite.md) | SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit | `DbError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
 | [`std.diff`](diff.md) | Line, word, character, byte, and list differences as edit operations, with Myers and patience algorithms and unified-diff output | `AllocError` |

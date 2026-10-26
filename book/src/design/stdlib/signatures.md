@@ -594,6 +594,40 @@ def column_bool_nullable(name: &str, values: &list[Option[bool]]) -> Result[Colu
 def column_str_nullable(name: &str, values: &list[Option[str]]) -> Result[Column, DataFrameError]
 ```
 
+## `std.db.kv`
+
+Ordered byte-key maps, atomic transactions and bounded scans over a versioned SQLite store. Errors: `KvError`. [Reference](kv.md).
+
+```text
+enum Mode
+    ReadOnly | ReadWrite | Create
+enum KvError
+    Database(sqlite.DbError) | Allocation(AllocError) | InvalidName | InvalidLimit | ForeignDatabase | UnsupportedVersion(i64)
+const format_version: i64 = 1
+class Entry
+    key: Bytes
+    value: Bytes
+class Scan
+    def next(self: &mut Scan) -> Result[Option[Entry], KvError]
+class Transaction
+    def commit(self: &mut Transaction) -> Result[(), KvError]
+    def rollback(self: &mut Transaction) -> Result[(), KvError]
+class Store
+    def begin(self: &mut Store, immediate: bool = True) -> Result[Transaction, KvError]
+    def set_busy_timeout(self: &mut Store, milliseconds: i64) -> Result[(), KvError]
+    def close(self: &mut Store) -> Result[(), KvError]
+    def put(self: &mut Store, table: &str, key: &Bytes, value: &Bytes) -> Result[(), KvError]
+    def get(self: &mut Store, table: &str, key: &Bytes) -> Result[Option[Bytes], KvError]
+    def contains(self: &mut Store, table: &str, key: &Bytes) -> Result[bool, KvError]
+    def remove(self: &mut Store, table: &str, key: &Bytes) -> Result[bool, KvError]
+    def clear(self: &mut Store, table: &str) -> Result[i64, KvError]
+    def len(self: &mut Store, table: &str) -> Result[i64, KvError]
+    def scan(self: &mut Store, table: &str, start: &Bytes, stop: &Bytes, max_rows: i64, after: bool = False, reverse: bool = False) -> Result[Scan, KvError]
+    def scan_all(self: &mut Store, table: &str, max_rows: i64, reverse: bool = False) -> Result[Scan, KvError]
+def connect(path: &str, mode: Mode = Mode.Create, max_length: i64 = 1048576) -> Result[Store, KvError]
+def memory(max_length: i64 = 1048576) -> Result[Store, KvError]
+```
+
 ## `std.db.sqlite`
 
 SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit. Errors: `DbError`. [Reference](sqlite.md).
