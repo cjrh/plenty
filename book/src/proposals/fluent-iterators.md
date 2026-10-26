@@ -757,7 +757,9 @@ with ThreadPoolExecutor(8, 64)? as pool:
 Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
 
 - **Sources.** Owned lists and integer ranges, as `pool.map` accepts today.
-  Borrowed lists follow once scoped pool jobs can borrow (B22).
+  Borrowed lists follow once scoped pool jobs can borrow (B22). *(Issue #455
+  added borrowed lists without user-facing scoped jobs: chunks read the rows
+  in place because every terminal drains its jobs before returning.)*
 - **Allowed steps after `par`.** `map`, `filter` and `filter_value` (over
   copyable items); `enumerate` must be applied before `par`. Order-dependent steps (`take`, `skip`, `take_while`, `chain`,
   `zip`, `flat_map`) are rejected after `par` with a diagnostic naming the step.

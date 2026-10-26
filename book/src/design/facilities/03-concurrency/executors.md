@@ -24,7 +24,14 @@ Inputs and results must be wholly owned and satisfy the [worker checks](index.md
 Jobs share state through [`Shared[T]`](../01-builtins/shared.md) handles:
 pass each job its own `handle.share()`.
 Borrowed captures/arguments, generator frames, and uncertified indirect effects
-are rejected. Executors and futures cannot enter workers. Channel protocols can
+are rejected. Executors and futures cannot enter workers.
+
+User jobs must own their inputs because a future can outlive the borrow that
+would feed it. [Parallel pipelines](../../language/09-iteration/06-pipelines.md#parallel-pipelines)
+are the one internal exception: `.par` chunk jobs read a list's rows in place,
+which is sound because every `.par` terminal waits for all submitted jobs before
+returning, including after a failed submission. User-facing scoped pool jobs, a
+deferred B22 extension, would build on the same guarantee. Channel protocols can
 still deadlock.
 
 `SubmitError[F]` has `Full(job)`, `Shutdown(job)`, `OutOfMemory(job)`, and

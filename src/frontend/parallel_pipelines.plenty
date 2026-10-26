@@ -1,18 +1,21 @@
-def split_list[T](pieces: Result[list[list[T]], AllocError], start: i64) -> Result[list[(i64, list[T])], AllocError]:
-    # The runtime moved each chunk's rows in one copy; this pairs each chunk
-    # with the index of its first item.
-    chunks = pieces?
-    count = len(chunks)
-    mut paired = list[(i64, list[T])].with_capacity(count)?
-    mut offset = start
+def split_rows(rows: i64, row_bytes: i64, n: i64, start: i64, parts: i64) -> Result[list[(i64, i64, i64, i64)], AllocError]:
+    # Each chunk is (offset, first row address, row size, item count): plain
+    # integers, so the job owns its input while it reads rows the caller keeps
+    # alive until every job has finished. Boundaries match split_range.
+    count = parts if parts < n else n
+    mut chunks = list[(i64, i64, i64, i64)].with_capacity(count)?
+    if count == 0:
+        return Ok(chunks)
+    base = n // count
+    extra = n % count
     mut index = 0
-    for chunk in chunks:
-        size = len(chunk)
-        paired.append((offset, chunk))?
+    mut position = 0
+    while index < count:
+        size = base + 1 if index < extra else base
+        chunks.append((start + position, rows + position * row_bytes, row_bytes, size))?
+        position += size
         index += 1
-        # The offset after the last chunk may not fit in i64.
-        offset += size if index < count else 0
-    Ok(paired)
+    Ok(chunks)
 
 def split_range(first: i64, step: i64, n: i64, start: i64, parts: i64) -> Result[list[(i64, range[i64])], AllocError]:
     count = parts if parts < n else n

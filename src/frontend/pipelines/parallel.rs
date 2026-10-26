@@ -1,11 +1,19 @@
 //! Parallel pipelines: `source.par(&pool).map(f).filter(p).terminal()`.
 //!
-//! The chain is lowered into ordinary code: the owned source is split into
+//! The chain is lowered into ordinary code: the source is split into
 //! contiguous chunks, one synthesized immutable worker closure runs the serial
 //! pipeline over a chunk, `pool.map` or `pool.map_result` runs the workers, and
 //! a helper template combines the per-chunk results in chunk order. The worker
 //! and its captured callbacks therefore pass the same worker-eligibility checks
 //! as a direct `pool.map` call. See the reference's parallel pipelines section.
+//!
+//! A list chunk is a span of the caller's rows, passed as integers, not a
+//! copy: the job reads (or, from an owned list of affine items, takes) items
+//! in place. This is sound only because every terminal waits for all of its
+//! submitted jobs before returning, so the list, held in a hidden local or
+//! under its loan, outlives every read. User-submitted pool jobs have no such
+//! guarantee and still own their inputs; scoped pool jobs (a deferred B22
+//! extension) would generalize it.
 use super::*;
 
 const HELPERS: &str = include_str!("../parallel_pipelines.plenty");
@@ -22,9 +30,15 @@ struct Step {
 }
 
 enum Source {
-    List(Ty),
+    /// The element type, and whether the list is borrowed.
+    List(Ty, bool),
     Range,
 }
+
+/// The worker's internal row source: `__plenty_par_rows[L](rows, row_bytes,
+/// count)` iterates `count` rows of the caller's list `L`, or of the list a
+/// `&L` points to. Only this lowering builds it, with a concrete type.
+pub(in crate::frontend) const ROWS: &str = "__plenty_par_rows";
 
 impl Lower<'_> {
     /// True when `e` is an adapter chain that contains `.par(...)` on a
@@ -53,6 +67,13 @@ impl Lower<'_> {
                 .insert(internal.clone(), Arc::new(function));
         }
         Ok(internal)
+    }
+
+    fn local_slot(&self, local: &Expr) -> u8 {
+        let Expression::Name(name) = &local.kind else {
+            unreachable!("hidden locals are names")
+        };
+        self.names[name].slot
     }
 
     fn par_hidden(
@@ -212,30 +233,34 @@ impl Lower<'_> {
                 .at
                 .error("par cannot split a generator: its items exist only one at a time"));
         }
-        let source_ty = self.value(items, ops)?;
+        let (source_ty, source_loan) = self.binding_value(items, None, ops)?;
         let kind = match &source_ty {
-            Ty::List(element) => Source::List((**element).clone()),
+            Ty::List(element) => Source::List((**element).clone(), false),
+            Ty::Ref(inner, false) if matches!(**inner, Ty::List(_)) => {
+                Source::List(inner.element().unwrap(), true)
+            }
+            Ty::Ref(inner, true) if matches!(**inner, Ty::List(_)) => {
+                return Err(items.at.error(
+                    "par reads a borrowed list through a shared reference: use iter(&items), not a mutable reference",
+                ));
+            }
             Ty::Range(element) if **element == Ty::I64 => Source::Range,
             Ty::Range(element) => {
                 return Err(items.at.error(format!(
                     "par splits range[i64] sources, found range[{element}]; map the items after .par"
                 )));
             }
-            Ty::Ref(..) => {
-                return Err(items.at.error(
-                    "par needs an owned list or range: workers cannot borrow the caller's data until scoped jobs exist (B22); move or copy the list",
-                ));
-            }
             other => {
                 return Err(items.at.error(format!(
-                    "par splits an owned list or range[i64], found {}",
+                    "par splits a list, a borrowed list, or range[i64], found {}",
                     type_name(Some(other.clone()))
                 )));
             }
         };
-        let element = match &kind {
-            Source::List(element) => element.clone(),
-            Source::Range => Ty::I64,
+        let (element, borrowed) = match &kind {
+            Source::List(element, true) => (Ty::Ref(Arc::new(element.clone()), false), true),
+            Source::List(element, false) => (element.clone(), false),
+            Source::Range => (Ty::I64, false),
         };
         // Hold the source while the remaining construction arguments run.
         let range_parts = if let Source::Range = kind {
@@ -247,8 +272,15 @@ impl Lower<'_> {
         } else {
             None
         };
+        // The list stays here, owned or under its loan, until the terminal
+        // returns: chunk jobs read its rows in place.
         let source_local = if range_parts.is_none() {
-            Some(self.par_hidden("source", source_ty.clone(), &at, hidden, ops)?)
+            let local = self.par_hidden("source", source_ty.clone(), &at, hidden, ops)?;
+            let slot = self.local_slot(&local);
+            if let Some(loan) = source_loan {
+                self.bind_reference(slot, loan, false, ops);
+            }
+            Some(slot)
         } else {
             None
         };
@@ -311,7 +343,9 @@ impl Lower<'_> {
         let mut worker_steps = Vec::new();
         for step in &steps {
             if step.name == "filter_value" {
-                if item.affine() {
+                // Borrowed items compare with an owned value, as serially.
+                let compared = deref(&item);
+                if compared.affine() {
                     // Each chunk compares against the one captured value, so
                     // it must be copyable; the serial form moves it instead.
                     return Err(step
@@ -320,27 +354,34 @@ impl Lower<'_> {
                         .map_or(&at, |value| &value.at)
                         .error(format!(
                             "filter_value after .par needs copyable items, found {}; use filter with a predicate",
-                            type_name(Some(item.clone()))
+                            type_name(Some(compared))
                         )));
                 }
                 let value = match &step.argument {
                     Some(value) => {
-                        let actual = self.expr_expected(value, Some(item.clone()), ops)?;
-                        if actual.as_ref() != Some(&item) {
+                        let actual = self.expr_expected(value, Some(compared.clone()), ops)?;
+                        if actual.as_ref() != Some(&compared) {
                             return Err(value.at.error(format!(
                                 "filter_value compares {} items with a {} value; it requires {}",
-                                type_name(Some(item.clone())),
+                                type_name(Some(compared.clone())),
                                 type_name(actual),
-                                type_name(Some(item.clone())),
+                                type_name(Some(compared.clone())),
                             )));
                         }
-                        let local =
-                            self.par_hidden("value", item.clone(), &value.at, hidden, ops)?;
+                        let local = self.par_hidden("value", compared, &value.at, hidden, ops)?;
                         let Expression::Name(name) = &local.kind else {
                             unreachable!()
                         };
                         captures.push(name.clone());
-                        vec![local]
+                        // The worker reads its capture in place.
+                        if matches!(item, Ty::Ref(..)) {
+                            vec![Expr {
+                                at: local.at.clone(),
+                                kind: Expression::Unary("&".into(), Box::new(local)),
+                            }]
+                        } else {
+                            vec![local]
+                        }
                     }
                     None => vec![],
                 };
@@ -367,7 +408,7 @@ impl Lower<'_> {
                 Some(self.par_callback(predicate, hidden, &mut captures, ops)?.0)
             }
             // The serial rule: the no-argument form tests bool items.
-            ("any" | "all", []) if item == Ty::Bool => None,
+            ("any" | "all", []) if deref(&item) == Ty::Bool => None,
             ("any" | "all", []) => {
                 return Err(at.error(format!(
                     "{name}() tests bool items, but this pipeline yields {}; pass a predicate",
@@ -396,23 +437,40 @@ impl Lower<'_> {
         } else {
             None
         };
-        // The chunks themselves.
-        let (split, split_args, chunk_items) = match (&range_parts, &source_local) {
+        if matches!(name, "collect" | "try_collect" | "reduce") && item.contains_reference() {
+            return Err(at.error(format!(
+                "{name} after .par cannot store borrowed items, found {}; map them to owned values first",
+                type_name(Some(item.clone()))
+            )));
+        }
+        // The chunks themselves: a range splits into subranges; a list into
+        // row spans that chunk jobs read in place.
+        let (split, split_args) = match (&range_parts, source_local) {
             (Some([first, step, len]), _) => (
                 "split_range",
                 vec![first.clone(), step.clone(), len.clone(), offset, parts],
-                Ty::Range(Arc::new(Ty::I64)),
             ),
             (None, Some(source)) => {
-                // One bulk row copy per chunk in the runtime, rather than a
-                // per-item append on the calling thread.
-                self.value(source, ops)?;
-                self.value(&parts, ops)?;
-                let split = CollectionOp::ListTrySplit(source_ty.clone());
-                let (_, pieces_ty) = split.signature();
-                ops.push(Op::Collection(split));
-                let pieces = self.par_hidden("pieces", pieces_ty, &at, hidden, ops)?;
-                ("split_list", vec![pieces, offset], source_ty.clone())
+                let list = match &source_ty {
+                    Ty::Ref(list, _) => (**list).clone(),
+                    list => list.clone(),
+                };
+                let mut fields = Vec::new();
+                for (label, operation) in [
+                    ("rows", CollectionOp::ListRowsRef(list.clone())),
+                    ("row_bytes", CollectionOp::ListRowBytesRef(list.clone())),
+                    ("len", CollectionOp::ListLenRef(list.clone())),
+                ] {
+                    ops.push(if borrowed {
+                        Op::LoadLocal(source)
+                    } else {
+                        Op::BorrowLocal(source, false)
+                    });
+                    ops.push(Op::Collection(operation));
+                    fields.push(self.par_hidden(label, Ty::I64, &at, hidden, ops)?);
+                }
+                fields.extend([offset, parts]);
+                ("split_rows", fields)
             }
             (None, None) => unreachable!(),
         };
@@ -422,18 +480,45 @@ impl Lower<'_> {
             .map_err(|e| internal_error(e, &at))?
             .expect("split result");
         let chunks = self.par_hidden("chunks", chunks_ty, &at, hidden, ops)?;
-        let chunk_ty = crate::sum::tuple(vec![Ty::I64, chunk_items]);
         // The worker: the serial pipeline over one chunk.
         let offset_name = "__plenty_par_offset";
-        let items_name = "__plenty_par_items";
-        let mut chain = if enumerated {
-            call(
-                &at,
-                "enumerate",
-                vec![name_expr(&at, items_name), name_expr(&at, offset_name)],
+        let typed = |ty: Ty| TypeRef {
+            concrete: Some(ty),
+            at: at.clone(),
+            name: None,
+            args: vec![],
+        };
+        let (chunk_ty, chunk_names, items) = if range_parts.is_some() {
+            let items = "__plenty_par_items";
+            (
+                crate::sum::tuple(vec![Ty::I64, Ty::Range(Arc::new(Ty::I64))]),
+                vec![items.to_string()],
+                name_expr(&at, items),
             )
         } else {
-            call(&at, "iter", vec![name_expr(&at, items_name)])
+            let names = [
+                "__plenty_par_first_row",
+                "__plenty_par_row_bytes",
+                "__plenty_par_count",
+            ];
+            let rows = Expr {
+                at: at.clone(),
+                kind: Expression::GenericCall(
+                    ROWS.into(),
+                    vec![typed(source_ty.clone())],
+                    names.iter().map(|n| name_expr(&at, n)).collect(),
+                ),
+            };
+            (
+                crate::sum::tuple(vec![Ty::I64; 4]),
+                names.map(String::from).to_vec(),
+                rows,
+            )
+        };
+        let mut chain = if enumerated {
+            call(&at, "enumerate", vec![items, name_expr(&at, offset_name)])
+        } else {
+            call(&at, "iter", vec![items])
         };
         for (step, arguments) in worker_steps {
             chain = method(&at, chain, &step, arguments);
@@ -484,6 +569,8 @@ impl Lower<'_> {
                 (Ty::Bool, name)
             }
             "sum" => {
+                // Serial sum, min, and max read through borrowed items.
+                let item = deref(&item);
                 if !item.is_numeric() {
                     return Err(at.error(format!(
                         "sum requires numeric items, found {}; map the items first",
@@ -493,7 +580,7 @@ impl Lower<'_> {
                 if item.is_int() && item.int_range().is_some_and(|(min, _)| min < 0) {
                     // Exact prefix tracking: the combined result traps
                     // exactly when the serial running total would overflow.
-                    tail = Some(signed_chunk(&chain)?);
+                    tail = Some(signed_chunk(&chain, borrowed)?);
                     extra.push(call(
                         &at,
                         &item.to_string(),
@@ -511,6 +598,7 @@ impl Lower<'_> {
                 }
             }
             "min" | "max" => {
+                let item = deref(&item);
                 if !(item.is_numeric() || item == Ty::Str) {
                     return Err(at.error(format!(
                         "{name} requires numeric or str items, found {}; map the items first",
@@ -526,16 +614,8 @@ impl Lower<'_> {
             }
             _ => unreachable!(),
         };
-        let unpack_names = vec![
-            if enumerated { offset_name } else { "_" }.to_string(),
-            items_name.to_string(),
-        ];
-        let typed = |ty: Ty| TypeRef {
-            concrete: Some(ty),
-            at: at.clone(),
-            name: None,
-            args: vec![],
-        };
+        let mut unpack_names = vec![if enumerated { offset_name } else { "_" }.to_string()];
+        unpack_names.extend(chunk_names);
         let worker = Function {
             once: false,
             captures: captures
@@ -581,6 +661,15 @@ impl Lower<'_> {
         let ty = self
             .generic_call(&template, None, &call_args, &at, ops)
             .map_err(|e| internal_error(e, &at))?;
+        // Every template waits for all submitted chunk jobs before it returns,
+        // including after a failed submission or a worker error, so no job can
+        // still be reading the source's rows here. That guarantee is what
+        // makes the jobs' raw row addresses sound. An owned source drops now:
+        // rows a worker took are empty, and the rest (an early exit, an error,
+        // or a chunk never submitted) drop exactly once here.
+        if let (Some(source), false) = (source_local, borrowed) {
+            ops.extend([Op::MoveLocal(source), Op::Drop]);
+        }
         if template.ends_with("signed_sum") {
             // `(total, 0)`, or `(T.MAX, 1)` after an overflow, added here so
             // the trap names the terminal as the serial sum does.
@@ -622,7 +711,7 @@ impl Lower<'_> {
                     ))],
                 ),
             ];
-            let expected = crate::sum::result(item, crate::sum::pool_map_error());
+            let expected = crate::sum::result(deref(&item), crate::sum::pool_map_error());
             return self.match_value(&at, &pair, &cases, Some(expected), ops);
         }
         Ok(ty)
@@ -780,6 +869,14 @@ impl Lower<'_> {
     }
 }
 
+/// The value a borrowed item refers to; other items unchanged.
+fn deref(item: &Ty) -> Ty {
+    match item {
+        Ty::Ref(inner, _) => (**inner).clone(),
+        other => other.clone(),
+    }
+}
+
 fn expr_stmt(e: Expr) -> Stmt {
     Stmt {
         at: e.at.clone(),
@@ -842,7 +939,7 @@ fn internal_error(error: Box<dyn Error>, at: &Token) -> Box<dyn Error> {
 /// The signed-sum worker tail: `signed_chunk`'s statements with its `for` loop
 /// reading the chunk's fused pipeline. Locals stay in registers, where a
 /// tuple-state `fold` would copy the state through memory for every item.
-fn signed_chunk(chain: &Expr) -> Result<Vec<Stmt>> {
+fn signed_chunk(chain: &Expr, borrowed: bool) -> Result<Vec<Stmt>> {
     let mut body = modules::generated_interface(HELPERS)?
         .functions
         .into_iter()
@@ -850,8 +947,22 @@ fn signed_chunk(chain: &Expr) -> Result<Vec<Stmt>> {
         .expect("signed sum chunk helper")
         .body;
     for statement in &mut body {
-        if let Statement::For { iterable, .. } = &mut statement.kind {
+        if let Statement::For { iterable, body, .. } = &mut statement.kind {
             *iterable = chain.clone();
+            // `value = i64(item)` reads through a borrowed item.
+            if borrowed
+                && let Some(Stmt {
+                    kind: Statement::Assign { value, .. },
+                    ..
+                }) = body.first_mut()
+                && let Expression::Call(_, args) = &mut value.kind
+                && let [item] = args.as_mut_slice()
+            {
+                *item = Expr {
+                    at: item.at.clone(),
+                    kind: Expression::Unary("*".into(), Box::new(item.clone())),
+                };
+            }
         }
     }
     Ok(body)

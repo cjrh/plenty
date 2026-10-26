@@ -203,6 +203,7 @@ impl CollectionOp {
             | ListRowsRef(_)
             | ListRowBytesRef(_)
             | ListRowRef(..)
+            | ListRowTake(_)
             | ListSortBy(_)
             | IterGet(_)
             | HashIterFirst(_)
@@ -215,7 +216,6 @@ impl CollectionOp {
             | TryKeys(_)
             | TryValues(_)
             | ListTrySlice(_)
-            | ListTrySplit(_)
             | TextByteLen
             | TextIndex
             | TextTryConcat

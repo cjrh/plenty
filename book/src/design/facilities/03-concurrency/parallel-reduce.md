@@ -24,7 +24,9 @@ Workers must not depend on another pair being scheduled. Integer overflow and
 traps retain ordinary language behavior.
 A [parallel pipeline's](../../language/09-iteration/06-pipelines.md#parallel-pipelines)
 `reduce` groups by chunk instead, so its result can depend on the chunk count;
-use `reduce_tree` when one grouping is needed for every pool.
+use `reduce_tree` when one grouping is needed for every pool. Unlike
+`reduce_tree`, a pipeline can read a borrowed list: `iter(&xs).par(&pool)`
+borrows `xs` and maps its items to owned values before `reduce`.
 
 Empty and singleton reductions allocate nothing. Larger inputs need one fallible
 scratch buffer proportional to input length, including for ranges, a bounded job

@@ -235,33 +235,6 @@ impl Entries {
             }
         })
     }
-    /// Copy dense rows `start..start + count` to the end of `target`, which
-    /// must have reserved room and the same row layout. The rows still belong
-    /// to `self` until the caller calls `forget_all`, so each owner is moved
-    /// exactly once: one word copy per row, no per-item push.
-    pub unsafe fn copy_rows_to(&self, start: usize, count: usize, target: &mut Self) {
-        debug_assert!(self.order.is_none() && target.order.is_none());
-        debug_assert_eq!(self.stride, target.stride);
-        assert!(start + count <= self.len());
-        assert!(target.len() + count <= target.capacity());
-        target.data.truncate(target.len() * target.stride);
-        target.removed = false;
-        let dense_start = target.len();
-        target
-            .data
-            .extend_from_slice(&self.data[start * self.stride..(start + count) * self.stride]);
-        // Inline payload addresses point into the source rows.
-        if self.key.slot_words() > 1 {
-            target.relocate(dense_start);
-        }
-    }
-    /// Drop the rows without releasing their owners, after `copy_rows_to`
-    /// moved every one of them elsewhere.
-    pub fn forget_all(&mut self) {
-        debug_assert!(self.order.is_none());
-        self.data.clear();
-        self.removed = false;
-    }
     pub unsafe fn append(&mut self, source: &mut Self) {
         for entry in source.iter() {
             unsafe {

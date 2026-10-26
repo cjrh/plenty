@@ -5,7 +5,7 @@ use super::*;
 
 mod generator_bridge;
 mod lending;
-mod parallel;
+pub(super) mod parallel;
 mod splice;
 pub(super) use lending::{
     Lent, LentParameter, declared as lent_declared, identity as lent_identity,
