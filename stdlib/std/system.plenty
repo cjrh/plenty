@@ -1,0 +1,353 @@
+# Linux procfs snapshots, read through one owned directory handle. Limits
+# apply before parsing; no process is kept alive by a snapshot or PID.
+import std.bytes
+import std.fs
+import std.io
+import std.math
+import std.path
+from std.bytes import BytesError
+from std.fs import Root
+from std.io import StreamError
+from std.path import Path
+
+pub enum SystemError:
+    Io(IoError)
+    Stream(StreamError)
+    Allocation(AllocError)
+    InvalidInput
+    Limit
+    Malformed(str)
+
+pub class Memory:
+    pub total_bytes: u64
+    pub free_bytes: u64
+    pub available_bytes: Option[u64]
+    pub swap_total_bytes: u64
+    pub swap_free_bytes: u64
+
+pub class LoadAverage:
+    pub one_minute: f64
+    pub five_minutes: f64
+    pub fifteen_minutes: f64
+    pub runnable_tasks: u64
+    pub total_tasks: u64
+    pub last_pid: u32
+
+pub class Uptime:
+    pub seconds: f64
+    pub idle_cpu_seconds: f64
+
+pub class BlockDevice:
+    pub major: u32
+    pub minor: u32
+    pub name: str
+    pub size_bytes: u64
+
+pub class DiskIo:
+    pub major: u32
+    pub minor: u32
+    pub name: str
+    pub reads_completed: u64
+    pub bytes_read: u64
+    pub writes_completed: u64
+    pub bytes_written: u64
+    pub in_flight: u64
+    pub busy_milliseconds: u64
+
+pub class Process:
+    pub pid: u32
+    pub parent_pid: u32
+    pub name: str
+    pub state: str
+    pub real_uid: u32
+    pub threads: u64
+    pub virtual_bytes: Option[u64]
+    pub resident_bytes: Option[u64]
+
+pub class Procfs:
+    _root: Root
+
+    # Counts cpuN records, not the aggregate cpu record. This is the kernel's
+    # online CPU count, not affinity/cgroup-constrained parallelism.
+    pub def cpu_count(self, max_bytes: i64 = 1048576) -> Result[i64, SystemError]:
+        text = read_proc(&self._root, "stat", max_bytes)?
+        mut ids: set[u64] = allocated(set[u64]())?
+        for line in allocated(text.split("\n"))?:
+            words = allocated(line.split())?
+            if len(words) == 0:
+                continue
+            name = words[0]
+            if name.startswith("cpu") and name != "cpu":
+                if len(words) < 5:
+                    return Err(SystemError.Malformed("stat cpu"))
+                id = decimal(allocated(name.slice(3, len(name)))?, "stat cpu")?
+                if id in ids:
+                    return Err(SystemError.Malformed("stat duplicate cpu"))
+                allocated(ids.add(id))?
+        if len(ids) == 0:
+            return Err(SystemError.Malformed("stat cpu"))
+        Ok(len(ids))
+
+    pub def memory(self, max_bytes: i64 = 65536) -> Result[Memory, SystemError]:
+        text = read_proc(&self._root, "meminfo", max_bytes)?
+        Ok(Memory(
+            kibibytes(required(text, "MemTotal")?, "MemTotal")?,
+            kibibytes(required(text, "MemFree")?, "MemFree")?,
+            optional_kibibytes(text, "MemAvailable")?,
+            kibibytes(required(text, "SwapTotal")?, "SwapTotal")?,
+            kibibytes(required(text, "SwapFree")?, "SwapFree")?,
+        ))
+
+    pub def load_average(self, max_bytes: i64 = 4096) -> Result[LoadAverage, SystemError]:
+        text = read_proc(&self._root, "loadavg", max_bytes)?
+        words = allocated(text.split())?
+        if len(words) != 5:
+            return Err(SystemError.Malformed("loadavg"))
+        tasks = allocated(words[3].split("/"))?
+        if len(tasks) != 2:
+            return Err(SystemError.Malformed("loadavg tasks"))
+        Ok(LoadAverage(
+            nonnegative_float(words[0], "loadavg")?,
+            nonnegative_float(words[1], "loadavg")?,
+            nonnegative_float(words[2], "loadavg")?,
+            decimal(tasks[0], "loadavg tasks")?,
+            decimal(tasks[1], "loadavg tasks")?,
+            small_decimal(words[4], "loadavg pid")?,
+        ))
+
+    pub def uptime(self, max_bytes: i64 = 4096) -> Result[Uptime, SystemError]:
+        text = read_proc(&self._root, "uptime", max_bytes)?
+        words = allocated(text.split())?
+        if len(words) != 2:
+            return Err(SystemError.Malformed("uptime"))
+        Ok(Uptime(nonnegative_float(words[0], "uptime")?, nonnegative_float(words[1], "uptime idle")?))
+
+    # Includes whole devices and partitions: summing sizes double-counts
+    # storage. These are block capacities, not filesystem free space.
+    pub def block_devices(self, max_bytes: i64 = 1048576, max_devices: i64 = 4096) -> Result[list[BlockDevice], SystemError]:
+        if max_devices < 0:
+            return Err(SystemError.InvalidInput)
+        text = read_proc(&self._root, "partitions", max_bytes)?
+        mut result = allocated(list[BlockDevice]())?
+        mut header = False
+        for line in allocated(text.split("\n"))?:
+            words = allocated(line.split())?
+            if len(words) == 0:
+                continue
+            if not header:
+                if len(words) != 4 or words[0] != "major" or words[1] != "minor" or words[2] != "#blocks" or words[3] != "name":
+                    return Err(SystemError.Malformed("partitions header"))
+                header = True
+                continue
+            if len(words) != 4:
+                return Err(SystemError.Malformed("partitions"))
+            if len(result) >= max_devices:
+                return Err(SystemError.Limit)
+            allocated(result.append(BlockDevice(
+                small_decimal(words[0], "partitions major")?,
+                small_decimal(words[1], "partitions minor")?,
+                words[3], scaled(decimal(words[2], "partitions size")?, 1024u64, "partitions size")?,
+            )))?
+        if not header:
+            return Err(SystemError.Malformed("partitions header"))
+        Ok(result)
+
+    # Linux's sectors here are always 512 bytes, not the device sector size.
+    # New trailing kernel counters are deliberately ignored.
+    pub def disk_io(self, max_bytes: i64 = 1048576, max_devices: i64 = 4096) -> Result[list[DiskIo], SystemError]:
+        if max_devices < 0:
+            return Err(SystemError.InvalidInput)
+        text = read_proc(&self._root, "diskstats", max_bytes)?
+        mut result = allocated(list[DiskIo]())?
+        for line in allocated(text.split("\n"))?:
+            words = allocated(line.split())?
+            if len(words) == 0:
+                continue
+            if len(words) < 14:
+                return Err(SystemError.Malformed("diskstats"))
+            for index in range(3, 14):
+                drop(decimal(words[index], "diskstats counter")?)
+            if len(result) >= max_devices:
+                return Err(SystemError.Limit)
+            allocated(result.append(DiskIo(
+                small_decimal(words[0], "diskstats major")?,
+                small_decimal(words[1], "diskstats minor")?, words[2],
+                decimal(words[3], "diskstats reads")?,
+                scaled(decimal(words[5], "diskstats sectors read")?, 512u64, "diskstats bytes read")?,
+                decimal(words[7], "diskstats writes")?,
+                scaled(decimal(words[9], "diskstats sectors written")?, 512u64, "diskstats bytes written")?,
+                decimal(words[11], "diskstats in flight")?,
+                decimal(words[12], "diskstats busy milliseconds")?,
+            )))?
+        Ok(result)
+
+    # The bound counts all directory entries, including non-PID entries.
+    # IDs are sorted; a process can exit or a PID can be reused afterwards.
+    pub def process_ids(self, max_entries: i64 = 65536) -> Result[list[u32], SystemError]:
+        if max_entries < 0:
+            return Err(SystemError.InvalidInput)
+        mut names = io_result(self._root.names())?
+        mut result = allocated(list[u32]())?
+        mut seen = 0
+        while True:
+            name = match io_result(names.next())?:
+                case Some(value):
+                    value
+                case Nothing:
+                    break
+            if seen >= max_entries:
+                return Err(SystemError.Limit)
+            seen += 1
+            bytes = name.as_bytes()
+            mut numeric = len(bytes) > 0
+            for byte in bytes:
+                if *byte < 48u8 or *byte > 57u8:
+                    numeric = False
+            if numeric:
+                id = small_decimal(io_result(name.to_text())?, "process id")?
+                if id == 0u32:
+                    return Err(SystemError.Malformed("process id"))
+                allocated(result.append(id))?
+        io_result(names.close())?
+        result.sort()
+        Ok(result)
+
+    pub def process(self, pid: u32, max_bytes: i64 = 65536) -> Result[Process, SystemError]:
+        if pid == 0u32 or max_bytes < 1 or max_bytes == i64.MAX:
+            return Err(SystemError.InvalidInput)
+        name = io_result(std.path.from_text(allocated(str.from(pid))?))?
+        # Hold the opened PID directory so separate path resolutions cannot
+        # combine two processes after PID reuse. Exiting still makes reads fail.
+        process_root = io_result(self._root.open_dir(&name))?
+        text = read_proc(&process_root, "status", max_bytes)?
+        actual = small_decimal(required(text, "Pid")?, "Pid")?
+        if actual != pid:
+            return Err(SystemError.Malformed("Pid mismatch"))
+        state = allocated(required(text, "State")?.split())?
+        uid = allocated(required(text, "Uid")?.split())?
+        if len(state) == 0 or len(state[0]) != 1 or len(uid) != 4:
+            return Err(SystemError.Malformed("status State/Uid"))
+        Ok(Process(actual, small_decimal(required(text, "PPid")?, "PPid")?,
+            process_name(text)?, state[0], small_decimal(uid[0], "Uid")?,
+            decimal(required(text, "Threads")?, "Threads")?,
+            optional_kibibytes(text, "VmSize")?, optional_kibibytes(text, "VmRSS")?))
+
+pub def open_procfs(path: &Path) -> Result[Procfs, IoError]:
+    Ok(Procfs(std.fs.root(path)?))
+
+pub def local() -> Result[Procfs, IoError]:
+    open_procfs(&std.path.from_text("/proc")?)
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, SystemError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(SystemError.Allocation(error))
+
+def io_result[T](result: Result[T, IoError]) -> Result[T, SystemError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(SystemError.Io(error))
+
+def bytes_result[T](result: Result[T, BytesError], name: str) -> Result[T, SystemError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(error)):
+            Err(SystemError.Allocation(error))
+        case Err(_):
+            Err(SystemError.Malformed(name))
+
+def read_proc(root: &Root, name: str, max_bytes: i64) -> Result[str, SystemError]:
+    if max_bytes < 1 or max_bytes == i64.MAX:
+        return Err(SystemError.InvalidInput)
+    mut stream = io_result(root.read_file(&io_result(std.path.from_text(name))?))?
+    mut data = bytes_result(std.bytes.empty(), name)?
+    # One extra byte distinguishes exact-limit EOF from truncation. procfs
+    # commonly reports st_size=0, so metadata is never used for this limit.
+    match std.io.read_up_to(&mut stream, &mut data, max_bytes + 1):
+        case Ok(count):
+            if count > max_bytes:
+                return Err(SystemError.Limit)
+        case Err(error):
+            return Err(SystemError.Stream(error.cause))
+    match stream.close():
+        case Ok(_):
+            pass
+        case Err(error):
+            return Err(SystemError.Stream(error))
+    bytes_result(data.to_text(), name)
+
+def decimal(text: str, field: str) -> Result[u64, SystemError]:
+    if len(text) == 0:
+        return Err(SystemError.Malformed(field))
+    for digit in text:
+        if digit < "0" or digit > "9":
+            return Err(SystemError.Malformed(field))
+    match u64.parse(text):
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(SystemError.Malformed(field))
+
+def small_decimal(text: str, field: str) -> Result[u32, SystemError]:
+    value = decimal(text, field)?
+    if value > u64(u32.MAX):
+        return Err(SystemError.Malformed(field))
+    Ok(u32(value))
+
+def scaled(value: u64, factor: u64, field: str) -> Result[u64, SystemError]:
+    if value > u64.MAX // factor:
+        return Err(SystemError.Malformed(field))
+    Ok(value * factor)
+
+def nonnegative_float(text: str, field: str) -> Result[f64, SystemError]:
+    value = match f64.parse(text):
+        case Ok(parsed):
+            parsed
+        case Err(_):
+            return Err(SystemError.Malformed(field))
+    if value < 0.0 or not std.math.isfinite(value):
+        return Err(SystemError.Malformed(field))
+    Ok(value)
+
+# Unknown keys remain forward-compatible; duplicate selected keys are errors.
+def field_value(text: str, key: str, trim: bool = True) -> Result[Option[str], SystemError]:
+    mut found: Option[str] = Nothing
+    for line in allocated(text.split("\n"))?:
+        match line.find(":"):
+            case Some(at):
+                if allocated(line.slice(0, at))? == key:
+                    if found.is_some():
+                        return Err(SystemError.Malformed(key))
+                    value = allocated(line.slice(at + 1, len(line)))?
+                    found = Some(allocated(value.strip())? if trim else value)
+            case Nothing:
+                pass
+    Ok(found)
+
+def required(text: str, key: str) -> Result[str, SystemError]:
+    field_value(text, key)?.ok_or(SystemError.Malformed(key))
+
+def process_name(text: str) -> Result[str, SystemError]:
+    value = field_value(text, "Name", trim=False)?.ok_or(SystemError.Malformed("Name"))?
+    if not value.startswith("\t"):
+        return Err(SystemError.Malformed("Name"))
+    # Remove the kernel's separator, not spaces belonging to the name.
+    allocated(value.slice(1, len(value)))
+
+def kibibytes(text: str, field: str) -> Result[u64, SystemError]:
+    words = allocated(text.split())?
+    if len(words) != 2 or words[1] != "kB":
+        return Err(SystemError.Malformed(field))
+    scaled(decimal(words[0], field)?, 1024u64, field)
+
+def optional_kibibytes(text: str, field: str) -> Result[Option[u64], SystemError]:
+    match field_value(text, field)?:
+        case Some(value):
+            Ok(Some(kibibytes(value, field)?))
+        case Nothing:
+            Ok(Nothing)

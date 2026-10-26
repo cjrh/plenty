@@ -709,13 +709,31 @@ def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost
 
 ## `std.encoding`
 
-Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes`. Errors: `EncodingError`. [Reference](encoding.md).
+Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer packing with explicit byte order, over `std.bytes`. Errors: `EncodingError`. [Reference](encoding.md).
 
 ```text
 enum EncodingError
-    OutOfRange | InvalidLength | InvalidByte(i64) | InvalidPadding(i64) | NonCanonical(i64) | Allocation(AllocError)
+    OutOfRange | InvalidLength | InvalidByte(i64) | InvalidPadding(i64) | NonCanonical(i64) | InvalidAlphabet | Allocation(AllocError)
 enum Endian
     Little | Big
+class Encoding
+    def encode(self, source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+    def decode(self, source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+    def text(self, source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+    def from_text(self, text: &str) -> Result[Bytes, EncodingError]
+def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]
+def base32_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base32_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base32_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base32_from_text(text: &str) -> Result[Bytes, EncodingError]
+def base32hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base32hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base32hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base32hex_from_text(text: &str) -> Result[Bytes, EncodingError]
+def base64mime_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base64mime_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
+def base64mime_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]
 def hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
 def hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
 def hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
@@ -936,6 +954,43 @@ def config_dir() -> Result[Option[Path], IoError]
 def cache_dir() -> Result[Option[Path], IoError]
 def data_dir() -> Result[Option[Path], IoError]
 def state_dir() -> Result[Option[Path], IoError]
+```
+
+## `std.fs.watch`
+
+Bounded Linux filesystem change batches, rename cookies, overflow and readiness waits. Errors: `WatchError`, `WaitError`. [Reference](fs/watch.md).
+
+```text
+enum WatchError
+    OutOfRange | InvalidData | Io(IoError) | Wait(WaitError) | Allocation(AllocError)
+class Event
+    watch: i32
+    cookie: u32
+    name: Path
+    def created(self) -> bool
+    def deleted(self) -> bool
+    def modified(self) -> bool
+    def metadata_changed(self) -> bool
+    def closed_after_write(self) -> bool
+    def moved_from(self) -> bool
+    def moved_to(self) -> bool
+    def deleted_self(self) -> bool
+    def moved_self(self) -> bool
+    def unmounted(self) -> bool
+    def overflowed(self) -> bool
+    def ignored(self) -> bool
+    def is_directory(self) -> bool
+class Watcher
+    def add(self: &mut Watcher, path: &Path) -> Result[i32, WatchError]
+    def remove(self: &mut Watcher, watch: i32) -> Result[(), WatchError]
+    def poll(self: &mut Watcher) -> Result[i64, WatchError]
+    def wait(self: &mut Watcher, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WatchError]
+    def count(self) -> i64
+    def event(self, index: i64) -> Result[Event, WatchError]
+    def register(self, selector: &mut Selector, key: u64) -> Result[(), WaitError]
+    def unregister(self, selector: &mut Selector) -> Result[(), WaitError]
+    def close(self: &mut Watcher) -> Result[(), WatchError]
+def watcher(batch_bytes: i64 = 4096) -> Result[Watcher, WatchError]
 ```
 
 ## `std.http`
@@ -2228,6 +2283,66 @@ class Mutex[T]
     def __init__(self, value: T) -> ()
 ```
 
+## `std.system`
+
+Bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status. Errors: `IoError`, `SystemError`. [Reference](system.md).
+
+```text
+enum SystemError
+    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | InvalidInput | Limit | Malformed(str)
+class Memory
+    total_bytes: u64
+    free_bytes: u64
+    available_bytes: Option[u64]
+    swap_total_bytes: u64
+    swap_free_bytes: u64
+class LoadAverage
+    one_minute: f64
+    five_minutes: f64
+    fifteen_minutes: f64
+    runnable_tasks: u64
+    total_tasks: u64
+    last_pid: u32
+class Uptime
+    seconds: f64
+    idle_cpu_seconds: f64
+class BlockDevice
+    major: u32
+    minor: u32
+    name: str
+    size_bytes: u64
+class DiskIo
+    major: u32
+    minor: u32
+    name: str
+    reads_completed: u64
+    bytes_read: u64
+    writes_completed: u64
+    bytes_written: u64
+    in_flight: u64
+    busy_milliseconds: u64
+class Process
+    pid: u32
+    parent_pid: u32
+    name: str
+    state: str
+    real_uid: u32
+    threads: u64
+    virtual_bytes: Option[u64]
+    resident_bytes: Option[u64]
+class Procfs
+    def cpu_count(self, max_bytes: i64 = 1048576) -> Result[i64, SystemError]
+    def memory(self, max_bytes: i64 = 65536) -> Result[Memory, SystemError]
+    def load_average(self, max_bytes: i64 = 4096) -> Result[LoadAverage, SystemError]
+    def uptime(self, max_bytes: i64 = 4096) -> Result[Uptime, SystemError]
+    def block_devices(self, max_bytes: i64 = 1048576, max_devices: i64 = 4096) -> Result[list[BlockDevice], SystemError]
+    def disk_io(self, max_bytes: i64 = 1048576, max_devices: i64 = 4096) -> Result[list[DiskIo], SystemError]
+    def process_ids(self, max_entries: i64 = 65536) -> Result[list[u32], SystemError]
+    def process(self, pid: u32, max_bytes: i64 = 65536) -> Result[Process, SystemError]
+def open_procfs(path: &Path) -> Result[Procfs, IoError]
+def local() -> Result[Procfs, IoError]
+```
+
 ## `std.tempfile`
 
 Unnamed and named temporary files, recursively cleaned directories, context managers and explicit ownership transfer. Errors: `IoError`, `FsError`, `StreamError`, `AllocError`. [Reference](tempfile.md).
@@ -2538,4 +2653,29 @@ def encode(text: &str, component: Component) -> Result[str, UrlError]
 def decode(text: &str) -> Result[str, UrlError]
 def query_pairs(query: &str) -> Result[list[Pair], UrlError]
 def query_text(pairs: &list[Pair]) -> Result[str, UrlError]
+```
+
+## `std.uuid`
+
+UUID values, canonical text and network bytes, random v4 and timestamp-prefixed v7 generation. Errors: `ParseError`, `BytesError`, `SecretsError`, `RangeError`. [Reference](uuid.md).
+
+```text
+class Uuid
+    def as_u64_pair(self) -> (u64, u64)
+    def compare(self, other: &Uuid) -> i64
+    def is_nil(self) -> bool
+    def is_rfc_variant(self) -> bool
+    def version(self) -> Option[u8]
+    def unix_milliseconds(self) -> Option[u64]
+    def write_bytes(self, target: &mut Bytes, offset: i64) -> Result[(), BytesError]
+    def to_bytes(self) -> Result[Bytes, BytesError]
+    def to_string(self) -> Result[str, BytesError]
+def nil() -> Uuid
+def from_u64_pair(high: u64, low: u64) -> Uuid
+def parse(text: &str) -> Result[Uuid, ParseError]
+def from_bytes[S: ByteSource](source: &S) -> Result[Uuid, ParseError]
+def v4_from[R: Reader](source: &mut Source[R]) -> Result[Uuid, SecretsError]
+def v4() -> Result[Uuid, SecretsError]
+def v7_from[R: Reader](at: &Timestamp, source: &mut Source[R]) -> Result[Uuid, RangeError | SecretsError]
+def v7() -> Result[Uuid, RangeError | SecretsError]
 ```

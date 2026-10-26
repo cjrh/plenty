@@ -42,7 +42,7 @@ and `base64url_encode` return the encoded bytes as a new buffer. `base64` uses
 `+` and `/` and always pads with `=`. `base64url` uses `-` and `_` and never
 pads.
 
-Decoding accepts exactly one form and reports what is wrong with anything else.
+Ordinary decoding accepts exactly one form and reports what is wrong with anything else.
 Nothing is skipped or repaired, including spaces and line breaks:
 
 ```plenty
@@ -80,6 +80,38 @@ three-byte buffer is `OutOfRange`, never a partial value.
 
 Decoded bytes are not text. Call `to_text()` on the result when you expect
 UTF-8; it validates and can fail on its own.
+
+## Base32 and protocol-specific forms
+
+Choose the encoding the receiving protocol expects. Base32 uses uppercase
+letters and digits `2` through `7`, with padding. For a protocol requiring a
+different alphabet or no padding, build a validated encoding once and reuse it:
+
+```plenty
+import std.bytes
+import std.encoding
+
+def main() -> Result[(), IoError | std.bytes.BytesError | std.encoding.EncodingError]:
+    data = std.bytes.from_text("hello")?
+    print(std.encoding.base32_text(&data, 0, data.len())?)?
+    lower = std.encoding.custom("abcdefghijklmnopqrstuvwxyz234567", Nothing)?
+    text = lower.text(&data, 0, data.len())?
+    print(text, lower.from_text(&text)?.to_text()?)?
+    print(std.encoding.base64mime_from_text("aG Vs\r\nbG8=")?.to_text()?)?
+    Ok(())
+```
+```output
+NBSWY3DP
+nbswy3dp hello
+hello
+```
+
+`base32hex` offers the alternate alphabet `0`–`9`, `A`–`V`. For email body
+transfer, `base64mime_text` wraps padded base64 at 76 columns using CRLF between
+lines. Only the MIME decoder skips ASCII space, tab, CR and LF; other invalid
+characters, incorrect padding and nonzero trailing bits still fail. It does
+not parse MIME headers or append a final CRLF. Ordinary `base64_from_text`
+continues to reject all whitespace.
 
 See the [encoding reference](../../design/stdlib/encoding.md) for every
 operation, its errors, and its costs.
