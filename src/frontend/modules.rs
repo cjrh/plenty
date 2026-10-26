@@ -136,6 +136,14 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         include_str!("../../stdlib/std/http/https.plenty"),
     ),
     (
+        "std.http.websocket",
+        include_str!("../../stdlib/std/http/websocket.plenty"),
+    ),
+    (
+        "std.http.wss",
+        include_str!("../../stdlib/std/http/wss.plenty"),
+    ),
+    (
         "std.db.sqlite",
         include_str!("../../stdlib/std/db/sqlite.plenty"),
     ),

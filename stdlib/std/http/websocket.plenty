@@ -1,0 +1,931 @@
+# WebSocket connections (RFC 6455) for std.http: the opening handshake, as a
+# std.http.server exchange that switches protocols or as a client over any
+# server Transport, then framed text and binary messages with ping, pong and
+# the closing handshake. Frame and message sizes are bounded by Config;
+# fragmented messages are reassembled into the caller's buffer, and pings
+# are answered while receiving. No extensions, such as compression, are
+# negotiated. `wss` clients are in std.http.wss, so this module does not
+# import std.tls. See book/src/design/stdlib/websocket.md.
+import std.bytes
+import std.crypto
+import std.encoding
+import std.http
+import std.http.client
+import std.http.server
+import std.io
+import std.secrets
+import std.url
+from std.bytes import ByteSource, Bytes, BytesError
+from std.crypto import Algorithm, CryptoError
+from std.encoding import EncodingError, Endian
+from std.http import Header, HttpError, RequestHead, ResponseHead
+from std.http.client import ClientError, Endpoint
+from std.http.server import Exchange, Transport
+from std.io import BufReader, StreamError
+from std.net import NetError, Shutdown, TcpStream
+from std.secrets import SecretsError
+from std.sync import CancellationToken
+from std.time import Deadline, deadline_at, instant_at, monotonic_now
+from std.url import UrlError
+
+pub enum WebSocketError:
+    Net(NetError)
+    Allocation(AllocError)
+    # The handshake's HTTP head could not be read or written.
+    Http(HttpError)
+    # The client could not open the connection the handshake runs over.
+    Connect(ClientError)
+    Entropy(StreamError)
+    InvalidConfig
+    InvalidUrl
+    UnsupportedScheme
+    # A client argument out of range: a byte range, a ping payload over 125
+    # bytes, or a close code or reason a peer may not send.
+    OutOfRange
+    # The request was not a WebSocket handshake; this status answered it.
+    Refused(i64)
+    # The server answered the handshake with this status instead of 101.
+    Rejected(i64)
+    # A 101 answer whose fields do not complete the handshake.
+    InvalidHandshake
+    # The peer broke the framing rules; the connection closed with 1002.
+    Protocol
+    # A frame or message over Config's limits; closed with 1009.
+    TooLarge
+    # Text that is not UTF-8; closed with 1007 when received.
+    InvalidText
+    # The connection has closed; nothing more can be sent or received.
+    Closed
+    # Server shutdown began while waiting for a message.
+    Stopping
+
+# `max_frame` bounds the payload of one frame, received or sent; longer
+# messages are sent as several frames. `max_message` bounds a received
+# message after reassembly. `subprotocol` is the one to offer as a
+# client, or to accept as a server when the client offers it.
+pub class Config:
+    pub max_frame: i64
+    pub max_message: i64
+    pub subprotocol: Option[str]
+
+pub def config() -> Config:
+    Config(65536, 1048576, Nothing)
+
+# What `receive` appended: a whole text or binary message, or the peer's
+# close with its code (1005 when it gave none) and reason.
+pub enum Message:
+    Text
+    Binary
+    Close(i64)
+
+pub enum Kind:
+    Text
+    Binary
+
+const op_continuation: u8 = 0u8
+const op_text: u8 = 1u8
+const op_binary: u8 = 2u8
+const op_close: u8 = 8u8
+const op_ping: u8 = 9u8
+const op_pong: u8 = 10u8
+
+# Connection states.
+const state_open: i64 = 0
+# This side has sent its close and waits for the peer's.
+const state_closing: i64 = 1
+const state_done: i64 = 2
+const state_failed: i64 = 3
+
+# Bytes read or copied at a time.
+const chunk: i64 = 4096
+
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, WebSocketError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(WebSocketError.Allocation(cause))
+
+def bytes_of[T](result: Result[T, BytesError]) -> Result[T, WebSocketError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(WebSocketError.Allocation(cause))
+                case _:
+                    Err(WebSocketError.OutOfRange)
+
+def encoded[T](result: Result[T, EncodingError]) -> Result[T, WebSocketError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case EncodingError.Allocation(cause):
+                    Err(WebSocketError.Allocation(cause))
+                case _:
+                    Err(WebSocketError.OutOfRange)
+
+def hashed[T](result: Result[T, CryptoError]) -> Result[T, WebSocketError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case CryptoError.Allocation(cause):
+                    Err(WebSocketError.Allocation(cause))
+                case _:
+                    Err(WebSocketError.OutOfRange)
+
+def secret[T](result: Result[T, SecretsError]) -> Result[T, WebSocketError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case SecretsError.Allocation(cause):
+                    Err(WebSocketError.Allocation(cause))
+                case SecretsError.Entropy(cause):
+                    Err(WebSocketError.Entropy(cause))
+                case _:
+                    Err(WebSocketError.OutOfRange)
+
+def http_error(error: HttpError) -> WebSocketError:
+    match error:
+        case HttpError.Allocation(cause):
+            WebSocketError.Allocation(cause)
+        case _ as other:
+            WebSocketError.Http(other)
+
+def http_of[T](result: Result[T, HttpError]) -> Result[T, WebSocketError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(http_error(error))
+
+def net_error(error: NetError) -> WebSocketError:
+    match error:
+        case NetError.Stream(StreamError.Allocation(cause)):
+            WebSocketError.Allocation(cause)
+        case _ as other:
+            WebSocketError.Net(other)
+
+def netted[T](result: Result[T, NetError]) -> Result[T, WebSocketError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(net_error(error))
+
+def ended() -> WebSocketError:
+    WebSocketError.Net(NetError.Stream(StreamError.UnexpectedEof))
+
+def valid(config: &Config) -> Result[(), WebSocketError]:
+    if config.max_frame < 1 or config.max_message < 1:
+        return Err(WebSocketError.InvalidConfig)
+    Ok(())
+
+# Close codes a peer may send (RFC 6455 section 7.4 and the IANA registry).
+def valid_code(code: i64) -> bool:
+    (code >= 1000 and code <= 1003) or (code >= 1007 and code <= 1014) or (code >= 3000 and code <= 4999)
+
+def now_ns() -> u64:
+    monotonic_now().saturating_duration_since(&instant_at(0u64)).as_nanoseconds()
+
+def until_of(deadline: &Deadline) -> u64:
+    start = now_ns()
+    budget = deadline.remaining(&monotonic_now()).as_nanoseconds()
+    if budget > u64.MAX - start:
+        return u64.MAX
+    start + budget
+
+# An open WebSocket connection over `T`, which reads and writes like a
+# std.http.server Transport. Every call waits at most until its deadline.
+# One side at a time: `receive` and the sending methods all borrow the
+# connection exclusively.
+pub class WebSocket[T]:
+    # The subprotocol both sides agreed on, if any.
+    pub subprotocol: Option[str]
+    _stream: Option[T]
+    _client: bool
+    _max_frame: i64
+    _max_message: i64
+    # Input read ahead of the frame parser: _input[_start:_stop].
+    _input: Bytes
+    _start: i64
+    _stop: i64
+    # The masking key of the frame being read, and of the one being sent.
+    _mask: Bytes
+    _key: Bytes
+    _out: Bytes
+    # A wait for the next message ends with Stopping when `_waiting` is
+    # cancelled; every other wait ends when `_cancel` is.
+    _waiting: CancellationToken
+    _cancel: CancellationToken
+    _state: i64
+
+    # Whether the connection can still send messages.
+    pub def is_open(self) -> bool:
+        self._state == state_open
+
+    # Receives the next message, appending its payload to `out`. Pings are
+    # answered and pongs skipped on the way. A received close is answered
+    # and returned as Close with its reason appended; the connection is then
+    # closed. On an error `out` keeps only what it held before, and the
+    # connection is closed unless the error is Stopping or OutOfRange.
+    pub def receive(self: &mut WebSocket[T], out: &mut Bytes, deadline: &Deadline) -> Result[Message, WebSocketError]:
+        if self._state == state_done or self._state == state_failed:
+            return Err(WebSocketError.Closed)
+        base = out.len()
+        outcome = self.next(out, base, deadline)
+        match &outcome:
+            case Ok(_):
+                pass
+            case Err(error):
+                drop(out.truncate(base))
+                self.fail(error, deadline)
+        outcome
+
+    # Sends data[start:stop] as one message, in frames of at most
+    # `max_frame` bytes. A Text message must be UTF-8.
+    pub def send(self: &mut WebSocket[T], kind: Kind, data: &Bytes, start: i64, stop: i64, deadline: &Deadline) -> Result[(), WebSocketError]:
+        if self._state != state_open:
+            return Err(WebSocketError.Closed)
+        if start < 0 or start > stop or stop > data.len():
+            return Err(WebSocketError.OutOfRange)
+        mut opcode = op_binary
+        match kind:
+            case Kind.Text:
+                opcode = op_text
+                if bytes_of(data.utf8_run(start, stop))? != stop:
+                    return Err(WebSocketError.InvalidText)
+            case Kind.Binary:
+                pass
+        mut at = start
+        while True:
+            mut end = stop
+            if end - at > self._max_frame:
+                end = at + self._max_frame
+            last = end == stop
+            outcome = self.frame(opcode, data, at, end, last, deadline)
+            self.sent(outcome)?
+            if last:
+                return Ok(())
+            opcode = op_continuation
+            at = end
+        Ok(())
+
+    # Sends `text` as one text message. The text is first copied into a
+    # buffer; `send` with Kind.Text sends bytes the caller already holds.
+    pub def send_text(self: &mut WebSocket[T], text: &str, deadline: &Deadline) -> Result[(), WebSocketError]:
+        data = bytes_of(std.bytes.from_text(text))?
+        self.send(Kind.Text, &data, 0, data.len(), deadline)
+
+    # Sends a ping with data[start:stop], at most 125 bytes, as its payload.
+    # The peer's pong is skipped by `receive`.
+    pub def ping(self: &mut WebSocket[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline) -> Result[(), WebSocketError]:
+        if self._state != state_open:
+            return Err(WebSocketError.Closed)
+        if start < 0 or start > stop or stop > data.len() or stop - start > 125:
+            return Err(WebSocketError.OutOfRange)
+        outcome = self.frame(op_ping, data, start, stop, True, deadline)
+        self.sent(outcome)
+
+    # Closes the connection with `code` and a `reason` of at most 123 bytes:
+    # sends the close, skips any messages still arriving until the peer's
+    # close, then shuts the stream down. Closing a connection whose closing
+    # handshake already finished does nothing.
+    pub def close(self: &mut WebSocket[T], code: i64, reason: &str, deadline: &Deadline) -> Result[(), WebSocketError]:
+        if self._state == state_done:
+            return Ok(())
+        if self._state == state_failed:
+            return Err(WebSocketError.Closed)
+        if self._state == state_open:
+            if not valid_code(code) or reason.byte_len() > 123:
+                return Err(WebSocketError.OutOfRange)
+            mut payload = bytes_of(std.bytes.with_capacity(2 + reason.byte_len()))?
+            encoded(std.encoding.append_u16(&mut payload, u16(code), Endian.Big))?
+            bytes_of(payload.extend(&bytes_of(std.bytes.from_text(reason))?))?
+            outcome = self.frame(op_close, &payload, 0, payload.len(), True, deadline)
+            self.sent(outcome)?
+            self._state = state_closing
+        outcome = self.drain(deadline)
+        match &outcome:
+            case Ok(_):
+                self.shut(state_done)
+            case Err(error):
+                self.fail(error, deadline)
+        outcome
+
+    # Skips frames until the peer's close.
+    def drain(self: &mut WebSocket[T], deadline: &Deadline) -> Result[(), WebSocketError]:
+        while True:
+            fin, opcode, length = self.header(False, deadline)?
+            if opcode >= op_close and (not fin or length > 125):
+                return Err(WebSocketError.Protocol)
+            self.skip(length, deadline)?
+            if opcode == op_close:
+                return Ok(())
+        Ok(())
+
+    def next(self: &mut WebSocket[T], out: &mut Bytes, base: i64, deadline: &Deadline) -> Result[Message, WebSocketError]:
+        mut kind = op_continuation
+        while True:
+            fin, opcode, length = self.header(kind == op_continuation and self._state == state_open, deadline)?
+            if opcode >= op_close:
+                if not fin or length > 125:
+                    return Err(WebSocketError.Protocol)
+                mark = out.len()
+                self.take(out, length, deadline)?
+                if opcode == op_close:
+                    return self.closed_by_peer(out, base, mark, deadline)
+                if opcode == op_ping:
+                    if self._state == state_open:
+                        self.frame(op_pong, out, mark, mark + length, True, deadline)?
+                elif opcode != op_pong:
+                    return Err(WebSocketError.Protocol)
+                bytes_of(out.truncate(mark))?
+            else:
+                if opcode == op_continuation:
+                    if kind == op_continuation:
+                        return Err(WebSocketError.Protocol)
+                elif opcode == op_text or opcode == op_binary:
+                    if kind != op_continuation:
+                        return Err(WebSocketError.Protocol)
+                    kind = opcode
+                else:
+                    return Err(WebSocketError.Protocol)
+                if length > self._max_frame or out.len() - base > self._max_message - length:
+                    return Err(WebSocketError.TooLarge)
+                self.take(out, length, deadline)?
+                if fin:
+                    if kind == op_text:
+                        if bytes_of(out.utf8_run(base, out.len()))? != out.len():
+                            return Err(WebSocketError.InvalidText)
+                        return Ok(Message.Text)
+                    return Ok(Message.Binary)
+        Err(WebSocketError.Protocol)
+
+    # The peer's close payload is out[mark:]. Answers it, unless this side
+    # closed first, and leaves only its reason after `base`.
+    def closed_by_peer(self: &mut WebSocket[T], out: &mut Bytes, base: i64, mark: i64, deadline: &Deadline) -> Result[Message, WebSocketError]:
+        length = out.len() - mark
+        if length == 1:
+            return Err(WebSocketError.Protocol)
+        mut code = 1005
+        mut reason = mark
+        if length >= 2:
+            code = i64(out[mark]) * 256 + i64(out[mark + 1])
+            if not valid_code(code):
+                return Err(WebSocketError.Protocol)
+            reason = mark + 2
+            if bytes_of(out.utf8_run(reason, out.len()))? != out.len():
+                return Err(WebSocketError.InvalidText)
+        if self._state == state_open:
+            self.frame(op_close, out, mark, reason, True, deadline)?
+        size = out.len() - reason
+        for index in range(size):
+            out[base + index] = out[reason + index]
+        bytes_of(out.truncate(base + size))?
+        self.shut(state_done)
+        Ok(Message.Close(code))
+
+    # Closes the stream after an error, first sending the close code a
+    # protocol fault calls for.
+    def fail(self: &mut WebSocket[T], error: &WebSocketError, deadline: &Deadline) -> ():
+        mut code = 0
+        match error:
+            case WebSocketError.Stopping:
+                return
+            case WebSocketError.OutOfRange:
+                return
+            case WebSocketError.Protocol:
+                code = 1002
+            case WebSocketError.TooLarge:
+                code = 1009
+            case WebSocketError.InvalidText:
+                code = 1007
+            case _:
+                pass
+        if code != 0 and self._state == state_open:
+            match std.bytes.with_capacity(2):
+                case Ok(made):
+                    mut payload = made
+                    if std.encoding.append_u16(&mut payload, u16(code), Endian.Big).is_ok():
+                        drop(self.frame(op_close, &payload, 0, 2, True, deadline))
+                case Err(_):
+                    pass
+        self.shut(state_failed)
+
+    def shut(self: &mut WebSocket[T], state: i64) -> ():
+        self._state = state
+        match &mut self._stream:
+            case Some(stream):
+                drop(stream.shutdown(Shutdown.Both))
+            case Nothing:
+                pass
+
+    # A send that fails part-way leaves the peer inside a frame.
+    def sent(self: &mut WebSocket[T], outcome: Result[(), WebSocketError]) -> Result[(), WebSocketError]:
+        match &outcome:
+            case Ok(_):
+                pass
+            case Err(_):
+                self.shut(state_failed)
+        outcome
+
+    # Reads until `need` bytes are buffered. `wait` marks the wait for a new
+    # message, which server shutdown ends.
+    def fill(self: &mut WebSocket[T], need: i64, wait: bool, deadline: &Deadline) -> Result[(), WebSocketError]:
+        while self._stop - self._start < need:
+            if self._input.len() - self._start < need:
+                held = self._stop - self._start
+                for index in range(held):
+                    self._input[index] = self._input[self._start + index]
+                self._start = 0
+                self._stop = held
+            waiting = wait and self._stop == self._start
+            size = self._input.len()
+            outcome: Result[i64, NetError] = match &mut self._stream:
+                case Some(stream):
+                    if waiting:
+                        stream.read_before(&mut self._input, self._stop, size, deadline, &self._waiting)
+                    else:
+                        stream.read_before(&mut self._input, self._stop, size, deadline, &self._cancel)
+                case Nothing:
+                    Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+            count = match outcome:
+                case Ok(found):
+                    found
+                case Err(NetError.Cancelled):
+                    if waiting and not self._cancel.is_cancelled():
+                        return Err(WebSocketError.Stopping)
+                    return Err(WebSocketError.Net(NetError.Cancelled))
+                case Err(error):
+                    return Err(net_error(error))
+            if count == 0:
+                return Err(ended())
+            self._stop += count
+        Ok(())
+
+    # Reads a frame header: whether it ends its message, its opcode, and its
+    # payload length. The masking key goes to `_mask`.
+    def header(self: &mut WebSocket[T], wait: bool, deadline: &Deadline) -> Result[(bool, u8, i64), WebSocketError]:
+        self.fill(2, wait, deadline)?
+        first = self._input[self._start]
+        second = self._input[self._start + 1]
+        # No extension is negotiated, so the reserved bits must be clear.
+        if (first & 112u8) != 0u8:
+            return Err(WebSocketError.Protocol)
+        masked = (second & 128u8) != 0u8
+        # Clients mask every frame and servers none (section 5.1).
+        if masked == self._client:
+            return Err(WebSocketError.Protocol)
+        small = i64(second & 127u8)
+        mut need = 2
+        if small == 126:
+            need += 2
+        elif small == 127:
+            need += 8
+        if masked:
+            need += 4
+        self.fill(need, False, deadline)?
+        mut at = self._start + 2
+        mut length = small
+        if small == 126:
+            length = i64(encoded(std.encoding.unpack_u16(&self._input, at, Endian.Big))?)
+            at += 2
+        elif small == 127:
+            large = encoded(std.encoding.unpack_u64(&self._input, at, Endian.Big))?
+            if large > 9223372036854775807u64:
+                return Err(WebSocketError.Protocol)
+            length = i64(large)
+            at += 8
+        if masked:
+            for index in range(4):
+                self._mask[index] = self._input[at + index]
+        self._start += need
+        Ok(((first & 128u8) != 0u8, first & 15u8, length))
+
+    # Appends `count` payload bytes to `out`, unmasked.
+    def take(self: &mut WebSocket[T], out: &mut Bytes, count: i64, deadline: &Deadline) -> Result[(), WebSocketError]:
+        base = out.len()
+        mut held = self._stop - self._start
+        if held > count:
+            held = count
+        bytes_of(out.extend_range(&self._input, self._start, self._start + held))?
+        self._start += held
+        if held < count:
+            bytes_of(out.resize(base + count, 0u8))?
+            mut at = base + held
+            while at < base + count:
+                outcome: Result[i64, NetError] = match &mut self._stream:
+                    case Some(stream):
+                        stream.read_before(out, at, base + count, deadline, &self._cancel)
+                    case Nothing:
+                        Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+                read = netted(outcome)?
+                if read == 0:
+                    return Err(ended())
+                at += read
+        if not self._client:
+            for index in range(count):
+                out[base + index] = out[base + index] ^ self._mask[index % 4]
+        Ok(())
+
+    # Skips `count` payload bytes.
+    def skip(self: &mut WebSocket[T], count: i64, deadline: &Deadline) -> Result[(), WebSocketError]:
+        mut left = count
+        while left > 0:
+            if self._stop == self._start:
+                self.fill(1, False, deadline)?
+            mut step = self._stop - self._start
+            if step > left:
+                step = left
+            self._start += step
+            left -= step
+        Ok(())
+
+    # Sends one frame with payload source[start:stop], at most `chunk` bytes
+    # of it copied at a time.
+    def frame[S: ByteSource](self: &mut WebSocket[T], opcode: u8, source: &S, start: i64, stop: i64, last: bool, deadline: &Deadline) -> Result[(), WebSocketError]:
+        length = stop - start
+        self._out.clear()
+        mut first = opcode
+        if last:
+            first = first | 128u8
+        bytes_of(self._out.push(first))?
+        mut flag = 0u8
+        if self._client:
+            flag = 128u8
+        if length < 126:
+            bytes_of(self._out.push(flag | u8(length)))?
+        elif length < 65536:
+            bytes_of(self._out.push(flag | 126u8))?
+            encoded(std.encoding.append_u16(&mut self._out, u16(length), Endian.Big))?
+        else:
+            bytes_of(self._out.push(flag | 127u8))?
+            encoded(std.encoding.append_u64(&mut self._out, u64(length), Endian.Big))?
+        if self._client:
+            secret(std.secrets.fill(&mut self._key, 0, 4))?
+            bytes_of(self._out.extend(&self._key))?
+        mut at = start
+        while True:
+            mut end = stop
+            if end - at > chunk:
+                end = at + chunk
+            mark = self._out.len()
+            bytes_of(self._out.extend_range(source, at, end))?
+            if self._client:
+                for index in range(end - at):
+                    self._out[mark + index] = self._out[mark + index] ^ self._key[(at - start + index) % 4]
+            self.flush(deadline)?
+            if end == stop:
+                return Ok(())
+            at = end
+        Ok(())
+
+    def flush(self: &mut WebSocket[T], deadline: &Deadline) -> Result[(), WebSocketError]:
+        size = self._out.len()
+        mut at = 0
+        while at < size:
+            outcome: Result[i64, NetError] = match &mut self._stream:
+                case Some(stream):
+                    stream.write_before(&self._out, at, size, deadline, &self._cancel)
+                case Nothing:
+                    Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+            written = netted(outcome)?
+            if written == 0:
+                return Err(WebSocketError.Net(NetError.Stream(StreamError.WriteZero)))
+            at += written
+        self._out.clear()
+        Ok(())
+
+def blank(size: i64) -> Result[Bytes, WebSocketError]:
+    mut made = bytes_of(std.bytes.with_capacity(size))?
+    bytes_of(made.resize(size, 0u8))?
+    Ok(made)
+
+def opened[T](stream: T, input: Bytes, client: bool, config: &Config, subprotocol: Option[str], waiting: CancellationToken, cancel: CancellationToken) -> Result[WebSocket[T], WebSocketError]:
+    valid(config)?
+    mut buffer = input
+    held = buffer.len()
+    mut size = chunk
+    if held > size:
+        size = held
+    bytes_of(buffer.resize(size, 0u8))?
+    mask = blank(4)?
+    key = blank(4)?
+    out = bytes_of(std.bytes.with_capacity(chunk + 14))?
+    Ok(WebSocket(subprotocol, Some(stream), client, config.max_frame, config.max_message, buffer, 0, held, mask, key, out, waiting, cancel, state_open))
+
+# Whether a comma-separated element of a field named `name` is `token`:
+# ignoring ASCII case when `folded`, else exactly.
+def lists(headers: &list[Header], name: &str, token: &str, folded: bool) -> Result[bool, WebSocketError]:
+    for index in range(len(headers)):
+        if std.http.same_name(headers[index].name, name):
+            elements = allocated(headers[index].value.split(","))?
+            for element in &elements:
+                trimmed = allocated(element.strip())?
+                if folded and std.http.same_name(trimmed, token):
+                    return Ok(True)
+                if not folded and trimmed == *token:
+                    return Ok(True)
+    Ok(False)
+
+# The value of the only field named `name`, or Nothing when there is none
+# or more than one.
+def only(headers: &list[Header], name: &str) -> Option[str]:
+    mut found: Option[str] = Nothing
+    for index in range(len(headers)):
+        if std.http.same_name(headers[index].name, name):
+            if found.is_some():
+                return Nothing
+            found = Some(headers[index].value)
+    found
+
+# base64(SHA-1(key + GUID)), the Sec-WebSocket-Accept value (section 4.2.2).
+def accept_key(key: &str) -> Result[str, WebSocketError]:
+    mut digest = hashed(std.crypto.digest(Algorithm.Sha1))?
+    hashed(digest.update_text(key))?
+    hashed(digest.update_text("258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))?
+    hash = hashed(digest.finish())?
+    encoded(std.encoding.base64_text(&hash, 0, hash.len()))
+
+# Server
+
+# Why `head` is not an acceptable handshake: the status to refuse it with,
+# or 0 when it is one.
+def refusal(head: &RequestHead) -> Result[i64, WebSocketError]:
+    if head.method != "GET" or head.minor != 1:
+        return Ok(400)
+    match http_of(std.http.request_framing(head))?:
+        case std.http.Framing.Empty:
+            pass
+        case _:
+            return Ok(400)
+    if not lists(&head.headers, "upgrade", "websocket", True)?:
+        return Ok(426)
+    if not lists(&head.headers, "connection", "upgrade", True)?:
+        return Ok(400)
+    match only(&head.headers, "sec-websocket-version"):
+        case Some(version):
+            if version != "13":
+                return Ok(426)
+        case Nothing:
+            return Ok(426)
+    match only(&head.headers, "sec-websocket-key"):
+        case Some(key):
+            match std.encoding.base64_from_text(&key):
+                case Ok(nonce):
+                    if nonce.len() != 16:
+                        return Ok(400)
+                case Err(EncodingError.Allocation(cause)):
+                    return Err(WebSocketError.Allocation(cause))
+                case Err(_):
+                    return Ok(400)
+        case Nothing:
+            return Ok(400)
+    Ok(0)
+
+def refuse[T: Transport](exchange: &mut Exchange[T], status: i64) -> Result[(), WebSocketError]:
+    phrase = std.http.server.reason(status)
+    mut head = http_of(std.http.response(status, phrase))?
+    if status == 426:
+        http_of(head.add("Upgrade", "websocket"))?
+        http_of(head.add("Sec-WebSocket-Version", "13"))?
+    http_of(head.add("Content-Type", "text/plain; charset=utf-8"))?
+    body = bytes_of(std.bytes.from_text(&allocated(phrase.concat("\n"))?))?
+    http_of(exchange.respond(head, &body))
+
+# Completes the server side of the handshake on `exchange`. A request that
+# is not a WebSocket handshake is answered, with 426 and the supported
+# version when the version or Upgrade field is wrong and 400 otherwise, and
+# Refused names the status. The connection then leaves the server, which
+# no longer counts or closes it; the WebSocket closes it when dropped. It
+# keeps the server's tokens: shutdown ends a wait for the next message
+# with Stopping, and the drain deadline cancels every other wait.
+pub def accept[T: Transport](exchange: &mut Exchange[T], config: &Config) -> Result[WebSocket[T], WebSocketError]:
+    valid(config)?
+    status = refusal(&exchange.request)?
+    if status != 0:
+        refuse(exchange, status)?
+        return Err(WebSocketError.Refused(status))
+    key = only(&exchange.request.headers, "sec-websocket-key").unwrap_or("")
+    mut chosen: Option[str] = Nothing
+    match &config.subprotocol:
+        case Some(wanted):
+            if lists(&exchange.request.headers, "sec-websocket-protocol", wanted, False)?:
+                chosen = Some(*wanted)
+        case Nothing:
+            pass
+    mut head = http_of(std.http.response(101, "Switching Protocols"))?
+    http_of(head.add("Upgrade", "websocket"))?
+    http_of(head.add("Connection", "Upgrade"))?
+    http_of(head.add("Sec-WebSocket-Accept", accept_key(&key)?))?
+    match &chosen:
+        case Some(name):
+            http_of(head.add("Sec-WebSocket-Protocol", *name))?
+        case Nothing:
+            pass
+    stream, input = http_of(exchange.switch_protocols(head))?
+    opened(stream, input, False, config, chosen, exchange.stop_token(), exchange.cancel_token())
+
+# Client
+
+# A parsed `ws` or `wss` URL. `host` is lowercase without brackets, for
+# connecting and for TLS server names.
+pub class Target:
+    pub secure: bool
+    pub host: str
+    pub port: u16
+    # Host field value and request target.
+    _authority: str
+    _resource: str
+
+const max_url: i64 = 8192
+
+def url_of[T](result: Result[T, UrlError]) -> Result[T, WebSocketError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case UrlError.Allocation(cause):
+                    Err(WebSocketError.Allocation(cause))
+                case _:
+                    Err(WebSocketError.InvalidUrl)
+
+# Parses a `ws://` or `wss://` URL. URLs with credentials or a fragment are
+# rejected (RFC 6455 section 3).
+pub def target(url: &str) -> Result[Target, WebSocketError]:
+    parsed = url_of(std.url.parse(url, max_url))?
+    scheme = allocated(parsed.scheme.lower())?
+    if scheme != "ws" and scheme != "wss":
+        return Err(WebSocketError.UnsupportedScheme)
+    if parsed.userinfo.is_some() or parsed.fragment.is_some():
+        return Err(WebSocketError.InvalidUrl)
+    written = match &parsed.host:
+        case Some(found):
+            *found
+        case Nothing:
+            return Err(WebSocketError.InvalidUrl)
+    if written.byte_len() == 0:
+        return Err(WebSocketError.InvalidUrl)
+    mut name = allocated(written.lower())?
+    if name.startswith("["):
+        if name.startswith("[v"):
+            return Err(WebSocketError.InvalidUrl)
+        name = allocated(name.slice(1, -1))?
+    secure = scheme == "wss"
+    mut port = 80
+    if secure:
+        port = 443
+    mut authority = written
+    match parsed.port:
+        case Some(given):
+            if given == 0 or given > 65535:
+                return Err(WebSocketError.InvalidUrl)
+            port = given
+            authority = allocated(allocated(written.concat(":"))?.concat(&allocated(str.from(given))?))?
+        case Nothing:
+            pass
+    mut resource = parsed.path
+    if resource.byte_len() == 0:
+        resource = "/"
+    match &parsed.query:
+        case Some(query):
+            resource = allocated(allocated(resource.concat("?"))?.concat(query))?
+        case Nothing:
+            pass
+    Ok(Target(secure, name, u16(port), authority, resource))
+
+# Opens a TCP connection to the target's host and port.
+pub def dial(target: &Target, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, WebSocketError]:
+    endpoint = Endpoint("http", target.host, target.port, Nothing)
+    match std.http.client.dial(&endpoint, deadline, cancel):
+        case Ok(stream):
+            Ok(stream)
+        case Err(ClientError.Allocation(cause)):
+            Err(WebSocketError.Allocation(cause))
+        case Err(error):
+            Err(WebSocketError.Connect(error))
+
+# The stream as a std.io Reader for reading the handshake answer. Public
+# only so that `handshake` can be instantiated in other modules.
+pub class Wire[T]:
+    _stream: Option[T]
+    _until: u64
+    _cancel: CancellationToken
+    _failure: Option[NetError]
+
+    pub def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        outcome: Result[i64, NetError] = match &mut self._stream:
+            case Some(stream):
+                stream.read_before(buffer, start, stop, &deadline_at(&instant_at(self._until)), &self._cancel)
+            case Nothing:
+                Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+        match outcome:
+            case Ok(count):
+                Ok(count)
+            case Err(NetError.Stream(StreamError.Allocation(cause))):
+                Err(StreamError.Allocation(cause))
+            case Err(error):
+                self._failure = Some(error)
+                Err(StreamError.Io(IoError.Other))
+
+# Runs the client side of the handshake over `stream`, already connected
+# to the target, and returns the open connection. `cancel` ends every
+# later wait. A server answering with another status is Rejected; its
+# body is not read.
+pub def handshake[T: Transport](stream: T, target: &Target, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[T], WebSocketError]:
+    valid(config)?
+    nonce = secret(std.secrets.token_bytes(16))?
+    key = encoded(std.encoding.base64_text(&nonce, 0, nonce.len()))?
+    mut head = http_of(std.http.request("GET", target._resource))?
+    http_of(head.add("Host", target._authority))?
+    http_of(head.add("Upgrade", "websocket"))?
+    http_of(head.add("Connection", "Upgrade"))?
+    http_of(head.add("Sec-WebSocket-Key", key))?
+    http_of(head.add("Sec-WebSocket-Version", "13"))?
+    match &config.subprotocol:
+        case Some(name):
+            http_of(head.add("Sec-WebSocket-Protocol", *name))?
+        case Nothing:
+            pass
+    request = http_of(std.http.encode_request(&head))?
+    mut owned = stream
+    mut at = 0
+    while at < request.len():
+        written = netted(owned.write_before(&request, at, request.len(), deadline, cancel))?
+        if written == 0:
+            return Err(WebSocketError.Net(NetError.Stream(StreamError.WriteZero)))
+        at += written
+    wire = Wire(Some(owned), until_of(deadline), cancel.share(), Nothing)
+    mut reader = match std.io.buffered_reader(wire, chunk):
+        case Ok(made):
+            made
+        case Err(StreamError.Allocation(cause)):
+            return Err(WebSocketError.Allocation(cause))
+        case Err(_):
+            return Err(WebSocketError.InvalidConfig)
+    answer = match std.http.read_response(&mut reader, &std.http.limits()):
+        case Ok(Some(found)):
+            found
+        case Ok(Nothing):
+            return Err(ended())
+        case Err(error):
+            match replace(reader.inner._failure, Nothing):
+                case Some(cause):
+                    return Err(net_error(cause))
+                case Nothing:
+                    return Err(http_error(error))
+    if answer.status != 101:
+        return Err(WebSocketError.Rejected(answer.status))
+    if not lists(&answer.headers, "upgrade", "websocket", True)? or not lists(&answer.headers, "connection", "upgrade", True)?:
+        return Err(WebSocketError.InvalidHandshake)
+    match only(&answer.headers, "sec-websocket-accept"):
+        case Some(given):
+            if given != accept_key(&key)?:
+                return Err(WebSocketError.InvalidHandshake)
+        case Nothing:
+            return Err(WebSocketError.InvalidHandshake)
+    if std.http.find(&answer.headers, "sec-websocket-extensions").is_some():
+        return Err(WebSocketError.InvalidHandshake)
+    mut agreed: Option[str] = Nothing
+    if std.http.find(&answer.headers, "sec-websocket-protocol").is_some():
+        chosen = only(&answer.headers, "sec-websocket-protocol").ok_or(WebSocketError.InvalidHandshake)?
+        match &config.subprotocol:
+            case Some(offered):
+                if chosen != *offered:
+                    return Err(WebSocketError.InvalidHandshake)
+            case Nothing:
+                return Err(WebSocketError.InvalidHandshake)
+        agreed = Some(chosen)
+    held = reader.buffered()
+    mut input = blank(held)?
+    if held > 0:
+        match reader.read(&mut input, 0, held):
+            case Ok(_):
+                pass
+            case Err(cause):
+                return Err(WebSocketError.Net(NetError.Stream(cause)))
+    opened_stream = match replace(reader.inner._stream, Nothing):
+        case Some(found):
+            found
+        case Nothing:
+            return Err(WebSocketError.Closed)
+    opened(opened_stream, input, True, config, agreed, cancel.share(), cancel.share())
+
+# Connects to a `ws://` URL. `wss://` URLs need std.http.wss.
+pub def connect(url: &str, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TcpStream], WebSocketError]:
+    valid(config)?
+    found = target(url)?
+    if found.secure:
+        return Err(WebSocketError.UnsupportedScheme)
+    stream = dial(&found, deadline, cancel)?
+    handshake(stream, &found, config, deadline, cancel)

@@ -1,5 +1,5 @@
-//! Native back end of `std.crypto`: SHA-256, SHA-512 and HMAC from the
-//! RustCrypto `sha2` and `hmac` crates, and constant-time comparison from
+//! Native back end of `std.crypto`: SHA-256, SHA-512, legacy SHA-1 and HMAC
+//! from the RustCrypto `sha2`, `sha1` and `hmac` crates, and constant-time comparison from
 //! `subtle`. Nothing here implements a primitive.
 //!
 //! A hasher lives in a runtime object whose prefix is byte storage, so
@@ -12,6 +12,7 @@ use super::byte_storage::{Storage, range, result, size};
 use crate::memory::{self, AllocError, Header};
 use crate::strings;
 use hmac::{Hmac, Mac};
+use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha512};
 use std::ptr;
 use subtle::ConstantTimeEq;
@@ -21,6 +22,8 @@ const SHA256: u128 = 1;
 const SHA512: u128 = 2;
 const HMAC_SHA256: u128 = 3;
 const HMAC_SHA512: u128 = 4;
+const SHA1: u128 = 5;
+const HMAC_SHA1: u128 = 6;
 
 // None of these variants owns heap memory or has drop glue, so scrubbing may
 // overwrite a live value without dropping it.
@@ -30,6 +33,8 @@ enum Hasher {
     Sha512(Sha512),
     HmacSha256(Hmac<Sha256>),
     HmacSha512(Hmac<Sha512>),
+    Sha1(Sha1),
+    HmacSha1(Hmac<Sha1>),
 }
 
 #[repr(C)]
@@ -81,6 +86,7 @@ fn start(kind: u128) -> Hasher {
     match kind {
         SHA256 => Hasher::Sha256(Sha256::new()),
         SHA512 => Hasher::Sha512(Sha512::new()),
+        SHA1 => Hasher::Sha1(Sha1::new()),
         _ => crate::fail("unknown digest algorithm"),
     }
 }
@@ -93,6 +99,7 @@ fn keyed(kind: u128, key: &[u8]) -> Hasher {
     match kind {
         HMAC_SHA256 => Hasher::HmacSha256(accepted(Hmac::new_from_slice(key))),
         HMAC_SHA512 => Hasher::HmacSha512(accepted(Hmac::new_from_slice(key))),
+        HMAC_SHA1 => Hasher::HmacSha1(accepted(Hmac::new_from_slice(key))),
         _ => crate::fail("unknown HMAC algorithm"),
     }
 }
@@ -121,6 +128,8 @@ unsafe fn update(state: u128, data: &[u8]) -> bool {
         Hasher::Sha512(h) => Digest::update(h, data),
         Hasher::HmacSha256(h) => Mac::update(h, data),
         Hasher::HmacSha512(h) => Mac::update(h, data),
+        Hasher::Sha1(h) => Digest::update(h, data),
+        Hasher::HmacSha1(h) => Mac::update(h, data),
     }
     true
 }
@@ -153,6 +162,8 @@ unsafe fn finish(state: u128, target: &mut [u8], offset: usize) -> bool {
         Hasher::Sha512(h) => write(&h.finalize()),
         Hasher::HmacSha256(h) => write(&h.finalize().into_bytes()),
         Hasher::HmacSha512(h) => write(&h.finalize().into_bytes()),
+        Hasher::Sha1(h) => write(&h.finalize()),
+        Hasher::HmacSha1(h) => write(&h.finalize().into_bytes()),
     }
     true
 }
@@ -167,6 +178,8 @@ unsafe fn verify(state: u128, expected: &[u8]) -> i64 {
         Hasher::Sha512(h) => bool::from(h.finalize().as_slice().ct_eq(expected)),
         Hasher::HmacSha256(h) => h.verify_slice(expected).is_ok(),
         Hasher::HmacSha512(h) => h.verify_slice(expected).is_ok(),
+        Hasher::Sha1(h) => bool::from(h.finalize().as_slice().ct_eq(expected)),
+        Hasher::HmacSha1(h) => h.verify_slice(expected).is_ok(),
     };
     i64::from(equal)
 }

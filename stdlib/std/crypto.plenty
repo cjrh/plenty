@@ -1,5 +1,5 @@
 # Curated digests, HMAC and constant-time comparison over std.bytes buffers.
-# Every primitive is RustCrypto code in the runtime (sha2, hmac, subtle); this
+# Every primitive is RustCrypto code in the runtime (sha2, sha1, hmac, subtle); this
 # module validates arguments and reports errors. See
 # book/src/design/stdlib/crypto.md.
 import std.bytes
@@ -10,28 +10,39 @@ pub enum CryptoError:
     Finished
     Allocation(AllocError)
 
+# Sha1 is broken for collision resistance and exists only for protocols
+# that require it, such as the WebSocket handshake and Git object IDs.
 pub enum Algorithm:
     Sha256
     Sha512
+    Sha1
 
-# Output bytes: 32 for SHA-256 and HMAC-SHA-256, 64 for the SHA-512 pair.
+# Output bytes: 32 for SHA-256 and HMAC-SHA-256, 64 for the SHA-512 pair,
+# 20 for the SHA-1 pair.
 pub def output_size(algorithm: Algorithm) -> i64:
     match algorithm:
         case Algorithm.Sha256:
             32
         case Algorithm.Sha512:
             64
+        case Algorithm.Sha1:
+            20
 
-# Runtime tags: 1 and 2 are digests, 3 and 4 the HMACs over them.
+# Runtime tags: 1, 2 and 5 are digests; 3, 4 and 6 the HMACs over them.
 def kind(algorithm: Algorithm, keyed: bool) -> u8:
-    base = match algorithm:
+    match algorithm:
         case Algorithm.Sha256:
+            if keyed:
+                return 3u8
             1u8
         case Algorithm.Sha512:
+            if keyed:
+                return 4u8
             2u8
-    if keyed:
-        return base + 2u8
-    base
+        case Algorithm.Sha1:
+            if keyed:
+                return 6u8
+            5u8
 
 def reported[T](result: Result[T, BytesError]) -> Result[T, CryptoError]:
     match result:
@@ -139,6 +150,10 @@ pub def sha256(data: &Bytes) -> Result[Bytes, CryptoError]:
 
 pub def sha512(data: &Bytes) -> Result[Bytes, CryptoError]:
     hashed(Algorithm.Sha512, data)
+
+# Legacy: only for protocols that require SHA-1. Never use it for security.
+pub def sha1(data: &Bytes) -> Result[Bytes, CryptoError]:
+    hashed(Algorithm.Sha1, data)
 
 pub def hmac_sha256(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
     keyed(Algorithm.Sha256, key, data)

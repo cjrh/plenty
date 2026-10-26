@@ -70,6 +70,14 @@ const VENDORED: &[Vendored] = &[
         &[],
         &["cfg_if", "digest", "cpufeatures"],
     ),
+    (
+        "sha1-0.10.6",
+        "sha1",
+        "2018",
+        &[],
+        &[],
+        &["cfg_if", "digest", "cpufeatures"],
+    ),
     ("hmac-0.12.1", "hmac", "2018", &[], &[], &["digest"]),
     (
         "zlib-rs-0.6.8",
@@ -140,7 +148,15 @@ const VENDORED: &[Vendored] = &[
         ],
     ),
 ];
-const RUNTIME_EXTERNS: &[&str] = &["sha2", "hmac", "subtle", "zlib_rs", "rustls", "siphasher"];
+const RUNTIME_EXTERNS: &[&str] = &[
+    "sha2",
+    "sha1",
+    "hmac",
+    "subtle",
+    "zlib_rs",
+    "rustls",
+    "siphasher",
+];
 
 fn main() {
     println!("cargo:rerun-if-changed=plenty-runtime/src");

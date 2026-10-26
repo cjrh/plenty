@@ -36,3 +36,4 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Serve files and sign cookies](http-files.md)
 - [Send HTTP requests](http-client.md)
 - [Share one HTTP client between workers](shared-http-client.md)
+- [Talk over WebSockets](websockets.md)

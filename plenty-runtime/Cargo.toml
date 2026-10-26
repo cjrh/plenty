@@ -16,6 +16,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(plenty_runtime_embedded)',
 
 [dependencies]
 hmac = "=0.12.1"
+sha1 = { version = "=0.10.6", default-features = false }
 sha2 = { version = "=0.10.9", default-features = false }
 subtle = { version = "=2.6.1", default-features = false }
 # `__internal-api` exposes the zlib-style init/step/end calls, which report

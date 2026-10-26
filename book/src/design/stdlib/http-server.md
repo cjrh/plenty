@@ -162,6 +162,8 @@ The handler receives an `Exchange[T]` for one request.
 | `stopping()` | Shutdown has begun; a long response should end soon |
 | `cancelled()` | The drain deadline has passed; reads and writes now fail |
 | `status()`, `sent()` | Status sent (0 before), body bytes written (0 for `HEAD`) |
+| `stop_token()`, `cancel_token()` | Shares of the tokens behind `stopping()` and `cancelled()`, for work that outlives a call |
+| `switch_protocols(head)` | `Result[(T, Bytes), HttpError]`: answer `101` and take the connection; see [Switching protocols](#switching-protocols) |
 
 The response methods return `Result[(), HttpError]`. A handler answers once.
 `respond` refuses a head that declares `Content-Length` or
@@ -180,6 +182,19 @@ the response, since the next request cannot be found.
 `exchange.send_text(200, &exchange.query)` is rejected: `send_text` borrows
 the whole exchange exclusively while `exchange.query` is borrowed. Bind the
 field first: `query = exchange.query` copies the `str`, sharing its storage.
+
+### Switching protocols
+
+`switch_protocols(head)` sends `head`, which must have status `101`, as
+given, and hands the connection to the caller with any input that arrived
+after the request head. The head carries the `Upgrade` and `Connection`
+fields the new protocol needs. The request body must be empty or read to its
+end (`Unfinished` otherwise), and the exchange must be unanswered (`Broken`
+otherwise). The exchange then counts as answered; the server neither reuses
+nor closes the connection, and the handler owns it until it returns or
+drops it. The connection still occupies the worker for as long as the
+handler runs. [`std.http.websocket`](websocket.md)'s `accept` is built on
+it.
 
 ### When a handler fails
 
@@ -417,7 +432,8 @@ timed out`, `handshake failed` and `accept failed`, most with a
   HTTP/1.x, so its `ServerConfig` should offer no ALPN protocol but
   `http/1.1`.
 - No `Date` header, compression, request trailers in the exchange, or
-  HTTP/2. Forms, JSON, uploads, cookies and forwarded clients are in
+  HTTP/2. A connection taken by `switch_protocols` holds its worker until
+  the handler returns, so long-lived WebSockets count against `workers`. Forms, JSON, uploads, cookies and forwarded clients are in
   [`std.http.body`](http-body.md), [`std.http.cookie`](http-cookie.md)
   and [`std.http.proxy`](http-proxy.md); static files in
   [`std.http.files`](http-files.md).
