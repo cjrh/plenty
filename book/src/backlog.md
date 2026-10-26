@@ -240,6 +240,11 @@ OS-backed v4/v7 generation in Plenty. Numeric sorting keys avoid formatting
 allocations; v7 ordering within a millisecond and across clock rollback is not
 guaranteed. See the [UUID reference](design/stdlib/uuid.md).
 
+[std.system](design/stdlib/system.md) implements bounded Linux procfs snapshots
+for CPUs, memory, load, uptime, block devices, disk I/O and processes (issue #487).
+Cgroup accounting, CPU utilization sampling and filesystem free-space queries
+remain separate scope.
+
 ### Stdlib-driven language ergonomics
 
 | ID | Work item | Scope |
