@@ -88,7 +88,7 @@ jobs:
     name: Build and test (glibc 2.28)
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     permissions:
       contents: read
     container:
@@ -108,7 +108,9 @@ jobs:
           export SOURCE_DATE_EPOCH
           scripts/release/build.sh --out-dir dist --test
       - name: Archive matches the tag
-        run: test -f "dist/plenty-${{ needs.plan.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
+        run: |
+          test -f "dist/plenty-${{ needs.plan.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
+          test -f "dist/plenty-dataframe-${{ needs.plan.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-archive
@@ -135,7 +137,11 @@ jobs:
         with:
           name: release-archive
           path: dist
-      - run: scripts/release/smoke-in-container.sh "${{ matrix.image }}" dist/plenty-*.tar.gz
+      - run: >-
+          scripts/release/smoke-in-container.sh "${{ matrix.image }}"
+          "dist/plenty-${{ needs.plan.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
+          --dataframe-archive
+          "dist/plenty-dataframe-${{ needs.plan.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
 
   publish:
     name: Publish release
