@@ -1,7 +1,8 @@
 //! `std.diff`: edit operations over sequences, bytes, and text tokens, and
 //! unified-diff output (issue #469).
 
-const HEADER: &str = "import std.bytes\nimport std.diff\nfrom std.diff import Algorithm, Kind, Op, TextDiff\n";
+const HEADER: &str =
+    "import std.bytes\nimport std.diff\nfrom std.diff import Algorithm, Kind, Op, TextDiff\n";
 
 const DECLARATIONS: &str = r#"
 def code(op: &Op) -> str:
@@ -429,7 +430,9 @@ fn apply(old: &str, patch: &str) -> String {
         };
         let begin = if count == 0 { start } else { start - 1 };
         assert!(begin >= at, "{patch}");
-        old_lines[at..begin].iter().for_each(|line| out.push_str(line));
+        old_lines[at..begin]
+            .iter()
+            .for_each(|line| out.push_str(line));
         at = begin;
         while let Some(line) = lines.next_if(|line| !line.starts_with("@@")) {
             let mut body = line[1..].to_owned();
