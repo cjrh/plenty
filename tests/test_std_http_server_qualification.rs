@@ -9,6 +9,7 @@
 
 mod support;
 use support::build_file as build;
+use support::operation_in;
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
@@ -1330,11 +1331,11 @@ fn backends(executable: &Path) -> Vec<String> {
         .filter(|symbol| symbol.kind() != SymbolKind::File)
         .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
         .filter(|name| {
-            name == "plenty_tls"
+            operation_in(name, 470..500)
                 || name.contains("ring_core_")
-                || name == "plenty_sqlite"
+                || operation_in(name, 440..470)
                 || name.starts_with("sqlite3")
-                || name == "plenty_compress"
+                || operation_in(name, 320..340)
                 || name.contains("zlib_rs")
         })
         .collect()

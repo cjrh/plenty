@@ -40,6 +40,8 @@ fn split(now: SystemTime) -> (i64, u32) {
     }
 }
 
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(crate) fn call(op: i64, a: u128) -> u128 {
     match op {
         184 => monotonic() as u128,

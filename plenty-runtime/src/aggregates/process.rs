@@ -356,6 +356,8 @@ mod native {
         }
     }
 
+    // Inlined so each operation's entry symbol keeps only its own arm.
+    #[inline(always)]
     pub(super) unsafe fn call(
         op: i64,
         a: u128,
@@ -387,6 +389,8 @@ mod native {
     }
 }
 
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(super) unsafe fn call(op: i64, a: u128, b: u128, c: u128, descriptor: *const Type) -> u128 {
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     {

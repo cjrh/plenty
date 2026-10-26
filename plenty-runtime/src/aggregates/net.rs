@@ -552,6 +552,8 @@ mod native {
         Ok(reader)
     }
 
+    // Inlined so each operation's entry symbol keeps only its own arm.
+    #[inline(always)]
     pub(super) unsafe fn call(
         op: i64,
         operands: [u128; 5],
@@ -658,6 +660,8 @@ mod tests {
 pub(crate) use native::wait_for_lookups;
 
 /// Operands are live values of the statically checked signature.
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(super) unsafe fn call(op: i64, operands: [u128; 5], descriptor: *const Type) -> u128 {
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     {

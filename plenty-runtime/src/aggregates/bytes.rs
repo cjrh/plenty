@@ -79,6 +79,8 @@ unsafe fn record(reader: &mut impl Read, delimiter: u8, ty: &'static Type) -> Re
 }
 
 /// Operands are borrowed live values of the statically checked signature.
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(super) unsafe fn call(
     op: i64,
     a: u128,

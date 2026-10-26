@@ -713,6 +713,8 @@ unsafe fn column(stmt: *mut Stmt, value: u128) -> c_int {
 }
 
 /// Operands are live values of the statically checked signature.
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
     let [a, b, c, _] = operands;
     // SAFETY: see above; each handle is validated before use.

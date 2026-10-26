@@ -2,7 +2,7 @@
 //! fixtures from CPython's zlib and gzip modules and against the system
 //! `gzip` tool.
 mod support;
-use support::{build_file as build, run_file as run};
+use support::{build_file as build, operation_in, run_file as run};
 
 const HEADER: &str = r#"import std.bytes
 import std.compress
@@ -491,7 +491,7 @@ fn programs_that_never_compress_do_not_link_the_codecs() {
             // opened, including ones whose sections were all discarded.
             .filter(|symbol| symbol.kind() != SymbolKind::File)
             .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
-            .filter(|name| name == "plenty_compress" || name.contains("zlib_rs"))
+            .filter(|name| operation_in(name, 320..340) || name.contains("zlib_rs"))
             .count();
         (count, data.len())
     };

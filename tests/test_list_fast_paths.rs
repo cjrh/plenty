@@ -384,10 +384,8 @@ fn borrowed_access_has_only_narrow_runtime_relocations() {
         "{calls:?}"
     );
     assert!(
-        !calls.iter().any(|name| matches!(
-            name.as_str(),
-            "plenty_collection" | "plenty_retain" | "plenty_release"
-        )),
+        !calls.iter().any(|name| name.starts_with("plenty_op_")
+            || matches!(name.as_str(), "plenty_retain" | "plenty_release")),
         "{calls:?}"
     );
 }

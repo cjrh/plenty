@@ -59,6 +59,8 @@ fn at(text: &str, offset: i64) -> i64 {
     (scalar as i64) * 8 + scalar.len_utf8() as i64
 }
 
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(crate) unsafe fn call(op: i64, a: u128, b: u128, c: u128) -> u128 {
     if op == 360 {
         return property(a as u32, b as i64) as u128;

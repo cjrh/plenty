@@ -325,3 +325,12 @@ pub fn tls_fixtures() -> String {
 pub fn plenty_bin() -> &'static str {
     env!("CARGO_BIN_EXE_plenty")
 }
+
+/// Whether `symbol` is the entry `plenty_op_<N>` of a runtime operation `N`
+/// in `operations`.
+pub fn operation_in(symbol: &str, operations: std::ops::Range<u32>) -> bool {
+    symbol
+        .strip_prefix("plenty_op_")
+        .and_then(|number| number.parse().ok())
+        .is_some_and(|number| operations.contains(&number))
+}

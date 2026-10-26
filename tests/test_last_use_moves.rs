@@ -244,13 +244,13 @@ fn moved_slot_drops_emit_no_release() {
     std::fs::write(dir.path().join("p.plenty"), DROPS).unwrap();
     let args = ["--release", "--dump", "clif-opt", "p.plenty", "-o", "out"];
     stdout(plenty(dir.path(), &args));
-    // Calls to `plenty_release`, or to the dispatcher, which releases a
+    // Calls to `plenty_release`, or to a runtime operation, which releases a
     // two-word value.
     let releases = |name: &str| {
         let text = section(dir.path(), "clif-opt.txt", name);
         let callees: Vec<String> = text
             .lines()
-            .filter(|line| line.contains("plenty_release") || line.contains("plenty_collection"))
+            .filter(|line| line.contains("plenty_release") || line.contains("plenty_op_"))
             .filter_map(|line| line.trim_start().split(" = ").next())
             .map(|callee| format!("call {callee}("))
             .collect();

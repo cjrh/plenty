@@ -145,6 +145,8 @@ unsafe fn write(owner: *mut Columns, ty: &Type, field: usize, index: usize, valu
 }
 
 /// Operands use checked Plenty slot references; metadata is the clist type.
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crate::Site) -> u128 {
     unsafe {
         let [a, b, c, d] = args;
