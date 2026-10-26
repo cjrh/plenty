@@ -552,6 +552,7 @@
     - [User-defined ordering](proposals/user-type-ordering.md)
     - [Timsort for stable, adaptive sorting](proposals/timsort.md)
     - [User-defined dictionary keys and set members](proposals/user-type-hashing.md)
+    - [Derived serialization for classes and enums](proposals/derived-serialization.md)
     - [Completed proposals](proposals/completed/index.md)
         - [Runtime allocation audit](proposals/completed/allocation-audit.md)
         - [References, ownership, and explicit copying](proposals/completed/references-and-copying.md)
