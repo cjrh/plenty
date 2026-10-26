@@ -303,7 +303,9 @@ fn plain_clients_do_not_link_the_tls_stack() {
         let file = object::File::parse(&*data).unwrap();
         file.symbols()
             .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
-            .filter(|name| name == "plenty_tls" || name.contains("ring_core_0_17_14_"))
+            .filter(|name| {
+                support::operation_in(name, 470..500) || name.contains("ring_core_0_17_14_")
+            })
             .count()
     };
     let program = |imports: &str, make: &str| {

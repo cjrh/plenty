@@ -308,6 +308,8 @@ unsafe fn restart(value: u128) -> bool {
 
 /// Operands are live values of the statically checked signature; `std.bytes`
 /// has validated each range, and the runtime repeats the check.
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
     let [a, b, c, d] = operands;
     // SAFETY: see above. The input view borrows a separate buffer's storage.

@@ -205,12 +205,7 @@ fn scans_call_only_the_narrow_helper() {
         .iter()
         .find(|f| f.starts_with("std.http.cookie.all_bytes "))
         .expect("all_bytes missing");
-    for absent in [
-        "plenty_collection",
-        "plenty_retain",
-        "isalpha",
-        "token_byte",
-    ] {
+    for absent in ["plenty_op_", "plenty_retain", "isalpha", "token_byte"] {
         assert!(!all_bytes.contains(absent), "{all_bytes}");
     }
 }

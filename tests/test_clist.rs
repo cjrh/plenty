@@ -393,7 +393,7 @@ print(gather(&rows, 0)).unwrap()
     );
     let assembly = String::from_utf8(output.stdout).unwrap();
     assert!(assembly.contains("gather"), "{assembly}");
-    assert!(!assembly.contains("plenty_collection"), "{assembly}");
+    assert!(!assembly.contains("plenty_op_"), "{assembly}");
 }
 
 #[test]

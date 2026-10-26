@@ -131,6 +131,8 @@ fn prefixed(bytes: &[u8], offset: usize, other: &[u8]) -> bool {
 /// operation's first operand is exclusively borrowed and never aliases another.
 /// `site` locates indexed access, the only byte operation a correct program
 /// can trap in; null prints the message alone.
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(super) unsafe fn call(
     op: i64,
     operands: [u128; 5],

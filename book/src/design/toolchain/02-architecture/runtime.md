@@ -34,9 +34,32 @@ type, and the packaged runtime target. Current layouts depend on 64-bit pointers
 offsets. Layout assertions and native tests protect these boundaries; selecting
 a linker does not validate a new platform.
 
+## Entry symbols
+
+A standard module's native code is reachable only through its own entry
+symbols. Generated code calls each runtime operation `N` through its own
+exported function `plenty_op_<N>(arguments, descriptor, site)`; no dispatcher
+shared between modules takes an operation number. `--gc-sections` keeps only the
+entries a program calls and the code they reach, so a program that never
+calls `std.net`, `std.process`, `std.crypto`, `std.compress`, `std.tls` or
+`std.db.sqlite` links none of their runtime code. A dispatcher shared by
+several modules would keep every module it reaches. `hello world` calls two
+entries, and its stripped executable is 356 KB rather than 790 KB (issue #501).
+
+The argument block holds three 16-byte inputs at offsets 0, 16 and 32, the
+result at 48, and further operands at 64 and 80. Each entry inlines the
+operation's handler, so it does not pay for a range test over unrelated
+operations.
+
+`plenty_control`, `plenty_executor` and `plenty_channel` keep an operation
+number. Each serves one facility (cancellation tokens, executors and channels
+respectively), so a program that does not use it does not reach it.
+Narrow helpers such as `plenty_list_len` and `plenty_text_find` take their operands in registers;
+see [narrow native helpers](collections.md#narrow-native-helpers).
+
 Boxed callable owners reuse the heap box prefix: a destruction header, concrete
 content descriptor at byte 16, shared-call adapter address at byte 24, and typed
-content slot at byte 32. Collection helper opcode 128 consumes an environment,
+content slot at byte 32. Runtime operation 128 consumes an environment,
 allocates its box, and returns `Result`; failure drops the concrete content.
 Erased descriptors use kind `J` for managed ownership and opaque formatting, while
 the heap prefix retains the concrete box descriptor for relocation and cleanup.
@@ -97,9 +120,8 @@ divisor's zero test in `x // 10` or the count test in `x >> 13`, emits no branch
 or trap call, in debug and release builds. A check that may fire, or always
 fires, keeps both. Collection helpers
 that check an index, key, range parameter, or separator take it as an argument:
-one address computation per call. The collection dispatcher writes its result at
-a fixed offset in the argument block, which frees its fourth argument for the
-site. Iteration reads and operations that cannot trap pass null. The runtime
+one address computation per call. An operation entry writes its result at a
+fixed offset in the argument block, which frees an argument for the site. Iteration reads and operations that cannot trap pass null. The runtime
 reads the record only when the trap fires and formats the report directly to
 standard error.
 

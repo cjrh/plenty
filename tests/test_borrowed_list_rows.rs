@@ -381,7 +381,7 @@ fn borrowed_scalar_iteration_loads_rows_directly() {
     ] {
         assert!(calls.iter().any(|call| call.ends_with(helper)), "{asm}");
     }
-    for absent in ["plenty_collection", "plenty_retain", "plenty_release"] {
+    for absent in ["plenty_op_", "plenty_retain", "plenty_release"] {
         assert!(!asm.contains(absent), "{asm}");
     }
 }

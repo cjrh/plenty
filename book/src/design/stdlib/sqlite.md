@@ -254,7 +254,7 @@ header, this page, and `sqlite_version()` agree.
 
 Executables are linked with `--gc-sections`, SQLite is compiled with
 function and data sections, and it is reached only through its own runtime
-entry, so a program that does not use `std.db.sqlite` contains none of it.
+entry symbols, so a program that does not use `std.db.sqlite` contains none of it.
 A program that uses SQLite includes the database engine and its enabled features.
 
 ## Limits

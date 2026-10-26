@@ -20,7 +20,7 @@ environment without inline captures, is copied as plain bytes; a sum whose
 payloads are all such is copied by testing its tag. An all-zero value is an empty
 ownership slot, such as a moved-from local, and its release makes no runtime
 call. These paths keep high-frequency helpers, such as error mappers called per
-byte, out of the runtime dispatcher.
+byte, out of runtime operation calls.
 
 References use two native words: an address and packed inline-sum tag-offset
 information. They point into typed local, frame, field, or collection storage;
