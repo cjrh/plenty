@@ -37,6 +37,31 @@ not run, because no shell reads them. `Stdio.Piped` connects the child's output
 to a pipe, and `output` collects at most 4096 bytes of it and waits for the
 child to end.
 
+If a configuration supplies arguments as one string, use `std.shlex.split`
+to recognize quoted words, then pass them individually to `arg`. Do not quote
+arguments passed to `arg` itself; those quotes would become literal data.
+
+```plenty
+import std.shlex
+from std.shlex import ShlexError
+
+def main() -> Result[(), ShlexError | AllocError | IoError]:
+    arguments = std.shlex.split("--title 'Two words' --literal '$HOME'")?
+    for argument in &arguments:
+        print(argument)?
+    Ok(())
+```
+```output
+--title
+Two words
+--literal
+$HOME
+```
+
+`split` removes word quoting without expanding `$HOME` or interpreting pipes.
+[`std.shlex`](../../design/stdlib/shlex.md) also provides `quote` for the cases
+where one argument must be written into a POSIX shell command string.
+
 To find where to keep settings or caches, ask
 [`std.fs.dirs`](../../design/stdlib/fs/dirs.md) rather than reading `HOME`
 yourself: `config_dir()` and `cache_dir()` apply the XDG rules and return a

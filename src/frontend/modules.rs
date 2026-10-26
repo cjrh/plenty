@@ -38,6 +38,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.bytes", include_str!("../../stdlib/std/bytes.plenty")),
     ("std.time", include_str!("../../stdlib/std/time.plenty")),
     ("std.cli", include_str!("../../stdlib/std/cli.plenty")),
+    (
+        "std.cli.progress",
+        include_str!("../../stdlib/std/cli/progress.plenty"),
+    ),
     ("std.text", include_str!("../../stdlib/std/text.plenty")),
     ("std.diff", include_str!("../../stdlib/std/diff.plenty")),
     ("std.fmt", include_str!("../../stdlib/std/fmt.plenty")),
@@ -90,6 +94,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         include_str!("../../stdlib/std/process.plenty"),
     ),
     ("std.signal", include_str!("../../stdlib/std/signal.plenty")),
+    ("std.shlex", include_str!("../../stdlib/std/shlex.plenty")),
     ("std.ready", include_str!("../../stdlib/std/ready.plenty")),
     ("std.net", include_str!("../../stdlib/std/net.plenty")),
     ("std.tls", include_str!("../../stdlib/std/tls.plenty")),

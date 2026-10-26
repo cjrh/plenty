@@ -7,7 +7,7 @@ through [`std.bytes.Bytes`](bytes.md) ranges; no operation creates a `list[u8]`.
 Writes read any [`ByteSource`](bytes.md#byte-sources), so a `b"..."` literal is
 written as it is, without a copy.
 
-The module is embedded Plenty code over five native transport calls. It is
+The module is embedded Plenty code over native transport and terminal queries. It is
 available on the supported x86-64 Linux GNU target.
 
 ## Stream contracts
@@ -212,6 +212,11 @@ descriptors. `Stdin.read` makes one native read. `Stdout` and `Stderr` share the
 process buffers used by `print` and the text writers, so output keeps its order
 across both; `flush` delivers it.
 
+Each process stream has `is_terminal() -> bool`. It asks the OS on each call and
+returns false for redirected, closed or undetectable streams. This query neither
+reads nor writes bytes and does not imply ANSI escape support or a terminal width.
+[`std.cli.progress`](cli-progress.md) uses it to keep redirected stderr clean.
+
 `Cursor` reads from and writes to an owned buffer, public as `data`, at
 `position()`. Reads stop at the end of the buffer. Writes replace existing
 bytes and extend the buffer at its end; writing past the end first fills the
@@ -220,7 +225,7 @@ gap with zeros. `seek` accepts any nonnegative position. A write can report
 
 ## Ownership and threads
 
-Every stream method takes `&mut self`, so a stream has one user at a time and a
+Transport methods take `&mut self`, so a stream has one user at a time and a
 buffer passed to `read` cannot be the stream's own storage. A read needs
 `&mut Bytes`; a write borrows its source shared. A buffered adapter owns its
 inner stream, and the inner stream cannot be used through another name while
@@ -257,3 +262,4 @@ per call. Seeking a `BufReader` discards up to `capacity` bytes already read.
   `__io_std_write`, and `__io_file_seek` are private transport for the
   standard library, reached through `Bytes.read_file`, `write_file`,
   `read_stdin`, `write_stdout`, `write_stderr`, and `FileStream.seek`.
+  `__io_is_terminal` is the private process-stream terminal query.

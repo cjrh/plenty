@@ -1,5 +1,14 @@
 use crate::strings::{self, Text};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
+
+pub(crate) fn is_terminal(stream: u8) -> bool {
+    match stream {
+        0 => std::io::stdin().is_terminal(),
+        1 => std::io::stdout().is_terminal(),
+        2 => std::io::stderr().is_terminal(),
+        _ => false,
+    }
+}
 
 /// `IoError` has nine variants, so its tag is wider than the one bit `wrap`
 /// writes. Must match the variant count in the compiler's `sum::io_error`.

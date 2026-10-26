@@ -1550,7 +1550,7 @@ operation_entries! {
     46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 114 117 118 119 120 121 122 123 124
-    125 126 127 128 129 130 131 132 133 134 135 136 140 166 167 366 510 580 581 582
+    125 126 127 128 129 130 131 132 133 134 135 136 140 166 167 366 510 511 580 581 582
     583 584 585
 }
 // `std.bytes` storage and single-call byte transport.
@@ -1943,6 +1943,7 @@ pub(crate) unsafe fn collection_at(
             142..=149 => crate::text_io::result(bytes::call(op, a, b, descriptor)),
             80 | 82 => crate::io::write_stream(a as *const Text, op == 82),
             510 => crate::io::report_write(a as *const Text, b as i64),
+            511 => crate::io::is_terminal(a as u8) as u128,
             81 | 83 => crate::io::flush_stream(op == 83),
             79 => match crate::numbers::format(a, (*descriptor).kind) {
                 Ok(text) => wrap(text as u128, 0),

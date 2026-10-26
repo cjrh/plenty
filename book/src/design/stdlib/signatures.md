@@ -204,6 +204,32 @@ def describe(error: &CliError) -> Result[str, AllocError]
 def describe_for(error: &CliError, schema: &list[Spec]) -> Result[str, AllocError]
 ```
 
+## `std.cli.progress`
+
+Terminal-only stderr bars and spinners with counts, rates, ETA and throttled redraws. Errors: `ProgressError`. [Reference](cli-progress.md).
+
+```text
+enum ProgressError
+    InvalidPosition | Finished | Output(FormatError)
+class Progress
+    def position(self) -> u64
+    def total(self) -> Option[u64]
+    def is_finished(self) -> bool
+    def rate(self, now: &Instant) -> Option[f64]
+    def eta(self, now: &Instant) -> Option[f64]
+    def render(self, now: &Instant, output: &mut Formatter) -> Result[(), FormatError]
+    def set_position_at(self: &mut Progress, position: u64, now: &Instant) -> Result[(), ProgressError]
+    def set_position(self: &mut Progress, position: u64) -> Result[(), ProgressError]
+    def advance(self: &mut Progress, count: u64 = 1u64) -> Result[(), ProgressError]
+    def tick(self: &mut Progress) -> Result[(), ProgressError]
+    def finish_at(self: &mut Progress, now: &Instant) -> Result[(), ProgressError]
+    def finish(self: &mut Progress) -> Result[(), ProgressError]
+def bar_at(total: u64, now: &Instant) -> Progress
+def bar(total: u64) -> Progress
+def spinner_at(now: &Instant) -> Progress
+def spinner() -> Progress
+```
+
 ## `std.collections`
 
 Owned binary heaps ordered by `<` or by a stored comparator. Errors: `AllocError`. [Reference](collections.md).
@@ -1422,11 +1448,14 @@ class FileStream
 def open_file(path: &str, mode: &str) -> Result[FileStream, StreamError]
 def from_file(file: File) -> FileStream
 class Stdin
+    def is_terminal(self) -> bool
     def read(self: &mut Stdin, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
 class Stdout
+    def is_terminal(self) -> bool
     def write[S: ByteSource](self: &mut Stdout, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
     def flush(self: &mut Stdout) -> Result[(), StreamError]
 class Stderr
+    def is_terminal(self) -> bool
     def write[S: ByteSource](self: &mut Stderr, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
     def flush(self: &mut Stderr) -> Result[(), StreamError]
 def stdin() -> Stdin
@@ -1968,6 +1997,17 @@ def token_hex(count: i64) -> Result[str, SecretsError]
 def token_urlsafe(count: i64) -> Result[str, SecretsError]
 def random_u64() -> Result[u64, SecretsError]
 def below(bound: u64) -> Result[u64, SecretsError]
+```
+
+## `std.shlex`
+
+Shell-style word splitting and POSIX argument quoting, without execution or expansion. Errors: `ShlexError`, `AllocError`. [Reference](shlex.md).
+
+```text
+enum ShlexError
+    UnclosedQuote(i64) | TrailingEscape(i64) | Nul(i64)
+def split(text: &str, comments: bool = False) -> Result[list[str], ShlexError | AllocError]
+def quote(text: &str) -> Result[str, ShlexError | AllocError]
 ```
 
 ## `std.signal`

@@ -104,6 +104,18 @@ struct NativeModule {
 
 const NATIVE_MODULES: &[NativeModule] = &[
     NativeModule {
+        module: "std.cli.progress",
+        program: r#"import std.cli.progress as progress
+from std.cli.progress import ProgressError
+def main() -> Result[(), ProgressError]:
+    mut bar = progress.bar(1u64)
+    bar.advance()?
+    bar.finish()?
+    Ok(())
+"#,
+        patterns: &[Pattern::Operations(511..512)],
+    },
+    NativeModule {
         module: "std.crypto",
         program: r#"import std.bytes
 import std.crypto

@@ -1,0 +1,205 @@
+from std.io import stderr
+from std.time import Instant, monotonic_now, nanoseconds
+from std.report import Formatter, FormatError, stderr_formatter
+
+pub enum ProgressError:
+    InvalidPosition
+    Finished
+    Output(FormatError)
+
+# Keep the entire default line within 80 columns even for u64.MAX counts.
+def compact(output: &mut Formatter, count: u64) -> Result[(), FormatError]:
+    mut value = count
+    mut unit = 0
+    while value >= 1000u64:
+        value //= 1000u64
+        unit += 1
+    output.unsigned(value, 10)?
+    match unit:
+        case 1:
+            output.text("k")
+        case 2:
+            output.text("M")
+        case 3:
+            output.text("G")
+        case 4:
+            output.text("T")
+        case 5:
+            output.text("P")
+        case 6:
+            output.text("E")
+        case _:
+            Ok(())
+
+def bounded(value: f64) -> u64:
+    if value >= f64(u64.MAX):
+        u64.MAX
+    else:
+        u64(value)
+
+def duplicate(now: &Instant) -> Instant:
+    # Adding zero copies the scalar timestamp without a fallible deep copy.
+    now.checked_add(&nanoseconds(0u64)).unwrap()
+
+pub class Progress:
+    _total: Option[u64]
+    _position: u64
+    _started: Instant
+    _last: Instant
+    _frame: u8
+    _drawn: bool
+    _finished: bool
+    _enabled: bool
+
+    pub def position(self) -> u64:
+        self._position
+
+    pub def total(self) -> Option[u64]:
+        self._total
+
+    pub def is_finished(self) -> bool:
+        self._finished
+
+    # Average since construction, not a moving-window prediction.
+    pub def rate(self, now: &Instant) -> Option[f64]:
+        elapsed = now.saturating_duration_since(&self._started).as_nanoseconds()
+        if elapsed == 0u64:
+            return Nothing
+        Some(f64(self._position) / (f64(elapsed) / 1000000000.0))
+
+    pub def eta(self, now: &Instant) -> Option[f64]:
+        match self._total:
+            case Some(total):
+                if self._position == total:
+                    return Some(0.0)
+                match self.rate(now):
+                    case Some(rate):
+                        if rate > 0.0:
+                            return Some(f64(total - self._position) / rate)
+                    case Nothing:
+                        pass
+            case Nothing:
+                pass
+        Nothing
+
+    # Plain text, no cursor controls or newline: useful for custom reporting
+    # and deterministic tests. Rendering does not change redraw state.
+    pub def render(self, now: &Instant, output: &mut Formatter) -> Result[(), FormatError]:
+        match self._total:
+            case Some(total):
+                mut filled = 10
+                if total != 0u64:
+                    filled = i64(f64(self._position) / f64(total) * 10.0)
+                output.text("[")?
+                for index in range(10):
+                    output.text("#" if index < filled else "-")?
+                output.text("] ")?
+                compact(output, self._position)?
+                output.text("/")?
+                compact(output, total)?
+            case Nothing:
+                if self._finished:
+                    output.text("done ")?
+                else:
+                    match self._frame:
+                        case 0u8:
+                            output.text("| ")?
+                        case 1u8:
+                            output.text("/ ")?
+                        case 2u8:
+                            output.text("- ")?
+                        case _:
+                            output.text("\\ ")?
+                compact(output, self._position)?
+        output.text(" ")?
+        match self.rate(now):
+            case Some(rate):
+                compact(output, bounded(rate))?
+            case Nothing:
+                output.text("--")?
+        output.text("/s ETA ")?
+        match self.eta(now):
+            case Some(remaining):
+                compact(output, bounded(remaining))?
+                output.text("s")?
+            case Nothing:
+                output.text("--")?
+        Ok(())
+
+    def draw(self: &mut Progress, now: &Instant, final: bool) -> Result[(), FormatError]:
+        if not self._enabled:
+            return Ok(())
+        if not final and self._drawn and now.saturating_duration_since(&self._last).as_milliseconds() < 100u64:
+            return Ok(())
+        if not stderr().is_terminal():
+            self._enabled = False
+            return Ok(())
+        mut output = stderr_formatter(128, 0)?
+        output.text("\r")?
+        output.text(&chr(27u32).unwrap())?
+        output.text("[2K")?
+        self.render(now, &mut output)?
+        if final:
+            output.text("\n")?
+        self._last = duplicate(now)
+        self._drawn = True
+        self._frame = (self._frame + 1u8) % 4u8
+        Ok(())
+
+    def display(self: &mut Progress, now: &Instant, final: bool) -> Result[(), ProgressError]:
+        match self.draw(now, final):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                # A partially written frame is not safe to retry automatically.
+                self._finished = True
+                Err(ProgressError.Output(error))
+
+    pub def set_position_at(self: &mut Progress, position: u64, now: &Instant) -> Result[(), ProgressError]:
+        if self._finished:
+            return Err(ProgressError.Finished)
+        if position < self._position:
+            return Err(ProgressError.InvalidPosition)
+        match self._total:
+            case Some(total):
+                if position > total:
+                    return Err(ProgressError.InvalidPosition)
+            case Nothing:
+                pass
+        self._position = position
+        self.display(now, False)
+
+    pub def set_position(self: &mut Progress, position: u64) -> Result[(), ProgressError]:
+        self.set_position_at(position, &monotonic_now())
+
+    pub def advance(self: &mut Progress, count: u64 = 1u64) -> Result[(), ProgressError]:
+        if self._finished:
+            return Err(ProgressError.Finished)
+        if count > u64.MAX - self._position:
+            return Err(ProgressError.InvalidPosition)
+        self.set_position(self._position + count)
+
+    pub def tick(self: &mut Progress) -> Result[(), ProgressError]:
+        self.set_position(self._position)
+
+    # Finishing does not pretend unprocessed work was completed. Idempotent.
+    pub def finish_at(self: &mut Progress, now: &Instant) -> Result[(), ProgressError]:
+        if self._finished:
+            return Ok(())
+        self._finished = True
+        self.display(now, True)
+
+    pub def finish(self: &mut Progress) -> Result[(), ProgressError]:
+        self.finish_at(&monotonic_now())
+
+pub def bar_at(total: u64, now: &Instant) -> Progress:
+    Progress(Some(total), 0u64, duplicate(now), duplicate(now), 0u8, False, False, stderr().is_terminal())
+
+pub def bar(total: u64) -> Progress:
+    bar_at(total, &monotonic_now())
+
+pub def spinner_at(now: &Instant) -> Progress:
+    Progress(Nothing, 0u64, duplicate(now), duplicate(now), 0u8, False, False, stderr().is_terminal())
+
+pub def spinner() -> Progress:
+    spinner_at(&monotonic_now())

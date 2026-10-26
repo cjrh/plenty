@@ -1,5 +1,7 @@
 # `std.cli`
 
+For terminal progress bars and spinners, see [`std.cli.progress`](cli-progress.md).
+
 `std.cli` parses an explicit schema into typed owned values. Its policy is checked
 Plenty; it uses the existing byte arguments, strict UTF-8 decoder, integer parser,
 and lossless [`Path`](path.md). No reflection, native parser, package download, or
