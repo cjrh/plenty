@@ -10,27 +10,24 @@ store, including owners such as lists and classes with destructors.
 ```plenty
 from std.cache.lru import LruCache
 
-def length(text: &str) -> i64:
-    len(text)
-
 def main() -> Result[(), AllocError | IoError]:
     mut names = LruCache[i64, str](2)?
     drop(names.put(1, "Ada")?)
     drop(names.put(2, "Grace")?)
-    print(names.get_with(&1, &length))?
+    print(names.get(&1), names.peek(&4))?
     match names.put(3, "Edsger")?:
         case Some(entry):
             key, name = entry
             print("evicted", key, name)?
         case Nothing:
             pass
-    print(names.contains(&2), names.get_ref(&1))?
+    print(names.contains(&2), names.len())?
     Ok(())
 ```
 ```output
-Option[i64].Some(3)
+Option[str].Some("Ada") Option[str].Nothing
 evicted 2 Grace
-False Ada
+False 2
 ```
 
 ## Operations
@@ -42,6 +39,8 @@ False Ada
 | `cache.len()` | `i64` | | Live entry count |
 | `cache.is_empty()` | `bool` | | Whether the count is zero |
 | `cache.contains(&key)` | `bool` | Unchanged | Membership test |
+| `cache.get(&key)` | `Option[V]` | Promotes | Copy the value; copyable `V` only |
+| `cache.peek(&key)` | `Option[V]` | Unchanged | Copy the value; copyable `V` only |
 | `cache.get_with(&key, &f)` | `Option[R]` | Promotes | Call `f(&value)` and return its result |
 | `cache.peek_with(&key, &f)` | `Option[R]` | Unchanged | Call `f(&value)` and return its result |
 | `cache.get_ref(&key)` | `&V` | Promotes | Borrow the value; trap if absent |
@@ -62,20 +61,29 @@ entry and returns `Some((key, old_value))`. Otherwise it returns `Nothing`.
 This follows `push` in the Rust `lru` crate. Compare the returned key with
 your own to tell eviction from replacement.
 
-The reference accessors trap on an absent key, like `dictionary[key]`. Test
+### Copying and borrowed access
+
+`get` and `peek` copy the value, like `dictionary.get`; see
+[copying and borrowed lookup](../facilities/01-builtins/collections.md#copying-and-borrowed-lookup).
+They accept only [copyable values](../language/05-ownership/01-bindings-moves-and-copies.md),
+such as integers, strings and tuples of those. A cache may still store
+lists, classes and other affine values: each method of a generic class is
+checked when it is first called, so only a call to `get` or `peek` with such
+a value type is rejected. The error points at the call and names the
+rejected instance, such as `LruCache[i64, list[i64]].get`, with a note
+that its body cannot move out of indexed storage.
+
+For affine values, read through the other accessors. `get_with` and
+`peek_with` call `f(&value)` and return its result. The reference accessors
+`get_ref` and `peek_mut` trap on an absent key, like `dictionary[key]`; test
 with `contains` first when absence is possible. Their result borrows the
 whole cache until its last use, so the cache cannot change meanwhile.
 
-### Why there is no plain `get`
-
-Plenty cannot return `Option[&V]`: references cannot be stored in enum
-payloads. A copying `get(&key) -> Option[V]`, like `dictionary.get`, would
-require copyable values. Every method of a generic class instance is checked
-when the instance is first used, so one copying method would reject
-`LruCache[K, V]` for every value type that cannot be copied, even when `get`
-is never called. `get_with` and `peek_with` are generic methods, checked only
-when called, so they work for every value type. `get` and `peek` returning
-copies will be added once methods are checked only when they are called.
+These four are interim. Plenty cannot yet return `Option[&V]`: references
+cannot be stored in enum payloads. Once the
+[returned reference enums proposal](../../proposals/returned-reference-enums.md)
+is implemented, `get_ref` and `peek_ref` will return `Option[&V]`, `get_mut`
+and `peek_mut` `Option[&mut V]`, and the callback forms will be removed.
 
 ## Capacity
 
@@ -107,7 +115,7 @@ recency slots. Keys are always copyable, so this needs no explicit copy.
 There is no iteration in recency order, resizing, statistics, expiry or
 thread-safety contract. A memoizing decorator such as `functools.lru_cache`
 is out of scope: Plenty has no decorators. Wrap a function in a
-cache explicitly with `contains`, `get_with` and `put`.
+cache explicitly with `get` and `put`.
 
 ## Acknowledgements
 

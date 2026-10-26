@@ -223,6 +223,11 @@ impl Lower<'_> {
             let Some(f) = declared.function.clone() else {
                 return Ok(());
             };
+            // An unused instance method is lowered here, ahead of its queue
+            // entry, so its errors need the same attribution.
+            let outer = self.generics.required.get(&self.symbol).cloned();
+            self.generics
+                .demand_method(name, || at.location().into(), outer.as_ref());
             lower_function(
                 symbol,
                 f,

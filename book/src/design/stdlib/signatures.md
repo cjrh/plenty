@@ -177,6 +177,8 @@ class LruCache[K, V]
     def len(self) -> i64
     def is_empty(self) -> bool
     def contains(self, key: &K) -> bool
+    def get(self: &mut LruCache[K, V], key: &K) -> Option[V]
+    def peek(self, key: &K) -> Option[V]
     def get_with[R, F: Callable[[&V], R]](self: &mut LruCache[K, V], key: &K, f: &F) -> Option[R]
     def peek_with[R, F: Callable[[&V], R]](self, key: &K, f: &F) -> Option[R]
     def get_ref(self: &mut LruCache[K, V], key: &K) -> &V

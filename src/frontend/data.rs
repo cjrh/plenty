@@ -863,8 +863,19 @@ impl generics::Engine {
                 });
             if conditional {
                 self.defer_reporting_method(f.clone(), table);
-            } else {
+            } else if f.name.ends_with(".__del__") {
+                // Constructing an instance arms its destructor, so a body that
+                // the type arguments do not support is rejected with the type.
                 self.declare(f.clone(), table);
+            } else {
+                let (owner, method) = crate::record::method_display(&f.name)
+                    .rsplit_once('.')
+                    .expect("a data method is named by its owner");
+                let display = match aliases.data.lookup(owner) {
+                    Some(owner) => format!("{owner}.{method}").into(),
+                    None => crate::record::method_display(&f.name).into(),
+                };
+                self.defer_method(f.clone(), &signature, display, table);
             }
         }
         Ok(functions

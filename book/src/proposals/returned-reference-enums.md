@@ -223,7 +223,7 @@ match, `?`, `unwrap`, passing it, or returning it moves it, and the extracted
 the origin is exclusively borrowed, so two `get_mut` results from one
 dictionary cannot be live together (dictionary keys already protect the whole
 collection). A shared result from an `&mut` origin holds only a shared loan,
-as today: `cache.get(&k)` may promote the entry through `&mut self` and still
+as today: `cache.get_ref(&k)` may promote the entry through `&mut self` and still
 let the caller read `cache.len()` while the result is live.
 
 Get-or-insert works without new rules, because loans already end per path:
@@ -291,7 +291,7 @@ shipped, because it touches the rebinding checker.
 - **Generics.** Type parameters still never bind references, so `Option[T]`
   with `T = &U` stays rejected; a generic function must spell `Option[&T]`.
   Its body is checked per instance, as reference-returning generic functions
-  are now. Generic class methods such as `LruCache[K, V].get -> Option[&V]` need
+  are now. Generic class methods such as `LruCache[K, V].get_ref -> Option[&V]` need
   no copyable bound, so they work for every instantiation regardless of
   issue #515. That issue still matters for copying accessors; this proposal does
   not depend on it.
@@ -363,17 +363,19 @@ the result like the reference it holds, and never store it.*
 
 ## Standard library changes
 
-Naming follows the existing convention: indexing and plain accessors trap,
-`get*` returns an `Option`. `get` keeps its copying meaning, so the borrowed
-forms get distinct names.
+Naming follows one rule across builtin and std containers (decided after this
+proposal was accepted; see
+[copying and borrowed lookup](../design/facilities/01-builtins/collections.md#copying-and-borrowed-lookup)):
+indexing and plain accessors trap; `get` and `peek` return a copy in an
+`Option`; `get_ref`, `peek_ref`, and `get_mut`/`peek_mut` return borrows.
 
 | Module | Today | Proposed |
 | --- | --- | --- |
 | builtin `dict` | `get(k) -> Option[V]` copies non-affine values | Add `get_ref(k) -> Option[&V]` and `get_mut(k) -> Option[&mut V]` for every value type |
 | builtin `list` | `get(i) -> Option[T]` copies | Add `get_ref(i)` and `get_mut(i)`; `get_ref(0)` and `get_ref(-1)` replace a separate `first`/`last` |
-| `std.cache.lru` | `get_with`, `peek_with`, trapping `get_ref`, `peek_mut` | `get(&mut self, k) -> Option[&V]` (promotes), `get_mut -> Option[&mut V]`, `peek(k) -> Option[&V]`, `peek_mut -> Option[&mut V]`; remove the callback and trapping forms (issue #516) |
-| `std.graph` | `node`/`edge` trap; callers test `contains_node` first | Keep trapping `node`/`edge` (handle indexing); add `get_node`, `get_node_mut`, `get_edge`, `get_edge_mut` |
-| `std.collections` | `Heap.peek`, `HeapBy.peek` trap when empty | `peek() -> Option[&T]`, matching `pop() -> Option[T]` |
+| `std.cache.lru` | `get_with`, `peek_with`, trapping `get_ref`, `peek_mut` | Copying `get(&mut self, k) -> Option[V]` (promotes) and `peek(k) -> Option[V]`, possible now that methods are checked only when used (issue #515); `get_ref -> Option[&V]` (promotes), `get_mut -> Option[&mut V]`, `peek_ref -> Option[&V]`, `peek_mut -> Option[&mut V]`; remove the callback and trapping forms (issue #516) |
+| `std.graph` | `node`/`edge` trap; callers test `contains_node` first | Keep trapping `node`/`edge` (handle indexing); add `get_node_ref`, `get_node_mut`, `get_edge_ref`, `get_edge_mut` |
+| `std.collections` | `Heap.peek`, `HeapBy.peek` trap when empty | `peek_ref() -> Option[&T]`, and a copying `peek() -> Option[T]` for copyable `T`, matching `pop() -> Option[T]` |
 | `std.deque` | No access without removal | Add `get_ref(i)`/`get_mut(i)` if a use case appears |
 | `std.http`, `std.http.cookie`, `std.http.body`, `std.json`, `std.toml` | `find(...) -> Option[i64]` | `find(...) -> Option[&Header]` (and the matching element type); callers currently index immediately |
 | pipelines | `next`, `find`, `reduce` reject `&T` items | Phase 3: return `Option[&T]` borrowing the pipeline's source |
@@ -437,9 +439,11 @@ code.
 6. **Builtin names: `get_ref`/`get_mut`, or change `get` to borrow affine
    values?** Recommendation: new names. One method whose result is a copy for
    `i64` and a borrow for `list[i64]` would hide which one the reader has.
+   **Decided:** `get`/`peek` copy and `get_ref`/`peek_ref`/`*_mut` borrow, in
+   every container, including `std.cache.lru`.
 7. **Trapping accessors: replace or keep beside `get_*`?** Recommendation:
    change `Heap.peek` to return `Option`; keep `graph.node`/`edge` trapping
-   like indexing and add `get_node`/`get_edge`; remove the LRU callback and
+   like indexing and add `get_node_ref`/`get_edge_ref`; remove the LRU callback and
    trapping getters.
 8. **`unwrap_or` with a reference default.** Recommendation: reject, as
    conditional reference expressions are.

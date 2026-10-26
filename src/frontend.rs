@@ -6041,7 +6041,20 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     drop((generic_enums, generic_classes));
     generics.source_root = source_root;
     generics.standard_sources = standard_sources;
-    while !generics.expand_data(&aliases, &mut sigs)?.is_empty() {}
+    // Queued functions are registered below, in queue order; unused data
+    // methods are not queued, so they are registered after them.
+    let mut unused_methods = Vec::new();
+    loop {
+        let functions = generics.expand_data(&aliases, &mut sigs)?;
+        if functions.is_empty() {
+            break;
+        }
+        unused_methods.extend(
+            functions
+                .into_iter()
+                .filter(|f| generics.is_unused_method(&f.name)),
+        );
+    }
     generics.compiled.reserve(generics.pending.len());
     // Every function is visited once here. A pass over the whole program
     // costs cache misses per function once the program outgrows the caches,
@@ -6060,6 +6073,9 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     }
     // The emptied list is released before lowering, which sets peak memory.
     drop(prepared);
+    for f in unused_methods {
+        register_signature(&f, &aliases, &mut sigs)?;
+    }
     foreign::check_symbols(boundary.iter().copied(), &sigs)?;
     let mut exports = Vec::new();
     let mut symbols = HashSet::default();
@@ -6198,7 +6214,9 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         if ide::active() && ide::skipped(&f.name) {
             continue;
         }
+        let start = generics.compiled.len();
         let lowered = lower_function(symbol, f, heap, &mut sigs, &mut generics, &aliases, &access);
+        generics.demand_references(start);
         if let Err(error) = lowered {
             // An editor check reports the error and goes on to the next
             // function; nothing is being lowered between functions.

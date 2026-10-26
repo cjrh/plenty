@@ -24,6 +24,9 @@ def number(guard: &Guard) -> i64:
 def same(n: &i64) -> i64:
     *n
 
+def length(values: &list[i64]) -> i64:
+    len(values)
+
 def show(result: Option[(i64, i64)]) -> Result[(), IoError]:
     match result:
         case Some(entry):
@@ -147,6 +150,81 @@ True False
 -
 "#,
     );
+}
+
+#[test]
+fn get_promotes_and_peek_copies_without_promoting() {
+    native(
+        r#"
+mut cache = LruCache[i64, i64](2)?
+show(cache.put(1, 10)?)?
+show(cache.put(2, 20)?)?
+print(cache.peek(&1), cache.peek(&9), cache.get(&9))?
+show(cache.put(3, 30)?)?
+print(cache.get(&2))?
+show(cache.put(4, 40)?)?
+print(cache.peek(&3), cache.len())?
+"#,
+        r#"
+-
+-
+Option[i64].Some(10) Option[i64].Nothing Option[i64].Nothing
+1 10
+Option[i64].Some(20)
+3 30
+Option[i64].Nothing 2
+"#,
+    );
+}
+
+#[test]
+fn get_copies_strings_and_tuples() {
+    native(
+        r#"
+mut names = LruCache[str, str](2)?
+drop(names.put("a", "Ada")?)
+name = names.get("a")
+drop(names.remove("a"))
+print(name, names.len())?
+mut pairs = LruCache[i64, (i64, str)](1)?
+drop(pairs.put(1, (7, "seven"))?)
+print(pairs.peek(&1), pairs.get(&1))?
+"#,
+        r#"
+Option[str].Some("Ada") 0
+Option[tuple[i64, str]].Some((7, "seven")) Option[tuple[i64, str]].Some((7, "seven"))
+"#,
+    );
+}
+
+#[test]
+fn copying_lookups_reject_only_calls_with_affine_values() {
+    // Generic class methods are checked when used (issue #515), so an
+    // affine value type is accepted until `get` or `peek` is called.
+    let accepted = "mut cache = LruCache[i64, list[i64]](1)?\ndrop(cache.put(1, [1]?)?)\nprint(cache.contains(&1), cache.peek_with(&1, &length))?";
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    std::fs::write(&path, program(accepted)).unwrap();
+    plenty::check_file(&path, None).unwrap();
+    for method in ["get", "peek"] {
+        let body = format!("mut cache = LruCache[i64, list[i64]](1)?\nvalue = cache.{method}(&1)");
+        let call = program(&body)
+            .lines()
+            .position(|line| line.contains(&format!(".{method}(")))
+            .unwrap()
+            + 1;
+        let error = rejected(&body);
+        assert!(
+            error.contains(&format!(
+                "main.plenty:{call}:13: cannot instantiate `std.cache.lru.LruCache[i64, list[i64]].{method}`: its definition is rejected"
+            )),
+            "{error}"
+        );
+        assert!(
+            error.contains("cannot move out of indexed storage"),
+            "{error}"
+        );
+    }
 }
 
 #[test]
@@ -327,13 +405,13 @@ for step in range({STEPS}):
             case Nothing:
                 print("put -")?
     elif op == 3:
-        match cache.get_with(&key, &same):
+        match cache.get(&key):
             case Some(v):
                 print("get", v)?
             case Nothing:
                 print("get -")?
     elif op == 4:
-        match cache.peek_with(&key, &same):
+        match cache.peek(&key):
             case Some(v):
                 print("peek", v)?
             case Nothing:

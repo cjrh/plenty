@@ -55,8 +55,9 @@ differs.
 - Names inside a generic function or method are resolved only where it is
   instantiated with concrete types; a method called on a protocol-bounded
   parameter opens the method of the class it was instantiated with, not the
-  protocol's requirement. An uninstantiated generic body resolves its
-  module-level names and locals only.
+  protocol's requirement. A method of a generic class is instantiated only
+  where it is used. An uninstantiated generic body resolves its module-level
+  names and locals only.
 - Builtin functions, methods of built-in types such as `list` and `str`, and
   `Ok`, `Err`, `Some`, and `Nothing` have no declaration to show.
 - Variant names in `case` patterns are not resolved.

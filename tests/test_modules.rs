@@ -1038,7 +1038,7 @@ fn imported_generic_body_errors_are_reported_in_the_importing_file() {
     let dir = workspace(&[
         (
             "cells.plenty",
-            "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\n\npub def twice[T](value: T) -> tuple[T, T]:\n    (value, value)\n\npub def wrap[T](value: T) -> Cell[T]:\n    Cell(value)\n",
+            "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\n\npub def twice[T](value: T) -> tuple[T, T]:\n    (value, value)\n\npub def wrap[T](value: T) -> T:\n    Cell(value).get()\n",
         ),
         (
             "class.plenty",
@@ -1057,7 +1057,7 @@ fn imported_generic_body_errors_are_reported_in_the_importing_file() {
         plenty::check_file(&main, None).unwrap_err().to_string(),
         format!(
             "{}:4:12: cannot instantiate `cells.wrap[list[i64]]`: its definition is rejected\n  \
-             {cells}:4:9: note: in instantiation `cells.Cell[list[i64]]`: cannot move out of a field; \
+             {cells}:4:9: note: in instantiation `cells.Cell[list[i64]].get`: cannot move out of a field; \
              use copy(value.field).unwrap(), &value.field (or &mut value.field), or \
              replace(value.field, replacement) on a mutable owner",
             main.display()
