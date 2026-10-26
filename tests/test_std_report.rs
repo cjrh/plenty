@@ -358,6 +358,37 @@ def main() -> Result[(), FormatError | IoError]:
     );
 }
 
+// Rust's `Stderr` reports EBADF as a complete write (issue #508); the pipe's
+// read end is a descriptor open for reading only.
+#[cfg(target_os = "linux")]
+#[test]
+fn read_only_stderr_reports_bad_descriptor() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(
+        directory.path(),
+        r#"
+import std.report
+from std.report import FormatError
+def main() -> Result[(), FormatError | IoError]:
+    mut out = std.report.stderr_formatter(100, 0)?
+    match out.text("hello"):
+        case Err(error):
+            print(error, out.completed(), out.failed())?
+        case Ok(_):
+            print("unexpected", out.completed())?
+    Ok(())
+"#,
+    );
+    let (reader, writer) = std::io::pipe().unwrap();
+    let output = Command::new(executable).stderr(reader).output().unwrap();
+    drop(writer);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        stdout(&output),
+        "std.report.FormatError.Output(IoError.System(9)) 0 True"
+    );
+}
+
 #[test]
 fn relocated_compiler_embeds_report_module() {
     let directory = tempfile::tempdir().unwrap();
