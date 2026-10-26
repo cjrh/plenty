@@ -212,7 +212,7 @@ CPython's `zlib` and `gzip` and from the system `gzip` tool. The
 changes to `deflate.rs` and `inflate.rs`.
 
 Executables are linked with `--gc-sections`, and the codecs are reached only
-through their own runtime entry, so a program that does not use
+through their own runtime entry symbols, so a program that does not use
 `std.compress` contains none of them.
 
 ## Limits

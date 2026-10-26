@@ -54,7 +54,7 @@ until mutation or receiver release; codegen snapshots it before either.
 
 List length and integer/float/bool element reads and writes use
 `plenty_list_len`, `plenty_list_scalar_get`, and `plenty_list_scalar_set`,
-bypassing the generic dispatcher's argument scratch area. This applies to any
+bypassing the argument block of a [runtime operation](runtime.md#entry-symbols). This applies to any
 list place: a local, a field (`self.xs[i]`, `a.b.xs[i] = v`), a borrowed
 receiver, or an inner row (`grid[i][j] += 1`). The helpers take a live owner
 pointer and an `i64` index; reads preserve payload bits before narrowing or
@@ -68,7 +68,7 @@ indexing, `ord`) call one narrow helper each, such as `plenty_text_len` or
 `plenty_bytes_item`; a `bytes` literal index calls `plenty_byte_str_item`.
 `plenty_text_ord` returns the code point, or `u64::MAX` when the text is not
 one scalar, and codegen builds the `Result` inline. Results, bounds traps, and
-sites match the generic dispatcher's. A query of a borrowed place reads through
+sites match the generic operations'. A query of a borrowed place reads through
 the reference. A query of an owned local or full-expression temporary reads the
 value in its slot: codegen removes the retain the load added and skips the
 matching release, since nothing runs between the load and the helper call.
@@ -77,7 +77,7 @@ matching release, since nothing runs between the load and the helper call.
 `plenty_text_starts_with` and its siblings with both texts in registers;
 `plenty_text_find` and `plenty_text_rfind` return `u64::MAX` for no match, and
 codegen builds the `Option` inline. These searches, `in`, `==`, `<`, and the
-dispatcher operations whose operands are all texts or scalars (`replace`,
+runtime operations whose operands are all texts or scalars (`replace`,
 `upper`, string concatenation, and so on) read in place each text operand that
 its source still holds: a copy loaded from a local or read through a
 reference, or a string literal. Codegen tracks these copies across the
@@ -89,7 +89,7 @@ An explicit element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`) of any
 element type calls `plenty_list_row(list, index, site)`, which checks the index
 like the scalar helpers and returns the row's address. That address is the
 reference; reads and writes through it are direct loads and stores. Dictionary
-element references still use the generic dispatcher.
+element references still use a runtime operation.
 
 A borrowed list loop (`for x in &xs`, `for x in &mut xs`, `reversed(&xs)`, or a
 loop over a list reference) iterates through the reference without copying the
