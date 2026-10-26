@@ -3,9 +3,9 @@
 
 The compiler executable links its normal Rust dependencies and embeds the
 runtime archives, which contain `plenty-runtime`'s dependencies, the Rust
-standard library, and the vendored SQLite amalgamation. It also embeds the
+standard library, vendored SQLite amalgamation and Brotli codec. It also embeds the
 standard library modules, some derived from third-party code or data (EMBEDDED). The optional dataframe
-component uses its own workspace/lockfile and has no vendored SQLite. Build scripts,
+component uses its own workspace/lockfile and has neither vendored library. Build scripts,
 procedural macros, and dev-dependencies do not ship and are not listed.
 
 Every listed crate must provide its license text in its source package or
@@ -185,6 +185,9 @@ def render(packages, component="compiler"):
         "Each entry gives the package, its declared license, and the license",
         "and notice files from its source package or a reviewed upstream source.\n",
         VENDORED if component == "compiler" else "",
+        ("## Brotli 1.2.1 (vendored reference C codec)\n\nLicense: MIT\n\n"
+         + (Path(__file__).resolve().parents[2] / "plenty-runtime/native/brotli-1.2.1/LICENSE").read_text()
+         if component == "compiler" else ""),
         embedded_notices() if component == "compiler" else "",
         RUST_STD,
     ]

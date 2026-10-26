@@ -3,6 +3,9 @@
 //! invoking Cargo recursively from a build script would contend for Cargo's
 //! package locks.
 use std::path::{Path, PathBuf};
+
+#[path = "plenty-runtime/native/brotli_build.rs"]
+mod brotli_build;
 use std::process::Command;
 
 /// The runtime's only third-party code: RustCrypto digests, HMAC and
@@ -169,6 +172,7 @@ fn main() {
     );
     let vendor = build_vendored(&out);
     build_sqlite(&vendor);
+    brotli_build::build(Path::new("plenty-runtime/native"), &vendor);
     build_ring(&vendor);
     build_runtime(&out, &vendor, true);
     build_runtime(&out, &vendor, false);

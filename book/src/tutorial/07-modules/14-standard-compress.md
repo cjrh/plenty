@@ -1,6 +1,6 @@
 # Compress bytes and streams
 
-`std.compress` reads and writes gzip, zlib and raw DEFLATE data. Whole
+`std.compress` reads and writes gzip, zlib, raw DEFLATE and Brotli data. Whole
 buffers go through `compress` and `decompress`; streams go through a
 `Compressor` writer and a `Decompressor` reader from
 [`std.io`](../../design/stdlib/io.md).
@@ -38,6 +38,35 @@ Result[std.bytes.Bytes, std.compress.CompressError].Err(std.compress.CompressErr
 Repetitive text shrinks a lot. That is also the danger in decompressing:
 a small input can expand a thousandfold. Always choose the limit from the
 memory the program can spend, never from the size of the input.
+
+## Brotli
+
+Use `Format.Brotli` for Brotli files or HTTP `br` bodies. It has the same
+functions and stream wrappers, with quality levels 0–11 instead of 0–9.
+Quality 5 is a useful starting point. Always choose the decoded-output limit
+from your application's budget, independently of the compressed size.
+
+```plenty
+import std.bytes
+import std.compress
+from std.compress import Format
+
+def main() -> Result[(), IoError | std.bytes.BytesError | std.compress.CompressError]:
+    source = std.bytes.from_text("a small Brotli message")?
+    packed = std.compress.compress(Format.Brotli, &source, 5)?
+    restored = std.compress.decompress(Format.Brotli, &packed, 1024)?
+    print(restored.to_text()?)?
+    Ok(())
+```
+```output
+a small Brotli message
+```
+
+Brotli allocates working memory during streaming and has no checksum; the
+output limit does not cap all codec memory. For HTTP, check the actual
+`Content-Encoding` before decoding. The
+[Brotli reference](../../design/stdlib/compress-brotli.md) explains these
+differences and HTTP handling.
 
 ## Streams
 

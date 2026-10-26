@@ -1,5 +1,5 @@
-# DEFLATE, zlib and gzip compression over std.bytes buffers and std.io
-# streams. The codecs are zlib-rs code in the runtime; this module owns the
+# DEFLATE, zlib, gzip and Brotli compression over std.bytes buffers and std.io
+# streams. The codecs are bundled in the runtime; this module owns the
 # buffering, the output limit and the trailing-data policy. See
 # book/src/design/stdlib/compress.md.
 import std.bytes
@@ -10,6 +10,7 @@ pub enum Format:
     Deflate
     Zlib
     Gzip
+    Brotli
 
 pub enum CompressError:
     OutOfRange
@@ -35,7 +36,11 @@ def kind(format: Format, decoding: bool) -> u8:
             2u8
         case Format.Gzip:
             3u8
+        case Format.Brotli:
+            7u8
     if decoding:
+        if base == 7u8:
+            return 8u8
         return base + 3u8
     base
 
@@ -87,8 +92,13 @@ def interrupted(cause: &StreamError) -> bool:
         case _:
             False
 
-def leveled(level: i64) -> Result[(), CompressError]:
-    if level < 0 or level > 9:
+def leveled(format: Format, level: i64) -> Result[(), CompressError]:
+    maximum = match format:
+        case Format.Brotli:
+            11
+        case _:
+            9
+    if level < 0 or level > maximum:
         return Err(CompressError.OutOfRange)
     Ok(())
 
@@ -107,9 +117,11 @@ pub class Inflater:
     # window is full: drain it and call again. 0 with no output means more input
     # is needed.
     pub def step(self: &mut Inflater, input: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]:
-        if start == stop:
-            return Ok(0)
+        if start < 0 or start > stop or stop > input.len():
+            return Err(CompressError.OutOfRange)
         if self._state.compress_ended():
+            if start == stop:
+                return Ok(0)
             if not self._gzip or reported(input.get(start))? != gzip_magic:
                 return Err(CompressError.TrailingData)
             self._state.compress_restart()
@@ -121,7 +133,7 @@ pub class Inflater:
             return Err(CompressError.LimitExceeded)
         self._produced += produced
         # zlib-rs consumes or produces whenever input and output room remain.
-        if consumed == 0 and produced == 0 and not self._state.compress_ended():
+        if start != stop and consumed == 0 and produced == 0 and not self._state.compress_ended():
             return Err(CompressError.Corrupt)
         Ok(consumed)
 
@@ -147,9 +159,9 @@ pub def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]:
             False
     Ok(Inflater(state, gzip, limit, 0))
 
-# Compresses all of `data` at `level`, 0 (stored) to 9 (smallest).
+# Compresses all data: DEFLATE levels 0-9, Brotli qualities 0-11.
 pub def compress(format: Format, data: &Bytes, level: i64) -> Result[Bytes, CompressError]:
-    leveled(level)?
+    leveled(format, level)?
     mut state = reported(std.bytes.compress_state(kind(format, False), level, window))?
     mut out = reported(std.bytes.empty())?
     mut at = 0
@@ -179,10 +191,14 @@ pub def decompress(format: Format, data: &Bytes, limit: i64) -> Result[Bytes, Co
     mut out = reported(std.bytes.empty())?
     mut at = 0
     total = data.len()
-    while at < total:
-        at += decoder.step(data, at, total)?
+    while at < total or not decoder.complete():
+        consumed = decoder.step(data, at, total)?
+        produced = decoder._state.len()
+        at += consumed
         reported(out.extend(&decoder._state))?
         decoder._state.clear()
+        if consumed == 0 and produced == 0:
+            break
     if not decoder.complete():
         return Err(CompressError.Truncated)
     Ok(out)
@@ -274,7 +290,7 @@ pub class Compressor[W]:
         self.inner.flush()
 
 pub def compressor[W](format: Format, inner: W, level: i64) -> Result[Compressor[W], CompressError]:
-    leveled(level)?
+    leveled(format, level)?
     state = reported(std.bytes.compress_state(kind(format, False), level, window))?
     Ok(Compressor(inner, state, 0, False))
 
@@ -326,6 +342,16 @@ pub class Decompressor[R]:
                     self._start = 0
                 return Ok(count)
             if self._in_start == self._in_stop:
+                # Brotli can consume the final compressed byte before emitting
+                # a long back-reference. Drain the codec before requesting more
+                # input or treating transport EOF as a truncated stream.
+                if not self._decoder.complete():
+                    match self._decoder.step(&self._input, self._in_start, self._in_stop):
+                        case Ok(_):
+                            if self._decoder._state.len() > 0:
+                                continue
+                        case Err(error):
+                            return self.fail(error)
                 if self._eof:
                     if self._decoder.complete():
                         return Ok(0)
