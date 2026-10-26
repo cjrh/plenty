@@ -120,3 +120,6 @@ child you started, even after killing it; a dropped `Child` is not cleaned up.
 See the references for [`std.env`](../../design/stdlib/env.md) and
 [`std.process`](../../design/stdlib/process.md), including pipes you read and
 write yourself.
+
+To inspect CPU, memory, disk or process information without launching a command,
+continue to [system information](system-information.md).

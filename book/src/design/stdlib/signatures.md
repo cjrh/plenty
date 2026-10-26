@@ -2072,6 +2072,66 @@ class Mutex[T]
     def __init__(self, value: T) -> ()
 ```
 
+## `std.system`
+
+Bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status. Errors: `IoError`, `SystemError`. [Reference](system.md).
+
+```text
+enum SystemError
+    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | InvalidInput | Limit | Malformed(str)
+class Memory
+    total_bytes: u64
+    free_bytes: u64
+    available_bytes: Option[u64]
+    swap_total_bytes: u64
+    swap_free_bytes: u64
+class LoadAverage
+    one_minute: f64
+    five_minutes: f64
+    fifteen_minutes: f64
+    runnable_tasks: u64
+    total_tasks: u64
+    last_pid: u32
+class Uptime
+    seconds: f64
+    idle_cpu_seconds: f64
+class BlockDevice
+    major: u32
+    minor: u32
+    name: str
+    size_bytes: u64
+class DiskIo
+    major: u32
+    minor: u32
+    name: str
+    reads_completed: u64
+    bytes_read: u64
+    writes_completed: u64
+    bytes_written: u64
+    in_flight: u64
+    busy_milliseconds: u64
+class Process
+    pid: u32
+    parent_pid: u32
+    name: str
+    state: str
+    real_uid: u32
+    threads: u64
+    virtual_bytes: Option[u64]
+    resident_bytes: Option[u64]
+class Procfs
+    def cpu_count(self, max_bytes: i64 = 1048576) -> Result[i64, SystemError]
+    def memory(self, max_bytes: i64 = 65536) -> Result[Memory, SystemError]
+    def load_average(self, max_bytes: i64 = 4096) -> Result[LoadAverage, SystemError]
+    def uptime(self, max_bytes: i64 = 4096) -> Result[Uptime, SystemError]
+    def block_devices(self, max_bytes: i64 = 1048576, max_devices: i64 = 4096) -> Result[list[BlockDevice], SystemError]
+    def disk_io(self, max_bytes: i64 = 1048576, max_devices: i64 = 4096) -> Result[list[DiskIo], SystemError]
+    def process_ids(self, max_entries: i64 = 65536) -> Result[list[u32], SystemError]
+    def process(self, pid: u32, max_bytes: i64 = 65536) -> Result[Process, SystemError]
+def open_procfs(path: &Path) -> Result[Procfs, IoError]
+def local() -> Result[Procfs, IoError]
+```
+
 ## `std.tempfile`
 
 Unnamed and named temporary files, recursively cleaned directories, context managers and explicit ownership transfer. Errors: `IoError`, `FsError`, `StreamError`, `AllocError`. [Reference](tempfile.md).

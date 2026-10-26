@@ -447,6 +447,8 @@ mod test_std_simd;
 mod test_std_sqlite;
 #[path = "test_std_sync_mutex.rs"]
 mod test_std_sync_mutex;
+#[path = "test_std_system.rs"]
+mod test_std_system;
 #[path = "test_std_tempfile.rs"]
 mod test_std_tempfile;
 #[path = "test_std_test.rs"]

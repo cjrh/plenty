@@ -89,6 +89,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         include_str!("../../stdlib/std/process.plenty"),
     ),
     ("std.signal", include_str!("../../stdlib/std/signal.plenty")),
+    ("std.system", include_str!("../../stdlib/std/system.plenty")),
     ("std.ready", include_str!("../../stdlib/std/ready.plenty")),
     ("std.net", include_str!("../../stdlib/std/net.plenty")),
     ("std.tls", include_str!("../../stdlib/std/tls.plenty")),
