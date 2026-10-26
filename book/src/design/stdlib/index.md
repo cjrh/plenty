@@ -108,6 +108,8 @@ A standard module passes through ordinary parsing, visibility checks, type
 checking, specialization, and native emission. Its private helpers stay private.
 Repeated imports, through any alias or dependency path, share its nominal
 types, so a `MathError` from one module equals a `MathError` from another.
+The [scope rationale](../../proposals/standard-library-scope.md#plenty-or-native)
+records when a module uses a native library instead of Plenty source.
 
 The four concurrency modules export canonical builtin identities instead of
 wrapper functions. Their imports reach the existing ownership and worker checks
