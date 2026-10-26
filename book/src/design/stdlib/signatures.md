@@ -1049,6 +1049,88 @@ class Watcher
 def watcher(batch_bytes: i64 = 4096) -> Result[Watcher, WatchError]
 ```
 
+## `std.graph`
+
+Directed and undirected graphs with node and edge data, stable handles, traversal, shortest paths, topological order, components and spanning trees. Errors: `AllocError`, `GraphError`. [Reference](graph.md).
+
+```text
+type NodeId = i64
+type EdgeId = i64
+enum GraphError
+    Cycle(list[NodeId]) | NegativeCycle(list[NodeId]) | InvalidWeight(EdgeId) | InvalidEstimate(NodeId)
+class Walk
+class Paths
+    def distance(self, node: NodeId) -> Option[f64]
+    def edge_to(self, node: NodeId) -> Option[EdgeId]
+    def path(self, node: NodeId) -> Result[list[NodeId], AllocError]
+class DiGraph[N, E]
+    def __init__(self) -> Result[(), AllocError]
+    def node_count(self) -> i64
+    def edge_count(self) -> i64
+    def node_bound(self) -> i64
+    def edge_bound(self) -> i64
+    def reserve(self: &mut DiGraph[N, E], nodes: i64, edges: i64) -> Result[(), AllocError]
+    def add_node(self: &mut DiGraph[N, E], data: N) -> Result[NodeId, AllocError]
+    def add_edge(self: &mut DiGraph[N, E], source: NodeId, target: NodeId, data: E) -> Result[EdgeId, AllocError]
+    def remove_node(self: &mut DiGraph[N, E], node: NodeId) -> Option[N]
+    def remove_edge(self: &mut DiGraph[N, E], edge: EdgeId) -> Option[E]
+    def contains_node(self, node: NodeId) -> bool
+    def contains_edge(self, edge: EdgeId) -> bool
+    def node(self, node: NodeId) -> &N
+    def node_mut(self: &mut DiGraph[N, E], node: NodeId) -> &mut N
+    def edge(self, edge: EdgeId) -> &E
+    def edge_mut(self: &mut DiGraph[N, E], edge: EdgeId) -> &mut E
+    def source(self, edge: EdgeId) -> NodeId
+    def target(self, edge: EdgeId) -> NodeId
+    def find_edge(self, source: NodeId, target: NodeId) -> Option[EdgeId]
+    def nodes(self) -> Result[list[NodeId], AllocError]
+    def edges(self) -> Result[list[EdgeId], AllocError]
+    def successors(self, node: NodeId) -> Result[list[NodeId], AllocError]
+    def predecessors(self, node: NodeId) -> Result[list[NodeId], AllocError]
+    def outgoing(self, node: NodeId) -> Walk
+    def incoming(self, node: NodeId) -> Walk
+    def next_edge(self, walk: &mut Walk) -> Option[EdgeId]
+    def bfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
+    def dfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
+    def toposort(self) -> Result[list[NodeId], AllocError | GraphError]
+    def strongly_connected_components(self) -> Result[list[list[NodeId]], AllocError]
+    def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
+    def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], AllocError | GraphError]
+    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
+class UnGraph[N, E]
+    def __init__(self) -> Result[(), AllocError]
+    def node_count(self) -> i64
+    def edge_count(self) -> i64
+    def node_bound(self) -> i64
+    def edge_bound(self) -> i64
+    def reserve(self: &mut UnGraph[N, E], nodes: i64, edges: i64) -> Result[(), AllocError]
+    def add_node(self: &mut UnGraph[N, E], data: N) -> Result[NodeId, AllocError]
+    def add_edge(self: &mut UnGraph[N, E], a: NodeId, b: NodeId, data: E) -> Result[EdgeId, AllocError]
+    def remove_node(self: &mut UnGraph[N, E], node: NodeId) -> Option[N]
+    def remove_edge(self: &mut UnGraph[N, E], edge: EdgeId) -> Option[E]
+    def contains_node(self, node: NodeId) -> bool
+    def contains_edge(self, edge: EdgeId) -> bool
+    def node(self, node: NodeId) -> &N
+    def node_mut(self: &mut UnGraph[N, E], node: NodeId) -> &mut N
+    def edge(self, edge: EdgeId) -> &E
+    def edge_mut(self: &mut UnGraph[N, E], edge: EdgeId) -> &mut E
+    def endpoints(self, edge: EdgeId) -> (NodeId, NodeId)
+    def opposite(self, edge: EdgeId, node: NodeId) -> NodeId
+    def find_edge(self, a: NodeId, b: NodeId) -> Option[EdgeId]
+    def nodes(self) -> Result[list[NodeId], AllocError]
+    def edges(self) -> Result[list[EdgeId], AllocError]
+    def neighbors(self, node: NodeId) -> Result[list[NodeId], AllocError]
+    def incident(self, node: NodeId) -> Walk
+    def next_edge(self, walk: &mut Walk) -> Option[EdgeId]
+    def bfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
+    def dfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
+    def connected_components(self) -> Result[list[list[NodeId]], AllocError]
+    def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
+    def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], AllocError | GraphError]
+    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
+    def minimum_spanning_tree[F: Callable[[&E], f64]](self, weight: &F) -> Result[list[EdgeId], AllocError | GraphError]
+```
+
 ## `std.http`
 
 Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams. Errors: `HttpError`. [Reference](http.md).

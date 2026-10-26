@@ -1,0 +1,838 @@
+# Graphs with user data on nodes and edges, written over lists. The design
+# follows petgraph's adjacency-list `StableGraph`: each node heads singly linked
+# chains threaded through its edges, so adding a node or an edge appends one
+# slot and allocates nothing else. Removal leaves a vacant slot that is never
+# reused, so a handle names at most one node or edge for the graph's lifetime.
+# No petgraph code is translated; the algorithms are the textbook ones named
+# on each method.
+from std.collections import Heap
+
+# Handles are slot indices: the n-th node or edge added has handle n. They are
+# plain integers so that they copy; an affine class would make every handle
+# a move.
+pub type NodeId = i64
+pub type EdgeId = i64
+
+pub enum GraphError:
+    # A directed cycle `[a, b, ..., z]` with edges a->b, ..., z->a.
+    Cycle(list[NodeId])
+    # A cycle whose total weight is negative, in the same form.
+    NegativeCycle(list[NodeId])
+    # The weight callback returned NaN, or a value the algorithm forbids.
+    InvalidWeight(EdgeId)
+    # The A* estimate returned NaN or a negative value for this node.
+    InvalidEstimate(NodeId)
+
+# Chain heads. A directed graph links outgoing edges through `out_*` and
+# incoming edges through `in_*`; an undirected graph links every incident edge
+# through `out_*` alone, so neighbors follow insertion order.
+class NodeSlot[N]:
+    data: Option[N]
+    out_first: i64
+    out_last: i64
+    in_first: i64
+    in_last: i64
+
+# `next_out` continues the source's chain and `next_in` the target's chain.
+# An undirected self-loop is linked once, through `next_out`.
+class EdgeSlot[E]:
+    data: Option[E]
+    source: i64
+    target: i64
+    next_out: i64
+    next_in: i64
+
+# An allocation-free cursor over one node's edge chain. It holds no borrow;
+# pass it back to the graph that made it.
+pub class Walk:
+    _node: i64
+    _chain: i64
+    _next: i64
+
+# Single-source results from `dijkstra` or `bellman_ford`, indexed by handle.
+pub class Paths:
+    _distance: list[f64]
+    _via: list[i64]
+    _previous: list[i64]
+
+    # The total weight of a shortest path, or `Nothing` when unreachable.
+    pub def distance(self, node: NodeId) -> Option[f64]:
+        if node < 0 or node >= len(self._distance):
+            return Nothing
+        if self._distance[node] == f64.INF:
+            return Nothing
+        Some(self._distance[node])
+
+    # The last edge on a shortest path; `Nothing` for the start node.
+    pub def edge_to(self, node: NodeId) -> Option[EdgeId]:
+        if node < 0 or node >= len(self._via) or self._via[node] < 0:
+            return Nothing
+        Some(self._via[node])
+
+    # The nodes from the start to `node` inclusive, or an empty list when
+    # `node` is unreachable.
+    pub def path(self, node: NodeId) -> Result[list[NodeId], AllocError]:
+        mut nodes: list[NodeId] = []?
+        if self.distance(node).is_none():
+            return Ok(nodes)
+        mut current = node
+        while current >= 0:
+            nodes.append(current)?
+            current = self._previous[current]
+        nodes.reverse()
+        Ok(nodes)
+
+class Store[N, E]:
+    nodes: list[NodeSlot[N]]
+    edges: list[EdgeSlot[E]]
+    node_count: i64
+    edge_count: i64
+    directed: bool
+
+    def __init__(self, directed: bool) -> Result[(), AllocError]:
+        self.nodes = list[NodeSlot[N]].new()?
+        self.edges = list[EdgeSlot[E]].new()?
+        self.node_count = 0
+        self.edge_count = 0
+        self.directed = directed
+        Ok(())
+
+    def contains_node(self, id: NodeId) -> bool:
+        id >= 0 and id < len(self.nodes) and self.nodes[id].data.is_some()
+
+    def contains_edge(self, id: EdgeId) -> bool:
+        id >= 0 and id < len(self.edges) and self.edges[id].data.is_some()
+
+    # An invalid handle indexes one past the end, which traps.
+    def check_node(self, id: NodeId) -> ():
+        if not self.contains_node(id):
+            drop(self.nodes[len(self.nodes)].out_first)
+
+    def check_edge(self, id: EdgeId) -> ():
+        if not self.contains_edge(id):
+            drop(self.edges[len(self.edges)].source)
+
+    def node(self, id: NodeId) -> &N:
+        if id >= 0:
+            match &self.nodes[id].data:
+                case Some(value):
+                    return value
+                case Nothing:
+                    pass
+        self.node(len(self.nodes))
+
+    def node_mut(self: &mut Store[N, E], id: NodeId) -> &mut N:
+        if id >= 0:
+            match &mut self.nodes[id].data:
+                case Some(value):
+                    return value
+                case Nothing:
+                    pass
+        self.node_mut(len(self.nodes))
+
+    def edge(self, id: EdgeId) -> &E:
+        if id >= 0:
+            match &self.edges[id].data:
+                case Some(value):
+                    return value
+                case Nothing:
+                    pass
+        self.edge(len(self.edges))
+
+    def edge_mut(self: &mut Store[N, E], id: EdgeId) -> &mut E:
+        if id >= 0:
+            match &mut self.edges[id].data:
+                case Some(value):
+                    return value
+                case Nothing:
+                    pass
+        self.edge_mut(len(self.edges))
+
+    def first(self, node: NodeId, chain: i64) -> i64:
+        if chain == 0:
+            self.nodes[node].out_first
+        else:
+            self.nodes[node].in_first
+
+    # The edge after `edge` in chain `chain` of `node`.
+    def link(self, edge: EdgeId, node: NodeId, chain: i64) -> i64:
+        slot = &self.edges[edge]
+        if chain == 0 and slot.source == node:
+            slot.next_out
+        else:
+            slot.next_in
+
+    def set_link(self: &mut Store[N, E], edge: EdgeId, node: NodeId, chain: i64, next: i64) -> ():
+        if chain == 0 and self.edges[edge].source == node:
+            self.edges[edge].next_out = next
+        else:
+            self.edges[edge].next_in = next
+
+    def attach(self: &mut Store[N, E], edge: EdgeId, node: NodeId, chain: i64) -> ():
+        last = self.nodes[node].out_last if chain == 0 else self.nodes[node].in_last
+        if last < 0:
+            if chain == 0:
+                self.nodes[node].out_first = edge
+            else:
+                self.nodes[node].in_first = edge
+        else:
+            self.set_link(last, node, chain, edge)
+        if chain == 0:
+            self.nodes[node].out_last = edge
+        else:
+            self.nodes[node].in_last = edge
+
+    def detach(self: &mut Store[N, E], edge: EdgeId, node: NodeId, chain: i64) -> ():
+        mut previous = -1
+        mut current = self.first(node, chain)
+        while current != edge:
+            previous = current
+            current = self.link(current, node, chain)
+        next = self.link(edge, node, chain)
+        if previous < 0:
+            if chain == 0:
+                self.nodes[node].out_first = next
+            else:
+                self.nodes[node].in_first = next
+        else:
+            self.set_link(previous, node, chain, next)
+        last = self.nodes[node].out_last if chain == 0 else self.nodes[node].in_last
+        if last == edge:
+            if chain == 0:
+                self.nodes[node].out_last = previous
+            else:
+                self.nodes[node].in_last = previous
+
+    # The chain that holds `edge` at its target: the incoming chain of a
+    # directed graph, otherwise the shared one. -1 for an undirected self-loop.
+    def target_chain(self, edge: EdgeId) -> i64:
+        if self.directed:
+            return 1
+        if self.edges[edge].source == self.edges[edge].target:
+            return -1
+        0
+
+    def add_node(self: &mut Store[N, E], data: N) -> Result[NodeId, AllocError]:
+        id = len(self.nodes)
+        self.nodes.append(NodeSlot[N](Some(data), -1, -1, -1, -1))?
+        self.node_count += 1
+        Ok(id)
+
+    def add_edge(self: &mut Store[N, E], source: NodeId, target: NodeId, data: E) -> Result[EdgeId, AllocError]:
+        self.check_node(source)
+        self.check_node(target)
+        id = len(self.edges)
+        self.edges.append(EdgeSlot[E](Some(data), source, target, -1, -1))?
+        self.attach(id, source, 0)
+        chain = self.target_chain(id)
+        if chain >= 0:
+            self.attach(id, target, chain)
+        self.edge_count += 1
+        Ok(id)
+
+    def remove_edge(self: &mut Store[N, E], id: EdgeId) -> Option[E]:
+        if not self.contains_edge(id):
+            return Nothing
+        source = self.edges[id].source
+        target = self.edges[id].target
+        self.detach(id, source, 0)
+        chain = self.target_chain(id)
+        if chain >= 0:
+            self.detach(id, target, chain)
+        self.edge_count -= 1
+        replace(self.edges[id].data, Nothing)
+
+    def remove_node(self: &mut Store[N, E], id: NodeId) -> Option[N]:
+        if not self.contains_node(id):
+            return Nothing
+        while self.nodes[id].out_first >= 0:
+            drop(self.remove_edge(self.nodes[id].out_first))
+        while self.nodes[id].in_first >= 0:
+            drop(self.remove_edge(self.nodes[id].in_first))
+        self.node_count -= 1
+        replace(self.nodes[id].data, Nothing)
+
+    def opposite(self, edge: EdgeId, node: NodeId) -> NodeId:
+        self.check_edge(edge)
+        slot = &self.edges[edge]
+        slot.target if slot.source == node else slot.source
+
+    def find_edge(self, source: NodeId, target: NodeId) -> Option[EdgeId]:
+        self.check_node(source)
+        self.check_node(target)
+        mut edge = self.nodes[source].out_first
+        while edge >= 0:
+            slot = &self.edges[edge]
+            other = slot.target if slot.source == source else slot.source
+            if other == target:
+                return Some(edge)
+            edge = self.link(edge, source, 0)
+        Nothing
+
+    def walk(self, node: NodeId, chain: i64) -> Walk:
+        self.check_node(node)
+        Walk(node, chain, self.first(node, chain))
+
+    def next_edge(self, walk: &mut Walk) -> Option[EdgeId]:
+        edge = walk._next
+        if edge < 0 or not self.contains_edge(edge):
+            walk._next = -1
+            return Nothing
+        walk._next = self.link(edge, walk._node, walk._chain)
+        Some(edge)
+
+    def neighbors(self, node: NodeId, chain: i64) -> Result[list[NodeId], AllocError]:
+        self.check_node(node)
+        mut result: list[NodeId] = []?
+        mut edge = self.first(node, chain)
+        while edge >= 0:
+            result.append(self.opposite(edge, node))?
+            edge = self.link(edge, node, chain)
+        Ok(result)
+
+    def live_nodes(self) -> Result[list[NodeId], AllocError]:
+        mut result = list[NodeId].with_capacity(self.node_count)?
+        for id in range(len(self.nodes)):
+            if self.nodes[id].data.is_some():
+                result.append(id)?
+        Ok(result)
+
+    def live_edges(self) -> Result[list[EdgeId], AllocError]:
+        mut result = list[EdgeId].with_capacity(self.edge_count)?
+        for id in range(len(self.edges)):
+            if self.edges[id].data.is_some():
+                result.append(id)?
+        Ok(result)
+
+    # Breadth-first order. The result list doubles as the queue.
+    def bfs(self, start: NodeId) -> Result[list[NodeId], AllocError]:
+        self.check_node(start)
+        mut seen = [False for _ in range(len(self.nodes))]?
+        mut order: list[NodeId] = []?
+        order.append(start)?
+        seen[start] = True
+        mut head = 0
+        while head < len(order):
+            node = order[head]
+            head += 1
+            mut edge = self.nodes[node].out_first
+            while edge >= 0:
+                other = self.opposite(edge, node)
+                if not seen[other]:
+                    seen[other] = True
+                    order.append(other)?
+                edge = self.link(edge, node, 0)
+        Ok(order)
+
+    # Recursive preorder, using an explicit stack of chain cursors so that
+    # deep graphs cannot exhaust the call stack.
+    def dfs(self, start: NodeId) -> Result[list[NodeId], AllocError]:
+        self.check_node(start)
+        mut seen = [False for _ in range(len(self.nodes))]?
+        mut order: list[NodeId] = []?
+        mut stack_node: list[i64] = []?
+        mut stack_edge: list[i64] = []?
+        order.append(start)?
+        seen[start] = True
+        stack_node.append(start)?
+        stack_edge.append(self.nodes[start].out_first)?
+        while len(stack_node) > 0:
+            top = len(stack_node) - 1
+            node = stack_node[top]
+            edge = stack_edge[top]
+            if edge < 0:
+                drop(stack_node.pop())
+                drop(stack_edge.pop())
+                continue
+            stack_edge[top] = self.link(edge, node, 0)
+            other = self.opposite(edge, node)
+            if not seen[other]:
+                seen[other] = True
+                order.append(other)?
+                stack_node.append(other)?
+                stack_edge.append(self.nodes[other].out_first)?
+        Ok(order)
+
+    def components(self) -> Result[list[list[NodeId]], AllocError]:
+        mut seen = [False for _ in range(len(self.nodes))]?
+        mut result: list[list[NodeId]] = []?
+        for start in range(len(self.nodes)):
+            if seen[start] or self.nodes[start].data.is_none():
+                continue
+            component = self.bfs(start)?
+            for node in &component:
+                seen[*node] = True
+            result.append(component)?
+        Ok(result)
+
+    # Kahn's algorithm in handle order. On failure, a cycle is recovered by
+    # following incoming edges among the unsorted nodes, each of which still
+    # has an unsorted predecessor.
+    def toposort(self) -> Result[list[NodeId], AllocError | GraphError]:
+        bound = len(self.nodes)
+        mut pending = [0 for _ in range(bound)]?
+        for edge in range(len(self.edges)):
+            if self.edges[edge].data.is_some():
+                pending[self.edges[edge].target] += 1
+        mut order = list[NodeId].with_capacity(self.node_count)?
+        for node in range(bound):
+            if self.nodes[node].data.is_some() and pending[node] == 0:
+                order.append(node)?
+        mut head = 0
+        while head < len(order):
+            node = order[head]
+            head += 1
+            mut edge = self.nodes[node].out_first
+            while edge >= 0:
+                target = self.edges[edge].target
+                pending[target] -= 1
+                if pending[target] == 0:
+                    order.append(target)?
+                edge = self.edges[edge].next_out
+        if len(order) == self.node_count:
+            return Ok(order)
+        mut start = 0
+        while self.nodes[start].data.is_none() or pending[start] == 0:
+            start += 1
+        # pending[node] now marks the walk: -1 for visited.
+        mut node = start
+        while pending[node] >= 0:
+            pending[node] = -1
+            mut back = self.nodes[node].in_first
+            while pending[self.edges[back].source] == 0:
+                back = self.edges[back].next_in
+            node = self.edges[back].source
+        mut cycle: list[NodeId] = []?
+        cycle.append(node)?
+        mut current = node
+        while True:
+            mut back = self.nodes[current].in_first
+            while pending[self.edges[back].source] == 0:
+                back = self.edges[back].next_in
+            current = self.edges[back].source
+            if current == node:
+                break
+            cycle.append(current)?
+        cycle.reverse()
+        Err(GraphError.Cycle(cycle))
+
+    # Iterative Tarjan. A component is emitted only after every component
+    # reachable from it, so the result is in reverse topological order.
+    def strong_components(self) -> Result[list[list[NodeId]], AllocError]:
+        bound = len(self.nodes)
+        mut index = [-1 for _ in range(bound)]?
+        mut low = [0 for _ in range(bound)]?
+        mut on_stack = [False for _ in range(bound)]?
+        mut stack: list[i64] = []?
+        mut call_node: list[i64] = []?
+        mut call_edge: list[i64] = []?
+        mut result: list[list[NodeId]] = []?
+        mut counter = 0
+        for root in range(bound):
+            if index[root] >= 0 or self.nodes[root].data.is_none():
+                continue
+            index[root] = counter
+            low[root] = counter
+            counter += 1
+            stack.append(root)?
+            on_stack[root] = True
+            call_node.append(root)?
+            call_edge.append(self.nodes[root].out_first)?
+            while len(call_node) > 0:
+                top = len(call_node) - 1
+                node = call_node[top]
+                edge = call_edge[top]
+                if edge >= 0:
+                    call_edge[top] = self.edges[edge].next_out
+                    target = self.edges[edge].target
+                    if index[target] < 0:
+                        index[target] = counter
+                        low[target] = counter
+                        counter += 1
+                        stack.append(target)?
+                        on_stack[target] = True
+                        call_node.append(target)?
+                        call_edge.append(self.nodes[target].out_first)?
+                    elif on_stack[target] and index[target] < low[node]:
+                        low[node] = index[target]
+                    continue
+                drop(call_node.pop())
+                drop(call_edge.pop())
+                if top > 0:
+                    parent = call_node[top - 1]
+                    if low[node] < low[parent]:
+                        low[parent] = low[node]
+                if low[node] == index[node]:
+                    mut component: list[NodeId] = []?
+                    while True:
+                        member = stack.pop().unwrap()
+                        on_stack[member] = False
+                        component.append(member)?
+                        if member == node:
+                            break
+                    component.reverse()
+                    result.append(component)?
+        Ok(result)
+
+    # Best-first search with lazy deletion: a popped entry whose cost exceeds
+    # the recorded distance is stale. Nodes may be settled again when an
+    # estimate is admissible but inconsistent. `goal < 0` searches everything.
+    def search[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Paths, AllocError | GraphError]:
+        self.check_node(start)
+        bound = len(self.nodes)
+        mut distance = [f64.INF for _ in range(bound)]?
+        mut via = [-1 for _ in range(bound)]?
+        mut previous = [-1 for _ in range(bound)]?
+        mut queue = Heap[(f64, f64, i64)]()?
+        first = estimate(start)
+        if not (first >= 0.0):
+            return Err(GraphError.InvalidEstimate(start))
+        distance[start] = 0.0
+        queue.push((first, 0.0, start))?
+        while True:
+            match queue.pop():
+                case Some(entry):
+                    _, cost, node = entry
+                    if cost > distance[node]:
+                        continue
+                    if node == goal:
+                        break
+                    mut edge = self.nodes[node].out_first
+                    while edge >= 0:
+                        step = weight(self.edge(edge))
+                        if not (step >= 0.0):
+                            return Err(GraphError.InvalidWeight(edge))
+                        other = self.opposite(edge, node)
+                        total = cost + step
+                        if total < distance[other]:
+                            guess = estimate(other)
+                            if not (guess >= 0.0):
+                                return Err(GraphError.InvalidEstimate(other))
+                            distance[other] = total
+                            via[other] = edge
+                            previous[other] = node
+                            queue.push((total + guess, total, other))?
+                        edge = self.link(edge, node, 0)
+                case Nothing:
+                    break
+        Ok(Paths(distance, via, previous))
+
+    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]:
+        self.check_node(start)
+        bound = len(self.nodes)
+        mut distance = [f64.INF for _ in range(bound)]?
+        mut via = [-1 for _ in range(bound)]?
+        mut previous = [-1 for _ in range(bound)]?
+        mut steps: list[f64] = list[f64].with_capacity(len(self.edges))?
+        for edge in range(len(self.edges)):
+            if self.edges[edge].data.is_none():
+                steps.append(0.0)?
+                continue
+            step = weight(self.edge(edge))
+            if step != step or step == -f64.INF:
+                return Err(GraphError.InvalidWeight(edge))
+            steps.append(step)?
+        distance[start] = 0.0
+        # Relax until nothing changes; a change in round node_count proves a
+        # negative cycle, and `changed_node` is reachable from it.
+        mut changed_node = -1
+        for _ in range(self.node_count):
+            changed_node = -1
+            for edge in range(len(self.edges)):
+                if self.edges[edge].data.is_none():
+                    continue
+                source = self.edges[edge].source
+                target = self.edges[edge].target
+                if relax(&mut distance, &mut via, &mut previous, edge, source, target, steps[edge]):
+                    changed_node = target
+                if not self.directed:
+                    if relax(&mut distance, &mut via, &mut previous, edge, target, source, steps[edge]):
+                        changed_node = source
+            if changed_node < 0:
+                break
+        if changed_node < 0:
+            return Ok(Paths(distance, via, previous))
+        # Following predecessors node_count times lands inside the cycle.
+        mut node = changed_node
+        for _ in range(self.node_count):
+            node = previous[node]
+        mut cycle: list[NodeId] = []?
+        mut current = node
+        while True:
+            cycle.append(current)?
+            current = previous[current]
+            if current == node:
+                break
+        cycle.reverse()
+        Err(GraphError.NegativeCycle(cycle))
+
+    # Kruskal's algorithm with a size-ranked, path-halving union-find.
+    def spanning_tree[F: Callable[[&E], f64]](self, weight: &F) -> Result[list[EdgeId], AllocError | GraphError]:
+        mut order = list[(f64, i64)].with_capacity(self.edge_count)?
+        for edge in range(len(self.edges)):
+            if self.edges[edge].data.is_some():
+                step = weight(self.edge(edge))
+                if step != step:
+                    return Err(GraphError.InvalidWeight(edge))
+                order.append((step, edge))?
+        order.sort()
+        bound = len(self.nodes)
+        mut parent = [node for node in range(bound)]?
+        mut size = [1 for _ in range(bound)]?
+        mut tree: list[EdgeId] = []?
+        for entry in &order:
+            edge = entry[1]
+            mut a = find_root(&mut parent, self.edges[edge].source)
+            mut b = find_root(&mut parent, self.edges[edge].target)
+            if a == b:
+                continue
+            if size[a] < size[b]:
+                a, b = b, a
+            parent[b] = a
+            size[a] += size[b]
+            tree.append(edge)?
+        Ok(tree)
+
+def relax(distance: &mut list[f64], via: &mut list[i64], previous: &mut list[i64], edge: EdgeId, source: NodeId, target: NodeId, step: f64) -> bool:
+    if distance[source] == f64.INF:
+        return False
+    total = distance[source] + step
+    if total < distance[target]:
+        distance[target] = total
+        via[target] = edge
+        previous[target] = source
+        return True
+    False
+
+def find_root(parent: &mut list[i64], node: i64) -> i64:
+    mut current = node
+    while parent[current] != current:
+        parent[current] = parent[parent[current]]
+        current = parent[current]
+    current
+
+def no_estimate(node: NodeId) -> f64:
+    0.0
+
+# A* result: the cost and nodes of a path to the goal.
+def goal_path(paths: &Paths, goal: NodeId) -> Result[Option[(f64, list[NodeId])], AllocError]:
+    match paths.distance(goal):
+        case Some(cost):
+            Ok(Some((cost, paths.path(goal)?)))
+        case Nothing:
+            Ok(Nothing)
+
+# A directed graph. Edges run from source to target.
+pub class DiGraph[N, E]:
+    _store: Store[N, E]
+
+    pub def __init__(self) -> Result[(), AllocError]:
+        self._store = Store[N, E](True)?
+        Ok(())
+
+    pub def node_count(self) -> i64:
+        self._store.node_count
+
+    pub def edge_count(self) -> i64:
+        self._store.edge_count
+
+    # One past the largest node handle ever issued.
+    pub def node_bound(self) -> i64:
+        len(self._store.nodes)
+
+    pub def edge_bound(self) -> i64:
+        len(self._store.edges)
+
+    # Room for `nodes` more nodes and `edges` more edges without growth.
+    pub def reserve(self: &mut DiGraph[N, E], nodes: i64, edges: i64) -> Result[(), AllocError]:
+        self._store.nodes.reserve(nodes)?
+        self._store.edges.reserve(edges)
+
+    pub def add_node(self: &mut DiGraph[N, E], data: N) -> Result[NodeId, AllocError]:
+        self._store.add_node(data)
+
+    pub def add_edge(self: &mut DiGraph[N, E], source: NodeId, target: NodeId, data: E) -> Result[EdgeId, AllocError]:
+        self._store.add_edge(source, target, data)
+
+    pub def remove_node(self: &mut DiGraph[N, E], node: NodeId) -> Option[N]:
+        self._store.remove_node(node)
+
+    pub def remove_edge(self: &mut DiGraph[N, E], edge: EdgeId) -> Option[E]:
+        self._store.remove_edge(edge)
+
+    pub def contains_node(self, node: NodeId) -> bool:
+        self._store.contains_node(node)
+
+    pub def contains_edge(self, edge: EdgeId) -> bool:
+        self._store.contains_edge(edge)
+
+    pub def node(self, node: NodeId) -> &N:
+        self._store.node(node)
+
+    pub def node_mut(self: &mut DiGraph[N, E], node: NodeId) -> &mut N:
+        self._store.node_mut(node)
+
+    pub def edge(self, edge: EdgeId) -> &E:
+        self._store.edge(edge)
+
+    pub def edge_mut(self: &mut DiGraph[N, E], edge: EdgeId) -> &mut E:
+        self._store.edge_mut(edge)
+
+    pub def source(self, edge: EdgeId) -> NodeId:
+        self._store.check_edge(edge)
+        self._store.edges[edge].source
+
+    pub def target(self, edge: EdgeId) -> NodeId:
+        self._store.check_edge(edge)
+        self._store.edges[edge].target
+
+    pub def find_edge(self, source: NodeId, target: NodeId) -> Option[EdgeId]:
+        self._store.find_edge(source, target)
+
+    pub def nodes(self) -> Result[list[NodeId], AllocError]:
+        self._store.live_nodes()
+
+    pub def edges(self) -> Result[list[EdgeId], AllocError]:
+        self._store.live_edges()
+
+    pub def successors(self, node: NodeId) -> Result[list[NodeId], AllocError]:
+        self._store.neighbors(node, 0)
+
+    pub def predecessors(self, node: NodeId) -> Result[list[NodeId], AllocError]:
+        self._store.neighbors(node, 1)
+
+    pub def outgoing(self, node: NodeId) -> Walk:
+        self._store.walk(node, 0)
+
+    pub def incoming(self, node: NodeId) -> Walk:
+        self._store.walk(node, 1)
+
+    pub def next_edge(self, walk: &mut Walk) -> Option[EdgeId]:
+        self._store.next_edge(walk)
+
+    pub def bfs(self, start: NodeId) -> Result[list[NodeId], AllocError]:
+        self._store.bfs(start)
+
+    pub def dfs(self, start: NodeId) -> Result[list[NodeId], AllocError]:
+        self._store.dfs(start)
+
+    pub def toposort(self) -> Result[list[NodeId], AllocError | GraphError]:
+        self._store.toposort()
+
+    pub def strongly_connected_components(self) -> Result[list[list[NodeId]], AllocError]:
+        self._store.strong_components()
+
+    pub def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]:
+        self._store.search(start, -1, weight, &no_estimate)
+
+    pub def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], AllocError | GraphError]:
+        self._store.check_node(goal)
+        paths = self._store.search(start, goal, weight, estimate)?
+        Ok(goal_path(&paths, goal)?)
+
+    pub def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]:
+        self._store.bellman_ford(start, weight)
+
+# An undirected graph. Each edge joins its two endpoints symmetrically.
+pub class UnGraph[N, E]:
+    _store: Store[N, E]
+
+    pub def __init__(self) -> Result[(), AllocError]:
+        self._store = Store[N, E](False)?
+        Ok(())
+
+    pub def node_count(self) -> i64:
+        self._store.node_count
+
+    pub def edge_count(self) -> i64:
+        self._store.edge_count
+
+    pub def node_bound(self) -> i64:
+        len(self._store.nodes)
+
+    pub def edge_bound(self) -> i64:
+        len(self._store.edges)
+
+    # Room for `nodes` more nodes and `edges` more edges without growth.
+    pub def reserve(self: &mut UnGraph[N, E], nodes: i64, edges: i64) -> Result[(), AllocError]:
+        self._store.nodes.reserve(nodes)?
+        self._store.edges.reserve(edges)
+
+    pub def add_node(self: &mut UnGraph[N, E], data: N) -> Result[NodeId, AllocError]:
+        self._store.add_node(data)
+
+    pub def add_edge(self: &mut UnGraph[N, E], a: NodeId, b: NodeId, data: E) -> Result[EdgeId, AllocError]:
+        self._store.add_edge(a, b, data)
+
+    pub def remove_node(self: &mut UnGraph[N, E], node: NodeId) -> Option[N]:
+        self._store.remove_node(node)
+
+    pub def remove_edge(self: &mut UnGraph[N, E], edge: EdgeId) -> Option[E]:
+        self._store.remove_edge(edge)
+
+    pub def contains_node(self, node: NodeId) -> bool:
+        self._store.contains_node(node)
+
+    pub def contains_edge(self, edge: EdgeId) -> bool:
+        self._store.contains_edge(edge)
+
+    pub def node(self, node: NodeId) -> &N:
+        self._store.node(node)
+
+    pub def node_mut(self: &mut UnGraph[N, E], node: NodeId) -> &mut N:
+        self._store.node_mut(node)
+
+    pub def edge(self, edge: EdgeId) -> &E:
+        self._store.edge(edge)
+
+    pub def edge_mut(self: &mut UnGraph[N, E], edge: EdgeId) -> &mut E:
+        self._store.edge_mut(edge)
+
+    # The endpoints in the order given to `add_edge`.
+    pub def endpoints(self, edge: EdgeId) -> (NodeId, NodeId):
+        self._store.check_edge(edge)
+        (self._store.edges[edge].source, self._store.edges[edge].target)
+
+    pub def opposite(self, edge: EdgeId, node: NodeId) -> NodeId:
+        self._store.opposite(edge, node)
+
+    pub def find_edge(self, a: NodeId, b: NodeId) -> Option[EdgeId]:
+        self._store.find_edge(a, b)
+
+    pub def nodes(self) -> Result[list[NodeId], AllocError]:
+        self._store.live_nodes()
+
+    pub def edges(self) -> Result[list[EdgeId], AllocError]:
+        self._store.live_edges()
+
+    pub def neighbors(self, node: NodeId) -> Result[list[NodeId], AllocError]:
+        self._store.neighbors(node, 0)
+
+    pub def incident(self, node: NodeId) -> Walk:
+        self._store.walk(node, 0)
+
+    pub def next_edge(self, walk: &mut Walk) -> Option[EdgeId]:
+        self._store.next_edge(walk)
+
+    pub def bfs(self, start: NodeId) -> Result[list[NodeId], AllocError]:
+        self._store.bfs(start)
+
+    pub def dfs(self, start: NodeId) -> Result[list[NodeId], AllocError]:
+        self._store.dfs(start)
+
+    pub def connected_components(self) -> Result[list[list[NodeId]], AllocError]:
+        self._store.components()
+
+    pub def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]:
+        self._store.search(start, -1, weight, &no_estimate)
+
+    pub def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], AllocError | GraphError]:
+        self._store.check_node(goal)
+        paths = self._store.search(start, goal, weight, estimate)?
+        Ok(goal_path(&paths, goal)?)
+
+    pub def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]:
+        self._store.bellman_ford(start, weight)
+
+    pub def minimum_spanning_tree[F: Callable[[&E], f64]](self, weight: &F) -> Result[list[EdgeId], AllocError | GraphError]:
+        self._store.spanning_tree(weight)
