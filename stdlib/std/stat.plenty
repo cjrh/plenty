@@ -1,0 +1,291 @@
+# Finite f64 observations, explicit population/sample denominators, and
+# caller-owned probability distributions. See the reference for error bounds.
+import std.math as math
+import std.random as random
+
+pub enum StatError:
+    Empty
+    InsufficientData
+    NonFinite
+    Domain
+    Overflow
+    Allocation(AllocError)
+
+def finite(value: f64) -> Result[f64, StatError]:
+    if not math.isfinite(value):
+        return Err(StatError.Overflow)
+    Ok(value)
+
+def scale_of(values: &list[f64]) -> Result[f64, StatError]:
+    if len(values) == 0:
+        return Err(StatError.Empty)
+    mut scale = 0.0
+    for value in values:
+        if not math.isfinite(*value):
+            return Err(StatError.NonFinite)
+        scale = math.max(scale, value.fabs())
+    Ok(scale)
+
+# Neumaier compensation after scaling prevents overflow of the sum.
+def scaled_mean(values: &list[f64], scale: f64) -> f64:
+    if scale == 0.0:
+        return 0.0
+    mut total = 0.0
+    mut correction = 0.0
+    for value in values:
+        x = *value / scale
+        next = total + x
+        if total.fabs() >= x.fabs():
+            correction += (total - next) + x
+        else:
+            correction += (x - next) + total
+        total = next
+    (total + correction) / f64(len(values))
+
+pub def mean(values: &list[f64]) -> Result[f64, StatError]:
+    scale = scale_of(values)?
+    Ok(math.max(-1.0, math.min(1.0, scaled_mean(values, scale))) * scale)
+
+# Two passes over normalized observations; no squared original values, and
+# stdev can succeed even when the corresponding variance is unrepresentable.
+def deviation(values: &list[f64], sample: bool) -> Result[f64, StatError]:
+    scale = scale_of(values)?
+    denominator = len(values) - (1 if sample else 0)
+    if denominator == 0:
+        return Err(StatError.InsufficientData)
+    if scale == 0.0:
+        return Ok(0.0)
+    center = mean(values)?
+    mut total = 0.0
+    mut correction = 0.0
+    mut residual = 0.0
+    for value in values:
+        difference = *value - center
+        delta = difference / scale if math.isfinite(difference) else *value / scale - center / scale
+        residual += delta
+        term = delta * delta - correction
+        next = total + term
+        correction = (next - total) - term
+        total = next
+    corrected = math.max(0.0, total - residual * residual / f64(len(values)))
+    finite((corrected / f64(denominator)).sqrt() * scale)
+
+pub def pstdev(values: &list[f64]) -> Result[f64, StatError]:
+    deviation(values, False)
+
+pub def stdev(values: &list[f64]) -> Result[f64, StatError]:
+    deviation(values, True)
+
+pub def pvariance(values: &list[f64]) -> Result[f64, StatError]:
+    value = pstdev(values)?
+    finite(value * value)
+
+pub def variance(values: &list[f64]) -> Result[f64, StatError]:
+    value = stdev(values)?
+    finite(value * value)
+
+def probability(p: f64) -> Result[(), StatError]:
+    if not math.isfinite(p) or p < 0.0 or p > 1.0:
+        return Err(StatError.Domain)
+    Ok(())
+
+def ordered(values: &list[f64]) -> Result[list[f64], StatError]:
+    drop(scale_of(values)?)
+    match sorted(values):
+        case Ok(result):
+            Ok(result)
+        case Err(error):
+            Err(StatError.Allocation(error))
+
+def interpolate(a: f64, b: f64, fraction: f64) -> f64:
+    if fraction == 0.0 or a == b:
+        return a
+    if fraction == 1.0:
+        return b
+    if (a < 0.0) == (b < 0.0):
+        return a + (b - a) * fraction
+    a * (1.0 - fraction) + b * fraction
+
+def sorted_quantile(values: &list[f64], p: f64) -> f64:
+    position = p * f64(len(values) - 1)
+    low = i64(position)
+    if low >= len(values) - 1:
+        return values[len(values) - 1]
+    interpolate(values[low], values[low + 1], position - f64(low))
+
+# Inclusive linear interpolation (Hyndman-Fan type 7); p=0/1 are min/max.
+pub def quantile(values: &list[f64], p: f64) -> Result[f64, StatError]:
+    probability(p)?
+    data = ordered(values)?
+    Ok(sorted_quantile(&data, p))
+
+pub def median(values: &list[f64]) -> Result[f64, StatError]:
+    quantile(values, 0.5)
+
+pub def quantiles(values: &list[f64], n: i64 = 4) -> Result[list[f64], StatError]:
+    if n < 1:
+        return Err(StatError.Domain)
+    data = ordered(values)?
+    mut result = match list[f64].with_capacity(n - 1):
+        case Ok(items):
+            items
+        case Err(error):
+            return Err(StatError.Allocation(error))
+    for index in range(1, n):
+        match result.append(sorted_quantile(&data, f64(index) / f64(n))):
+            case Ok(_):
+                pass
+            case Err(error):
+                return Err(StatError.Allocation(error))
+    Ok(result)
+
+def observation(x: f64) -> Result[(), StatError]:
+    if math.isnan(x):
+        return Err(StatError.NonFinite)
+    Ok(())
+
+def cloned_rng(rng: &random.Rng) -> random.Rng:
+    (a, b, c, d) = rng.state()
+    # A live Rng's state cannot be zero.
+    random.from_state(a, b, c, d).unwrap()
+
+pub class Uniform:
+    _low: f64
+    _high: f64
+    _width: f64
+
+    pub def pdf(self, x: f64) -> Result[f64, StatError]:
+        observation(x)?
+        Ok(1.0 / self._width if x >= self._low and x <= self._high else 0.0)
+
+    pub def cdf(self, x: f64) -> Result[f64, StatError]:
+        observation(x)?
+        if x <= self._low:
+            return Ok(0.0)
+        if x >= self._high:
+            return Ok(1.0)
+        Ok((x - self._low) / self._width)
+
+    pub def inverse_cdf(self, p: f64) -> Result[f64, StatError]:
+        probability(p)?
+        Ok(interpolate(self._low, self._high, p))
+
+    pub def sample(self, rng: &mut random.Rng) -> f64:
+        interpolate(self._low, self._high, rng.next_f64())
+
+pub def uniform(low: f64 = 0.0, high: f64 = 1.0) -> Result[Uniform, StatError]:
+    width = high - low
+    if not math.isfinite(low) or not math.isfinite(high) or low >= high:
+        return Err(StatError.Domain)
+    if not math.isfinite(width) or not math.isfinite(1.0 / width):
+        return Err(StatError.Overflow)
+    Ok(Uniform(low, high, width))
+
+pub class Exponential:
+    _rate: f64
+
+    pub def pdf(self, x: f64) -> Result[f64, StatError]:
+        observation(x)?
+        Ok(self._rate * (-self._rate * x).exp() if x >= 0.0 else 0.0)
+
+    pub def cdf(self, x: f64) -> Result[f64, StatError]:
+        observation(x)?
+        Ok(-(-self._rate * x).expm1() if x > 0.0 else 0.0)
+
+    pub def inverse_cdf(self, p: f64) -> Result[f64, StatError]:
+        probability(p)?
+        if p == 1.0:
+            return Ok(f64.INF)
+        finite(-(-p).log1p() / self._rate)
+
+    pub def sample(self, rng: &mut random.Rng) -> Result[f64, StatError]:
+        mut next = cloned_rng(rng)
+        value = self.inverse_cdf(next.next_f64())?
+        # Commit by advancing only after validation; no new Rng mutation API.
+        drop(rng.next_u64())
+        Ok(value)
+
+pub def exponential(rate: f64 = 1.0) -> Result[Exponential, StatError]:
+    if not math.isfinite(rate) or rate <= 0.0:
+        return Err(StatError.Domain)
+    Ok(Exponential(rate))
+
+const inverse_sqrt_tau: f64 = 0.39894228040143267794
+
+def normal_tail(z: f64) -> f64:
+    if z >= 39.0:
+        return 0.0
+    density = (-0.5 * z * z).exp() * inverse_sqrt_tau
+    if z < 1.0:
+        mut term = z
+        mut total = z
+        for index in range(1, 20):
+            term *= z * z / f64(2 * index + 1)
+            total += term
+        return 0.5 - density * total
+    # Laplace's continued fraction for the Mills ratio. At z>=1,
+    # 512 levels converge beyond f64 precision; tails avoid 1-cdf cancellation.
+    mut fraction = 0.0
+    mut level = 512
+    while level > 0:
+        fraction = f64(level) / (z + fraction)
+        level -= 1
+    density / (z + fraction)
+
+def standardized(x: f64, mean: f64, sigma: f64) -> f64:
+    difference = x - mean
+    if math.isfinite(x) and not math.isfinite(difference):
+        return x / sigma - mean / sigma
+    difference / sigma
+
+pub class Normal:
+    _mean: f64
+    _sigma: f64
+
+    pub def pdf(self, x: f64) -> Result[f64, StatError]:
+        observation(x)?
+        z = standardized(x, self._mean, self._sigma)
+        finite((-0.5 * z * z).exp() * inverse_sqrt_tau / self._sigma)
+
+    pub def cdf(self, x: f64) -> Result[f64, StatError]:
+        observation(x)?
+        z = standardized(x, self._mean, self._sigma)
+        tail = normal_tail(z.fabs())
+        Ok(tail if z < 0.0 else 1.0 - tail)
+
+    pub def inverse_cdf(self, p: f64) -> Result[f64, StatError]:
+        probability(p)?
+        if p == 0.0:
+            return Ok(-f64.INF)
+        if p == 1.0:
+            return Ok(f64.INF)
+        if p == 0.5:
+            return Ok(self._mean)
+        target = p if p < 0.5 else 1.0 - p
+        mut low = 0.0
+        mut high = 39.0
+        for step in range(64):
+            middle = (low + high) * 0.5
+            if normal_tail(middle) > target:
+                low = middle
+            else:
+                high = middle
+        z = (low + high) * 0.5
+        finite(self._mean + self._sigma * (-z if p < 0.5 else z))
+
+    # Box-Muller: exactly two steps, no cached second variate. 1-u excludes
+    # log(0) without rejection; sampling never changes the random module.
+    pub def sample(self, rng: &mut random.Rng) -> Result[f64, StatError]:
+        mut next = cloned_rng(rng)
+        radius = (-2.0 * (-next.next_f64()).log1p()).sqrt()
+        angle = f64.TAU * next.next_f64()
+        z = radius * angle.cos()
+        value = finite(self._mean + self._sigma * z)?
+        drop(rng.next_u64())
+        drop(rng.next_u64())
+        Ok(value)
+
+pub def normal(mean: f64 = 0.0, sigma: f64 = 1.0) -> Result[Normal, StatError]:
+    if not math.isfinite(mean) or not math.isfinite(sigma) or sigma <= 0.0:
+        return Err(StatError.Domain)
+    Ok(Normal(mean, sigma))

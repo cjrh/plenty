@@ -1,0 +1,155 @@
+# Three disjoint blocks, graph peeling, then reverse fingerprint assignment.
+import std.bytes
+from std.bytes import Bytes, BytesError, ByteSource
+from std.sketch import SketchError, hash_u64
+
+def positions(hash: u64, block: i64) -> (i64, i64, i64):
+    # Multiply-high reduction avoids rotation/modulo correlations when block
+    # divides 2^64-1 (for example block=51 for a 100-key input).
+    first = i64(((hash & 4294967295u64) * u64(block)) >> 32u64)
+    second = i64(((hash.rotate_left(21u64) & 4294967295u64) * u64(block)) >> 32u64)
+    third = i64(((hash.rotate_left(42u64) & 4294967295u64) * u64(block)) >> 32u64)
+    (first, block + second, block * 2 + third)
+
+def fingerprint(hash: u64) -> u8:
+    u8((hash ^ (hash >> 32u64)) & 255u64)
+
+pub class XorFilter:
+    _seed: u64
+    _count: i64
+    _block: i64
+    _fingerprints: Bytes
+
+    pub def len(self) -> i64:
+        self._count
+
+    pub def contains(self, key: u64) -> bool:
+        if self._count == 0:
+            return False
+        hash = hash_u64(key, self._seed)
+        (a, b, c) = positions(hash, self._block)
+        fingerprint(hash) == self._fingerprints[a] ^ self._fingerprints[b] ^ self._fingerprints[c]
+
+    pub def to_bytes(self) -> Result[Bytes, BytesError]:
+        mut out = std.bytes.with_capacity(28 + self._fingerprints.len())?
+        out.extend(&b"PSX1")?
+        word(&mut out, self._seed)?
+        word(&mut out, u64(self._count))?
+        word(&mut out, u64(self._block))?
+        out.extend(&self._fingerprints)?
+        Ok(out)
+
+# Input can contain duplicates. At most max_keys input entries and 32 peeling
+# attempts are accepted; failure returns no partial filter.
+pub def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFilter, SketchError | AllocError | BytesError]:
+    if max_keys < 0 or max_keys > 16777216:
+        return Err(SketchError.InvalidArgument)
+    if len(keys) > max_keys:
+        return Err(SketchError.Limit)
+    mut sorted = copy(keys)?
+    sorted.sort()
+    mut unique = 0
+    for index in range(len(sorted)):
+        if unique == 0 or sorted[index] != sorted[unique - 1]:
+            sorted[unique] = sorted[index]
+            unique += 1
+    while len(sorted) > unique:
+        drop(sorted.pop())
+    # 1.5 slots/key, with slack for small sets, keeps the simple construction
+    # conservative. The persistent filter uses one byte per slot.
+    block = 1 + unique // 2
+    size = block * 3
+    mut degrees = list[i64].with_capacity(size)?
+    mut xors = list[u64].with_capacity(size)?
+    mut prints = std.bytes.with_capacity(size)?
+    prints.resize(size, 0u8)?
+    mut queue = list[i64].with_capacity(size)?
+    mut peeled = list[u64].with_capacity(unique)?
+    mut slots = list[i64].with_capacity(unique)?
+    for _ in range(size):
+        degrees.append(0)?
+        xors.append(0u64)?
+    for attempt in range(32):
+        attempt_seed = seed.wrapping_add(u64(attempt).wrapping_mul(11400714819323198485u64))
+        for index in range(size):
+            degrees[index] = 0
+            xors[index] = 0u64
+        queue.clear()
+        peeled.clear()
+        slots.clear()
+        for key in &sorted:
+            hash = hash_u64(*key, attempt_seed)
+            (a, b, c) = positions(hash, block)
+            degrees[a] += 1
+            degrees[b] += 1
+            degrees[c] += 1
+            xors[a] = xors[a] ^ hash
+            xors[b] = xors[b] ^ hash
+            xors[c] = xors[c] ^ hash
+        for index in range(size):
+            if degrees[index] == 1:
+                queue.append(index)?
+        mut cursor = 0
+        while cursor < len(queue):
+            slot = queue[cursor]
+            cursor += 1
+            if degrees[slot] != 1:
+                continue
+            hash = xors[slot]
+            peeled.append(hash)?
+            slots.append(slot)?
+            (a, b, c) = positions(hash, block)
+            degrees[a] -= 1
+            degrees[b] -= 1
+            degrees[c] -= 1
+            xors[a] = xors[a] ^ hash
+            xors[b] = xors[b] ^ hash
+            xors[c] = xors[c] ^ hash
+            if degrees[a] == 1:
+                queue.append(a)?
+            if degrees[b] == 1:
+                queue.append(b)?
+            if degrees[c] == 1:
+                queue.append(c)?
+        if len(peeled) == unique:
+            mut index = unique
+            while index > 0:
+                index -= 1
+                hash = peeled[index]
+                slot = slots[index]
+                (a, b, c) = positions(hash, block)
+                value = fingerprint(hash) ^ prints[a] ^ prints[b] ^ prints[c]
+                drop(prints.set(slot, value))
+            return Ok(XorFilter(attempt_seed, unique, block, prints))
+    Err(SketchError.ConstructionFailed)
+
+def word(out: &mut Bytes, value: u64) -> Result[(), BytesError]:
+    for shift in range(0, 64, 8):
+        out.push(u8((value >> u64(shift)) & 255u64))?
+    Ok(())
+
+def read_word[S: ByteSource](data: &S, offset: i64) -> u64:
+    mut result = 0u64
+    for index in range(8):
+        result = result | (u64(data[offset + index]) << u64(index * 8))
+    result
+
+pub def from_bytes[S: ByteSource](data: &S, max_keys: i64) -> Result[XorFilter, SketchError | BytesError]:
+    if max_keys < 0 or max_keys > 16777216:
+        return Err(SketchError.InvalidArgument)
+    if data.len() < 28:
+        return Err(SketchError.InvalidData)
+    if data[0] != 80u8 or data[1] != 83u8 or data[2] != 88u8 or data[3] != 49u8:
+        return Err(SketchError.InvalidData)
+    count = read_word(data, 12)
+    block = read_word(data, 20)
+    if count > 16777216u64 or block != 1u64 + count // 2u64:
+        return Err(SketchError.InvalidData)
+    if count > u64(max_keys):
+        return Err(SketchError.Limit)
+    size = i64(block) * 3
+    if data.len() != 28 + size:
+        return Err(SketchError.InvalidData)
+    mut prints = std.bytes.with_capacity(size)?
+    prints.extend_range(data, 28, data.len())?
+    Ok(XorFilter(read_word(data, 4), i64(count), i64(block), prints))

@@ -123,7 +123,9 @@ been measured on an idle machine.
 ## Limits
 
 - One algorithm. No jump or split functions for parallel streams.
-- No distributions beyond uniform: no normal, exponential, or weighted choice.
+- Normal, exponential and floating uniform distributions are provided by
+  [`std.stat`](stat.md), using an explicitly supplied `Rng`. Weighted choice
+  is not provided.
 - No `f32` draws and no inclusive ranges.
 - `sample_indices` returns indices; there is no element-sampling or
   reservoir form.
