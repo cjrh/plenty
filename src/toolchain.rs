@@ -97,6 +97,8 @@ pub struct CompileOptions {
     /// Override the optional dataframe engine location. Consulted only when
     /// reachable native code uses std.dataframe; otherwise no engine is needed.
     pub dataframe_engine: Option<PathBuf>,
+    /// Optional faer engine, consulted only for reachable std.linalg calls.
+    pub linalg_engine: Option<PathBuf>,
     /// Ask Cranelift to optimize generated code for speed (the release
     /// profile). Off by default, which favors compilation speed.
     pub optimize: bool,
@@ -129,6 +131,7 @@ impl Default for CompileOptions {
             verbose: false,
             link_args: Vec::new(),
             dataframe_engine: None,
+            linalg_engine: None,
             optimize: false,
             cache: crate::cache::CacheMode::Environment,
             program_cache: true,
@@ -401,15 +404,26 @@ pub(crate) struct Engine {
     install: &'static str,
 }
 
-pub(crate) const ENGINES: &[Engine] = &[Engine {
-    module: "std.dataframe",
-    library: "libplenty_dataframe_v1.so",
-    symbol_prefix: "pldf_v1_",
-    environment: "PLENTY_DATAFRAME_ENGINE",
-    option: |options| options.dataframe_engine.as_ref(),
-    description: "the optional Polars engine",
-    install: "Build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY",
-}];
+pub(crate) const ENGINES: &[Engine] = &[
+    Engine {
+        module: "std.dataframe",
+        library: "libplenty_dataframe_v1.so",
+        symbol_prefix: "pldf_v1_",
+        environment: "PLENTY_DATAFRAME_ENGINE",
+        option: |options| options.dataframe_engine.as_ref(),
+        description: "the optional Polars engine",
+        install: "Build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY",
+    },
+    Engine {
+        module: "std.linalg",
+        library: "libplenty_linalg_v1.so",
+        symbol_prefix: "plla_v1_",
+        environment: "PLENTY_LINALG_ENGINE",
+        option: |options| options.linalg_engine.as_ref(),
+        description: "the optional faer linear algebra engine",
+        install: "Build it with python3 scripts/build_native_engine.py linalg --out COMPILER_DIRECTORY",
+    },
+];
 
 impl Engine {
     /// The explicit option, then the environment, then beside the compiler.

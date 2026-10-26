@@ -18,38 +18,46 @@ env:
 # Nightly runs weekly in nightly.yml. See book/src/development/workflow.md
 # ("CI build caches and timings") for the shards and caches below.
 jobs:
-  dataframe:
-    name: Optional Polars dataframe engine
+  native-engines:
+    name: Optional ${{ matrix.engine }} engine
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [dataframe, linalg]
     env:
-      PLENTY_DATAFRAME_TESTS: "1"
-      PLENTY_DATAFRAME_ENGINE: ${{ github.workspace }}/target/engine/libplenty_dataframe_v1.so
       POLARS_MAX_THREADS: "2"
     steps:
       - uses: actions/checkout@v4
+      - name: Select engine test environment
+        run: |
+          engine=${{ matrix.engine }}
+          echo "PLENTY_${engine^^}_TESTS=1" >> "$GITHUB_ENV"
+          echo "PLENTY_${engine^^}_ENGINE=$GITHUB_WORKSPACE/target/engine/libplenty_${engine}_v1.so" >> "$GITHUB_ENV"
       - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy && rustup default stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: |
             . -> target
-            plenty-dataframe -> ../target/dataframe-engine
-          key: dataframe-baseline
+            plenty-${{ matrix.engine }} -> ../target/${{ matrix.engine }}-engine
+          key: ${{ matrix.engine }}-baseline
           cache-bin: "false"
-      - run: python3 -B scripts/build_dataframe_engine.py --out target/engine --jobs 2
+      - run: python3 -B scripts/build_native_engine.py ${{ matrix.engine }} --out target/engine --jobs 2
       - name: Validate native engine
         env:
-          CARGO_TARGET_DIR: target/dataframe-engine
+          CARGO_TARGET_DIR: target/${{ matrix.engine }}-engine
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc
-          RUSTFLAGS: "-C target-cpu=x86-64 -C link-arg=-Wl,-soname,libplenty_dataframe_v1.so"
+          RUSTFLAGS: "-C target-cpu=x86-64 -C link-arg=-Wl,-soname,libplenty_${{ matrix.engine }}_v1.so"
           CFLAGS: "-march=x86-64 -mtune=generic"
           CXXFLAGS: "-march=x86-64 -mtune=generic"
         run: |
-          cargo fmt --manifest-path plenty-dataframe/Cargo.toml -- --check
-          cargo test --manifest-path plenty-dataframe/Cargo.toml --locked --release -j 2
-          cargo clippy --manifest-path plenty-dataframe/Cargo.toml --locked --release --all-targets -j 2 -- -D warnings
-      - run: "cargo test --locked --test integration test_std_dataframe::"
-      - run: cargo test --locked --test integration test_tutorial::dataframe_examples_with_optional_engine
+          cargo fmt --manifest-path plenty-${{ matrix.engine }}/Cargo.toml -- --check
+          cargo test --manifest-path plenty-${{ matrix.engine }}/Cargo.toml --locked --release -j 2
+          cargo clippy --manifest-path plenty-${{ matrix.engine }}/Cargo.toml --locked --release --all-targets -j 2 -- -D warnings
+      - run: "cargo test --locked --features runtime-checks --test integration test_std_${{ matrix.engine }}::"
+      - run: cargo test --locked --test integration test_tutorial::${{ matrix.engine }}_examples_with_optional_engine
       - name: Check the sales report application
+        if: matrix.engine == 'dataframe'
         run: |
           cargo build --locked --bin plenty
           python3 -B examples/sales_report/check.py --plenty target/debug/plenty -v

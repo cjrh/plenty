@@ -15,10 +15,14 @@ archive="$2"
 shift 2
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine=""
-if [ "${1:-}" = --dataframe-archive ]; then
-    engine="$2"
+linalg=""
+while [ "${1:-}" = --dataframe-archive ] || [ "${1:-}" = --linalg-archive ]; do
+    case "$1" in
+        --dataframe-archive) engine="$2" ;;
+        --linalg-archive) linalg="$2" ;;
+    esac
     shift 2
-fi
+done
 
 # Keep in step with the commands in README.dist.md and the installation page.
 case "${image%%[:@]*}" in
@@ -42,10 +46,14 @@ docker cp "$archive.sha256" "$container:/opt/check/"
 docker cp "$here/smoke-test.sh" "$container:/opt/check/"
 docker exec -w / "$container" bash /opt/check/smoke-test.sh \
     "/opt/check/$(basename "$archive")" --clean-environment "$@"
-if [ -n "$engine" ]; then
-    docker cp "$engine" "$container:/opt/check/"
-    docker cp "$engine.sha256" "$container:/opt/check/"
-    docker cp "$here/smoke-dataframe.sh" "$container:/opt/check/"
-    docker exec -w / "$container" bash /opt/check/smoke-dataframe.sh \
-        "/opt/check/$(basename "$archive")" "/opt/check/$(basename "$engine")"
-fi
+for name in dataframe linalg; do
+    selected="$engine"
+    if [ "$name" = linalg ]; then selected="$linalg"; fi
+    if [ -n "$selected" ]; then
+        docker cp "$selected" "$container:/opt/check/"
+        docker cp "$selected.sha256" "$container:/opt/check/"
+        docker cp "$here/smoke-engine.sh" "$container:/opt/check/"
+        docker exec -w / "$container" bash /opt/check/smoke-engine.sh \
+            "/opt/check/$(basename "$archive")" "/opt/check/$(basename "$selected")" "$name"
+    fi
+done

@@ -1,0 +1,63 @@
+import std.linalg as la
+import std.test as test
+
+def close(a: &la.Matrix, b: &la.Matrix) -> Result[(), la.LinalgError | test.TestError]:
+    test.check(a.rows() == b.rows() and a.cols() == b.cols(), "shapes")?
+    for row in range(a.rows()):
+        for col in range(a.cols()):
+            test.check((a.get(row, col)? - b.get(row, col)?).fabs() < 0.00000001, "residual")?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | la.LinalgError | test.TestError]:
+    values = [0.0, 2.0, 1.0, 3.0]?
+    a = la.matrix(2, 2, &values)?
+    rhs = la.vector(&[4.0, 7.0]?)?
+    answer = a.solve(&rhs)?
+    close(&answer, &la.vector(&[1.0, 2.0]?)?)?
+    factor = a.lu()?
+    p = factor.permutation()?
+    mut permuted = la.zeros(2, 2)?
+    for row in range(2):
+        for col in range(2):
+            permuted.set(row, col, a.get(p[row], col)?)?
+    lower = factor.lower()?
+    upper = factor.upper()?
+    close(&lower.matmul(&upper)?, &permuted)?
+    close(&factor.solve(&rhs)?, &answer)?
+
+    for shape in range(3):
+        rows = 3 if shape == 0 else 2
+        cols = 3 if shape == 1 else 2
+        input = [f64(i + 1) for i in range(rows * cols)]?
+        m = la.matrix(rows, cols, &input)?
+        (q, r) = m.qr()?
+        close(&q.matmul(&r)?, &m)?
+        close(&q.transpose()?.matmul(&q)?, &la.identity(rows)?)?
+        (u, s, v) = m.svd()?
+        close(&u.matmul(&la.diagonal(&s)?)?.matmul(&v.transpose()?)?, &m)?
+
+    symmetric = la.matrix(2, 2, &[4.0, 2.0, 2.0, 3.0]?)?
+    l = symmetric.cholesky()?
+    close(&l.matmul(&l.transpose()?)?, &symmetric)?
+    (e, v) = symmetric.eigh()?
+    close(&v.matmul(&la.diagonal(&e)?)?.matmul(&v.transpose()?)?, &symmetric)?
+    rotation = la.matrix(2, 2, &[0.0, -1.0, 1.0, 0.0]?)?
+    (er, ei, vr, vi) = rotation.eig()?
+    avr = rotation.matmul(&vr)?
+    avi = rotation.matmul(&vi)?
+    for col in range(2):
+        test.check(er[col].fabs() < 0.00000001, "imaginary eigenvalue real part")?
+        test.check((ei[col].fabs() - 1.0).fabs() < 0.00000001, "imaginary eigenvalue")?
+        for row in range(2):
+            test.check((avr.get(row, col)? - vr.get(row, col)? * er[col] + vi.get(row, col)? * ei[col]).fabs() < 0.00000001, "complex eigenvector real residual")?
+            test.check((avi.get(row, col)? - vr.get(row, col)? * ei[col] - vi.get(row, col)? * er[col]).fabs() < 0.00000001, "complex eigenvector imaginary residual")?
+    test.equal(symmetric.to_list()?, [4.0, 2.0, 2.0, 3.0]?)?
+    test.check(symmetric.get(-1, 0).is_err(), "bounds")?
+    test.check(a.cholesky().is_err(), "asymmetric")?
+    test.check(la.zeros(0, 2).is_err(), "empty")?
+    test.check(la.zeros(i64.MAX, 2).is_err(), "overflow")?
+    test.check(la.matrix(2, 2, &[1.0]?).is_err(), "shape")?
+    test.check(la.vector(&[f64.NAN]?).is_err(), "nan")?
+    test.check(la.zeros(2, 2)?.solve(&rhs).is_err(), "singular")?
+    print("linalg ok")?
+    Ok(())

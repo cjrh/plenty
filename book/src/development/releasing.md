@@ -17,6 +17,7 @@ run `cargo release --execute`, create release tags, or push.
 | `plenty` | The language release version. `cargo release` bumps it in `Cargo.toml` and `Cargo.lock` |
 | `plenty-runtime` | Private and embedded in the compiler. Keeps its own version; `plenty-runtime/release.toml` excludes it, so it is never bumped or tagged |
 | `plenty-dataframe-engine` | Optional separately built workspace; its crate version is internal. Release archives use the Plenty version and carry the ABI generation in the shared-library filename |
+| `plenty-linalg-engine` | Optional faer workspace with the same release-version and ABI-generation policy |
 
 `plenty --version` reports the `plenty` package version. Tags are `vX.Y.Z`, or
 `vX.Y.Z-PRE` for a pre-release; asset names use the same version.
@@ -114,9 +115,9 @@ git merge --ff-only FETCH_HEAD
 |---|---|
 | Verify tag | Requires the tagged commit to be on `main` and the tag to equal `v` plus the `Cargo.toml` version (`scripts/release/check-version.sh`) |
 | Test | The full test suite and release-script tests on the Ubuntu host, with the pinned Rust |
-| Build and test | In the pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits the optional dataframe engine and packages separate compiler and engine archives |
-| Smoke test | For each pinned distribution image: installs only the documented prerequisites, disconnects the network, and exercises both archives, including app-only dataframe relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
-| Publish | Creates a draft release with both archives and their checksums, then publishes it (`publish.sh`) |
+| Build and test | In the pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits both optional engines and packages separate archives |
+| Smoke test | For each pinned distribution image: installs only the documented prerequisites, disconnects the network, and exercises all archives, including app-only engine relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
+| Publish | Creates a draft release with the compiler, dataframe and linalg archives and their checksums, then publishes it (`publish.sh`) |
 
 Both release test environments install the SHA-256-verified mold version pinned
 in `scripts/release/toolchain.env`, without requiring root. They check a linked
@@ -134,16 +135,17 @@ publish GitHub pre-releases that are not marked latest. Runs for the same tag
 are serialized. Only the publish job can write repository contents, through
 the workflow token; no crates.io or other credential is used.
 
-The optional asset is `plenty-dataframe-VERSION-x86_64-unknown-linux-gnu.tar.gz`.
-It contains `lib/libplenty_dataframe_v1.so`, deployment instructions, notices,
+Optional assets are `plenty-dataframe-VERSION-x86_64-unknown-linux-gnu.tar.gz`
+and `plenty-linalg-VERSION-x86_64-unknown-linux-gnu.tar.gz`.
+Each contains `lib/libplenty_NAME_v1.so`, deployment instructions, notices,
 and `engine.json` identifying the release/source, target and library checksum.
-`package-dataframe.py` rejects an incorrect SONAME, embedded search paths,
+`package-engine.py NAME` rejects an incorrect SONAME, embedded search paths,
 unsupported native dependencies/symbol versions, and missing symbols required
 by that checkout's stdlib facade. This catches stale engines with the same
-ABI-generation name. The workflow builds both components from the tagged
+ABI-generation name. The workflow builds all components from the tagged
 source; it never substitutes an engine downloaded from another release.
 
-Normal compiler builds and the compiler download remain independent of Polars.
+Normal compiler builds and the compiler download remain independent of Polars and faer.
 The release engine is built once for reuse when compiling and running many
 applications. The engine's native dependency graph supplies its own notices;
 it is not a copy of the compiler's dependency inventory.
@@ -198,6 +200,8 @@ archives in every pinned distribution. Options:
 `bash scripts/release/smoke-dataframe.sh COMPILER_ARCHIVE ENGINE_ARCHIVE`
 checks matching assets, optional linkage, engine discovery, a Parquet query,
 relocation without the compiler, and the missing runtime library diagnostic.
+`bash scripts/release/smoke-engine.sh COMPILER_ARCHIVE ENGINE_ARCHIVE linalg`
+exercises the same installation/relocation checks with a linear solve.
 Containers are labelled `org.plenty.release-build` and
 `org.plenty.release-smoke` and removed when the check ends.
 
@@ -225,8 +229,11 @@ version, and declared license and includes the source URL in the notices.
 Dependency upgrades require a fresh review if they still omit the license file;
 notice generation does not download fallback text during the release build.
 
-For the separate dataframe archive, `third_party_notices.py --component dataframe`
-walks the engine's own manifest/lockfile. `alloc-stdlib` shares its repository's
+For each separate engine archive, `third_party_notices.py --component NAME`
+walks its own manifest/lockfile. The faer source patch is included as a local
+dependency with its upstream notices; missing workspace-root licenses in its
+dependency family have version-pinned, reviewed fallbacks.
+For dataframe, `alloc-stdlib` shares its repository's
 BSD license with `alloc-no-stdlib`. `polars-parquet-format 0.1.0` declares
 MIT AND Apache-2.0 but omits top-level license files; a version/license-pinned
 fallback preserves its upstream `parquet-format-safe` license texts and the

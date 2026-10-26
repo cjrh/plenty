@@ -22,6 +22,10 @@ enum ModuleSource {
 /// the unknown-module diagnostic lists them.
 const STANDARD_MODULES: &[(&str, &str)] = &[
     (
+        "std.linalg",
+        include_str!("../../stdlib/std/linalg.plentyi"),
+    ),
+    (
         "std.dataframe",
         include_str!("../../stdlib/std/dataframe.plentyi"),
     ),

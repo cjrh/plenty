@@ -21,6 +21,8 @@ mod test_clist;
 
 #[path = "test_std_dataframe.rs"]
 mod test_std_dataframe;
+#[path = "test_std_linalg.rs"]
+mod test_std_linalg;
 
 #[path = "test_aliases.rs"]
 mod test_aliases;

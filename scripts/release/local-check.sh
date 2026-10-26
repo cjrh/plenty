@@ -41,9 +41,10 @@ docker run --rm --label org.plenty.release-build=1 \
 
 archive="$(ls "$out"/dist/plenty-[0-9]*.tar.gz)"
 engine="$(ls "$out"/dist/plenty-dataframe-*.tar.gz)"
+linalg="$(ls "$out"/dist/plenty-linalg-*.tar.gz)"
 if [ "$smoke" = 1 ]; then
     for image in $SMOKE_IMAGES; do
-        "$here/smoke-in-container.sh" "$image" "$archive" --dataframe-archive "$engine"
+        "$here/smoke-in-container.sh" "$image" "$archive" --dataframe-archive "$engine" --linalg-archive "$linalg"
     done
 fi
 echo "local-check: $archive"

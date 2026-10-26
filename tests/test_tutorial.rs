@@ -224,7 +224,7 @@ fn jobs(fences: &[Fence]) -> Vec<Job<'_>> {
         }
         if !matches!(
             source.language.as_str(),
-            "plenty" | "plenty dataframe" | "plenty-error"
+            "plenty" | "plenty dataframe" | "plenty linalg" | "plenty-error"
         ) {
             assert!(
                 !source.language.starts_with("plenty"),
@@ -242,7 +242,10 @@ fn jobs(fences: &[Fence]) -> Vec<Job<'_>> {
         let expected = fences
             .get(index + 1)
             .expect("each tutorial program needs an expectation");
-        let valid = matches!(source.language.as_str(), "plenty" | "plenty dataframe");
+        let valid = matches!(
+            source.language.as_str(),
+            "plenty" | "plenty dataframe" | "plenty linalg"
+        );
         assert_eq!(
             expected.language,
             if valid { "output" } else { "error" },
@@ -375,7 +378,10 @@ fn run_job(job: &Job, number: usize, workspace: &Path, run_command: bool) -> boo
             builds,
         } => (source, expected, modules, builds),
     };
-    let valid = matches!(source.language.as_str(), "plenty" | "plenty dataframe");
+    let valid = matches!(
+        source.language.as_str(),
+        "plenty" | "plenty dataframe" | "plenty linalg"
+    );
     let example_dir = workspace.join(format!("example-{number}"));
     std::fs::create_dir(&example_dir).unwrap();
     for (path, module) in modules {
@@ -405,8 +411,12 @@ fn run_job(job: &Job, number: usize, workspace: &Path, run_command: bool) -> boo
     }
     let source_path = example_dir.join("lesson.plenty");
     std::fs::write(&source_path, &source.body).unwrap();
-    if source.language == "plenty dataframe" && std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none()
-    {
+    let engine = match source.language.as_str() {
+        "plenty dataframe" => Some(("PLENTY_DATAFRAME_TESTS", "PLENTY_DATAFRAME_ENGINE")),
+        "plenty linalg" => Some(("PLENTY_LINALG_TESTS", "PLENTY_LINALG_ENGINE")),
+        _ => None,
+    };
+    if engine.is_some_and(|(flag, _)| std::env::var_os(flag).is_none()) {
         let checked = Command::new(binary)
             .arg("--check")
             .arg(&source_path)
@@ -419,7 +429,7 @@ fn run_job(job: &Job, number: usize, workspace: &Path, run_command: bool) -> boo
             String::from_utf8_lossy(&checked.stderr)
         );
         eprintln!(
-            "{}: dataframe example type-checked; execution requires PLENTY_DATAFRAME_TESTS=1",
+            "{}: optional engine example type-checked; execution requires its engine test flag",
             source.line
         );
         return true;
@@ -441,8 +451,8 @@ fn run_job(job: &Job, number: usize, workspace: &Path, run_command: bool) -> boo
     }
     // Cargo's library search path can contain an older optional engine. Run
     // dataframe examples against the same explicit installation used to link.
-    let engine_environment: Vec<_> = if source.language == "plenty dataframe" {
-        std::env::var_os("PLENTY_DATAFRAME_ENGINE")
+    let engine_environment: Vec<_> = if let Some((_, variable)) = engine {
+        std::env::var_os(variable)
             .map(|path| {
                 let path = PathBuf::from(path).canonicalize().unwrap();
                 (
@@ -543,7 +553,10 @@ fn first_runnable_example_per_directory(jobs: &[Job]) -> Vec<bool> {
     jobs.iter()
         .map(|job| match job {
             Job::Example { source, .. }
-                if matches!(source.language.as_str(), "plenty" | "plenty dataframe") =>
+                if matches!(
+                    source.language.as_str(),
+                    "plenty" | "plenty dataframe" | "plenty linalg"
+                ) =>
             {
                 let (page, _) = source.line.rsplit_once(':').unwrap();
                 seen.insert(page.rsplit_once('/').map_or("", |(directory, _)| directory))
@@ -599,6 +612,24 @@ fn dataframe_examples_with_optional_engine() {
         count > 0,
         "the optional engine job must exercise tutorial examples"
     );
+}
+
+#[test]
+fn linalg_examples_with_optional_engine() {
+    if std::env::var_os("PLENTY_LINALG_TESTS").is_none() {
+        return;
+    }
+    let fences = tutorial_fences();
+    let jobs = jobs(&fences);
+    let temp = tempfile::tempdir().unwrap();
+    let mut count = 0;
+    for (number, job) in jobs.iter().enumerate() {
+        if matches!(job, Job::Example { source, .. } if source.language == "plenty linalg") {
+            assert!(run_job(job, number, temp.path(), true));
+            count += 1;
+        }
+    }
+    assert!(count > 0, "the optional linalg job must exercise examples");
 }
 
 /// The examples run as several tests, so the harness runs them in parallel
