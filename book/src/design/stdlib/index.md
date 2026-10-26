@@ -29,7 +29,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.db.sqlite`](sqlite.md) | SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit | `DbError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
 | [`std.diff`](diff.md) | Line, word, character, byte, and list differences as edit operations, with Myers and patience algorithms and unified-diff output | `AllocError` |
-| [`std.encoding`](encoding.md) | Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |
+| [`std.encoding`](encoding.md) | Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |
 | [`std.env`](env.md) | Environment variables as text or bytes, a detached snapshot, and the working directory | `IoError` |
 | [`std.error`](error.md) | Explicit error mapping, operation/path context, descriptions, and standard-error reports | Mapper-selected error, `Context[E]`, `AllocError` |
 | [`std.fmt`](fmt.md) | Static display/debug, bounded writer output and fallible strings | `FormatError` |

@@ -362,6 +362,7 @@
         - [`std.deque`](design/stdlib/deque.md)
         - [`std.diff`](design/stdlib/diff.md)
         - [`std.encoding`](design/stdlib/encoding.md)
+            - [Base32, MIME and custom alphabets](design/stdlib/encoding-codecs.md)
         - [`std.env`](design/stdlib/env.md)
         - [`std.error`](design/stdlib/error.md)
         - [`std.fmt`](design/stdlib/fmt.md)
