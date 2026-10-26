@@ -225,6 +225,19 @@ fn copying_lookups_reject_only_calls_with_affine_values() {
 }
 
 #[test]
+fn check_all_methods_skips_standard_library_types() {
+    // `--check-all-methods` checks only types the program declares (issue
+    // #517). `get` copies `V`, which `list[i64]` cannot be, yet the program
+    // never calls it, so the instance is accepted.
+    let source = program("mut cache = LruCache[i64, list[i64]](1)?\ndrop(cache.put(1, [1]?)?)");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    std::fs::write(&path, &source).unwrap();
+    let options = plenty::CheckOptions { all_methods: true };
+    plenty::check_file_with_options(&path, None, true, &options).unwrap();
+}
+
+#[test]
 fn get_ref_promotes_and_returns_a_borrow() {
     native(
         r#"

@@ -498,12 +498,14 @@ impl TypeAliases {
                 requested: instance.clone(),
                 instance,
                 parameters,
+                unused_method: None,
             },
             None => Instantiation {
                 at: application.at.location().into(),
                 requested: instance.clone(),
                 instance,
                 parameters,
+                unused_method: None,
             },
         });
         self.data

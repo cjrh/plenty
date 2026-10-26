@@ -8,7 +8,7 @@ use super::generics::Declared;
 use super::*;
 
 /// A function name's index in [`Functions`].
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub(super) struct Symbol(u32);
 
 #[derive(Default)]

@@ -871,3 +871,77 @@ fn a_damaged_program_entry_is_rebuilt() {
     assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
     assert!(warm.object == reference.object);
 }
+
+#[test]
+fn check_all_methods_neither_reads_nor_writes_the_caches() {
+    // `--check-all-methods` is a check mode (issue #517): it is refused for
+    // modes that compile, so a cached object can never stand in for its
+    // extra checks, and checking writes no cache entry.
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let source = "class Cell[T]:
+    value: T
+    def get(self) -> T:
+        self.value
+
+def main() -> Result[(), AllocError]:
+    a = Cell([1, 2]?)
+    Ok(())
+";
+    let cold = emit(dir.path(), source, Some(&cache), &[]);
+    let snapshot = |cache: &Path| {
+        let mut files: Vec<_> = walk(cache);
+        files.sort();
+        files
+    };
+    let before = snapshot(&cache);
+    assert!(!before.is_empty(), "{}", cold.stderr());
+    let program = dir.path().join("cell.plenty");
+    std::fs::write(&program, source).unwrap();
+    let check = plenty()
+        .env("PLENTY_CACHE_DIR", &cache)
+        .args(["--check", "--check-all-methods"])
+        .arg(&program)
+        .output()
+        .unwrap();
+    assert!(!check.status.success());
+    assert!(
+        String::from_utf8_lossy(&check.stderr)
+            .contains("`Cell[list[i64]].get` is checked because of --check-all-methods"),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert_eq!(snapshot(&cache), before);
+    // The default build still reuses the entries the first build wrote.
+    let warm = emit(dir.path(), source, Some(&cache), &[]);
+    assert_eq!(warm.object, cold.object);
+    for mode in [&["--compile"][..], &["--emit-object"], &[]] {
+        let mut command = plenty();
+        command.env("PLENTY_CACHE_DIR", &cache).args(mode);
+        command.arg("--check-all-methods").arg(&program);
+        if !mode.is_empty() {
+            command.args(["-o", "unused"]);
+        }
+        let output = command.output().unwrap();
+        assert!(!output.status.success(), "{mode:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("--check-all-methods requires --check or --check-module"),
+            "{mode:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+fn walk(directory: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(directory).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(walk(&path));
+        } else {
+            found.push((path.clone(), std::fs::read(&path).unwrap()));
+        }
+    }
+    found
+}

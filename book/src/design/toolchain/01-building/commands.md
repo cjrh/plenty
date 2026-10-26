@@ -21,6 +21,14 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 | `plenty --print-target` | Print the packaged runtime's target and CPU baseline |
 | `plenty --version` (`-V`) | Print the compiler's version and target: `plenty X.Y.Z (x86_64-unknown-linux-gnu)`, where `X.Y.Z` is the installed version |
 
+`--check-all-methods` with `--check` or `--check-module` also checks every
+method of every instance the program creates of a generic class or enum it
+declares, including methods nothing uses, which are otherwise
+[checked only when used](../../language/07-generics/index.md#checking-every-method).
+Types from `std` keep per-use checking.
+Other modes reject it: compiling would emit those methods, and a reused cached
+object would skip their check.
+
 `--release` before `FILE`, `--compile`, `--fuzz`, or `--dump` selects Cranelift's speed
 optimizations, like the [release profile](packages.md#profiles).
 

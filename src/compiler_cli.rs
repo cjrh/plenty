@@ -31,6 +31,10 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
   `plenty graph` writes it, for FILE, --check, --check-module, or --compile.
 --check: parse and type-check without executing the program.
 --check-module: check a library module without requiring main.
+--check-all-methods: with --check or --check-module, also check every method
+  of every generic class and enum instance the program creates, including
+  methods nothing calls. By default an instance's method is checked only
+  where it is used.
 --compile: emit a native executable with Cranelift.
 --emit-object: emit an application object without linking (requires main).
 --dump: write each function's compiler output as text to DIR (`-o -` prints
@@ -203,6 +207,19 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         args.remove(index);
         options.cache_stats = true;
     }
+    let mut check = plenty::CheckOptions::default();
+    if let Some(index) = args.iter().position(|a| a == "--check-all-methods") {
+        args.remove(index);
+        // Compiling would need the unused bodies' code or a separate cache
+        // entry; checking is where a library author asks for this.
+        if !args
+            .first()
+            .is_some_and(|a| a == "--check" || a == "--check-module")
+        {
+            return Err("--check-all-methods requires --check or --check-module".into());
+        }
+        check.all_methods = true;
+    }
     let mut dump = plenty::DumpOptions::default();
     let mut dump_options = false;
     if let Some(index) = args.iter().position(|a| a == "--dump-std") {
@@ -293,7 +310,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         plenty::skip_teardown();
     }
     if let Some(graph) = graph {
-        return with_graph(program, &graph, &args, &options);
+        return with_graph(program, &graph, &args, &options, &check);
     }
     match args.as_slice() {
         [flag, source, option, output]
@@ -384,11 +401,13 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         [flag] if flag == "--help" || flag == "-h" => {
             print!("{}", usage(program));
         }
-        [flag, source] if flag == "--check" && !legacy => {
-            plenty::check_file(Path::new(source), root.as_deref())?;
-        }
-        [flag, source] if flag == "--check-module" && !legacy => {
-            plenty::check_module_file(Path::new(source), root.as_deref())?;
+        [flag, source] if (flag == "--check" || flag == "--check-module") && !legacy => {
+            plenty::check_file_with_options(
+                Path::new(source),
+                root.as_deref(),
+                flag == "--check",
+                &check,
+            )?;
         }
         [flag, source, option, output]
             if flag == "--fuzz" && !legacy && (option == "-o" || option == "--output") =>
@@ -446,11 +465,12 @@ fn with_graph(
     graph: &Path,
     args: &[String],
     options: &plenty::CompileOptions,
+    check: &plenty::CheckOptions,
 ) -> Result<ExitCode, Box<dyn Error>> {
     let graph = plenty::project::SourceGraph::read(graph)?;
     match args {
         [flag, source] if flag == "--check" || flag == "--check-module" => {
-            plenty::project::check_entry(Path::new(source), &graph, flag == "--check")?;
+            plenty::project::check_entry(Path::new(source), &graph, flag == "--check", check)?;
         }
         [flag, source, option, output]
             if flag == "--compile" && (option == "-o" || option == "--output") =>

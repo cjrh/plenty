@@ -79,6 +79,12 @@ pub fn check_source(source: &str) -> Result<(), Box<dyn std::error::Error>> {
     plenty::check_source(&program(source))
 }
 
+/// [`check_source`] with `--check-all-methods` (issue #517).
+pub fn check_all_methods(source: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let options = plenty::CheckOptions { all_methods: true };
+    plenty::check_source_with_options(&program(source), &options)
+}
+
 pub fn compile_source_to_executable(
     source: &str,
     output: &std::path::Path,

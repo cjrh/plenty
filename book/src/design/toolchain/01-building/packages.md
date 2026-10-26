@@ -11,7 +11,7 @@ graph; imports never fetch or resolve packages.
 |---|---|
 | `plenty new PATH [--lib] [--name NAME]` | Create `PATH` with a manifest, `src/main.plenty` (or `src/lib.plenty`), and `.gitignore` |
 | `plenty init [--lib] [--name NAME]` | Create a package in the current directory; refuses to replace a manifest or source |
-| `plenty check [--locked] [--offline]` | Check the library (without requiring `main`) and every executable |
+| `plenty check [--locked] [--offline] [--check-all-methods]` | Check the library (without requiring `main`) and every executable; [`--check-all-methods`](../../language/07-generics/index.md#checking-every-method) also checks unused methods of the package's own generic instances, not those of `std` or dependency types |
 | `plenty build [--release] [--no-strip] [--locked] [--offline]` | Check the library and compile every executable to `target/PROFILE/NAME` |
 | `plenty run [--release] [--no-strip] [--locked] [--offline] [--bin NAME] [-- ARGS...]` | Build one executable and run it with `ARGS` |
 | `plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]` | Compile and run the package's [tests](#tests) |
@@ -133,8 +133,8 @@ single files.
 
 `build`, `run`, and `test` skip a target whose output exists and whose inputs
 are unchanged since its last successful build; the package's status line then
-reads `Fresh` instead of `Compiling`. `check` and `build` reuse a library check
-the same way. The inputs are the content of every file below each graph
+reads `Fresh` instead of `Compiling`. `build` reuses a library check the same
+way; `check` always checks again. The inputs are the content of every file below each graph
 package's `src/` (not only the imported ones), the package graph, the entry
 file, the target kind, the profile and linker options, and the compiler
 executable (path, size, and modification time; the compiler embeds `std` and

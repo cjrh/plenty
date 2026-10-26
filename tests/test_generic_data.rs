@@ -1,5 +1,5 @@
 mod support;
-use support::{check_source, run};
+use support::{check_all_methods, check_source, run};
 
 #[test]
 fn integer_constraints_apply_to_class_and_enum_arguments() {
@@ -368,4 +368,106 @@ def main() -> ():
         "11:14: `Holder[Guard]` copies `T`, but `Guard` cannot be copied
   8:17: note: in instantiation `Holder[Guard]`: cannot move out of a field"
     );
+}
+
+#[test]
+fn check_all_methods_checks_methods_nothing_uses() {
+    // The default checks a method for an instance only where it is used
+    // (issue #515); `--check-all-methods` checks the rest, at the use that
+    // instantiated the type (issue #517).
+    let unused = |method: &str| {
+        format!(
+            "\n  note: `{method}` is checked because of --check-all-methods; \
+             the program does not use it"
+        )
+    };
+    let cell = "class Cell[T]:
+    value: T
+    def get(self) -> T:
+        self.value
+
+def main() -> Result[(), AllocError]:
+    a = Cell(1)
+    b = Cell([1, 2]?)
+    Ok(())
+";
+    check_source(cell).unwrap();
+    assert_eq!(
+        check_all_methods(cell).unwrap_err().to_string(),
+        format!(
+            "8:9: `Cell[list[i64]].get` copies `T`, but `list[i64]` cannot be copied
+  4:9: note: in instantiation `Cell[list[i64]].get`: cannot move out of a field{}",
+            unused("Cell[list[i64]].get")
+        )
+    );
+    let choice = "enum Choice[T]:
+    Empty
+    Value(T)
+
+    def total(self, other: T) -> T:
+        match self:
+            case Choice.Value(v):
+                v + other
+            case Choice.Empty:
+                other
+
+def main() -> ():
+    a = Choice[i64].Empty
+    b = Choice[bool].Empty
+";
+    check_source(choice).unwrap();
+    assert_eq!(
+        check_all_methods(choice).unwrap_err().to_string(),
+        format!(
+            "14:9: `Choice[bool].total` applies `+` to `T`, but `bool` does not support `+`
+  8:17: note: in instantiation `Choice[bool].total`: operator `+` does not accept bool{}",
+            unused("Choice[bool].total")
+        )
+    );
+    // An unused method's own requirements are attributed to the use that
+    // required its type. A generic type without instances is not checked:
+    // its body has no type arguments to check with.
+    let nested = "def twice[T](value: T) -> T:
+    value + value
+
+class Holder[T]:
+    value: T
+    def doubled(self) -> T:
+        twice(self.value)
+
+class Never[T]:
+    value: T
+    def bad(self) -> T:
+        self.value + 1
+
+def make[T](value: T) -> Holder[T]:
+    Holder(value)
+
+def main() -> ():
+    a = make(1)
+    b = make(True)
+";
+    check_source(nested).unwrap();
+    assert_eq!(
+        check_all_methods(nested).unwrap_err().to_string(),
+        format!(
+            "19:9: `make[bool]` requires `twice[bool]`, which applies `+` to `T`, \
+             but `bool` does not support `+`
+  2:5: note: in instantiation `twice[bool]`: operator `+` does not accept bool{}",
+            unused("Holder[bool].doubled")
+        )
+    );
+    // Methods every instance supports, used or not, still pass.
+    check_all_methods(
+        "class Pair[T]:
+    left: T
+    right: T
+    def first(self: &Pair[T]) -> &T:
+        &self.left
+
+def main() -> ():
+    pair = Pair(1, 2)
+",
+    )
+    .unwrap();
 }

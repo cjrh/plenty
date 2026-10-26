@@ -35,7 +35,13 @@ pub struct Emission {
 pub fn emit_file(path: &Path, options: &Options) -> Result<Emission> {
     let start = Instant::now();
     let mut heap = Heap::default();
-    let program = crate::frontend::compile_file(path, None, false, &mut heap)?;
+    let program = crate::frontend::compile_file(
+        path,
+        None,
+        false,
+        &mut heap,
+        crate::CheckOptions::default(),
+    )?;
     crate::op::check(&program.ops)?;
     let check_time = start.elapsed();
     let start = Instant::now();

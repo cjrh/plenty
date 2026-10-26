@@ -5433,7 +5433,16 @@ fn integer(text: &str, negative: bool, at: &Token) -> Result<Value> {
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
-    lower(modules::single(source)?, heap)
+    lower(
+        modules::single(source)?,
+        heap,
+        crate::CheckOptions::default(),
+    )
+}
+
+/// [`compile`] with the checks `check` adds.
+pub(crate) fn check(source: &str, heap: &mut Heap, check: crate::CheckOptions) -> Result<Program> {
+    lower(modules::single(source)?, heap, check)
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -5442,8 +5451,9 @@ pub(crate) fn compile_file(
     root: Option<&std::path::Path>,
     require_main: bool,
     heap: &mut Heap,
+    check: crate::CheckOptions,
 ) -> Result<Program> {
-    lower(modules::load(path, root, require_main)?, heap)
+    lower(modules::load(path, root, require_main)?, heap, check)
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -5452,8 +5462,9 @@ pub(crate) fn compile_graph(
     graph: &crate::project::SourceGraph,
     require_main: bool,
     heap: &mut Heap,
+    check: crate::CheckOptions,
 ) -> Result<Program> {
-    lower(modules::load_graph(path, graph, require_main)?, heap)
+    lower(modules::load_graph(path, graph, require_main)?, heap, check)
 }
 
 /// The sources of one application build, as the program cache names them.
@@ -5493,6 +5504,7 @@ impl<'a> Sources<'a> {
             } => lower(
                 modules::load_graph_with(entry, graph, true, appendix.as_deref())?,
                 heap,
+                crate::CheckOptions::default(),
             ),
         }
     }
@@ -5542,7 +5554,11 @@ pub(crate) fn test_appendix(tests: &[(String, TestReturn)]) -> String {
 
 pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
     let mut heap = Heap::default();
-    let program = lower(modules::generated_interface(source)?, &mut heap)?;
+    let program = lower(
+        modules::generated_interface(source)?,
+        &mut heap,
+        crate::CheckOptions::default(),
+    )?;
     crate::op::check(&program.ops)
 }
 
@@ -6099,7 +6115,11 @@ fn validate_frames(ops: &[Op]) -> std::result::Result<(), String> {
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
-fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
+fn lower(
+    resolved: modules::Resolved,
+    heap: &mut Heap,
+    check: crate::CheckOptions,
+) -> Result<Program> {
     ide::declare_program(&resolved);
     let modules::Resolved {
         standard_sources,
@@ -6309,6 +6329,11 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             }
         }
         let Some((symbol, f)) = generics.pending.pop_front() else {
+            // Methods no code used are checked last, so each that a use
+            // reached keeps that use as its reported site.
+            if check.all_methods && generics.demand_unused_methods() {
+                continue;
+            }
             break;
         };
         if ide::active() && ide::skipped(&f.name) {

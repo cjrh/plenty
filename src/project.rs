@@ -1079,6 +1079,8 @@ pub struct BuildOptions {
     /// Never fetch; use only `.pkg/`.
     pub offline: bool,
     pub compile: crate::CompileOptions,
+    /// Used only by `plenty check`, which never reuses an earlier result.
+    pub check: crate::CheckOptions,
 }
 
 impl Default for BuildOptions {
@@ -1088,6 +1090,7 @@ impl Default for BuildOptions {
             locked: false,
             offline: false,
             compile: crate::CompileOptions::default(),
+            check: crate::CheckOptions::default(),
         }
     }
 }
@@ -1107,9 +1110,14 @@ fn open(directory: &Path, options: &BuildOptions) -> Result<Project> {
 
 /// Type-check `entry`, a file of `graph.packages[0]`, as an application
 /// (`require_main`) or a library module.
-pub fn check_entry(entry: &Path, graph: &SourceGraph, require_main: bool) -> Result<()> {
+pub fn check_entry(
+    entry: &Path,
+    graph: &SourceGraph,
+    require_main: bool,
+    options: &crate::CheckOptions,
+) -> Result<()> {
     let mut heap = crate::value::Heap::default();
-    let program = crate::frontend::compile_graph(entry, graph, require_main, &mut heap)?;
+    let program = crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
     let checked = crate::op::check(&program.ops);
     crate::teardown((program, heap));
     checked
@@ -1131,10 +1139,15 @@ pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
         status("Checking", title(package));
         let graph = project.source_graph(member);
         if let Some(library) = &package.manifest.library {
-            check_entry(&package.directory.join(library), &graph, false)?;
+            check_entry(
+                &package.directory.join(library),
+                &graph,
+                false,
+                &options.check,
+            )?;
         }
         for (_, entry) in &package.manifest.binaries {
-            check_entry(&package.directory.join(entry), &graph, true)?;
+            check_entry(&package.directory.join(entry), &graph, true, &options.check)?;
         }
     }
     Ok(())
@@ -1226,7 +1239,7 @@ fn build_member(
             ),
             None,
             &mut progress,
-            || check_entry(&entry, &graph, false),
+            || check_entry(&entry, &graph, false, &crate::CheckOptions::default()),
         )?;
     }
     let mut outputs = vec![];
