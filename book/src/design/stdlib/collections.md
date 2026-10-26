@@ -90,3 +90,7 @@ There is no construction from an existing list, bulk insertion, merging,
 indexed access, borrowed iteration, removal of an arbitrary element, or
 priority update. A comparator cannot fail; one that reports inconsistent answers
 gives an unspecified order but cannot break memory safety.
+
+## Acknowledgements
+
+- Modelled on Python's [`heapq`](https://docs.python.org/3/library/heapq.html), which also puts the least element first, and Rust's [`BinaryHeap`](https://doc.rust-lang.org/std/collections/struct.BinaryHeap.html).
