@@ -1,0 +1,2624 @@
+# CommonMark 0.31.2: a block and inline parser that yields events, and an HTML
+# renderer for those events. Raw HTML in the input passes through unchanged.
+# Sizes the input controls are bounded by `Limits`. See
+# book/src/design/stdlib/markdown.md.
+#
+# The parser and renderer are derived from commonmark.js 0.31.2 (commit
+# cb2c2303d3550ec6ef28ceb2841f148e8761eebf), Copyright (c) 2014, John MacFarlane,
+# under the BSD-2-Clause license; its full text is in
+# scripts/release/licenses/commonmark.js-0.31.2-LICENSE.txt and in release
+# archives' THIRD-PARTY-NOTICES.md:
+#
+#     Redistribution and use in source and binary forms, with or without
+#     modification, are permitted provided that the following conditions are
+#     met: (1) Redistributions of source code must retain the above copyright
+#     notice, this list of conditions and the following disclaimer.
+#     (2) Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#
+#     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+#     IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+#     THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+#     PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+#     CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+#     EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+#     PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+#     PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+#     LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+#     NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+#     SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# The generated tables at the end of this file carry their own notices.
+import std.bytes
+import std.error
+import std.io
+from std.bytes import Bytes, BytesError
+from std.io import Writer, StreamError
+
+pub enum MarkdownFault:
+    InvalidUtf8
+    InputTooLarge
+    OutputTooLarge
+    DepthExceeded
+    InvalidLimits
+    InvalidState
+    Stream(StreamError)
+    Allocation(AllocError)
+
+# `offset` is the input byte at fault for `InvalidUtf8`, `max_input` for
+# `InputTooLarge`, and the start of the offending line for `DepthExceeded`,
+# whose `line` counts from one. Renderer errors carry the bytes produced so
+# far. Other errors carry zero for both.
+pub class MarkdownError:
+    pub fault: MarkdownFault
+    pub offset: i64
+    pub line: i64
+
+# `max_depth` bounds block quotes and list items open at once.
+pub class Limits:
+    pub max_input: i64
+    pub max_depth: i64
+    pub max_output: i64
+
+pub enum Tag:
+    Paragraph
+    Heading(i64)
+    BlockQuote
+    CodeBlock(str)
+    BulletList
+    OrderedList(i64)
+    Item
+    Emphasis
+    Strong
+    Link(str, str)
+    Image(str, str)
+
+# Paragraphs directly inside a tight list item produce no `Paragraph` events.
+# Adjacent text arrives as one `Text`. `Html` is a raw block without its final
+# line ending; `InlineHtml` is a raw tag inside a paragraph or heading.
+pub enum Event:
+    Start(Tag)
+    End(Tag)
+    Text(str)
+    Code(str)
+    Html(str)
+    InlineHtml(str)
+    SoftBreak
+    HardBreak
+    Rule
+    Done
+
+const default_size: i64 = 67108864
+const flush_size: i64 = 65536
+
+const k_document: i64 = 0
+const k_quote: i64 = 1
+const k_list: i64 = 2
+const k_item: i64 = 3
+const k_paragraph: i64 = 4
+const k_heading: i64 = 5
+const k_rule: i64 = 6
+const k_code: i64 = 7
+const k_html: i64 = 8
+
+const i_root: i64 = 0
+const i_text: i64 = 1
+const i_soft: i64 = 2
+const i_hard: i64 = 3
+const i_code: i64 = 4
+const i_html: i64 = 5
+const i_emphasis: i64 = 6
+const i_strong: i64 = 7
+const i_link: i64 = 8
+const i_image: i64 = 9
+
+pub def limits() -> Limits:
+    Limits(default_size, 64, default_size)
+
+def valid(bounds: &Limits) -> bool:
+    bounds.max_input >= 0 and bounds.max_depth >= 0 and bounds.max_output >= 0
+
+def faulted[T](result: Result[T, BytesError]) -> Result[T, MarkdownFault]:
+    std.error.map_error(result, def once (cause: BytesError) -> MarkdownFault: bytes_fault(cause))
+
+def bytes_fault(error: BytesError) -> MarkdownFault:
+    match error:
+        case BytesError.Allocation(cause):
+            MarkdownFault.Allocation(cause)
+        case BytesError.InvalidUtf8:
+            MarkdownFault.InvalidUtf8
+        case BytesError.OutOfRange:
+            MarkdownFault.InvalidState
+
+def reserved[T](result: Result[T, AllocError]) -> Result[T, MarkdownFault]:
+    std.error.map_error(result, def once (cause: AllocError) -> MarkdownFault: MarkdownFault.Allocation(cause))
+
+def unplaced[T](result: Result[T, MarkdownFault]) -> Result[T, MarkdownError]:
+    std.error.map_error(result, def once (fault: MarkdownFault) -> MarkdownError: MarkdownError(fault, 0, 0))
+
+def push_byte(target: &mut Bytes, value: i64) -> Result[(), MarkdownFault]:
+    faulted(target.push(u8(value)))
+
+def push_scalar(target: &mut Bytes, code: i64) -> Result[(), MarkdownFault]:
+    if code < 128:
+        return push_byte(target, code)
+    if code < 2048:
+        push_byte(target, 192 | (code >> 6))?
+        return push_byte(target, 128 | (code & 63))
+    if code < 65536:
+        push_byte(target, 224 | (code >> 12))?
+        push_byte(target, 128 | ((code >> 6) & 63))?
+        return push_byte(target, 128 | (code & 63))
+    push_byte(target, 240 | (code >> 18))?
+    push_byte(target, 128 | ((code >> 12) & 63))?
+    push_byte(target, 128 | ((code >> 6) & 63))?
+    push_byte(target, 128 | (code & 63))
+
+def text_of(source: &Bytes, start: i64, stop: i64) -> Result[str, MarkdownFault]:
+    faulted(source.to_text_range(start, stop))
+
+# Byte `index` of `source`, or -1 at or past `stop`.
+def peek(source: &Bytes, index: i64, stop: i64) -> i64:
+    if index < stop:
+        return i64(source[index])
+    -1
+
+def is_space_or_tab(c: i64) -> bool:
+    c == 32 or c == 9
+
+# Space, tab, and the ASCII line and page breaks.
+def is_ascii_space(c: i64) -> bool:
+    c == 32 or c == 9 or c == 10 or c == 11 or c == 12 or c == 13
+
+def is_letter(c: i64) -> bool:
+    (c >= 65 and c <= 90) or (c >= 97 and c <= 122)
+
+def is_digit(c: i64) -> bool:
+    c >= 48 and c <= 57
+
+def is_alnum(c: i64) -> bool:
+    is_letter(c) or is_digit(c)
+
+def is_ascii_punctuation(c: i64) -> bool:
+    (c >= 33 and c <= 47) or (c >= 58 and c <= 64) or (c >= 91 and c <= 96) or (c >= 123 and c <= 126)
+
+def lower(c: i64) -> i64:
+    if c >= 65 and c <= 90:
+        return c + 32
+    c
+
+def hex_value(c: i64) -> i64:
+    if is_digit(c):
+        return c - 48
+    folded = lower(c)
+    if folded >= 97 and folded <= 102:
+        return folded - 87
+    -1
+
+# The scalar that starts at `index`; `source` is valid UTF-8.
+def scalar_at(source: &Bytes, index: i64) -> i64:
+    first = i64(source[index])
+    if first < 128:
+        return first
+    if first < 224:
+        return ((first & 31) << 6) | (i64(source[index + 1]) & 63)
+    if first < 240:
+        return ((first & 15) << 12) | ((i64(source[index + 1]) & 63) << 6) | (i64(source[index + 2]) & 63)
+    ((first & 7) << 18) | ((i64(source[index + 1]) & 63) << 12) | ((i64(source[index + 2]) & 63) << 6) | (i64(source[index + 3]) & 63)
+
+# The scalar that ends just before `index`.
+def scalar_before(source: &Bytes, index: i64) -> i64:
+    mut start = index - 1
+    while start > 0 and (i64(source[start]) & 192) == 128:
+        start -= 1
+    scalar_at(source, start)
+
+def is_unicode_whitespace(code: i64) -> bool:
+    if code < 128:
+        return is_ascii_space(code) and code != 11
+    code == 160 or code == 5760 or (code >= 8192 and code <= 8202) or code == 8239 or code == 8287 or code == 12288
+
+def is_unicode_punctuation(code: i64) -> bool:
+    if code < 128:
+        return is_ascii_punctuation(code)
+    table = punctuation_ranges(punctuation_chunk(code))
+    mut low = 0
+    mut high = len(table) // 6
+    while low < high:
+        middle = (low + high) // 2
+        base = middle * 6
+        first = (i64(table[base]) << 16) | (i64(table[base + 1]) << 8) | i64(table[base + 2])
+        last = (i64(table[base + 3]) << 16) | (i64(table[base + 4]) << 8) | i64(table[base + 5])
+        if code < first:
+            high = middle
+        elif code > last:
+            low = middle + 1
+        else:
+            return True
+    False
+
+# Appends the value of the named reference `source[start:stop]`, which excludes
+# `&` and `;`, and reports whether the name exists.
+def push_named(source: &Bytes, start: i64, stop: i64, target: &mut Bytes) -> Result[bool, MarkdownFault]:
+    table = entity_bucket(i64(source[start]))
+    rest = stop - start - 1
+    mut index = 0
+    while index < len(table):
+        size = i64(table[index])
+        value_at = index + 1 + size
+        value_size = i64(table[value_at])
+        if size == rest:
+            mut same = True
+            for position in range(size):
+                if i64(table[index + 1 + position]) != i64(source[start + 1 + position]):
+                    same = False
+                    break
+            if same:
+                for position in range(value_size):
+                    push_byte(target, i64(table[value_at + 1 + position]))?
+                return Ok(True)
+        index = value_at + 1 + value_size
+    Ok(False)
+
+# Decodes the entity or numeric character reference at `start`, which holds
+# `&`, appending its value. Returns the index after `;`, or -1 when there is no
+# valid reference, having appended nothing.
+def push_entity(source: &Bytes, start: i64, stop: i64, target: &mut Bytes) -> Result[i64, MarkdownFault]:
+    mut index = start + 1
+    if peek(source, index, stop) == 35:
+        index += 1
+        mut value = 0
+        mut digits = 0
+        if lower(peek(source, index, stop)) == 120:
+            index += 1
+            while digits < 6 and hex_value(peek(source, index, stop)) >= 0:
+                value = value * 16 + hex_value(peek(source, index, stop))
+                digits += 1
+                index += 1
+        else:
+            while digits < 7 and is_digit(peek(source, index, stop)):
+                value = value * 10 + peek(source, index, stop) - 48
+                digits += 1
+                index += 1
+        if digits == 0 or peek(source, index, stop) != 59:
+            return Ok(-1)
+        if value == 0 or value > 1114111 or (value >= 55296 and value <= 57343):
+            value = 65533
+        push_scalar(target, value)?
+        return Ok(index + 1)
+    if not is_letter(peek(source, index, stop)):
+        return Ok(-1)
+    while index - start <= 32 and is_alnum(peek(source, index, stop)):
+        index += 1
+    size = index - start - 1
+    if size < 2 or size > 32 or peek(source, index, stop) != 59:
+        return Ok(-1)
+    if push_named(source, start + 1, index, target)?:
+        return Ok(index + 1)
+    Ok(-1)
+
+# Appends `source[start:stop]` with backslash escapes and character references
+# resolved, as for link destinations, titles, and info strings.
+def push_unescaped(source: &Bytes, start: i64, stop: i64, target: &mut Bytes) -> Result[(), MarkdownFault]:
+    mut index = start
+    while index < stop:
+        c = i64(source[index])
+        if c == 92 and index + 1 < stop and is_ascii_punctuation(i64(source[index + 1])):
+            push_byte(target, i64(source[index + 1]))?
+            index += 2
+        elif c == 38:
+            after = push_entity(source, index, stop, target)?
+            if after < 0:
+                push_byte(target, c)?
+                index += 1
+            else:
+                index = after
+        else:
+            push_byte(target, c)?
+            index += 1
+    Ok(())
+
+def unescaped(source: &Bytes, start: i64, stop: i64, scratch: &mut Bytes) -> Result[str, MarkdownFault]:
+    scratch.clear()
+    push_unescaped(source, start, stop, scratch)?
+    text_of(scratch, 0, scratch.len())
+
+# The case-folded form under which a link label matches: inner whitespace runs
+# become one space, outer whitespace goes, and the text is lowered then raised
+# so that, for example, `ß` and `SS` match.
+def normalized_label(source: &Bytes, start: i64, stop: i64, scratch: &mut Bytes) -> Result[str, MarkdownFault]:
+    scratch.clear()
+    mut pending = False
+    for index in range(start, stop):
+        c = i64(source[index])
+        if c == 32 or c == 9 or c == 10 or c == 13:
+            pending = scratch.len() > 0
+        else:
+            if pending:
+                push_byte(scratch, 32)?
+                pending = False
+            push_byte(scratch, c)?
+    raw = text_of(scratch, 0, scratch.len())?
+    folded = reserved(raw.lower())?
+    reserved(folded.upper())
+
+def skip_spaces(source: &Bytes, index: i64, stop: i64) -> i64:
+    mut at = index
+    while is_space_or_tab(peek(source, at, stop)):
+        at += 1
+    at
+
+def skip_whitespace(source: &Bytes, index: i64, stop: i64) -> i64:
+    mut at = index
+    while is_ascii_space(peek(source, at, stop)):
+        at += 1
+    at
+
+# Spaces or tabs, including up to one line ending.
+def skip_spnl(source: &Bytes, index: i64, stop: i64) -> i64:
+    mut at = skip_spaces(source, index, stop)
+    if peek(source, at, stop) == 10:
+        at = skip_spaces(source, at + 1, stop)
+    at
+
+# The index after a link label that starts at `index`, or -1.
+def scan_label(source: &Bytes, index: i64, stop: i64) -> i64:
+    if peek(source, index, stop) != 91:
+        return -1
+    mut at = index + 1
+    mut count = 0
+    while at < stop:
+        c = i64(source[at])
+        if c == 93:
+            return at + 1
+        if c == 91 or count >= 999:
+            return -1
+        if c == 92 and at + 1 < stop:
+            at += 1
+        at += 1
+        while at < stop and (i64(source[at]) & 192) == 128:
+            at += 1
+        count += 1
+    -1
+
+# A link destination at `index`: the index after it and the bounds of its
+# content, or -1 first.
+def scan_destination(source: &Bytes, index: i64, stop: i64) -> (i64, i64, i64):
+    if peek(source, index, stop) == 60:
+        mut at = index + 1
+        while at < stop:
+            c = i64(source[at])
+            if c == 62:
+                return (at + 1, index + 1, at)
+            if c == 60 or c == 10:
+                return (-1, 0, 0)
+            if c == 92:
+                if peek(source, at + 1, stop) == 10 or at + 1 >= stop:
+                    return (-1, 0, 0)
+                at += 2
+            else:
+                at += 1
+        return (-1, 0, 0)
+    mut at = index
+    mut depth = 0
+    while at < stop:
+        c = i64(source[at])
+        if c == 92 and is_ascii_punctuation(peek(source, at + 1, stop)):
+            at += 2
+        elif c == 40:
+            # As in cmark: a bound on nesting keeps failed scans short.
+            if depth >= 32:
+                return (-1, 0, 0)
+            depth += 1
+            at += 1
+        elif c == 41:
+            if depth < 1:
+                break
+            depth -= 1
+            at += 1
+        elif c <= 32 or c == 127:
+            break
+        else:
+            at += 1
+    if at == index and peek(source, at, stop) != 41:
+        return (-1, 0, 0)
+    if depth != 0:
+        return (-1, 0, 0)
+    (at, index, at)
+
+# The index after a link title that starts at `index`, or -1.
+def scan_title(source: &Bytes, index: i64, stop: i64) -> i64:
+    open = peek(source, index, stop)
+    mut close = open
+    if open == 40:
+        close = 41
+    elif open != 34 and open != 39:
+        return -1
+    mut at = index + 1
+    while at < stop:
+        c = i64(source[at])
+        if c == close:
+            return at + 1
+        if c == 40 and open == 40:
+            return -1
+        if c == 92 and at + 1 < stop:
+            at += 2
+        else:
+            at += 1
+    -1
+
+# Spaces or tabs to the end of a line: the index after its line ending, `stop`
+# at the end of input, or -1.
+def scan_line_end(source: &Bytes, index: i64, stop: i64) -> i64:
+    at = skip_spaces(source, index, stop)
+    if at >= stop:
+        return stop
+    if i64(source[at]) == 10:
+        return at + 1
+    -1
+
+def scan_tag_name(source: &Bytes, index: i64, stop: i64) -> i64:
+    if not is_letter(peek(source, index, stop)):
+        return -1
+    mut at = index + 1
+    while is_alnum(peek(source, at, stop)) or peek(source, at, stop) == 45:
+        at += 1
+    at
+
+def is_attribute_start(c: i64) -> bool:
+    is_letter(c) or c == 95 or c == 58
+
+def is_attribute_part(c: i64) -> bool:
+    is_alnum(c) or c == 95 or c == 46 or c == 58 or c == 45
+
+# An HTML open tag at `index`, which holds `<`: the index after `>`, or -1.
+def scan_open_tag(source: &Bytes, index: i64, stop: i64) -> i64:
+    mut at = scan_tag_name(source, index + 1, stop)
+    if at < 0:
+        return -1
+    while True:
+        gap = skip_whitespace(source, at, stop)
+        if gap == at or not is_attribute_start(peek(source, gap, stop)):
+            at = gap
+            break
+        mut name = gap + 1
+        while is_attribute_part(peek(source, name, stop)):
+            name += 1
+        at = name
+        equals = skip_whitespace(source, name, stop)
+        if peek(source, equals, stop) == 61:
+            value = skip_whitespace(source, equals + 1, stop)
+            quote = peek(source, value, stop)
+            if quote == 34 or quote == 39:
+                mut end = value + 1
+                while end < stop and i64(source[end]) != quote:
+                    end += 1
+                if end >= stop:
+                    return -1
+                at = end + 1
+            else:
+                mut end = value
+                while end < stop:
+                    c = i64(source[end])
+                    if c <= 32 or c == 34 or c == 39 or c == 61 or c == 60 or c == 62 or c == 96:
+                        break
+                    end += 1
+                if end == value:
+                    return -1
+                at = end
+    if peek(source, at, stop) == 47:
+        at += 1
+    if peek(source, at, stop) == 62:
+        return at + 1
+    -1
+
+# An HTML closing tag at `index`, which holds `<`: the index after `>`, or -1.
+def scan_close_tag(source: &Bytes, index: i64, stop: i64) -> i64:
+    if peek(source, index + 1, stop) != 47:
+        return -1
+    name = scan_tag_name(source, index + 2, stop)
+    if name < 0:
+        return -1
+    at = skip_whitespace(source, name, stop)
+    if peek(source, at, stop) == 62:
+        return at + 1
+    -1
+
+# Whether `source[index:]` starts with `word`, ignoring ASCII case.
+def starts_folded(source: &Bytes, index: i64, stop: i64, word: bytes) -> bool:
+    if stop - index < len(word):
+        return False
+    for position in range(len(word)):
+        if lower(i64(source[index + position])) != i64(word[position]):
+            return False
+    True
+
+def starts_exact(source: &Bytes, index: i64, stop: i64, word: bytes) -> bool:
+    if stop - index < len(word):
+        return False
+    for position in range(len(word)):
+        if i64(source[index + position]) != i64(word[position]):
+            return False
+    True
+
+# The first index at or after `index` where `word` starts, or -1.
+def find_folded(source: &Bytes, index: i64, stop: i64, word: bytes) -> i64:
+    mut at = index
+    while at + len(word) <= stop:
+        if starts_folded(source, at, stop, word):
+            return at
+        at += 1
+    -1
+
+def raw_text_tag(which: i64) -> bytes:
+    match which:
+        case 0:
+            b"script"
+        case 1:
+            b"pre"
+        case 2:
+            b"textarea"
+        case _:
+            b"style"
+
+def raw_text_close(which: i64) -> bytes:
+    match which:
+        case 0:
+            b"</script>"
+        case 1:
+            b"</pre>"
+        case 2:
+            b"</textarea>"
+        case _:
+            b"</style>"
+
+def block_tag_names() -> bytes:
+    b" address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table tbody td tfoot th thead title tr track ul "
+
+def is_block_tag(source: &Bytes, start: i64, stop: i64) -> bool:
+    names = block_tag_names()
+    size = stop - start
+    mut at = 1
+    while at < len(names):
+        mut end = at
+        while i64(names[end]) != 32:
+            end += 1
+        if end - at == size:
+            mut same = True
+            for position in range(size):
+                if lower(i64(source[start + position])) != i64(names[at + position]):
+                    same = False
+                    break
+            if same:
+                return True
+        at = end + 1
+    False
+
+def html_block_ends(kind: i64, source: &Bytes, start: i64, stop: i64) -> bool:
+    match kind:
+        case 1:
+            for which in range(4):
+                if find_folded(source, start, stop, raw_text_close(which)) >= 0:
+                    return True
+            False
+        case 2:
+            find_folded(source, start, stop, b"-->") >= 0
+        case 3:
+            find_folded(source, start, stop, b"?>") >= 0
+        case 4:
+            find_folded(source, start, stop, b">") >= 0
+        case 5:
+            find_folded(source, start, stop, b"]]>") >= 0
+        case _:
+            False
+
+class Block:
+    kind: i64
+    parent: i64
+    first: i64
+    last: i64
+    prev: i64
+    next: i64
+    open: bool
+    start_line: i64
+    end_line: i64
+    content: Bytes
+    level: i64
+    fenced: bool
+    fence_char: i64
+    fence_length: i64
+    fence_offset: i64
+    html_kind: i64
+    info: str
+    ordered: bool
+    bullet: i64
+    delimiter: i64
+    start: i64
+    marker_offset: i64
+    padding: i64
+    tight: bool
+    depth: i64
+
+class Refs:
+    index: dict[str, i64]
+    destinations: list[str]
+    titles: list[str]
+
+class Inline:
+    kind: i64
+    parent: i64
+    first: i64
+    last: i64
+    prev: i64
+    next: i64
+    start: i64
+    stop: i64
+    destination: str
+    title: str
+
+class Delimiter:
+    cc: i64
+    count: i64
+    original: i64
+    node: i64
+    previous: i64
+    next: i64
+    can_open: bool
+    can_close: bool
+
+class Bracket:
+    node: i64
+    previous: i64
+    previous_delimiter: i64
+    index: i64
+    image: bool
+    bracket_after: bool
+    sequence: i64
+
+# Parses a link reference definition at the start of `content[start:]` into
+# `refs`, keeping an earlier definition of the same label. Returns the bytes
+# consumed, or zero when there is none.
+def parse_reference(content: &Bytes, start: i64, refs: &mut Refs, scratch: &mut Bytes) -> Result[i64, MarkdownFault]:
+    stop = content.len()
+    label_end = scan_label(content, start, stop)
+    if label_end < 0 or peek(content, label_end, stop) != 58:
+        return Ok(0)
+    destination_at = skip_spnl(content, label_end + 1, stop)
+    found = scan_destination(content, destination_at, stop)
+    destination_end, destination_start, destination_stop = found
+    if destination_end < 0:
+        return Ok(0)
+    title_at = skip_spnl(content, destination_end, stop)
+    mut end = -1
+    mut title_end = -1
+    if title_at != destination_end:
+        title_end = scan_title(content, title_at, stop)
+        if title_end >= 0:
+            end = scan_line_end(content, title_end, stop)
+    if end < 0:
+        title_end = -1
+        end = scan_line_end(content, destination_end, stop)
+        if end < 0:
+            return Ok(0)
+    label = normalized_label(content, start + 1, label_end - 1, scratch)?
+    if label == "":
+        return Ok(0)
+    if refs.index.get(label).is_none():
+        destination = unescaped(content, destination_start, destination_stop, scratch)?
+        mut title = ""
+        if title_end >= 0:
+            title = unescaped(content, title_at + 1, title_end - 1, scratch)?
+        reserved(refs.index.insert(label, len(refs.destinations)))?
+        reserved(refs.destinations.append(destination))?
+        reserved(refs.titles.append(title))?
+    Ok(end - start)
+
+def is_blank(content: &Bytes, start: i64) -> bool:
+    for index in range(start, content.len()):
+        if not is_ascii_space(i64(content[index])):
+            return False
+    True
+
+def can_contain(parent: i64, child: i64) -> bool:
+    if parent == k_document or parent == k_quote:
+        return child != k_item
+    if parent == k_item:
+        return child != k_item
+    if parent == k_list:
+        return child == k_item
+    False
+
+def accepts_lines(kind: i64) -> bool:
+    kind == k_paragraph or kind == k_code or kind == k_html
+
+# Iterates over the events of one document. Block structure is parsed when
+# the parser is created; inline content is parsed one paragraph or heading at
+# a time as events are taken.
+pub class Parser:
+    _text: Bytes
+    _blocks: list[Block]
+    _refs: Refs
+    _scratch: Bytes
+    _max_depth: i64
+    _line_end: i64
+    _line_number: i64
+    _offset: i64
+    _column: i64
+    _next_nonspace: i64
+    _next_nonspace_column: i64
+    _indent: i64
+    _indented: bool
+    _blank: bool
+    _partial_tab: bool
+    _all_closed: bool
+    _tip: i64
+    _old_tip: i64
+    _last_matched: i64
+    _subject: Bytes
+    _pool: Bytes
+    _inlines: list[Inline]
+    _delimiters: list[Delimiter]
+    _brackets: list[Bracket]
+    _delimiter_top: i64
+    _bracket_top: i64
+    _bracket_count: i64
+    _link_floor: i64
+    _pos: i64
+    _ticks_scanned: bool
+    _tick_last: list[i64]
+    _missing: list[i64]
+    _queue: list[Event]
+    _queued: i64
+    _node: i64
+    _entering: bool
+    _finished: bool
+    _broken: bool
+    _target_destination: str
+    _target_title: str
+
+    # Block parsing.
+
+    def block_kind(self, index: i64) -> i64:
+        self._blocks[index].kind
+
+    def at(self, index: i64) -> i64:
+        peek(&self._text, index, self._line_end)
+
+    def find_next_nonspace(self: &mut Parser) -> ():
+        mut index = self._offset
+        mut columns = self._column
+        mut c = self.at(index)
+        while c == 32 or c == 9:
+            if c == 32:
+                columns += 1
+            else:
+                columns += 4 - columns % 4
+            index += 1
+            c = self.at(index)
+        self._blank = c == -1
+        self._next_nonspace = index
+        self._next_nonspace_column = columns
+        self._indent = columns - self._column
+        self._indented = self._indent >= 4
+
+    def advance_next_nonspace(self: &mut Parser) -> ():
+        self._offset = self._next_nonspace
+        self._column = self._next_nonspace_column
+        self._partial_tab = False
+
+    # Moves over `count` bytes, or with `columns` over `count` columns, in
+    # which case a tab may be consumed only partly.
+    def advance_offset(self: &mut Parser, count: i64, columns: bool) -> ():
+        mut remaining = count
+        while remaining > 0 and self._offset < self._line_end:
+            if i64(self._text[self._offset]) == 9:
+                to_tab = 4 - self._column % 4
+                if columns:
+                    self._partial_tab = to_tab > remaining
+                    step = to_tab if to_tab < remaining else remaining
+                    self._column += step
+                    if not self._partial_tab:
+                        self._offset += 1
+                    remaining -= step
+                else:
+                    self._partial_tab = False
+                    self._column += to_tab
+                    self._offset += 1
+                    remaining -= 1
+            else:
+                self._partial_tab = False
+                self._offset += 1
+                self._column += 1
+                remaining -= 1
+
+    def add_line(self: &mut Parser) -> Result[(), MarkdownFault]:
+        tip = self._tip
+        if self._partial_tab:
+            self._offset += 1
+            for _ in range(4 - self._column % 4):
+                push_byte(&mut self._blocks[tip].content, 32)?
+        faulted(self._blocks[tip].content.extend_range(&self._text, self._offset, self._line_end))?
+        push_byte(&mut self._blocks[tip].content, 10)
+
+    def add_child(self: &mut Parser, kind: i64, offset: i64) -> Result[i64, MarkdownFault]:
+        while not can_contain(self.block_kind(self._tip), kind):
+            self.finalize(self._tip, self._line_number - 1)?
+        parent = self._tip
+        mut depth = self._blocks[parent].depth
+        if kind == k_quote or kind == k_item:
+            depth += 1
+        if depth > self._max_depth:
+            return Err(MarkdownFault.DepthExceeded)
+        content = faulted(std.bytes.empty())?
+        index = len(self._blocks)
+        previous = self._blocks[parent].last
+        block = Block(kind, parent, -1, -1, previous, -1, True, self._line_number, self._line_number, content, 0, False, 0, 0, 0, 0, "", False, 0, 0, 0, 0, 0, True, depth)
+        reserved(self._blocks.append(block))?
+        if previous >= 0:
+            self._blocks[previous].next = index
+        else:
+            self._blocks[parent].first = index
+        self._blocks[parent].last = index
+        self._tip = index
+        Ok(index)
+
+    def unlink_block(self: &mut Parser, index: i64) -> ():
+        parent = self._blocks[index].parent
+        previous = self._blocks[index].prev
+        following = self._blocks[index].next
+        if previous >= 0:
+            self._blocks[previous].next = following
+        else:
+            self._blocks[parent].first = following
+        if following >= 0:
+            self._blocks[following].prev = previous
+        else:
+            self._blocks[parent].last = previous
+
+    # Consumes the link reference definitions that start a paragraph's
+    # content and reports whether any content remains.
+    def take_references(self: &mut Parser, index: i64) -> Result[bool, MarkdownFault]:
+        mut start = 0
+        while peek(&self._blocks[index].content, start, self._blocks[index].content.len()) == 91:
+            used = parse_reference(&self._blocks[index].content, start, &mut self._refs, &mut self._scratch)?
+            if used == 0:
+                break
+            start += used
+        if start > 0:
+            rest = faulted(self._blocks[index].content.slice(start, self._blocks[index].content.len()))?
+            self._blocks[index].content = rest
+        Ok(not is_blank(&self._blocks[index].content, 0))
+
+    def finalize(self: &mut Parser, index: i64, line: i64) -> Result[(), MarkdownFault]:
+        above = self._blocks[index].parent
+        self._blocks[index].open = False
+        self._blocks[index].end_line = line
+        kind = self.block_kind(index)
+        if kind == k_paragraph:
+            if not self.take_references(index)?:
+                self.unlink_block(index)
+        elif kind == k_code:
+            self.finalize_code(index)?
+        elif kind == k_html:
+            size = self._blocks[index].content.len()
+            if size > 0 and i64(self._blocks[index].content[size - 1]) == 10:
+                faulted(self._blocks[index].content.truncate(size - 1))?
+        elif kind == k_list:
+            self.finalize_list(index)
+        elif kind == k_item:
+            last = self._blocks[index].last
+            if last >= 0:
+                self._blocks[index].end_line = self._blocks[last].end_line
+            else:
+                self._blocks[index].end_line = self._blocks[index].start_line
+        self._tip = above
+        Ok(())
+
+    def finalize_code(self: &mut Parser, index: i64) -> Result[(), MarkdownFault]:
+        size = self._blocks[index].content.len()
+        if self._blocks[index].fenced:
+            mut newline = 0
+            while i64(self._blocks[index].content[newline]) != 10:
+                newline += 1
+            first = skip_whitespace(&self._blocks[index].content, 0, newline)
+            mut last = newline
+            while last > first and is_ascii_space(i64(self._blocks[index].content[last - 1])):
+                last -= 1
+            info = unescaped(&self._blocks[index].content, first, last, &mut self._scratch)?
+            self._blocks[index].info = info
+            rest = faulted(self._blocks[index].content.slice(newline + 1, size))?
+            self._blocks[index].content = rest
+            return Ok(())
+        # Trailing blank lines are not part of an indented block.
+        mut end = size
+        while end > 0:
+            mut line_start = end - 1
+            while line_start > 0 and i64(self._blocks[index].content[line_start - 1]) != 10:
+                line_start -= 1
+            if skip_spaces(&self._blocks[index].content, line_start, end - 1) != end - 1:
+                break
+            end = line_start
+        lines = faulted(self._blocks[index].content.count(10u8, 0, end))?
+        faulted(self._blocks[index].content.truncate(end))?
+        self._blocks[index].end_line = self._blocks[index].start_line + lines - 1
+        Ok(())
+
+    # A list is loose when a blank line separates two of its items or two
+    # blocks directly inside one item.
+    def finalize_list(self: &mut Parser, index: i64) -> ():
+        mut item = self._blocks[index].first
+        mut tight = True
+        while item >= 0 and tight:
+            following = self._blocks[item].next
+            if following >= 0 and self._blocks[item].end_line != self._blocks[following].start_line - 1:
+                tight = False
+            mut child = self._blocks[item].first
+            while child >= 0 and tight:
+                after = self._blocks[child].next
+                if after >= 0 and self._blocks[child].end_line != self._blocks[after].start_line - 1:
+                    tight = False
+                child = after
+            item = following
+        self._blocks[index].tight = tight
+        last = self._blocks[index].last
+        if last >= 0:
+            self._blocks[index].end_line = self._blocks[last].end_line
+
+    def close_unmatched(self: &mut Parser) -> Result[(), MarkdownFault]:
+        if not self._all_closed:
+            while self._old_tip != self._last_matched:
+                parent = self._blocks[self._old_tip].parent
+                self.finalize(self._old_tip, self._line_number - 1)?
+                self._old_tip = parent
+            self._all_closed = True
+        Ok(())
+
+    # 0 when the line continues `container`, 1 when it does not, and 2 when
+    # it closed a fenced code block and the line is finished.
+    def continues(self: &mut Parser, container: i64) -> Result[i64, MarkdownFault]:
+        kind = self.block_kind(container)
+        if kind == k_quote:
+            if not self._indented and self.at(self._next_nonspace) == 62:
+                self.advance_next_nonspace()
+                self.advance_offset(1, False)
+                if is_space_or_tab(self.at(self._offset)):
+                    self.advance_offset(1, True)
+                return Ok(0)
+            return Ok(1)
+        if kind == k_item:
+            if self._blank:
+                if self._blocks[container].first < 0:
+                    return Ok(1)
+                self.advance_next_nonspace()
+                return Ok(0)
+            width = self._blocks[container].marker_offset + self._blocks[container].padding
+            if self._indent >= width:
+                self.advance_offset(width, True)
+                return Ok(0)
+            return Ok(1)
+        if kind == k_heading or kind == k_rule:
+            return Ok(1)
+        if kind == k_code:
+            if self._blocks[container].fenced:
+                fence = self._blocks[container].fence_char
+                if self._indent <= 3 and self.at(self._next_nonspace) == fence:
+                    mut end = self._next_nonspace
+                    while self.at(end) == fence:
+                        end += 1
+                    if end - self._next_nonspace >= self._blocks[container].fence_length and skip_spaces(&self._text, end, self._line_end) == self._line_end:
+                        self.finalize(container, self._line_number)?
+                        return Ok(2)
+                mut skip = self._blocks[container].fence_offset
+                while skip > 0 and is_space_or_tab(self.at(self._offset)):
+                    self.advance_offset(1, True)
+                    skip -= 1
+                return Ok(0)
+            if self._indent >= 4:
+                self.advance_offset(4, True)
+                return Ok(0)
+            if self._blank:
+                self.advance_next_nonspace()
+                return Ok(0)
+            return Ok(1)
+        if kind == k_html:
+            html_kind = self._blocks[container].html_kind
+            if self._blank and (html_kind == 6 or html_kind == 7):
+                return Ok(1)
+            return Ok(0)
+        if kind == k_paragraph:
+            if self._blank:
+                return Ok(1)
+            return Ok(0)
+        Ok(0)
+
+    def html_start(self, container: i64) -> i64:
+        start = self._next_nonspace
+        stop = self._line_end
+        if self.at(start) != 60:
+            return 0
+        for which in range(4):
+            tag = raw_text_tag(which)
+            if starts_folded(&self._text, start + 1, stop, tag):
+                after = self.at(start + 1 + len(tag))
+                if after == -1 or after == 62 or is_ascii_space(after):
+                    return 1
+        if starts_folded(&self._text, start, stop, b"<!--"):
+            return 2
+        if self.at(start + 1) == 63:
+            return 3
+        if self.at(start + 1) == 33 and is_letter(self.at(start + 2)):
+            return 4
+        if starts_exact(&self._text, start, stop, b"<![CDATA["):
+            return 5
+        mut name = start + 1
+        if self.at(name) == 47:
+            name += 1
+        mut end = name
+        while is_alnum(self.at(end)):
+            end += 1
+        if end > name and is_block_tag(&self._text, name, end):
+            after = self.at(end)
+            if after == -1 or after == 62 or is_ascii_space(after) or (after == 47 and self.at(end + 1) == 62):
+                return 6
+        if self.block_kind(container) == k_paragraph:
+            return 0
+        if not self._all_closed and not self._blank and self.block_kind(self._tip) == k_paragraph:
+            return 0
+        mut tag_end = scan_open_tag(&self._text, start, stop)
+        if tag_end < 0:
+            tag_end = scan_close_tag(&self._text, start, stop)
+        if tag_end >= 0 and skip_whitespace(&self._text, tag_end, stop) == stop:
+            return 7
+        0
+
+    # Recognizes a list marker at the current position, filling `marker`'s
+    # list fields and consuming the marker and its padding.
+    def list_marker(self: &mut Parser, container: i64, marker: &mut Block) -> bool:
+        if self._indent >= 4:
+            return False
+        start = self._next_nonspace
+        c = self.at(start)
+        mut size = 0
+        if c == 42 or c == 43 or c == 45:
+            marker.ordered = False
+            marker.bullet = c
+            size = 1
+        else:
+            mut end = start
+            mut value = 0
+            while end - start < 9 and is_digit(self.at(end)):
+                value = value * 10 + self.at(end) - 48
+                end += 1
+            delimiter = self.at(end)
+            if end == start or (delimiter != 46 and delimiter != 41):
+                return False
+            if self.block_kind(container) == k_paragraph and value != 1:
+                return False
+            marker.ordered = True
+            marker.start = value
+            marker.delimiter = delimiter
+            size = end - start + 1
+        after = self.at(start + size)
+        if not (after == -1 or after == 9 or after == 32):
+            return False
+        if self.block_kind(container) == k_paragraph and skip_spaces(&self._text, start + size, self._line_end) == self._line_end:
+            return False
+        marker.marker_offset = self._indent
+        self.advance_next_nonspace()
+        self.advance_offset(size, True)
+        spaces_column = self._column
+        spaces_offset = self._offset
+        while True:
+            self.advance_offset(1, True)
+            if not (self._column - spaces_column < 5 and is_space_or_tab(self.at(self._offset))):
+                break
+        blank_item = self.at(self._offset) == -1
+        spaces = self._column - spaces_column
+        if spaces >= 5 or spaces < 1 or blank_item:
+            marker.padding = size + 1
+            self._column = spaces_column
+            self._offset = spaces_offset
+            if is_space_or_tab(self.at(self._offset)):
+                self.advance_offset(1, True)
+        else:
+            marker.padding = size + spaces
+        True
+
+    # Tries each block start in turn: 0 when none applies, 1 for a new
+    # container, and 2 for a new leaf that takes the rest of the line.
+    def block_start(self: &mut Parser, container: i64) -> Result[i64, MarkdownFault]:
+        start = self._next_nonspace
+        stop = self._line_end
+        c = self.at(start)
+        if not self._indented and c == 62:
+            self.advance_next_nonspace()
+            self.advance_offset(1, False)
+            if is_space_or_tab(self.at(self._offset)):
+                self.advance_offset(1, True)
+            self.close_unmatched()?
+            self.add_child(k_quote, self._next_nonspace)?
+            return Ok(1)
+        if not self._indented and c == 35:
+            mut end = start
+            while self.at(end) == 35 and end - start < 7:
+                end += 1
+            level = end - start
+            after = self.at(end)
+            if level <= 6 and (after == -1 or is_space_or_tab(after)):
+                self.advance_next_nonspace()
+                self.advance_offset(level, False)
+                self._offset = skip_spaces(&self._text, self._offset, stop)
+                self.close_unmatched()?
+                heading = self.add_child(k_heading, self._next_nonspace)?
+                self._blocks[heading].level = level
+                first = self._offset
+                mut last = stop
+                while last > first and is_space_or_tab(self.at(last - 1)):
+                    last -= 1
+                mut hashes = last
+                while hashes > first and self.at(hashes - 1) == 35:
+                    hashes -= 1
+                if hashes < last:
+                    if hashes == first:
+                        last = first
+                    elif is_space_or_tab(self.at(hashes - 1)):
+                        last = hashes
+                faulted(self._blocks[heading].content.extend_range(&self._text, first, last))?
+                self._offset = stop
+                return Ok(2)
+        if not self._indented and (c == 96 or c == 126):
+            mut end = start
+            while self.at(end) == c:
+                end += 1
+            size = end - start
+            mut fenced = size >= 3
+            if fenced and c == 96:
+                found = faulted(self._text.find(96u8, end, stop))?
+                fenced = found.is_none()
+            if fenced:
+                self.close_unmatched()?
+                code = self.add_child(k_code, self._next_nonspace)?
+                self._blocks[code].fenced = True
+                self._blocks[code].fence_length = size
+                self._blocks[code].fence_char = c
+                self._blocks[code].fence_offset = self._indent
+                self.advance_next_nonspace()
+                self.advance_offset(size, False)
+                return Ok(2)
+        if not self._indented and c == 60:
+            html_kind = self.html_start(container)
+            if html_kind > 0:
+                self.close_unmatched()?
+                html = self.add_child(k_html, self._offset)?
+                self._blocks[html].html_kind = html_kind
+                return Ok(2)
+        if not self._indented and self.block_kind(container) == k_paragraph and (c == 61 or c == 45):
+            mut end = start
+            while self.at(end) == c:
+                end += 1
+            if skip_spaces(&self._text, end, stop) == stop:
+                self.close_unmatched()?
+                if self.take_references(container)?:
+                    self._blocks[container].kind = k_heading
+                    self._blocks[container].level = 1 if c == 61 else 2
+                    self._offset = stop
+                    return Ok(2)
+        if not self._indented and (c == 42 or c == 95 or c == 45):
+            mut count = 0
+            mut at = start
+            mut rule = True
+            while at < stop:
+                d = self.at(at)
+                if d == c:
+                    count += 1
+                elif not is_space_or_tab(d):
+                    rule = False
+                    break
+                at += 1
+            if rule and count >= 3:
+                self.close_unmatched()?
+                self.add_child(k_rule, self._next_nonspace)?
+                self._offset = stop
+                return Ok(2)
+        if not self._indented or self.block_kind(container) == k_list:
+            mut marker = Block(k_item, 0, -1, -1, -1, -1, True, 0, 0, faulted(std.bytes.empty())?, 0, False, 0, 0, 0, 0, "", False, 0, 0, 0, 0, 0, True, 0)
+            if self.list_marker(container, &mut marker):
+                self.close_unmatched()?
+                tip = self._tip
+                same = self.block_kind(tip) == k_list and self._blocks[tip].ordered == marker.ordered and self._blocks[tip].bullet == marker.bullet and self._blocks[tip].delimiter == marker.delimiter
+                if not same:
+                    list = self.add_child(k_list, self._next_nonspace)?
+                    self._blocks[list].ordered = marker.ordered
+                    self._blocks[list].bullet = marker.bullet
+                    self._blocks[list].delimiter = marker.delimiter
+                    self._blocks[list].start = marker.start
+                item = self.add_child(k_item, self._next_nonspace)?
+                self._blocks[item].ordered = marker.ordered
+                self._blocks[item].bullet = marker.bullet
+                self._blocks[item].delimiter = marker.delimiter
+                self._blocks[item].start = marker.start
+                self._blocks[item].marker_offset = marker.marker_offset
+                self._blocks[item].padding = marker.padding
+                return Ok(1)
+        if self._indented and self.block_kind(self._tip) != k_paragraph and not self._blank:
+            self.advance_offset(4, True)
+            self.close_unmatched()?
+            self.add_child(k_code, self._offset)?
+            return Ok(2)
+        Ok(0)
+
+    def incorporate_line(self: &mut Parser, start: i64, stop: i64) -> Result[(), MarkdownFault]:
+        self._line_end = stop
+        self._line_number += 1
+        self._offset = start
+        self._column = 0
+        self._blank = False
+        self._partial_tab = False
+        self._old_tip = self._tip
+        mut container = k_document
+        while True:
+            last = self._blocks[container].last
+            if last < 0 or not self._blocks[last].open:
+                break
+            container = last
+            self.find_next_nonspace()
+            outcome = self.continues(container)?
+            if outcome == 2:
+                return Ok(())
+            if outcome == 1:
+                container = self._blocks[container].parent
+                break
+        self._all_closed = container == self._old_tip
+        self._last_matched = container
+        kind = self.block_kind(container)
+        mut leaf = kind != k_paragraph and accepts_lines(kind)
+        while not leaf:
+            self.find_next_nonspace()
+            c = self.at(self._next_nonspace)
+            special = c == 35 or c == 96 or c == 126 or c == 42 or c == 43 or c == 95 or c == 61 or c == 60 or c == 62 or c == 45 or is_digit(c)
+            if not self._indented and not special:
+                self.advance_next_nonspace()
+                break
+            started = self.block_start(container)?
+            if started == 0:
+                self.advance_next_nonspace()
+                break
+            container = self._tip
+            if started == 2:
+                leaf = True
+        if not self._all_closed and not self._blank and self.block_kind(self._tip) == k_paragraph:
+            return self.add_line()
+        self.close_unmatched()?
+        kind_now = self.block_kind(container)
+        if accepts_lines(kind_now):
+            self.add_line()?
+            html_kind = self._blocks[container].html_kind
+            if kind_now == k_html and html_kind >= 1 and html_kind <= 5 and html_block_ends(html_kind, &self._text, self._offset, stop):
+                self.finalize(container, self._line_number)?
+        elif self._offset < stop and not self._blank:
+            self.add_child(k_paragraph, self._offset)?
+            self.advance_next_nonspace()
+            self.add_line()?
+        Ok(())
+
+    def parse_blocks(self: &mut Parser) -> Result[(), MarkdownFault]:
+        size = self._text.len()
+        mut start = 0
+        while start < size:
+            found = faulted(self._text.find(10u8, start, size))?
+            stop = found.unwrap_or(size)
+            self.incorporate_line(start, stop)?
+            start = stop + 1
+        while self._tip >= 0:
+            self.finalize(self._tip, self._line_number)?
+        Ok(())
+
+    # Inline parsing.
+
+    def subject_at(self, index: i64) -> i64:
+        peek(&self._subject, index, self._subject.len())
+
+    def new_inline(self: &mut Parser, kind: i64, start: i64, stop: i64) -> Result[i64, MarkdownFault]:
+        index = len(self._inlines)
+        reserved(self._inlines.append(Inline(kind, -1, -1, -1, -1, -1, start, stop, "", "")))?
+        Ok(index)
+
+    def append_inline(self: &mut Parser, parent: i64, child: i64) -> ():
+        previous = self._inlines[parent].last
+        self._inlines[child].parent = parent
+        self._inlines[child].prev = previous
+        self._inlines[child].next = -1
+        if previous >= 0:
+            self._inlines[previous].next = child
+        else:
+            self._inlines[parent].first = child
+        self._inlines[parent].last = child
+
+    def unlink_inline(self: &mut Parser, index: i64) -> ():
+        parent = self._inlines[index].parent
+        previous = self._inlines[index].prev
+        following = self._inlines[index].next
+        if previous >= 0:
+            self._inlines[previous].next = following
+        elif parent >= 0:
+            self._inlines[parent].first = following
+        if following >= 0:
+            self._inlines[following].prev = previous
+        elif parent >= 0:
+            self._inlines[parent].last = previous
+        self._inlines[index].parent = -1
+        self._inlines[index].prev = -1
+        self._inlines[index].next = -1
+
+    def insert_after(self: &mut Parser, anchor: i64, child: i64) -> ():
+        parent = self._inlines[anchor].parent
+        following = self._inlines[anchor].next
+        self._inlines[child].parent = parent
+        self._inlines[child].prev = anchor
+        self._inlines[child].next = following
+        self._inlines[anchor].next = child
+        if following >= 0:
+            self._inlines[following].prev = child
+        else:
+            self._inlines[parent].last = child
+
+    # Moves every sibling after `first` up to, not including, `stop` into
+    # `target`; -1 for `stop` moves the rest.
+    def adopt(self: &mut Parser, target: i64, first: i64, stop: i64) -> ():
+        mut node = self._inlines[first].next
+        while node >= 0 and node != stop:
+            following = self._inlines[node].next
+            self.unlink_inline(node)
+            self.append_inline(target, node)
+            node = following
+
+    # A text node holding `subject[start:stop]`.
+    def add_text(self: &mut Parser, start: i64, stop: i64) -> Result[i64, MarkdownFault]:
+        at = self._pool.len()
+        faulted(self._pool.extend_range(&self._subject, start, stop))?
+        node = self.new_inline(i_text, at, self._pool.len())?
+        self.append_inline(i_root, node)
+        Ok(node)
+
+    def add_byte_text(self: &mut Parser, value: i64) -> Result[i64, MarkdownFault]:
+        at = self._pool.len()
+        push_byte(&mut self._pool, value)?
+        node = self.new_inline(i_text, at, at + 1)?
+        self.append_inline(i_root, node)
+        Ok(node)
+
+    def add_node(self: &mut Parser, kind: i64) -> Result[i64, MarkdownFault]:
+        node = self.new_inline(kind, 0, 0)?
+        self.append_inline(i_root, node)
+        Ok(node)
+
+    def parse_newline(self: &mut Parser) -> Result[(), MarkdownFault]:
+        self._pos += 1
+        last = self._inlines[i_root].last
+        mut kind = i_soft
+        if last >= 0 and self._inlines[last].kind == i_text:
+            stop = self._inlines[last].stop
+            start = self._inlines[last].start
+            if stop > start and i64(self._pool[stop - 1]) == 32:
+                if stop - start >= 2 and i64(self._pool[stop - 2]) == 32:
+                    kind = i_hard
+                mut trimmed = stop
+                while trimmed > start and i64(self._pool[trimmed - 1]) == 32:
+                    trimmed -= 1
+                self._inlines[last].stop = trimmed
+        self.add_node(kind)?
+        while self.subject_at(self._pos) == 32:
+            self._pos += 1
+        Ok(())
+
+    def parse_backslash(self: &mut Parser) -> Result[(), MarkdownFault]:
+        self._pos += 1
+        c = self.subject_at(self._pos)
+        if c == 10:
+            self._pos += 1
+            self.add_node(i_hard)?
+        elif is_ascii_punctuation(c):
+            self.add_byte_text(c)?
+            self._pos += 1
+        else:
+            self.add_byte_text(92)?
+        Ok(())
+
+    # Finds the next run of exactly `size` backticks at or after `from`. Runs
+    # seen during a scan to the end are remembered, so failed searches stay
+    # linear overall.
+    def closing_ticks(self: &mut Parser, origin: i64, size: i64) -> i64:
+        if self._ticks_scanned and size < len(self._tick_last) and self._tick_last[size] < origin:
+            return -1
+        stop = self._subject.len()
+        mut at = origin
+        while at < stop:
+            if i64(self._subject[at]) == 96:
+                mut end = at
+                while end < stop and i64(self._subject[end]) == 96:
+                    end += 1
+                run = end - at
+                if run < len(self._tick_last):
+                    self._tick_last[run] = at
+                if run == size:
+                    return at
+                at = end
+            else:
+                at += 1
+        self._ticks_scanned = True
+        -1
+
+    def parse_backticks(self: &mut Parser) -> Result[(), MarkdownFault]:
+        start = self._pos
+        mut after = start
+        while self.subject_at(after) == 96:
+            after += 1
+        size = after - start
+        close = self.closing_ticks(after, size)
+        if close < 0:
+            self._pos = after
+            self.add_text(start, after)?
+            return Ok(())
+        at = self._pool.len()
+        mut nonspace = False
+        for index in range(after, close):
+            c = i64(self._subject[index])
+            if c == 10:
+                push_byte(&mut self._pool, 32)?
+            else:
+                if c != 32:
+                    nonspace = True
+                push_byte(&mut self._pool, c)?
+        mut first = at
+        mut last = self._pool.len()
+        if nonspace and last - first >= 2 and i64(self._pool[first]) == 32 and i64(self._pool[last - 1]) == 32:
+            first += 1
+            last -= 1
+        node = self.new_inline(i_code, first, last)?
+        self.append_inline(i_root, node)
+        self._pos = close + size
+        Ok(())
+
+    def scan_delimiters(self: &mut Parser, cc: i64) -> (i64, bool, bool):
+        start = self._pos
+        mut end = start
+        while self.subject_at(end) == cc:
+            end += 1
+        before = 10 if start == 0 else scalar_before(&self._subject, start)
+        after = 10 if end >= self._subject.len() else scalar_at(&self._subject, end)
+        after_space = is_unicode_whitespace(after)
+        after_punct = is_unicode_punctuation(after)
+        before_space = is_unicode_whitespace(before)
+        before_punct = is_unicode_punctuation(before)
+        left = not after_space and (not after_punct or before_space or before_punct)
+        right = not before_space and (not before_punct or after_space or after_punct)
+        if cc == 95:
+            return (end - start, left and (not right or before_punct), right and (not left or after_punct))
+        (end - start, left, right)
+
+    def handle_delimiter(self: &mut Parser, cc: i64) -> Result[(), MarkdownFault]:
+        found = self.scan_delimiters(cc)
+        count, can_open, can_close = found
+        start = self._pos
+        self._pos += count
+        node = self.add_text(start, self._pos)?
+        if can_open or can_close:
+            index = len(self._delimiters)
+            reserved(self._delimiters.append(Delimiter(cc, count, count, node, self._delimiter_top, -1, can_open, can_close)))?
+            if self._delimiter_top >= 0:
+                self._delimiters[self._delimiter_top].next = index
+            self._delimiter_top = index
+        Ok(())
+
+    def remove_delimiter(self: &mut Parser, index: i64) -> ():
+        previous = self._delimiters[index].previous
+        following = self._delimiters[index].next
+        if previous >= 0:
+            self._delimiters[previous].next = following
+        if following >= 0:
+            self._delimiters[following].previous = previous
+        else:
+            self._delimiter_top = previous
+
+    def process_emphasis(self: &mut Parser, bottom: i64) -> Result[(), MarkdownFault]:
+        mut openers_bottom = reserved(list[i64]())?
+        for _ in range(12):
+            reserved(openers_bottom.append(bottom))?
+        # The first delimiter above `bottom`, if any.
+        mut closer = -1
+        mut candidate = self._delimiter_top
+        while candidate >= 0 and candidate != bottom:
+            closer = candidate
+            candidate = self._delimiters[candidate].previous
+        while closer >= 0:
+            if not self._delimiters[closer].can_close:
+                closer = self._delimiters[closer].next
+                continue
+            cc = self._delimiters[closer].cc
+            closer_open = self._delimiters[closer].can_open
+            closer_original = self._delimiters[closer].original
+            slot = (0 if cc == 95 else 6) + (3 if closer_open else 0) + closer_original % 3
+            mut opener = self._delimiters[closer].previous
+            mut found = False
+            while opener >= 0 and opener != bottom and opener != openers_bottom[slot]:
+                odd = (closer_open or self._delimiters[opener].can_close) and closer_original % 3 != 0 and (self._delimiters[opener].original + closer_original) % 3 == 0
+                if self._delimiters[opener].cc == cc and self._delimiters[opener].can_open and not odd:
+                    found = True
+                    break
+                opener = self._delimiters[opener].previous
+            old_closer = closer
+            if not found:
+                closer = self._delimiters[closer].next
+                openers_bottom[slot] = self._delimiters[old_closer].previous
+                if not closer_open:
+                    self.remove_delimiter(old_closer)
+                continue
+            used = 2 if self._delimiters[closer].count >= 2 and self._delimiters[opener].count >= 2 else 1
+            opener_node = self._delimiters[opener].node
+            closer_node = self._delimiters[closer].node
+            self._delimiters[opener].count -= used
+            self._delimiters[closer].count -= used
+            self._inlines[opener_node].stop -= used
+            self._inlines[closer_node].stop -= used
+            emphasis = self.new_inline(i_emphasis if used == 1 else i_strong, 0, 0)?
+            self.adopt(emphasis, opener_node, closer_node)
+            self.insert_after(opener_node, emphasis)
+            if self._delimiters[opener].next != closer:
+                self._delimiters[opener].next = closer
+                self._delimiters[closer].previous = opener
+            if self._delimiters[opener].count == 0:
+                self.unlink_inline(opener_node)
+                self.remove_delimiter(opener)
+            if self._delimiters[closer].count == 0:
+                self.unlink_inline(closer_node)
+                following = self._delimiters[closer].next
+                self.remove_delimiter(closer)
+                closer = following
+        while self._delimiter_top >= 0 and self._delimiter_top != bottom:
+            self.remove_delimiter(self._delimiter_top)
+        Ok(())
+
+    def add_bracket(self: &mut Parser, node: i64, index: i64, image: bool) -> Result[(), MarkdownFault]:
+        if self._bracket_top >= 0:
+            self._brackets[self._bracket_top].bracket_after = True
+        self._bracket_count += 1
+        reserved(self._brackets.append(Bracket(node, self._bracket_top, self._delimiter_top, index, image, False, self._bracket_count)))?
+        self._bracket_top = len(self._brackets) - 1
+        Ok(())
+
+    def parse_open_bracket(self: &mut Parser) -> Result[(), MarkdownFault]:
+        start = self._pos
+        self._pos += 1
+        node = self.add_text(start, self._pos)?
+        self.add_bracket(node, start, False)
+
+    def parse_bang(self: &mut Parser) -> Result[(), MarkdownFault]:
+        start = self._pos
+        self._pos += 1
+        if self.subject_at(self._pos) == 91:
+            self._pos += 1
+            node = self.add_text(start, self._pos)?
+            return self.add_bracket(node, start + 1, True)
+        self.add_text(start, self._pos)?
+        Ok(())
+
+    # An inline link's `(destination "title")` at the current position.
+    def inline_target(self: &mut Parser) -> Result[bool, MarkdownFault]:
+        stop = self._subject.len()
+        if self.subject_at(self._pos) != 40:
+            return Ok(False)
+        destination_at = skip_spnl(&self._subject, self._pos + 1, stop)
+        found = scan_destination(&self._subject, destination_at, stop)
+        destination_end, destination_start, destination_stop = found
+        if destination_end < 0:
+            return Ok(False)
+        title_at = skip_spnl(&self._subject, destination_end, stop)
+        mut end = title_at
+        mut title_end = -1
+        if title_at > destination_end:
+            title_end = scan_title(&self._subject, title_at, stop)
+            if title_end >= 0:
+                end = skip_spnl(&self._subject, title_end, stop)
+        if peek(&self._subject, end, stop) != 41:
+            return Ok(False)
+        self._target_destination = unescaped(&self._subject, destination_start, destination_stop, &mut self._scratch)?
+        self._target_title = ""
+        if title_end >= 0:
+            self._target_title = unescaped(&self._subject, title_at + 1, title_end - 1, &mut self._scratch)?
+        self._pos = end + 1
+        Ok(True)
+
+    def lookup(self: &mut Parser, start: i64, stop: i64) -> Result[bool, MarkdownFault]:
+        label = normalized_label(&self._subject, start, stop, &mut self._scratch)?
+        match self._refs.index.get(label):
+            case Some(found):
+                self._target_destination = self._refs.destinations[found]
+                self._target_title = self._refs.titles[found]
+                Ok(True)
+            case Nothing:
+                Ok(False)
+
+    def parse_close_bracket(self: &mut Parser) -> Result[(), MarkdownFault]:
+        self._pos += 1
+        start = self._pos
+        opener = self._bracket_top
+        if opener < 0:
+            self.add_text(start - 1, start)?
+            return Ok(())
+        image = self._brackets[opener].image
+        if not image and self._brackets[opener].sequence <= self._link_floor:
+            self.add_text(start - 1, start)?
+            self._bracket_top = self._brackets[opener].previous
+            return Ok(())
+        mut matched = self.inline_target()?
+        if not matched:
+            stop = self._subject.len()
+            label_end = scan_label(&self._subject, self._pos, stop)
+            if label_end - self._pos > 2:
+                matched = self.lookup(self._pos + 1, label_end - 1)?
+                if matched:
+                    self._pos = label_end
+            elif not self._brackets[opener].bracket_after:
+                first = self._brackets[opener].index
+                if scan_label(&self._subject, first, stop) == start:
+                    matched = self.lookup(first + 1, start - 1)?
+                    if matched and label_end >= 0:
+                        self._pos = label_end
+        if not matched:
+            self._bracket_top = self._brackets[opener].previous
+            self._pos = start
+            self.add_text(start - 1, start)?
+            return Ok(())
+        node = self.new_inline(i_image if image else i_link, 0, 0)?
+        self._inlines[node].destination = self._target_destination
+        self._inlines[node].title = self._target_title
+        opener_node = self._brackets[opener].node
+        self.adopt(node, opener_node, -1)
+        self.append_inline(i_root, node)
+        self.process_emphasis(self._brackets[opener].previous_delimiter)?
+        self._bracket_top = self._brackets[opener].previous
+        self.unlink_inline(opener_node)
+        if not image:
+            # No links in links: every earlier `[` is now inactive.
+            self._link_floor = self._bracket_count
+        Ok(())
+
+    def add_link_text(self: &mut Parser, destination_prefix: bool, start: i64, stop: i64) -> Result[(), MarkdownFault]:
+        self._scratch.clear()
+        if destination_prefix:
+            faulted(self._scratch.extend(&b"mailto:"))?
+        faulted(self._scratch.extend_range(&self._subject, start, stop))?
+        destination = text_of(&self._scratch, 0, self._scratch.len())?
+        link = self.add_node(i_link)?
+        self._inlines[link].destination = destination
+        at = self._pool.len()
+        faulted(self._pool.extend_range(&self._subject, start, stop))?
+        text = self.new_inline(i_text, at, self._pool.len())?
+        self.append_inline(link, text)
+        Ok(())
+
+    def parse_autolink(self: &mut Parser) -> Result[bool, MarkdownFault]:
+        start = self._pos
+        stop = self._subject.len()
+        mut at = start + 1
+        if is_letter(self.subject_at(at)):
+            at += 1
+            while at - start - 1 < 32 and (is_alnum(self.subject_at(at)) or self.subject_at(at) == 46 or self.subject_at(at) == 43 or self.subject_at(at) == 45):
+                at += 1
+            scheme = at - start - 1
+            if scheme >= 2 and scheme <= 32 and self.subject_at(at) == 58:
+                at += 1
+                while at < stop:
+                    c = i64(self._subject[at])
+                    if c == 62:
+                        self.add_link_text(False, start + 1, at)?
+                        self._pos = at + 1
+                        return Ok(True)
+                    if c == 60 or c <= 32:
+                        break
+                    at += 1
+        at = start + 1
+        while at < stop:
+            c = i64(self._subject[at])
+            if is_alnum(c) or (c >= 35 and c <= 39) or c == 33 or c == 42 or c == 43 or c == 45 or c == 46 or c == 47 or c == 61 or c == 63 or (c >= 94 and c <= 96) or (c >= 123 and c <= 126):
+                at += 1
+            else:
+                break
+        if at == start + 1 or self.subject_at(at) != 64:
+            return Ok(False)
+        at += 1
+        while True:
+            label = at
+            while is_alnum(self.subject_at(at)) or self.subject_at(at) == 45:
+                at += 1
+            size = at - label
+            if size < 1 or size > 63 or not is_alnum(self.subject_at(label)) or not is_alnum(self.subject_at(at - 1)):
+                return Ok(False)
+            c = self.subject_at(at)
+            if c == 62:
+                self.add_link_text(True, start + 1, at)?
+                self._pos = at + 1
+                return Ok(True)
+            if c != 46:
+                return Ok(False)
+            at += 1
+        Ok(False)
+
+    # The index after `word` at or after `from`, or -1. A failed search is
+    # remembered under `which`, so repeated failures stay linear.
+    def find_end(self: &mut Parser, which: i64, origin: i64, word: bytes) -> i64:
+        if origin >= self._missing[which]:
+            return -1
+        found = find_folded(&self._subject, origin, self._subject.len(), word)
+        if found < 0:
+            self._missing[which] = origin
+            return -1
+        found + len(word)
+
+    def parse_html_tag(self: &mut Parser) -> Result[bool, MarkdownFault]:
+        start = self._pos
+        stop = self._subject.len()
+        c = self.subject_at(start + 1)
+        mut end = -1
+        if c == 33:
+            if starts_folded(&self._subject, start, stop, b"<!-->"):
+                end = start + 5
+            elif starts_folded(&self._subject, start, stop, b"<!--->"):
+                end = start + 6
+            elif starts_folded(&self._subject, start, stop, b"<!--"):
+                end = self.find_end(0, start + 4, b"-->")
+            elif starts_folded(&self._subject, start, stop, b"<![cdata["):
+                if starts_exact(&self._subject, start, stop, b"<![CDATA["):
+                    end = self.find_end(1, start + 9, b"]]>")
+            elif is_letter(self.subject_at(start + 2)):
+                end = self.find_end(2, start + 3, b">")
+        elif c == 63:
+            end = self.find_end(3, start + 2, b"?>")
+        elif c == 47:
+            end = scan_close_tag(&self._subject, start, stop)
+        else:
+            end = scan_open_tag(&self._subject, start, stop)
+        if end < 0:
+            return Ok(False)
+        at = self._pool.len()
+        faulted(self._pool.extend_range(&self._subject, start, end))?
+        node = self.new_inline(i_html, at, self._pool.len())?
+        self.append_inline(i_root, node)
+        self._pos = end
+        Ok(True)
+
+    def parse_entity(self: &mut Parser) -> Result[bool, MarkdownFault]:
+        at = self._pool.len()
+        end = push_entity(&self._subject, self._pos, self._subject.len(), &mut self._pool)?
+        if end < 0:
+            return Ok(False)
+        node = self.new_inline(i_text, at, self._pool.len())?
+        self.append_inline(i_root, node)
+        self._pos = end
+        Ok(True)
+
+    def parse_string(self: &mut Parser) -> Result[(), MarkdownFault]:
+        start = self._pos
+        stop = self._subject.len()
+        mut at = start + 1
+        while at < stop:
+            c = i64(self._subject[at])
+            if c == 10 or c == 96 or c == 91 or c == 93 or c == 92 or c == 33 or c == 60 or c == 38 or c == 42 or c == 95:
+                break
+            at += 1
+        self._pos = at
+        self.add_text(start, at)?
+        Ok(())
+
+    def parse_inline(self: &mut Parser) -> Result[(), MarkdownFault]:
+        c = i64(self._subject[self._pos])
+        if c == 10:
+            return self.parse_newline()
+        if c == 92:
+            return self.parse_backslash()
+        if c == 96:
+            return self.parse_backticks()
+        if c == 42 or c == 95:
+            return self.handle_delimiter(c)
+        if c == 91:
+            return self.parse_open_bracket()
+        if c == 33:
+            return self.parse_bang()
+        if c == 93:
+            return self.parse_close_bracket()
+        if c == 60:
+            if self.parse_autolink()? or self.parse_html_tag()?:
+                return Ok(())
+            self._pos += 1
+            self.add_text(self._pos - 1, self._pos)?
+            return Ok(())
+        if c == 38:
+            if self.parse_entity()?:
+                return Ok(())
+            self._pos += 1
+            self.add_text(self._pos - 1, self._pos)?
+            return Ok(())
+        self.parse_string()
+
+    # Parses the inline content of block `index` into `_inlines`.
+    def parse_inlines(self: &mut Parser, index: i64) -> Result[(), MarkdownFault]:
+        size = self._blocks[index].content.len()
+        first = skip_whitespace(&self._blocks[index].content, 0, size)
+        mut last = size
+        while last > first and is_ascii_space(i64(self._blocks[index].content[last - 1])):
+            last -= 1
+        self._subject.clear()
+        faulted(self._subject.extend_range(&self._blocks[index].content, first, last))?
+        self._pool.clear()
+        self._inlines.clear()
+        self._delimiters.clear()
+        self._brackets.clear()
+        self._delimiter_top = -1
+        self._bracket_top = -1
+        self._bracket_count = 0
+        self._link_floor = 0
+        self._pos = 0
+        self._ticks_scanned = False
+        for which in range(len(self._missing)):
+            self._missing[which] = i64.MAX
+        self.new_inline(i_root, 0, 0)?
+        while self._pos < self._subject.len():
+            self.parse_inline()?
+        self.process_emphasis(-1)
+
+    # Events.
+
+    def push_event(self: &mut Parser, event: Event) -> Result[(), MarkdownFault]:
+        reserved(self._queue.append(event))
+
+    def flush_text(self: &mut Parser) -> Result[(), MarkdownFault]:
+        if self._scratch.len() > 0:
+            text = text_of(&self._scratch, 0, self._scratch.len())?
+            self._scratch.clear()
+            self.push_event(Event.Text(text))?
+        Ok(())
+
+    def inline_tag(self, node: i64) -> Tag:
+        kind = self._inlines[node].kind
+        if kind == i_emphasis:
+            return Tag.Emphasis
+        if kind == i_strong:
+            return Tag.Strong
+        if kind == i_link:
+            return Tag.Link(self._inlines[node].destination, self._inlines[node].title)
+        Tag.Image(self._inlines[node].destination, self._inlines[node].title)
+
+    def pool_text(self, node: i64) -> Result[str, MarkdownFault]:
+        text_of(&self._pool, self._inlines[node].start, self._inlines[node].stop)
+
+    # Queues the events of the parsed inline tree, merging adjacent text.
+    def queue_inlines(self: &mut Parser) -> Result[(), MarkdownFault]:
+        self._scratch.clear()
+        mut node = self._inlines[i_root].first
+        mut entering = True
+        while node >= 0 and node != i_root:
+            kind = self._inlines[node].kind
+            if entering:
+                if kind == i_text:
+                    faulted(self._scratch.extend_range(&self._pool, self._inlines[node].start, self._inlines[node].stop))?
+                else:
+                    self.flush_text()?
+                    if kind == i_soft:
+                        self.push_event(Event.SoftBreak)?
+                    elif kind == i_hard:
+                        self.push_event(Event.HardBreak)?
+                    elif kind == i_code:
+                        self.push_event(Event.Code(self.pool_text(node)?))?
+                    elif kind == i_html:
+                        self.push_event(Event.InlineHtml(self.pool_text(node)?))?
+                    else:
+                        self.push_event(Event.Start(self.inline_tag(node)))?
+                        if self._inlines[node].first >= 0:
+                            node = self._inlines[node].first
+                            continue
+                        self.push_event(Event.End(self.inline_tag(node)))?
+            else:
+                self.flush_text()?
+                self.push_event(Event.End(self.inline_tag(node)))?
+            following = self._inlines[node].next
+            if following >= 0:
+                node = following
+                entering = True
+            else:
+                node = self._inlines[node].parent
+                entering = False
+        self.flush_text()
+
+    def in_tight_list(self, index: i64) -> bool:
+        parent = self._blocks[index].parent
+        if self.block_kind(parent) != k_item:
+            return False
+        self._blocks[self._blocks[parent].parent].tight
+
+    def block_tag(self, index: i64) -> Tag:
+        kind = self.block_kind(index)
+        if kind == k_quote:
+            return Tag.BlockQuote
+        if kind == k_item:
+            return Tag.Item
+        if self._blocks[index].ordered:
+            return Tag.OrderedList(self._blocks[index].start)
+        Tag.BulletList
+
+    def queue_leaf(self: &mut Parser, index: i64) -> Result[(), MarkdownFault]:
+        kind = self.block_kind(index)
+        if kind == k_rule:
+            return self.push_event(Event.Rule)
+        if kind == k_html:
+            text = text_of(&self._blocks[index].content, 0, self._blocks[index].content.len())?
+            return self.push_event(Event.Html(text))
+        if kind == k_code:
+            info = self._blocks[index].info
+            self.push_event(Event.Start(Tag.CodeBlock(info)))?
+            if self._blocks[index].content.len() > 0:
+                text = text_of(&self._blocks[index].content, 0, self._blocks[index].content.len())?
+                self.push_event(Event.Text(text))?
+            return self.push_event(Event.End(Tag.CodeBlock(info)))
+        self.parse_inlines(index)?
+        if kind == k_heading:
+            level = self._blocks[index].level
+            self.push_event(Event.Start(Tag.Heading(level)))?
+            self.queue_inlines()?
+            return self.push_event(Event.End(Tag.Heading(level)))
+        tight = self.in_tight_list(index)
+        if not tight:
+            self.push_event(Event.Start(Tag.Paragraph))?
+        self.queue_inlines()?
+        if not tight:
+            self.push_event(Event.End(Tag.Paragraph))?
+        Ok(())
+
+    # Queues the events of the next step through the block tree.
+    def advance(self: &mut Parser) -> Result[(), MarkdownFault]:
+        while len(self._queue) == 0:
+            if self._finished:
+                return self.push_event(Event.Done)
+            node = self._node
+            kind = self.block_kind(node)
+            container = kind == k_document or kind == k_quote or kind == k_list or kind == k_item
+            if self._entering and container:
+                if kind != k_document:
+                    self.push_event(Event.Start(self.block_tag(node)))?
+                first = self._blocks[node].first
+                if first >= 0:
+                    self._node = first
+                    continue
+                if kind == k_document:
+                    self._finished = True
+                    continue
+                self.push_event(Event.End(self.block_tag(node)))?
+            elif self._entering:
+                self.queue_leaf(node)?
+            elif kind != k_document:
+                self.push_event(Event.End(self.block_tag(node)))?
+            if node == k_document:
+                self._finished = True
+                continue
+            following = self._blocks[node].next
+            if following >= 0:
+                self._node = following
+                self._entering = True
+            else:
+                self._node = self._blocks[node].parent
+                self._entering = False
+        Ok(())
+
+    # The next event. After `Done`, every call returns `Done` again. After an
+    # error the parser is unusable and returns `InvalidState`.
+    pub def next(self: &mut Parser) -> Result[Event, MarkdownError]:
+        if self._broken:
+            return Err(MarkdownError(MarkdownFault.InvalidState, 0, 0))
+        if self._queued >= len(self._queue):
+            self._queue.clear()
+            self._queued = 0
+            outcome = self.advance()
+            match outcome:
+                case Ok(_):
+                    pass
+                case Err(fault):
+                    self._broken = True
+                    return Err(MarkdownError(fault, 0, 0))
+        index = self._queued
+        self._queued += 1
+        Ok(replace(self._queue[index], Event.Done))
+
+# The start of line `line`, counted from one, in the original input.
+def line_offset(source: &Bytes, line: i64) -> i64:
+    mut current = 1
+    mut index = 0
+    size = source.len()
+    while current < line and index < size:
+        c = i64(source[index])
+        if c == 10:
+            current += 1
+        elif c == 13:
+            if index + 1 < size and i64(source[index + 1]) == 10:
+                index += 1
+            current += 1
+        index += 1
+    index
+
+# Line endings become LF, NUL becomes U+FFFD, and a final line ending is added.
+def normalized(source: &Bytes) -> Result[Bytes, MarkdownFault]:
+    size = source.len()
+    mut text = faulted(std.bytes.with_capacity(size + 1))?
+    mut index = 0
+    while index < size:
+        c = i64(source[index])
+        if c == 13:
+            push_byte(&mut text, 10)?
+            if index + 1 < size and i64(source[index + 1]) == 10:
+                index += 1
+        elif c == 0:
+            push_scalar(&mut text, 65533)?
+        else:
+            push_byte(&mut text, c)?
+        index += 1
+    if size > 0 and i64(text[text.len() - 1]) != 10:
+        push_byte(&mut text, 10)?
+    Ok(text)
+
+# Validates `source` as UTF-8 and parses its block structure.
+pub def parser(source: &Bytes, bounds: &Limits) -> Result[Parser, MarkdownError]:
+    if not valid(bounds):
+        return Err(MarkdownError(MarkdownFault.InvalidLimits, 0, 0))
+    size = source.len()
+    if size > bounds.max_input:
+        return Err(MarkdownError(MarkdownFault.InputTooLarge, bounds.max_input, 0))
+    run = unplaced(faulted(source.utf8_run(0, size)))?
+    if run < size:
+        return Err(MarkdownError(MarkdownFault.InvalidUtf8, run, 0))
+    text = unplaced(normalized(source))?
+    mut blocks = unplaced(reserved(list[Block]()))?
+    root = Block(k_document, -1, -1, -1, -1, -1, True, 1, 1, unplaced(faulted(std.bytes.empty()))?, 0, False, 0, 0, 0, 0, "", False, 0, 0, 0, 0, 0, True, 0)
+    unplaced(reserved(blocks.append(root)))?
+    index = unplaced(reserved(dict[str, i64]()))?
+    destinations = unplaced(reserved(list[str]()))?
+    titles = unplaced(reserved(list[str]()))?
+    refs = Refs(index, destinations, titles)
+    scratch = unplaced(faulted(std.bytes.empty()))?
+    subject = unplaced(faulted(std.bytes.empty()))?
+    pool = unplaced(faulted(std.bytes.empty()))?
+    inlines = unplaced(reserved(list[Inline]()))?
+    delimiters = unplaced(reserved(list[Delimiter]()))?
+    brackets = unplaced(reserved(list[Bracket]()))?
+    mut tick_last = unplaced(reserved(list[i64]()))?
+    for _ in range(81):
+        unplaced(reserved(tick_last.append(-1)))?
+    mut missing = unplaced(reserved(list[i64]()))?
+    for _ in range(4):
+        unplaced(reserved(missing.append(i64.MAX)))?
+    queue = unplaced(reserved(list[Event]()))?
+    mut result = Parser(text, blocks, refs, scratch, bounds.max_depth, 0, 0, 0, 0, 0, 0, 0, False, False, False, True, 0, 0, 0, subject, pool, inlines, delimiters, brackets, -1, -1, 0, 0, 0, False, tick_last, missing, queue, 0, 0, True, False, False, "", "")
+    outcome = result.parse_blocks()
+    match outcome:
+        case Ok(_):
+            Ok(result)
+        case Err(fault):
+            match fault:
+                case MarkdownFault.DepthExceeded:
+                    line = result._line_number
+                    Err(MarkdownError(fault, line_offset(source, line), line))
+                case _:
+                    Err(MarkdownError(fault, 0, 0))
+
+pub def parser_text(text: &str, bounds: &Limits) -> Result[Parser, MarkdownError]:
+    source = unplaced(faulted(std.bytes.from_text(text)))?
+    parser(&source, bounds)
+
+# Writes HTML for events into an owned buffer. `_written` counts every byte
+# produced, so the output limit also covers bytes already taken or written out.
+pub class HtmlRenderer:
+    _out: Bytes
+    _written: i64
+    _max_output: i64
+    _last: i64
+    _image_depth: i64
+    _broken: bool
+
+    # Bytes produced and not yet taken.
+    pub def pending(self) -> i64:
+        self._out.len()
+
+    # Bytes produced since the renderer was created.
+    pub def written(self) -> i64:
+        self._written
+
+    def room(self: &mut HtmlRenderer, size: i64) -> Result[(), MarkdownFault]:
+        if size > self._max_output - self._written:
+            return Err(MarkdownFault.OutputTooLarge)
+        self._written += size
+        Ok(())
+
+    def put(self: &mut HtmlRenderer, markup: bytes) -> Result[(), MarkdownFault]:
+        if len(markup) == 0:
+            return Ok(())
+        self.room(len(markup))?
+        faulted(self._out.extend(&markup))?
+        self._last = i64(markup[len(markup) - 1])
+        Ok(())
+
+    def put_byte(self: &mut HtmlRenderer, value: i64) -> Result[(), MarkdownFault]:
+        self.room(1)?
+        push_byte(&mut self._out, value)?
+        self._last = value
+        Ok(())
+
+    def cr(self: &mut HtmlRenderer) -> Result[(), MarkdownFault]:
+        if self._last != 10:
+            self.put_byte(10)?
+        Ok(())
+
+    def put_raw(self: &mut HtmlRenderer, text: &str) -> Result[(), MarkdownFault]:
+        if text.byte_len() == 0:
+            return Ok(())
+        source = faulted(std.bytes.from_text(text))?
+        self.room(source.len())?
+        faulted(self._out.extend(&source))?
+        self._last = i64(source[source.len() - 1])
+        Ok(())
+
+    # Escapes `&`, `<`, `>`, and `"`; with `href`, also percent-encodes bytes
+    # that do not belong in a URL and escapes `'`.
+    def put_escaped(self: &mut HtmlRenderer, text: &str, href: bool) -> Result[(), MarkdownFault]:
+        source = faulted(std.bytes.from_text(text))?
+        for index in range(source.len()):
+            c = i64(source[index])
+            if c == 38:
+                self.put(b"&amp;")?
+            elif c == 60 and not href:
+                self.put(b"&lt;")?
+            elif c == 62 and not href:
+                self.put(b"&gt;")?
+            elif c == 34 and not href:
+                self.put(b"&quot;")?
+            elif href and c == 39:
+                self.put(b"&#x27;")?
+            elif href and not href_safe(c):
+                self.put_byte(37)?
+                self.put_byte(hex_digit(c >> 4))?
+                self.put_byte(hex_digit(c & 15))?
+            else:
+                self.put_byte(c)?
+        Ok(())
+
+    def put_number(self: &mut HtmlRenderer, value: i64) -> Result[(), MarkdownFault]:
+        text = reserved(str.from(value))?
+        self.put_raw(&text)
+
+    def put_title(self: &mut HtmlRenderer, title: &str) -> Result[(), MarkdownFault]:
+        if title.byte_len() > 0:
+            self.put(b" title=\"")?
+            self.put_escaped(title, False)?
+            self.put(b"\"")?
+        Ok(())
+
+    def put_start(self: &mut HtmlRenderer, tag: &Tag) -> Result[(), MarkdownFault]:
+        match tag:
+            case Tag.Paragraph:
+                self.cr()?
+                self.put(b"<p>")
+            case Tag.Heading(level):
+                self.cr()?
+                self.put(b"<h")?
+                self.put_byte(48 + *level)?
+                self.put(b">")
+            case Tag.BlockQuote:
+                self.cr()?
+                self.put(b"<blockquote>")?
+                self.cr()
+            case Tag.CodeBlock(info):
+                self.cr()?
+                self.put(b"<pre><code")?
+                source = faulted(std.bytes.from_text(info))?
+                mut end = 0
+                while end < source.len() and not is_ascii_space(i64(source[end])):
+                    end += 1
+                if end > 0:
+                    word = text_of(&source, 0, end)?
+                    self.put(b" class=\"language-")?
+                    self.put_escaped(&word, False)?
+                    self.put(b"\"")?
+                self.put(b">")
+            case Tag.BulletList:
+                self.cr()?
+                self.put(b"<ul>")?
+                self.cr()
+            case Tag.OrderedList(start):
+                self.cr()?
+                if *start == 1:
+                    self.put(b"<ol>")?
+                else:
+                    self.put(b"<ol start=\"")?
+                    self.put_number(*start)?
+                    self.put(b"\">")?
+                self.cr()
+            case Tag.Item:
+                self.put(b"<li>")
+            case Tag.Emphasis:
+                self.put(b"<em>")
+            case Tag.Strong:
+                self.put(b"<strong>")
+            case Tag.Link(destination, title):
+                self.put(b"<a href=\"")?
+                self.put_escaped(destination, True)?
+                self.put(b"\"")?
+                self.put_title(title)?
+                self.put(b">")
+            case Tag.Image(destination, _):
+                self.put(b"<img src=\"")?
+                self.put_escaped(destination, True)?
+                self.put(b"\" alt=\"")
+
+    def put_end(self: &mut HtmlRenderer, tag: &Tag) -> Result[(), MarkdownFault]:
+        match tag:
+            case Tag.Paragraph:
+                self.put(b"</p>")?
+                self.cr()
+            case Tag.Heading(level):
+                self.put(b"</h")?
+                self.put_byte(48 + *level)?
+                self.put(b">")?
+                self.cr()
+            case Tag.BlockQuote:
+                self.cr()?
+                self.put(b"</blockquote>")?
+                self.cr()
+            case Tag.CodeBlock(_):
+                self.put(b"</code></pre>")?
+                self.cr()
+            case Tag.BulletList:
+                self.cr()?
+                self.put(b"</ul>")?
+                self.cr()
+            case Tag.OrderedList(_):
+                self.cr()?
+                self.put(b"</ol>")?
+                self.cr()
+            case Tag.Item:
+                self.put(b"</li>")?
+                self.cr()
+            case Tag.Emphasis:
+                self.put(b"</em>")
+            case Tag.Strong:
+                self.put(b"</strong>")
+            case Tag.Link(_, _):
+                self.put(b"</a>")
+            case Tag.Image(_, title):
+                self.put(b"\"")?
+                self.put_title(title)?
+                self.put(b" />")
+
+    def render(self: &mut HtmlRenderer, event: &Event) -> Result[(), MarkdownFault]:
+        if self._image_depth > 0:
+            # Inside an image only text survives, as its `alt` attribute.
+            match event:
+                case Event.Start(tag):
+                    match tag:
+                        case Tag.Image(_, _):
+                            self._image_depth += 1
+                        case _:
+                            pass
+                case Event.End(tag):
+                    match tag:
+                        case Tag.Image(_, _):
+                            self._image_depth -= 1
+                            if self._image_depth == 0:
+                                self.put_end(tag)?
+                        case _:
+                            pass
+                case Event.Text(text):
+                    self.put_escaped(text, False)?
+                case Event.Code(text):
+                    self.put_escaped(text, False)?
+                case Event.InlineHtml(text):
+                    self.put_escaped(text, False)?
+                case Event.SoftBreak:
+                    self.put_byte(32)?
+                case Event.HardBreak:
+                    self.put_byte(32)?
+                case _:
+                    pass
+            return Ok(())
+        match event:
+            case Event.Start(tag):
+                self.put_start(tag)?
+                match tag:
+                    case Tag.Image(_, _):
+                        self._image_depth = 1
+                    case _:
+                        pass
+            case Event.End(tag):
+                self.put_end(tag)?
+            case Event.Text(text):
+                self.put_escaped(text, False)?
+            case Event.Code(text):
+                self.put(b"<code>")?
+                self.put_escaped(text, False)?
+                self.put(b"</code>")?
+            case Event.Html(text):
+                self.cr()?
+                self.put_raw(text)?
+                self.cr()?
+            case Event.InlineHtml(text):
+                self.put_raw(text)?
+            case Event.SoftBreak:
+                self.put_byte(10)?
+            case Event.HardBreak:
+                self.put(b"<br />")?
+                self.cr()?
+            case Event.Rule:
+                self.cr()?
+                self.put(b"<hr />")?
+                self.cr()?
+            case Event.Done:
+                pass
+        Ok(())
+
+    # Appends the HTML for one event. Events must come from one parser, in
+    # order. After an error the renderer is unusable.
+    pub def event(self: &mut HtmlRenderer, event: &Event) -> Result[(), MarkdownError]:
+        if self._broken:
+            return Err(MarkdownError(MarkdownFault.InvalidState, self._written, 0))
+        outcome = self.render(event)
+        match outcome:
+            case Ok(_):
+                Ok(())
+            case Err(fault):
+                self._broken = True
+                Err(MarkdownError(fault, self._written, 0))
+
+    # Removes and returns the bytes produced so far.
+    pub def take(self: &mut HtmlRenderer) -> Result[Bytes, MarkdownError]:
+        match faulted(std.bytes.empty()):
+            case Ok(fresh):
+                Ok(replace(self._out, fresh))
+            case Err(fault):
+                Err(MarkdownError(fault, self._written, 0))
+
+def href_safe(c: i64) -> bool:
+    if c >= 128 or c <= 32 or c == 127:
+        return False
+    if is_alnum(c):
+        return True
+    c == 33 or (c >= 35 and c <= 37) or (c >= 40 and c <= 47) or c == 58 or c == 59 or c == 61 or c == 63 or c == 64 or c == 94 or c == 95 or c == 126
+
+def hex_digit(value: i64) -> i64:
+    if value < 10:
+        return 48 + value
+    55 + value
+
+pub def renderer(bounds: &Limits) -> Result[HtmlRenderer, MarkdownError]:
+    if not valid(bounds):
+        return Err(MarkdownError(MarkdownFault.InvalidLimits, 0, 0))
+    out = unplaced(faulted(std.bytes.empty()))?
+    Ok(HtmlRenderer(out, 0, bounds.max_output, 10, 0, False))
+
+# Delivers every pending byte to `writer` and keeps the buffer's capacity.
+# Does not flush. On failure only the bytes the writer did not accept stay
+# pending, so a retry cannot repeat output.
+pub def write_pending[W: Writer](source: &mut HtmlRenderer, writer: &mut W) -> Result[(), MarkdownError]:
+    outcome = std.io.write_all(writer, &source._out, 0, source._out.len())
+    match outcome:
+        case Ok(_):
+            source._out.clear()
+            Ok(())
+        case Err(partial):
+            kept = source._out.len() - partial.completed
+            # Shifted in place: a failure path must not need memory.
+            for index in range(kept):
+                match source._out.get(partial.completed + index):
+                    case Ok(byte):
+                        drop(source._out.set(index, byte))
+                    case Err(_):
+                        pass
+            drop(source._out.truncate(kept))
+            Err(MarkdownError(MarkdownFault.Stream(partial.cause), source._written, 0))
+
+def is_done(event: &Event) -> bool:
+    match event:
+        case Event.Done:
+            True
+        case _:
+            False
+
+# Renders every remaining event of `source` as HTML to `writer`, writing in
+# chunks as output accumulates. Does not flush.
+pub def write_html[W: Writer](source: &mut Parser, writer: &mut W, bounds: &Limits) -> Result[(), MarkdownError]:
+    mut target = renderer(bounds)?
+    while True:
+        event = source.next()?
+        if is_done(&event):
+            break
+        target.event(&event)?
+        if target.pending() >= flush_size:
+            write_pending(&mut target, writer)?
+    write_pending(&mut target, writer)
+
+# Renders a whole document as HTML.
+pub def render(source: &Bytes, bounds: &Limits) -> Result[Bytes, MarkdownError]:
+    mut events = parser(source, bounds)?
+    mut target = renderer(bounds)?
+    while True:
+        event = events.next()?
+        if is_done(&event):
+            break
+        target.event(&event)?
+    target.take()
+
+pub def to_html(text: &str, bounds: &Limits) -> Result[str, MarkdownError]:
+    source = unplaced(faulted(std.bytes.from_text(text)))?
+    html = render(&source, bounds)?
+    match faulted(html.to_text()):
+        case Ok(result):
+            Ok(result)
+        case Err(fault):
+            Err(MarkdownError(fault, html.len(), 0))
+
+# BEGIN GENERATED TABLES
+# Generated by scripts/gen_markdown_tables.py from Unicode 16.0.0.
+# Punctuation ranges derive from the Unicode Character Database,
+# Copyright (c) 1991-2026 Unicode, Inc., under the Unicode License v3
+# (scripts/release/licenses/unicode-license-v3.txt). Named character
+# references come from the WHATWG HTML Standard, Copyright (c) WHATWG
+# (Apple, Google, Mozilla, Microsoft); as source code they are under the
+# BSD 3-Clause License (scripts/release/licenses/whatwg-html-BSD-3-Clause.txt).
+
+# Non-ASCII Unicode P and S ranges: six bytes each, low then high, big
+# endian, sorted. `punctuation_chunk` picks the chunk that may hold `code`.
+def punctuation_chunk(code: i64) -> i64:
+    if code < 2800:
+        return 0
+    elif code < 7379:
+        return 1
+    elif code < 12349:
+        return 2
+    elif code < 65108:
+        return 3
+    elif code < 70746:
+        return 4
+    elif code < 120571:
+        return 5
+    elif code < 129632:
+        return 6
+    7
+
+def punctuation_ranges(chunk: i64) -> bytes:
+    match chunk:
+        case 0:
+            b"\x00\x00\xa1\x00\x00\xa9\x00\x00\xab\x00\x00\xac\x00\x00\xae\x00\x00\xb1\x00\x00\xb4\x00\x00\xb4\x00\x00\xb6\x00\x00\xb8\x00\x00\xbb\x00\x00\xbb\x00\x00\xbf\x00\x00\xbf\x00\x00\xd7\x00\x00\xd7\x00\x00\xf7\x00\x00\xf7\x00\x02\xc2\x00\x02\xc5\x00\x02\xd2\x00\x02\xdf\x00\x02\xe5\x00\x02\xeb\x00\x02\xed\x00\x02\xed\x00\x02\xef\x00\x02\xff\x00\x03u\x00\x03u\x00\x03~\x00\x03~\x00\x03\x84\x00\x03\x85\x00\x03\x87\x00\x03\x87\x00\x03\xf6\x00\x03\xf6\x00\x04\x82\x00\x04\x82\x00\x05Z\x00\x05_\x00\x05\x89\x00\x05\x8a\x00\x05\x8d\x00\x05\x8f\x00\x05\xbe\x00\x05\xbe\x00\x05\xc0\x00\x05\xc0\x00\x05\xc3\x00\x05\xc3\x00\x05\xc6\x00\x05\xc6\x00\x05\xf3\x00\x05\xf4\x00\x06\x06\x00\x06\x0f\x00\x06\x1b\x00\x06\x1b\x00\x06\x1d\x00\x06\x1f\x00\x06j\x00\x06m\x00\x06\xd4\x00\x06\xd4\x00\x06\xde\x00\x06\xde\x00\x06\xe9\x00\x06\xe9\x00\x06\xfd\x00\x06\xfe\x00\x07\x00\x00\x07\x0d\x00\x07\xf6\x00\x07\xf9\x00\x07\xfe\x00\x07\xff\x00\x080\x00\x08>\x00\x08^\x00\x08^\x00\x08\x88\x00\x08\x88\x00\x09d\x00\x09e\x00\x09p\x00\x09p\x00\x09\xf2\x00\x09\xf3\x00\x09\xfa\x00\x09\xfb\x00\x09\xfd\x00\x09\xfd\x00\x0av\x00\x0av"
+        case 1:
+            b"\x00\x0a\xf0\x00\x0a\xf1\x00\x0bp\x00\x0bp\x00\x0b\xf3\x00\x0b\xfa\x00\x0cw\x00\x0cw\x00\x0c\x7f\x00\x0c\x7f\x00\x0c\x84\x00\x0c\x84\x00\x0dO\x00\x0dO\x00\x0dy\x00\x0dy\x00\x0d\xf4\x00\x0d\xf4\x00\x0e?\x00\x0e?\x00\x0eO\x00\x0eO\x00\x0eZ\x00\x0e[\x00\x0f\x01\x00\x0f\x17\x00\x0f\x1a\x00\x0f\x1f\x00\x0f4\x00\x0f4\x00\x0f6\x00\x0f6\x00\x0f8\x00\x0f8\x00\x0f:\x00\x0f=\x00\x0f\x85\x00\x0f\x85\x00\x0f\xbe\x00\x0f\xc5\x00\x0f\xc7\x00\x0f\xcc\x00\x0f\xce\x00\x0f\xda\x00\x10J\x00\x10O\x00\x10\x9e\x00\x10\x9f\x00\x10\xfb\x00\x10\xfb\x00\x13`\x00\x13h\x00\x13\x90\x00\x13\x99\x00\x14\x00\x00\x14\x00\x00\x16m\x00\x16n\x00\x16\x9b\x00\x16\x9c\x00\x16\xeb\x00\x16\xed\x00\x175\x00\x176\x00\x17\xd4\x00\x17\xd6\x00\x17\xd8\x00\x17\xdb\x00\x18\x00\x00\x18\x0a\x00\x19@\x00\x19@\x00\x19D\x00\x19E\x00\x19\xde\x00\x19\xff\x00\x1a\x1e\x00\x1a\x1f\x00\x1a\xa0\x00\x1a\xa6\x00\x1a\xa8\x00\x1a\xad\x00\x1bN\x00\x1bO\x00\x1bZ\x00\x1bj\x00\x1bt\x00\x1b\x7f\x00\x1b\xfc\x00\x1b\xff\x00\x1c;\x00\x1c?\x00\x1c~\x00\x1c\x7f\x00\x1c\xc0\x00\x1c\xc7"
+        case 2:
+            b"\x00\x1c\xd3\x00\x1c\xd3\x00\x1f\xbd\x00\x1f\xbd\x00\x1f\xbf\x00\x1f\xc1\x00\x1f\xcd\x00\x1f\xcf\x00\x1f\xdd\x00\x1f\xdf\x00\x1f\xed\x00\x1f\xef\x00\x1f\xfd\x00\x1f\xfe\x00 \x10\x00 '\x00 0\x00 ^\x00 z\x00 ~\x00 \x8a\x00 \x8e\x00 \xa0\x00 \xc0\x00!\x00\x00!\x01\x00!\x03\x00!\x06\x00!\x08\x00!\x09\x00!\x14\x00!\x14\x00!\x16\x00!\x18\x00!\x1e\x00!#\x00!%\x00!%\x00!'\x00!'\x00!)\x00!)\x00!.\x00!.\x00!:\x00!;\x00!@\x00!D\x00!J\x00!M\x00!O\x00!O\x00!\x8a\x00!\x8b\x00!\x90\x00$)\x00$@\x00$J\x00$\x9c\x00$\xe9\x00%\x00\x00'u\x00'\x94\x00+s\x00+v\x00+\x95\x00+\x97\x00+\xff\x00,\xe5\x00,\xea\x00,\xf9\x00,\xfc\x00,\xfe\x00,\xff\x00-p\x00-p\x00.\x00\x00..\x00.0\x00.]\x00.\x80\x00.\x99\x00.\x9b\x00.\xf3\x00/\x00\x00/\xd5\x00/\xf0\x00/\xff\x000\x01\x000\x04\x000\x08\x000 \x0000\x0000\x0006\x0007"
+        case 3:
+            b"\x000=\x000?\x000\x9b\x000\x9c\x000\xa0\x000\xa0\x000\xfb\x000\xfb\x001\x90\x001\x91\x001\x96\x001\x9f\x001\xc0\x001\xe5\x001\xef\x001\xef\x002\x00\x002\x1e\x002*\x002G\x002P\x002P\x002`\x002\x7f\x002\x8a\x002\xb0\x002\xc0\x003\xff\x00M\xc0\x00M\xff\x00\xa4\x90\x00\xa4\xc6\x00\xa4\xfe\x00\xa4\xff\x00\xa6\x0d\x00\xa6\x0f\x00\xa6s\x00\xa6s\x00\xa6~\x00\xa6~\x00\xa6\xf2\x00\xa6\xf7\x00\xa7\x00\x00\xa7\x16\x00\xa7 \x00\xa7!\x00\xa7\x89\x00\xa7\x8a\x00\xa8(\x00\xa8+\x00\xa86\x00\xa89\x00\xa8t\x00\xa8w\x00\xa8\xce\x00\xa8\xcf\x00\xa8\xf8\x00\xa8\xfa\x00\xa8\xfc\x00\xa8\xfc\x00\xa9.\x00\xa9/\x00\xa9_\x00\xa9_\x00\xa9\xc1\x00\xa9\xcd\x00\xa9\xde\x00\xa9\xdf\x00\xaa\x5c\x00\xaa_\x00\xaaw\x00\xaay\x00\xaa\xde\x00\xaa\xdf\x00\xaa\xf0\x00\xaa\xf1\x00\xab[\x00\xab[\x00\xabj\x00\xabk\x00\xab\xeb\x00\xab\xeb\x00\xfb)\x00\xfb)\x00\xfb\xb2\x00\xfb\xc2\x00\xfd>\x00\xfdO\x00\xfd\xcf\x00\xfd\xcf\x00\xfd\xfc\x00\xfd\xff\x00\xfe\x10\x00\xfe\x19\x00\xfe0\x00\xfeR"
+        case 4:
+            b"\x00\xfeT\x00\xfef\x00\xfeh\x00\xfek\x00\xff\x01\x00\xff\x0f\x00\xff\x1a\x00\xff \x00\xff;\x00\xff@\x00\xff[\x00\xffe\x00\xff\xe0\x00\xff\xe6\x00\xff\xe8\x00\xff\xee\x00\xff\xfc\x00\xff\xfd\x01\x01\x00\x01\x01\x02\x01\x017\x01\x01?\x01\x01y\x01\x01\x89\x01\x01\x8c\x01\x01\x8e\x01\x01\x90\x01\x01\x9c\x01\x01\xa0\x01\x01\xa0\x01\x01\xd0\x01\x01\xfc\x01\x03\x9f\x01\x03\x9f\x01\x03\xd0\x01\x03\xd0\x01\x05o\x01\x05o\x01\x08W\x01\x08W\x01\x08w\x01\x08x\x01\x09\x1f\x01\x09\x1f\x01\x09?\x01\x09?\x01\x0aP\x01\x0aX\x01\x0a\x7f\x01\x0a\x7f\x01\x0a\xc8\x01\x0a\xc8\x01\x0a\xf0\x01\x0a\xf6\x01\x0b9\x01\x0b?\x01\x0b\x99\x01\x0b\x9c\x01\x0dn\x01\x0dn\x01\x0d\x8e\x01\x0d\x8f\x01\x0e\xad\x01\x0e\xad\x01\x0fU\x01\x0fY\x01\x0f\x86\x01\x0f\x89\x01\x10G\x01\x10M\x01\x10\xbb\x01\x10\xbc\x01\x10\xbe\x01\x10\xc1\x01\x11@\x01\x11C\x01\x11t\x01\x11u\x01\x11\xc5\x01\x11\xc8\x01\x11\xcd\x01\x11\xcd\x01\x11\xdb\x01\x11\xdb\x01\x11\xdd\x01\x11\xdf\x01\x128\x01\x12=\x01\x12\xa9\x01\x12\xa9\x01\x13\xd4\x01\x13\xd5\x01\x13\xd7\x01\x13\xd8\x01\x14K\x01\x14O"
+        case 5:
+            b"\x01\x14Z\x01\x14[\x01\x14]\x01\x14]\x01\x14\xc6\x01\x14\xc6\x01\x15\xc1\x01\x15\xd7\x01\x16A\x01\x16C\x01\x16`\x01\x16l\x01\x16\xb9\x01\x16\xb9\x01\x17<\x01\x17?\x01\x18;\x01\x18;\x01\x19D\x01\x19F\x01\x19\xe2\x01\x19\xe2\x01\x1a?\x01\x1aF\x01\x1a\x9a\x01\x1a\x9c\x01\x1a\x9e\x01\x1a\xa2\x01\x1b\x00\x01\x1b\x09\x01\x1b\xe1\x01\x1b\xe1\x01\x1cA\x01\x1cE\x01\x1cp\x01\x1cq\x01\x1e\xf7\x01\x1e\xf8\x01\x1fC\x01\x1fO\x01\x1f\xd5\x01\x1f\xf1\x01\x1f\xff\x01\x1f\xff\x01$p\x01$t\x01/\xf1\x01/\xf2\x01jn\x01jo\x01j\xf5\x01j\xf5\x01k7\x01k?\x01kD\x01kE\x01mm\x01mo\x01n\x97\x01n\x9a\x01o\xe2\x01o\xe2\x01\xbc\x9c\x01\xbc\x9c\x01\xbc\x9f\x01\xbc\x9f\x01\xcc\x00\x01\xcc\xef\x01\xcd\x00\x01\xce\xb3\x01\xcfP\x01\xcf\xc3\x01\xd0\x00\x01\xd0\xf5\x01\xd1\x00\x01\xd1&\x01\xd1)\x01\xd1d\x01\xd1j\x01\xd1l\x01\xd1\x83\x01\xd1\x84\x01\xd1\x8c\x01\xd1\xa9\x01\xd1\xae\x01\xd1\xea\x01\xd2\x00\x01\xd2A\x01\xd2E\x01\xd2E\x01\xd3\x00\x01\xd3V\x01\xd6\xc1\x01\xd6\xc1\x01\xd6\xdb\x01\xd6\xdb"
+        case 6:
+            b"\x01\xd6\xfb\x01\xd6\xfb\x01\xd7\x15\x01\xd7\x15\x01\xd75\x01\xd75\x01\xd7O\x01\xd7O\x01\xd7o\x01\xd7o\x01\xd7\x89\x01\xd7\x89\x01\xd7\xa9\x01\xd7\xa9\x01\xd7\xc3\x01\xd7\xc3\x01\xd8\x00\x01\xd9\xff\x01\xda7\x01\xda:\x01\xdam\x01\xdat\x01\xdav\x01\xda\x83\x01\xda\x85\x01\xda\x8b\x01\xe1O\x01\xe1O\x01\xe2\xff\x01\xe2\xff\x01\xe5\xff\x01\xe5\xff\x01\xe9^\x01\xe9_\x01\xec\xac\x01\xec\xac\x01\xec\xb0\x01\xec\xb0\x01\xed.\x01\xed.\x01\xee\xf0\x01\xee\xf1\x01\xf0\x00\x01\xf0+\x01\xf00\x01\xf0\x93\x01\xf0\xa0\x01\xf0\xae\x01\xf0\xb1\x01\xf0\xbf\x01\xf0\xc1\x01\xf0\xcf\x01\xf0\xd1\x01\xf0\xf5\x01\xf1\x0d\x01\xf1\xad\x01\xf1\xe6\x01\xf2\x02\x01\xf2\x10\x01\xf2;\x01\xf2@\x01\xf2H\x01\xf2P\x01\xf2Q\x01\xf2`\x01\xf2e\x01\xf3\x00\x01\xf6\xd7\x01\xf6\xdc\x01\xf6\xec\x01\xf6\xf0\x01\xf6\xfc\x01\xf7\x00\x01\xf7v\x01\xf7{\x01\xf7\xd9\x01\xf7\xe0\x01\xf7\xeb\x01\xf7\xf0\x01\xf7\xf0\x01\xf8\x00\x01\xf8\x0b\x01\xf8\x10\x01\xf8G\x01\xf8P\x01\xf8Y\x01\xf8`\x01\xf8\x87\x01\xf8\x90\x01\xf8\xad\x01\xf8\xb0\x01\xf8\xbb\x01\xf8\xc0\x01\xf8\xc1\x01\xf9\x00\x01\xfaS"
+        case 7:
+            b"\x01\xfa`\x01\xfam\x01\xfap\x01\xfa|\x01\xfa\x80\x01\xfa\x89\x01\xfa\x8f\x01\xfa\xc6\x01\xfa\xce\x01\xfa\xdc\x01\xfa\xdf\x01\xfa\xe9\x01\xfa\xf0\x01\xfa\xf8\x01\xfb\x00\x01\xfb\x92\x01\xfb\x94\x01\xfb\xef"
+        case _:
+            b""
+
+# HTML5 named character references, grouped by first letter. Each record
+# is the rest of the name's length, the rest of the name, the value's
+# length, and the value in UTF-8.
+def entity_bucket(first: i64) -> bytes:
+    match first:
+        case 65:
+            b"\x04Elig\x02\xc3\x86\x02MP\x01&\x05acute\x02\xc3\x81\x05breve\x02\xc4\x82\x04circ\x02\xc3\x82\x02cy\x02\xd0\x90\x02fr\x04\xf0\x9d\x94\x84\x05grave\x02\xc3\x80\x04lpha\x02\xce\x91\x04macr\x02\xc4\x80\x02nd\x03\xe2\xa9\x93\x04ogon\x02\xc4\x84\x03opf\x04\xf0\x9d\x94\xb8\x0cpplyFunction\x03\xe2\x81\xa1\x04ring\x02\xc3\x85\x03scr\x04\xf0\x9d\x92\x9c\x05ssign\x03\xe2\x89\x94\x05tilde\x02\xc3\x83\x03uml\x02\xc3\x84"
+        case 66:
+            b"\x08ackslash\x03\xe2\x88\x96\x03arv\x03\xe2\xab\xa7\x05arwed\x03\xe2\x8c\x86\x02cy\x02\xd0\x91\x06ecause\x03\xe2\x88\xb5\x09ernoullis\x03\xe2\x84\xac\x03eta\x02\xce\x92\x02fr\x04\xf0\x9d\x94\x85\x03opf\x04\xf0\x9d\x94\xb9\x04reve\x02\xcb\x98\x03scr\x03\xe2\x84\xac\x05umpeq\x03\xe2\x89\x8e"
+        case 67:
+            b"\x03Hcy\x02\xd0\xa7\x03OPY\x02\xc2\xa9\x05acute\x02\xc4\x86\x02ap\x03\xe2\x8b\x92\x13apitalDifferentialD\x03\xe2\x85\x85\x06ayleys\x03\xe2\x84\xad\x05caron\x02\xc4\x8c\x05cedil\x02\xc3\x87\x04circ\x02\xc4\x88\x06conint\x03\xe2\x88\xb0\x03dot\x02\xc4\x8a\x06edilla\x02\xc2\xb8\x08enterDot\x02\xc2\xb7\x02fr\x03\xe2\x84\xad\x02hi\x02\xce\xa7\x08ircleDot\x03\xe2\x8a\x99\x0aircleMinus\x03\xe2\x8a\x96\x09irclePlus\x03\xe2\x8a\x95\x0aircleTimes\x03\xe2\x8a\x97\x17lockwiseContourIntegral\x03\xe2\x88\xb2\x14loseCurlyDoubleQuote\x03\xe2\x80\x9d\x0eloseCurlyQuote\x03\xe2\x80\x99\x04olon\x03\xe2\x88\xb7\x05olone\x03\xe2\xa9\xb4\x08ongruent\x03\xe2\x89\xa1\x05onint\x03\xe2\x88\xaf\x0eontourIntegral\x03\xe2\x88\xae\x03opf\x03\xe2\x84\x82\x08oproduct\x03\xe2\x88\x90\x1eounterClockwiseContourIntegral\x03\xe2\x88\xb3\x04ross\x03\xe2\xa8\xaf\x03scr\x04\xf0\x9d\x92\x9e\x02up\x03\xe2\x8b\x93\x05upCap\x03\xe2\x89\x8d"
+        case 68:
+            b"\x01D\x03\xe2\x85\x85\x07Dotrahd\x03\xe2\xa4\x91\x03Jcy\x02\xd0\x82\x03Scy\x02\xd0\x85\x03Zcy\x02\xd0\x8f\x05agger\x03\xe2\x80\xa1\x03arr\x03\xe2\x86\xa1\x04ashv\x03\xe2\xab\xa4\x05caron\x02\xc4\x8e\x02cy\x02\xd0\x94\x02el\x03\xe2\x88\x87\x04elta\x02\xce\x94\x02fr\x04\xf0\x9d\x94\x87\x0fiacriticalAcute\x02\xc2\xb4\x0diacriticalDot\x02\xcb\x99\x15iacriticalDoubleAcute\x02\xcb\x9d\x0fiacriticalGrave\x01`\x0fiacriticalTilde\x02\xcb\x9c\x06iamond\x03\xe2\x8b\x84\x0cifferentialD\x03\xe2\x85\x86\x03opf\x04\xf0\x9d\x94\xbb\x02ot\x02\xc2\xa8\x05otDot\x03\xe2\x83\x9c\x07otEqual\x03\xe2\x89\x90\x14oubleContourIntegral\x03\xe2\x88\xaf\x08oubleDot\x02\xc2\xa8\x0eoubleDownArrow\x03\xe2\x87\x93\x0eoubleLeftArrow\x03\xe2\x87\x90\x13oubleLeftRightArrow\x03\xe2\x87\x94\x0coubleLeftTee\x03\xe2\xab\xa4\x12oubleLongLeftArrow\x03\xe2\x9f\xb8\x17oubleLongLeftRightArrow\x03\xe2\x9f\xba\x13oubleLongRightArrow\x03\xe2\x9f\xb9\x0foubleRightArrow\x03\xe2\x87\x92\x0doubleRightTee\x03\xe2\x8a\xa8\x0coubleUpArrow\x03\xe2\x87\x91\x10oubleUpDownArrow\x03\xe2\x87\x95\x10oubleVerticalBar\x03\xe2\x88\xa5\x08ownArrow\x03\xe2\x86\x93\x0bownArrowBar\x03\xe2\xa4\x93\x0fownArrowUpArrow\x03\xe2\x87\xb5\x08ownBreve\x02\xcc\x91\x12ownLeftRightVector\x03\xe2\xa5\x90\x10ownLeftTeeVector\x03\xe2\xa5\x9e\x0downLeftVector\x03\xe2\x86\xbd\x10ownLeftVectorBar\x03\xe2\xa5\x96\x11ownRightTeeVector\x03\xe2\xa5\x9f\x0eownRightVector\x03\xe2\x87\x81\x11ownRightVectorBar\x03\xe2\xa5\x97\x06ownTee\x03\xe2\x8a\xa4\x0bownTeeArrow\x03\xe2\x86\xa7\x08ownarrow\x03\xe2\x87\x93\x03scr\x04\xf0\x9d\x92\x9f\x05strok\x02\xc4\x90"
+        case 69:
+            b"\x02NG\x02\xc5\x8a\x02TH\x02\xc3\x90\x05acute\x02\xc3\x89\x05caron\x02\xc4\x9a\x04circ\x02\xc3\x8a\x02cy\x02\xd0\xad\x03dot\x02\xc4\x96\x02fr\x04\xf0\x9d\x94\x88\x05grave\x02\xc3\x88\x06lement\x03\xe2\x88\x88\x04macr\x02\xc4\x92\x0fmptySmallSquare\x03\xe2\x97\xbb\x13mptyVerySmallSquare\x03\xe2\x96\xab\x04ogon\x02\xc4\x98\x03opf\x04\xf0\x9d\x94\xbc\x06psilon\x02\xce\x95\x04qual\x03\xe2\xa9\xb5\x09qualTilde\x03\xe2\x89\x82\x0aquilibrium\x03\xe2\x87\x8c\x03scr\x03\xe2\x84\xb0\x03sim\x03\xe2\xa9\xb3\x02ta\x02\xce\x97\x03uml\x02\xc3\x8b\x05xists\x03\xe2\x88\x83\x0bxponentialE\x03\xe2\x85\x87"
+        case 70:
+            b"\x02cy\x02\xd0\xa4\x02fr\x04\xf0\x9d\x94\x89\x10illedSmallSquare\x03\xe2\x97\xbc\x14illedVerySmallSquare\x03\xe2\x96\xaa\x03opf\x04\xf0\x9d\x94\xbd\x05orAll\x03\xe2\x88\x80\x09ouriertrf\x03\xe2\x84\xb1\x03scr\x03\xe2\x84\xb1"
+        case 71:
+            b"\x03Jcy\x02\xd0\x83\x01T\x01>\x04amma\x02\xce\x93\x05ammad\x02\xcf\x9c\x05breve\x02\xc4\x9e\x05cedil\x02\xc4\xa2\x04circ\x02\xc4\x9c\x02cy\x02\xd0\x93\x03dot\x02\xc4\xa0\x02fr\x04\xf0\x9d\x94\x8a\x01g\x03\xe2\x8b\x99\x03opf\x04\xf0\x9d\x94\xbe\x0breaterEqual\x03\xe2\x89\xa5\x0freaterEqualLess\x03\xe2\x8b\x9b\x0freaterFullEqual\x03\xe2\x89\xa7\x0dreaterGreater\x03\xe2\xaa\xa2\x0areaterLess\x03\xe2\x89\xb7\x10reaterSlantEqual\x03\xe2\xa9\xbe\x0breaterTilde\x03\xe2\x89\xb3\x03scr\x04\xf0\x9d\x92\xa2\x01t\x03\xe2\x89\xab"
+        case 72:
+            b"\x05ARDcy\x02\xd0\xaa\x04acek\x02\xcb\x87\x02at\x01^\x04circ\x02\xc4\xa4\x02fr\x03\xe2\x84\x8c\x0bilbertSpace\x03\xe2\x84\x8b\x03opf\x03\xe2\x84\x8d\x0dorizontalLine\x03\xe2\x94\x80\x03scr\x03\xe2\x84\x8b\x05strok\x02\xc4\xa6\x0bumpDownHump\x03\xe2\x89\x8e\x08umpEqual\x03\xe2\x89\x8f"
+        case 73:
+            b"\x03Ecy\x02\xd0\x95\x04Jlig\x02\xc4\xb2\x03Ocy\x02\xd0\x81\x05acute\x02\xc3\x8d\x04circ\x02\xc3\x8e\x02cy\x02\xd0\x98\x03dot\x02\xc4\xb0\x02fr\x03\xe2\x84\x91\x05grave\x02\xc3\x8c\x01m\x03\xe2\x84\x91\x04macr\x02\xc4\xaa\x09maginaryI\x03\xe2\x85\x88\x06mplies\x03\xe2\x87\x92\x02nt\x03\xe2\x88\xac\x07ntegral\x03\xe2\x88\xab\x0bntersection\x03\xe2\x8b\x82\x0dnvisibleComma\x03\xe2\x81\xa3\x0dnvisibleTimes\x03\xe2\x81\xa2\x04ogon\x02\xc4\xae\x03opf\x04\xf0\x9d\x95\x80\x03ota\x02\xce\x99\x03scr\x03\xe2\x84\x90\x05tilde\x02\xc4\xa8\x04ukcy\x02\xd0\x86\x03uml\x02\xc3\x8f"
+        case 74:
+            b"\x04circ\x02\xc4\xb4\x02cy\x02\xd0\x99\x02fr\x04\xf0\x9d\x94\x8d\x03opf\x04\xf0\x9d\x95\x81\x03scr\x04\xf0\x9d\x92\xa5\x05sercy\x02\xd0\x88\x04ukcy\x02\xd0\x84"
+        case 75:
+            b"\x03Hcy\x02\xd0\xa5\x03Jcy\x02\xd0\x8c\x04appa\x02\xce\x9a\x05cedil\x02\xc4\xb6\x02cy\x02\xd0\x9a\x02fr\x04\xf0\x9d\x94\x8e\x03opf\x04\xf0\x9d\x95\x82\x03scr\x04\xf0\x9d\x92\xa6"
+        case 76:
+            b"\x03Jcy\x02\xd0\x89\x01T\x01<\x05acute\x02\xc4\xb9\x05ambda\x02\xce\x9b\x03ang\x03\xe2\x9f\xaa\x09aplacetrf\x03\xe2\x84\x92\x03arr\x03\xe2\x86\x9e\x05caron\x02\xc4\xbd\x05cedil\x02\xc4\xbb\x02cy\x02\xd0\x9b\x0feftAngleBracket\x03\xe2\x9f\xa8\x08eftArrow\x03\xe2\x86\x90\x0beftArrowBar\x03\xe2\x87\xa4\x12eftArrowRightArrow\x03\xe2\x87\x86\x0aeftCeiling\x03\xe2\x8c\x88\x10eftDoubleBracket\x03\xe2\x9f\xa6\x10eftDownTeeVector\x03\xe2\xa5\xa1\x0deftDownVector\x03\xe2\x87\x83\x10eftDownVectorBar\x03\xe2\xa5\x99\x08eftFloor\x03\xe2\x8c\x8a\x0deftRightArrow\x03\xe2\x86\x94\x0eeftRightVector\x03\xe2\xa5\x8e\x06eftTee\x03\xe2\x8a\xa3\x0beftTeeArrow\x03\xe2\x86\xa4\x0ceftTeeVector\x03\xe2\xa5\x9a\x0beftTriangle\x03\xe2\x8a\xb2\x0eeftTriangleBar\x03\xe2\xa7\x8f\x10eftTriangleEqual\x03\xe2\x8a\xb4\x0feftUpDownVector\x03\xe2\xa5\x91\x0eeftUpTeeVector\x03\xe2\xa5\xa0\x0beftUpVector\x03\xe2\x86\xbf\x0eeftUpVectorBar\x03\xe2\xa5\x98\x09eftVector\x03\xe2\x86\xbc\x0ceftVectorBar\x03\xe2\xa5\x92\x08eftarrow\x03\xe2\x87\x90\x0deftrightarrow\x03\xe2\x87\x94\x0fessEqualGreater\x03\xe2\x8b\x9a\x0cessFullEqual\x03\xe2\x89\xa6\x0aessGreater\x03\xe2\x89\xb6\x07essLess\x03\xe2\xaa\xa1\x0dessSlantEqual\x03\xe2\xa9\xbd\x08essTilde\x03\xe2\x89\xb2\x02fr\x04\xf0\x9d\x94\x8f\x01l\x03\xe2\x8b\x98\x09leftarrow\x03\xe2\x87\x9a\x05midot\x02\xc4\xbf\x0congLeftArrow\x03\xe2\x9f\xb5\x11ongLeftRightArrow\x03\xe2\x9f\xb7\x0dongRightArrow\x03\xe2\x9f\xb6\x0congleftarrow\x03\xe2\x9f\xb8\x11ongleftrightarrow\x03\xe2\x9f\xba\x0dongrightarrow\x03\xe2\x9f\xb9\x03opf\x04\xf0\x9d\x95\x83\x0dowerLeftArrow\x03\xe2\x86\x99\x0eowerRightArrow\x03\xe2\x86\x98\x03scr\x03\xe2\x84\x92\x02sh\x03\xe2\x86\xb0\x05strok\x02\xc5\x81\x01t\x03\xe2\x89\xaa"
+        case 77:
+            b"\x02ap\x03\xe2\xa4\x85\x02cy\x02\xd0\x9c\x0aediumSpace\x03\xe2\x81\x9f\x08ellintrf\x03\xe2\x84\xb3\x02fr\x04\xf0\x9d\x94\x90\x08inusPlus\x03\xe2\x88\x93\x03opf\x04\xf0\x9d\x95\x84\x03scr\x03\xe2\x84\xb3\x01u\x02\xce\x9c"
+        case 78:
+            b"\x03Jcy\x02\xd0\x8a\x05acute\x02\xc5\x83\x05caron\x02\xc5\x87\x05cedil\x02\xc5\x85\x02cy\x02\xd0\x9d\x12egativeMediumSpace\x03\xe2\x80\x8b\x11egativeThickSpace\x03\xe2\x80\x8b\x10egativeThinSpace\x03\xe2\x80\x8b\x14egativeVeryThinSpace\x03\xe2\x80\x8b\x13estedGreaterGreater\x03\xe2\x89\xab\x0destedLessLess\x03\xe2\x89\xaa\x06ewLine\x01\x0a\x02fr\x04\xf0\x9d\x94\x91\x06oBreak\x03\xe2\x81\xa0\x0fonBreakingSpace\x02\xc2\xa0\x03opf\x03\xe2\x84\x95\x02ot\x03\xe2\xab\xac\x0botCongruent\x03\xe2\x89\xa2\x08otCupCap\x03\xe2\x89\xad\x13otDoubleVerticalBar\x03\xe2\x88\xa6\x09otElement\x03\xe2\x88\x89\x07otEqual\x03\xe2\x89\xa0\x0cotEqualTilde\x05\xe2\x89\x82\xcc\xb8\x08otExists\x03\xe2\x88\x84\x09otGreater\x03\xe2\x89\xaf\x0eotGreaterEqual\x03\xe2\x89\xb1\x12otGreaterFullEqual\x05\xe2\x89\xa7\xcc\xb8\x10otGreaterGreater\x05\xe2\x89\xab\xcc\xb8\x0dotGreaterLess\x03\xe2\x89\xb9\x13otGreaterSlantEqual\x05\xe2\xa9\xbe\xcc\xb8\x0eotGreaterTilde\x03\xe2\x89\xb5\x0eotHumpDownHump\x05\xe2\x89\x8e\xcc\xb8\x0botHumpEqual\x05\xe2\x89\x8f\xcc\xb8\x0eotLeftTriangle\x03\xe2\x8b\xaa\x11otLeftTriangleBar\x05\xe2\xa7\x8f\xcc\xb8\x13otLeftTriangleEqual\x03\xe2\x8b\xac\x06otLess\x03\xe2\x89\xae\x0botLessEqual\x03\xe2\x89\xb0\x0dotLessGreater\x03\xe2\x89\xb8\x0aotLessLess\x05\xe2\x89\xaa\xcc\xb8\x10otLessSlantEqual\x05\xe2\xa9\xbd\xcc\xb8\x0botLessTilde\x03\xe2\x89\xb4\x16otNestedGreaterGreater\x05\xe2\xaa\xa2\xcc\xb8\x10otNestedLessLess\x05\xe2\xaa\xa1\xcc\xb8\x0aotPrecedes\x03\xe2\x8a\x80\x0fotPrecedesEqual\x05\xe2\xaa\xaf\xcc\xb8\x14otPrecedesSlantEqual\x03\xe2\x8b\xa0\x10otReverseElement\x03\xe2\x88\x8c\x0fotRightTriangle\x03\xe2\x8b\xab\x12otRightTriangleBar\x05\xe2\xa7\x90\xcc\xb8\x14otRightTriangleEqual\x03\xe2\x8b\xad\x0eotSquareSubset\x05\xe2\x8a\x8f\xcc\xb8\x13otSquareSubsetEqual\x03\xe2\x8b\xa2\x10otSquareSuperset\x05\xe2\x8a\x90\xcc\xb8\x15otSquareSupersetEqual\x03\xe2\x8b\xa3\x08otSubset\x06\xe2\x8a\x82\xe2\x83\x92\x0dotSubsetEqual\x03\xe2\x8a\x88\x0aotSucceeds\x03\xe2\x8a\x81\x0fotSucceedsEqual\x05\xe2\xaa\xb0\xcc\xb8\x14otSucceedsSlantEqual\x03\xe2\x8b\xa1\x0fotSucceedsTilde\x05\xe2\x89\xbf\xcc\xb8\x0aotSuperset\x06\xe2\x8a\x83\xe2\x83\x92\x0fotSupersetEqual\x03\xe2\x8a\x89\x07otTilde\x03\xe2\x89\x81\x0cotTildeEqual\x03\xe2\x89\x84\x10otTildeFullEqual\x03\xe2\x89\x87\x0cotTildeTilde\x03\xe2\x89\x89\x0dotVerticalBar\x03\xe2\x88\xa4\x03scr\x04\xf0\x9d\x92\xa9\x05tilde\x02\xc3\x91\x01u\x02\xce\x9d"
+        case 79:
+            b"\x04Elig\x02\xc5\x92\x05acute\x02\xc3\x93\x04circ\x02\xc3\x94\x02cy\x02\xd0\x9e\x05dblac\x02\xc5\x90\x02fr\x04\xf0\x9d\x94\x92\x05grave\x02\xc3\x92\x04macr\x02\xc5\x8c\x04mega\x02\xce\xa9\x06micron\x02\xce\x9f\x03opf\x04\xf0\x9d\x95\x86\x13penCurlyDoubleQuote\x03\xe2\x80\x9c\x0dpenCurlyQuote\x03\xe2\x80\x98\x01r\x03\xe2\xa9\x94\x03scr\x04\xf0\x9d\x92\xaa\x05slash\x02\xc3\x98\x05tilde\x02\xc3\x95\x05times\x03\xe2\xa8\xb7\x03uml\x02\xc3\x96\x06verBar\x03\xe2\x80\xbe\x08verBrace\x03\xe2\x8f\x9e\x0averBracket\x03\xe2\x8e\xb4\x0everParenthesis\x03\xe2\x8f\x9c"
+        case 80:
+            b"\x07artialD\x03\xe2\x88\x82\x02cy\x02\xd0\x9f\x02fr\x04\xf0\x9d\x94\x93\x02hi\x02\xce\xa6\x01i\x02\xce\xa0\x08lusMinus\x02\xc2\xb1\x0coincareplane\x03\xe2\x84\x8c\x03opf\x03\xe2\x84\x99\x01r\x03\xe2\xaa\xbb\x07recedes\x03\xe2\x89\xba\x0crecedesEqual\x03\xe2\xaa\xaf\x11recedesSlantEqual\x03\xe2\x89\xbc\x0crecedesTilde\x03\xe2\x89\xbe\x04rime\x03\xe2\x80\xb3\x06roduct\x03\xe2\x88\x8f\x09roportion\x03\xe2\x88\xb7\x0broportional\x03\xe2\x88\x9d\x03scr\x04\xf0\x9d\x92\xab\x02si\x02\xce\xa8"
+        case 81:
+            b"\x03UOT\x01\x22\x02fr\x04\xf0\x9d\x94\x94\x03opf\x03\xe2\x84\x9a\x03scr\x04\xf0\x9d\x92\xac"
+        case 82:
+            b"\x04Barr\x03\xe2\xa4\x90\x02EG\x02\xc2\xae\x05acute\x02\xc5\x94\x03ang\x03\xe2\x9f\xab\x03arr\x03\xe2\x86\xa0\x05arrtl\x03\xe2\xa4\x96\x05caron\x02\xc5\x98\x05cedil\x02\xc5\x96\x02cy\x02\xd0\xa0\x01e\x03\xe2\x84\x9c\x0deverseElement\x03\xe2\x88\x8b\x11everseEquilibrium\x03\xe2\x87\x8b\x13everseUpEquilibrium\x03\xe2\xa5\xaf\x02fr\x03\xe2\x84\x9c\x02ho\x02\xce\xa1\x10ightAngleBracket\x03\xe2\x9f\xa9\x09ightArrow\x03\xe2\x86\x92\x0cightArrowBar\x03\xe2\x87\xa5\x12ightArrowLeftArrow\x03\xe2\x87\x84\x0bightCeiling\x03\xe2\x8c\x89\x11ightDoubleBracket\x03\xe2\x9f\xa7\x11ightDownTeeVector\x03\xe2\xa5\x9d\x0eightDownVector\x03\xe2\x87\x82\x11ightDownVectorBar\x03\xe2\xa5\x95\x09ightFloor\x03\xe2\x8c\x8b\x07ightTee\x03\xe2\x8a\xa2\x0cightTeeArrow\x03\xe2\x86\xa6\x0dightTeeVector\x03\xe2\xa5\x9b\x0cightTriangle\x03\xe2\x8a\xb3\x0fightTriangleBar\x03\xe2\xa7\x90\x11ightTriangleEqual\x03\xe2\x8a\xb5\x10ightUpDownVector\x03\xe2\xa5\x8f\x0fightUpTeeVector\x03\xe2\xa5\x9c\x0cightUpVector\x03\xe2\x86\xbe\x0fightUpVectorBar\x03\xe2\xa5\x94\x0aightVector\x03\xe2\x87\x80\x0dightVectorBar\x03\xe2\xa5\x93\x09ightarrow\x03\xe2\x87\x92\x03opf\x03\xe2\x84\x9d\x0boundImplies\x03\xe2\xa5\xb0\x0arightarrow\x03\xe2\x87\x9b\x03scr\x03\xe2\x84\x9b\x02sh\x03\xe2\x86\xb1\x0auleDelayed\x03\xe2\xa7\xb4"
+        case 83:
+            b"\x05HCHcy\x02\xd0\xa9\x03Hcy\x02\xd0\xa8\x05OFTcy\x02\xd0\xac\x05acute\x02\xc5\x9a\x01c\x03\xe2\xaa\xbc\x05caron\x02\xc5\xa0\x05cedil\x02\xc5\x9e\x04circ\x02\xc5\x9c\x02cy\x02\xd0\xa1\x02fr\x04\xf0\x9d\x94\x96\x0dhortDownArrow\x03\xe2\x86\x93\x0dhortLeftArrow\x03\xe2\x86\x90\x0ehortRightArrow\x03\xe2\x86\x92\x0bhortUpArrow\x03\xe2\x86\x91\x04igma\x02\xce\xa3\x0amallCircle\x03\xe2\x88\x98\x03opf\x04\xf0\x9d\x95\x8a\x03qrt\x03\xe2\x88\x9a\x05quare\x03\xe2\x96\xa1\x11quareIntersection\x03\xe2\x8a\x93\x0bquareSubset\x03\xe2\x8a\x8f\x10quareSubsetEqual\x03\xe2\x8a\x91\x0dquareSuperset\x03\xe2\x8a\x90\x12quareSupersetEqual\x03\xe2\x8a\x92\x0aquareUnion\x03\xe2\x8a\x94\x03scr\x04\xf0\x9d\x92\xae\x03tar\x03\xe2\x8b\x86\x02ub\x03\xe2\x8b\x90\x05ubset\x03\xe2\x8b\x90\x0aubsetEqual\x03\xe2\x8a\x86\x07ucceeds\x03\xe2\x89\xbb\x0cucceedsEqual\x03\xe2\xaa\xb0\x11ucceedsSlantEqual\x03\xe2\x89\xbd\x0cucceedsTilde\x03\xe2\x89\xbf\x07uchThat\x03\xe2\x88\x8b\x02um\x03\xe2\x88\x91\x02up\x03\xe2\x8b\x91\x07uperset\x03\xe2\x8a\x83\x0cupersetEqual\x03\xe2\x8a\x87\x05upset\x03\xe2\x8b\x91"
+        case 84:
+            b"\x04HORN\x02\xc3\x9e\x04RADE\x03\xe2\x84\xa2\x04SHcy\x02\xd0\x8b\x03Scy\x02\xd0\xa6\x02ab\x01\x09\x02au\x02\xce\xa4\x05caron\x02\xc5\xa4\x05cedil\x02\xc5\xa2\x02cy\x02\xd0\xa2\x02fr\x04\xf0\x9d\x94\x97\x08herefore\x03\xe2\x88\xb4\x04heta\x02\xce\x98\x09hickSpace\x06\xe2\x81\x9f\xe2\x80\x8a\x08hinSpace\x03\xe2\x80\x89\x04ilde\x03\xe2\x88\xbc\x09ildeEqual\x03\xe2\x89\x83\x0dildeFullEqual\x03\xe2\x89\x85\x09ildeTilde\x03\xe2\x89\x88\x03opf\x04\xf0\x9d\x95\x8b\x08ripleDot\x03\xe2\x83\x9b\x03scr\x04\xf0\x9d\x92\xaf\x05strok\x02\xc5\xa6"
+        case 85:
+            b"\x05acute\x02\xc3\x9a\x03arr\x03\xe2\x86\x9f\x07arrocir\x03\xe2\xa5\x89\x04brcy\x02\xd0\x8e\x05breve\x02\xc5\xac\x04circ\x02\xc3\x9b\x02cy\x02\xd0\xa3\x05dblac\x02\xc5\xb0\x02fr\x04\xf0\x9d\x94\x98\x05grave\x02\xc3\x99\x04macr\x02\xc5\xaa\x07nderBar\x01_\x09nderBrace\x03\xe2\x8f\x9f\x0bnderBracket\x03\xe2\x8e\xb5\x0fnderParenthesis\x03\xe2\x8f\x9d\x04nion\x03\xe2\x8b\x83\x08nionPlus\x03\xe2\x8a\x8e\x04ogon\x02\xc5\xb2\x03opf\x04\xf0\x9d\x95\x8c\x06pArrow\x03\xe2\x86\x91\x09pArrowBar\x03\xe2\xa4\x92\x0fpArrowDownArrow\x03\xe2\x87\x85\x0apDownArrow\x03\xe2\x86\x95\x0cpEquilibrium\x03\xe2\xa5\xae\x04pTee\x03\xe2\x8a\xa5\x09pTeeArrow\x03\xe2\x86\xa5\x06parrow\x03\xe2\x87\x91\x0apdownarrow\x03\xe2\x87\x95\x0dpperLeftArrow\x03\xe2\x86\x96\x0epperRightArrow\x03\xe2\x86\x97\x03psi\x02\xcf\x92\x06psilon\x02\xce\xa5\x04ring\x02\xc5\xae\x03scr\x04\xf0\x9d\x92\xb0\x05tilde\x02\xc5\xa8\x03uml\x02\xc3\x9c"
+        case 86:
+            b"\x04Dash\x03\xe2\x8a\xab\x03bar\x03\xe2\xab\xab\x02cy\x02\xd0\x92\x04dash\x03\xe2\x8a\xa9\x05dashl\x03\xe2\xab\xa6\x02ee\x03\xe2\x8b\x81\x05erbar\x03\xe2\x80\x96\x03ert\x03\xe2\x80\x96\x0aerticalBar\x03\xe2\x88\xa3\x0berticalLine\x01|\x10erticalSeparator\x03\xe2\x9d\x98\x0certicalTilde\x03\xe2\x89\x80\x0ceryThinSpace\x03\xe2\x80\x8a\x02fr\x04\xf0\x9d\x94\x99\x03opf\x04\xf0\x9d\x95\x8d\x03scr\x04\xf0\x9d\x92\xb1\x05vdash\x03\xe2\x8a\xaa"
+        case 87:
+            b"\x04circ\x02\xc5\xb4\x04edge\x03\xe2\x8b\x80\x02fr\x04\xf0\x9d\x94\x9a\x03opf\x04\xf0\x9d\x95\x8e\x03scr\x04\xf0\x9d\x92\xb2"
+        case 88:
+            b"\x02fr\x04\xf0\x9d\x94\x9b\x01i\x02\xce\x9e\x03opf\x04\xf0\x9d\x95\x8f\x03scr\x04\xf0\x9d\x92\xb3"
+        case 89:
+            b"\x03Acy\x02\xd0\xaf\x03Icy\x02\xd0\x87\x03Ucy\x02\xd0\xae\x05acute\x02\xc3\x9d\x04circ\x02\xc5\xb6\x02cy\x02\xd0\xab\x02fr\x04\xf0\x9d\x94\x9c\x03opf\x04\xf0\x9d\x95\x90\x03scr\x04\xf0\x9d\x92\xb4\x03uml\x02\xc5\xb8"
+        case 90:
+            b"\x03Hcy\x02\xd0\x96\x05acute\x02\xc5\xb9\x05caron\x02\xc5\xbd\x02cy\x02\xd0\x97\x03dot\x02\xc5\xbb\x0deroWidthSpace\x03\xe2\x80\x8b\x03eta\x02\xce\x96\x02fr\x03\xe2\x84\xa8\x03opf\x03\xe2\x84\xa4\x03scr\x04\xf0\x9d\x92\xb5"
+        case 97:
+            b"\x05acute\x02\xc3\xa1\x05breve\x02\xc4\x83\x01c\x03\xe2\x88\xbe\x02cE\x05\xe2\x88\xbe\xcc\xb3\x02cd\x03\xe2\x88\xbf\x04circ\x02\xc3\xa2\x04cute\x02\xc2\xb4\x02cy\x02\xd0\xb0\x04elig\x02\xc3\xa6\x01f\x03\xe2\x81\xa1\x02fr\x04\xf0\x9d\x94\x9e\x05grave\x02\xc3\xa0\x06lefsym\x03\xe2\x84\xb5\x04leph\x03\xe2\x84\xb5\x04lpha\x02\xce\xb1\x04macr\x02\xc4\x81\x04malg\x03\xe2\xa8\xbf\x02mp\x01&\x02nd\x03\xe2\x88\xa7\x05ndand\x03\xe2\xa9\x95\x03ndd\x03\xe2\xa9\x9c\x07ndslope\x03\xe2\xa9\x98\x03ndv\x03\xe2\xa9\x9a\x02ng\x03\xe2\x88\xa0\x03nge\x03\xe2\xa6\xa4\x04ngle\x03\xe2\x88\xa0\x05ngmsd\x03\xe2\x88\xa1\x07ngmsdaa\x03\xe2\xa6\xa8\x07ngmsdab\x03\xe2\xa6\xa9\x07ngmsdac\x03\xe2\xa6\xaa\x07ngmsdad\x03\xe2\xa6\xab\x07ngmsdae\x03\xe2\xa6\xac\x07ngmsdaf\x03\xe2\xa6\xad\x07ngmsdag\x03\xe2\xa6\xae\x07ngmsdah\x03\xe2\xa6\xaf\x04ngrt\x03\xe2\x88\x9f\x06ngrtvb\x03\xe2\x8a\xbe\x07ngrtvbd\x03\xe2\xa6\x9d\x05ngsph\x03\xe2\x88\xa2\x04ngst\x02\xc3\x85\x06ngzarr\x03\xe2\x8d\xbc\x04ogon\x02\xc4\x85\x03opf\x04\xf0\x9d\x95\x92\x01p\x03\xe2\x89\x88\x02pE\x03\xe2\xa9\xb0\x05pacir\x03\xe2\xa9\xaf\x02pe\x03\xe2\x89\x8a\x03pid\x03\xe2\x89\x8b\x03pos\x01'\x05pprox\x03\xe2\x89\x88\x07pproxeq\x03\xe2\x89\x8a\x04ring\x02\xc3\xa5\x03scr\x04\xf0\x9d\x92\xb6\x02st\x01*\x04symp\x03\xe2\x89\x88\x06sympeq\x03\xe2\x89\x8d\x05tilde\x02\xc3\xa3\x03uml\x02\xc3\xa4\x07wconint\x03\xe2\x88\xb3\x04wint\x03\xe2\xa8\x91"
+        case 98:
+            b"\x03Not\x03\xe2\xab\xad\x07ackcong\x03\xe2\x89\x8c\x0aackepsilon\x02\xcf\xb6\x08ackprime\x03\xe2\x80\xb5\x06acksim\x03\xe2\x88\xbd\x08acksimeq\x03\xe2\x8b\x8d\x05arvee\x03\xe2\x8a\xbd\x05arwed\x03\xe2\x8c\x85\x07arwedge\x03\xe2\x8c\x85\x03brk\x03\xe2\x8e\xb5\x07brktbrk\x03\xe2\x8e\xb6\x04cong\x03\xe2\x89\x8c\x02cy\x02\xd0\xb1\x04dquo\x03\xe2\x80\x9e\x05ecaus\x03\xe2\x88\xb5\x06ecause\x03\xe2\x88\xb5\x06emptyv\x03\xe2\xa6\xb0\x04epsi\x02\xcf\xb6\x05ernou\x03\xe2\x84\xac\x03eta\x02\xce\xb2\x03eth\x03\xe2\x84\xb6\x06etween\x03\xe2\x89\xac\x02fr\x04\xf0\x9d\x94\x9f\x05igcap\x03\xe2\x8b\x82\x06igcirc\x03\xe2\x97\xaf\x05igcup\x03\xe2\x8b\x83\x06igodot\x03\xe2\xa8\x80\x07igoplus\x03\xe2\xa8\x81\x08igotimes\x03\xe2\xa8\x82\x07igsqcup\x03\xe2\xa8\x86\x06igstar\x03\xe2\x98\x85\x0eigtriangledown\x03\xe2\x96\xbd\x0cigtriangleup\x03\xe2\x96\xb3\x07iguplus\x03\xe2\xa8\x84\x05igvee\x03\xe2\x8b\x81\x07igwedge\x03\xe2\x8b\x80\x05karow\x03\xe2\xa4\x8d\x0blacklozenge\x03\xe2\xa7\xab\x0alacksquare\x03\xe2\x96\xaa\x0clacktriangle\x03\xe2\x96\xb4\x10lacktriangledown\x03\xe2\x96\xbe\x10lacktriangleleft\x03\xe2\x97\x82\x11lacktriangleright\x03\xe2\x96\xb8\x04lank\x03\xe2\x90\xa3\x04lk12\x03\xe2\x96\x92\x04lk14\x03\xe2\x96\x91\x04lk34\x03\xe2\x96\x93\x04lock\x03\xe2\x96\x88\x02ne\x04=\xe2\x83\xa5\x06nequiv\x06\xe2\x89\xa1\xe2\x83\xa5\x03not\x03\xe2\x8c\x90\x03opf\x04\xf0\x9d\x95\x93\x02ot\x03\xe2\x8a\xa5\x05ottom\x03\xe2\x8a\xa5\x05owtie\x03\xe2\x8b\x88\x04oxDL\x03\xe2\x95\x97\x04oxDR\x03\xe2\x95\x94\x04oxDl\x03\xe2\x95\x96\x04oxDr\x03\xe2\x95\x93\x03oxH\x03\xe2\x95\x90\x04oxHD\x03\xe2\x95\xa6\x04oxHU\x03\xe2\x95\xa9\x04oxHd\x03\xe2\x95\xa4\x04oxHu\x03\xe2\x95\xa7\x04oxUL\x03\xe2\x95\x9d\x04oxUR\x03\xe2\x95\x9a\x04oxUl\x03\xe2\x95\x9c\x04oxUr\x03\xe2\x95\x99\x03oxV\x03\xe2\x95\x91\x04oxVH\x03\xe2\x95\xac\x04oxVL\x03\xe2\x95\xa3\x04oxVR\x03\xe2\x95\xa0\x04oxVh\x03\xe2\x95\xab\x04oxVl\x03\xe2\x95\xa2\x04oxVr\x03\xe2\x95\x9f\x05oxbox\x03\xe2\xa7\x89\x04oxdL\x03\xe2\x95\x95\x04oxdR\x03\xe2\x95\x92\x04oxdl\x03\xe2\x94\x90\x04oxdr\x03\xe2\x94\x8c\x03oxh\x03\xe2\x94\x80\x04oxhD\x03\xe2\x95\xa5\x04oxhU\x03\xe2\x95\xa8\x04oxhd\x03\xe2\x94\xac\x04oxhu\x03\xe2\x94\xb4\x07oxminus\x03\xe2\x8a\x9f\x06oxplus\x03\xe2\x8a\x9e\x07oxtimes\x03\xe2\x8a\xa0\x04oxuL\x03\xe2\x95\x9b\x04oxuR\x03\xe2\x95\x98\x04oxul\x03\xe2\x94\x98\x04oxur\x03\xe2\x94\x94\x03oxv\x03\xe2\x94\x82\x04oxvH\x03\xe2\x95\xaa\x04oxvL\x03\xe2\x95\xa1\x04oxvR\x03\xe2\x95\x9e\x04oxvh\x03\xe2\x94\xbc\x04oxvl\x03\xe2\x94\xa4\x04oxvr\x03\xe2\x94\x9c\x05prime\x03\xe2\x80\xb5\x04reve\x02\xcb\x98\x05rvbar\x02\xc2\xa6\x03scr\x04\xf0\x9d\x92\xb7\x04semi\x03\xe2\x81\x8f\x03sim\x03\xe2\x88\xbd\x04sime\x03\xe2\x8b\x8d\x03sol\x01\x5c\x04solb\x03\xe2\xa7\x85\x07solhsub\x03\xe2\x9f\x88\x03ull\x03\xe2\x80\xa2\x05ullet\x03\xe2\x80\xa2\x03ump\x03\xe2\x89\x8e\x04umpE\x03\xe2\xaa\xae\x04umpe\x03\xe2\x89\x8f\x05umpeq\x03\xe2\x89\x8f"
+        case 99:
+            b"\x05acute\x02\xc4\x87\x02ap\x03\xe2\x88\xa9\x05apand\x03\xe2\xa9\x84\x07apbrcup\x03\xe2\xa9\x89\x05apcap\x03\xe2\xa9\x8b\x05apcup\x03\xe2\xa9\x87\x05apdot\x03\xe2\xa9\x80\x03aps\x06\xe2\x88\xa9\xef\xb8\x80\x04aret\x03\xe2\x81\x81\x04aron\x02\xcb\x87\x04caps\x03\xe2\xa9\x8d\x05caron\x02\xc4\x8d\x05cedil\x02\xc3\xa7\x04circ\x02\xc4\x89\x04cups\x03\xe2\xa9\x8c\x06cupssm\x03\xe2\xa9\x90\x03dot\x02\xc4\x8b\x04edil\x02\xc2\xb8\x06emptyv\x03\xe2\xa6\xb2\x03ent\x02\xc2\xa2\x08enterdot\x02\xc2\xb7\x02fr\x04\xf0\x9d\x94\xa0\x03hcy\x02\xd1\x87\x04heck\x03\xe2\x9c\x93\x08heckmark\x03\xe2\x9c\x93\x02hi\x02\xcf\x87\x02ir\x03\xe2\x97\x8b\x03irE\x03\xe2\xa7\x83\x03irc\x02\xcb\x86\x05irceq\x03\xe2\x89\x97\x0eirclearrowleft\x03\xe2\x86\xba\x0firclearrowright\x03\xe2\x86\xbb\x07ircledR\x02\xc2\xae\x07ircledS\x03\xe2\x93\x88\x09ircledast\x03\xe2\x8a\x9b\x0aircledcirc\x03\xe2\x8a\x9a\x0aircleddash\x03\xe2\x8a\x9d\x03ire\x03\xe2\x89\x97\x07irfnint\x03\xe2\xa8\x90\x05irmid\x03\xe2\xab\xaf\x06irscir\x03\xe2\xa7\x82\x04lubs\x03\xe2\x99\xa3\x07lubsuit\x03\xe2\x99\xa3\x04olon\x01:\x05olone\x03\xe2\x89\x94\x06oloneq\x03\xe2\x89\x94\x04omma\x01,\x05ommat\x01@\x03omp\x03\xe2\x88\x81\x05ompfn\x03\xe2\x88\x98\x09omplement\x03\xe2\x88\x81\x08omplexes\x03\xe2\x84\x82\x03ong\x03\xe2\x89\x85\x06ongdot\x03\xe2\xa9\xad\x05onint\x03\xe2\x88\xae\x03opf\x04\xf0\x9d\x95\x94\x05oprod\x03\xe2\x88\x90\x03opy\x02\xc2\xa9\x05opysr\x03\xe2\x84\x97\x04rarr\x03\xe2\x86\xb5\x04ross\x03\xe2\x9c\x97\x03scr\x04\xf0\x9d\x92\xb8\x03sub\x03\xe2\xab\x8f\x04sube\x03\xe2\xab\x91\x03sup\x03\xe2\xab\x90\x04supe\x03\xe2\xab\x92\x04tdot\x03\xe2\x8b\xaf\x06udarrl\x03\xe2\xa4\xb8\x06udarrr\x03\xe2\xa4\xb5\x04uepr\x03\xe2\x8b\x9e\x04uesc\x03\xe2\x8b\x9f\x05ularr\x03\xe2\x86\xb6\x06ularrp\x03\xe2\xa4\xbd\x02up\x03\xe2\x88\xaa\x07upbrcap\x03\xe2\xa9\x88\x05upcap\x03\xe2\xa9\x86\x05upcup\x03\xe2\xa9\x8a\x05updot\x03\xe2\x8a\x8d\x04upor\x03\xe2\xa9\x85\x03ups\x06\xe2\x88\xaa\xef\xb8\x80\x05urarr\x03\xe2\x86\xb7\x06urarrm\x03\xe2\xa4\xbc\x0aurlyeqprec\x03\xe2\x8b\x9e\x0aurlyeqsucc\x03\xe2\x8b\x9f\x07urlyvee\x03\xe2\x8b\x8e\x09urlywedge\x03\xe2\x8b\x8f\x05urren\x02\xc2\xa4\x0durvearrowleft\x03\xe2\x86\xb6\x0eurvearrowright\x03\xe2\x86\xb7\x04uvee\x03\xe2\x8b\x8e\x04uwed\x03\xe2\x8b\x8f\x07wconint\x03\xe2\x88\xb2\x04wint\x03\xe2\x88\xb1\x05ylcty\x03\xe2\x8c\xad"
+        case 100:
+            b"\x03Arr\x03\xe2\x87\x93\x03Har\x03\xe2\xa5\xa5\x05agger\x03\xe2\x80\xa0\x05aleth\x03\xe2\x84\xb8\x03arr\x03\xe2\x86\x93\x03ash\x03\xe2\x80\x90\x04ashv\x03\xe2\x8a\xa3\x06bkarow\x03\xe2\xa4\x8f\x04blac\x02\xcb\x9d\x05caron\x02\xc4\x8f\x02cy\x02\xd0\xb4\x01d\x03\xe2\x85\x86\x06dagger\x03\xe2\x80\xa1\x04darr\x03\xe2\x87\x8a\x06dotseq\x03\xe2\xa9\xb7\x02eg\x02\xc2\xb0\x04elta\x02\xce\xb4\x06emptyv\x03\xe2\xa6\xb1\x05fisht\x03\xe2\xa5\xbf\x02fr\x04\xf0\x9d\x94\xa1\x04harl\x03\xe2\x87\x83\x04harr\x03\xe2\x87\x82\x03iam\x03\xe2\x8b\x84\x06iamond\x03\xe2\x8b\x84\x0aiamondsuit\x03\xe2\x99\xa6\x04iams\x03\xe2\x99\xa6\x02ie\x02\xc2\xa8\x06igamma\x02\xcf\x9d\x04isin\x03\xe2\x8b\xb2\x02iv\x02\xc3\xb7\x05ivide\x02\xc3\xb7\x0civideontimes\x03\xe2\x8b\x87\x05ivonx\x03\xe2\x8b\x87\x03jcy\x02\xd1\x92\x05lcorn\x03\xe2\x8c\x9e\x05lcrop\x03\xe2\x8c\x8d\x05ollar\x01$\x03opf\x04\xf0\x9d\x95\x95\x02ot\x02\xcb\x99\x04oteq\x03\xe2\x89\x90\x07oteqdot\x03\xe2\x89\x91\x07otminus\x03\xe2\x88\xb8\x06otplus\x03\xe2\x88\x94\x08otsquare\x03\xe2\x8a\xa1\x0doublebarwedge\x03\xe2\x8c\x86\x08ownarrow\x03\xe2\x86\x93\x0downdownarrows\x03\xe2\x87\x8a\x0eownharpoonleft\x03\xe2\x87\x83\x0fownharpoonright\x03\xe2\x87\x82\x07rbkarow\x03\xe2\xa4\x90\x05rcorn\x03\xe2\x8c\x9f\x05rcrop\x03\xe2\x8c\x8c\x03scr\x04\xf0\x9d\x92\xb9\x03scy\x02\xd1\x95\x03sol\x03\xe2\xa7\xb6\x05strok\x02\xc4\x91\x04tdot\x03\xe2\x8b\xb1\x03tri\x03\xe2\x96\xbf\x04trif\x03\xe2\x96\xbe\x04uarr\x03\xe2\x87\xb5\x04uhar\x03\xe2\xa5\xaf\x06wangle\x03\xe2\xa6\xa6\x03zcy\x02\xd1\x9f\x07zigrarr\x03\xe2\x9f\xbf"
+        case 101:
+            b"\x04DDot\x03\xe2\xa9\xb7\x03Dot\x03\xe2\x89\x91\x05acute\x02\xc3\xa9\x05aster\x03\xe2\xa9\xae\x05caron\x02\xc4\x9b\x03cir\x03\xe2\x89\x96\x04circ\x02\xc3\xaa\x05colon\x03\xe2\x89\x95\x02cy\x02\xd1\x8d\x03dot\x02\xc4\x97\x01e\x03\xe2\x85\x87\x04fDot\x03\xe2\x89\x92\x02fr\x04\xf0\x9d\x94\xa2\x01g\x03\xe2\xaa\x9a\x05grave\x02\xc3\xa8\x02gs\x03\xe2\xaa\x96\x05gsdot\x03\xe2\xaa\x98\x01l\x03\xe2\xaa\x99\x07linters\x03\xe2\x8f\xa7\x02ll\x03\xe2\x84\x93\x02ls\x03\xe2\xaa\x95\x05lsdot\x03\xe2\xaa\x97\x04macr\x02\xc4\x93\x04mpty\x03\xe2\x88\x85\x07mptyset\x03\xe2\x88\x85\x05mptyv\x03\xe2\x88\x85\x05msp13\x03\xe2\x80\x84\x05msp14\x03\xe2\x80\x85\x03msp\x03\xe2\x80\x83\x02ng\x02\xc5\x8b\x03nsp\x03\xe2\x80\x82\x04ogon\x02\xc4\x99\x03opf\x04\xf0\x9d\x95\x96\x03par\x03\xe2\x8b\x95\x05parsl\x03\xe2\xa7\xa3\x04plus\x03\xe2\xa9\xb1\x03psi\x02\xce\xb5\x06psilon\x02\xce\xb5\x04psiv\x02\xcf\xb5\x05qcirc\x03\xe2\x89\x96\x06qcolon\x03\xe2\x89\x95\x04qsim\x03\xe2\x89\x82\x09qslantgtr\x03\xe2\xaa\x96\x0aqslantless\x03\xe2\xaa\x95\x05quals\x01=\x05quest\x03\xe2\x89\x9f\x04quiv\x03\xe2\x89\xa1\x06quivDD\x03\xe2\xa9\xb8\x07qvparsl\x03\xe2\xa7\xa5\x04rDot\x03\xe2\x89\x93\x04rarr\x03\xe2\xa5\xb1\x03scr\x03\xe2\x84\xaf\x04sdot\x03\xe2\x89\x90\x03sim\x03\xe2\x89\x82\x02ta\x02\xce\xb7\x02th\x02\xc3\xb0\x03uml\x02\xc3\xab\x03uro\x03\xe2\x82\xac\x03xcl\x01!\x04xist\x03\xe2\x88\x83\x0axpectation\x03\xe2\x84\xb0\x0bxponentiale\x03\xe2\x85\x87"
+        case 102:
+            b"\x0callingdotseq\x03\xe2\x89\x92\x02cy\x02\xd1\x84\x05emale\x03\xe2\x99\x80\x05filig\x03\xef\xac\x83\x04flig\x03\xef\xac\x80\x05fllig\x03\xef\xac\x84\x02fr\x04\xf0\x9d\x94\xa3\x04ilig\x03\xef\xac\x81\x04jlig\x02fj\x03lat\x03\xe2\x99\xad\x04llig\x03\xef\xac\x82\x04ltns\x03\xe2\x96\xb1\x03nof\x02\xc6\x92\x03opf\x04\xf0\x9d\x95\x97\x05orall\x03\xe2\x88\x80\x03ork\x03\xe2\x8b\x94\x04orkv\x03\xe2\xab\x99\x07partint\x03\xe2\xa8\x8d\x05rac12\x02\xc2\xbd\x05rac13\x03\xe2\x85\x93\x05rac14\x02\xc2\xbc\x05rac15\x03\xe2\x85\x95\x05rac16\x03\xe2\x85\x99\x05rac18\x03\xe2\x85\x9b\x05rac23\x03\xe2\x85\x94\x05rac25\x03\xe2\x85\x96\x05rac34\x02\xc2\xbe\x05rac35\x03\xe2\x85\x97\x05rac38\x03\xe2\x85\x9c\x05rac45\x03\xe2\x85\x98\x05rac56\x03\xe2\x85\x9a\x05rac58\x03\xe2\x85\x9d\x05rac78\x03\xe2\x85\x9e\x04rasl\x03\xe2\x81\x84\x04rown\x03\xe2\x8c\xa2\x03scr\x04\xf0\x9d\x92\xbb"
+        case 103:
+            b"\x01E\x03\xe2\x89\xa7\x02El\x03\xe2\xaa\x8c\x05acute\x02\xc7\xb5\x04amma\x02\xce\xb3\x05ammad\x02\xcf\x9d\x02ap\x03\xe2\xaa\x86\x05breve\x02\xc4\x9f\x04circ\x02\xc4\x9d\x02cy\x02\xd0\xb3\x03dot\x02\xc4\xa1\x01e\x03\xe2\x89\xa5\x02el\x03\xe2\x8b\x9b\x02eq\x03\xe2\x89\xa5\x03eqq\x03\xe2\x89\xa7\x07eqslant\x03\xe2\xa9\xbe\x02es\x03\xe2\xa9\xbe\x04escc\x03\xe2\xaa\xa9\x05esdot\x03\xe2\xaa\x80\x06esdoto\x03\xe2\xaa\x82\x07esdotol\x03\xe2\xaa\x84\x03esl\x06\xe2\x8b\x9b\xef\xb8\x80\x05esles\x03\xe2\xaa\x94\x02fr\x04\xf0\x9d\x94\xa4\x01g\x03\xe2\x89\xab\x02gg\x03\xe2\x8b\x99\x04imel\x03\xe2\x84\xb7\x03jcy\x02\xd1\x93\x01l\x03\xe2\x89\xb7\x02lE\x03\xe2\xaa\x92\x02la\x03\xe2\xaa\xa5\x02lj\x03\xe2\xaa\xa4\x02nE\x03\xe2\x89\xa9\x03nap\x03\xe2\xaa\x8a\x07napprox\x03\xe2\xaa\x8a\x02ne\x03\xe2\xaa\x88\x03neq\x03\xe2\xaa\x88\x04neqq\x03\xe2\x89\xa9\x04nsim\x03\xe2\x8b\xa7\x03opf\x04\xf0\x9d\x95\x98\x04rave\x01`\x03scr\x03\xe2\x84\x8a\x03sim\x03\xe2\x89\xb3\x04sime\x03\xe2\xaa\x8e\x04siml\x03\xe2\xaa\x90\x01t\x01>\x03tcc\x03\xe2\xaa\xa7\x04tcir\x03\xe2\xa9\xba\x04tdot\x03\xe2\x8b\x97\x05tlPar\x03\xe2\xa6\x95\x06tquest\x03\xe2\xa9\xbc\x08trapprox\x03\xe2\xaa\x86\x05trarr\x03\xe2\xa5\xb8\x05trdot\x03\xe2\x8b\x97\x08treqless\x03\xe2\x8b\x9b\x09treqqless\x03\xe2\xaa\x8c\x06trless\x03\xe2\x89\xb7\x05trsim\x03\xe2\x89\xb3\x08vertneqq\x06\xe2\x89\xa9\xef\xb8\x80\x03vnE\x06\xe2\x89\xa9\xef\xb8\x80"
+        case 104:
+            b"\x03Arr\x03\xe2\x87\x94\x05airsp\x03\xe2\x80\x8a\x03alf\x02\xc2\xbd\x05amilt\x03\xe2\x84\x8b\x05ardcy\x02\xd1\x8a\x03arr\x03\xe2\x86\x94\x06arrcir\x03\xe2\xa5\x88\x04arrw\x03\xe2\x86\xad\x03bar\x03\xe2\x84\x8f\x04circ\x02\xc4\xa5\x05earts\x03\xe2\x99\xa5\x08eartsuit\x03\xe2\x99\xa5\x05ellip\x03\xe2\x80\xa6\x05ercon\x03\xe2\x8a\xb9\x02fr\x04\xf0\x9d\x94\xa5\x07ksearow\x03\xe2\xa4\xa5\x07kswarow\x03\xe2\xa4\xa6\x04oarr\x03\xe2\x87\xbf\x05omtht\x03\xe2\x88\xbb\x0cookleftarrow\x03\xe2\x86\xa9\x0dookrightarrow\x03\xe2\x86\xaa\x03opf\x04\xf0\x9d\x95\x99\x05orbar\x03\xe2\x80\x95\x03scr\x04\xf0\x9d\x92\xbd\x05slash\x03\xe2\x84\x8f\x05strok\x02\xc4\xa7\x05ybull\x03\xe2\x81\x83\x05yphen\x03\xe2\x80\x90"
+        case 105:
+            b"\x05acute\x02\xc3\xad\x01c\x03\xe2\x81\xa3\x04circ\x02\xc3\xae\x02cy\x02\xd0\xb8\x03ecy\x02\xd0\xb5\x04excl\x02\xc2\xa1\x02ff\x03\xe2\x87\x94\x02fr\x04\xf0\x9d\x94\xa6\x05grave\x02\xc3\xac\x01i\x03\xe2\x85\x88\x05iiint\x03\xe2\xa8\x8c\x04iint\x03\xe2\x88\xad\x05infin\x03\xe2\xa7\x9c\x04iota\x03\xe2\x84\xa9\x04jlig\x02\xc4\xb3\x04macr\x02\xc4\xab\x04mage\x03\xe2\x84\x91\x07magline\x03\xe2\x84\x90\x07magpart\x03\xe2\x84\x91\x04math\x02\xc4\xb1\x03mof\x03\xe2\x8a\xb7\x04mped\x02\xc6\xb5\x01n\x03\xe2\x88\x88\x05ncare\x03\xe2\x84\x85\x04nfin\x03\xe2\x88\x9e\x07nfintie\x03\xe2\xa7\x9d\x05nodot\x02\xc4\xb1\x02nt\x03\xe2\x88\xab\x05ntcal\x03\xe2\x8a\xba\x07ntegers\x03\xe2\x84\xa4\x07ntercal\x03\xe2\x8a\xba\x07ntlarhk\x03\xe2\xa8\x97\x06ntprod\x03\xe2\xa8\xbc\x03ocy\x02\xd1\x91\x04ogon\x02\xc4\xaf\x03opf\x04\xf0\x9d\x95\x9a\x03ota\x02\xce\xb9\x04prod\x03\xe2\xa8\xbc\x05quest\x02\xc2\xbf\x03scr\x04\xf0\x9d\x92\xbe\x03sin\x03\xe2\x88\x88\x04sinE\x03\xe2\x8b\xb9\x06sindot\x03\xe2\x8b\xb5\x04sins\x03\xe2\x8b\xb4\x05sinsv\x03\xe2\x8b\xb3\x04sinv\x03\xe2\x88\x88\x01t\x03\xe2\x81\xa2\x05tilde\x02\xc4\xa9\x04ukcy\x02\xd1\x96\x03uml\x02\xc3\xaf"
+        case 106:
+            b"\x04circ\x02\xc4\xb5\x02cy\x02\xd0\xb9\x02fr\x04\xf0\x9d\x94\xa7\x04math\x02\xc8\xb7\x03opf\x04\xf0\x9d\x95\x9b\x03scr\x04\xf0\x9d\x92\xbf\x05sercy\x02\xd1\x98\x04ukcy\x02\xd1\x94"
+        case 107:
+            b"\x04appa\x02\xce\xba\x05appav\x02\xcf\xb0\x05cedil\x02\xc4\xb7\x02cy\x02\xd0\xba\x02fr\x04\xf0\x9d\x94\xa8\x05green\x02\xc4\xb8\x03hcy\x02\xd1\x85\x03jcy\x02\xd1\x9c\x03opf\x04\xf0\x9d\x95\x9c\x03scr\x04\xf0\x9d\x93\x80"
+        case 108:
+            b"\x04Aarr\x03\xe2\x87\x9a\x03Arr\x03\xe2\x87\x90\x05Atail\x03\xe2\xa4\x9b\x04Barr\x03\xe2\xa4\x8e\x01E\x03\xe2\x89\xa6\x02Eg\x03\xe2\xaa\x8b\x03Har\x03\xe2\xa5\xa2\x05acute\x02\xc4\xba\x07aemptyv\x03\xe2\xa6\xb4\x05agran\x03\xe2\x84\x92\x05ambda\x02\xce\xbb\x03ang\x03\xe2\x9f\xa8\x04angd\x03\xe2\xa6\x91\x05angle\x03\xe2\x9f\xa8\x02ap\x03\xe2\xaa\x85\x04aquo\x02\xc2\xab\x03arr\x03\xe2\x86\x90\x04arrb\x03\xe2\x87\xa4\x06arrbfs\x03\xe2\xa4\x9f\x05arrfs\x03\xe2\xa4\x9d\x05arrhk\x03\xe2\x86\xa9\x05arrlp\x03\xe2\x86\xab\x05arrpl\x03\xe2\xa4\xb9\x06arrsim\x03\xe2\xa5\xb3\x05arrtl\x03\xe2\x86\xa2\x02at\x03\xe2\xaa\xab\x05atail\x03\xe2\xa4\x99\x03ate\x03\xe2\xaa\xad\x04ates\x06\xe2\xaa\xad\xef\xb8\x80\x04barr\x03\xe2\xa4\x8c\x04bbrk\x03\xe2\x9d\xb2\x05brace\x01{\x05brack\x01[\x04brke\x03\xe2\xa6\x8b\x06brksld\x03\xe2\xa6\x8f\x06brkslu\x03\xe2\xa6\x8d\x05caron\x02\xc4\xbe\x05cedil\x02\xc4\xbc\x04ceil\x03\xe2\x8c\x88\x03cub\x01{\x02cy\x02\xd0\xbb\x03dca\x03\xe2\xa4\xb6\x04dquo\x03\xe2\x80\x9c\x05dquor\x03\xe2\x80\x9e\x06drdhar\x03\xe2\xa5\xa7\x07drushar\x03\xe2\xa5\x8b\x03dsh\x03\xe2\x86\xb2\x01e\x03\xe2\x89\xa4\x08eftarrow\x03\xe2\x86\x90\x0ceftarrowtail\x03\xe2\x86\xa2\x0eeftharpoondown\x03\xe2\x86\xbd\x0ceftharpoonup\x03\xe2\x86\xbc\x0deftleftarrows\x03\xe2\x87\x87\x0deftrightarrow\x03\xe2\x86\x94\x0eeftrightarrows\x03\xe2\x87\x86\x10eftrightharpoons\x03\xe2\x87\x8b\x12eftrightsquigarrow\x03\xe2\x86\xad\x0deftthreetimes\x03\xe2\x8b\x8b\x02eg\x03\xe2\x8b\x9a\x02eq\x03\xe2\x89\xa4\x03eqq\x03\xe2\x89\xa6\x07eqslant\x03\xe2\xa9\xbd\x02es\x03\xe2\xa9\xbd\x04escc\x03\xe2\xaa\xa8\x05esdot\x03\xe2\xa9\xbf\x06esdoto\x03\xe2\xaa\x81\x07esdotor\x03\xe2\xaa\x83\x03esg\x06\xe2\x8b\x9a\xef\xb8\x80\x05esges\x03\xe2\xaa\x93\x09essapprox\x03\xe2\xaa\x85\x06essdot\x03\xe2\x8b\x96\x08esseqgtr\x03\xe2\x8b\x9a\x09esseqqgtr\x03\xe2\xaa\x8b\x06essgtr\x03\xe2\x89\xb6\x06esssim\x03\xe2\x89\xb2\x05fisht\x03\xe2\xa5\xbc\x05floor\x03\xe2\x8c\x8a\x02fr\x04\xf0\x9d\x94\xa9\x01g\x03\xe2\x89\xb6\x02gE\x03\xe2\xaa\x91\x04hard\x03\xe2\x86\xbd\x04haru\x03\xe2\x86\xbc\x05harul\x03\xe2\xa5\xaa\x04hblk\x03\xe2\x96\x84\x03jcy\x02\xd1\x99\x01l\x03\xe2\x89\xaa\x04larr\x03\xe2\x87\x87\x07lcorner\x03\xe2\x8c\x9e\x05lhard\x03\xe2\xa5\xab\x04ltri\x03\xe2\x97\xba\x05midot\x02\xc5\x80\x05moust\x03\xe2\x8e\xb0\x09moustache\x03\xe2\x8e\xb0\x02nE\x03\xe2\x89\xa8\x03nap\x03\xe2\xaa\x89\x07napprox\x03\xe2\xaa\x89\x02ne\x03\xe2\xaa\x87\x03neq\x03\xe2\xaa\x87\x04neqq\x03\xe2\x89\xa8\x04nsim\x03\xe2\x8b\xa6\x04oang\x03\xe2\x9f\xac\x04oarr\x03\xe2\x87\xbd\x04obrk\x03\xe2\x9f\xa6\x0congleftarrow\x03\xe2\x9f\xb5\x11ongleftrightarrow\x03\xe2\x9f\xb7\x09ongmapsto\x03\xe2\x9f\xbc\x0dongrightarrow\x03\xe2\x9f\xb6\x0cooparrowleft\x03\xe2\x86\xab\x0dooparrowright\x03\xe2\x86\xac\x04opar\x03\xe2\xa6\x85\x03opf\x04\xf0\x9d\x95\x9d\x05oplus\x03\xe2\xa8\xad\x06otimes\x03\xe2\xa8\xb4\x05owast\x03\xe2\x88\x97\x05owbar\x01_\x02oz\x03\xe2\x97\x8a\x06ozenge\x03\xe2\x97\x8a\x03ozf\x03\xe2\xa7\xab\x03par\x01(\x05parlt\x03\xe2\xa6\x93\x04rarr\x03\xe2\x87\x86\x07rcorner\x03\xe2\x8c\x9f\x04rhar\x03\xe2\x87\x8b\x05rhard\x03\xe2\xa5\xad\x02rm\x03\xe2\x80\x8e\x04rtri\x03\xe2\x8a\xbf\x05saquo\x03\xe2\x80\xb9\x03scr\x04\xf0\x9d\x93\x81\x02sh\x03\xe2\x86\xb0\x03sim\x03\xe2\x89\xb2\x04sime\x03\xe2\xaa\x8d\x04simg\x03\xe2\xaa\x8f\x03sqb\x01[\x04squo\x03\xe2\x80\x98\x05squor\x03\xe2\x80\x9a\x05strok\x02\xc5\x82\x01t\x01<\x03tcc\x03\xe2\xaa\xa6\x04tcir\x03\xe2\xa9\xb9\x04tdot\x03\xe2\x8b\x96\x05three\x03\xe2\x8b\x8b\x05times\x03\xe2\x8b\x89\x05tlarr\x03\xe2\xa5\xb6\x06tquest\x03\xe2\xa9\xbb\x05trPar\x03\xe2\xa6\x96\x03tri\x03\xe2\x97\x83\x04trie\x03\xe2\x8a\xb4\x04trif\x03\xe2\x97\x82\x07urdshar\x03\xe2\xa5\x8a\x06uruhar\x03\xe2\xa5\xa6\x08vertneqq\x06\xe2\x89\xa8\xef\xb8\x80\x03vnE\x06\xe2\x89\xa8\xef\xb8\x80"
+        case 109:
+            b"\x04DDot\x03\xe2\x88\xba\x03acr\x02\xc2\xaf\x03ale\x03\xe2\x99\x82\x03alt\x03\xe2\x9c\xa0\x06altese\x03\xe2\x9c\xa0\x02ap\x03\xe2\x86\xa6\x05apsto\x03\xe2\x86\xa6\x09apstodown\x03\xe2\x86\xa7\x09apstoleft\x03\xe2\x86\xa4\x07apstoup\x03\xe2\x86\xa5\x05arker\x03\xe2\x96\xae\x05comma\x03\xe2\xa8\xa9\x02cy\x02\xd0\xbc\x04dash\x03\xe2\x80\x94\x0ceasuredangle\x03\xe2\x88\xa1\x02fr\x04\xf0\x9d\x94\xaa\x02ho\x03\xe2\x84\xa7\x04icro\x02\xc2\xb5\x02id\x03\xe2\x88\xa3\x05idast\x01*\x05idcir\x03\xe2\xab\xb0\x05iddot\x02\xc2\xb7\x04inus\x03\xe2\x88\x92\x05inusb\x03\xe2\x8a\x9f\x05inusd\x03\xe2\x88\xb8\x06inusdu\x03\xe2\xa8\xaa\x03lcp\x03\xe2\xab\x9b\x03ldr\x03\xe2\x80\xa6\x05nplus\x03\xe2\x88\x93\x05odels\x03\xe2\x8a\xa7\x03opf\x04\xf0\x9d\x95\x9e\x01p\x03\xe2\x88\x93\x03scr\x04\xf0\x9d\x93\x82\x05stpos\x03\xe2\x88\xbe\x01u\x02\xce\xbc\x07ultimap\x03\xe2\x8a\xb8\x04umap\x03\xe2\x8a\xb8"
+        case 110:
+            b"\x02Gg\x05\xe2\x8b\x99\xcc\xb8\x02Gt\x06\xe2\x89\xab\xe2\x83\x92\x03Gtv\x05\xe2\x89\xab\xcc\xb8\x09Leftarrow\x03\xe2\x87\x8d\x0eLeftrightarrow\x03\xe2\x87\x8e\x02Ll\x05\xe2\x8b\x98\xcc\xb8\x02Lt\x06\xe2\x89\xaa\xe2\x83\x92\x03Ltv\x05\xe2\x89\xaa\xcc\xb8\x0aRightarrow\x03\xe2\x87\x8f\x05VDash\x03\xe2\x8a\xaf\x05Vdash\x03\xe2\x8a\xae\x04abla\x03\xe2\x88\x87\x05acute\x02\xc5\x84\x03ang\x06\xe2\x88\xa0\xe2\x83\x92\x02ap\x03\xe2\x89\x89\x03apE\x05\xe2\xa9\xb0\xcc\xb8\x04apid\x05\xe2\x89\x8b\xcc\xb8\x04apos\x02\xc5\x89\x06approx\x03\xe2\x89\x89\x04atur\x03\xe2\x99\xae\x06atural\x03\xe2\x99\xae\x07aturals\x03\xe2\x84\x95\x03bsp\x02\xc2\xa0\x04bump\x05\xe2\x89\x8e\xcc\xb8\x05bumpe\x05\xe2\x89\x8f\xcc\xb8\x03cap\x03\xe2\xa9\x83\x05caron\x02\xc5\x88\x05cedil\x02\xc5\x86\x04cong\x03\xe2\x89\x87\x07congdot\x05\xe2\xa9\xad\xcc\xb8\x03cup\x03\xe2\xa9\x82\x02cy\x02\xd0\xbd\x04dash\x03\xe2\x80\x93\x01e\x03\xe2\x89\xa0\x04eArr\x03\xe2\x87\x97\x05earhk\x03\xe2\xa4\xa4\x04earr\x03\xe2\x86\x97\x06earrow\x03\xe2\x86\x97\x04edot\x05\xe2\x89\x90\xcc\xb8\x05equiv\x03\xe2\x89\xa2\x05esear\x03\xe2\xa4\xa8\x04esim\x05\xe2\x89\x82\xcc\xb8\x05exist\x03\xe2\x88\x84\x06exists\x03\xe2\x88\x84\x02fr\x04\xf0\x9d\x94\xab\x02gE\x05\xe2\x89\xa7\xcc\xb8\x02ge\x03\xe2\x89\xb1\x03geq\x03\xe2\x89\xb1\x04geqq\x05\xe2\x89\xa7\xcc\xb8\x08geqslant\x05\xe2\xa9\xbe\xcc\xb8\x03ges\x05\xe2\xa9\xbe\xcc\xb8\x04gsim\x03\xe2\x89\xb5\x02gt\x03\xe2\x89\xaf\x03gtr\x03\xe2\x89\xaf\x04hArr\x03\xe2\x87\x8e\x04harr\x03\xe2\x86\xae\x04hpar\x03\xe2\xab\xb2\x01i\x03\xe2\x88\x8b\x02is\x03\xe2\x8b\xbc\x03isd\x03\xe2\x8b\xba\x02iv\x03\xe2\x88\x8b\x03jcy\x02\xd1\x9a\x04lArr\x03\xe2\x87\x8d\x02lE\x05\xe2\x89\xa6\xcc\xb8\x04larr\x03\xe2\x86\x9a\x03ldr\x03\xe2\x80\xa5\x02le\x03\xe2\x89\xb0\x09leftarrow\x03\xe2\x86\x9a\x0eleftrightarrow\x03\xe2\x86\xae\x03leq\x03\xe2\x89\xb0\x04leqq\x05\xe2\x89\xa6\xcc\xb8\x08leqslant\x05\xe2\xa9\xbd\xcc\xb8\x03les\x05\xe2\xa9\xbd\xcc\xb8\x04less\x03\xe2\x89\xae\x04lsim\x03\xe2\x89\xb4\x02lt\x03\xe2\x89\xae\x04ltri\x03\xe2\x8b\xaa\x05ltrie\x03\xe2\x8b\xac\x03mid\x03\xe2\x88\xa4\x03opf\x04\xf0\x9d\x95\x9f\x02ot\x02\xc2\xac\x04otin\x03\xe2\x88\x89\x05otinE\x05\xe2\x8b\xb9\xcc\xb8\x07otindot\x05\xe2\x8b\xb5\xcc\xb8\x06otinva\x03\xe2\x88\x89\x06otinvb\x03\xe2\x8b\xb7\x06otinvc\x03\xe2\x8b\xb6\x04otni\x03\xe2\x88\x8c\x06otniva\x03\xe2\x88\x8c\x06otnivb\x03\xe2\x8b\xbe\x06otnivc\x03\xe2\x8b\xbd\x03par\x03\xe2\x88\xa6\x08parallel\x03\xe2\x88\xa6\x05parsl\x06\xe2\xab\xbd\xe2\x83\xa5\x04part\x05\xe2\x88\x82\xcc\xb8\x06polint\x03\xe2\xa8\x94\x02pr\x03\xe2\x8a\x80\x05prcue\x03\xe2\x8b\xa0\x03pre\x05\xe2\xaa\xaf\xcc\xb8\x04prec\x03\xe2\x8a\x80\x06preceq\x05\xe2\xaa\xaf\xcc\xb8\x04rArr\x03\xe2\x87\x8f\x04rarr\x03\xe2\x86\x9b\x05rarrc\x05\xe2\xa4\xb3\xcc\xb8\x05rarrw\x05\xe2\x86\x9d\xcc\xb8\x0arightarrow\x03\xe2\x86\x9b\x04rtri\x03\xe2\x8b\xab\x05rtrie\x03\xe2\x8b\xad\x02sc\x03\xe2\x8a\x81\x05sccue\x03\xe2\x8b\xa1\x03sce\x05\xe2\xaa\xb0\xcc\xb8\x03scr\x04\xf0\x9d\x93\x83\x08shortmid\x03\xe2\x88\xa4\x0dshortparallel\x03\xe2\x88\xa6\x03sim\x03\xe2\x89\x81\x04sime\x03\xe2\x89\x84\x05simeq\x03\xe2\x89\x84\x04smid\x03\xe2\x88\xa4\x04spar\x03\xe2\x88\xa6\x06sqsube\x03\xe2\x8b\xa2\x06sqsupe\x03\xe2\x8b\xa3\x03sub\x03\xe2\x8a\x84\x04subE\x05\xe2\xab\x85\xcc\xb8\x04sube\x03\xe2\x8a\x88\x06subset\x06\xe2\x8a\x82\xe2\x83\x92\x08subseteq\x03\xe2\x8a\x88\x09subseteqq\x05\xe2\xab\x85\xcc\xb8\x04succ\x03\xe2\x8a\x81\x06succeq\x05\xe2\xaa\xb0\xcc\xb8\x03sup\x03\xe2\x8a\x85\x04supE\x05\xe2\xab\x86\xcc\xb8\x04supe\x03\xe2\x8a\x89\x06supset\x06\xe2\x8a\x83\xe2\x83\x92\x08supseteq\x03\xe2\x8a\x89\x09supseteqq\x05\xe2\xab\x86\xcc\xb8\x03tgl\x03\xe2\x89\xb9\x05tilde\x02\xc3\xb1\x03tlg\x03\xe2\x89\xb8\x0ctriangleleft\x03\xe2\x8b\xaa\x0etrianglelefteq\x03\xe2\x8b\xac\x0dtriangleright\x03\xe2\x8b\xab\x0ftrianglerighteq\x03\xe2\x8b\xad\x01u\x02\xce\xbd\x02um\x01#\x05umero\x03\xe2\x84\x96\x04umsp\x03\xe2\x80\x87\x05vDash\x03\xe2\x8a\xad\x05vHarr\x03\xe2\xa4\x84\x03vap\x06\xe2\x89\x8d\xe2\x83\x92\x05vdash\x03\xe2\x8a\xac\x03vge\x06\xe2\x89\xa5\xe2\x83\x92\x03vgt\x04>\xe2\x83\x92\x06vinfin\x03\xe2\xa7\x9e\x05vlArr\x03\xe2\xa4\x82\x03vle\x06\xe2\x89\xa4\xe2\x83\x92\x03vlt\x04<\xe2\x83\x92\x06vltrie\x06\xe2\x8a\xb4\xe2\x83\x92\x05vrArr\x03\xe2\xa4\x83\x06vrtrie\x06\xe2\x8a\xb5\xe2\x83\x92\x04vsim\x06\xe2\x88\xbc\xe2\x83\x92\x04wArr\x03\xe2\x87\x96\x05warhk\x03\xe2\xa4\xa3\x04warr\x03\xe2\x86\x96\x06warrow\x03\xe2\x86\x96\x05wnear\x03\xe2\xa4\xa7"
+        case 111:
+            b"\x01S\x03\xe2\x93\x88\x05acute\x02\xc3\xb3\x03ast\x03\xe2\x8a\x9b\x03cir\x03\xe2\x8a\x9a\x04circ\x02\xc3\xb4\x02cy\x02\xd0\xbe\x04dash\x03\xe2\x8a\x9d\x05dblac\x02\xc5\x91\x03div\x03\xe2\xa8\xb8\x03dot\x03\xe2\x8a\x99\x05dsold\x03\xe2\xa6\xbc\x04elig\x02\xc5\x93\x04fcir\x03\xe2\xa6\xbf\x02fr\x04\xf0\x9d\x94\xac\x03gon\x02\xcb\x9b\x05grave\x02\xc3\xb2\x02gt\x03\xe2\xa7\x81\x04hbar\x03\xe2\xa6\xb5\x02hm\x02\xce\xa9\x03int\x03\xe2\x88\xae\x04larr\x03\xe2\x86\xba\x04lcir\x03\xe2\xa6\xbe\x06lcross\x03\xe2\xa6\xbb\x04line\x03\xe2\x80\xbe\x02lt\x03\xe2\xa7\x80\x04macr\x02\xc5\x8d\x04mega\x02\xcf\x89\x06micron\x02\xce\xbf\x03mid\x03\xe2\xa6\xb6\x05minus\x03\xe2\x8a\x96\x03opf\x04\xf0\x9d\x95\xa0\x03par\x03\xe2\xa6\xb7\x04perp\x03\xe2\xa6\xb9\x04plus\x03\xe2\x8a\x95\x01r\x03\xe2\x88\xa8\x04rarr\x03\xe2\x86\xbb\x02rd\x03\xe2\xa9\x9d\x04rder\x03\xe2\x84\xb4\x06rderof\x03\xe2\x84\xb4\x03rdf\x02\xc2\xaa\x03rdm\x02\xc2\xba\x05rigof\x03\xe2\x8a\xb6\x03ror\x03\xe2\xa9\x96\x06rslope\x03\xe2\xa9\x97\x02rv\x03\xe2\xa9\x9b\x03scr\x03\xe2\x84\xb4\x05slash\x02\xc3\xb8\x03sol\x03\xe2\x8a\x98\x05tilde\x02\xc3\xb5\x05times\x03\xe2\x8a\x97\x07timesas\x03\xe2\xa8\xb6\x03uml\x02\xc3\xb6\x04vbar\x03\xe2\x8c\xbd"
+        case 112:
+            b"\x02ar\x03\xe2\x88\xa5\x03ara\x02\xc2\xb6\x07arallel\x03\xe2\x88\xa5\x05arsim\x03\xe2\xab\xb3\x04arsl\x03\xe2\xab\xbd\x03art\x03\xe2\x88\x82\x02cy\x02\xd0\xbf\x05ercnt\x01%\x05eriod\x01.\x05ermil\x03\xe2\x80\xb0\x03erp\x03\xe2\x8a\xa5\x06ertenk\x03\xe2\x80\xb1\x02fr\x04\xf0\x9d\x94\xad\x02hi\x02\xcf\x86\x03hiv\x02\xcf\x95\x05hmmat\x03\xe2\x84\xb3\x04hone\x03\xe2\x98\x8e\x01i\x02\xcf\x80\x08itchfork\x03\xe2\x8b\x94\x02iv\x02\xcf\x96\x05lanck\x03\xe2\x84\x8f\x06lanckh\x03\xe2\x84\x8e\x05lankv\x03\xe2\x84\x8f\x03lus\x01+\x07lusacir\x03\xe2\xa8\xa3\x04lusb\x03\xe2\x8a\x9e\x06luscir\x03\xe2\xa8\xa2\x05lusdo\x03\xe2\x88\x94\x05lusdu\x03\xe2\xa8\xa5\x04luse\x03\xe2\xa9\xb2\x05lusmn\x02\xc2\xb1\x06lussim\x03\xe2\xa8\xa6\x06lustwo\x03\xe2\xa8\xa7\x01m\x02\xc2\xb1\x07ointint\x03\xe2\xa8\x95\x03opf\x04\xf0\x9d\x95\xa1\x04ound\x02\xc2\xa3\x01r\x03\xe2\x89\xba\x02rE\x03\xe2\xaa\xb3\x03rap\x03\xe2\xaa\xb7\x04rcue\x03\xe2\x89\xbc\x02re\x03\xe2\xaa\xaf\x03rec\x03\xe2\x89\xba\x09recapprox\x03\xe2\xaa\xb7\x0areccurlyeq\x03\xe2\x89\xbc\x05receq\x03\xe2\xaa\xaf\x0arecnapprox\x03\xe2\xaa\xb9\x07recneqq\x03\xe2\xaa\xb5\x07recnsim\x03\xe2\x8b\xa8\x06recsim\x03\xe2\x89\xbe\x04rime\x03\xe2\x80\xb2\x05rimes\x03\xe2\x84\x99\x03rnE\x03\xe2\xaa\xb5\x04rnap\x03\xe2\xaa\xb9\x05rnsim\x03\xe2\x8b\xa8\x03rod\x03\xe2\x88\x8f\x07rofalar\x03\xe2\x8c\xae\x07rofline\x03\xe2\x8c\x92\x07rofsurf\x03\xe2\x8c\x93\x03rop\x03\xe2\x88\x9d\x05ropto\x03\xe2\x88\x9d\x04rsim\x03\xe2\x89\xbe\x05rurel\x03\xe2\x8a\xb0\x03scr\x04\xf0\x9d\x93\x85\x02si\x02\xcf\x88\x05uncsp\x03\xe2\x80\x88"
+        case 113:
+            b"\x02fr\x04\xf0\x9d\x94\xae\x03int\x03\xe2\xa8\x8c\x03opf\x04\xf0\x9d\x95\xa2\x05prime\x03\xe2\x81\x97\x03scr\x04\xf0\x9d\x93\x86\x0auaternions\x03\xe2\x84\x8d\x06uatint\x03\xe2\xa8\x96\x04uest\x01?\x06uesteq\x03\xe2\x89\x9f\x03uot\x01\x22"
+        case 114:
+            b"\x04Aarr\x03\xe2\x87\x9b\x03Arr\x03\xe2\x87\x92\x05Atail\x03\xe2\xa4\x9c\x04Barr\x03\xe2\xa4\x8f\x03Har\x03\xe2\xa5\xa4\x03ace\x05\xe2\x88\xbd\xcc\xb1\x05acute\x02\xc5\x95\x04adic\x03\xe2\x88\x9a\x07aemptyv\x03\xe2\xa6\xb3\x03ang\x03\xe2\x9f\xa9\x04angd\x03\xe2\xa6\x92\x04ange\x03\xe2\xa6\xa5\x05angle\x03\xe2\x9f\xa9\x04aquo\x02\xc2\xbb\x03arr\x03\xe2\x86\x92\x05arrap\x03\xe2\xa5\xb5\x04arrb\x03\xe2\x87\xa5\x06arrbfs\x03\xe2\xa4\xa0\x04arrc\x03\xe2\xa4\xb3\x05arrfs\x03\xe2\xa4\x9e\x05arrhk\x03\xe2\x86\xaa\x05arrlp\x03\xe2\x86\xac\x05arrpl\x03\xe2\xa5\x85\x06arrsim\x03\xe2\xa5\xb4\x05arrtl\x03\xe2\x86\xa3\x04arrw\x03\xe2\x86\x9d\x05atail\x03\xe2\xa4\x9a\x04atio\x03\xe2\x88\xb6\x08ationals\x03\xe2\x84\x9a\x04barr\x03\xe2\xa4\x8d\x04bbrk\x03\xe2\x9d\xb3\x05brace\x01}\x05brack\x01]\x04brke\x03\xe2\xa6\x8c\x06brksld\x03\xe2\xa6\x8e\x06brkslu\x03\xe2\xa6\x90\x05caron\x02\xc5\x99\x05cedil\x02\xc5\x97\x04ceil\x03\xe2\x8c\x89\x03cub\x01}\x02cy\x02\xd1\x80\x03dca\x03\xe2\xa4\xb7\x06dldhar\x03\xe2\xa5\xa9\x04dquo\x03\xe2\x80\x9d\x05dquor\x03\xe2\x80\x9d\x03dsh\x03\xe2\x86\xb3\x03eal\x03\xe2\x84\x9c\x06ealine\x03\xe2\x84\x9b\x07ealpart\x03\xe2\x84\x9c\x04eals\x03\xe2\x84\x9d\x03ect\x03\xe2\x96\xad\x02eg\x02\xc2\xae\x05fisht\x03\xe2\xa5\xbd\x05floor\x03\xe2\x8c\x8b\x02fr\x04\xf0\x9d\x94\xaf\x04hard\x03\xe2\x87\x81\x04haru\x03\xe2\x87\x80\x05harul\x03\xe2\xa5\xac\x02ho\x02\xcf\x81\x03hov\x02\xcf\xb1\x09ightarrow\x03\xe2\x86\x92\x0dightarrowtail\x03\xe2\x86\xa3\x0fightharpoondown\x03\xe2\x87\x81\x0dightharpoonup\x03\xe2\x87\x80\x0eightleftarrows\x03\xe2\x87\x84\x10ightleftharpoons\x03\xe2\x87\x8c\x0fightrightarrows\x03\xe2\x87\x89\x0eightsquigarrow\x03\xe2\x86\x9d\x0eightthreetimes\x03\xe2\x8b\x8c\x03ing\x02\xcb\x9a\x0bisingdotseq\x03\xe2\x89\x93\x04larr\x03\xe2\x87\x84\x04lhar\x03\xe2\x87\x8c\x02lm\x03\xe2\x80\x8f\x05moust\x03\xe2\x8e\xb1\x09moustache\x03\xe2\x8e\xb1\x04nmid\x03\xe2\xab\xae\x04oang\x03\xe2\x9f\xad\x04oarr\x03\xe2\x87\xbe\x04obrk\x03\xe2\x9f\xa7\x04opar\x03\xe2\xa6\x86\x03opf\x04\xf0\x9d\x95\xa3\x05oplus\x03\xe2\xa8\xae\x06otimes\x03\xe2\xa8\xb5\x03par\x01)\x05pargt\x03\xe2\xa6\x94\x07ppolint\x03\xe2\xa8\x92\x04rarr\x03\xe2\x87\x89\x05saquo\x03\xe2\x80\xba\x03scr\x04\xf0\x9d\x93\x87\x02sh\x03\xe2\x86\xb1\x03sqb\x01]\x04squo\x03\xe2\x80\x99\x05squor\x03\xe2\x80\x99\x05three\x03\xe2\x8b\x8c\x05times\x03\xe2\x8b\x8a\x03tri\x03\xe2\x96\xb9\x04trie\x03\xe2\x8a\xb5\x04trif\x03\xe2\x96\xb8\x07triltri\x03\xe2\xa7\x8e\x06uluhar\x03\xe2\xa5\xa8\x01x\x03\xe2\x84\x9e"
+        case 115:
+            b"\x05acute\x02\xc5\x9b\x04bquo\x03\xe2\x80\x9a\x01c\x03\xe2\x89\xbb\x02cE\x03\xe2\xaa\xb4\x03cap\x03\xe2\xaa\xb8\x05caron\x02\xc5\xa1\x04ccue\x03\xe2\x89\xbd\x02ce\x03\xe2\xaa\xb0\x05cedil\x02\xc5\x9f\x04circ\x02\xc5\x9d\x03cnE\x03\xe2\xaa\xb6\x04cnap\x03\xe2\xaa\xba\x05cnsim\x03\xe2\x8b\xa9\x07cpolint\x03\xe2\xa8\x93\x04csim\x03\xe2\x89\xbf\x02cy\x02\xd1\x81\x03dot\x03\xe2\x8b\x85\x04dotb\x03\xe2\x8a\xa1\x04dote\x03\xe2\xa9\xa6\x04eArr\x03\xe2\x87\x98\x05earhk\x03\xe2\xa4\xa5\x04earr\x03\xe2\x86\x98\x06earrow\x03\xe2\x86\x98\x03ect\x02\xc2\xa7\x03emi\x01;\x05eswar\x03\xe2\xa4\xa9\x07etminus\x03\xe2\x88\x96\x04etmn\x03\xe2\x88\x96\x03ext\x03\xe2\x9c\xb6\x02fr\x04\xf0\x9d\x94\xb0\x05frown\x03\xe2\x8c\xa2\x04harp\x03\xe2\x99\xaf\x05hchcy\x02\xd1\x89\x03hcy\x02\xd1\x88\x07hortmid\x03\xe2\x88\xa3\x0chortparallel\x03\xe2\x88\xa5\x02hy\x02\xc2\xad\x04igma\x02\xcf\x83\x05igmaf\x02\xcf\x82\x05igmav\x02\xcf\x82\x02im\x03\xe2\x88\xbc\x05imdot\x03\xe2\xa9\xaa\x03ime\x03\xe2\x89\x83\x04imeq\x03\xe2\x89\x83\x03img\x03\xe2\xaa\x9e\x04imgE\x03\xe2\xaa\xa0\x03iml\x03\xe2\xaa\x9d\x04imlE\x03\xe2\xaa\x9f\x04imne\x03\xe2\x89\x86\x06implus\x03\xe2\xa8\xa4\x06imrarr\x03\xe2\xa5\xb2\x04larr\x03\xe2\x86\x90\x0cmallsetminus\x03\xe2\x88\x96\x05mashp\x03\xe2\xa8\xb3\x07meparsl\x03\xe2\xa7\xa4\x03mid\x03\xe2\x88\xa3\x04mile\x03\xe2\x8c\xa3\x02mt\x03\xe2\xaa\xaa\x03mte\x03\xe2\xaa\xac\x04mtes\x06\xe2\xaa\xac\xef\xb8\x80\x05oftcy\x02\xd1\x8c\x02ol\x01/\x03olb\x03\xe2\xa7\x84\x05olbar\x03\xe2\x8c\xbf\x03opf\x04\xf0\x9d\x95\xa4\x05pades\x03\xe2\x99\xa0\x08padesuit\x03\xe2\x99\xa0\x03par\x03\xe2\x88\xa5\x04qcap\x03\xe2\x8a\x93\x05qcaps\x06\xe2\x8a\x93\xef\xb8\x80\x04qcup\x03\xe2\x8a\x94\x05qcups\x06\xe2\x8a\x94\xef\xb8\x80\x04qsub\x03\xe2\x8a\x8f\x05qsube\x03\xe2\x8a\x91\x07qsubset\x03\xe2\x8a\x8f\x09qsubseteq\x03\xe2\x8a\x91\x04qsup\x03\xe2\x8a\x90\x05qsupe\x03\xe2\x8a\x92\x07qsupset\x03\xe2\x8a\x90\x09qsupseteq\x03\xe2\x8a\x92\x02qu\x03\xe2\x96\xa1\x05quare\x03\xe2\x96\xa1\x05quarf\x03\xe2\x96\xaa\x03quf\x03\xe2\x96\xaa\x04rarr\x03\xe2\x86\x92\x03scr\x04\xf0\x9d\x93\x88\x05setmn\x03\xe2\x88\x96\x05smile\x03\xe2\x8c\xa3\x05starf\x03\xe2\x8b\x86\x03tar\x03\xe2\x98\x86\x04tarf\x03\xe2\x98\x85\x0etraightepsilon\x02\xcf\xb5\x0atraightphi\x02\xcf\x95\x04trns\x02\xc2\xaf\x02ub\x03\xe2\x8a\x82\x03ubE\x03\xe2\xab\x85\x05ubdot\x03\xe2\xaa\xbd\x03ube\x03\xe2\x8a\x86\x06ubedot\x03\xe2\xab\x83\x06ubmult\x03\xe2\xab\x81\x04ubnE\x03\xe2\xab\x8b\x04ubne\x03\xe2\x8a\x8a\x06ubplus\x03\xe2\xaa\xbf\x06ubrarr\x03\xe2\xa5\xb9\x05ubset\x03\xe2\x8a\x82\x07ubseteq\x03\xe2\x8a\x86\x08ubseteqq\x03\xe2\xab\x85\x08ubsetneq\x03\xe2\x8a\x8a\x09ubsetneqq\x03\xe2\xab\x8b\x05ubsim\x03\xe2\xab\x87\x05ubsub\x03\xe2\xab\x95\x05ubsup\x03\xe2\xab\x93\x03ucc\x03\xe2\x89\xbb\x09uccapprox\x03\xe2\xaa\xb8\x0aucccurlyeq\x03\xe2\x89\xbd\x05ucceq\x03\xe2\xaa\xb0\x0auccnapprox\x03\xe2\xaa\xba\x07uccneqq\x03\xe2\xaa\xb6\x07uccnsim\x03\xe2\x8b\xa9\x06uccsim\x03\xe2\x89\xbf\x02um\x03\xe2\x88\x91\x03ung\x03\xe2\x99\xaa\x03up1\x02\xc2\xb9\x03up2\x02\xc2\xb2\x03up3\x02\xc2\xb3\x02up\x03\xe2\x8a\x83\x03upE\x03\xe2\xab\x86\x05updot\x03\xe2\xaa\xbe\x06updsub\x03\xe2\xab\x98\x03upe\x03\xe2\x8a\x87\x06upedot\x03\xe2\xab\x84\x06uphsol\x03\xe2\x9f\x89\x06uphsub\x03\xe2\xab\x97\x06uplarr\x03\xe2\xa5\xbb\x06upmult\x03\xe2\xab\x82\x04upnE\x03\xe2\xab\x8c\x04upne\x03\xe2\x8a\x8b\x06upplus\x03\xe2\xab\x80\x05upset\x03\xe2\x8a\x83\x07upseteq\x03\xe2\x8a\x87\x08upseteqq\x03\xe2\xab\x86\x08upsetneq\x03\xe2\x8a\x8b\x09upsetneqq\x03\xe2\xab\x8c\x05upsim\x03\xe2\xab\x88\x05upsub\x03\xe2\xab\x94\x05upsup\x03\xe2\xab\x96\x04wArr\x03\xe2\x87\x99\x05warhk\x03\xe2\xa4\xa6\x04warr\x03\xe2\x86\x99\x06warrow\x03\xe2\x86\x99\x05wnwar\x03\xe2\xa4\xaa\x04zlig\x02\xc3\x9f"
+        case 116:
+            b"\x05arget\x03\xe2\x8c\x96\x02au\x02\xcf\x84\x03brk\x03\xe2\x8e\xb4\x05caron\x02\xc5\xa5\x05cedil\x02\xc5\xa3\x02cy\x02\xd1\x82\x03dot\x03\xe2\x83\x9b\x05elrec\x03\xe2\x8c\x95\x02fr\x04\xf0\x9d\x94\xb1\x05here4\x03\xe2\x88\xb4\x08herefore\x03\xe2\x88\xb4\x04heta\x02\xce\xb8\x07hetasym\x02\xcf\x91\x05hetav\x02\xcf\x91\x0ahickapprox\x03\xe2\x89\x88\x07hicksim\x03\xe2\x88\xbc\x05hinsp\x03\xe2\x80\x89\x04hkap\x03\xe2\x89\x88\x05hksim\x03\xe2\x88\xbc\x04horn\x02\xc3\xbe\x04ilde\x02\xcb\x9c\x04imes\x02\xc3\x97\x05imesb\x03\xe2\x8a\xa0\x07imesbar\x03\xe2\xa8\xb1\x05imesd\x03\xe2\xa8\xb0\x03int\x03\xe2\x88\xad\x03oea\x03\xe2\xa4\xa8\x02op\x03\xe2\x8a\xa4\x05opbot\x03\xe2\x8c\xb6\x05opcir\x03\xe2\xab\xb1\x03opf\x04\xf0\x9d\x95\xa5\x06opfork\x03\xe2\xab\x9a\x03osa\x03\xe2\xa4\xa9\x05prime\x03\xe2\x80\xb4\x04rade\x03\xe2\x84\xa2\x07riangle\x03\xe2\x96\xb5\x0briangledown\x03\xe2\x96\xbf\x0briangleleft\x03\xe2\x97\x83\x0drianglelefteq\x03\xe2\x8a\xb4\x08riangleq\x03\xe2\x89\x9c\x0criangleright\x03\xe2\x96\xb9\x0erianglerighteq\x03\xe2\x8a\xb5\x05ridot\x03\xe2\x97\xac\x03rie\x03\xe2\x89\x9c\x07riminus\x03\xe2\xa8\xba\x06riplus\x03\xe2\xa8\xb9\x04risb\x03\xe2\xa7\x8d\x06ritime\x03\xe2\xa8\xbb\x07rpezium\x03\xe2\x8f\xa2\x03scr\x04\xf0\x9d\x93\x89\x03scy\x02\xd1\x86\x04shcy\x02\xd1\x9b\x05strok\x02\xc5\xa7\x04wixt\x03\xe2\x89\xac\x0fwoheadleftarrow\x03\xe2\x86\x9e\x10woheadrightarrow\x03\xe2\x86\xa0"
+        case 117:
+            b"\x03Arr\x03\xe2\x87\x91\x03Har\x03\xe2\xa5\xa3\x05acute\x02\xc3\xba\x03arr\x03\xe2\x86\x91\x04brcy\x02\xd1\x9e\x05breve\x02\xc5\xad\x04circ\x02\xc3\xbb\x02cy\x02\xd1\x83\x04darr\x03\xe2\x87\x85\x05dblac\x02\xc5\xb1\x04dhar\x03\xe2\xa5\xae\x05fisht\x03\xe2\xa5\xbe\x02fr\x04\xf0\x9d\x94\xb2\x05grave\x02\xc3\xb9\x04harl\x03\xe2\x86\xbf\x04harr\x03\xe2\x86\xbe\x04hblk\x03\xe2\x96\x80\x05lcorn\x03\xe2\x8c\x9c\x07lcorner\x03\xe2\x8c\x9c\x05lcrop\x03\xe2\x8c\x8f\x04ltri\x03\xe2\x97\xb8\x04macr\x02\xc5\xab\x02ml\x02\xc2\xa8\x04ogon\x02\xc5\xb3\x03opf\x04\xf0\x9d\x95\xa6\x06parrow\x03\xe2\x86\x91\x0apdownarrow\x03\xe2\x86\x95\x0cpharpoonleft\x03\xe2\x86\xbf\x0dpharpoonright\x03\xe2\x86\xbe\x04plus\x03\xe2\x8a\x8e\x03psi\x02\xcf\x85\x04psih\x02\xcf\x92\x06psilon\x02\xcf\x85\x09puparrows\x03\xe2\x87\x88\x05rcorn\x03\xe2\x8c\x9d\x07rcorner\x03\xe2\x8c\x9d\x05rcrop\x03\xe2\x8c\x8e\x04ring\x02\xc5\xaf\x04rtri\x03\xe2\x97\xb9\x03scr\x04\xf0\x9d\x93\x8a\x04tdot\x03\xe2\x8b\xb0\x05tilde\x02\xc5\xa9\x03tri\x03\xe2\x96\xb5\x04trif\x03\xe2\x96\xb4\x04uarr\x03\xe2\x87\x88\x03uml\x02\xc3\xbc\x06wangle\x03\xe2\xa6\xa7"
+        case 118:
+            b"\x03Arr\x03\xe2\x87\x95\x03Bar\x03\xe2\xab\xa8\x04Barv\x03\xe2\xab\xa9\x04Dash\x03\xe2\x8a\xa8\x05angrt\x03\xe2\xa6\x9c\x09arepsilon\x02\xcf\xb5\x07arkappa\x02\xcf\xb0\x09arnothing\x03\xe2\x88\x85\x05arphi\x02\xcf\x95\x04arpi\x02\xcf\x96\x08arpropto\x03\xe2\x88\x9d\x03arr\x03\xe2\x86\x95\x05arrho\x02\xcf\xb1\x07arsigma\x02\xcf\x82\x0barsubsetneq\x06\xe2\x8a\x8a\xef\xb8\x80\x0carsubsetneqq\x06\xe2\xab\x8b\xef\xb8\x80\x0barsupsetneq\x06\xe2\x8a\x8b\xef\xb8\x80\x0carsupsetneqq\x06\xe2\xab\x8c\xef\xb8\x80\x07artheta\x02\xcf\x91\x0eartriangleleft\x03\xe2\x8a\xb2\x0fartriangleright\x03\xe2\x8a\xb3\x02cy\x02\xd0\xb2\x04dash\x03\xe2\x8a\xa2\x02ee\x03\xe2\x88\xa8\x05eebar\x03\xe2\x8a\xbb\x04eeeq\x03\xe2\x89\x9a\x05ellip\x03\xe2\x8b\xae\x05erbar\x01|\x03ert\x01|\x02fr\x04\xf0\x9d\x94\xb3\x04ltri\x03\xe2\x8a\xb2\x04nsub\x06\xe2\x8a\x82\xe2\x83\x92\x04nsup\x06\xe2\x8a\x83\xe2\x83\x92\x03opf\x04\xf0\x9d\x95\xa7\x04prop\x03\xe2\x88\x9d\x04rtri\x03\xe2\x8a\xb3\x03scr\x04\xf0\x9d\x93\x8b\x05subnE\x06\xe2\xab\x8b\xef\xb8\x80\x05subne\x06\xe2\x8a\x8a\xef\xb8\x80\x05supnE\x06\xe2\xab\x8c\xef\xb8\x80\x05supne\x06\xe2\x8a\x8b\xef\xb8\x80\x06zigzag\x03\xe2\xa6\x9a"
+        case 119:
+            b"\x04circ\x02\xc5\xb5\x05edbar\x03\xe2\xa9\x9f\x04edge\x03\xe2\x88\xa7\x05edgeq\x03\xe2\x89\x99\x05eierp\x03\xe2\x84\x98\x02fr\x04\xf0\x9d\x94\xb4\x03opf\x04\xf0\x9d\x95\xa8\x01p\x03\xe2\x84\x98\x01r\x03\xe2\x89\x80\x05reath\x03\xe2\x89\x80\x03scr\x04\xf0\x9d\x93\x8c"
+        case 120:
+            b"\x03cap\x03\xe2\x8b\x82\x04circ\x03\xe2\x97\xaf\x03cup\x03\xe2\x8b\x83\x04dtri\x03\xe2\x96\xbd\x02fr\x04\xf0\x9d\x94\xb5\x04hArr\x03\xe2\x9f\xba\x04harr\x03\xe2\x9f\xb7\x01i\x02\xce\xbe\x04lArr\x03\xe2\x9f\xb8\x04larr\x03\xe2\x9f\xb5\x03map\x03\xe2\x9f\xbc\x03nis\x03\xe2\x8b\xbb\x04odot\x03\xe2\xa8\x80\x03opf\x04\xf0\x9d\x95\xa9\x05oplus\x03\xe2\xa8\x81\x05otime\x03\xe2\xa8\x82\x04rArr\x03\xe2\x9f\xb9\x04rarr\x03\xe2\x9f\xb6\x03scr\x04\xf0\x9d\x93\x8d\x05sqcup\x03\xe2\xa8\x86\x05uplus\x03\xe2\xa8\x84\x04utri\x03\xe2\x96\xb3\x03vee\x03\xe2\x8b\x81\x05wedge\x03\xe2\x8b\x80"
+        case 121:
+            b"\x05acute\x02\xc3\xbd\x03acy\x02\xd1\x8f\x04circ\x02\xc5\xb7\x02cy\x02\xd1\x8b\x02en\x02\xc2\xa5\x02fr\x04\xf0\x9d\x94\xb6\x03icy\x02\xd1\x97\x03opf\x04\xf0\x9d\x95\xaa\x03scr\x04\xf0\x9d\x93\x8e\x03ucy\x02\xd1\x8e\x03uml\x02\xc3\xbf"
+        case 122:
+            b"\x05acute\x02\xc5\xba\x05caron\x02\xc5\xbe\x02cy\x02\xd0\xb7\x03dot\x02\xc5\xbc\x05eetrf\x03\xe2\x84\xa8\x03eta\x02\xce\xb6\x02fr\x04\xf0\x9d\x94\xb7\x03hcy\x02\xd0\xb6\x06igrarr\x03\xe2\x87\x9d\x03opf\x04\xf0\x9d\x95\xab\x03scr\x04\xf0\x9d\x93\x8f\x02wj\x03\xe2\x80\x8d\x03wnj\x03\xe2\x80\x8c"
+        case _:
+            b""
+# END GENERATED TABLES

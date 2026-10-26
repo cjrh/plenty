@@ -76,6 +76,23 @@ class ThirdPartyNotices(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.notices.render([self.package])
 
+    def test_compiler_notices_include_embedded_std_sources(self):
+        output = self.notices.render([self.package])
+        for _, license_id, _, source, name in self.notices.EMBEDDED:
+            text = (RELEASE / "licenses" / name).read_text().rstrip()
+            self.assertIn(text, output)
+            self.assertIn(f"License: {license_id}", output)
+            self.assertIn(f"Source: {source}", output)
+        self.assertIn("Copyright (c) 2014, John MacFarlane", output)
+        self.assertIn("UNICODE LICENSE V3", output)
+        self.assertIn("Copyright © WHATWG", output)
+
+    def test_missing_embedded_license_fails(self):
+        self.notices.LICENSE_DIR = self.root
+        (self.root / "iced-x86-1.21.0-LICENSE.txt").write_text("iced")
+        with self.assertRaises(FileNotFoundError):
+            self.notices.render([self.package])
+
     def test_dataframe_notices_have_pinned_parquet_licenses_without_sqlite(self):
         nested = self.root / "src/thrift/varint/LICENSE"
         nested.parent.mkdir(parents=True)
@@ -87,6 +104,7 @@ class ThirdPartyNotices(unittest.TestCase):
         self.assertIn("src/thrift/varint/LICENSE", output)
         self.assertIn("Nested implementation license", output)
         self.assertNotIn("## SQLite", output)
+        self.assertNotIn("commonmark.js", output)
         with self.assertRaisesRegex(SystemExit, "no license file"):
             self.notices.render([{**package, "version": "0.2.0"}], "dataframe")
 

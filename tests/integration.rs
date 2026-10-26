@@ -430,6 +430,8 @@ mod test_std_io;
 mod test_std_json;
 #[path = "test_std_log.rs"]
 mod test_std_log;
+#[path = "test_std_markdown.rs"]
+mod test_std_markdown;
 #[path = "test_std_math.rs"]
 mod test_std_math;
 #[path = "test_std_net.rs"]
