@@ -694,17 +694,17 @@ class Op
     def old_len(self) -> i64
     def new_len(self) -> i64
     def is_equal(self) -> bool
-def diff[T](old: &list[T], new: &list[T], algorithm: Algorithm = Algorithm.Myers) -> Result[list[Op], AllocError]
-def diff_bytes(old: &Bytes, new: &Bytes, algorithm: Algorithm = Algorithm.Myers) -> Result[list[Op], AllocError]
+def diff[T](old: &list[T], new: &list[T], algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]
+def diff_bytes(old: &Bytes, new: &Bytes, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]
 class TextDiff
     def ops(self) -> &list[Op]
     def old_tokens(self) -> &list[str]
     def new_tokens(self) -> &list[str]
     def has_changes(self) -> bool
     def unified(self, context: i64, old_name: &str, new_name: &str) -> Result[str, AllocError]
-def lines(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]
-def words(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]
-def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]
+def lines(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]
+def words(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]
+def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]
 ```
 
 ## `std.encoding`
