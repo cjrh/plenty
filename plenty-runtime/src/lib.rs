@@ -31,6 +31,7 @@ mod memory;
 mod mutex;
 mod numbers;
 mod open_modes;
+mod panics;
 mod ranges;
 mod regex;
 mod render_buffer;

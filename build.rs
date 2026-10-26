@@ -431,6 +431,49 @@ fn build_vendored(out: &Path) -> PathBuf {
     dir
 }
 
+/// The one global symbol in `archive`'s symbol table named `name`, either
+/// unmangled or as a v0-mangled item of the compiler's `__rustc` crate. The
+/// mangled name changes with the Rust toolchain, so it is read, not written.
+fn rust_symbol(archive: &Path, name: &str) -> String {
+    let bytes = std::fs::read(archive).unwrap();
+    assert!(
+        bytes.starts_with(b"!<arch>\n") && bytes.len() >= 68,
+        "runtime archive must be in GNU ar format"
+    );
+    let header = &bytes[8..68];
+    let word = match &header[..16] {
+        b"/               " => 4,
+        b"/SYM64/         " => 8,
+        _ => panic!("runtime archive must start with a symbol table"),
+    };
+    let size: usize = std::str::from_utf8(&header[48..58])
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let table = &bytes[68..68 + size];
+    let count = table[..word]
+        .iter()
+        .fold(0usize, |n, &b| n << 8 | usize::from(b));
+    let mut found: Vec<&str> = table[word * (count + 1)..]
+        .split(|&b| b == 0)
+        .filter_map(|symbol| std::str::from_utf8(symbol).ok())
+        .filter(|symbol| {
+            *symbol == name
+                || (symbol.starts_with("_R")
+                    && symbol.contains("7___rustc")
+                    && symbol.ends_with(name))
+        })
+        .collect();
+    found.sort_unstable();
+    found.dedup();
+    assert!(
+        found.len() == 1,
+        "runtime archive must define one `{name}`, found {found:?}"
+    );
+    found[0].to_string()
+}
+
 fn build_runtime(out: &Path, vendor: &Path, application: bool) {
     let archive = out.join(if application {
         "libplenty_runtime.a"
@@ -493,7 +536,14 @@ fn build_runtime(out: &Path, vendor: &Path, application: bool) {
     // Unreferenced runtime sections, such as `std.crypto`'s hashing code
     // behind its own `plenty_crypto` entry, stay out of programs.
     let libs = if application {
-        format!("-Wl,--gc-sections {libs}")
+        let panic = rust_symbol(&archive, "rust_begin_unwind");
+        let oom = rust_symbol(&archive, "__rust_alloc_error_handler");
+        // Executables take the runtime's panic handlers instead of std's, which
+        // would link the backtrace symbolizer (see plenty-runtime/src/panics.rs).
+        format!(
+            "-Wl,--gc-sections -Wl,--defsym={panic}=plenty_rust_panic \
+             -Wl,--defsym={oom}=plenty_rust_alloc_error {libs}"
+        )
     } else {
         libs.to_string()
     };
