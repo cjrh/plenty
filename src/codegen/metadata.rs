@@ -111,7 +111,8 @@ fn define_type(
         Ty::Box(_) | Ty::Shared(_) => b'O',
         Ty::Generator(_) => b'G',
         Ty::Enum(_) => b'B',
-        Ty::Ref(..) | Ty::KeyView(_) => b'v',
+        Ty::Ref(..) => b'r',
+        Ty::KeyView(_) => b'v',
         Ty::Atomic(_) => unreachable!("replaced by its element"),
     };
     bytes[1] = u8::from(affine);
@@ -127,7 +128,8 @@ fn define_type(
         | Ty::Channel(t, _)
         | Ty::Future(t)
         | Ty::Box(t)
-        | Ty::Shared(t) => links.push((8, reserve(module, runtime, t, pending)?)),
+        | Ty::Shared(t)
+        | Ty::Ref(t, _) => links.push((8, reserve(module, runtime, t, pending)?)),
         Ty::Dict(k, v) => {
             links.push((8, reserve(module, runtime, k, pending)?));
             links.push((16, reserve(module, runtime, v, pending)?));

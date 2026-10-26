@@ -1315,6 +1315,15 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                 );
                 out.push(b')');
             }
+            b'r' => {
+                // A reference carried by an Option or Result: the low word
+                // addresses the referenced slot and the high word is the tag
+                // shift of the projected payload inside it.
+                let slot = (value as u64 as *const u128).read();
+                let shift = (value >> 64) as u32;
+                let tags = (slot >> 64).checked_shr(shift).unwrap_or(0);
+                render((slot & u64::MAX as u128) | (tags << 64), ty.key(), out);
+            }
             b'1'..=b'4' => write!(out, "{}", value as i64).unwrap(),
             b'5'..=b'8' => write!(out, "{value}").unwrap(),
             b'f' => write!(out, "{:?}", f32::from_bits(value as u32)).unwrap(),

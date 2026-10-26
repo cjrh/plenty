@@ -3,7 +3,7 @@
 Status: **Not implemented; separate proposal depending on [linear obligations](linear-obligations.md).**
 Issue #149, [B72](../backlog.md). Current
 [resource scopes](../design/language/08-errors/03-resource-scopes.md) and
-[destruction](../design/language/05-ownership/06-destruction.md) do not provide
+[destruction](../design/language/05-ownership/07-destruction.md) do not provide
 the consuming-finalizer contract proposed here. All examples are pseudocode.
 
 ## Why a separate extension

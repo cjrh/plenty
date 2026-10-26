@@ -9,7 +9,7 @@
 >
 > **Shipped beyond this text:** [returned references](../../design/language/05-ownership/04-returned-references.md),
 > field and element projections, [reference rebinding](../../design/language/05-ownership/03-reference-rebinding.md),
-> [borrowed matching](../../design/language/05-ownership/05-borrowed-matching.md),
+> [borrowed matching](../../design/language/05-ownership/06-borrowed-matching.md),
 > user destructors (`__del__`), and `Box[T]` as a public owner type. An `&T`
 > parameter borrows an owned argument implicitly. Allocating operations,
 > including `copy`, return `Result`.
