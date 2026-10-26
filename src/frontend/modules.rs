@@ -84,6 +84,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.json", include_str!("../../stdlib/std/json.plenty")),
     ("std.log", include_str!("../../stdlib/std/log.plenty")),
     ("std.toml", include_str!("../../stdlib/std/toml.plenty")),
+    (
+        "std.markdown",
+        include_str!("../../stdlib/std/markdown.plenty"),
+    ),
     ("std.env", include_str!("../../stdlib/std/env.plenty")),
     (
         "std.process",

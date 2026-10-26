@@ -1609,6 +1609,42 @@ class Drained
 def drain[S: Sink](receiver: &Receiver[Event], sink: &mut S) -> Drained
 ```
 
+## `std.markdown`
+
+CommonMark 0.31.2 parsing into events and HTML rendering, under input, depth, and output limits. Errors: `MarkdownError`. [Reference](markdown.md).
+
+```text
+enum MarkdownFault
+    InvalidUtf8 | InputTooLarge | OutputTooLarge | DepthExceeded | InvalidLimits | InvalidState | Stream(StreamError) | Allocation(AllocError)
+class MarkdownError
+    fault: MarkdownFault
+    offset: i64
+    line: i64
+class Limits
+    max_input: i64
+    max_depth: i64
+    max_output: i64
+enum Tag
+    Paragraph | Heading(i64) | BlockQuote | CodeBlock(str) | BulletList | OrderedList(i64) | Item | Emphasis | Strong | Link(str, str) | Image(str, str)
+enum Event
+    Start(Tag) | End(Tag) | Text(str) | Code(str) | Html(str) | InlineHtml(str) | SoftBreak | HardBreak | Rule | Done
+def limits() -> Limits
+class Parser
+    def next(self: &mut Parser) -> Result[Event, MarkdownError]
+def parser(source: &Bytes, bounds: &Limits) -> Result[Parser, MarkdownError]
+def parser_text(text: &str, bounds: &Limits) -> Result[Parser, MarkdownError]
+class HtmlRenderer
+    def pending(self) -> i64
+    def written(self) -> i64
+    def event(self: &mut HtmlRenderer, event: &Event) -> Result[(), MarkdownError]
+    def take(self: &mut HtmlRenderer) -> Result[Bytes, MarkdownError]
+def renderer(bounds: &Limits) -> Result[HtmlRenderer, MarkdownError]
+def write_pending[W: Writer](source: &mut HtmlRenderer, writer: &mut W) -> Result[(), MarkdownError]
+def write_html[W: Writer](source: &mut Parser, writer: &mut W, bounds: &Limits) -> Result[(), MarkdownError]
+def render(source: &Bytes, bounds: &Limits) -> Result[Bytes, MarkdownError]
+def to_html(text: &str, bounds: &Limits) -> Result[str, MarkdownError]
+```
+
 ## `std.math`
 
 Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants. Errors: `MathError`. [Reference](math.md).
