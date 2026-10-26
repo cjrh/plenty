@@ -1,0 +1,447 @@
+import std.bytes
+from std.bytes import Bytes, BytesError
+
+# Sequence and text differences as edit operations, with unified-diff output.
+# The algorithms follow the `similar` crate: linear-space Myers, and patience
+# anchoring on elements unique to both sides with Myers between anchors.
+# Elements are interned to dense integer ids first, so comparisons inside the
+# search are integer compares and patience can count occurrences in lists.
+
+pub enum Algorithm:
+    Myers
+    Patience
+
+pub enum Kind:
+    Equal
+    Delete
+    Insert
+
+# One edit: `old_start..old_end` of the old sequence becomes
+# `new_start..new_end` of the new one. A deletion has an empty new range at
+# the position where the removed elements were; an insertion has an empty old
+# range at the position where the new elements go.
+pub class Op:
+    pub kind: Kind
+    pub old_start: i64
+    pub old_end: i64
+    pub new_start: i64
+    pub new_end: i64
+
+    pub def old_len(self) -> i64:
+        self.old_end - self.old_start
+
+    pub def new_len(self) -> i64:
+        self.new_end - self.new_start
+
+    pub def is_equal(self) -> bool:
+        match self.kind:
+            case Kind.Equal:
+                True
+            case _:
+                False
+
+# Collects the equal runs the search reports, in order, and fills the gaps
+# between them with a deletion followed by an insertion.
+class Script:
+    ops: list[Op]
+    old_at: i64
+    new_at: i64
+    joined: bool
+
+    def equal(self: &mut Script, old: i64, new: i64, count: i64) -> Result[(), AllocError]:
+        if count == 0:
+            return Ok(())
+        self.gap(old, new)?
+        if self.joined:
+            last = len(self.ops) - 1
+            self.ops[last].old_end = old + count
+            self.ops[last].new_end = new + count
+        else:
+            self.ops.append(Op(Kind.Equal, old, old + count, new, new + count))?
+        self.old_at = old + count
+        self.new_at = new + count
+        self.joined = True
+        Ok(())
+
+    def gap(self: &mut Script, old: i64, new: i64) -> Result[(), AllocError]:
+        if old > self.old_at:
+            self.ops.append(Op(Kind.Delete, self.old_at, old, self.new_at, self.new_at))?
+            self.joined = False
+        if new > self.new_at:
+            self.ops.append(Op(Kind.Insert, old, old, self.new_at, new))?
+            self.joined = False
+        Ok(())
+
+def script() -> Result[Script, AllocError]:
+    Ok(Script(list[Op]()?, 0, 0, False))
+
+def common_prefix(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64) -> i64:
+    mut count = 0
+    while old_start + count < old_end and new_start + count < new_end and old[old_start + count] == new[new_start + count]:
+        count += 1
+    count
+
+def common_suffix(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64) -> i64:
+    mut count = 0
+    while old_end - count > old_start and new_end - count > new_start and old[old_end - count - 1] == new[new_end - count - 1]:
+        count += 1
+    count
+
+def distance(value: i64) -> i64:
+    if value < 0:
+        return -value
+    value
+
+# Forward and backward furthest-reaching x per diagonal k, stored at
+# `offset + k`. One pair serves every recursive search: each search writes
+# a diagonal before reading it.
+class Frontier:
+    forward: list[i64]
+    backward: list[i64]
+    offset: i64
+
+def frontier(old_len: i64, new_len: i64) -> Result[Frontier, AllocError]:
+    offset = (old_len + new_len + 1) // 2 + 1
+    Ok(Frontier([0 for _ in range(2 * offset + 1)]?, [0 for _ in range(2 * offset + 1)]?, offset))
+
+# Myers' middle snake over nonempty ranges with no common prefix or suffix.
+# Returns a point on a shortest edit path that splits it into two smaller
+# problems.
+def middle_snake(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64, v: &mut Frontier) -> (i64, i64):
+    n = old_end - old_start
+    m = new_end - new_start
+    delta = n - m
+    odd = delta % 2 != 0
+    at = v.offset
+    v.forward[at + 1] = 0
+    v.backward[at + 1] = 0
+    for d in range((n + m + 1) // 2 + 1):
+        mut k = d
+        while k >= -d:
+            mut x = 0
+            if k == -d or (k != d and v.forward[at + k - 1] < v.forward[at + k + 1]):
+                x = v.forward[at + k + 1]
+            else:
+                x = v.forward[at + k - 1] + 1
+            start_x = x
+            start_y = x - k
+            if x < n and start_y < m:
+                x += common_prefix(old, old_start + x, old_end, new, new_start + start_y, new_end)
+            v.forward[at + k] = x
+            if odd and distance(k - delta) <= d - 1:
+                if x + v.backward[at - (k - delta)] >= n:
+                    return (old_start + start_x, new_start + start_y)
+            k -= 2
+        k = d
+        while k >= -d:
+            mut x = 0
+            if k == -d or (k != d and v.backward[at + k - 1] < v.backward[at + k + 1]):
+                x = v.backward[at + k + 1]
+            else:
+                x = v.backward[at + k - 1] + 1
+            mut y = x - k
+            if x < n and y < m:
+                advance = common_suffix(old, old_start, old_end - x, new, new_start, new_end - y)
+                x += advance
+                y += advance
+            v.backward[at + k] = x
+            if not odd and distance(k - delta) <= d:
+                if x + v.forward[at - (k - delta)] >= n:
+                    return (old_end - x, new_end - y)
+            k -= 2
+    # A shortest path has at most n + m edits, so the loop always returns.
+    (old_start, new_start)
+
+def conquer(out: &mut Script, old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64, v: &mut Frontier) -> Result[(), AllocError]:
+    prefix = common_prefix(old, old_start, old_end, new, new_start, new_end)
+    out.equal(old_start, new_start, prefix)?
+    first_old = old_start + prefix
+    first_new = new_start + prefix
+    suffix = common_suffix(old, first_old, old_end, new, first_new, new_end)
+    last_old = old_end - suffix
+    last_new = new_end - suffix
+    if first_old < last_old and first_new < last_new:
+        split_old, split_new = middle_snake(old, first_old, last_old, new, first_new, last_new, v)
+        conquer(out, old, first_old, split_old, new, first_new, split_new, v)?
+        conquer(out, old, split_old, last_old, new, split_new, last_new, v)?
+    out.equal(last_old, last_new, suffix)
+
+def myers(out: &mut Script, old: &list[i64], new: &list[i64]) -> Result[(), AllocError]:
+    mut v = frontier(len(old), len(new))?
+    conquer(out, old, 0, len(old), new, 0, len(new), &mut v)
+
+def counts(ids: &list[i64], distinct: i64) -> Result[list[i64], AllocError]:
+    mut seen = [0 for _ in range(distinct)]?
+    for id in ids:
+        seen[*id] += 1
+    Ok(seen)
+
+# Positions of the elements that occur exactly once on each side, in order.
+def unique(ids: &list[i64], mine: &list[i64], theirs: &list[i64]) -> Result[list[i64], AllocError]:
+    mut positions = list[i64]()?
+    for index in range(len(ids)):
+        id = ids[index]
+        if mine[id] == 1 and theirs[id] == 1:
+            positions.append(index)?
+    Ok(positions)
+
+def patience(out: &mut Script, old: &list[i64], new: &list[i64], distinct: i64) -> Result[(), AllocError]:
+    old_counts = counts(old, distinct)?
+    new_counts = counts(new, distinct)?
+    old_unique = unique(old, &old_counts, &new_counts)?
+    new_unique = unique(new, &new_counts, &old_counts)?
+    mut old_keys = list[i64]()?
+    for position in &old_unique:
+        old_keys.append(old[*position])?
+    mut new_keys = list[i64]()?
+    for position in &new_unique:
+        new_keys.append(new[*position])?
+    mut anchors = script()?
+    myers(&mut anchors, &old_keys, &new_keys)?
+    mut v = frontier(len(old), len(new))?
+    mut old_at = 0
+    mut new_at = 0
+    for op in &anchors.ops:
+        if op.is_equal():
+            for step in range(op.old_len()):
+                old_anchor = old_unique[op.old_start + step]
+                new_anchor = new_unique[op.new_start + step]
+                conquer(out, old, old_at, old_anchor, new, new_at, new_anchor, &mut v)?
+                out.equal(old_anchor, new_anchor, 1)?
+                old_at = old_anchor + 1
+                new_at = new_anchor + 1
+    conquer(out, old, old_at, len(old), new, new_at, len(new), &mut v)
+
+def run(old: &list[i64], new: &list[i64], distinct: i64, algorithm: Algorithm) -> Result[list[Op], AllocError]:
+    mut out = script()?
+    match algorithm:
+        case Algorithm.Myers:
+            myers(&mut out, old, new)?
+        case Algorithm.Patience:
+            patience(&mut out, old, new, distinct)?
+    out.gap(len(old), len(new))?
+    Ok(replace(out.ops, list[Op]()?))
+
+def intern[T](ids: &mut dict[T, i64], items: &list[T]) -> Result[list[i64], AllocError]:
+    mut out = list[i64]()?
+    out.reserve(len(items))?
+    for item in items:
+        match ids.get(item):
+            case Some(id):
+                out.append(id)?
+            case Nothing:
+                id = len(ids)
+                ids.insert(*item, id)?
+                out.append(id)?
+    Ok(out)
+
+# The edit operations that turn `old` into `new`, in order. Elements need
+# equality and hashing, as dictionary keys do.
+pub def diff[T](old: &list[T], new: &list[T], algorithm: Algorithm = Algorithm.Myers) -> Result[list[Op], AllocError]:
+    mut ids: dict[T, i64] = {}?
+    old_ids = intern(&mut ids, old)?
+    new_ids = intern(&mut ids, new)?
+    run(&old_ids, &new_ids, len(ids), algorithm)
+
+def allocated[T](result: Result[T, BytesError]) -> Result[T, AllocError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(cause)
+                case _:
+                    # Every range comes from the buffer being read, and text
+                    # is cut only at scalar boundaries; reaching this is a bug.
+                    failed: Result[T, BytesError] = Err(error)
+                    Ok(failed.unwrap())
+
+def byte_ids(data: &Bytes) -> Result[list[i64], AllocError]:
+    mut out = list[i64]()?
+    out.reserve(data.len())?
+    for index in range(data.len()):
+        out.append(i64(allocated(data.get(index))?))?
+    Ok(out)
+
+# The edit operations that turn the bytes of `old` into those of `new`.
+pub def diff_bytes(old: &Bytes, new: &Bytes, algorithm: Algorithm = Algorithm.Myers) -> Result[list[Op], AllocError]:
+    old_ids = byte_ids(old)?
+    new_ids = byte_ids(new)?
+    run(&old_ids, &new_ids, 256, algorithm)
+
+# A difference between two texts split into tokens. Each side's tokens
+# concatenate to its original text; the operations index these tokens.
+pub class TextDiff:
+    _old: list[str]
+    _new: list[str]
+    _ops: list[Op]
+
+    pub def ops(self) -> &list[Op]:
+        &self._ops
+
+    pub def old_tokens(self) -> &list[str]:
+        &self._old
+
+    pub def new_tokens(self) -> &list[str]:
+        &self._new
+
+    # False when the two texts are equal.
+    pub def has_changes(self) -> bool:
+        for op in &self._ops:
+            if not op.is_equal():
+                return True
+        False
+
+    # The difference in unified format with `context` unchanged tokens around
+    # each change, headed by `--- old_name` and `+++ new_name`. Each token is
+    # written as one line; a token without a final LF is followed by one and
+    # by `\ No newline at end of file`. Equal texts give empty text. A negative
+    # context counts as zero.
+    pub def unified(self, context: i64, old_name: &str, new_name: &str) -> Result[str, AllocError]:
+        mut pieces = list[str]()?
+        if not self.has_changes():
+            return Ok("")
+        pieces.append("--- ")?
+        pieces.append(*old_name)?
+        pieces.append("\n+++ ")?
+        pieces.append(*new_name)?
+        pieces.append("\n")?
+        radius = 0 if context < 0 else context
+        for hunk in hunks(&self._ops, radius)?:
+            self.hunk(&mut pieces, &hunk)?
+        "".join(&pieces)
+
+    def hunk(self, pieces: &mut list[str], ops: &list[Op]) -> Result[(), AllocError]:
+        first = &ops[0]
+        last = &ops[len(ops) - 1]
+        pieces.append("@@ -")?
+        range_text(pieces, first.old_start, last.old_end)?
+        pieces.append(" +")?
+        range_text(pieces, first.new_start, last.new_end)?
+        pieces.append(" @@\n")?
+        for op in ops:
+            match op.kind:
+                case Kind.Equal:
+                    write_tokens(pieces, " ", &self._old, op.old_start, op.old_end)?
+                case Kind.Delete:
+                    write_tokens(pieces, "-", &self._old, op.old_start, op.old_end)?
+                case Kind.Insert:
+                    write_tokens(pieces, "+", &self._new, op.new_start, op.new_end)?
+        Ok(())
+
+# `start,count` from one-based line numbers; a count of one is omitted, and an
+# empty range names the line before it, as `diff -u` writes them.
+def range_text(pieces: &mut list[str], start: i64, end: i64) -> Result[(), AllocError]:
+    count = end - start
+    if count == 1:
+        return pieces.append(str.from(start + 1)?)
+    first = start if count == 0 else start + 1
+    pieces.append(str.from(first)?)?
+    pieces.append(",")?
+    pieces.append(str.from(count)?)
+
+def write_tokens(pieces: &mut list[str], prefix: &str, tokens: &list[str], start: i64, end: i64) -> Result[(), AllocError]:
+    for index in range(start, end):
+        token = &tokens[index]
+        pieces.append(*prefix)?
+        pieces.append(*token)?
+        if not token.endswith("\n"):
+            pieces.append("\n\\ No newline at end of file\n")?
+    Ok(())
+
+def trimmed(op: &Op, start: i64, end: i64) -> Op:
+    Op(Kind.Equal, op.old_start + start, op.old_start + end, op.new_start + start, op.new_start + end)
+
+def min(a: i64, b: i64) -> i64:
+    a if a < b else b
+
+# Groups operations into hunks with up to `context` equal elements on each
+# side of every change. Changes separated by at most twice that are merged.
+def hunks(ops: &list[Op], context: i64) -> Result[list[list[Op]], AllocError]:
+    mut groups = list[list[Op]]()?
+    mut group = list[Op]()?
+    count = len(ops)
+    for index in range(count):
+        op = &ops[index]
+        if not op.is_equal():
+            group.append(Op(op.kind, op.old_start, op.old_end, op.new_start, op.new_end))?
+            continue
+        size = op.old_len()
+        leading = index == 0
+        trailing = index == count - 1
+        if leading and trailing:
+            continue
+        if leading:
+            keep = min(size, context)
+            group.append(trimmed(op, size - keep, size))?
+        elif trailing:
+            group.append(trimmed(op, 0, min(size, context)))?
+        elif size > 2 * context:
+            group.append(trimmed(op, 0, context))?
+            groups.append(group)?
+            group = list[Op]()?
+            group.append(trimmed(op, size - context, size))?
+        else:
+            group.append(trimmed(op, 0, size))?
+    if len(group) > 0:
+        groups.append(group)?
+    Ok(groups)
+
+def text_diff(old: list[str], new: list[str], algorithm: Algorithm) -> Result[TextDiff, AllocError]:
+    ops = diff(&old, &new, algorithm)?
+    Ok(TextDiff(old, new, ops))
+
+# Lines, each keeping its LF; a final line without one is its own token.
+def split_lines(text: &str) -> Result[list[str], AllocError]:
+    data = allocated(std.bytes.from_text(text))?
+    mut out = list[str]()?
+    mut start = 0
+    size = data.len()
+    while start < size:
+        mut end = size
+        match allocated(data.find(10u8, start, size))?:
+            case Some(found):
+                end = found + 1
+            case Nothing:
+                pass
+        out.append(allocated(data.to_text_range(start, end))?)?
+        start = end
+    Ok(out)
+
+# Alternating runs of Unicode White_Space and of other scalars.
+def split_words(text: &str) -> Result[list[str], AllocError]:
+    data = allocated(std.bytes.from_text(text))?
+    mut out = list[str]()?
+    mut start = 0
+    mut at = 0
+    mut space = False
+    for scalar in text:
+        current = scalar.isspace()
+        if at > start and current != space:
+            out.append(allocated(data.to_text_range(start, at))?)?
+            start = at
+        space = current
+        at += scalar.byte_len()
+    if at > start:
+        out.append(allocated(data.to_text_range(start, at))?)?
+    Ok(out)
+
+def split_chars(text: &str) -> Result[list[str], AllocError]:
+    mut out = list[str]()?
+    for scalar in text:
+        out.append(*scalar)?
+    Ok(out)
+
+# Compare line by line. Lines keep their LF, so a last line without one
+# differs from the same line with one.
+pub def lines(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]:
+    text_diff(split_lines(old)?, split_lines(new)?, algorithm)
+
+# Compare runs of whitespace and of other scalars.
+pub def words(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]:
+    text_diff(split_words(old)?, split_words(new)?, algorithm)
+
+# Compare Unicode scalar by scalar.
+pub def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]:
+    text_diff(split_chars(old)?, split_chars(new)?, algorithm)
