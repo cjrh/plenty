@@ -89,6 +89,7 @@
             - [Dates and daily reports](tutorial/special-purpose/dataframe-datetime.md)
             - [Clean and compare column values](tutorial/special-purpose/dataframe-expressions.md)
             - [Query CSV and write Parquet](tutorial/special-purpose/dataframe-io.md)
+            - [Application: a daily sales report](tutorial/special-purpose/dataframe-application.md)
         - [Columnar lists](tutorial/special-purpose/columnar-lists/index.md)
             - [Build and scan columnar records](tutorial/special-purpose/columnar-lists/01-scanning.md)
             - [Count matching integer values](tutorial/special-purpose/columnar-lists/02-counting.md)

@@ -31,6 +31,15 @@ Preserve the installed CLI/data, JSON-service and mutual-TLS acceptance checks.
 
 ### Next batches
 
+The B76 [daily sales report application](tutorial/special-purpose/dataframe-application.md)
+exercises CSV/partitioned Parquet ingestion, catalogue validation, nullable
+cleaning, UTC daily grouping and audited CSV/Parquet exports using the existing
+API. Its independent checks and optional scaled workload are in
+`examples/sales_report/`. Classified rows are materialized once; truly large
+or rejection-heavy workloads should guide any multi-output streaming work.
+Temporal/grouped as-of matching and time-bucketed/rolling aggregations remain
+candidates for a separate workload before expanding the API.
+
 The B23/B76 automatic SIMD slice supports optimized `i32`/`u32`
 column comparison/filter/count pipelines with four lanes and scalar tails.
 Immutable runtime scalar captures and two total comparisons joined by `and`

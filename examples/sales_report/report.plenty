@@ -1,0 +1,103 @@
+import std.dataframe as df
+
+# Bounding both inputs makes the native i64 aggregation safe from overflow.
+const MAX_ROWS: i64 = 100000000
+const MAX_CENTS: i64 = 1000000000
+
+pub def scan_orders(kind: str, path: str) -> Result[df.Query, df.DataFrameError | AllocError]:
+    source = df.scan_parquet(path)? if kind == "parquet" else df.scan_csv(path, infer_rows=0)?
+    # Both input formats use text at this ingestion boundary. Schema mistakes
+    # fail the query; invalid cell contents become explicit rejection reasons.
+    fields = source.schema()?
+    for name in ["order_id", "occurred_at", "product_id", "amount_cents"]?:
+        mut found = False
+        for field in &fields:
+            if field.name == name:
+                match field.dtype:
+                    case df.DType.String:
+                        found = True
+                    case _:
+                        return Err(df.DataFrameError.Schema(("order column must be String: " + name)?))
+        if not found:
+            return Err(df.DataFrameError.Schema(("missing required order column: " + name)?))
+    Ok(source.select([
+        df.col("order_id")?, df.col("occurred_at")?,
+        df.col("product_id")?, df.col("amount_cents")?
+    ]?)?)
+
+pub def catalogue(path: str) -> Result[df.DataFrame, df.DataFrameError | AllocError]:
+    products = df.scan_csv(path, infer_rows=0)?.select([
+        df.col("product_id")?, df.col("category")?.str_lower()?
+    ]?)?.collect()?
+    keys = products.values_str("product_id")?
+    categories = products.values_str("category")?
+    for key in &keys:
+        if len(key) == 0:
+            return Err(df.DataFrameError.Schema("catalogue product IDs must not be empty"))
+    for category in &categories:
+        if len(category) == 0:
+            return Err(df.DataFrameError.Schema("catalogue categories must not be empty"))
+    unique = products.lazy()?.select([
+        df.col("product_id")?.n_unique()?.alias("unique")?
+    ]?)?.collect()?
+    if unique.get_i64("unique", 0)? != Some(products.height()?):
+        return Err(df.DataFrameError.Schema("catalogue product IDs must be unique"))
+    Ok(products)
+
+pub def classify(orders: &df.Query, products: &df.DataFrame) -> Result[df.DataFrame, df.DataFrameError | AllocError]:
+    parsed = orders.with_columns([
+        df.col("occurred_at")?.str_to_datetime(
+            "%Y-%m-%d %H:%M:%S", df.TimeUnit.Microseconds, utc=True, strict=False
+        )?.alias("stamp")?,
+        df.col("amount_cents")?.cast(df.DType.I64, strict=False)?.alias("cents")?
+    ]?)?
+    keys = [df.col("product_id")?]?
+    joined = parsed.join(products.lazy()?, keys, keys, how=df.JoinKind.Left)?
+    valid_amount = df.col("cents")?.ge(df.lit_i64(0)?)?.and_(
+        df.col("cents")?.le(df.lit_i64(MAX_CENTS)?)?
+    )?.fill_null(df.lit_bool(False)?)?
+    # One reason per rejected row, with deterministic precedence. A missing
+    # product is never silently dropped by an inner join or priced as zero.
+    reason = df.when(
+        df.col("order_id")?.fill_null(df.lit_str("")?)?.eq(df.lit_str("")?)?,
+        df.lit_str("missing_order_id")?,
+        df.when(df.col("stamp")?.is_null()?, df.lit_str("invalid_timestamp")?,
+            df.when(valid_amount.eq(df.lit_bool(False)?)?, df.lit_str("invalid_amount")?,
+                df.when(df.col("category")?.is_null()?, df.lit_str("unknown_product")?,
+                    df.lit_str("accepted")?
+                )?
+            )?
+        )?
+    )?.alias("reason")?
+    # Materialize once: the audit and report must describe the same input,
+    # and repeated output queries should not rescan/reparse the source files.
+    result = joined.with_columns([reason]?)?.collect_streaming()?
+    if result.height()? > MAX_ROWS:
+        return Err(df.DataFrameError.Query("report supports at most 100000000 order lines"))
+    Ok(result)
+
+pub def daily(classified: &df.DataFrame) -> Result[df.Query, df.DataFrameError | AllocError]:
+    Ok(classified.lazy()?.filter(df.col("reason")?.eq(df.lit_str("accepted")?)?)?.group_by(
+        [df.col("stamp")?.dt_date()?.alias("day")?, df.col("category")?]?,
+        [df.col("order_id")?.count()?.alias("lines")?, df.col("cents")?.sum()?.alias("total_cents")?]?
+    )?.sort([df.SortKey(df.col("day")?), df.SortKey(df.col("category")?)]?)?)
+
+pub def run(kind: str, orders_path: str, products_path: str, output: str) -> Result[(), df.DataFrameError | AllocError | IoError]:
+    products = catalogue(products_path)?
+    orders = scan_orders(kind, orders_path)?
+    classified = classify(orders, products)?
+    rejected = classified.lazy()?.filter(df.col("reason")?.eq(df.lit_str("accepted")?)?.eq(df.lit_bool(False)?)?)?.select([
+        df.col("order_id")?, df.col("occurred_at")?, df.col("product_id")?,
+        df.col("amount_cents")?, df.col("reason")?
+    ]?)?.sort([df.SortKey(df.col("order_id")?), df.SortKey(df.col("occurred_at")?)]?)?.collect()?
+    summary = daily(classified)?.collect()?
+    summary.lazy()?.sink_parquet((output + "/daily.parquet")?)?
+    summary.lazy()?.with_columns([
+        df.col("day")?.dt_format("%Y-%m-%d")?
+    ]?)?.collect()?.write_csv((output + "/daily.csv")?)?
+    rejected.write_csv((output + "/rejected.csv")?)?
+    print("input lines:", classified.height()?)?
+    print("accepted lines:", classified.height()? - rejected.height()?)?
+    print("rejected lines:", rejected.height()?)?
+    print("daily groups:", summary.height()?)?
+    Ok(())

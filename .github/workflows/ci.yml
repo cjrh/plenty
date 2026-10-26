@@ -49,6 +49,10 @@ jobs:
           cargo clippy --manifest-path plenty-dataframe/Cargo.toml --locked --release --all-targets -j 2 -- -D warnings
       - run: "cargo test --locked --test integration test_std_dataframe::"
       - run: cargo test --locked --test integration test_tutorial::dataframe_examples_with_optional_engine
+      - name: Check the sales report application
+        run: |
+          cargo build --locked --bin plenty
+          python3 -B examples/sales_report/check.py --plenty target/debug/plenty -v
   # The full all-features suite under cargo-nextest, split across runners.
   # Each shard compiles the tests itself: a shared build job plus
   # `cargo nextest archive` would add a dependent job's setup to the critical
