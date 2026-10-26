@@ -18,7 +18,7 @@ export!(pldf_v1_cast(expr: *const Expr, dtype: i32, strict: u8, out: *mut *mut E
     let dtype = match dtype {
         0 => DataType::Int64, 1 => DataType::Float64,
         2 => DataType::Boolean, 3 => DataType::String,
-        _ => return Err(NativeError::new(1, "unsupported cast target")),
+        _ => super::numeric::numeric_dtype(dtype).ok_or_else(|| NativeError::new(1, "unsupported cast target"))?,
     };
     let expr = get(expr)?.clone();
     put(out, match strict {

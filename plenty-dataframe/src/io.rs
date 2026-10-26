@@ -13,7 +13,7 @@ export!(pldf_v1_csv_schema_add(schema: *mut CsvSchema, name: *const u8, len: usi
     let dtype = match dtype {
         0 => DataType::Int64, 1 => DataType::Float64,
         2 => DataType::Boolean, 3 => DataType::String,
-        _ => return Err(NativeError::new(1, "unsupported CSV schema dtype")),
+        _ => super::numeric::numeric_dtype(dtype).ok_or_else(|| NativeError::new(1, "unsupported CSV schema dtype"))?,
     };
     if schema.0.contains(name) { return Err(NativeError::new(1, format!("duplicate CSV schema override: {name}"))); }
     schema.0.insert(name.into(), dtype);
