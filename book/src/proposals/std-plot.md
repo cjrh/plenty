@@ -1,8 +1,9 @@
 # `std.plot`: a ggplot2-style plotting module
 
-**Status: Not implemented.** Nothing shipped; this page is a design record for
-review. No backlog entry exists yet. The language facts it relies on are
-checked against the reference and the probes listed in
+**Status: Not implemented. Design accepted.** Nothing shipped; the
+[decisions](#decisions) record the reviewed choices. No backlog entry exists
+yet. The language facts it relies on are checked against the reference and the
+probes listed in
 [What Plenty offers today](#what-plenty-offers-today). Code fences show proposed
 API and are not compiled.
 
@@ -289,7 +290,7 @@ Statically typed handles would move these checks to compile time. Plenty's
 `clist` already has a compile-time selector, `Car.wt`, accepted only by
 `column`. Generalising it into a typed `Field[Car, f64]` value would allow
 `aes(x=Car.wt, colour=factor(Car.cyl))`, checked by the compiler. That is a
-language change; [open question 6](#open-questions) recommends revisiting it
+language change; [decision 6](#decisions) defers it
 after `records` ships, rather than designing it now.
 
 ### Composition
@@ -385,10 +386,10 @@ regression standard errors need the Student t quantile, implemented in Plenty
 from the regularised incomplete beta function. Loess follows R's
 `stats::loess` defaults (span 0.75, degree 2, tricube weights). ggplot2 picks
 loess below 1,000 rows and `mgcv` GAMs above; GAMs are not planned (see
-[open question 5](#open-questions)). `std.stat` (merged on `main` as local PR
-#600, after this proposal's base) already provides means, variances, quantiles
-and a normal distribution; `std.plot` should use it and add the t distribution
-there rather than in the plot module.
+[decision 5](#decisions)). [`std.stat`](../design/stdlib/stat.md) already provides means, variances,
+quantiles and normal, uniform and exponential distributions (`Normal` has
+`cdf` and `inverse_cdf`); `std.plot` should use it and add the Student t
+distribution there rather than in the plot module.
 
 Jitter uses a seeded `std.random.Rng` (default seed fixed, settable with
 `position_jitter(seed=...)`), so output stays deterministic.
@@ -584,49 +585,49 @@ any wrapper.
 
 Stages 3 and 4 depend on other work and can move earlier if it lands first.
 
-## Open questions
+## Decisions
 
-Each has a recommendation.
+The review accepted these choices. Each records the alternative considered.
 
-1. **ggplot2 names or Plenty-style names?** `geom_point` and `scale_x_log10`
-   versus a namespace such as `plot.point()`. *Recommendation:* ggplot2 names
-   verbatim. Recognition is the goal, and plotnine shows the names work outside
-   R. Users import with `from std.plot import ggplot, aes, geom_point` or
+1. **ggplot2 names verbatim**, not Plenty-style names such as `plot.point()`.
+   Recognition is the goal, and plotnine shows the names work outside R. Users
+   import with `from std.plot import ggplot, aes, geom_point` or
    `import std.plot as gg`; wildcard imports are not proposed.
-2. **Accept both `colour` and `color`?** It is two spellings for one thing,
-   against the preference for single rules. *Recommendation:* accept both and
-   reject a call that gives both. ggplot2 users write both, and the cost is one
-   parameter per colour aesthetic.
-3. **Composition: list plus `plus`, or wait for `+`?** *Recommendation:* the
-   list form and `plus` as designed. Do not add operator hooks for this: the
-   `?` after every step would make `+` worse than the list.
-4. **Keep ggplot2's implicit defaults (`bins=30`, smoothing method) or require
-   them?** *Recommendation:* keep the defaults and report each in the notes,
-   as ggplot2's messages do. The plot shows the effect immediately, and
-   requiring them would break the "write it as in ggplot2" goal.
-5. **`geom_smooth` default method above 1,000 rows**, where ggplot2 uses a GAM.
-   *Recommendation:* use loess at every size, evaluated on an interpolation
-   grid as R's `loess(surface = "interpolate")` does, and say so in the note.
+2. **Both `colour` and `color` are accepted**; a call that gives both is
+   `PlotError.Conflict`. This is two spellings for one thing, against the
+   preference for single rules, but ggplot2 users write both and the cost is
+   one parameter per colour aesthetic.
+3. **Composition uses the component list and `plus`.** No operator hooks are
+   added for this: the `?` after every step would make `+` worse than the list.
+4. **ggplot2's implicit defaults stay** (`bins=30`, the smoothing method), each
+   reported in the notes as ggplot2's messages do. The plot shows the effect
+   immediately, and requiring them would break the "write it as in ggplot2"
+   goal.
+5. **`geom_smooth` uses loess at every size**, where ggplot2 switches to an
+   `mgcv` GAM above 1,000 rows. Large inputs are evaluated on an interpolation
+   grid as R's `loess(surface = "interpolate")` does, and the note says so.
    Until loess lands in milestone 2, the default is `Smooth.Lm`, also noted.
-6. **Pursue typed column handles (`aes(x=Car.wt)`) as a language feature?**
-   *Recommendation:* not now. Strings checked at construction cover ggplot2's
-   behaviour; `records()` removes most boilerplate. Revisit if mistyped
-   column names prove common in practice.
-7. **Default font.** *Recommendation:* Liberation Sans, for Arial/Helvetica
-   metric compatibility and the OFL licence; DejaVu Sans is the alternative,
-   with wider coverage but different metrics from common viewer fonts.
-8. **PNG: Plenty rasteriser or wrap `tiny-skia`?** *Recommendation:* Plenty,
-   with the speed target above as the acceptance test.
-9. **Missing values.** *Recommendation:* drop rows with missing values for
-   the aesthetics a layer uses, and record the count in the notes, as ggplot2
-   does; `na_rm=True` silences the note.
-10. **Standard library or first-party package?** The module is large and
-    specialised. *Recommendation:* `std`, beside `std.dataframe`; the
-    [scope](standard-library-scope.md) aims at data tools without third-party
-    packages, and emission removes what a program does not use.
-11. **Where the dataframe bridge lives.** *Recommendation:* a separate module
-    under `std.plot`'s namespace (as `std.http` has submodules), imported only
-    by dataframe users, so neither module forces the other's dependencies.
+6. **No typed column handles (`aes(x=Car.wt)`) for now.** Strings checked at
+   construction match ggplot2's behaviour. Revisit after B77 lands: the
+   per-column record accessor (`num("wt", def(c: &Car) -> f64: c.wt)?`) is
+   verbose, and if `records()` does not remove most of that boilerplate, or
+   mistyped column names prove common, typed handles become worth a language
+   change.
+7. **Default font: Liberation Sans**, for Arial/Helvetica metric
+   compatibility and the OFL licence. DejaVu Sans has wider coverage but
+   different metrics from common viewer fonts.
+8. **PNG uses a Plenty rasteriser**, not a `tiny-skia` wrapper, with the speed
+   target in [Write in Plenty or wrap](#write-in-plenty-or-wrap) as the
+   acceptance test.
+9. **Missing values**: rows missing any aesthetic a layer uses are dropped and
+   counted in the notes, as ggplot2 does; `na_rm=True` silences the note.
+10. **`std.plot` belongs in `std`**, beside `std.dataframe`, not in a
+    first-party package. The [scope](standard-library-scope.md) aims at data
+    tools without third-party packages, and emission removes what a program
+    does not use.
+11. **The dataframe bridge is a separate submodule** under `std.plot`'s
+    namespace (as `std.http` has submodules), imported only by dataframe users,
+    so neither module forces the other's dependencies.
 
 ## Risks
 
