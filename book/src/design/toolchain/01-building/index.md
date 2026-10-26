@@ -16,6 +16,8 @@ embedded in the compiler. Program builds invoke neither Cargo nor rustc.
 - [Application exits](entry-report.md): statuses and returned-error reports.
 - [Native linking and targets](linking.md): driver arguments, object output,
   runtime extraction, and supported platforms.
+- [Native engines](engines.md): when a large native library ships as a
+  separate shared library, and the contract it follows.
 - [Library artifacts](artifacts.md): generated files, contract inspection, and
   publication guarantees.
 - [Fuzzing](fuzzing.md): coverage-instrumented libFuzzer builds with `--fuzz`.

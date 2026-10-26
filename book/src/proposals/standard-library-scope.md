@@ -69,8 +69,8 @@ A native wrapper must:
   digests have, so the linker drops what a program does not call;
 - add no case to a shared runtime dispatcher;
 - when large, ship as a separate engine needed only by programs that import
-  it, like the [`std.dataframe` engine](../design/stdlib/dataframe-engine.md)
-  (issue #504).
+  it, following the [engine contract](../design/toolchain/01-building/engines.md)
+  that the [`std.dataframe` engine](../design/stdlib/dataframe-engine.md) uses.
 
 ### Open module issues
 

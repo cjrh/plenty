@@ -68,6 +68,7 @@ as-of matching. Temporal and grouped as-of APIs are not exposed.
 
 ## Discovery and compatibility
 
+The dataframe engine follows the general [native engine contract](../toolchain/01-building/engines.md).
 The compiler looks beside its own executable, or at the file named by
 `PLENTY_DATAFRAME_ENGINE`. An explicit environment path takes precedence.
 The Rust compilation API also offers `CompileOptions.dataframe_engine`.

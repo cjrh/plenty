@@ -61,6 +61,7 @@ test distribution after removing the compiler and original engine location.
 
 ## How library lookup works
 
+This applies to every [native engine](../toolchain/01-building/engines.md).
 The compiler embeds an ELF `RUNPATH` that searches the executable's own
 directory (`$ORIGIN`), then the engine's build-time directory. This makes the
 bundle relocatable, but the second path can mask a missing bundled library

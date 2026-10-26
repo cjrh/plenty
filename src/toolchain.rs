@@ -330,7 +330,7 @@ pub(crate) fn link(
     extra_args: &[OsString],
     trailing_args: &[OsString],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let dataframe = dataframe_link_args(object, options)?;
+    let engines = engine_link_args(object, options)?;
     let mut command = Command::new(&options.linker);
     if let Some(linker) = options.automatic_linker() {
         command.arg(format!("-fuse-ld={linker}"));
@@ -345,7 +345,7 @@ pub(crate) fn link(
         .args(extra_args)
         .args(&options.link_args)
         .args(trailing_args)
-        .args(dataframe)
+        .args(engines)
         .args(native_args.split_whitespace());
     // Last before `-o`, so wrapper drivers still see the inputs first.
     if options.strip {
@@ -382,18 +382,67 @@ pub(crate) fn link(
     Ok(())
 }
 
-const DATAFRAME_LIBRARY: &str = "libplenty_dataframe_v1.so";
+/// A large native library that ships outside the runtime archive, behind a
+/// trusted `std` facade, and is linked only when reached. See
+/// book/src/design/toolchain/01-building/engines.md for the contract.
+pub(crate) struct Engine {
+    /// The facade module, a trusted `.plentyi` interface in `stdlib/`.
+    pub(crate) module: &'static str,
+    /// File name and SONAME: `libplenty_NAME_vN.so`, N the C ABI generation.
+    library: &'static str,
+    /// Every facade symbol starts with this, and no other symbol does.
+    symbol_prefix: &'static str,
+    /// Compile-time override of the engine path.
+    environment: &'static str,
+    /// The `CompileOptions` override, which takes precedence.
+    option: fn(&CompileOptions) -> Option<&PathBuf>,
+    /// What the engine is, then how to get it, for the missing-engine error.
+    description: &'static str,
+    install: &'static str,
+}
 
-/// Follow the emitted object's section relocations, as --gc-sections does.
-/// Looking for undefined symbols alone would count unused local helpers and
-/// destructors, requiring an engine even for a bare unused import.
-fn uses_dataframe(bytes: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
+pub(crate) const ENGINES: &[Engine] = &[Engine {
+    module: "std.dataframe",
+    library: "libplenty_dataframe_v1.so",
+    symbol_prefix: "pldf_v1_",
+    environment: "PLENTY_DATAFRAME_ENGINE",
+    option: |options| options.dataframe_engine.as_ref(),
+    description: "the optional Polars engine",
+    install: "Build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY",
+}];
+
+impl Engine {
+    /// The explicit option, then the environment, then beside the compiler.
+    pub(crate) fn selected(&self, options: &CompileOptions) -> std::io::Result<PathBuf> {
+        if let Some(path) = (self.option)(options)
+            .cloned()
+            .or_else(|| std::env::var_os(self.environment).map(PathBuf::from))
+        {
+            return Ok(path);
+        }
+        Ok(std::env::current_exe()?.with_file_name(self.library))
+    }
+}
+
+/// The engines reached from the object's roots. Follow section relocations,
+/// as --gc-sections does: looking for undefined symbols alone would count
+/// unused local helpers and destructors, requiring an engine even for a bare
+/// unused import.
+fn reached_engines<'a>(
+    bytes: &[u8],
+    engines: &'a [Engine],
+) -> Result<Vec<&'a Engine>, Box<dyn std::error::Error>> {
     use object::{Object, ObjectSection, ObjectSymbol, RelocationTarget, SectionFlags};
     let object = object::File::parse(bytes)?;
+    let engine_of = |name: &str| {
+        engines
+            .iter()
+            .position(|e| name.starts_with(e.symbol_prefix))
+    };
     if !object.symbols().any(|symbol| {
-        symbol.is_undefined() && symbol.name().is_ok_and(|name| name.starts_with("pldf_v1_"))
+        symbol.is_undefined() && symbol.name().is_ok_and(|name| engine_of(name).is_some())
     }) {
-        return Ok(false);
+        return Ok(Vec::new());
     }
     let mut pending: Vec<_> = object
         .symbols()
@@ -413,6 +462,7 @@ fn uses_dataframe(bytes: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
             })
             .map(|section| section.index()),
     );
+    let mut reached = vec![false; engines.len()];
     let mut seen = std::collections::HashSet::new();
     while let Some(index) = pending.pop() {
         if !seen.insert(index) {
@@ -422,10 +472,11 @@ fn uses_dataframe(bytes: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
             match relocation.target() {
                 RelocationTarget::Symbol(index) => {
                     let symbol = object.symbol_by_index(index)?;
-                    if symbol.is_undefined() && symbol.name()?.starts_with("pldf_v1_") {
-                        return Ok(true);
-                    }
-                    if let Some(section) = symbol.section_index() {
+                    if symbol.is_undefined() {
+                        if let Some(engine) = engine_of(symbol.name()?) {
+                            reached[engine] = true;
+                        }
+                    } else if let Some(section) = symbol.section_index() {
                         pending.push(section);
                     }
                 }
@@ -434,46 +485,67 @@ fn uses_dataframe(bytes: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
             }
         }
     }
-    Ok(false)
+    Ok(engines
+        .iter()
+        .zip(reached)
+        .filter(|(_, r)| *r)
+        .map(|(e, _)| e)
+        .collect())
 }
 
-fn dataframe_link_args(
+/// The reached engines' libraries, then a RUNPATH of the executable's own
+/// directory followed by each engine's directory.
+fn engine_link_args(
     object: &Path,
     options: &CompileOptions,
 ) -> Result<Vec<OsString>, Box<dyn std::error::Error>> {
-    if !uses_dataframe(&std::fs::read(object)?)? {
+    let reached = reached_engines(&std::fs::read(object)?, ENGINES)?;
+    if reached.is_empty() {
         return Ok(Vec::new());
     }
-    let selected = options
-        .dataframe_engine
-        .clone()
-        .or_else(|| std::env::var_os("PLENTY_DATAFRAME_ENGINE").map(PathBuf::from))
-        .unwrap_or(std::env::current_exe()?.with_file_name(DATAFRAME_LIBRARY));
-    let engine = selected.canonicalize().map_err(|error| format!(
-        "std.dataframe requires the optional Polars engine; cannot open {}: {error}. Build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY, or set PLENTY_DATAFRAME_ENGINE to {DATAFRAME_LIBRARY}",
-        selected.display()
-    ))?;
-    if !engine.is_file() {
-        return Err(format!("dataframe engine is not a file: {}", engine.display()).into());
+    let mut libraries = Vec::new();
+    let mut directories: Vec<OsString> = vec!["$ORIGIN".into()];
+    for engine in reached {
+        let selected = engine.selected(options)?;
+        let path = selected.canonicalize().map_err(|error| {
+            format!(
+                "{} requires {}; cannot open {}: {error}. {}, or set {} to {}",
+                engine.module,
+                engine.description,
+                selected.display(),
+                engine.install,
+                engine.environment,
+                engine.library
+            )
+        })?;
+        if !path.is_file() {
+            return Err(
+                format!("{} engine is not a file: {}", engine.module, path.display()).into(),
+            );
+        }
+        let directory = path.parent().unwrap().as_os_str().to_owned();
+        // ELF RUNPATH is colon-separated even when passed as one driver argument.
+        if directory.as_encoded_bytes().contains(&b':') {
+            return Err(format!(
+                "{} engine directory must not contain ':' (ELF RUNPATH separator)",
+                engine.module
+            )
+            .into());
+        }
+        if !directories.contains(&directory) {
+            directories.push(directory);
+        }
+        libraries.push(path.into_os_string());
     }
-    let directory = engine.parent().unwrap();
-    // ELF RUNPATH is colon-separated even when passed as one driver argument.
-    if directory.as_os_str().as_encoded_bytes().contains(&b':') {
-        return Err(
-            "dataframe engine directory must not contain ':' (ELF RUNPATH separator)".into(),
-        );
+    for directory in directories {
+        libraries.extend([
+            "-Xlinker".into(),
+            "-rpath".into(),
+            "-Xlinker".into(),
+            directory,
+        ]);
     }
-    Ok(vec![
-        engine.as_os_str().to_owned(),
-        "-Xlinker".into(),
-        "-rpath".into(),
-        "-Xlinker".into(),
-        "$ORIGIN".into(),
-        "-Xlinker".into(),
-        "-rpath".into(),
-        "-Xlinker".into(),
-        directory.as_os_str().to_owned(),
-    ])
+    Ok(libraries)
 }
 
 #[cfg(test)]
@@ -617,6 +689,66 @@ mod tests {
                     .to_string()
                     .contains("unsupported native target")
             );
+        }
+    }
+
+    fn fake_engine(module: &'static str, symbol_prefix: &'static str) -> Engine {
+        Engine {
+            module,
+            library: "libplenty_fake_v1.so",
+            symbol_prefix,
+            environment: "PLENTY_FAKE_ENGINE",
+            option: |_| None,
+            description: "a fake engine",
+            install: "",
+        }
+    }
+
+    /// A second engine needs only a table entry: reachability is per engine,
+    /// and an unused facade function does not require its engine.
+    #[test]
+    fn only_reached_engines_are_linked() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("native.plentyi"),
+            "extern def used() -> i64 = \"plfa_v1_used\"\n\
+             extern def unused() -> i64 = \"plfb_v1_unused\"\n\
+             pub def first() -> i64:\n    used()\n\
+             pub def second() -> i64:\n    unused()\n",
+        )
+        .unwrap();
+        let source = temp.path().join("main.plenty");
+        std::fs::write(
+            &source,
+            "import native\ndef main() -> ():\n    x = native.first()\n",
+        )
+        .unwrap();
+        let object = temp.path().join("main.o");
+        crate::compile_file_to_object(&source, &object, None).unwrap();
+        let engines = [
+            fake_engine("std.a", "plfa_v1_"),
+            fake_engine("std.b", "plfb_v1_"),
+        ];
+        let bytes = std::fs::read(&object).unwrap();
+        let reached: Vec<_> = reached_engines(&bytes, &engines)
+            .unwrap()
+            .into_iter()
+            .map(|engine| engine.module)
+            .collect();
+        assert_eq!(reached, ["std.a"]);
+        assert!(reached_engines(&bytes, ENGINES).unwrap().is_empty());
+    }
+
+    #[test]
+    fn engine_prefixes_and_libraries_are_distinct() {
+        for (i, a) in ENGINES.iter().enumerate() {
+            assert!(a.library.starts_with("libplenty_") && a.library.ends_with(".so"));
+            for b in &ENGINES[i + 1..] {
+                assert!(!a.symbol_prefix.starts_with(b.symbol_prefix));
+                assert!(!b.symbol_prefix.starts_with(a.symbol_prefix));
+                assert_ne!(a.library, b.library);
+                assert_ne!(a.environment, b.environment);
+            }
         }
     }
 }

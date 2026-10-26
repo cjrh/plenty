@@ -141,7 +141,12 @@ impl ModuleSource {
         match self {
             Self::File(path) => path.clone(),
             Self::Standard(name) => {
-                let extension = if *name == "std.dataframe" {
+                // Engine facades declare the engine's C symbols, which only
+                // a trusted interface module may do.
+                let extension = if crate::toolchain::ENGINES
+                    .iter()
+                    .any(|engine| engine.module == *name)
+                {
                     "plentyi"
                 } else {
                     "plenty"
