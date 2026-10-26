@@ -118,6 +118,15 @@ git merge --ff-only FETCH_HEAD
 | Smoke test | For each pinned distribution image: installs only the documented prerequisites, disconnects the network, and exercises both archives, including app-only dataframe relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
 | Publish | Creates a draft release with both archives and their checksums, then publishes it (`publish.sh`) |
 
+Both release test environments install the SHA-256-verified mold version pinned
+in `scripts/release/toolchain.env`, without requiring root. They check a linked
+program's `.comment` section before running the suite, so a missing linker fails
+early rather than silently changing executable sizes. The container build and
+local rehearsal use the same setup. The size budgets are measured with mold;
+GNU ld can retain additional unused runtime code and panic-message strings.
+Users can still link with their system linker, as the clean distribution smoke
+tests exercise; mold is not a required release-installation dependency.
+
 The build never uses moving `main`, a host build, or a cache from another
 environment. The release is published only after every job passes, so a failed
 build never appears as a finished release. Pre-release tags (`vX.Y.Z-PRE`)

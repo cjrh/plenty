@@ -54,10 +54,16 @@ cc --version | head -n1
 mkdir -p "$out_dir"
 out_dir="$(cd "$out_dir" && pwd)"
 cd "$repo"
+target_dir="${CARGO_TARGET_DIR:-$repo/target}"
+mkdir -p "$target_dir"
+target_dir="$(cd "$target_dir" && pwd)"
+bash "$here/install-mold.sh" "$target_dir/release-tools/mold"
+export PATH="$target_dir/release-tools/mold/bin:$PATH"
+export COMPILER_PATH="$target_dir/release-tools/mold/libexec/mold"
+"$repo/scripts/ci_check_mold.sh"
 # Generic x86-64: no host CPU tuning reaches the compiler or runtime archives.
 unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
 cargo build --locked --release --bins
-target_dir="${CARGO_TARGET_DIR:-$repo/target}"
 "$here/check-elf.sh" "$target_dir/release/plenty" "$target_dir/release/plentyc"
 if [ "$run_tests" = 1 ]; then
     # Keep the tests' compiled-function cache with this build's outputs.
