@@ -304,6 +304,8 @@ mod test_once_closure_safety;
 mod test_once_closure_storage;
 #[path = "test_once_closures.rs"]
 mod test_once_closures;
+#[path = "test_operator_overloading.rs"]
+mod test_operator_overloading;
 #[path = "test_ownership_runtime.rs"]
 mod test_ownership_runtime;
 #[path = "test_par_pipelines.rs"]

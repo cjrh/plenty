@@ -87,9 +87,12 @@ backends are SVG and a bitmap backend that pulls in `image`, and fonts through
 `font-kit` (system font discovery) or `ab_glyph`. [Rendering](#rendering-and-output)
 explains why it is not recommended as a backend.
 
-## What Plenty offers today
+## Language probes
 
 Probes ran on local `main` at `dbcdf39a` with a debug compiler.
+Since those probes, [arithmetic operator hooks](../design/language/04-expressions/operators.md)
+have been implemented (issue #512). The historical rejection below no longer
+applies; the composition recommendation still accounts for fallible allocation.
 
 | Feature | Result | Consequence |
 | --- | --- | --- |
@@ -295,8 +298,8 @@ after `records` ships, rather than designing it now.
 
 ### Composition
 
-Plenty has neither operator overloading nor consuming method receivers. Even
-with operator hooks, `+` would be a poor fit: every step can allocate, and
+Plenty has operator hooks but no consuming method receivers. For this API,
+`+` would be a poor fit: every step can allocate, and
 Plenty makes that visible, so a chain would read
 `((ggplot(t, m)? + geom_point())? + labs(title="x"))?`, as `str` already
 requires `("a" + b)?`.

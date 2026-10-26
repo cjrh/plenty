@@ -324,6 +324,10 @@ boundaries remain narrow.
 
 ## Reconciled completed work
 
+Issue #512 adds statically dispatched [arithmetic operator hooks](design/language/04-expressions/operators.md)
+for classes and enums, including reflected and explicit mutable in-place methods.
+User-defined ordering remains B37; arithmetic hooks do not change structural equality.
+
 Issue #61's initial lossless Unix transport is implemented with owned `list[u8]`,
 explicit UTF-8 conversion, raw arguments, binary file helpers, and NUL stream
 records. The finder now exercises those contracts with `--null`. Compact byte
