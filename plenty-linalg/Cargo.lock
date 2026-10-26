@@ -124,6 +124,7 @@ checksum = "2b14b339eb76d07f052cdbad76ca7c1310e56173a138095d3bf42a23c06ef5d8"
 [[package]]
 name = "faer"
 version = "0.24.4"
+source = "git+https://github.com/cjrh/faer-rs?branch=plenty%2Ffallible-gemm-workspace#8e1e7864f2f1d03a0e114b42b4077469ca37a391"
 dependencies = [
  "bytemuck",
  "dyn-stack",
@@ -143,8 +144,7 @@ dependencies = [
 [[package]]
 name = "faer-traits"
 version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b87d23ed7ab1f26c0cba0e5b9e061a796fbb7dc170fa8bee6970055a1308bb0f"
+source = "git+https://github.com/cjrh/faer-rs?branch=plenty%2Ffallible-gemm-workspace#8e1e7864f2f1d03a0e114b42b4077469ca37a391"
 dependencies = [
  "bytemuck",
  "dyn-stack",
@@ -451,8 +451,7 @@ dependencies = [
 [[package]]
 name = "private-gemm-x86"
 version = "0.1.22"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bba0a7831d1297712e7e7b33759b0c837941e79196dd05df506d5f36f7f78619"
+source = "git+https://github.com/cjrh/faer-rs?branch=plenty%2Ffallible-gemm-workspace#8e1e7864f2f1d03a0e114b42b4077469ca37a391"
 dependencies = [
  "defer",
  "interpol",

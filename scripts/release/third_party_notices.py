@@ -254,7 +254,7 @@ def shipped_packages(metadata, roots=ROOTS):
                 continue
             stack.append(dep["pkg"])
     return sorted(
-        (packages[i] for i in seen if packages[i]["source"] is not None or packages[i]["name"] == "faer"),
+        (packages[i] for i in seen if packages[i]["source"] is not None),
         key=lambda p: (p["name"], p["version"]),
     )
 
@@ -317,6 +317,8 @@ def render(packages, component="compiler"):
         out.append(f"License: {package.get('license') or 'see files below'}")
         if package.get("repository"):
             out.append(f"Source: {package['repository']}")
+        if (package.get("source") or "").startswith("git+"):
+            out.append(f"Resolved Git source: {package['source']}")
         if not primary_files:
             out.append(f"License text: as reproduced under {shared}, from the same repository.")
         out.append("")

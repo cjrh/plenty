@@ -33,13 +33,26 @@ receive scratch allocated with `MemBuffer::try_new`; other scratch buffers use
 used. Native scratch lives outside Plenty's allocation accounting, but allocation
 failure is reported as `AllocError.OutOfMemory`.
 
-Upstream faer's packed GEMM paths allocate infallibly, including inside some
-decompositions. The bundled source has narrowly documented changes to route
-native multiplication through allocation-free nano-gemm SIMD kernels and the
-generic triangular/indexed kernels. Rayon is disabled. This trades some large
-matrix throughput for recoverable failure; it is not a claim to reproduce
-upstream faer's best benchmark results. The native tests deny each allocation
-in turn and exercise sizes above the original packed-GEMM threshold.
+The [faer fork](linalg.md#why-plenty-uses-a-faer-fork) adds fallibly allocated,
+caller-owned packing workspaces. The engine acquires one before entering a
+kernel, then supplies it to all three optimized GEMM dispatch paths through a
+scoped borrow. This avoids initializing the backend's owning thread-local cache.
+Rayon is disabled. Native tests deny allocations, including on the first call,
+and exercise blocked decompositions and CPUs without AVX.
+
+A fixed four-slot pool reuses workspaces. Its mutex is held only while taking
+or returning a buffer, never during numerical computation; concurrent calls
+receive independent buffers. The pool itself allocates nothing. A cache miss
+allocates fallibly, and a full pool drops returned excess buffers. The baseline
+x86 build retains at most roughly 16 MiB of packing storage until process exit;
+active concurrent calls may temporarily require additional buffers. Output and
+decomposition-scratch allocation costs remain visible through `Result`.
+
+Source builds fetch the fork once, with the exact Git revision pinned in
+`plenty-linalg/Cargo.lock`. For offline builds, first run
+`cargo fetch --locked --manifest-path plenty-linalg/Cargo.toml` while online,
+then preserve both Cargo's registry and Git caches. Prebuilt engine users need
+neither Git nor a source checkout.
 
 Unexpected Rust panics are caught at the C boundary and reported as
 `NativePanic`; this is a guard against internal bugs, not an OOM recovery

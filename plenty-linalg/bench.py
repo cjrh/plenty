@@ -2,8 +2,9 @@
 """Measure the C-boundary multiply kernel; optional second library is a control.
 
 Both libraries must export plla_v1_multiply with the same wrapper. Supply an
-otherwise identical build against upstream faer to isolate the vendor patch.
-This excludes Plenty allocation/construction and includes native validation.
+otherwise identical build against upstream faer to isolate the fork changes.
+This excludes Plenty matrix construction and includes native validation and
+workspace acquisition. Initial calls warm each library's reusable workspace.
 """
 import argparse
 import ctypes as c
@@ -17,7 +18,11 @@ def main():
     parser.add_argument("libraries", nargs="+")
     parser.add_argument("--sizes", nargs="+", type=int, default=[32, 128, 512])
     parser.add_argument("--cpu", type=int)
+    parser.add_argument("--strides", nargs="+", type=int, choices=[8, 16], default=[8, 16])
+    parser.add_argument("--iterations", type=int, help="fixed calls per sample, useful with perf stat")
     args = parser.parse_args()
+    if any(n <= 0 for n in args.sizes) or (args.iterations is not None and args.iterations <= 0):
+        parser.error("sizes and iterations must be positive")
     if args.cpu is not None:
         os.sched_setaffinity(0, {args.cpu})
     functions = []
@@ -29,7 +34,7 @@ def main():
         functions.append((path, function))
     print("library,n,stride_bytes,median_ms,min_ms")
     for n in args.sizes:
-        for stride in [8, 16]:
+        for stride in args.strides:
             step = stride // 8
             a = (c.c_double * (n*n*step))()
             out = (c.c_double * (n*n*step))()
@@ -43,7 +48,8 @@ def main():
                 for _ in range(7):
                     start = time.perf_counter()
                     count = 0
-                    while time.perf_counter() - start < 0.08:
+                    while (count < args.iterations if args.iterations is not None
+                           else time.perf_counter() - start < 0.08):
                         assert function(*params) == 0
                         count += 1
                     samples.append((time.perf_counter()-start)*1000/count)

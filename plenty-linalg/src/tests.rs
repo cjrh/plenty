@@ -57,11 +57,101 @@ fn budgeted(n: usize, run: impl FnOnce() -> i64) -> (i64, usize) {
 }
 
 #[test]
-fn multiply_never_allocates_even_above_upstream_gemm_threshold() {
+fn cold_workspace_failure_then_allocation_free_reuse() {
+    const CHILD: &str = "PLENTY_LINALG_COLD_WORKSPACE_TEST";
+    if std::env::var_os(CHILD).is_none() {
+        assert!(
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "tests::cold_workspace_failure_then_allocation_free_reuse"
+                ])
+                .env(CHILD, "1")
+                .status()
+                .unwrap()
+                .success()
+        );
+        return;
+    }
+    let n = 17;
+    let a = vec![1.0f64; n * n];
+    let mut c = vec![0.0f64; n * n];
+    let mut multiply = || unsafe {
+        plla_v1_multiply(
+            n as i64,
+            n as i64,
+            n as i64,
+            a.as_ptr().cast(),
+            a.len(),
+            8,
+            a.as_ptr().cast(),
+            a.len(),
+            8,
+            c.as_mut_ptr().cast(),
+            c.len(),
+            8,
+        )
+    };
+    let (cold, _) = budgeted(0, &mut multiply);
+    if std::is_x86_feature_detected!("avx512f")
+        || (std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma"))
+    {
+        assert_eq!(cold, ALLOC);
+    } else {
+        assert_eq!(cold, 0);
+    }
+    // Returning a workspace to the fixed-size pool performs no allocation.
+    assert_eq!(budgeted(1, &mut multiply).0, 0);
+    assert_eq!(budgeted(2, &mut multiply).0, 0);
+    assert_eq!(budgeted(0, &mut multiply), (0, 0));
+    assert!(c.iter().all(|&value| value == n as f64));
+}
+
+#[test]
+fn concurrent_calls_have_independent_packing_buffers() {
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let handles: Vec<_> = (1..=8)
+        .map(|value| {
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let n = 65;
+                let a = vec![value as f64; n * n];
+                let mut c = vec![0.0; n * n];
+                barrier.wait();
+                for _ in 0..8 {
+                    let code = unsafe {
+                        plla_v1_multiply(
+                            n as i64,
+                            n as i64,
+                            n as i64,
+                            a.as_ptr().cast(),
+                            a.len(),
+                            8,
+                            a.as_ptr().cast(),
+                            a.len(),
+                            8,
+                            c.as_mut_ptr().cast(),
+                            c.len(),
+                            8,
+                        )
+                    };
+                    assert_eq!(code, 0);
+                    assert!(c.iter().all(|&x| x == (value * value * n) as f64));
+                }
+            })
+        })
+        .collect();
+    for thread in handles {
+        thread.join().unwrap();
+    }
+}
+
+#[test]
+fn multiply_has_only_the_fallible_workspace_allocation() {
     for n in [1, 17, 64, 129] {
         let a = vec![1.0; n * n];
         let mut out = vec![0.0; n * n];
-        let (code, allocations) = budgeted(0, || unsafe {
+        let (code, allocations) = budgeted(1, || unsafe {
             plla_v1_multiply(
                 n as i64,
                 n as i64,
@@ -77,7 +167,8 @@ fn multiply_never_allocates_even_above_upstream_gemm_threshold() {
                 8,
             )
         });
-        assert_eq!((code, allocations), (0, 0));
+        assert_eq!(code, 0);
+        assert!(allocations <= 1);
         assert!(out.iter().all(|&value| value == n as f64));
     }
 }

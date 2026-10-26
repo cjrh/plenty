@@ -46,7 +46,10 @@ archive alone does not establish your executable's compatibility.
 and baseline. ABI generation 1 is not a guarantee that every release has every
 operation. Match releases; missing `plla_v1_` symbols indicate a stale engine.
 
-The engine uses patched faer 0.24.4's sequential, allocation-free SIMD matrix
-kernels and fallible scratch allocation. It does not start a thread pool.
-Native allocation failures return `AllocError`; they are outside Plenty's
-allocation counters. Upstream heap-packed GEMM and GPU backends are not enabled.
+The engine uses a pinned faer 0.24.4 fork with sequential optimized GEMM kernels
+and fallible caller-owned packing/scratch storage. It does not start a thread
+pool. A fixed four-slot pool reuses packing buffers (roughly 16 MiB retained in
+this baseline build); concurrent calls can temporarily need more. Native
+allocation failures return `AllocError`; they are outside Plenty's allocation
+counters. GPU backends are not enabled. No Git checkout is needed to use this
+prebuilt engine.

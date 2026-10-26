@@ -60,6 +60,11 @@ class ThirdPartyNotices(unittest.TestCase):
         self.assertIn("Copyright (C) 2018-present iced project and contributors", output)
         self.assertIn("c50f29b7bc305696895c075f3fc7719751426b12/LICENSE.txt", output)
 
+    def test_git_dependency_records_the_resolved_fork_revision(self):
+        source = "git+https://example.test/fork?branch=workspace#0123456789abcdef"
+        self.package["source"] = source
+        self.assertIn(f"Resolved Git source: {source}", self.notices.render([self.package]))
+
     def test_unreviewed_package_version_or_license_still_fails(self):
         for change in [{"name": "other"}, {"version": "1.22.0"}, {"license": "Apache-2.0"}]:
             with self.subTest(change=change):

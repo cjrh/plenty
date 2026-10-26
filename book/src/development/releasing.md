@@ -240,9 +240,10 @@ Dependency upgrades require a fresh review if they still omit the license file;
 notice generation does not download fallback text during the release build.
 
 For each separate engine archive, `third_party_notices.py --component NAME`
-walks its own manifest/lockfile. The faer source patch is included as a local
-dependency with its upstream notices; missing workspace-root licenses in its
-dependency family have version-pinned, reviewed fallbacks.
+walks its own manifest/lockfile. The faer fork and its backend are Git dependencies
+pinned in the linalg lockfile, with their upstream notices; missing workspace-root
+licenses in the dependency family have version-pinned, reviewed fallbacks.
+Offline builds need the pinned Git checkout as well as Cargo's registry cache.
 For dataframe, `alloc-stdlib` shares its repository's
 BSD license with `alloc-no-stdlib`. `polars-parquet-format 0.1.0` declares
 MIT AND Apache-2.0 but omits top-level license files; a version/license-pinned

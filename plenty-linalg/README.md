@@ -5,63 +5,49 @@ the isolated engine. Normal compiler builds do not build this workspace.
 See the [public reference](../book/src/design/stdlib/linalg.md) and
 [engine contract](../book/src/design/stdlib/linalg-engine.md).
 
-## Dependency audit
+## Allocation contract
 
-The vendored faer 0.24.4 source is from crates.io, upstream commit
-`0539947ffb757a739d7e703a7d2fa0c792a909c1` (path `faer`). Only source,
-manifests, README and notices are retained; upstream example/test-data files
-are not needed to build the dependency. The repository-level MIT LICENSE,
-omitted by the crate archive, comes from the same commit's
-[official mirror](https://raw.githubusercontent.com/sarah-quinones/faer-rs/0539947ffb757a739d7e703a7d2fa0c792a909c1/LICENSE).
-
-Changes to upstream Rust source:
-
-- `src/linalg/matmul/mod.rs`: set nano-gemm threshold to `usize::MAX` and
-  use fixed 32-by-32 stack-packed tiles (at most 48 KiB of tile buffers for
-  complex f64). The general native-scalar dispatcher
-  never enters infallibly allocating GEMM.
-- `src/linalg/matmul/triangular.rs` and `internal/mod.rs`: disable direct
-  private-gemm-x86 overrides; retain faer's generic recursive paths.
-- `src/lib.rs`: suppress upstream unused imports/helpers from disabled default
-  features. Decomposition algorithms are unchanged; multiplication uses a
-  different blocking/summation order.
+The engine uses the
+[caller-workspace branch of cjrh/faer-rs](https://github.com/cjrh/faer-rs/tree/plenty/fallible-gemm-workspace),
+based on faer 0.24.4. `Cargo.lock` pins the exact Git revision, including
+faer-traits and the patched private-gemm-x86 backend. The fork documents its
+[API and provenance](https://github.com/cjrh/faer-rs/blob/plenty/fallible-gemm-workspace/FALLIBLE_GEMM.md).
+The [reference's fork explanation](../book/src/design/stdlib/linalg.md#why-plenty-uses-a-faer-fork)
+records why this dependency is necessary and the measured performance.
 
 All calls use `Par::Seq`. Rayon, sparse, random and NPY features are disabled.
 The wrapper avoids faer owned matrices, high-level decompositions, global
-parallelism, and overloaded arithmetic. It provides initialized borrowed
+parallelism, and overloaded arithmetic. It supplies borrowed initialized
 matrices and fallible scratch (`MemBuffer::try_new`, `Vec::try_reserve_exact`).
-Errors are scalar codes; no error message allocation or native handle exists.
+Errors are scalar codes; no error-message allocation or native handle crosses
+the boundary.
 
-The native tests use a global allocator with a thread-local denial budget.
-Every allocation position is failed in turn, including allocations made inside
-dependencies. A hidden infallible allocation aborts that test process. This
-caught the triangular GEMM override during development. Matrix multiplication
-is checked under a zero-allocation budget above upstream's threshold; LU, QR,
-Cholesky, solves, SVD and both eigen paths are checked with bounded budgets.
+Caller-owned GEMM workspaces preserve optimized packing without initializing an
+owning TLS cache. A fixed four-slot pool reuses them; its mutex is held only for
+take/return, and returning a buffer allocates nothing. Cold and concurrent cache
+misses reserve fallibly. Excess returned buffers are dropped. The baseline
+configuration retains at most approximately 16 MiB of packing buffers.
 
-Upgrades must re-audit these paths and rerun denial tests and residual tests.
-The patch deliberately favors recoverable allocation and bounded working
-storage over upstream heap-packed GEMM performance. Do not cite upstream faer timings as
-timings for this build.
+Native tests fail allocation positions in turn, including inside dependencies,
+and check cold-process failure, allocation-free workspace reuse, concurrent
+buffers, strided/sentinel storage, and independent decomposition residuals.
+The fork additionally tests all four native scalar types and scope unwinding.
+Upgrades must rerun these tests and the non-AVX fallback checks.
 
 ## Reproducible kernel comparison
 
-`python3 plenty-linalg/bench.py ENGINE [UPSTREAM_CONTROL] --cpu CPU` checks an
-all-ones product and reports medians/minima of seven samples. Each sample runs
-for at least 80 ms; setup/allocation is outside timing. The control uses this
-same C wrapper with unmodified faer 0.24.4, identical features and baseline
-`-C target-cpu=x86-64` flags. It is a measurement control only: its hidden
-allocations do not meet Plenty's failure contract.
+`python3 plenty-linalg/bench.py ENGINE [CONTROL ...] --cpu CPU` verifies an
+all-ones product and reports medians/minima of seven samples, each at least
+80 ms. Initial calls warm the libraries' workspaces. Matrix allocation/setup
+is outside timing; native validation and workspace acquisition are included.
+Build an upstream control from the same C wrapper with unmodified faer 0.24.4,
+without the workspace call/pool, and identical baseline `-C target-cpu=x86-64`
+flags. The control's hidden allocations do not satisfy Plenty's contract.
 
-One local run on 2026-10-26, pinned to CPU 15, gave these median milliseconds
-for square f64 products using Plenty's 16-byte element slots:
+For matched instruction counts, use `perf stat -e instructions:u,cycles:u`
+with `--sizes 512 --strides 16 --iterations 100 --cpu CPU`. This performs seven
+fixed-count samples; counters include the same Python setup/validation and one
+warm-up multiplication. Counts and wall timings are separate evidence.
 
-| Size | Allocation-safe engine | Upstream control |
-| --- | ---: | ---: |
-| 32 | 0.00532 | 0.00535 |
-| 128 | 0.15380 | 0.09946 |
-| 512 | 10.64561 | 5.27053 |
-
-These are kernel comparisons on one machine, not end-to-end Plenty timings or
-a portable speed guarantee. Larger products remain slower than upstream;
-preserve allocation-denial and residual tests when improving that path.
+Offline builds require both registry and Git caches. Run
+`cargo fetch --locked --manifest-path plenty-linalg/Cargo.toml` online first.

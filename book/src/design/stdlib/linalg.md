@@ -97,6 +97,59 @@ solver or pseudoinverse is provided. General eigenvectors of a defective matrix
 need not form a basis. Scaling and residual checks remain the caller's numerical
 responsibility. Results may differ in their final bits across CPUs/releases.
 
+## Why Plenty uses a faer fork
+
+Plenty uses [cjrh/faer-rs's caller-workspace branch](https://github.com/cjrh/faer-rs/tree/plenty/fallible-gemm-workspace),
+based on [faer 0.24.4 at `0ecd846`](https://github.com/cjrh/faer-rs/commit/0ecd846dc223752fd41e3ea95253b52532156c01).
+Upstream's dense, triangular and indexed GEMM dispatches can allocate packing
+buffers infallibly inside the `private-gemm-x86` backend. A failure can abort
+the process before Plenty can return `AllocError`, even when matrix outputs
+and decomposition scratch were allocated fallibly.
+
+The [workspace API change](https://github.com/cjrh/faer-rs/commit/41cf7a6552ae410a6aaf0860081ecf146af9025b)
+adds fallible caller-owned packing buffers and a scoped borrow used by all three
+dispatches. It avoids initializing the backend's owning thread-local cache,
+uses allocation-free cache discovery, and restores nested scopes on unwinding.
+On CPUs without the optimized x86 path, scoped calls use allocation-free
+nano-gemm. Plenty enters the scope with `Par::Seq`; the fork does not make every
+upstream owned/parallel API fallible. Assembly kernels and numerical algorithms
+are unchanged. The fork includes the small backend as a path dependency because
+part of the change belongs in that separate upstream crate.
+
+Plenty separately reuses these workspaces in a fixed four-slot pool. That
+performance optimization is in the engine, not a second fork kernel variant.
+It avoids paying for a large reservation on every small operation while keeping
+allocation failure recoverable on cold/concurrent misses. See the
+[engine contract](linalg-engine.md) for its bounded retained-memory cost.
+The earlier approach of disabling optimized GEMM is no longer used.
+
+Measured on the development x86-64 machine, correctness-checked warm matrix
+products retained approximately upstream throughput. Seven-sample medians for
+16-byte-strided inputs were:
+
+| Square matrix | Fork with workspace reuse | Unmodified faer | Earlier disabled-GEMM workaround |
+| --- | ---: | ---: | ---: |
+| 32 × 32 | 0.00482 ms | 0.00473 ms | 0.00483 ms |
+| 128 × 128 | 0.0947 ms | 0.0942 ms | 0.136 ms |
+| 512 × 512 | 4.43 ms | 4.59 ms | 12.12 ms |
+
+These are machine-specific measurements, not a promised speedup over upstream.
+The same release compiler, baseline `x86-64` target, wrapper and CPU affinity
+were used; matrix creation was outside timing and workspace acquisition was
+inside. A separate matched 700-product run at 512 × 512 counted 29.51 billion
+user instructions for both fork and upstream, versus 92.04 billion for the
+workaround (including identical benchmark setup and validation). This supports
+restoring the optimized path rather than attributing the improvement solely to
+CPU timing noise. Cold workspace allocation is outside these warm measurements.
+The reproducible driver is `plenty-linalg/bench.py`.
+
+The branch is selected in `plenty-linalg/Cargo.toml`; `Cargo.lock` pins the exact
+revision, including the backend (currently [8e1e786](https://github.com/cjrh/faer-rs/commit/8e1e7864f2f1d03a0e114b42b4077469ca37a391)). The fork's [design/provenance note](https://github.com/cjrh/faer-rs/blob/plenty/fallible-gemm-workspace/FALLIBLE_GEMM.md)
+keeps the source import separate from the API change for upstream review.
+The intent is to return to upstream releases when equivalent workspace support
+is available. Dependency updates must recheck allocation denial, numerical
+residuals, concurrent calls and the non-AVX fallback before changing the pin.
+
 See [the linear algebra lesson](../../tutorial/07-modules/27-linear-algebra.md)
 for runnable solve and factorization examples, and the
 [generated signatures](signatures.md) for every declaration.

@@ -21,8 +21,43 @@ const OVERFLOW: i64 = 6;
 const PANIC: i64 = 7;
 type Result<T> = std::result::Result<T, i64>;
 
+// Optional reuse, bounded to four buffers. The lock is never held in a kernel.
+// Unlike an owning TLS cache, this requires no hidden thread-exit registration.
+static WORKSPACES: std::sync::Mutex<[Option<linalg::matmul::GemmWorkspace>; 4]> =
+    std::sync::Mutex::new([const { None }; 4]);
+
+struct PooledWorkspace(Option<linalg::matmul::GemmWorkspace>);
+
+impl PooledWorkspace {
+    fn take() -> Result<Self> {
+        let cached = WORKSPACES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter_mut()
+            .find_map(Option::take);
+        let workspace = match cached {
+            Some(workspace) => workspace,
+            None => linalg::matmul::GemmWorkspace::try_new().map_err(|_| ALLOC)?,
+        };
+        Ok(Self(Some(workspace)))
+    }
+}
+
+impl Drop for PooledWorkspace {
+    fn drop(&mut self) {
+        let workspace = self.0.take().unwrap();
+        let mut cache = WORKSPACES.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(slot) = cache.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(workspace);
+        }
+    }
+}
+
 fn boundary(f: impl FnOnce() -> Result<()>) -> i64 {
-    match catch_unwind(AssertUnwindSafe(f)) {
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mut workspace = PooledWorkspace::take()?;
+        workspace.0.as_mut().unwrap().with(f)
+    })) {
         Ok(Ok(())) => 0,
         Ok(Err(code)) => code,
         Err(_) => PANIC,
