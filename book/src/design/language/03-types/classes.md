@@ -37,6 +37,9 @@ Failed initialization destroys initialized fields and remaining owned arguments
 and skips the class's destructor. The destructor becomes active only after
 successful initialization; see [cleanup](../05-ownership/index.md).
 
+Classes can define [arithmetic operator hooks](../04-expressions/operators.md)
+such as `__add__` and `__neg__`, compiled as direct method calls.
+
 Class identity is nominal. Structural equality compares fields and printing uses
 `Point(x=3, y=4)`; neither invokes user-defined magic methods. Automatic equality
 and formatting reject recursive data. Instance moves, field access, and explicit

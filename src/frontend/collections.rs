@@ -217,6 +217,9 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        if self.overloaded_augment(target, op, value, ops)? {
+            return Ok(());
+        }
         if self.clist_projection(target)?.is_some() {
             return self.augment_clist_field(target, op, value, ops);
         }
@@ -814,6 +817,9 @@ impl Lower<'_> {
                 if matches!(op.as_str(), "+" | "-" | "*" | "/" | "//" | "%")
                     && expected.as_ref().is_some_and(Ty::is_numeric) =>
             {
+                if let Some(result) = self.overloaded_binary(op, left, right, &e.at, ops)? {
+                    return Ok(result);
+                }
                 self.numeric_binary(op, left, right, expected.unwrap(), &e.at, ops)
                     .map(Some)
             }

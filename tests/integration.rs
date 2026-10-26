@@ -304,6 +304,8 @@ mod test_once_closure_safety;
 mod test_once_closure_storage;
 #[path = "test_once_closures.rs"]
 mod test_once_closures;
+#[path = "test_operator_overloading.rs"]
+mod test_operator_overloading;
 #[path = "test_ownership_runtime.rs"]
 mod test_ownership_runtime;
 #[path = "test_par_pipelines.rs"]
@@ -384,6 +386,8 @@ mod test_std_archive;
 mod test_std_atomic;
 #[path = "test_std_bytes.rs"]
 mod test_std_bytes;
+#[path = "test_std_cache_lru.rs"]
+mod test_std_cache_lru;
 #[path = "test_std_cli_progress.rs"]
 mod test_std_cli_progress;
 #[path = "test_std_collections.rs"]
@@ -406,6 +410,8 @@ mod test_std_fmt;
 mod test_std_fs_dirs;
 #[path = "test_std_fs_watch.rs"]
 mod test_std_fs_watch;
+#[path = "test_std_graph.rs"]
+mod test_std_graph;
 #[path = "test_std_http.rs"]
 mod test_std_http;
 #[path = "test_std_http_client.rs"]

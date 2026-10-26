@@ -170,6 +170,7 @@ pub(super) fn expand(enums: Vec<EnumDecl>, aliases: &TypeAliases) -> Result<Vec<
             unreachable!()
         };
         for mut function in declaration.methods {
+            operators::validate(&function, aliases)?;
             let receiver = function.inputs.first();
             let valid = if let Some((name, receiver)) = receiver {
                 name == "self"

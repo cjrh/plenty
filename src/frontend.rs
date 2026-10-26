@@ -45,6 +45,7 @@ mod lexer_tests;
 mod modules;
 mod mutex;
 mod numeric;
+mod operators;
 mod patterns;
 mod pipelines;
 mod protocols;
@@ -72,10 +73,10 @@ pub(crate) struct Program {
 pub(crate) use modules::inputs::{Inputs, standard_digest};
 
 /// Every symbol the lexer accepts, so a symbol token needs no allocation.
-const SYMBOLS: [&str; 37] = [
+const SYMBOLS: [&str; 42] = [
     "(", ")", "[", "]", "{", "}", ".", ":", ",", "+", "-", "*", "%", "/", "=", "!", "<", ">", "&",
     "|", "^", "~", "?", "->", "==", "!=", "<=", ">=", "//", "<<", ">>", "+=", "-=", "*=", "/=",
-    "//=", "%=",
+    "//=", "%=", "&=", "|=", "^=", "<<=", ">>=",
 ];
 
 /// The bytes that continue a word: ASCII letters, digits and `_`.
@@ -98,6 +99,8 @@ fn symbol(c: u8, next: Option<&u8>, after: Option<&u8>) -> &'static str {
         (b'!', Some(b'=')) => "!=",
         (b'<', Some(b'=')) => "<=",
         (b'>', Some(b'=')) => ">=",
+        (b'<', Some(b'<')) if after == Some(&b'=') => "<<=",
+        (b'>', Some(b'>')) if after == Some(&b'=') => ">>=",
         (b'<', Some(b'<')) => "<<",
         (b'>', Some(b'>')) => ">>",
         (b'/', Some(b'/')) if after == Some(&b'=') => "//=",
@@ -107,6 +110,9 @@ fn symbol(c: u8, next: Option<&u8>, after: Option<&u8>) -> &'static str {
         (b'*', Some(b'=')) => "*=",
         (b'/', Some(b'=')) => "/=",
         (b'%', Some(b'=')) => "%=",
+        (b'&', Some(b'=')) => "&=",
+        (b'|', Some(b'=')) => "|=",
+        (b'^', Some(b'=')) => "^=",
         (b'(', _) => "(",
         (b')', _) => ")",
         (b'[', _) => "[",
@@ -2179,7 +2185,7 @@ impl Parser {
                         value: self.statement_value()?,
                     }
                 } else if matches!(&self.peek().kind, Kind::Symbol(s)
-                    if matches!(&**s, "+=" | "-=" | "*=" | "/=" | "//=" | "%="))
+                    if matches!(&**s, "+=" | "-=" | "*=" | "/=" | "//=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="))
                 {
                     let operator = self.take();
                     let Kind::Symbol(symbol) = operator.kind else {
@@ -3002,6 +3008,9 @@ impl Lower<'_> {
                     "+" | "-" | "*" | "/" | "//" | "%" | "&" | "|" | "^" | "<<" | ">>"
                 ) =>
             {
+                if let Some(output) = self.operator_output_hint(op, a, b) {
+                    return output.filter(Ty::is_numeric);
+                }
                 self.numeric_hint(a).or_else(|| self.numeric_hint(b))
             }
             _ => None,
@@ -3510,6 +3519,9 @@ impl Lower<'_> {
                 }
             }
             Expression::Unary(op, value) => {
+                if let Some(result) = self.overloaded_unary(op, value, ops)? {
+                    return Ok(result);
+                }
                 if op == "&" || op == "&mut" {
                     return self
                         .borrow(value, op == "&mut", ops)
@@ -3651,6 +3663,9 @@ impl Lower<'_> {
                 Some(Ty::Bool)
             }
             Expression::Binary(op, left, right) => {
+                if let Some(result) = self.overloaded_binary(op, left, right, &e.at, ops)? {
+                    return Ok(result);
+                }
                 if op == "*"
                     && let Some(display) = [left, right].into_iter().find_map(|e| list_display(e))
                 {
