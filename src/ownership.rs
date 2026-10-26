@@ -62,6 +62,10 @@ pub struct Instantiation {
     /// The type parameters of `instance` and their arguments, which name the
     /// caller's cause of a body error (issue #518).
     pub parameters: Arc<[(Arc<str>, Ty)]>,
+    /// The method that `--check-all-methods` checked although nothing uses
+    /// it, when that check required this instance. Such an error has no use
+    /// site, so `at` is where the method's type was instantiated (issue #517).
+    pub unused_method: Option<Arc<str>>,
 }
 
 /// What a body operation needed from a value's type when it was rejected.
@@ -128,8 +132,9 @@ impl Instantiation {
             )
         };
         Some(format!(
-            "{}: {subject}\n  {body}note: in instantiation `{instance}`: {detail}",
-            self.at
+            "{}: {subject}\n  {body}note: in instantiation `{instance}`: {detail}{}",
+            self.at,
+            self.unused_note()
         ))
     }
 
@@ -146,11 +151,24 @@ impl Instantiation {
         }
         format!(
             "{}: cannot instantiate `{}`: its definition is rejected\n  \
-             {body}note: in instantiation `{}`: {message}",
+             {body}note: in instantiation `{}`: {message}{}",
             self.at,
             short(&self.requested),
-            short(&self.instance)
+            short(&self.instance),
+            self.unused_note()
         )
+    }
+
+    /// Why an error with no use site is reported at an instantiation.
+    fn unused_note(&self) -> String {
+        match &self.unused_method {
+            Some(method) => format!(
+                "\n  note: `{}` is checked because of --check-all-methods; \
+                 the program does not use it",
+                short(method)
+            ),
+            None => String::new(),
+        }
     }
 }
 

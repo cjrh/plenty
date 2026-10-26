@@ -100,3 +100,27 @@ constraints, signature types) and uses that do not satisfy a constraint are
 reported at one location. Instance field types, constraints on data
 arguments, and substituted method signatures are checked when the instance is
 first required.
+
+### Checking every method
+
+Checking per use keeps compilation fast while code changes, but a library's
+tests then check a method for a type argument only if they use it. The check
+modes accept `--check-all-methods`
+([`plenty --check`, `--check-module`](../../toolchain/01-building/commands.md),
+and [`plenty check`](../../toolchain/01-building/packages.md)): after the used
+methods, every remaining method of every class and enum instance the program
+creates is checked as if it were called, including methods of standard-library
+types. Such an error has no use, so it is reported where the program first
+required the method's type, such as a constructor call or a type annotation,
+with a note naming the flag:
+
+```text
+main.plenty:8:9: `Cell[list[i64]].get` copies `T`, but `list[i64]` cannot be copied
+  main.plenty:4:9: note: in instantiation `Cell[list[i64]].get`: cannot move out of a field
+  note: `Cell[list[i64]].get` is checked because of --check-all-methods; the program does not use it
+```
+
+The flag checks only instances: a generic class or enum with no instance stays
+unchecked, since its bodies are checked with concrete type arguments and there
+are none. Compiling does not accept the flag, so it never changes generated code
+or the [compile cache](../../toolchain/02-architecture/cache.md).

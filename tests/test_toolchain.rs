@@ -618,3 +618,59 @@ fn outputs_are_stripped_unless_no_strip_is_given() {
         );
     }
 }
+
+#[test]
+fn check_all_methods_flag_is_documented_and_parsed_by_both_binaries() {
+    // Issue #517.
+    let temp = tempfile::tempdir().unwrap();
+    let module = temp.path().join("cells.plenty");
+    std::fs::write(
+        &module,
+        "class Cell[T]:
+    value: T
+    def get(self) -> T:
+        self.value
+
+def lists() -> Result[Cell[list[i64]], AllocError]:
+    Ok(Cell([1]?))
+",
+    )
+    .unwrap();
+    for binary in [env!("CARGO_BIN_EXE_plenty"), env!("CARGO_BIN_EXE_plentyc")] {
+        let help = success(Command::new(binary).arg("--help").output().unwrap());
+        assert!(
+            String::from_utf8_lossy(&help.stdout).contains("--check-all-methods: with --check"),
+            "{binary}"
+        );
+        success(
+            Command::new(binary)
+                .arg("--check-module")
+                .arg(&module)
+                .output()
+                .unwrap(),
+        );
+        // The flag may precede or follow the mode.
+        for args in [
+            ["--check-module", "--check-all-methods"],
+            ["--check-all-methods", "--check-module"],
+        ] {
+            let output = Command::new(binary)
+                .args(args)
+                .arg(&module)
+                .output()
+                .unwrap();
+            assert!(!output.status.success(), "{binary} {args:?}");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains(":6:23: `Cell[list[i64]].get` copies `T`")
+                    && stderr.contains("is checked because of --check-all-methods"),
+                "{binary} {args:?}: {stderr}"
+            );
+        }
+    }
+    let help = success(Command::new(env!("CARGO_BIN_EXE_plenty")).output().unwrap());
+    assert!(
+        String::from_utf8_lossy(&help.stdout)
+            .contains("plenty check [--locked] [--offline] [--check-all-methods]")
+    );
+}

@@ -394,6 +394,7 @@ impl Engine {
                 requested: Arc::clone(&display),
                 instance: display,
                 parameters,
+                unused_method: None,
             },
         };
         self.required.insert(symbol, Arc::new(required));
@@ -402,6 +403,47 @@ impl Engine {
         if !generator_input {
             self.pending.push_back((symbol, function));
         }
+    }
+
+    /// Queues every unused instance method, for `--check-all-methods`, and
+    /// returns whether there were any. No use exists, so an error is
+    /// reported where the method's type was instantiated (issue #517).
+    pub(super) fn demand_unused_methods(&mut self) -> bool {
+        // Symbols number methods as their types were instantiated, so the
+        // first error reported does not depend on hash order.
+        let mut unused: Vec<_> = self
+            .unused_methods
+            .iter()
+            .map(|(name, method)| (method.symbol, name.clone()))
+            .collect();
+        unused.sort_unstable();
+        for (symbol, name) in &unused {
+            let method = &self.unused_methods[name];
+            let display = Arc::clone(&method.display);
+            let required = match self.required.get(symbol) {
+                Some(owner) => {
+                    let mut required = (**owner).clone();
+                    if required.requested == required.instance {
+                        required.requested = Arc::clone(&display);
+                    }
+                    required.instance = Arc::clone(&display);
+                    required
+                }
+                None => Instantiation {
+                    at: method.function.at.location().into(),
+                    requested: Arc::clone(&display),
+                    instance: Arc::clone(&display),
+                    parameters: Arc::default(),
+                    unused_method: None,
+                },
+            };
+            let required = Arc::new(Instantiation {
+                unused_method: Some(display),
+                ..required
+            });
+            self.demand_method(name, || unreachable!(), Some(&required));
+        }
+        !unused.is_empty()
     }
 
     /// Queues the unused instance methods that `compiled[start..]` names.
@@ -899,6 +941,7 @@ impl Lower<'_> {
                     requested: instance.clone(),
                     instance,
                     parameters,
+                    unused_method: None,
                 },
             });
             self.generics.required.insert(symbol_id, required.clone());
@@ -1588,6 +1631,7 @@ impl Engine {
                     instance: Arc::clone(&requested),
                     requested,
                     parameters: Arc::clone(&instance.parameters),
+                    unused_method: None,
                 })
             });
             for callee in demanded {

@@ -60,3 +60,9 @@ The error is reported at the line of your code that first required
 `Cell[list[i64]].get`, here the method call, and names the type argument that
 the method cannot accept. The note below it gives the line in the definition
 and the reason.
+
+When you write a generic class for others to use, `plenty --check
+--check-all-methods FILE` also checks the methods your program never calls,
+for every instance it creates. The
+[generics reference](../../design/language/07-generics/index.md#checking-every-method)
+describes the check.

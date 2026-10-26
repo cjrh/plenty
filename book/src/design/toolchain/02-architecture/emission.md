@@ -39,7 +39,9 @@ call, function address, callable adapter, worker, or destructor, which is the
 set native reachability follows. A protocol bound queues the methods it
 matched, and `__del__` is queued with the instance. Methods never queued are
 neither checked nor emitted, so they create no instances, strings, or cache
-entries.
+entries. `--check-all-methods`, accepted only by check modes, queues every
+method still unqueued once the queue empties, repeating while those bodies
+create instances (issue #517).
 
 Before native preparation, emission removes unreachable definitions from the
 embedded standard library (issue #400). It keeps every user definition, C export

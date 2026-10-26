@@ -1078,3 +1078,38 @@ fn plentyc_compiles_through_a_package_graph() {
     ]);
     assert!(String::from_utf8_lossy(&both.stderr).contains("excludes --module-root"));
 }
+
+#[test]
+fn check_all_methods_checks_unused_methods_of_every_target() {
+    // A library's generic method is checked for the instance its own code
+    // creates only under `--check-all-methods` (issue #517).
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "cells",
+        "",
+        &[(
+            "src/lib.plenty",
+            "class Cell[T]:
+    value: T
+    def get(self) -> T:
+        self.value
+
+def lists() -> Result[Cell[list[i64]], AllocError]:
+    Ok(Cell([1]?))
+",
+        )],
+    );
+    let cells = dir.path().join("cells");
+    succeeds(&cells, &["check"]);
+    fails(
+        &cells,
+        &["check", "--check-all-methods"],
+        "lib.plenty:6:23: `Cell[list[i64]].get` copies `T`, but `list[i64]` cannot be copied",
+    );
+    fails(
+        &cells,
+        &["build", "--check-all-methods"],
+        "unexpected argument \"--check-all-methods\"",
+    );
+}

@@ -138,8 +138,27 @@ pub use toolchain::{
 /// [`compile_source_to_executable`].
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub fn check_source(source: &str) -> Result<(), Box<dyn std::error::Error>> {
+    check_source_with_options(source, &CheckOptions::default())
+}
+
+/// What a check verifies beyond what compilation checks. Only the check
+/// entry points take these: compiling never needs them, and the compile
+/// caches never see their results (issue #517).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CheckOptions {
+    /// Check every method of every generic class and enum instance the
+    /// program creates, as if each were called, rather than only the
+    /// methods the program uses (`--check-all-methods`, issue #517).
+    pub all_methods: bool,
+}
+
+/// [`check_source`] with the checks `options` adds.
+pub fn check_source_with_options(
+    source: &str,
+    options: &CheckOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut heap = value::Heap::default();
-    let program = frontend::compile(source, &mut heap)?;
+    let program = frontend::check(source, &mut heap, *options)?;
     op::check(&program.ops)
 }
 
@@ -149,7 +168,7 @@ pub fn check_file(
     path: &std::path::Path,
     root: Option<&std::path::Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    check_file_mode(path, root, true)
+    check_file_with_options(path, root, true, &CheckOptions::default())
 }
 
 /// Check a library module and its imports without requiring an application main.
@@ -157,16 +176,19 @@ pub fn check_module_file(
     path: &std::path::Path,
     root: Option<&std::path::Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    check_file_mode(path, root, false)
+    check_file_with_options(path, root, false, &CheckOptions::default())
 }
 
-fn check_file_mode(
+/// [`check_file`] (`require_main`) or [`check_module_file`] with the checks
+/// `options` adds.
+pub fn check_file_with_options(
     path: &std::path::Path,
     root: Option<&std::path::Path>,
     require_main: bool,
+    options: &CheckOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut heap = value::Heap::default();
-    let program = frontend::compile_file(path, root, require_main, &mut heap)?;
+    let program = frontend::compile_file(path, root, require_main, &mut heap, *options)?;
     let checked = op::check(&program.ops);
     teardown((program, heap));
     checked

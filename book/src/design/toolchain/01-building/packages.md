@@ -11,7 +11,7 @@ graph; imports never fetch or resolve packages.
 |---|---|
 | `plenty new PATH [--lib] [--name NAME]` | Create `PATH` with a manifest, `src/main.plenty` (or `src/lib.plenty`), and `.gitignore` |
 | `plenty init [--lib] [--name NAME]` | Create a package in the current directory; refuses to replace a manifest or source |
-| `plenty check [--locked] [--offline]` | Check the library (without requiring `main`) and every executable |
+| `plenty check [--locked] [--offline] [--check-all-methods]` | Check the library (without requiring `main`) and every executable; [`--check-all-methods`](../../language/07-generics/index.md#checking-every-method) also checks generic instance methods nothing uses |
 | `plenty build [--release] [--no-strip] [--locked] [--offline]` | Check the library and compile every executable to `target/PROFILE/NAME` |
 | `plenty run [--release] [--no-strip] [--locked] [--offline] [--bin NAME] [-- ARGS...]` | Build one executable and run it with `ARGS` |
 | `plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]` | Compile and run the package's [tests](#tests) |

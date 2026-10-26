@@ -25,7 +25,7 @@ const PROJECT_USAGE: &str = "\
 Project commands (run inside a directory containing plenty.toml or below it):
        plenty new PATH [--lib] [--name NAME]
        plenty init [--lib] [--name NAME]
-       plenty check [--locked] [--offline]
+       plenty check [--locked] [--offline] [--check-all-methods]
        plenty build [--release] [--no-strip] [--locked] [--offline]
        plenty run [--release] [--no-strip] [--locked] [--offline] [--bin NAME] [-- ARGS...]
        plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list]
@@ -40,7 +40,8 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty lsp
 
 new / init: create a package with src/main.plenty (or src/lib.plenty with --lib).
-check: type-check every target. build: compile executables into target/debug,
+check: type-check every target; --check-all-methods also checks every method
+of every generic instance, including methods nothing calls. build: compile executables into target/debug,
 or target/release with --release. run: build one executable and run it with
 ARGS. test: run each test_* function in tests/*.plenty in its own process, or
 each tests/*.plenty program that defines main; a FILTER keeps the tests whose
@@ -108,7 +109,14 @@ fn run(args: Vec<String>) -> Result<ExitCode, Box<dyn Error>> {
             eprintln!("   Created package in the current directory");
         }
         "check" => {
-            let (options, _, _) = build_options(rest, false, false)?;
+            let mut rest = rest.to_vec();
+            let mut check = plenty::CheckOptions::default();
+            if let Some(index) = rest.iter().position(|a| a == "--check-all-methods") {
+                rest.remove(index);
+                check.all_methods = true;
+            }
+            let (mut options, _, _) = build_options(&rest, false, false)?;
+            options.check = check;
             project::check(here, &options)?;
         }
         "build" => {

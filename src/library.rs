@@ -22,7 +22,13 @@ fn runtime_interface(
 ) -> Result<(String, Vec<PathBuf>)> {
     crate::validate_target(None)?;
     let mut heap = crate::value::Heap::default();
-    let program = crate::frontend::compile_file(path, root, false, &mut heap)?;
+    let program = crate::frontend::compile_file(
+        path,
+        root,
+        false,
+        &mut heap,
+        crate::CheckOptions::default(),
+    )?;
     crate::op::check(&program.ops)?;
     let interface = Interface::new(name, &program.exports)?;
     interface.validate_imports(&program.imported_symbols)?;
@@ -104,7 +110,13 @@ pub fn compile_file_to_library(
     crate::validate_target(options.compile.target.as_deref())?;
     crate::exports::check_library_name(&options.name)?;
     let mut heap = crate::value::Heap::default();
-    let mut program = crate::frontend::compile_file(path, root, false, &mut heap)?;
+    let mut program = crate::frontend::compile_file(
+        path,
+        root,
+        false,
+        &mut heap,
+        crate::CheckOptions::default(),
+    )?;
     crate::op::check(&program.ops)?;
     let interface = Interface::new(&options.name, &program.exports)?;
     interface.validate_imports(&program.imported_symbols)?;
