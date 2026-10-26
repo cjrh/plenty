@@ -83,6 +83,57 @@ pub class Matrix:
     pub def transpose(self) -> Result[Matrix, AllocError]:
         Ok(Matrix(self._cols, self._rows, self.to_list()?))
 
+    pub def add(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+        if self._rows != rhs._rows or self._cols != rhs._cols:
+            return Err(LinalgError.Shape)
+        mut out = zeros(self._rows, self._cols)?
+        for index in range(len(self._values)):
+            value = self._values[index] + rhs._values[index]
+            if not math.isfinite(value):
+                return Err(LinalgError.Overflow)
+            out._values[index] = value
+        Ok(out)
+
+    pub def subtract(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+        if self._rows != rhs._rows or self._cols != rhs._cols:
+            return Err(LinalgError.Shape)
+        mut out = zeros(self._rows, self._cols)?
+        for index in range(len(self._values)):
+            value = self._values[index] - rhs._values[index]
+            if not math.isfinite(value):
+                return Err(LinalgError.Overflow)
+            out._values[index] = value
+        Ok(out)
+
+    pub def scale(self, factor: f64) -> Result[Matrix, AllocError | LinalgError]:
+        if not math.isfinite(factor):
+            return Err(LinalgError.NonFinite)
+        mut out = zeros(self._rows, self._cols)?
+        for index in range(len(self._values)):
+            value = self._values[index] * factor
+            if not math.isfinite(value):
+                return Err(LinalgError.Overflow)
+            out._values[index] = value
+        Ok(out)
+
+    pub def negate(self) -> Result[Matrix, AllocError | LinalgError]:
+        self.scale(-1.0)
+
+    pub def __add__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+        self.add(rhs)
+
+    pub def __sub__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+        self.subtract(rhs)
+
+    pub def __neg__(self) -> Result[Matrix, AllocError | LinalgError]:
+        self.negate()
+
+    pub def __mul__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+        self.matmul(rhs)
+
+    pub def __rmul__(self, factor: f64) -> Result[Matrix, AllocError | LinalgError]:
+        self.scale(factor)
+
     pub def matmul(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
         if self._cols != rhs._rows:
             return Err(LinalgError.Shape)

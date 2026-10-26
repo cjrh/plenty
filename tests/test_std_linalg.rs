@@ -50,6 +50,74 @@ fn reached_kernel_reports_missing_engine() {
 }
 
 #[test]
+fn elementwise_operators_need_no_native_engine() {
+    let tmp = tempfile::tempdir().unwrap();
+    let exe = compile(
+        tmp.path(),
+        include_str!("fixtures/linalg_operators.plenty"),
+        tmp.path().join("missing.so"),
+    )
+    .unwrap();
+    let result = assert_success(Command::new(exe).output().unwrap());
+    assert_eq!(
+        String::from_utf8(result.stdout).unwrap(),
+        "linalg operators ok\n"
+    );
+}
+
+#[test]
+fn matrix_operator_dispatch_matches_direct_hook_call() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("p.plenty"),
+        r#"
+import std.linalg as la
+def overloaded(a: &la.Matrix, b: &la.Matrix) -> Result[la.Matrix, AllocError | la.LinalgError]:
+    a + b
+def named(a: &la.Matrix, b: &la.Matrix) -> Result[la.Matrix, AllocError | la.LinalgError]:
+    a.__add__(b)
+def main() -> Result[(), Failure]:
+    a = la.identity(2)?
+    print(overloaded(&a, &a)?.get(0, 0)?, named(&a, &a)?.get(0, 0)?)?
+    Ok(())
+"#,
+    )
+    .unwrap();
+    for release in [false, true] {
+        let mut command = Command::new(support::plenty_bin());
+        command.current_dir(dir.path()).env("PLENTY_CACHE", "off");
+        if release {
+            command.arg("--release");
+        }
+        assert_success(
+            command
+                .args(["--dump", "asm", "p.plenty", "-o", "out"])
+                .output()
+                .unwrap(),
+        );
+        let text = std::fs::read_to_string(dir.path().join("out/asm.txt")).unwrap();
+        let section = |name: &str| -> Vec<String> {
+            text.split("==== ")
+                .find(|part| part.starts_with(&format!("{name} ")))
+                .unwrap()
+                .lines()
+                .skip(1)
+                .filter(|line| !line.trim().is_empty() && !line.trim().starts_with('#'))
+                // Source locations intentionally have different metadata offsets.
+                .map(|line| {
+                    if line.contains("(trap sites:") {
+                        line.split('#').next().unwrap().trim_end().to_owned()
+                    } else {
+                        line.to_owned()
+                    }
+                })
+                .collect()
+        };
+        assert_eq!(section("overloaded"), section("named"));
+    }
+}
+
+#[test]
 fn real_engine_and_app_only_relocation() {
     if std::env::var_os("PLENTY_LINALG_TESTS").is_none() {
         return;

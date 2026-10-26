@@ -13,6 +13,9 @@ def main() -> Result[(), AllocError | IoError | la.LinalgError | test.TestError]
     a = la.matrix(2, 2, &values)?
     rhs = la.vector(&[4.0, 7.0]?)?
     answer = a.solve(&rhs)?
+    close(&(a * answer)?, &rhs)?
+    close(&(a * answer)?, &a.matmul(&answer)?)?
+    test.check((rhs * a).is_err(), "product shape")?
     close(&answer, &la.vector(&[1.0, 2.0]?)?)?
     factor = a.lu()?
     p = factor.permutation()?

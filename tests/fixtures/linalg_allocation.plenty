@@ -17,14 +17,24 @@ def attempt(operation: i64, a: &la.Matrix, b: &la.Matrix) -> Result[(), AllocErr
             drop(a.svd()?)
         case 6:
             drop(a.eigh()?)
-        case _:
+        case 7:
             drop(a.eig()?)
+        case 8:
+            drop((a * b)?)
+        case 9:
+            drop((a + b)?)
+        case 10:
+            drop((a - b)?)
+        case 11:
+            drop((-a)?)
+        case _:
+            drop((2.0 * a)?)
     Ok(())
 
 def main() -> Result[(), Failure]:
     a = la.matrix(2, 2, &[4.0, 2.0, 2.0, 3.0]?)?
     b = la.identity(2)?
-    for operation in range(8):
+    for operation in range(13):
         mut successes = 0
         mut failures = 0
         for budget in range(40):

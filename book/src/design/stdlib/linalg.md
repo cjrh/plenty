@@ -4,7 +4,8 @@
 linear solves and decompositions. Storage and the public API are written in
 Plenty; the substantial numerical algorithms use faer 0.24.4 through an
 [optional shared engine](linalg-engine.md). Constructing, inspecting and
-transposing matrices works without installing that engine.
+transposing, adding, subtracting and scaling matrices works without installing
+that engine.
 
 ## Matrices and vectors
 
@@ -19,6 +20,35 @@ use zero-based indices and reject negative or out-of-range indices. `to_list()`
 returns a row-major copy. `transpose()` and `copy(matrix)` allocate independent
 copies. Neither returns a borrowed view. Matrices have ordinary Plenty ownership
 and can be passed, returned, or stored in other classes.
+
+## Arithmetic
+
+Arithmetic borrows its operands and returns a fresh matrix in
+`Result[Matrix, AllocError | LinalgError]`. Use `(a + b)?`: parentheses put
+error propagation around the complete operation. Vectors follow the same rules
+because they are one-column matrices.
+
+| Expression | Named equivalent | Meaning |
+|---|---|---|
+| `(a + b)?` | `a.add(&b)?` | Elementwise addition; identical shapes required |
+| `(a - b)?` | `a.subtract(&b)?` | Elementwise subtraction; identical shapes required |
+| `(-a)?` | `a.negate()?` | Negate every entry |
+| `(a * b)?` | `a.matmul(&b)?` | Matrix product, not elementwise multiplication |
+| `(2.0 * a)?` | `a.scale(2.0)?` | Multiply every entry by a finite `f64` scalar |
+
+Scalar multiplication uses **scalar-left** syntax. `a * 2.0` is unsupported:
+the current language permits one `__mul__` signature, which Matrix reserves
+for matrix products. Use `a.scale(2.0)?` when scalar-right order reads better.
+There is no broadcasting, elementwise multiplication, scalar addition, or
+matrix division. Nonfinite scale factors return `NonFinite`; nonfinite computed
+entries return `Overflow`.
+
+No in-place arithmetic hooks are provided: these operations can fail, whereas
+`+=` and similar hooks must return unit. Explicitly assign `a = (a + b)?` or
+call a named method. Each operator allocates its own result; chains are not
+fused and intermediate results consume storage. Dispatch is a direct borrowed
+method call with no dispatch allocation or implicit operand copy, but the
+result-producing wrappers are not promised to inline.
 
 ## Products, solves and factors
 
@@ -44,7 +74,7 @@ not stable identifiers. Compare residuals rather than exact factor entries.
 
 Every operation preserves its inputs, including on failure. Results own their
 storage. `solve` is preferable to forming an explicit inverse; factor once when
-solving repeatedly. There are no implicit broadcasting, elementwise operators,
+solving repeatedly. There are no implicit broadcasting,
 indexing overloads, sparse matrices, empty matrices, or GPU operations.
 
 ## Errors and numerical limits

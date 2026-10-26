@@ -1,0 +1,41 @@
+import std.linalg as la
+import std.test as test
+
+def expect_error(result: Result[la.Matrix, AllocError | la.LinalgError], expected: la.LinalgError) -> Result[(), test.TestError]:
+    match result:
+        case Ok(_):
+            test.fail("expected arithmetic error")?
+        case Err(error):
+            match error:
+                case cause: la.LinalgError:
+                    test.equal(cause, expected)?
+                case cause: AllocError:
+                    test.fail("unexpected allocation failure")?
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    a = la.matrix(2, 2, &[1.0, 2.0, 3.0, 4.0]?)?
+    b = la.matrix(2, 2, &[5.0, 6.0, 7.0, 8.0]?)?
+    test.equal((a + b)?.to_list()?, a.add(&b)?.to_list()?)?
+    test.equal((a + b)?.to_list()?, [6.0, 8.0, 10.0, 12.0]?)?
+    test.equal((a - b)?.to_list()?, a.subtract(&b)?.to_list()?)?
+    test.equal((a - b)?.to_list()?, [-4.0, -4.0, -4.0, -4.0]?)?
+    test.equal((-a)?.to_list()?, a.negate()?.to_list()?)?
+    test.equal((2.0 * a)?.to_list()?, a.scale(2.0)?.to_list()?)?
+    test.equal((2.0 * a)?.to_list()?, [2.0, 4.0, 6.0, 8.0]?)?
+    v = la.vector(&[1.0, 2.0]?)?
+    test.equal((v + v)?.to_list()?, [2.0, 4.0]?)?
+    test.equal((-v)?.to_list()?, [-1.0, -2.0]?)?
+    test.equal((3.0 * v)?.to_list()?, [3.0, 6.0]?)?
+    expect_error(a + v, la.LinalgError.Shape)?
+    expect_error(a - v, la.LinalgError.Shape)?
+    expect_error(f64.NAN * a, la.LinalgError.NonFinite)?
+    huge = la.vector(&[1e308]?)?
+    expect_error(huge + huge, la.LinalgError.Overflow)?
+    expect_error(huge - (-huge)?, la.LinalgError.Overflow)?
+    expect_error(2.0 * huge, la.LinalgError.Overflow)?
+    test.equal(a.to_list()?, [1.0, 2.0, 3.0, 4.0]?)?
+    # A temporary is borrowed for the call and then released normally.
+    test.equal((la.vector(&[1.0]?)? + la.vector(&[2.0]?)?)?.get(0, 0)?, 3.0)?
+    print("linalg operators ok")?
+    Ok(())
