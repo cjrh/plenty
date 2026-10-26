@@ -111,8 +111,5 @@ cache explicitly with `contains`, `get_with` and `put`.
 
 ## Acknowledgements
 
-- Python's [`functools.lru_cache`](https://docs.python.org/3/library/functools.html#functools.lru_cache):
-  behavioral reference for capacity and the `maxsize=0` case.
-- The Rust [`lru`](https://docs.rs/lru/) crate: behavioral reference for `put`
-  reporting the displaced entry, `peek`, `promote` and `pop_lru`. No code was
-  copied.
+- Behavior modelled on Python's [`functools.lru_cache`](https://docs.python.org/3/library/functools.html#functools.lru_cache), including no caching at `maxsize=0`.
+- API modelled on the Rust [`lru`](https://docs.rs/lru/) crate: `put` reporting the displaced entry follows its `push`, along with `peek`, `promote` and `pop_lru`.
