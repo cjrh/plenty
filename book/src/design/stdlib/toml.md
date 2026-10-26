@@ -4,6 +4,10 @@
 value tree and writes a tree back as TOML text, under explicit limits, with one
 error type, `TomlError`.
 
+For editing human-maintained files, `document_text` and `document` create a
+[`Document`](toml-editing.md) that preserves the source layout. Use the value
+tree writer below for generated files.
+
 The module is checked Plenty code with no native primitives of its own. It
 reads and writes [`std.bytes`](bytes.md) buffers and [`std.io`](io.md) streams,
 and is available on the supported x86-64 Linux GNU target.
@@ -227,8 +231,8 @@ size and shape.
 
 ## Limits of this module
 
-- No comment- or layout-preserving editing: rewriting a file a person
-  maintains loses its comments and formatting.
+- The value-tree writer normalizes formatting; use [`Document`](toml-editing.md)
+  for edits that preserve unrelated source text.
 - No event or streaming interface: the whole document and its tree are held in
   memory. TOML's tables can be extended anywhere in a file, so no part of the
   tree is final before the end of input.

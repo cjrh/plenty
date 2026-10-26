@@ -1119,6 +1119,198 @@ impl Random {
 /// Bytes with meaning somewhere in TOML.
 const INTERESTING: &[u8] = b"[]{}=,.\"'\\#\n\r\t _-+:TZez0179abfinx\x00\x7f\xc3\xa9";
 
+#[test]
+fn document_edits_preserve_untouched_spelling_and_layout() {
+    native(
+        r##"
+bounds = std.toml.limits()
+original = "# café\r\n\"quoted.key\" = 0x10  # keep\r\na.b = '''multi\nline'''\r\n[package] # header\r\nname='old' # name\r\n[[products]]\r\nname='one'\r\n[[products]]\r\nname='two'"
+mut doc = std.toml.document_text(original, &bounds)?
+print(doc.text()? == original)?
+doc.set(&["quoted.key"]?, &Toml.Int(20))?
+doc.set(&["package", "name"]?, &Toml.Text("new"))?
+expected = "# café\r\n\"quoted.key\" = 20  # keep\r\na.b = '''multi\nline'''\r\n[package] # header\r\nname=\"new\" # name\r\n[[products]]\r\nname='one'\r\n[[products]]\r\nname='two'"
+print(doc.text()? == expected)?
+doc.set(&["a", "b"]?, &Toml.Text("short"))?
+print("a.b = \"short\"\r\n" in doc.text()?)?
+match doc.get(&["products"]?)?:
+    case Some(Toml.Array(rows)):
+        print(len(rows))?
+    case _:
+        print("wrong")?
+match doc.get(&["absent"]?)?:
+    case Nothing:
+        print("missing")?
+    case Some(_):
+        print("wrong")?
+"##,
+        "True\nTrue\nTrue\n2\nmissing",
+    );
+}
+
+#[test]
+fn document_inserts_and_removes_keys_and_sections() {
+    native(
+        r##"
+bounds = std.toml.limits()
+mut doc = std.toml.document_text("# top\nx=1\n[a.b]\ny=2\n# standalone\n[z]\nk=3", &bounds)?
+doc.insert(&["root"]?, &Toml.Bool(True))?
+doc.insert(&["a", "own"]?, &Toml.Int(4))?
+doc.insert(&["a", "b", "new"]?, &Toml.Text("yes"))?
+doc.insert(&["new.table"]?, &Toml.Table([Entry("value", Toml.Int(7))]?))?
+print("root = true\n[a.b]" in doc.text()?)?
+print("[a]\nown = 4\n" in doc.text()?)?
+print("new = \"yes\"\n[z]" in doc.text()?)?
+print("[\"new.table\"]\nvalue = 7\n" in doc.text()?)?
+print(doc.remove(&["a"]?)?, doc.remove(&["absent"]?)?)?
+text = doc.text()?
+print("# standalone\n" in text, "[a" in text, "[z]\nk=3" in text)?
+doc.set(&["z"]?, &Toml.Table([Entry("fresh", Toml.Int(8))]?))?
+print("[z]\nfresh = 8\n" in doc.text()?)?
+doc.set(&["another"]?, &Toml.Int(9))?
+print("another = 9" in doc.text()?)?
+mut dotted = std.toml.document_text("a.b=1\n[z]\nx=2\n", &bounds)?
+dotted.insert(&["a", "c"]?, &Toml.Int(3))?
+print(dotted.text()? == "a.b=1\na.c = 3\n[z]\nx=2\n")?
+mut nested = std.toml.document_text("[p]\na.b=1\n[z]\nx=2\n", &bounds)?
+nested.insert(&["p", "a", "c"]?, &Toml.Int(3))?
+print(nested.text()? == "[p]\na.b=1\na.c = 3\n[z]\nx=2\n")?
+"##,
+        "True\nTrue\nTrue\nTrue\nTrue False\nTrue False True\nTrue\nTrue\nTrue\nTrue",
+    );
+}
+
+#[test]
+fn document_rejects_ambiguous_paths_and_failed_edits_are_atomic() {
+    native(
+        r##"
+bounds = std.toml.limits()
+original = "inline = { x = 1 }\n[[rows]]\nx = 2\n"
+mut doc = std.toml.document_text(original, &bounds)?
+paths = [["inline", "x"]?, ["rows", "x"]?, ["missing", "x"]?, []?]?
+for path in &paths:
+    match doc.set(path, &Toml.Int(3)):
+        case Err(error):
+            print(error.fault)?
+        case Ok(_):
+            print("wrong")?
+    print(doc.text()? == original)?
+match doc.insert(&["inline"]?, &Toml.Int(4)):
+    case Err(error):
+        print(error.fault)?
+    case Ok(_):
+        print("wrong")?
+match doc.remove(&["inline", "x"]?):
+    case Err(error):
+        print(error.fault)?
+    case Ok(_):
+        print("wrong")?
+print(doc.text()? == original)?
+mut limited = std.toml.document_text("x=1", &Limits(4, 16, 5))?
+match limited.set(&["x"]?, &Toml.Text("too long")):
+    case Err(error):
+        print(error.fault)?
+    case Ok(_):
+        print("wrong")?
+print(limited.text()? == "x=1")?
+"##,
+        "KeyConflict\nTrue\nKeyConflict\nTrue\nKeyConflict\nTrue\nKeyConflict\nTrue\nDuplicateKey\nKeyConflict\nTrue\nOutputTooLarge\nTrue",
+    );
+}
+
+#[test]
+fn document_get_copies_values_and_removal_handles_array_tables() {
+    native(
+        r##"
+bounds = std.toml.limits()
+source = "when=1979-05-27\ninline={x=1}\n[[rows]]\nx=1\n[[rows]]\nx=2\n[keep]\ny=true\n"
+mut doc = std.toml.document_text(source, &bounds)?
+match doc.get(&["when"]?)?:
+    case Some(Toml.DateTime(stamp)):
+        print(stamp.year, stamp.month, stamp.day)?
+    case _:
+        print("wrong")?
+match doc.get(&["inline", "x"]?)?:
+    case Some(Toml.Int(value)):
+        print(value)?
+    case _:
+        print("wrong")?
+root_path = list[str]()?
+root = doc.get(&root_path)?.unwrap()
+canonical = std.toml.encode_text(&root, &bounds)?
+print(canonical == std.toml.encode_text(&std.toml.parse_text(source, &bounds)?, &bounds)?)?
+print(doc.remove(&["rows"]?)?)?
+print(doc.text()? == "when=1979-05-27\ninline={x=1}\n[keep]\ny=true\n")?
+doc.set(&["inline"]?, &Toml.Table([Entry("fresh", Toml.Bool(True))]?))?
+print("inline={ fresh = true }\n" in doc.text()?)?
+invalid = std.bytes.from_bytes(b"x='\xff'")?
+match std.toml.document(&invalid, &bounds):
+    case Err(error):
+        print(error.fault)?
+    case Ok(_):
+        print("wrong")?
+mut limited = std.toml.document_text("x=1", &Limits(4, 4, 100))?
+match limited.set(&["x"]?, &Toml.Int(123)):
+    case Err(error):
+        print(error.fault)?
+    case Ok(_):
+        print("wrong")?
+print(limited.text()? == "x=1")?
+"##,
+        "1979 5 27\n1\nTrue\nTrue\nTrue\nTrue\nInvalidUtf8\nInputTooLarge\nTrue",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn document_allocation_failures_leave_original_source_intact() {
+    native(
+        r##"
+bounds = std.toml.limits()
+original = "# preserved\n[package]\nname = 'old name with heap storage'\n"
+path = ["package", "name"]?
+new_path = ["package", "added"]?
+value = Toml.Text("replacement with heap storage")
+mut markers = list[str]()?
+for count in range(350):
+    markers.append("".join(&["__test_fail_allocations_after_", str.from(count)?, "__"]?)?)?
+for which in range(3):
+    mut failed = 0
+    mut succeeded = 0
+    mut wrong = 0
+    for count in range(350):
+        mut doc = std.toml.document_text(original, &bounds)?
+        print(markers[count])?
+        mut result: Result[(), TomlError] = Ok(())
+        if which == 0:
+            result = doc.set(&path, &value)
+        elif which == 1:
+            result = doc.insert(&new_path, &value)
+        else:
+            match doc.remove(&path):
+                case Ok(_):
+                    pass
+                case Err(error):
+                    result = Err(error)
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(_):
+                succeeded += 1
+            case Err(error):
+                failed += 1
+                match error.fault:
+                    case TomlFault.Allocation(_):
+                        pass
+                    case _:
+                        wrong += 1
+                if doc.text()? != original:
+                    wrong += 1
+    print(failed > 5, succeeded > 0, wrong)?
+"##,
+        "True True 0\nTrue True 0\nTrue True 0",
+    );
+}
+
 /// Mutated documents never crash the parser: each either parses, with a
 /// stable written form, or fails at a located byte.
 #[test]

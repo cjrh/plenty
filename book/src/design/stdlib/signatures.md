@@ -2322,7 +2322,7 @@ def accept(tcp: TcpStream, config: &ServerConfig, deadline: &Deadline, cancel: &
 
 ## `std.toml`
 
-Strict TOML 1.0 parsing into a value tree and writing back as text, under depth, input, and output limits. Errors: `TomlError`. [Reference](toml.md).
+Strict TOML 1.0 parsing, value-tree writing and format-preserving document edits, under depth, input, and output limits. Errors: `TomlError`. [Reference](toml.md).
 
 ```text
 enum TomlFault
@@ -2361,6 +2361,14 @@ def find(entries: &list[Entry], key: &str) -> Option[i64]
 def encode(value: &Toml, bounds: &Limits) -> Result[Bytes, TomlError]
 def encode_text(value: &Toml, bounds: &Limits) -> Result[str, TomlError]
 def write_value[W: Writer](writer: &mut W, value: &Toml, bounds: &Limits) -> Result[(), TomlError]
+class Document
+    def text(self) -> Result[str, TomlError]
+    def get(self, path: &list[str]) -> Result[Option[Toml], TomlError]
+    def set(self: &mut Document, path: &list[str], value: &Toml) -> Result[(), TomlError]
+    def insert(self: &mut Document, path: &list[str], value: &Toml) -> Result[(), TomlError]
+    def remove(self: &mut Document, path: &list[str]) -> Result[bool, TomlError]
+def document(source: &Bytes, bounds: &Limits) -> Result[Document, TomlError]
+def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]
 ```
 
 ## `std.unicode`

@@ -142,5 +142,36 @@ header's table. Parsing the output gives back the same values. The writer does
 not keep comments or the original layout, so it suits generated files rather
 than editing a file a person maintains.
 
+## Update a manifest while keeping comments
+
+For a file maintained by a person, use a `Document`. Replacing a value keeps
+the surrounding spelling and comments:
+
+```plenty
+import std.toml
+from std.toml import Toml
+
+def main() -> Result[(), AllocError | IoError | std.toml.TomlError]:
+    source = "# release settings\n[package]\nversion = '0.1.0' # public version\n"
+    mut document = std.toml.document_text(source, &std.toml.limits())?
+    document.set(&["package", "version"]?, &Toml.Text("0.2.0"))?
+    document.insert(&["package", "publish"]?, &Toml.Bool(False))?
+    print(document.text()?.rstrip()?)?
+    Ok(())
+```
+```output
+# release settings
+[package]
+version = "0.2.0" # public version
+publish = false
+```
+
+Paths list decoded keys, so a key containing a dot is one list element.
+`get` reads an owned value; `remove` deletes a key or a whole section. Failed
+edits leave the document unchanged. Arrays and inline tables are replaced as
+whole values; this API does not edit individual array rows or inline fields.
+See the [editing reference](../../design/stdlib/toml-editing.md) for the exact
+preservation rules and costs.
+
 The [`std.toml` reference](../../design/stdlib/toml.md) lists every fault,
 limit, and cost.
