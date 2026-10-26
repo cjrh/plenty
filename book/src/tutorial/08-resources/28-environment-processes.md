@@ -37,6 +37,11 @@ not run, because no shell reads them. `Stdio.Piped` connects the child's output
 to a pipe, and `output` collects at most 4096 bytes of it and waits for the
 child to end.
 
+To find where to keep settings or caches, ask
+[`std.fs.dirs`](../../design/stdlib/fs/dirs.md) rather than reading `HOME`
+yourself: `config_dir()` and `cache_dir()` apply the XDG rules and return a
+`Path`, or `Nothing` when the environment names no directory.
+
 When shell syntax is what you want, ask for it by name. `shell` runs
 `/bin/sh -c` with your script. `communicate` also feeds the child's input:
 
