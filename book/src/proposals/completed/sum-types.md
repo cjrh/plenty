@@ -10,7 +10,7 @@
 > and `Err` take their type from context, and `?` exists. Unit payloads such as
 > `Result[(), E]` are accepted. Recursive enums are accepted through `Box[T]` or
 > a collection. An owned `match` moves an affine scrutinee, and
-> [borrowed matching](../../design/language/05-ownership/05-borrowed-matching.md)
+> [borrowed matching](../../design/language/05-ownership/06-borrowed-matching.md)
 > exists. Generic enums and `Variant.new(...)` were added. Patterns nest,
 > combine with `|`, and take no type arguments. Integer, `str`, and `bool`
 > literals are patterns, and `match` accepts those types as scrutinees; see

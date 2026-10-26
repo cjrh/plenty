@@ -93,7 +93,7 @@ Borrowed forms take a suffix: `get_ref` and `peek_ref` for shared references,
 `get_mut` and `peek_mut` for exclusive ones. Builtin and standard library
 containers follow the same rule, so the method name tells the reader whether
 they hold a copy or a borrow. User functions can return
-[`Option[&V]`](../../language/05-ownership/optional-references.md), but the
+[`Option[&V]`](../../language/05-ownership/05-optional-references.md), but the
 builtin containers do not provide optional borrowed lookups yet.
 
 `collection.clear() -> ()` removes all entries while retaining capacity and

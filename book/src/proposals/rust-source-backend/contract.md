@@ -82,7 +82,7 @@ recoverable-allocation policy.
 
 ## Panics, recursion and suspension
 
-Plenty [fatal traps](../../design/language/05-ownership/06-destruction.md) do not
+Plenty [fatal traps](../../design/language/05-ownership/07-destruction.md) do not
 unwind. The probe's default Rust panic runs a destructor that Plenty's overflow
 trap does not. Emit an aborting trap helper. For the initial foreign-call slice,
 require an explicitly agreed

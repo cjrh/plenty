@@ -74,4 +74,4 @@ inference changes the signature's first-reference origin.
 
 A borrow that may be absent or may fail is returned as `Option[&T]` or
 `Result[&T, E]` under the same origin rule; see
-[optional and fallible references](optional-references.md).
+[optional and fallible references](05-optional-references.md).

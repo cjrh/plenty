@@ -20,7 +20,7 @@ cannot be user enum payloads. Standard `Option`/`Result` wrappers can contain
 generators, including through nested standard wrappers. A function result may
 carry a reference in the `Some` or `Ok` payload; such a value is held only in a
 local and never stored, as described in
-[optional and fallible references](../05-ownership/optional-references.md).
+[optional and fallible references](../05-ownership/05-optional-references.md).
 
 Constructors can qualify variants with an enum name, transparent alias, or
 explicit generic instance; patterns use the enum name or an alias and never

@@ -1,5 +1,5 @@
 //! `Option[&T]` and `Result[&T, E]` returned from functions (issue #520):
-//! book/src/design/language/05-ownership/optional-references.md.
+//! book/src/design/language/05-ownership/05-optional-references.md.
 
 mod support;
 use support::{assert_stdout, check_error};

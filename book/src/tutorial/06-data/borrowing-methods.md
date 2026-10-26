@@ -99,7 +99,7 @@ list cannot change there. The `Nothing` arm holds no borrow, so it can append.
 
 The result can be held in a local until it is matched, but it cannot be stored
 in a list, a field, or a `mut` binding: match it and store an owned copy or an
-index. The [reference](../../design/language/05-ownership/optional-references.md)
+index. The [reference](../../design/language/05-ownership/05-optional-references.md)
 lists every rule.
 
 Shared arguments can borrow temporaries, as in `size("ada")` for a `size(s: &str)`
