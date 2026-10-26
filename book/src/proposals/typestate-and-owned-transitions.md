@@ -5,6 +5,10 @@ limits, not a new language feature. [Moves](../design/language/05-ownership/01-b
 and [destruction](../design/language/05-ownership/06-destruction.md) define current
 behavior. Scheduling belongs in [B72](../backlog.md).
 
+The [owned response experiment](typestate-response-experiment.md) refreshes this
+assessment against `344dfdbd`, with native cleanup/retry checks and compiler
+rejections. It also assesses consuming receivers separately from field moves.
+
 The separate [linear-obligations proposal](linear-obligations.md) (issue #149)
 addresses non-abandonment of an owner, including retry errors. Typestate can
 remain affine when abandoning a state is harmless. See the
@@ -32,6 +36,10 @@ consuming `self` methods or specialized method sets on `Connection[Open]` versus
 `Connection[Closed]`. Generic classes exist, but a marker parameter alone does
 not prove state-specific method availability. Distinct classes and consuming
 free functions are the conservative starting point.
+
+Generic instance methods are now checked only when used (issue #515), so an
+unused method need not work for every argument type. This improves flexibility
+but does not add consuming receivers or explicit state-specialized method sets.
 
 Moving an entire owner is supported; extracting affine class fields is not.
 Transitions that rebuild a wrapper around an owned connection may need an enum

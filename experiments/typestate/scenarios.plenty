@@ -1,0 +1,75 @@
+import response
+from response import StartError, WriteError, FinishError
+
+def happy() -> ():
+    writer = response.begin(response.unanswered(1), 3).unwrap()
+    writer2 = response.write(writer, 3).unwrap()
+    response.finish(writer2).unwrap()
+
+def retry_start() -> ():
+    writer = match response.begin(response.unanswered(2), -1):
+        case Ok(value):
+            value
+        case Err(StartError.InvalidLength(unanswered)):
+            response.begin(unanswered, 2).unwrap()
+    response.finish(response.write(writer, 2).unwrap()).unwrap()
+
+def retry_write() -> ():
+    writer = response.begin(response.unanswered(3), 2).unwrap()
+    retry = match response.write(writer, 3):
+        case Ok(value):
+            value
+        case Err(WriteError.OutOfRange(value)):
+            value
+        case Err(WriteError.Broken(_, _)):
+            Option[response.Writer].Nothing.unwrap()
+    response.finish(response.write(retry, 2).unwrap()).unwrap()
+
+def retry_finish() -> ():
+    writer = response.begin(response.unanswered(4), 2).unwrap()
+    match response.finish(writer):
+        case Ok(_):
+            drop(Option[i64].Nothing.unwrap())
+        case Err(FinishError.Incomplete(retry)):
+            response.finish(response.write(retry, 2).unwrap()).unwrap()
+
+def partial_failure() -> ():
+    writer = response.begin(response.unanswered(5, fail_after=3), 5).unwrap()
+    writer2 = response.write(writer, 2).unwrap()
+    match response.write(writer2, 3):
+        case Ok(value):
+            drop(value)
+            drop(Option[i64].Nothing.unwrap())
+        case Err(WriteError.OutOfRange(value)):
+            drop(value)
+            drop(Option[i64].Nothing.unwrap())
+        case Err(WriteError.Broken(accepted, total)):
+            print("partial", accepted, total).unwrap()
+
+def propagate() -> Result[(), StartError]:
+    writer = response.begin(response.unanswered(8), -1)?
+    response.cancel(writer)
+    Ok(())
+
+def bad_length() -> Result[i64, i64]:
+    Err(9)
+
+def argument_propagation() -> Result[(), i64]:
+    writer = response.begin(response.unanswered(9), bad_length()?).unwrap()
+    response.cancel(writer)
+    Ok(())
+
+def main() -> ():
+    happy()
+    retry_start()
+    retry_write()
+    retry_finish()
+    partial_failure()
+    response.cancel(response.begin(response.unanswered(6), 9).unwrap())
+    abandoned = response.begin(response.unanswered(7), 9).unwrap()
+    # A propagated retry error still owns the resource, until the caller drops it.
+    outcome = propagate()
+    print("before dropping retry error").unwrap()
+    drop(outcome)
+    drop(argument_propagation())
+    print("before scope exit").unwrap()

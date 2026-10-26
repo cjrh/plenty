@@ -1,0 +1,67 @@
+# A deterministic model of an owned HTTP response, not a std.http replacement.
+# The scripted wire counts accepted body bytes; it does not encode HTTP.
+class Wire:
+    id: i64
+    fail_after: i64
+    sent: i64
+
+    def __del__(self) -> ():
+        # Test instrumentation only: production cleanup must not depend on stdout.
+        print("close", self.id, self.sent).unwrap()
+
+pub class Unanswered:
+    wire: Option[Wire]
+
+pub class Writer:
+    wire: Wire
+    remaining: i64
+
+pub enum StartError:
+    InvalidLength(Unanswered)
+
+pub enum WriteError:
+    OutOfRange(Writer)
+    Broken(i64, i64)
+
+pub enum FinishError:
+    Incomplete(Writer)
+
+# This creates a fresh model connection, never a writer in an arbitrary state.
+pub def unanswered(id: i64, fail_after: i64 = -1) -> Unanswered:
+    Unanswered(Some(Wire(id, fail_after, 0)))
+
+pub def begin(response: Unanswered, length: i64) -> Result[Writer, StartError]:
+    if length < 0:
+        return Err(StartError.InvalidLength(response))
+    mut owned = response
+    # Field extraction is expressed with an initialized empty slot. No dummy
+    # connection, allocation or deep copy is needed, but the invariant is ours.
+    wire = replace(owned.wire, Nothing).unwrap()
+    Ok(Writer(wire, length))
+
+pub def write(writer: Writer, count: i64) -> Result[Writer, WriteError]:
+    if count < 0 or count > writer.remaining:
+        return Err(WriteError.OutOfRange(writer))
+    mut owned = writer
+    mut accepted = count
+    mut broken = False
+    if owned.wire.fail_after >= 0 and count > owned.wire.fail_after - owned.wire.sent:
+        accepted = owned.wire.fail_after - owned.wire.sent
+        broken = True
+    owned.wire.sent += accepted
+    total = owned.wire.sent
+    owned.remaining -= accepted
+    if broken:
+        # A partial write is terminal: report progress, destroy the connection,
+        # and do not return a writer that could replay already accepted bytes.
+        return Err(WriteError.Broken(accepted, total))
+    Ok(owned)
+
+pub def finish(writer: Writer) -> Result[(), FinishError]:
+    if writer.remaining != 0:
+        return Err(FinishError.Incomplete(writer))
+    drop(writer)
+    Ok(())
+
+pub def cancel(writer: Writer) -> ():
+    drop(writer)
