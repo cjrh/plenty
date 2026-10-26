@@ -189,7 +189,7 @@ fn build_native_object(out: &Path, source: &str, object: &str) {
 
 /// The SQLite amalgamation behind `std.db.sqlite`, unmodified C from
 /// sqlite.org. Both runtime archives bundle it. Function and data sections
-/// let `--gc-sections` drop it from programs that never call `plenty_sqlite`.
+/// let `--gc-sections` drop it from programs that never reach `std.db.sqlite`.
 /// See book/src/design/stdlib/sqlite.md for the options and update policy.
 const SQLITE: &str = "plenty-runtime/native/sqlite-3.54.0";
 const SQLITE_ARCHIVE: &str = "plenty_sqlite";
@@ -534,7 +534,7 @@ fn build_runtime(out: &Path, vendor: &Path, application: bool) {
         .find_map(|line| line.strip_prefix("note: native-static-libs: "))
         .expect("rustc must report the runtime's native link dependencies");
     // Unreferenced runtime sections, such as `std.crypto`'s hashing code
-    // behind its own `plenty_crypto` entry, stay out of programs.
+    // behind its own `plenty_op_<N>` entries, stay out of programs.
     let libs = if application {
         let panic = rust_symbol(&archive, "rust_begin_unwind");
         let oom = rust_symbol(&archive, "__rust_alloc_error_handler");
