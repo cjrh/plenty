@@ -132,7 +132,7 @@ pub class Inflater:
         if produced > self._limit - self._produced:
             return Err(CompressError.LimitExceeded)
         self._produced += produced
-        # zlib-rs consumes or produces whenever input and output room remain.
+        # Codecs consume or produce whenever input and output room remain.
         if start != stop and consumed == 0 and produced == 0 and not self._state.compress_ended():
             return Err(CompressError.Corrupt)
         Ok(consumed)
@@ -197,7 +197,7 @@ pub def decompress(format: Format, data: &Bytes, limit: i64) -> Result[Bytes, Co
         at += consumed
         reported(out.extend(&decoder._state))?
         decoder._state.clear()
-        if consumed == 0 and produced == 0:
+        if at == total and consumed == 0 and produced == 0:
             break
     if not decoder.complete():
         return Err(CompressError.Truncated)

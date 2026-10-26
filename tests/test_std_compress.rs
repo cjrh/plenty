@@ -472,7 +472,7 @@ print(shown(std.compress.compress(Format.Gzip, &empty, 10))?)?
 "#,
         &format!(
             "{}\nOutOfRange\nOutOfRange\nOutOfRange",
-            vec!["True True True"; 12].join("\n")
+            ["True True True"; 12].join("\n")
         ),
     );
 }
