@@ -374,10 +374,21 @@ Optional Polars analytical expression plans, typed nullable columns, schema insp
 enum TimeUnit
     Milliseconds | Microseconds | Nanoseconds
 enum DType
-    I8 | I16 | I32 | U8 | U16 | U32 | U64 | F32 | I64 | F64 | Bool | String | Binary | Date | Datetime(TimeUnit, Option[str]) | Other(str)
+    I8 | I16 | I32 | U8 | U16 | U32 | U64 | F32 | I64 | F64 | Bool | String | Binary | Date | Datetime(TimeUnit, Option[str]) | List | Struct | Other(str)
 class Field
     name: str
     dtype: DType
+class SchemaNode
+    parent: i64
+    name: str
+    dtype: DType
+class ListParts
+    values: Column
+    offsets: list[i64]
+    valid: list[bool]
+class StructParts
+    fields: DataFrame
+    valid: list[bool]
 enum JoinKind
     Inner | Left | Full | Semi | Anti
 enum AsOfStrategy
@@ -387,7 +398,13 @@ class SortKey
 enum DataFrameError
     Schema(str) | Query(str) | Io(str) | NativePanic(str) | Null(str) | Bounds(str) | Allocation(AllocError) | Message(IoError)
 class Column
+    def len(self) -> Result[i64, DataFrameError]
+    def to_frame(self) -> Result[DataFrame, DataFrameError]
+    def list_parts(self) -> Result[ListParts, DataFrameError]
+    def struct_parts(self) -> Result[StructParts, DataFrameError]
 class DataFrame
+    def column(self, name: &str) -> Result[Column, DataFrameError]
+    def schema_tree(self) -> Result[list[SchemaNode], DataFrameError]
     def height(self) -> Result[i64, DataFrameError]
     def lazy(self) -> Result[Query, DataFrameError]
     def write_parquet(self, path: &str) -> Result[(), DataFrameError]
@@ -439,6 +456,9 @@ class DataFrame
     def values_f64_nullable(self, name: &str) -> Result[list[Option[f64]], DataFrameError]
     def values_bool_nullable(self, name: &str) -> Result[list[Option[bool]], DataFrameError]
 class Expr
+    def list_len(self) -> Result[Expr, DataFrameError]
+    def list_get(self, index: i64) -> Result[Expr, DataFrameError]
+    def struct_field(self, name: &str) -> Result[Expr, DataFrameError]
     def str_to_date(self, format: &str = "%Y-%m-%d", strict: bool = True) -> Result[Expr, DataFrameError]
     def str_to_datetime(self, format: &str, unit: TimeUnit, utc: bool = False, strict: bool = True) -> Result[Expr, DataFrameError]
     def dt_year(self) -> Result[Expr, DataFrameError]
@@ -478,6 +498,7 @@ class Expr
     def is_null(self) -> Result[Expr, DataFrameError]
     def alias(self, name: &str) -> Result[Expr, DataFrameError]
 class Query
+    def schema_tree(self) -> Result[list[SchemaNode], DataFrameError]
     def schema(self) -> Result[list[Field], DataFrameError]
     def filter(self, predicate: &Expr) -> Result[Query, DataFrameError]
     def with_columns(self, expressions: &list[Expr]) -> Result[Query, DataFrameError]
@@ -491,6 +512,10 @@ class Query
     def sort(self, keys: &list[SortKey]) -> Result[Query, DataFrameError]
     def slice(self, offset: i64, length: i64) -> Result[Query, DataFrameError]
     def limit(self, count: i64) -> Result[Query, DataFrameError]
+def column_list(name: &str, values: &Column, offsets: &list[i64]) -> Result[Column, DataFrameError]
+def column_list_nullable(name: &str, values: &Column, offsets: &list[i64], valid: &list[bool]) -> Result[Column, DataFrameError]
+def column_struct(name: &str, fields: &DataFrame) -> Result[Column, DataFrameError]
+def column_struct_nullable(name: &str, fields: &DataFrame, valid: &list[bool]) -> Result[Column, DataFrameError]
 def frame(columns: &list[Column]) -> Result[DataFrame, DataFrameError]
 def column_i8(name: &str, values: &list[i8]) -> Result[Column, DataFrameError]
 def column_i8_nullable(name: &str, values: &list[Option[i8]]) -> Result[Column, DataFrameError]

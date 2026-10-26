@@ -39,6 +39,8 @@ fn logical_series(series: Series, dtype: &DataType) -> PolarsResult<Series> {
 }
 pub(super) fn dtype_descriptor(dtype: &DataType) -> String {
     match dtype {
+        DataType::List(_) => "List".into(),
+        DataType::Struct(_) => "Struct".into(),
         DataType::Datetime(unit, timezone) => format!(
             "Datetime:{}:{}",
             match unit {

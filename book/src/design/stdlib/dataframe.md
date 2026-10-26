@@ -137,8 +137,10 @@ all Plenty numeric widths (`i8/i16/i32/i64`, `u8/u16/u32/u64`, `f32/f64`),
 including nullable columns. Parquet can
 contain other native types that schema inspection describes and expressions
 can carry, but this API cannot extract them. Paths are UTF-8 strings.
-There is no automatic lambda translation, mutation API, nested-value
-construction, cloud credential configuration or stable serialization of plans.
+Lists and structs have [column-oriented construction and extraction](dataframe-nested.md),
+native access expressions and structured schema inspection. There is no automatic
+lambda translation, mutation API, cloud credential configuration or stable
+serialization of plans.
 
 Null is missing data, distinct from floating-point NaN. Comparisons with
 null yield null, which filtering drops. Polars orders NaN above finite
