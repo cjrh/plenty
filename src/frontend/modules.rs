@@ -34,6 +34,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.bytes", include_str!("../../stdlib/std/bytes.plenty")),
     ("std.time", include_str!("../../stdlib/std/time.plenty")),
     ("std.cli", include_str!("../../stdlib/std/cli.plenty")),
+    (
+        "std.cli.progress",
+        include_str!("../../stdlib/std/cli/progress.plenty"),
+    ),
     ("std.text", include_str!("../../stdlib/std/text.plenty")),
     ("std.fmt", include_str!("../../stdlib/std/fmt.plenty")),
     ("std.report", include_str!("../../stdlib/std/report.plenty")),

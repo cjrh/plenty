@@ -20,6 +20,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.bytes`](bytes.md) | Compact owning byte buffers with checked ranges, explicit copies and validated text conversion | `BytesError` |
 | [`std.channel`](channel.md) | Bounded channels, endpoints and selection | Channel/send/receive/selection errors |
 | [`std.cli`](cli.md) | Explicit typed options/positionals, repeatable values, generated help and lossless path arguments | `CliError` |
+| [`std.cli.progress`](cli-progress.md) | Terminal-only stderr bars and spinners with counts, rates, ETA and throttled redraws | `ProgressError` |
 | [`std.collections`](collections.md) | Owned binary heaps ordered by `<` or by a stored comparator | `AllocError` |
 | [`std.compress`](compress.md) | Bounded gzip, zlib, and DEFLATE compression of buffers and `std.io` streams, and CRC-32 | `CompressError` |
 | [`std.concurrent`](concurrent.md) | Executors, futures and parallel operations | Pool/submission/future/parallel errors |

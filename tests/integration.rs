@@ -384,6 +384,8 @@ mod test_std_archive;
 mod test_std_atomic;
 #[path = "test_std_bytes.rs"]
 mod test_std_bytes;
+#[path = "test_std_cli_progress.rs"]
+mod test_std_cli_progress;
 #[path = "test_std_collections.rs"]
 mod test_std_collections;
 #[path = "test_std_compress.rs"]
