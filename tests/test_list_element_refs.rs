@@ -199,6 +199,6 @@ fn element_references_use_the_narrow_row_helper() {
             ],
         );
         assert!(asm.contains("# plenty_list_row\n"), "{function}: {asm}");
-        assert!(!asm.contains("plenty_collection"), "{function}: {asm}");
+        assert!(!asm.contains("plenty_op_"), "{function}: {asm}");
     }
 }

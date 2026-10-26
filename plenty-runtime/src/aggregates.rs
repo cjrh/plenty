@@ -1522,86 +1522,118 @@ pub(crate) unsafe extern "C" fn plenty_list_row(
     }
 }
 
-/// `std.compress` operations under their own symbol, as for `plenty_crypto`:
-/// a program that never compresses links without zlib-rs.
-#[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_compress(
-    op: i64,
-    args: *const u128,
-    _descriptor: *const Type,
-    _site: *const crate::Site,
-) {
-    // SAFETY: as for `plenty_crypto`.
-    unsafe {
-        let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
-        args.add(3).cast_mut().write(compress::call(op, operands));
-    }
+/// Exports `plenty_op_<N>` for each runtime operation `N` with
+/// [`operation`]'s argument layout. Generated code calls the operation's own
+/// symbol, and `operation` and the module handlers it reaches are inlined
+/// with a constant `N`, so each entry holds only its operation's code and
+/// `--gc-sections` drops every operation a program never calls, with any std
+/// module that only those operations reach (issue #501).
+macro_rules! operation_entries {
+    ($($op:literal)*) => {$(
+        const _: () = {
+            #[unsafe(export_name = concat!("plenty_op_", $op))]
+            unsafe extern "C" fn entry(
+                args: *const u128,
+                descriptor: *const Type,
+                site: *const crate::Site,
+            ) {
+                // SAFETY: as for `operation`.
+                unsafe { operation($op, args, descriptor, site) }
+            }
+        };
+    )*};
 }
 
-/// `std.db.sqlite` operations under their own symbol, as for
-/// `plenty_crypto`: a program that never opens a database links without SQLite.
+// Lists, dictionaries, sets, ranges, text, boxes, generators and printing.
+operation_entries! {
+    1 4 5 6 7 8 10 12 13 15 24 26 27 28 29 32 33 34 35 36 37 38 39 40 41 42 43 44 45
+    46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72
+    73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
+    100 101 102 103 104 105 106 107 110 111 112 114 117 118 119 120 121 122 123 124
+    125 126 127 128 129 130 131 132 133 134 135 136 140 166 167 366 510 580 581 582
+    583 584 585
+}
+// `std.bytes` storage and single-call byte transport.
+operation_entries! {
+    142 143 144 145 146 147 148 149 170 171 172 173 174 175 176 177 178 179 180 181
+    182 183 188 189 190 191 230 231 232 233 234 235 236 237 238 239 248 280 281
+}
+// `std.fs` paths and descriptors, file seeking and file readiness.
+operation_entries! {
+    150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 192 260 261 262 263
+    264 265 266 267 268 269 270 271 272 273 390
+}
+// `std.time`.
+operation_entries! {
+    184 185 186 187
+}
+// `std.process` and `std.signal`.
+operation_entries! {
+    193 194 195 196 197 198 199 228 229 500
+}
+// `std.unicode`.
+operation_entries! {
+    224 225 226 227
+}
+// `std.crypto`.
+operation_entries! {
+    300 301 302 303 304 305 306
+}
+// `std.compress`.
+operation_entries! {
+    320 321 322 323 324 325
+}
+// `std.regex`.
+operation_entries! {
+    360 361 362 363 364 365
+}
+// `std.net`.
+operation_entries! {
+    410 411 412 413 414 415 416 417 418
+}
+// `std.ready`.
+operation_entries! {
+    419 420 421 422
+}
+// `std.tls`.
+operation_entries! {
+    470 471 472 473 474 475 476 477 478 479 480 481 482 483 484 485 486 487 488 489
+    490 491 492 493 494
+}
+// Primitive column storage.
+operation_entries! {
+    521 522 523 524 525 526 527 528 529 530 531
+}
+// `std.db.sqlite`, present only in the application runtime.
 #[cfg(plenty_runtime_sqlite)]
-#[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_sqlite(
-    op: i64,
-    args: *const u128,
-    _descriptor: *const Type,
-    _site: *const crate::Site,
-) {
-    // SAFETY: as for `plenty_crypto`.
-    unsafe {
-        let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
-        args.add(3).cast_mut().write(sqlite::call(op, operands));
-    }
+operation_entries! {
+    440 441 442 443 444 445 446 447 448 449 450 451 452 453 454 455 456 457 458 459
+    460 461 462 463 464 465 466 467 468 469
 }
 
-/// `std.tls` operations under their own symbol, as for `plenty_crypto`: a
-/// program that never starts a session links without rustls and ring.
-#[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_tls(
-    op: i64,
-    args: *const u128,
-    _descriptor: *const Type,
-    _site: *const crate::Site,
-) {
-    // SAFETY: as for `plenty_crypto`.
-    unsafe {
-        let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
-        args.add(3).cast_mut().write(tls::call(op, operands));
-    }
-}
-
-/// `std.crypto` operations under their own symbol, with `plenty_collection`'s
-/// argument layout. Nothing else refers to it, so a program that never hashes
-/// links without the hashing code.
-#[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_crypto(
-    op: i64,
-    args: *const u128,
-    _descriptor: *const Type,
-    _site: *const crate::Site,
-) {
-    // SAFETY: as for `plenty_collection`: three inputs, the output slot, then
-    // the fourth operand in the first scratch word.
-    unsafe {
-        let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
-        args.add(3).cast_mut().write(crypto::call(op, operands));
-    }
-}
-
-#[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_collection(
-    op: i64,
-    args: *const u128,
-    descriptor: *const Type,
-    site: *const crate::Site,
-) {
+/// Runs operation `op`. Only the `plenty_op_<N>` entries call it, each with
+/// its own constant `op`.
+#[inline(always)]
+unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *const crate::Site) {
     // SAFETY: generated code supplies three aligned inputs and an output slot
-    // followed by 32 bytes of scratch range storage. The output's fixed
-    // position leaves the fourth argument free for the trap site, which is
-    // null for operations that cannot trap.
+    // followed by 32 bytes of scratch range storage. `site` is null for
+    // operations that cannot trap.
     unsafe {
         let out = args.add(3).cast_mut();
+        if matches!(op, 300..340 | 440..500) {
+            // Three inputs, the output slot, then the fourth operand in the
+            // first scratch word.
+            let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
+            out.write(match op {
+                300..320 => crypto::call(op, operands),
+                320..340 => compress::call(op, operands),
+                #[cfg(plenty_runtime_sqlite)]
+                440..470 => sqlite::call(op, operands),
+                470..500 => tls::call(op, operands),
+                _ => crate::fail("invalid runtime operation"),
+            });
+            return;
+        }
         if op == 10 {
             let range = out.add(1).cast::<Range>();
             range.write(Range::new_at(
@@ -1686,6 +1718,8 @@ pub(crate) unsafe fn collection(
 }
 
 /// `site` locates the operation in a trap; null prints the message alone.
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(crate) unsafe fn collection_at(
     op: i64,
     a: u128,

@@ -140,10 +140,10 @@ impl Output {
             cranelift_module::default_libcall_names(),
         )?;
         // Every std function of an imported module is compiled, and some call
-        // runtime entries such as `plenty_tls` or `plenty_sqlite`. One section
-        // per symbol lets the linker's `--gc-sections` drop the unused ones,
-        // so a program links those runtime stacks only when it reaches them
-        // (issue #127).
+        // the runtime entries of `std.tls` or `std.db.sqlite` operations. One
+        // section per symbol lets the linker's `--gc-sections` drop the unused
+        // ones, so a program links those runtime stacks only when it reaches
+        // them (issues #127, #501).
         builder
             .per_function_section(true)
             .per_data_object_section(true);

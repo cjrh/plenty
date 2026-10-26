@@ -930,18 +930,6 @@ struct Runtime {
     type_data: std::sync::Mutex<HashMap<Ty, DataId>>,
     /// `__del__` adapters by method name, linked into class descriptors.
     drop_hooks: HashMap<String, FuncId>,
-    collection: FuncId,
-    /// `std.crypto` primitives: the `plenty_collection` ABI under a separate
-    /// symbol, so programs that never call them can drop the code at link.
-    crypto: FuncId,
-    /// `std.compress` primitives, separate for the same reason.
-    compress: FuncId,
-    /// `std.db.sqlite` primitives, separate so SQLite stays out of programs
-    /// that never open a database.
-    sqlite: FuncId,
-    /// `std.tls` primitives, separate so rustls and ring stay out of
-    /// programs that never start a session.
-    tls: FuncId,
     list_len: FuncId,
     /// `plenty_list_rows(list) -> first row address` and
     /// `plenty_list_row_bytes(list) -> row size`, for borrowed iteration.
@@ -1155,37 +1143,6 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         drop_hooks: HashMap::default(),
         retain: one_arg(module, "plenty_retain", PTR_TY)?,
         release: one_arg(module, "plenty_release", PTR_TY)?,
-        collection: {
-            let mut sig = module.make_signature();
-            sig.call_conv = CallConv::SystemV;
-            // Opcode, arguments, descriptor, trap site.
-            sig.params.extend([AbiParam::new(PTR_TY); 4]);
-            module.declare_function("plenty_collection", Linkage::Import, &sig)?
-        },
-        crypto: {
-            let mut sig = module.make_signature();
-            sig.call_conv = CallConv::SystemV;
-            sig.params.extend([AbiParam::new(PTR_TY); 4]);
-            module.declare_function("plenty_crypto", Linkage::Import, &sig)?
-        },
-        compress: {
-            let mut sig = module.make_signature();
-            sig.call_conv = CallConv::SystemV;
-            sig.params.extend([AbiParam::new(PTR_TY); 4]);
-            module.declare_function("plenty_compress", Linkage::Import, &sig)?
-        },
-        sqlite: {
-            let mut sig = module.make_signature();
-            sig.call_conv = CallConv::SystemV;
-            sig.params.extend([AbiParam::new(PTR_TY); 4]);
-            module.declare_function("plenty_sqlite", Linkage::Import, &sig)?
-        },
-        tls: {
-            let mut sig = module.make_signature();
-            sig.call_conv = CallConv::SystemV;
-            sig.params.extend([AbiParam::new(PTR_TY); 4]);
-            module.declare_function("plenty_tls", Linkage::Import, &sig)?
-        },
         list_len: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;

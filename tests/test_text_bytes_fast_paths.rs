@@ -128,7 +128,7 @@ fn borrowed_queries_call_only_narrow_helpers() {
             );
         }
         assert!(
-            !calls.iter().any(|name| name == "plenty_collection"),
+            !calls.iter().any(|name| name.starts_with("plenty_op_")),
             "{function}: {calls:?}"
         );
     }
@@ -288,7 +288,7 @@ fn ord_literals_and_owned_receivers_skip_the_dispatcher_and_retain() {
         assert_eq!(retains, retained, "{function}: {calls:?}");
         if function == "scalars" {
             assert!(
-                !calls.iter().any(|name| name == "plenty_collection"),
+                !calls.iter().any(|name| name.starts_with("plenty_op_")),
                 "{function}: {calls:?}"
             );
         }
@@ -519,10 +519,11 @@ fn held_text_operands_skip_the_dispatcher_and_retain() {
         ("counts", "plenty_text_count"),
         ("itself", "plenty_text_find"),
         ("titled", "plenty_text_starts_with"),
-        // Generic dispatcher operations, `in`, and comparisons of held texts.
-        ("has", "plenty_collection"),
-        ("replaced", "plenty_collection"),
-        ("compared", "plenty_collection"),
+        // Generic runtime operations: `in`, replace, and comparisons of held
+        // texts.
+        ("has", "plenty_op_7"),
+        ("replaced", "plenty_op_47"),
+        ("compared", "plenty_op_132"),
     ] {
         let calls = runtime_calls(SEARCHES, function);
         assert!(
@@ -533,9 +534,9 @@ fn held_text_operands_skip_the_dispatcher_and_retain() {
             !calls.iter().any(|name| name == "plenty_retain"),
             "{function}: {calls:?}"
         );
-        if !helper.ends_with("collection") {
+        if !helper.starts_with("plenty_op_") {
             assert!(
-                !calls.iter().any(|name| name == "plenty_collection"),
+                !calls.iter().any(|name| name.starts_with("plenty_op_")),
                 "{function}: {calls:?}"
             );
         }
