@@ -73,11 +73,7 @@ fn runtime_calls_and_local_data_are_pc_relative_and_native_libraries_use_the_got
         // The C library may be shared; the runtime and the object's own data
         // never are.
         assert_eq!(got, ["labs"], "optimize={optimize}: {relocations:?}");
-        for helper in [
-            "plenty_collection",
-            "plenty_release",
-            "plenty_traps_register",
-        ] {
+        for helper in ["plenty_op_166", "plenty_release", "plenty_traps_register"] {
             assert!(
                 relocations
                     .iter()

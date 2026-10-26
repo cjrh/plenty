@@ -14,6 +14,8 @@ pub(crate) mod vendor {
 
 const NONE: u32 = 0x11_0000;
 
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(crate) fn call(op: i64, a: u128, b: u128, c: u128) -> u128 {
     let scalar = char::from_u32(a as u32).unwrap_or_else(|| crate::fail("invalid Unicode scalar"));
     match op {

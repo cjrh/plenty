@@ -2,6 +2,7 @@
 //! against published vectors (FIPS 180-2 examples, RFC 4231).
 mod support;
 use support::check_file_error as rejected;
+use support::operation_in;
 
 const HEADER: &str = r#"import std.bytes
 import std.crypto
@@ -381,16 +382,22 @@ fn programs_that_never_hash_do_not_link_the_hashing_code() {
             // Functions only: mold also names each GOT entry, `NAME$got`.
             .filter(|symbol| symbol.kind() == SymbolKind::Text)
             .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
-            .filter(|name| name == "plenty_crypto" || name.contains("compress256"))
-            .count()
+            .filter(|name| operation_in(name, 300..320) || name.contains("compress256"))
+            .collect::<Vec<_>>()
     };
     let plain = "def main() -> Result[(), AllocError | IoError]:\n    print(\"hi\")?\n    Ok(())\n";
-    assert_eq!(symbols(plain), 0);
-    assert_eq!(
-        symbols(&program(
-            "print(hex(&std.crypto.sha256(&std.bytes.empty()?)?)?)?\n"
-        )),
-        2
+    assert_eq!(symbols(plain), Vec::<String>::new());
+    // Each `std.crypto` operation the program calls has its own entry.
+    let hashing = symbols(&program(
+        "print(hex(&std.crypto.sha256(&std.bytes.empty()?)?)?)?\n",
+    ));
+    assert!(
+        hashing.iter().any(|name| name.contains("compress256")),
+        "{hashing:?}"
+    );
+    assert!(
+        hashing.iter().any(|name| name.starts_with("plenty_op_")),
+        "{hashing:?}"
     );
 }
 

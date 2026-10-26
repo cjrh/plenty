@@ -147,7 +147,7 @@ replace its directory with the new release, run `cargo update -p CRATE
 `tests/test_std_crypto.rs`.
 
 Executables are linked with `--gc-sections`, and the hashing code is reached
-only through its own runtime entry, so a program that does not use
+only through its own runtime entry symbols, so a program that does not use
 `std.crypto` contains none of it. The `link-args.txt` written by
 `--emit-runtime` includes that flag.
 

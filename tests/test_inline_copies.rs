@@ -23,9 +23,8 @@ fn stdout(output: std::process::Output) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-/// The `plenty_collection` operation codes passed by the function whose dump
-/// section name starts with `name`: each call follows the move of its code to
-/// `%edi`.
+/// The runtime operations called by the function whose dump section name
+/// starts with `name`: the `N` of each `plenty_op_<N>` call.
 fn dispatches(dir: &std::path::Path, name: &str) -> Vec<u32> {
     let text = std::fs::read_to_string(dir.join("out").join("asm.txt")).unwrap();
     let start = text
@@ -33,19 +32,11 @@ fn dispatches(dir: &std::path::Path, name: &str) -> Vec<u32> {
         .unwrap_or_else(|| panic!("{name} not dumped"));
     let rest = &text[start + 5..];
     let section = &rest[..rest.find("\n==== ").unwrap_or(rest.len())];
-    let mut code = None;
-    let mut calls = Vec::new();
-    for line in section.lines() {
-        if let Some((_, operand)) = line.split_once("mov     $0x")
-            && let Some((hex, "%edi")) = operand.split_once(',')
-        {
-            code = u32::from_str_radix(hex, 16).ok();
-        }
-        if line.ends_with("# plenty_collection") {
-            calls.push(code.expect("operation code before the call"));
-        }
-    }
-    calls
+    section
+        .lines()
+        .filter_map(|line| line.rsplit_once("# plenty_op_"))
+        .map(|(_, code)| code.parse().expect("operation number"))
+        .collect()
 }
 
 const COPY_PAYLOAD: u32 = 117;

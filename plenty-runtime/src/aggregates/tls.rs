@@ -563,6 +563,8 @@ fn state(connection: &Connection) -> i64 {
 
 /// Operands are live values of the statically checked signature; `std.tls`
 /// has validated each range, and the runtime repeats the check.
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
 pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
     let [a, b, c, d] = operands;
     // SAFETY: see above. Byte views borrow a buffer's heap allocation, never

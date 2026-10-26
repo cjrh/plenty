@@ -59,7 +59,7 @@ def main() -> ():
         .filter(|name| name.starts_with("plenty_") && !name.starts_with("plenty_trap_"))
         .collect();
     // One cold call per range reports a zero step or an oversized length.
-    assert_eq!(runtime, ["plenty_collection"; 4], "{calls:?}");
+    assert_eq!(runtime, ["plenty_op_10"; 4], "{calls:?}");
     expect(source, "175\n");
 }
 

@@ -317,7 +317,10 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// `site` is the trap site of an operation that can trap.
+    /// Call runtime operation `opcode` through its own entry symbol,
+    /// `plenty_op_<opcode>` (`plenty-runtime/src/aggregates.rs`), so the linker
+    /// keeps only the operations a program calls. `site` is the trap site of
+    /// an operation that can trap.
     fn collection_call_at(
         &mut self,
         opcode: i64,
@@ -326,7 +329,6 @@ impl Lowerer<'_, '_> {
         site: Option<cranelift_codegen::ir::Value>,
     ) -> Result<cranelift_codegen::ir::Value> {
         let zero = self.bcx.ins().iconst(types::I64, 0);
-        let code = self.bcx.ins().iconst(types::I64, opcode);
         let descriptor = if let Some(ty) = ty {
             let id = self.module.metadata(ty);
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
@@ -377,20 +379,15 @@ impl Lowerer<'_, '_> {
                 ((i + 1) * 16) as i32,
             );
         }
-        let callee = if (300..320).contains(&opcode) {
-            self.runtime.crypto
-        } else if (320..340).contains(&opcode) {
-            self.runtime.compress
-        } else if (440..470).contains(&opcode) {
-            self.runtime.sqlite
-        } else if (470..500).contains(&opcode) {
-            self.runtime.tls
-        } else {
-            self.runtime.collection
-        };
+        let mut sig = self.module.make_signature();
+        sig.call_conv = CallConv::SystemV;
+        // Arguments, descriptor, trap site.
+        sig.params.extend([AbiParam::new(PTR_TY); 3]);
+        let callee =
+            self.module
+                .declare_function(&format!("plenty_op_{opcode}"), Linkage::Import, &sig)?;
         let f = self.module.declare_func_in_func(callee, self.bcx.func);
-        // The runtime writes the result after the three inputs, which leaves
-        // the fourth argument for the trap site.
+        // The runtime writes the result after the three inputs.
         // Advancing a generator or dropping a value can enter std without a
         // source-level call, so user code names itself as the caller. The
         // runtime restores the context after every callback into compiled
@@ -402,7 +399,7 @@ impl Lowerer<'_, '_> {
         };
         self.bcx
             .ins()
-            .call(f, &[code, args, descriptor, site.unwrap_or(zero)]);
+            .call(f, &[args, descriptor, site.unwrap_or(zero)]);
         self.leave_call(saved);
         Ok(self.bcx.ins().load(
             types::I128,

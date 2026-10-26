@@ -389,7 +389,7 @@ with spawn(echo, &listener, &server, &deadline, &cancel)? as worker:
     );
 }
 
-/// The TLS stack sits behind its own runtime entry, and the linker drops
+/// The TLS stack sits behind its own runtime entry symbols, and the linker drops
 /// whatever no reachable code calls, so only programs that reach `std.tls`
 /// code link rustls and ring (issue #127). Importing a module, even one that
 /// imports `std.tls`, is not enough.
@@ -402,7 +402,9 @@ fn only_programs_reaching_tls_link_the_tls_stack() {
         let file = object::File::parse(&*data).unwrap();
         file.symbols()
             .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
-            .filter(|name| name == "plenty_tls" || name.contains("ring_core_0_17_14_"))
+            .filter(|name| {
+                support::operation_in(name, 470..500) || name.contains("ring_core_0_17_14_")
+            })
             .count()
     };
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("stdlib");
