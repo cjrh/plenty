@@ -50,12 +50,13 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 ```
 ```error
-lesson.plenty:9:13: cannot instantiate `Cell[list[i64]].get`: its definition is rejected
+lesson.plenty:9:13: `Cell[list[i64]].get` copies `T` implicitly, but `list[i64]` is affine
 lesson.plenty:5:9: note: in instantiation `Cell[list[i64]].get`: cannot move out of a field
 ```
 
 A generic method is checked once for each set of type arguments it is used
 with, not where it is written. Without the `get` call, the program is accepted.
 The error is reported at the line of your code that first required
-`Cell[list[i64]].get`, here the method call. The note below it gives the line
-in the definition and the reason.
+`Cell[list[i64]].get`, here the method call, and names the type argument that
+the method cannot accept. The note below it gives the line in the definition
+and the reason.

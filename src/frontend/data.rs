@@ -481,21 +481,29 @@ impl TypeAliases {
             .named
             .borrow_mut()
             .insert(concrete_name, ty.clone());
+        let parameters: Arc<[(Arc<str>, Ty)]> = params
+            .iter()
+            .map(|(parameter, _)| Arc::from(parameter.as_str()))
+            .zip(actual.iter().cloned())
+            .collect();
         let instance: Arc<str> = ty.to_string().into();
         let required = Arc::new(match &*self.data.requiring.borrow() {
             Some(Requiring::Instance(outer)) => Instantiation {
                 instance,
+                parameters,
                 ..(**outer).clone()
             },
             Some(Requiring::Use(at)) => Instantiation {
                 at: at.location().into(),
                 requested: instance.clone(),
                 instance,
+                parameters,
             },
             None => Instantiation {
                 at: application.at.location().into(),
                 requested: instance.clone(),
                 instance,
+                parameters,
             },
         });
         self.data

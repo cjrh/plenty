@@ -226,9 +226,7 @@ fn class_instance_method_errors_are_reported_at_the_requiring_use() {
 ";
     let note = |instance: &str| {
         format!(
-            "\n  4:9: note: in instantiation `{instance}`: cannot move out of a field; \
-             use copy(value.field).unwrap(), &value.field (or &mut value.field), or \
-             replace(value.field, replacement) on a mutable owner"
+            "\n  4:9: note: in instantiation `{instance}`: cannot move out of a field"
         )
     };
     // A method body is checked for an instance only when the method is used
@@ -248,7 +246,7 @@ fn class_instance_method_errors_are_reported_at_the_requiring_use() {
     assert_eq!(
         error,
         format!(
-            "8:9: cannot instantiate `Cell[list[i64]].get`: its definition is rejected{}",
+            "8:9: `Cell[list[i64]].get` copies `T` implicitly, but `list[i64]` is affine{}",
             note("Cell[list[i64]].get")
         )
     );
@@ -270,7 +268,8 @@ def main() -> Result[(), AllocError]:
     assert_eq!(
         error,
         format!(
-            "11:9: cannot instantiate `first[list[i64]]`: its definition is rejected{}",
+            "11:9: `first[list[i64]]` requires `Cell[list[i64]].get`, which copies `T` \
+             implicitly, but `list[i64]` is affine{}",
             note("Cell[list[i64]].get")
         )
     );
@@ -311,10 +310,8 @@ def main() -> ():
     .to_string();
     assert_eq!(
         error,
-        "15:13: cannot instantiate `Holder[Guard].take`: its definition is rejected
-  4:9: note: in instantiation `Holder[Guard].take`: cannot move out of a field; \
-         use &value.field (or &mut value.field), or replace(value.field, replacement) \
-         on a mutable owner"
+        "15:13: `Holder[Guard].take` copies `T` implicitly, but `Guard` is affine
+  4:9: note: in instantiation `Holder[Guard].take`: cannot move out of a field"
     );
 }
 
@@ -350,10 +347,9 @@ def main() -> ():
     .to_string();
     assert_eq!(
         error,
-        "20:9: cannot instantiate `accept[Holder[Guard]]`: its definition is rejected
-  12:17: note: in instantiation `Holder[Guard].size`: cannot move out of a field; \
-         use &value.field (or &mut value.field), or replace(value.field, replacement) \
-         on a mutable owner"
+        "20:9: `accept[Holder[Guard]]` requires `Holder[Guard].size`, which copies `T` \
+         implicitly, but `Guard` is affine
+  12:17: note: in instantiation `Holder[Guard].size`: cannot move out of a field"
     );
     // Construction arms the destructor, so `__del__` is checked with the instance.
     let error = check_source(&format!(
@@ -371,9 +367,7 @@ def main() -> ():
     .to_string();
     assert_eq!(
         error,
-        "11:14: cannot instantiate `Holder[Guard]`: its definition is rejected
-  8:17: note: in instantiation `Holder[Guard]`: cannot move out of a field; \
-         use &value.field (or &mut value.field), or replace(value.field, replacement) \
-         on a mutable owner"
+        "11:14: `Holder[Guard]` copies `T` implicitly, but `Guard` is affine
+  8:17: note: in instantiation `Holder[Guard]`: cannot move out of a field"
     );
 }

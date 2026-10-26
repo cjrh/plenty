@@ -1056,10 +1056,9 @@ fn imported_generic_body_errors_are_reported_in_the_importing_file() {
     assert_eq!(
         plenty::check_file(&main, None).unwrap_err().to_string(),
         format!(
-            "{}:4:12: cannot instantiate `cells.wrap[list[i64]]`: its definition is rejected\n  \
-             {cells}:4:9: note: in instantiation `cells.Cell[list[i64]].get`: cannot move out of a field; \
-             use copy(value.field).unwrap(), &value.field (or &mut value.field), or \
-             replace(value.field, replacement) on a mutable owner",
+            "{}:4:12: `cells.wrap[list[i64]]` requires `cells.Cell[list[i64]].get`, which \
+             copies `T` implicitly, but `list[i64]` is affine\n  \
+             {cells}:4:9: note: in instantiation `cells.Cell[list[i64]].get`: cannot move out of a field",
             main.display()
         )
     );
@@ -1067,7 +1066,7 @@ fn imported_generic_body_errors_are_reported_in_the_importing_file() {
     assert_eq!(
         plenty::check_file(&main, None).unwrap_err().to_string(),
         format!(
-            "{}:4:12: cannot instantiate `cells.twice[list[i64]]`: its definition is rejected\n  \
+            "{}:4:12: `cells.twice[list[i64]]` copies `T` implicitly, but `list[i64]` is affine\n  \
              {cells}:7:13: note: in instantiation `cells.twice[list[i64]]`: use of moved binding `value`\n  \
              {cells}:7:6: note: `value` is moved here",
             main.display()

@@ -972,7 +972,16 @@ impl Lower<'_> {
         let sig = self
             .sigs
             .get(&callee)
-            .ok_or_else(|| base.at.error(format!("unknown method `{name}` on {owner}")))?
+            .ok_or_else(|| {
+                let message = format!("unknown method `{name}` on {owner}");
+                match self.place_type(base).map(unbox) {
+                    Some(ty) => base.at.demand_error(
+                        message,
+                        crate::ownership::Demand::Method(name.to_owned(), ty),
+                    ),
+                    None => base.at.error(message),
+                }
+            })?
             .clone();
         let receiver = Expr {
             at: base.at.clone(),

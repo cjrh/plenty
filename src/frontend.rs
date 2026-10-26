@@ -179,6 +179,9 @@ enum Kind {
 struct Located {
     location: String,
     message: String,
+    /// What the rejected operation needed from a value's type, which an
+    /// instance's caller may have supplied as a type argument (issue #518).
+    demand: Option<Box<crate::ownership::Demand>>,
 }
 
 impl std::fmt::Display for Located {
@@ -286,6 +289,20 @@ impl Token {
         Box::new(Located {
             location: self.location(),
             message: message.to_string(),
+            demand: None,
+        })
+    }
+
+    /// An error whose cause is a requirement on a value's type; see `Located`.
+    fn demand_error(
+        &self,
+        message: impl std::fmt::Display,
+        demand: crate::ownership::Demand,
+    ) -> Box<dyn Error> {
+        Box::new(Located {
+            location: self.location(),
+            message: message.to_string(),
+            demand: Some(Box::new(demand)),
         })
     }
 
@@ -3406,7 +3423,10 @@ impl Lower<'_> {
                             } else {
                                 "&value.field (or &mut value.field)"
                             };
-                            return Err(e.at.error(format!("cannot move out of a field; use {copy}{borrow}, or replace(value.field, replacement) on a mutable owner")));
+                            return Err(e.at.demand_error(
+                                format!("cannot move out of a field; use {copy}{borrow}, or replace(value.field, replacement) on a mutable owner"),
+                                crate::ownership::Demand::Copy(ty, "cannot move out of a field"),
+                            ));
                         }
                         Self::end_reads(loans, ops);
                         Some(ty)
@@ -3559,9 +3579,10 @@ impl Lower<'_> {
                         return Err(e.at.error("an atomic is read with load(), not through `*`"));
                     }
                     if ty.affine() {
-                        return Err(e
-                            .at
-                            .error("cannot move out of a reference; use copy or borrow"));
+                        return Err(e.at.demand_error(
+                            "cannot move out of a reference; use copy or borrow",
+                            crate::ownership::Demand::Copy((*ty).clone(), "cannot move out of a reference"),
+                        ));
                     }
                     ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
                     ops.push(Op::ReadRef((*ty).clone()));
@@ -3790,10 +3811,13 @@ impl Lower<'_> {
                             || (a == Ty::Str && op == "+")
                             || (a.is_orderable() && is_comparison(op)))
                     {
-                        return Err(e.at.error(format!(
-                            "operator `{op}` does not accept {}",
-                            type_name(Some(a.clone()))
-                        )));
+                        return Err(e.at.demand_error(
+                            format!(
+                                "operator `{op}` does not accept {}",
+                                type_name(Some(a.clone()))
+                            ),
+                            crate::ownership::Demand::Operator(op.clone(), a.clone()),
+                        ));
                     }
                     if op == "/" && !a.is_float() {
                         return Err(e
@@ -5669,7 +5693,15 @@ fn lower_function(
         }
         let text = match (&required, error.downcast_ref::<Located>()) {
             (Some(required), Some(error)) => {
-                required.report(&format!("{}: ", error.location), &error.message)
+                let body = format!("{}: ", error.location);
+                error
+                    .demand
+                    .as_ref()
+                    .and_then(|demand| {
+                        let detail = demand.detail().unwrap_or(&error.message);
+                        required.explain(&body, detail, demand)
+                    })
+                    .unwrap_or_else(|| required.report(&body, &error.message))
             }
             (Some(required), None) => required.report("", &error.to_string()),
             (None, _) => error.to_string(),
