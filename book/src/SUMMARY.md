@@ -83,6 +83,7 @@
     - [7. Special-purpose data structures](tutorial/special-purpose/index.md)
         - [Dataframes with Polars](tutorial/special-purpose/dataframes.md)
             - [Types, nulls and schemas](tutorial/special-purpose/dataframe-types.md)
+            - [Store binary payloads](tutorial/special-purpose/dataframe-binary.md)
             - [Join and rank results](tutorial/special-purpose/dataframe-joins.md)
             - [Membership and full joins](tutorial/special-purpose/dataframe-membership.md)
             - [Match nearby observations](tutorial/special-purpose/dataframe-asof.md)

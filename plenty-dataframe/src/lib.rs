@@ -145,6 +145,8 @@ mod columns;
 pub use columns::*;
 mod numeric;
 pub use numeric::*;
+mod binary;
+pub use binary::*;
 mod expressions;
 pub use expressions::*;
 mod io;

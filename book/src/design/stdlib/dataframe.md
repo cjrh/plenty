@@ -37,7 +37,7 @@ types fail; a valid null cell returns `Ok(Nothing)`.
 column in one native call. A column containing any nulls fails with
 `DataFrameError.Null`; use `values_i64_nullable` or `values_f64_nullable`
 to preserve missing values, or `fill_null` when replacement is appropriate.
-Strings, booleans, nullable input/output and schema inspection are described
+Strings, booleans, binary payloads, nullable input/output and schema inspection are described
 in [Column types and schemas](dataframe-types.md). No implicit casts or
 zero-copy borrowing occur at the Plenty boundary.
 Logical [Date and Datetime columns](dataframe-datetime.md) add checked temporal
@@ -50,7 +50,7 @@ The [signature index](signatures.md#stddataframe) gives exact declarations.
 
 | Operation | Result value |
 |---|---|
-| `col(name)`, `lit(f64)`, `lit_i64(i64)`, `lit_str(text)`, `lit_bool(value)`, `null_f64()` | `Expr` |
+| `col(name)`, `lit(f64)`, `lit_i64(i64)`, `lit_str(text)`, `lit_bool(value)`, `lit_binary(payload)`, `null_f64()` | `Expr` |
 | `when(predicate, then_value, otherwise)`, `expr.cast(dtype, strict=True)` | `Expr` |
 | `expr.str_lower/str_upper/str_len()`, `str_contains/str_starts_with/str_ends_with(pattern)` | `Expr` |
 | `expr.n_unique()`, `expr.over(partition_by)` | `Expr` |
@@ -133,7 +133,8 @@ create-new output behavior and buffering limits.
 Polars 0.55.2 semantics apply inside expressions, not Plenty scalar
 semantics. Schemas are checked at runtime. Input/extraction supports
 all Plenty numeric widths (`i8/i16/i32/i64`, `u8/u16/u32/u64`, `f32/f64`),
-`str`, `bool`, Date and naive/UTC Datetime, including nullable columns. Parquet can
+`str`, `bool`, Binary (`std.bytes.Bytes`), Date and naive/UTC Datetime,
+including nullable columns. Parquet can
 contain other native types that schema inspection describes and expressions
 can carry, but this API cannot extract them. Paths are UTF-8 strings.
 There is no automatic lambda translation, mutation API, nested-value
