@@ -1,6 +1,31 @@
 //! Source places and explicit loans with statically disjoint field projections.
 use super::*;
 
+/// Whether `ty` may be the success payload of an `Option` or `Result`: a
+/// reference to a value that holds no loan of its own, or a further
+/// reference-carrying `Option`/`Result`. A reference to a reference-carrying
+/// value would be a reference to a reference, which Plenty does not have.
+pub(super) fn carriable(ty: &Ty) -> bool {
+    match ty {
+        Ty::Ref(inner, _) => !inner.contains_reference() && inner.storage_barrier().is_none(),
+        ty => ty.carried_reference().is_some(),
+    }
+}
+
+/// Whether `e` builds a reference-carrying value that holds no reference:
+/// `Nothing`, an `Err`, or `Some`/`Ok` around one. Such a value borrows
+/// nothing, so any function returning an `Option[&T]` may return it.
+pub(super) fn loan_free(e: &Expr) -> bool {
+    match &ungroup(e).kind {
+        Expression::Name(name) => name == "Nothing",
+        Expression::Call(name, args) if name == "Err" => args.len() == 1,
+        Expression::Call(name, args) if name == "Some" || name == "Ok" => {
+            matches!(args.as_slice(), [arg] if loan_free(arg))
+        }
+        _ => false,
+    }
+}
+
 /// Summarize only a single direct returned projection. More complicated bodies
 /// keep the conservative whole-argument footprint until flow summaries exist.
 pub(super) fn returned_fields(body: &[Stmt], sig: &FnSig) -> Option<Vec<usize>> {
@@ -178,6 +203,22 @@ impl Lower<'_> {
             let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
             return Ok((ty, Some(loan)));
         }
+        if ty.carried_reference().is_some() {
+            if loan_free(value) {
+                return Err(value.at.error(format!(
+                    "a binding of type {ty} must hold a borrow, and this value holds none; bind a lookup result or `Some(&place)`"
+                )));
+            }
+            let parent = self.reference_origin(value, ops)?;
+            // A copied binding gets a loan of its own, as a reborrow does.
+            let loan = if matches!(&ungroup(value).kind, Expression::Name(_)) {
+                let mutable = self.loans[parent].mutable;
+                self.new_loan(self.loans[parent].root, mutable, Some(parent), ops)
+            } else {
+                parent
+            };
+            return Ok((ty, Some(loan)));
+        }
         if !matches!(ty, Ty::Ref(..)) {
             return Ok((ty, None));
         }
@@ -188,6 +229,7 @@ impl Lower<'_> {
                 | Expression::GenericCall(..)
                 | Expression::Method(..)
                 | Expression::GenericMethod(..)
+                | Expression::Try(..)
         ) {
             return Err(value.at.error(
                 "reference bindings require a named reference, a direct borrow, or a reference-returning call",
@@ -265,6 +307,24 @@ impl Lower<'_> {
         Ok(true)
     }
 
+    /// Gives a just-lowered success payload `arg` of type `ty` its own loan
+    /// when it carries a reference, so the enclosing `Some(...)` or `Ok(...)`
+    /// holds the loan as a reference binding would. The new loan is the last
+    /// one emitted, which is where [`Self::reference_origin`] finds it.
+    pub(super) fn carried_payload(&mut self, arg: &Expr, ty: &Ty, ops: &mut Vec<Op>) -> Result<()> {
+        if !ty.carries_loan() || loan_free(arg) {
+            return Ok(());
+        }
+        let parent = self.reference_origin(arg, ops)?;
+        self.new_loan(
+            self.loans[parent].root,
+            ty.carries_mutable_loan(),
+            Some(parent),
+            ops,
+        );
+        Ok(())
+    }
+
     pub(super) fn reference_origin(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
         if let Expression::Name(name) = &ungroup(e).kind
             && let Some(local) = self.names.get(name)
@@ -280,6 +340,7 @@ impl Lower<'_> {
                     | Expression::Method(..)
                     | Expression::GenericMethod(..)
                     | Expression::Invoke(..)
+                    | Expression::Try(..)
             ))
             && let Some(id) = ops.iter().rev().find_map(|op| {
                 if let Op::Loan(l) = op {
@@ -320,9 +381,10 @@ impl Lower<'_> {
         loans: &[usize],
         ops: &mut Vec<Op>,
     ) {
-        if let Some(Ty::Ref(_, mutable)) = sig.outputs.first() {
+        if let Some(output) = sig.outputs.first().filter(|ty| ty.carries_loan()) {
             let parent = loans[0];
-            let id = self.new_loan(self.loans[parent].root, *mutable, Some(parent), ops);
+            let mutable = output.carries_mutable_loan();
+            let id = self.new_loan(self.loans[parent].root, mutable, Some(parent), ops);
             if let Some(fields) = self
                 .sigs
                 .returned_fields(name)
@@ -413,6 +475,15 @@ impl Lower<'_> {
         }
         ops.push(Op::Collection(operation));
     }
+    /// Reading a reference-carrying local uses the loan it holds.
+    fn use_carried(&self, local: &Local, ops: &mut Vec<Op>) {
+        if local.ty.carried_reference().is_some()
+            && let Some(&loan) = self.reference_locals.get(&local.slot)
+        {
+            ops.push(Op::UseLoan(loan));
+        }
+    }
+
     fn named_place(&self, e: &Expr) -> Result<Local> {
         match &e.kind {
             Expression::Group(e) => self.named_place(e),
@@ -678,6 +749,7 @@ impl Lower<'_> {
             self.named_place(e)?
         };
         self.mark(&e.at, ops);
+        self.use_carried(&local, ops);
         if matches!(local.ty, Ty::KeyView(_)) {
             if mutable {
                 return Err(e.at.error("dictionary key views are shared borrows"));
@@ -861,6 +933,7 @@ impl Lower<'_> {
                 }
                 let local = self.named_place(e)?;
                 self.mark(&e.at, ops);
+                self.use_carried(&local, ops);
                 if matches!(local.ty, Ty::KeyView(_)) {
                     let loan = self.reference_locals[&local.slot];
                     ops.push(Op::LoadLocal(local.slot));

@@ -355,9 +355,10 @@ impl Lower<'_> {
         if name == "Some" && args.is_some_and(|a| a.len() == 1) {
             let arg = &args.unwrap()[0];
             let ty = self.expr(arg, ops)?.unwrap_or(Ty::Unit);
-            if ty.contains_reference() {
+            if ty.contains_reference() && !references::carriable(&ty) {
                 return Err(at.error("references cannot be stored in enum payloads"));
             }
+            self.carried_payload(arg, &ty, ops)?;
             if ty == Ty::Unit {
                 ops.push(Op::PushUnit);
             }
@@ -436,6 +437,9 @@ impl Lower<'_> {
             };
             let actual = self.expr_expected(arg, expected.clone(), ops)?;
             self.same(actual.clone(), expected, &arg.at)?;
+            if t.propagatable() && tag == usize::from(t.is_option()) {
+                self.carried_payload(arg, field, ops)?;
+            }
             if t.propagatable() && field.unresolved_generator() {
                 let resolved = crate::generator::refine(field, &actual.unwrap()).unwrap();
                 let updated = if t.is_option() {
@@ -469,6 +473,18 @@ impl Lower<'_> {
     ) -> Result<BlockResult> {
         let temporary_start = self.expression_temps.len();
         let value_start = ops.len();
+        if let Expression::Unary(op, place) = &ungroup(value).kind
+            && op == "&"
+            && let Expression::Name(name) = &ungroup(place).kind
+            && self
+                .names
+                .get(name)
+                .is_some_and(|local| local.ty.carried_reference().is_some())
+        {
+            return Err(value.at.error(format!(
+                "`{name}` already holds a reference; match `{name}` directly"
+            )));
+        }
         let ty = match self.value(value, ops)? {
             // Matching a box matches its content: an owned box is consumed,
             // a borrowed one lends its content.
@@ -500,11 +516,22 @@ impl Lower<'_> {
             Ty::Ref(inner, _) => (**inner).clone(),
             ty => ty.clone(),
         };
+        // A reference-carrying Option or Result lends its loan to the
+        // payload references its patterns bind.
+        let carried = if matched.carried_reference().is_some() && borrowed.is_none() {
+            Some(self.reference_origin(value, ops)?)
+        } else {
+            None
+        };
         let source = self.slot(ty, &value.at)?;
         ops.push(Op::StoreLocal(source));
         self.building(&value.at, value_start, ops, false);
         self.finish_temporaries(temporary_start, ops);
-        let subject = patterns::Subject { source, borrowed };
+        let subject = patterns::Subject {
+            source,
+            borrowed,
+            carried,
+        };
         self.match_patterns(value, cases, &matched, subject, tail, ops)
     }
 }

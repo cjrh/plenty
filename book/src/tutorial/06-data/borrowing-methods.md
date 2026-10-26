@@ -50,6 +50,58 @@ eve
 The key's loan ends when `score` returns, so `name` can change while `points`
 is live. To return a borrow of `name`, it would have to be the first parameter.
 
+## Return a borrow that may be absent
+
+A search may find nothing. Return `Option[&T]`, or `Option[&mut T]` to let the
+caller change what was found. `Some` must borrow the first reference parameter;
+`Nothing` borrows nothing:
+
+```plenty
+class Item:
+    name: str
+    count: i64
+
+def find(items: &mut list[Item], name: &str) -> Option[&mut Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def add(items: &mut list[Item], name: str) -> Result[(), AllocError]:
+    match find(items, &name):
+        case Some(item):
+            item.count += 1
+        case Nothing:
+            items.append(Item(name, 1))?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items: list[Item] = []?
+    add(&mut items, "ada")?
+    add(&mut items, "bob")?
+    add(&mut items, "ada")?
+    for item in items:
+        print(item.name)?
+        print(item.count)?
+    Ok(())
+```
+```output
+ada
+2
+bob
+1
+```
+
+Match the result directly. In the `Some` arm, `item` borrows `items`, so the
+list cannot change there. The `Nothing` arm holds no borrow, so it can append.
+`Result[&T, E]` works the same way with `Ok`; its error cannot hold a reference.
+`?` and `unwrap()` also produce the reference.
+
+The result can be held in a local until it is matched, but it cannot be stored
+in a list, a field, or a `mut` binding: match it and store an owned copy or an
+index. The [reference](../../design/language/05-ownership/optional-references.md)
+lists every rule.
+
 Shared arguments can borrow temporaries, as in `size("ada")` for a `size(s: &str)`
 function. The temporary lives through the expression. A result borrowing it may
 be used immediately, but cannot be stored or returned. Mutable temporaries are

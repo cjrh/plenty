@@ -308,6 +308,8 @@ mod test_once_closure_storage;
 mod test_once_closures;
 #[path = "test_operator_overloading.rs"]
 mod test_operator_overloading;
+#[path = "test_optional_references.rs"]
+mod test_optional_references;
 #[path = "test_ownership_runtime.rs"]
 mod test_ownership_runtime;
 #[path = "test_par_pipelines.rs"]

@@ -2224,8 +2224,8 @@ fn lending_keeps_borrow_and_signature_rules() {
             "cannot escape its function",
         ),
         (
-            "def f(p: &mut Iter[&i64]) -> Option[&i64]:\n    next(p)\n",
-            "references cannot be stored in enum payloads",
+            "def f(p: &mut Iter[&i64]) -> Option[&i64]:\n    next(p)\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p))\n    Ok(())\n",
+            "references cannot be stored in a next result",
         ),
         (
             "def f(p: &mut Iter[&i64]) -> i64:\n    match next(p):\n        case Some(x):\n            *x\n        case Nothing:\n            0\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p))\n    Ok(())\n",

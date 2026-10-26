@@ -188,6 +188,9 @@ impl Ty {
                 Self::BoxedCallable(_) => 1,
                 Self::Closure(t) => t.depth,
                 Self::Generator(t) => 1 + t.element.layout_depth(),
+                // A reference's high word holds a tag shift of at most 64,
+                // which the tags of an enclosing Option or Result stack on.
+                Self::Ref(..) => 7,
                 _ => 0,
             };
             weights.push(weight);

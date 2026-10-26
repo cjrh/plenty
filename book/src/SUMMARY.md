@@ -280,6 +280,7 @@
             - [Borrowing and reborrowing](design/language/05-ownership/02-borrowing.md)
             - [Reference binding reassignment](design/language/05-ownership/03-reference-rebinding.md)
             - [Returned references](design/language/05-ownership/04-returned-references.md)
+            - [Optional and fallible references](design/language/05-ownership/optional-references.md)
             - [Borrowed matching](design/language/05-ownership/05-borrowed-matching.md)
             - [Deterministic destruction](design/language/05-ownership/06-destruction.md)
         - [Functions and callable values](design/language/06-functions/index.md)

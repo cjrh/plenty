@@ -71,3 +71,7 @@ returned `&str`, but `r = view("text")` is rejected even when `r` is unused.
 Returned references cannot enter aggregates, scoped workers with temporary
 origins, or generator suspension. No lifetime annotation or callee-body
 inference changes the signature's first-reference origin.
+
+A borrow that may be absent or may fail is returned as `Option[&T]` or
+`Result[&T, E]` under the same origin rule; see
+[optional and fallible references](optional-references.md).

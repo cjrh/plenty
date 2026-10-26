@@ -9,6 +9,7 @@ owned resources follow the specified destruction scopes.
 - [Borrowing and reborrowing](02-borrowing.md)
 - [Reference binding reassignment](03-reference-rebinding.md)
 - [Returned references](04-returned-references.md)
+- [Optional and fallible references](optional-references.md)
 - [Borrowed matching](05-borrowed-matching.md)
 - [Deterministic destruction](06-destruction.md)
 
