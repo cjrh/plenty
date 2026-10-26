@@ -15,18 +15,6 @@ class Quiet:
     def __del__(self) -> ():
         print("dropped").unwrap()
 
-def quiet_number(quiet: &Quiet) -> i64:
-    quiet.n
-
-def number(guard: &Guard) -> i64:
-    guard.n
-
-def same(n: &i64) -> i64:
-    *n
-
-def length(values: &list[i64]) -> i64:
-    len(values)
-
 def show(result: Option[(i64, i64)]) -> Result[(), IoError]:
     match result:
         case Some(entry):
@@ -101,22 +89,22 @@ fn put_evicts_the_least_recently_used_entry() {
 mut cache = LruCache[str, i64](2)?
 print(cache.capacity(), cache.len(), cache.is_empty())?
 print(cache.put("a", 1)?, cache.put("b", 2)?)?
-print(cache.get_with("a", &same))?
+print(cache.get_ref("a"))?
 print(cache.put("c", 3)?)?
 print(cache.contains("a"), cache.contains("b"), cache.contains("c"), cache.len())?
 print(cache.put("a", 10)?)?
 print(cache.put("d", 4)?)?
-print(cache.get_with("missing", &same))?
+print(cache.get_ref("missing"))?
 "#,
         r#"
 2 0 True
 Option[tuple[str, i64]].Nothing Option[tuple[str, i64]].Nothing
-Option[i64].Some(1)
+Option[&i64].Some(1)
 Option[tuple[str, i64]].Some(("b", 2))
 True False True 2
 Option[tuple[str, i64]].Some(("a", 1))
 Option[tuple[str, i64]].Some(("c", 3))
-Option[i64].Nothing
+Option[&i64].Nothing
 "#,
     );
 }
@@ -128,9 +116,12 @@ fn peek_and_contains_leave_recency_unchanged() {
 mut cache = LruCache[i64, i64](2)?
 show(cache.put(1, 10)?)?
 show(cache.put(2, 20)?)?
-print(cache.peek_with(&1, &same), cache.contains(&1))?
-slot = cache.peek_mut(&1)
-*slot += 1
+print(cache.peek_ref(&1), cache.contains(&1))?
+match cache.peek_mut(&1):
+    case Some(slot):
+        *slot += 1
+    case Nothing:
+        pass
 show(cache.put(3, 30)?)?
 print(cache.promote(&2), cache.promote(&1))?
 show(cache.put(4, 40)?)?
@@ -141,7 +132,7 @@ show(cache.pop_lru())?
         r#"
 -
 -
-Option[i64].Some(10) True
+Option[&i64].Some(10) True
 1 11
 True False
 3 30
@@ -201,7 +192,7 @@ Option[tuple[i64, str]].Some((7, "seven")) Option[tuple[i64, str]].Some((7, "sev
 fn copying_lookups_reject_only_calls_with_affine_values() {
     // Generic class methods are checked when used (issue #515), so an
     // affine value type is accepted until `get` or `peek` is called.
-    let accepted = "mut cache = LruCache[i64, list[i64]](1)?\ndrop(cache.put(1, [1]?)?)\nprint(cache.contains(&1), cache.peek_with(&1, &length))?";
+    let accepted = "mut cache = LruCache[i64, list[i64]](1)?\ndrop(cache.put(1, [1]?)?)\nprint(cache.contains(&1), cache.peek_ref(&1).is_some())?";
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     std::fs::write(&path, program(accepted)).unwrap();
@@ -240,7 +231,7 @@ fn get_ref_promotes_and_returns_a_borrow() {
 mut cache = LruCache[i64, list[i64]](2)?
 drop(cache.put(1, [1, 2]?)?)
 drop(cache.put(2, [3]?)?)
-first = cache.get_ref(&1)
+first = cache.get_ref(&1).unwrap()
 print(len(first), first)?
 match cache.put(3, [4]?)?:
     case Some(entry):
@@ -265,10 +256,10 @@ fn owned_values_transfer_out_or_drop_exactly_once() {
 mut cache = LruCache[i64, Guard](2)?
 show_guard(cache.put(1, Guard(1))?)?
 show_guard(cache.put(2, Guard(2))?)?
-print(cache.get_with(&1, &number))?
+print(cache.get_ref(&1).unwrap().n)?
 show_guard(cache.put(3, Guard(3))?)?
 show_guard(cache.put(3, Guard(33))?)?
-print(cache.get_ref(&1).n, cache.peek_with(&3, &number))?
+print(cache.get_ref(&1).unwrap().n, cache.peek_ref(&3).unwrap().n)?
 guard = cache.remove(&1)
 print("removed", cache.len())?
 drop(guard)
@@ -280,12 +271,12 @@ show_guard(cache.put(5, Guard(5))?)?
         r#"
 -
 -
-Option[i64].Some(1)
+1
 out 2 2
 drop 2
 out 3 3
 drop 3
-1 Option[i64].Some(33)
+1 33
 removed 1
 drop 1
 -
@@ -327,20 +318,26 @@ AllocError.CapacityOverflow
 }
 
 #[test]
-fn missing_key_in_a_reference_accessor_traps() {
-    let output = execute(
+fn borrowed_accessors_return_nothing_for_a_missing_key() {
+    native(
         r#"
-mut cache = LruCache[i64, i64](2)?
-drop(cache.put(1, 1)?)
-print("before")?
-value = cache.get_ref(&2)
-print(*value)?
+mut cache = LruCache[i64, list[i64]](2)?
+drop(cache.put(1, [1]?)?)
+print(cache.get_ref(&2), cache.peek_ref(&2))?
+print(cache.get_mut(&2).is_none(), cache.peek_mut(&2).is_none())?
+match cache.get_mut(&1):
+    case Some(values):
+        values.append(2)?
+    case Nothing:
+        print("-")?
+print(cache.peek_ref(&1))?
+"#,
+        r#"
+Option[&list[i64]].Nothing Option[&list[i64]].Nothing
+True True
+Option[&list[i64]].Some([1, 2])
 "#,
     );
-    assert_eq!(output.status.code(), Some(1));
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("std/cache/lru.plenty"), "{stderr}");
 }
 
 /// Keys, values and operations come from a linear congruential generator so
@@ -467,7 +464,7 @@ for n in range(200):
             drop(guard)
         case Nothing:
             pass
-    drop(cache.get_with(&(n % 5), &quiet_number))
+    drop(cache.get_ref(&(n % 5)).is_some())
     drop(cache.remove(&(n % 11)))
     drop(cache.promote(&(n % 3)))
 cache.clear()
@@ -516,7 +513,7 @@ print(failures)?
 #[test]
 fn references_and_unhashable_keys_are_rejected() {
     let escaping = rejected(
-        "mut cache = LruCache[i64, i64](1)?\nvalue = cache.get_ref(&1)\ndrop(cache.put(2, 2)?)\nprint(*value)?",
+        "mut cache = LruCache[i64, i64](1)?\nvalue = cache.get_ref(&1)\ndrop(cache.put(2, 2)?)\nprint(value)?",
     );
     assert!(escaping.contains("borrow"), "{escaping}");
     let float_keys = rejected("cache = LruCache[f64, i64](1)?");
