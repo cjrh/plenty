@@ -649,6 +649,37 @@ class Deque[T]
     def clear(self: &mut Deque[T]) -> ()
 ```
 
+## `std.diff`
+
+Line, word, character, byte, and list differences as edit operations, with Myers and patience algorithms and unified-diff output. Errors: `AllocError`. [Reference](diff.md).
+
+```text
+enum Algorithm
+    Myers | Patience
+enum Kind
+    Equal | Delete | Insert
+class Op
+    kind: Kind
+    old_start: i64
+    old_end: i64
+    new_start: i64
+    new_end: i64
+    def old_len(self) -> i64
+    def new_len(self) -> i64
+    def is_equal(self) -> bool
+def diff[T](old: &list[T], new: &list[T], algorithm: Algorithm = Algorithm.Myers) -> Result[list[Op], AllocError]
+def diff_bytes(old: &Bytes, new: &Bytes, algorithm: Algorithm = Algorithm.Myers) -> Result[list[Op], AllocError]
+class TextDiff
+    def ops(self) -> &list[Op]
+    def old_tokens(self) -> &list[str]
+    def new_tokens(self) -> &list[str]
+    def has_changes(self) -> bool
+    def unified(self, context: i64, old_name: &str, new_name: &str) -> Result[str, AllocError]
+def lines(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]
+def words(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]
+def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers) -> Result[TextDiff, AllocError]
+```
+
 ## `std.encoding`
 
 Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes`. Errors: `EncodingError`. [Reference](encoding.md).
