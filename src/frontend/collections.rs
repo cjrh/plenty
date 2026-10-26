@@ -2432,9 +2432,10 @@ impl Lower<'_> {
             }
         };
         if value.affine() {
-            return Err(base
-                .at
-                .error("cannot move out of indexed storage; use copy(collection[index])"));
+            return Err(base.at.demand_error(
+                "cannot move out of indexed storage; use copy(collection[index])",
+                crate::ownership::Demand::Copy(value, "cannot move out of indexed storage"),
+            ));
         }
         let (got, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
         self.same(Some(got), Some(key), &index.at)?;
@@ -3548,7 +3549,10 @@ impl Lower<'_> {
             return Ok(Some(result));
         }
         let Ty::Dict(_, v) = &ty else {
-            return Err(base.at.error(format!("unsupported method `{name}`")));
+            return Err(base.at.demand_error(
+                format!("unsupported method `{name}`"),
+                crate::ownership::Demand::Method(name.to_owned(), ty.clone()),
+            ));
         };
         if name == "values" {
             if !args.is_empty() {
@@ -3773,9 +3777,10 @@ impl Lower<'_> {
             (Ty::Dict(..) | Ty::Set(_), "update") => vec![ty.clone()],
             (Ty::Dict(k, v), "insert") => vec![(**k).clone(), (**v).clone()],
             _ => {
-                return Err(base
-                    .at
-                    .error(format!("unsupported method `{name}` for {ty}")));
+                return Err(base.at.demand_error(
+                    format!("unsupported method `{name}` for {ty}"),
+                    crate::ownership::Demand::Method(name.to_owned(), ty.clone()),
+                ));
             }
         };
         if args.len() != inputs.len() {

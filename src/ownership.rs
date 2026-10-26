@@ -59,9 +59,80 @@ pub struct Instantiation {
     /// generic body requires further instances; the links between are omitted
     /// to keep the diagnostic at two locations.
     pub instance: Arc<str>,
+    /// The type parameters of `instance` and their arguments, which name the
+    /// caller's cause of a body error (issue #518).
+    pub parameters: Arc<[(Arc<str>, Ty)]>,
+}
+
+/// What a body operation needed from a value's type when it was rejected.
+/// An instance body is checked with concrete types, so the type may be a
+/// type argument the use supplied (issue #518).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Demand {
+    /// An implicit copy of an affine value, with the rejected operation
+    /// described without advice to the body's author.
+    Copy(Ty, &'static str),
+    /// An operator applied to a value of the type.
+    Operator(String, Ty),
+    /// A method called on a value of the type.
+    Method(String, Ty),
+}
+
+impl Demand {
+    /// The rejected operation as the body note shows it, when it differs
+    /// from the full message.
+    pub fn detail(&self) -> Option<&'static str> {
+        match self {
+            Demand::Copy(_, detail) if !detail.is_empty() => Some(detail),
+            _ => None,
+        }
+    }
 }
 
 impl Instantiation {
+    /// The rendered diagnostic of a body error that a type argument causes:
+    /// the primary message names the parameter and its argument at the use,
+    /// and the body position becomes a note for the body's author. `None`
+    /// when the rejected type is not exactly one parameter's argument; the
+    /// caller then uses `report`. A body that names the argument's type
+    /// itself is attributed to the parameter too, since types carry no record
+    /// of substitution.
+    pub fn explain(&self, body: &str, detail: &str, demand: &Demand) -> Option<String> {
+        if self.requested.starts_with("__plenty_fstring_") {
+            return None;
+        }
+        let ty = match demand {
+            Demand::Copy(ty, _) | Demand::Operator(_, ty) | Demand::Method(_, ty) => ty,
+        };
+        let mut matching = self.parameters.iter().filter(|(_, t)| t == ty);
+        let (parameter, _) = matching.next()?;
+        if matching.next().is_some() {
+            return None;
+        }
+        let instance = short(&self.instance);
+        let cause = match demand {
+            Demand::Copy(..) => format!("copies `{parameter}`, but `{ty}` cannot be copied"),
+            Demand::Operator(op, _) => {
+                format!("applies `{op}` to `{parameter}`, but `{ty}` does not support `{op}`")
+            }
+            Demand::Method(name, _) => {
+                format!("calls `{name}` on `{parameter}`, but `{ty}` has no method `{name}`")
+            }
+        };
+        let subject = if self.requested == self.instance {
+            format!("`{instance}` {cause}")
+        } else {
+            format!(
+                "`{}` requires `{instance}`, which {cause}",
+                short(&self.requested)
+            )
+        };
+        Some(format!(
+            "{}: {subject}\n  {body}note: in instantiation `{instance}`: {detail}",
+            self.at
+        ))
+    }
+
     /// Render a body diagnostic at the requiring use. `body` is the body
     /// position including its `: ` separator, or empty when there is none.
     pub fn report(&self, body: &str, message: &str) -> String {
@@ -237,6 +308,8 @@ pub struct Error {
     pub notes: Vec<(Site, String)>,
     pub source: Option<Arc<str>>,
     pub required: Option<Arc<Instantiation>>,
+    /// The type of a moved binding, whose reuse is an implicit copy.
+    pub copied: Option<Ty>,
     /// The wait or shutdown belongs to a function this call reaches
     /// (issue #349): `Some(None)` when the callee has no source name.
     pub call: Option<Option<String>>,
@@ -401,9 +474,17 @@ impl fmt::Display for Error {
             ),
             Kind::Uncancelled { message } => message.clone(),
         };
-        match &self.required {
-            Some(required) => f.write_str(&required.report(&location, &message))?,
-            None => write!(f, "{location}{message}")?,
+        let explained =
+            self.required
+                .as_ref()
+                .zip(self.copied.as_ref())
+                .and_then(|(required, ty)| {
+                    required.explain(&location, &message, &Demand::Copy(ty.clone(), ""))
+                });
+        match (&self.required, explained) {
+            (_, Some(explained)) => f.write_str(&explained)?,
+            (Some(required), None) => f.write_str(&required.report(&location, &message))?,
+            (None, None) => write!(f, "{location}{message}")?,
         }
         for (site, note) in &self.notes {
             write!(f, "\n  {}note: {note}", self.location(*site))?;
@@ -827,6 +908,7 @@ impl Checker<'_, '_> {
             notes: Vec::new(),
             source: self.origins.source.clone(),
             required: self.origins.required.clone(),
+            copied: None,
             call: None,
         })
     }
@@ -880,6 +962,7 @@ impl Checker<'_, '_> {
         match state.get(slot as usize) {
             Some(Slot::Moved { at, definite }) => {
                 let mut error = self.error(Kind::Moved(*definite), place.clone(), site);
+                error.copied = self.locals.get(slot as usize).cloned();
                 if let (Some(at), Some(place)) = (at, place) {
                     error.notes.push((
                         *at,
@@ -1376,11 +1459,13 @@ impl Checker<'_, '_> {
                     Slot::Moved { at, .. } => *at,
                     _ => None,
                 };
-                return Err(self.error(
+                let mut error = self.error(
                     Kind::MovedInLoop,
                     self.place(i as u8, &[], false),
                     moved.or(site),
-                ));
+                );
+                error.copied = self.locals.get(i).cloned();
+                return Err(error);
             }
         }
         Ok(())

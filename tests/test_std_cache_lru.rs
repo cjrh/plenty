@@ -216,12 +216,18 @@ fn copying_lookups_reject_only_calls_with_affine_values() {
         let error = rejected(&body);
         assert!(
             error.contains(&format!(
-                "main.plenty:{call}:13: cannot instantiate `std.cache.lru.LruCache[i64, list[i64]].{method}`: its definition is rejected"
+                "main.plenty:{call}:13: `std.cache.lru.LruCache[i64, list[i64]].{method}` copies \
+                 `V`, but `list[i64]` cannot be copied"
             )),
             "{error}"
         );
+        // The note describes the library line without advice to change it
+        // (issue #518).
         assert!(
-            error.contains("cannot move out of indexed storage"),
+            error.ends_with(&format!(
+                "note: in instantiation `std.cache.lru.LruCache[i64, list[i64]].{method}`: \
+                 cannot move out of indexed storage"
+            )),
             "{error}"
         );
     }

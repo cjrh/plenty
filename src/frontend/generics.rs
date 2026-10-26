@@ -377,15 +377,23 @@ impl Engine {
         else {
             return;
         };
+        // The owner's instance recorded its type arguments under the method.
+        let parameters = self
+            .required
+            .get(&symbol)
+            .map(|owner| Arc::clone(&owner.parameters))
+            .unwrap_or_default();
         let required = match outer {
             Some(outer) => Instantiation {
                 instance: display,
+                parameters,
                 ..(**outer).clone()
             },
             None => Instantiation {
                 at: at(),
                 requested: Arc::clone(&display),
                 instance: display,
+                parameters,
             },
         };
         self.required.insert(symbol, Arc::new(required));
@@ -879,15 +887,18 @@ impl Lower<'_> {
                 .specialization_depths
                 .insert(symbol_id, new.depth);
             let instance: Arc<str> = crate::record::method_display(&new.display).into();
+            let parameters = Arc::clone(&new.parameters);
             let required = Arc::new(match self.generics.required.get(&self.symbol) {
                 Some(outer) => Instantiation {
                     instance,
+                    parameters,
                     ..(**outer).clone()
                 },
                 None => Instantiation {
                     at: at.location().into(),
                     requested: instance.clone(),
                     instance,
+                    parameters,
                 },
             });
             self.generics.required.insert(symbol_id, required.clone());
@@ -1550,11 +1561,18 @@ impl Engine {
             }
         };
         self.instantiated[key.0 as usize].1 += 1;
+        let parameters = template
+            .type_params
+            .iter()
+            .map(|(parameter, _)| Arc::from(parameter.as_str()))
+            .zip(key.1.iter().cloned())
+            .collect();
         // Cache before queueing the body, so recursive calls share this instance.
         self.cache.insert(key, symbol.clone());
         self.instances += 1;
         let instance = Instance {
             function: f,
+            parameters,
             template: Arc::clone(template),
             replacements,
             display,
@@ -1569,6 +1587,7 @@ impl Engine {
                     at: at.location().into(),
                     instance: Arc::clone(&requested),
                     requested,
+                    parameters: Arc::clone(&instance.parameters),
                 })
             });
             for callee in demanded {
@@ -1650,6 +1669,8 @@ pub(super) struct Instance {
     replacements: Substitution,
     /// The instance name in diagnostics, such as `f[i64]`.
     pub(super) display: String,
+    /// The template's type parameters and their arguments, for diagnostics.
+    pub(super) parameters: Arc<[(Arc<str>, Ty)]>,
     /// Its dependency depth, which the caller records under its symbol.
     pub(super) depth: usize,
 }

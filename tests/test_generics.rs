@@ -219,7 +219,7 @@ def main() -> Result[(), AllocError]:
     helper()
 "
         ),
-        "6:9: cannot instantiate `twice[list[i64]]`: its definition is rejected
+        "6:9: `twice[list[i64]]` copies `T`, but `list[i64]` cannot be copied
   2:13: note: in instantiation `twice[list[i64]]`: use of moved binding `value`
   2:6: note: `value` is moved here"
     );
@@ -234,7 +234,7 @@ def main() -> ():
     y = sum[bool](True, False)
 "
         ),
-        "6:9: cannot instantiate `sum[bool]`: its definition is rejected
+        "6:9: `sum[bool]` applies `+` to `T`, but `bool` does not support `+`
   2:5: note: in instantiation `sum[bool]`: operator `+` does not accept bool"
     );
     // Found by tail-call validation, after every body is lowered.
@@ -277,7 +277,8 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "
         ),
-        "12:9: cannot instantiate `outer[list[i64]]`: its definition is rejected
+        "12:9: `outer[list[i64]]` requires `twice[list[i64]]`, which copies `T`, \
+         but `list[i64]` cannot be copied
   2:13: note: in instantiation `twice[list[i64]]`: use of moved binding `value`
   2:6: note: `value` is moved here"
     );
@@ -299,7 +300,7 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "
         ),
-        "9:9: cannot instantiate `Holder.both[list[i64]]`: its definition is rejected
+        "9:9: `Holder.both[list[i64]]` copies `T`, but `list[i64]` cannot be copied
   4:17: note: in instantiation `Holder.both[list[i64]]`: use of moved binding `value`
   4:10: note: `value` is moved here"
     );
@@ -317,6 +318,129 @@ def main() -> ():
         ),
         "7:9: cannot instantiate `apply[i64]`: its definition is rejected
   3:9: note: in instantiation `apply[i64]`: unknown binding `missing`"
+    );
+}
+
+/// A body rejected only because of a type argument names the argument at the
+/// use, and its note leaves out advice for the body's author (issue #518).
+#[test]
+fn instance_errors_caused_by_a_type_argument_name_the_argument() {
+    // A class method copying an element of a list of its parameter.
+    assert_eq!(
+        rejection(
+            "class Holder[T]:
+    items: list[T]
+
+    def first(self) -> T:
+        self.items[0]
+
+def main() -> Result[(), AllocError]:
+    holder = Holder([[1]?]?)
+    item = holder.first()
+    Ok(())
+"
+        ),
+        "9:12: `Holder[list[i64]].first` copies `T`, but `list[i64]` cannot be copied
+  5:9: note: in instantiation `Holder[list[i64]].first`: cannot move out of indexed storage"
+    );
+    // A generic function copying through a reference.
+    assert_eq!(
+        rejection(
+            "def deref[T](value: &T) -> T:
+    *value
+
+def main() -> Result[(), AllocError]:
+    items = [1]?
+    copied = deref(&items)
+    Ok(())
+"
+        ),
+        "6:14: `deref[list[i64]]` copies `T`, but `list[i64]` cannot be copied
+  2:5: note: in instantiation `deref[list[i64]]`: cannot move out of a reference"
+    );
+    // A class method required by a generic function names both instances.
+    assert_eq!(
+        rejection(
+            "class Holder[T]:
+    item: T
+
+    def get(self) -> T:
+        self.item
+
+def read[U](holder: &Holder[U]) -> U:
+    holder.get()
+
+def main() -> Result[(), AllocError]:
+    holder = Holder([1]?)
+    item = read(&holder)
+    Ok(())
+"
+        ),
+        "12:12: `read[list[i64]]` requires `Holder[list[i64]].get`, which copies `T`, \
+         but `list[i64]` cannot be copied
+  5:9: note: in instantiation `Holder[list[i64]].get`: cannot move out of a field"
+    );
+    // A method the argument does not have, on a class and on a built-in type.
+    let size = "def size[T](value: &T) -> i64:
+    value.size()
+
+class Point:
+    x: i64
+";
+    assert_eq!(
+        rejection(&format!(
+            "{size}\ndef main() -> ():\n    n = size(&Point(1))\n"
+        )),
+        "8:9: `size[Point]` calls `size` on `T`, but `Point` has no method `size`
+  2:5: note: in instantiation `size[Point]`: unknown method `size` on Point"
+    );
+    assert_eq!(
+        rejection(&format!("{size}\ndef main() -> ():\n    n = size(&1)\n")),
+        "8:9: `size[i64]` calls `size` on `T`, but `i64` has no method `size`
+  2:5: note: in instantiation `size[i64]`: unsupported method `size`"
+    );
+}
+
+/// A body error is attributed to a type argument only when the rejected type
+/// is exactly one parameter's argument (issue #518).
+#[test]
+fn instance_errors_not_caused_by_one_type_argument_keep_the_instance_form() {
+    // The copied list is a concrete field type, not the argument `i64`.
+    assert_eq!(
+        rejection(
+            "class Holder[T]:
+    item: T
+    rows: list[list[i64]]
+
+    def row(self) -> list[i64]:
+        self.rows[0]
+
+def main() -> Result[(), AllocError]:
+    holder = Holder(1, [[2]?]?)
+    row = holder.row()
+    Ok(())
+"
+        ),
+        "10:11: cannot instantiate `Holder[i64].row`: its definition is rejected
+  6:9: note: in instantiation `Holder[i64].row`: cannot move out of indexed storage; \
+         use copy(collection[index])"
+    );
+    // Two parameters with the copied argument: either could be the cause.
+    assert_eq!(
+        rejection(
+            "def both[K, V](key: &K, value: &V) -> tuple[K, V]:
+    (*key, *value)
+
+def main() -> Result[(), AllocError]:
+    keys = [1]?
+    values = [2]?
+    pair = both(&keys, &values)
+    Ok(())
+"
+        ),
+        "7:12: cannot instantiate `both[list[i64], list[i64]]`: its definition is rejected
+  2:6: note: in instantiation `both[list[i64], list[i64]]`: cannot move out of a reference; \
+         use copy or borrow"
     );
 }
 
