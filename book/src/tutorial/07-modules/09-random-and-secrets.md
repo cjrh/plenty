@@ -5,7 +5,7 @@ Plenty has two sources of random values, and they are not interchangeable.
 `std.secrets` gives unpredictable bytes from the operating system for tokens
 and keys.
 
-For record and request identifiers, the next lesson introduces
+For record and request identifiers, see
 [`std.uuid`](20-standard-uuid.md), which builds standard UUIDs from OS entropy.
 
 ## Seeded generators

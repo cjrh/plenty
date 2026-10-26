@@ -240,6 +240,8 @@ few sampled pages establish the quality of the whole tutorial.
 
 ## Project conventions
 
+- Throughout the docs, refer to other chapters and sections by descriptive name or topic with a direct link, never by position (such as "the next chapter" or "the previous section"). Cross-references are encouraged; they must remain correct when pages are reordered.
+
 - Prefer implementing manageable standard-library functionality directly in Plenty. Wrap Rust or C libraries when there is a concrete reason, such as substantial complexity (SQLite or Polars) or specialist security requirements (cryptography and timing-attack resistance). Explain that choice and preserve allocation-failure and other API contracts. See `AGENTS.md` for the shared preference.
 
 - **Don't add comments that just restate the code.** Comments should give the
