@@ -60,6 +60,11 @@ class ThirdPartyNotices(unittest.TestCase):
         self.assertIn("Copyright (C) 2018-present iced project and contributors", output)
         self.assertIn("c50f29b7bc305696895c075f3fc7719751426b12/LICENSE.txt", output)
 
+    def test_git_dependency_records_the_resolved_fork_revision(self):
+        source = "git+https://example.test/fork?branch=workspace#0123456789abcdef"
+        self.package["source"] = source
+        self.assertIn(f"Resolved Git source: {source}", self.notices.render([self.package]))
+
     def test_unreviewed_package_version_or_license_still_fails(self):
         for change in [{"name": "other"}, {"version": "1.22.0"}, {"license": "Apache-2.0"}]:
             with self.subTest(change=change):
@@ -117,6 +122,7 @@ class ThirdPartyNotices(unittest.TestCase):
         (self.root / "b/vendor/tables.rs").write_text("")
         (self.root / "plenty-runtime/native/zlib-1.3").mkdir(parents=True)
         (self.root / "target/vendor/build-output").mkdir(parents=True)
+        (self.root / "plenty-linalg/vendor/faer").mkdir(parents=True)
         self.assertEqual(
             self.notices.uncovered_vendor_dirs(self.root, [crate]),
             ["a/vendor/covered-2.0.0", "b/vendor", "plenty-runtime/native/zlib-1.3"],
@@ -252,6 +258,14 @@ class Publish(unittest.TestCase):
         subprocess.run(["tar", "-czf", self.dist / engine_archive, "-C", engine.parent, engine.name], check=True)
         subprocess.run(f"sha256sum {engine_archive} > {engine_archive}.sha256", shell=True, cwd=self.dist, check=True)
         self.engine_checksum = self.dist / f"{engine_archive}.sha256"
+        linalg = stage.parent / "plenty-linalg-0.4.0-x86_64-unknown-linux-gnu"
+        linalg.mkdir()
+        (linalg / "README.md").write_text("# Linear algebra engine\n")
+        linalg_archive = f"{linalg.name}.tar.gz"
+        subprocess.run(["tar", "-czf", self.dist / linalg_archive, "-C", linalg.parent, linalg.name], check=True)
+        digest = hashlib.sha256((self.dist / linalg_archive).read_bytes()).hexdigest()
+        self.linalg_checksum = self.dist / f"{linalg_archive}.sha256"
+        self.linalg_checksum.write_text(f"{digest}  {linalg_archive}\n")
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         (bin_dir / "gh").write_text(FAKE_GH)
@@ -300,6 +314,7 @@ class Publish(unittest.TestCase):
         published.mkdir()
         other.rename(published / self.checksum.name)
         shutil.copy(self.engine_checksum, published)
+        shutil.copy(self.linalg_checksum, published)
         result, calls = self.publish("published", published=published)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual([c.split(" ")[2] for c in calls], ["view", "download"])
@@ -308,9 +323,22 @@ class Publish(unittest.TestCase):
         published = self.root / "published"
         published.mkdir()
         shutil.copy(self.checksum, published)
+        shutil.copy(self.linalg_checksum, published)
         for contents in [None, "different engine checksum\n"]:
             if contents:
                 (published / self.engine_checksum.name).write_text(contents)
+            result, calls = self.publish("published", published=published)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual([c.split(" ")[2] for c in calls], ["view", "download"])
+
+    def test_published_linalg_must_also_match(self):
+        published = self.root / "published"
+        published.mkdir()
+        shutil.copy(self.checksum, published)
+        shutil.copy(self.engine_checksum, published)
+        for contents in [None, "different linalg checksum\n"]:
+            if contents:
+                (published / self.linalg_checksum.name).write_text(contents)
             result, calls = self.publish("published", published=published)
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual([c.split(" ")[2] for c in calls], ["view", "download"])
@@ -329,6 +357,7 @@ class Publish(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(self.checksum.read_text().strip(), result.stdout)
         self.assertIn(self.engine_checksum.read_text().strip(), result.stdout)
+        self.assertIn(self.linalg_checksum.read_text().strip(), result.stdout)
         self.assertIn("optional shared library", result.stdout)
 
     def test_unknown_lookup_failure_creates_nothing(self):

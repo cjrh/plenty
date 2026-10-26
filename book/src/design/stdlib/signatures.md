@@ -2562,6 +2562,49 @@ class Normal
 def normal(mean: f64 = 0.0, sigma: f64 = 1.0) -> Result[Normal, StatError]
 ```
 
+## `std.linalg`
+
+Dense f64 matrices, products, solves, LU, QR, Cholesky, SVD and eigen decompositions through an optional faer engine. Errors: `AllocError`, `LinalgError`. [Reference](linalg.md).
+
+```text
+enum LinalgError
+    Shape | Bounds | NonFinite | Singular | NotSymmetric | NotPositiveDefinite | NoConvergence | Overflow | NativePanic
+class Matrix
+    def rows(self) -> i64
+    def cols(self) -> i64
+    def get(self, row: i64, col: i64) -> Result[f64, LinalgError]
+    def set(self: &mut Matrix, row: i64, col: i64, value: f64) -> Result[(), LinalgError]
+    def to_list(self) -> Result[list[f64], AllocError]
+    def transpose(self) -> Result[Matrix, AllocError]
+    def add(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
+    def subtract(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
+    def scale(self, factor: f64) -> Result[Matrix, AllocError | LinalgError]
+    def negate(self) -> Result[Matrix, AllocError | LinalgError]
+    def __add__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
+    def __sub__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
+    def __neg__(self) -> Result[Matrix, AllocError | LinalgError]
+    def __mul__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
+    def __rmul__(self, factor: f64) -> Result[Matrix, AllocError | LinalgError]
+    def matmul(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
+    def lu(self) -> Result[Lu, AllocError | LinalgError]
+    def solve(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
+    def qr(self) -> Result[(Matrix, Matrix), AllocError | LinalgError]
+    def cholesky(self) -> Result[Matrix, AllocError | LinalgError]
+    def svd(self) -> Result[(Matrix, list[f64], Matrix), AllocError | LinalgError]
+    def eigh(self) -> Result[(list[f64], Matrix), AllocError | LinalgError]
+    def eig(self) -> Result[(list[f64], list[f64], Matrix, Matrix), AllocError | LinalgError]
+class Lu
+    def lower(self) -> Result[Matrix, AllocError | LinalgError]
+    def upper(self) -> Result[Matrix, AllocError | LinalgError]
+    def permutation(self) -> Result[list[i64], AllocError]
+    def solve(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
+def matrix(rows: i64, cols: i64, values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]
+def vector(values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]
+def zeros(rows: i64, cols: i64) -> Result[Matrix, AllocError | LinalgError]
+def identity(n: i64) -> Result[Matrix, AllocError | LinalgError]
+def diagonal(values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]
+```
+
 ## `std.sync`
 
 Shared cooperative cancellation tokens. Errors: `AllocError`. [Reference](sync.md).

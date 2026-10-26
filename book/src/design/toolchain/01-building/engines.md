@@ -3,8 +3,8 @@
 An engine is a large native library behind a `std` module that ships outside
 the runtime archive, as a separate shared library. Only programs whose
 retained code reaches the module link it. [`std.dataframe`](../../stdlib/dataframe-engine.md)
-(Polars) is the only engine today; planned wrappers such as linear algebra
-(issue #490) and images (issue #476) are candidates.
+(Polars) and [`std.linalg`](../../stdlib/linalg-engine.md) (faer, issue #490)
+are engines today; images (issue #476) is another candidate.
 
 ## When a module is an engine
 
@@ -92,10 +92,10 @@ install hint, and drives reachability, link arguments, the facade's
 `.plentyi` resolution and build fingerprints. The `CompileOptions` override
 is still a named field per engine.
 
-The release and CI scripts are still dataframe-specific. With the second
-engine, parameterize them by engine name rather than copying them:
-`scripts/build_dataframe_engine.py`, `scripts/release/package-dataframe.py`
-(including its export check against the facade), `check-elf.sh
---dataframe-engine` (the expected SONAME), `third_party_notices.py
---component`, `smoke-dataframe.sh`, `README.dataframe.md`, and the
-`dataframe` CI job.
+The shared build and packaging entry points are `scripts/build_native_engine.py`
+and `scripts/release/package-engine.py`, each taking an engine name. The old
+dataframe entry points remain compatible. Packaging checks facade exports and
+the engine SONAME, generates component-specific dependency notices, and includes
+an engine-specific deployment README. The native-engine CI matrix builds and
+tests each engine separately; engine tests never make normal compiler builds
+depend on either engine workspace.

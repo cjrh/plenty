@@ -15,7 +15,9 @@ Rust, Cargo, or the Plenty source code. `std.dataframe` uses a separate optional
 download from the same release:
 `plenty-dataframe-@VERSION@-@TARGET@.tar.gz` and its `.sha256` checksum.
 Its README explains installation and how to ship the shared engine with your
-applications. Programs that do not use dataframe operations need no engine.
+applications. `std.linalg` similarly uses
+`plenty-linalg-@VERSION@-@TARGET@.tar.gz` and its checksum. Only programs reaching
+an engine's native operations need that engine; ordinary programs need neither.
 
 ## Requirements
 

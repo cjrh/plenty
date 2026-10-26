@@ -14,7 +14,9 @@ max_glibc=2.28
 max_gcc=4.2.0
 allowed_needed="libc.so.6 libm.so.6 libgcc_s.so.1 libpthread.so.0 libdl.so.2 librt.so.1 libutil.so.1 ld-linux-x86-64.so.2"
 engine=0
-if [ "${1:-}" = --dataframe-engine ]; then engine=1; shift; fi
+library=""
+if [ "${1:-}" = --dataframe-engine ]; then engine=1; library=libplenty_dataframe_v1.so; shift; fi
+if [ "${1:-}" = --engine ]; then engine=1; library="${2:?engine library required}"; shift 2; fi
 [ "$#" -gt 0 ] || { echo "check-elf: no inputs" >&2; exit 2; }
 
 newer_than() { # newer_than A B: A > B as versions
@@ -37,8 +39,8 @@ for exe in "$@"; do
     dynamic="$(readelf -d "$exe")"
     if [ "$engine" = 1 ]; then
         soname="$(sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p' <<<"$dynamic")"
-        [ "$soname" = libplenty_dataframe_v1.so ] \
-            || { echo "$exe: unexpected dataframe SONAME '$soname'" >&2; status=1; }
+        [ "$soname" = "$library" ] \
+            || { echo "$exe: unexpected engine SONAME '$soname' (expected $library)" >&2; status=1; }
     fi
     if grep -Eq '\((RPATH|RUNPATH)\)' <<<"$dynamic"; then
         echo "$exe: has RPATH/RUNPATH" >&2; status=1

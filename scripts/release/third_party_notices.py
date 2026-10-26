@@ -34,6 +34,22 @@ LICENSE_DIR = Path(__file__).resolve().parent / "licenses"
 # version and declared license; upgrades must be reviewed again. The commit
 # comes from the crate's .cargo_vcs_info.json.
 FALLBACK_LICENSE_TEXT = {
+    ("equator", "0.2.2", "MIT"): (
+        "equator-0.2.2-LICENSE.txt",
+        "https://raw.githubusercontent.com/sarah-ek/equator/9d4107bdd6a75598aed4a60fe46200c9e9f4e653/LICENSE",
+    ),
+    ("faer-traits", "0.24.0", "MIT"): (
+        "faer-traits-0.24.0-LICENSE.txt",
+        "https://raw.githubusercontent.com/sarah-quinones/faer-rs/8dfcceee8eb3d81231366acc9d3f157ac5e7057a/LICENSE",
+    ),
+    ("nano-gemm", "0.2.2", "MIT"): (
+        "nano-gemm-0.2.2-LICENSE.txt",
+        "https://raw.githubusercontent.com/sarah-ek/nano-gemm/806b012a6f5ee0615042bf64675180fb97ff2ccc/LICENSE",
+    ),
+    ("pulp-wasm-simd-flag", "0.1.1", "MIT"): (
+        "pulp-wasm-simd-flag-0.1.1-LICENSE.txt",
+        "https://raw.githubusercontent.com/sarah-quinones/pulp/5eb07fd7b68edf0a5e19f71737d315f72a510295/LICENSE",
+    ),
     ("polars-parquet-format", "0.1.0", "MIT AND Apache-2.0"): (
         "polars-parquet-format-0.1.0-LICENSE.txt",
         "https://github.com/jorgecarleitao/parquet-format-safe/tree/"
@@ -45,6 +61,11 @@ FALLBACK_LICENSE_TEXT = {
         "c50f29b7bc305696895c075f3fc7719751426b12/LICENSE.txt",
     ),
 }
+for _name in ("nano-gemm-core", "nano-gemm-f32", "nano-gemm-f64", "nano-gemm-c32", "nano-gemm-c64"):
+    FALLBACK_LICENSE_TEXT[(_name, "0.2.1", "MIT")] = (
+        "nano-gemm-0.2.2-LICENSE.txt",
+        "https://raw.githubusercontent.com/sarah-ek/nano-gemm/d5f1cd77f0af31fb90aa0d128a76e2366c5dabc7/LICENSE",
+    )
 
 # Vendored C code that is not a Cargo package; see build.rs.
 VENDORED = """\
@@ -109,6 +130,10 @@ def uncovered_vendor_dirs(repo, packages):
     uncovered = []
     for current, dirs, _ in os.walk(repo):
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != "target")
+        if Path(current) == Path(repo):
+            # Independent engines have separate dependency graphs and notices;
+            # none of their sources ships in the compiler archive.
+            dirs[:] = [d for d in dirs if d not in ("plenty-dataframe", "plenty-linalg")]
         relative = Path(current).relative_to(repo).as_posix()
         if relative == "plenty-runtime/native":
             uncovered.extend(f"{relative}/{d}" for d in dirs if f"{relative}/{d}" not in covered)
@@ -276,7 +301,7 @@ def render(packages, component="compiler"):
         RUST_STD,
     ]
     missing = []
-    nested = component == "dataframe"
+    nested = component != "compiler"
     names = {p["name"] for p in packages if license_files(p)}
     for package in packages:
         primary_files = license_files(package)
@@ -292,6 +317,8 @@ def render(packages, component="compiler"):
         out.append(f"License: {package.get('license') or 'see files below'}")
         if package.get("repository"):
             out.append(f"Source: {package['repository']}")
+        if (package.get("source") or "").startswith("git+"):
+            out.append(f"Resolved Git source: {package['source']}")
         if not primary_files:
             out.append(f"License text: as reproduced under {shared}, from the same repository.")
         out.append("")
@@ -317,9 +344,9 @@ def main():
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--list", action="store_true", help="print name, version, license only")
-    parser.add_argument("--component", choices=("compiler", "dataframe"), default="compiler")
+    parser.add_argument("--component", choices=("compiler", "dataframe", "linalg"), default="compiler")
     args = parser.parse_args()
-    manifest = args.repo / ("plenty-dataframe/Cargo.toml" if args.component == "dataframe" else "Cargo.toml")
+    manifest = args.repo / (f"plenty-{args.component}/Cargo.toml" if args.component != "compiler" else "Cargo.toml")
     metadata = json.loads(
         subprocess.run(
             [
@@ -332,14 +359,14 @@ def main():
             env={**os.environ, "CARGO_TERM_COLOR": "never"},
         ).stdout
     )
-    packages = shipped_packages(metadata, ("plenty-dataframe-engine",) if args.component == "dataframe" else ROOTS)
+    packages = shipped_packages(metadata, (f"plenty-{args.component}-engine",) if args.component != "compiler" else ROOTS)
     if args.component == "compiler":
         uncovered = uncovered_vendor_dirs(args.repo, packages)
         if uncovered:
             raise SystemExit("vendored directories without a notice: " + ", ".join(uncovered))
     if args.list:
         for p in packages:
-            print(p["name"], p["version"], p.get("license"), len(license_files(p, args.component == "dataframe")), file=sys.stderr)
+            print(p["name"], p["version"], p.get("license"), len(license_files(p, args.component != "compiler")), file=sys.stderr)
     args.out.write_text(render(packages, args.component), encoding="utf-8")
 
 

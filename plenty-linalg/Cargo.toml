@@ -1,0 +1,19 @@
+[package]
+name = "plenty-linalg-engine"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[workspace]
+
+[lib]
+name = "plenty_linalg_v1"
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+strip = "debuginfo"
+
+[dependencies]
+dyn-stack = "=0.13.2"
+faer = { version = "0.24.4", default-features = false, features = ["std", "linalg"], git = "https://github.com/cjrh/faer-rs", branch = "plenty/fallible-gemm-workspace" }

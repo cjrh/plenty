@@ -24,12 +24,13 @@ repo="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must name the repository}"
 
 compiler="plenty-${tag#v}-x86_64-unknown-linux-gnu.tar.gz"
 engine="plenty-dataframe-${tag#v}-x86_64-unknown-linux-gnu.tar.gz"
-assets=("$dist/$compiler" "$dist/$compiler.sha256" "$dist/$engine" "$dist/$engine.sha256")
+linalg="plenty-linalg-${tag#v}-x86_64-unknown-linux-gnu.tar.gz"
+assets=("$dist/$compiler" "$dist/$compiler.sha256" "$dist/$engine" "$dist/$engine.sha256" "$dist/$linalg" "$dist/$linalg.sha256")
 for asset in "${assets[@]}"; do
     [ -f "$asset" ] || { echo "publish.sh: missing release asset $asset" >&2; exit 1; }
 done
 actual=("$dist"/*.tar.gz "$dist"/*.sha256)
-[ "${#actual[@]}" = 4 ] || { echo "publish.sh: expected exactly two archives and two checksums in $dist" >&2; exit 1; }
+[ "${#actual[@]}" = 6 ] || { echo "publish.sh: expected exactly three archives and three checksums in $dist" >&2; exit 1; }
 (cd "$dist" && sha256sum -c ./*.sha256)
 
 notes="$(mktemp)"
@@ -60,7 +61,8 @@ case "$state" in
         published="$(mktemp -d)"
         gh release download "$tag" --repo "$repo" --pattern '*.sha256' --dir "$published"
         if cmp -s "$published/$compiler.sha256" "$dist/$compiler.sha256" \
-            && cmp -s "$published/$engine.sha256" "$dist/$engine.sha256"; then
+            && cmp -s "$published/$engine.sha256" "$dist/$engine.sha256" \
+            && cmp -s "$published/$linalg.sha256" "$dist/$linalg.sha256"; then
             echo "publish.sh: $tag is already published with these assets; nothing to do"
             exit 0
         fi

@@ -74,8 +74,10 @@ fi
 
 # Keep the engine optional in normal compiler builds and in its own download.
 # This uses the same pinned toolchain, libc and source as the compiler archive.
-python3 -B scripts/build_dataframe_engine.py --out "$target_dir/dataframe-install" \
-    --target-dir "$target_dir/dataframe-engine" --jobs "${CARGO_BUILD_JOBS:-3}"
-python3 -B "$here/package-dataframe.py" \
-    --engine "$target_dir/dataframe-install/libplenty_dataframe_v1.so" \
-    --out-dir "$out_dir" --rust-sysroot "$(rustc --print sysroot)"
+for engine in dataframe linalg; do
+    python3 -B scripts/build_native_engine.py "$engine" --out "$target_dir/$engine-install" \
+        --target-dir "$target_dir/$engine-engine" --jobs "${CARGO_BUILD_JOBS:-3}"
+    python3 -B "$here/package-engine.py" "$engine" \
+        --engine "$target_dir/$engine-install/libplenty_${engine}_v1.so" \
+        --out-dir "$out_dir" --rust-sysroot "$(rustc --print sysroot)"
+done
