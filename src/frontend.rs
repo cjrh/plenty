@@ -2631,6 +2631,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "__max_replaces"
                 | "__test_fault"
                 | "__report_write"
+                | "__io_is_terminal"
                 | "flush_stdout"
                 | "flush_stderr"
                 | "input"
@@ -4138,6 +4139,7 @@ impl Lower<'_> {
                     "__caller_location" => Some(CollectionOp::CallerLocation),
                     "__test_fault" => Some(CollectionOp::TestFault),
                     "__report_write" => Some(CollectionOp::ReportWrite),
+                    "__io_is_terminal" => Some(CollectionOp::IsTerminal),
                     _ => None,
                 } {
                     // Trusted std hooks are not user-visible API.

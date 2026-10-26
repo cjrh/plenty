@@ -384,6 +384,8 @@ mod test_std_archive;
 mod test_std_atomic;
 #[path = "test_std_bytes.rs"]
 mod test_std_bytes;
+#[path = "test_std_cli_progress.rs"]
+mod test_std_cli_progress;
 #[path = "test_std_collections.rs"]
 mod test_std_collections;
 #[path = "test_std_compress.rs"]
@@ -443,6 +445,8 @@ mod test_std_report;
 mod test_std_report_sums;
 #[path = "test_std_secrets.rs"]
 mod test_std_secrets;
+#[path = "test_std_shlex.rs"]
+mod test_std_shlex;
 #[path = "test_std_signal.rs"]
 mod test_std_signal;
 #[path = "test_std_simd.rs"]

@@ -7,7 +7,8 @@ operating-system byte strings; pipes carry [`std.bytes`](bytes.md) data.
 No shell takes part unless the program is one. An argument reaches the child
 exactly as given: spaces, quotes, `$`, `;`, `|`, `*`, and newlines are ordinary
 bytes. [`shell`](#building-a-command) is the one, named way to run shell
-syntax.
+syntax. [`std.shlex`](shlex.md) can split a shell-style argument string before
+passing each resulting word to `arg`; it does not execute or expand shell syntax.
 
 Request encoding, pipe draining, status decoding, and the reaping rules are
 checked Plenty. Five native primitives spawn, hand over a pipe end, wait,

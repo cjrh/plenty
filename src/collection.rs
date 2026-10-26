@@ -134,6 +134,8 @@ pub enum CollectionOp {
     WriteStderr,
     /// Std only: one SIGPIPE-safe stderr write, resuming at a UTF-8 byte offset.
     ReportWrite,
+    /// Std only: whether a process stream is attached to a terminal.
+    IsTerminal,
     /// Std only: writes the nearest non-std caller's `file:line:column: `
     /// to standard error; false when there is none.
     CallerLocation,
@@ -485,6 +487,7 @@ impl CollectionOp {
                 (vec![], crate::sum::result(Ty::Unit, crate::sum::io_error()))
             }
             CallerLocation => (vec![], Ty::Bool),
+            IsTerminal => (vec![Ty::U8], Ty::Bool),
             TestFault => (vec![Ty::I64, Ty::I64, Ty::I32], Ty::Bool),
             WriteStdout | WriteStderr => (
                 vec![Ty::Str],
@@ -771,6 +774,7 @@ impl CollectionOp {
             Self::WriteStderr => 82,
             // Report transport primitives have their own range after process I/O.
             Self::ReportWrite => 510,
+            Self::IsTerminal => 511,
             Self::FlushStderr => 83,
             Self::Input => 84,
             Self::Args => 85,
