@@ -573,6 +573,8 @@
     - [Timsort for stable, adaptive sorting](proposals/timsort.md)
     - [User-defined dictionary keys and set members](proposals/user-type-hashing.md)
     - [Derived serialization for classes and enums](proposals/derived-serialization.md)
+    - [std.plot: a ggplot2-style plotting module](proposals/std-plot.md)
+        - [Examples beside ggplot2 and plotnine](proposals/std-plot/examples.md)
     - [Completed proposals](proposals/completed/index.md)
         - [Runtime allocation audit](proposals/completed/allocation-audit.md)
         - [References, ownership, and explicit copying](proposals/completed/references-and-copying.md)
