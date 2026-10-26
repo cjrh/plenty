@@ -45,6 +45,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.http.https`](http-client.md#https) | `std.http.client` for `https` URLs through [`std.tls`](tls.md), verified by default, with `CONNECT` tunnels through a proxy | `ClientError` |
 | [`std.http.proxy`](http-proxy.md) | The client address and scheme behind explicitly trusted reverse proxies; deployment guidance | `ProxyError` |
 | [`std.http.server`](http-server.md) | HTTP/1.1 server: routing, a bounded worker pool and admission queue, idle connections parked off the workers, per-phase deadlines, and graceful shutdown | `ServerError` |
+| [`std.http.sse`](sse.md) | Server-Sent Events from a server exchange: `event`, `id`, multi-line `data`, comments and `retry`, flushed per event, with disconnect and shutdown detection | `SseError` |
 | [`std.http.tls`](http-server.md#https) | `std.http.server` over [`std.tls`](tls.md), with handshake deadlines | `ServerError` |
 | [`std.http.typed`](http-typed.md) | Typed head parsing and writes, fixed/chunked/close-delimited bodies, and guarded connection recovery with concrete causes and progress | `FramingError[E]`, `Partial[E]` |
 | [`std.http.websocket`](websocket.md) | RFC 6455 WebSocket connections: the handshake as a server exchange or a `ws` client, bounded framed messages, pings and the closing handshake | `WebSocketError` |

@@ -1372,6 +1372,7 @@ class Exchange[T]
     def write(self: &mut Exchange[T], source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]
     def end(self: &mut Exchange[T]) -> Result[(), HttpError]
     def switch_protocols(self: &mut Exchange[T], head: ResponseHead) -> Result[(T, Bytes), HttpError]
+    def detach(self: &mut Exchange[T], head: ResponseHead) -> Result[T, HttpError]
 def reason(status: i64) -> str
 def serve_connection[T: Transport, R, E, H: Handler[T, R, E]](stream: T, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken) -> Report
 def serve_connection_from[T: Transport, R, E, H: Handler[T, R, E]](stream: T, peer: Option[SocketAddress], router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken) -> Report
@@ -1385,6 +1386,27 @@ protocol Opener[T]
     def unwatch(self, stream: &T, selector: &mut Selector) -> ()
 def serve[R, E, H: Handler[TcpStream, R, E]](listener: TcpListener, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]
 def serve_with[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](listener: TcpListener, opener: &O, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]
+```
+
+## `std.http.sse`
+
+Server-Sent Events from a server exchange: `event`, `id`, multi-line `data`, comments and `retry`, flushed per event, with disconnect and shutdown detection. Errors: `SseError`. [Reference](sse.md).
+
+```text
+enum SseError
+    Net(NetError) | Allocation(AllocError) | Http(HttpError) | InvalidField | InvalidText | OutOfRange | Disconnected | Closed | Stopping
+class EventStream[T]
+    last_event_id: Option[str]
+    def is_open(self) -> bool
+    def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
+    def send_bytes(self: &mut EventStream[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
+    def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline) -> Result[(), SseError]
+    def retry(self: &mut EventStream[T], milliseconds: i64, deadline: &Deadline) -> Result[(), SseError]
+    def wait(self: &mut EventStream[T], deadline: &Deadline) -> Result[(), SseError]
+    def close(self: &mut EventStream[T]) -> ()
+def head() -> Result[ResponseHead, HttpError]
+def accept[T: Transport](exchange: &mut Exchange[T]) -> Result[EventStream[T], SseError]
+def accept_with[T: Transport](exchange: &mut Exchange[T], head: ResponseHead) -> Result[EventStream[T], SseError]
 ```
 
 ## `std.http.tls`

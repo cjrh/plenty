@@ -424,6 +424,8 @@ mod test_std_http_server_proxy;
 mod test_std_http_server_qualification;
 #[path = "test_std_http_shared_client.rs"]
 mod test_std_http_shared_client;
+#[path = "test_std_http_sse.rs"]
+mod test_std_http_sse;
 #[path = "test_std_http_websocket.rs"]
 mod test_std_http_websocket;
 #[path = "test_std_io.rs"]
