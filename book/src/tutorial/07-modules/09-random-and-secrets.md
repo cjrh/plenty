@@ -124,6 +124,10 @@ To start a simulation from an unpredictable seed, pass
 `std.secrets.random_u64()?` to `std.random.seeded` and print the seed so the run
 can be repeated.
 
+For normal, exponential or floating uniform samples, pass that generator to
+a [`std.stat` distribution](22-statistics.md). Each distribution documents its
+draw count, and failed sampling leaves the generator unchanged.
+
 See the [random reference](../../design/stdlib/random.md) for the algorithm and
 its stability contract, and the [secrets reference](../../design/stdlib/secrets.md)
 for the failure policy and costs.

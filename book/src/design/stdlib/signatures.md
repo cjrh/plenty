@@ -2294,6 +2294,41 @@ enum mask64x2
     def xor_mask(self, other: &mask64x2) -> mask64x2
 ```
 
+## `std.stat`
+
+Descriptive f64 statistics, inclusive quantiles, and normal, uniform and exponential distributions with explicit RNG sampling. Errors: `StatError`. [Reference](stat.md).
+
+```text
+enum StatError
+    Empty | InsufficientData | NonFinite | Domain | Overflow | Allocation(AllocError)
+def mean(values: &list[f64]) -> Result[f64, StatError]
+def pstdev(values: &list[f64]) -> Result[f64, StatError]
+def stdev(values: &list[f64]) -> Result[f64, StatError]
+def pvariance(values: &list[f64]) -> Result[f64, StatError]
+def variance(values: &list[f64]) -> Result[f64, StatError]
+def quantile(values: &list[f64], p: f64) -> Result[f64, StatError]
+def median(values: &list[f64]) -> Result[f64, StatError]
+def quantiles(values: &list[f64], n: i64 = 4) -> Result[list[f64], StatError]
+class Uniform
+    def pdf(self, x: f64) -> Result[f64, StatError]
+    def cdf(self, x: f64) -> Result[f64, StatError]
+    def inverse_cdf(self, p: f64) -> Result[f64, StatError]
+    def sample(self, rng: &mut random.Rng) -> f64
+def uniform(low: f64 = 0.0, high: f64 = 1.0) -> Result[Uniform, StatError]
+class Exponential
+    def pdf(self, x: f64) -> Result[f64, StatError]
+    def cdf(self, x: f64) -> Result[f64, StatError]
+    def inverse_cdf(self, p: f64) -> Result[f64, StatError]
+    def sample(self, rng: &mut random.Rng) -> Result[f64, StatError]
+def exponential(rate: f64 = 1.0) -> Result[Exponential, StatError]
+class Normal
+    def pdf(self, x: f64) -> Result[f64, StatError]
+    def cdf(self, x: f64) -> Result[f64, StatError]
+    def inverse_cdf(self, p: f64) -> Result[f64, StatError]
+    def sample(self, rng: &mut random.Rng) -> Result[f64, StatError]
+def normal(mean: f64 = 0.0, sigma: f64 = 1.0) -> Result[Normal, StatError]
+```
+
 ## `std.sync`
 
 Shared cooperative cancellation tokens. Errors: `AllocError`. [Reference](sync.md).

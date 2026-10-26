@@ -67,6 +67,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.shlex`](shlex.md) | Shell-style word splitting and POSIX argument quoting, without execution or expansion | `ShlexError`, `AllocError` |
 | [`std.signal`](signal.md) | `SIGTERM` and `SIGINT` as an event to wait or select on, and a helper that cancels a token on one | `SignalError`, `WaitError` |
 | [`std.simd`](simd.md) | Portable fixed-lane values, masks, checked and wrapping arithmetic, selection, and bounded list loads/stores | None |
+| [`std.stat`](stat.md) | Descriptive f64 statistics, inclusive quantiles, and normal, uniform and exponential distributions with explicit RNG sampling | `StatError` |
 | [`std.sync`](sync.md) | Shared cooperative cancellation tokens | `AllocError` |
 | [`std.system`](system.md) | Bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status | `IoError`, `SystemError` |
 | [`std.tempfile`](tempfile.md) | Unnamed and named temporary files, recursively cleaned directories, context managers and explicit ownership transfer | `IoError`, `FsError`, `StreamError`, `AllocError` |
