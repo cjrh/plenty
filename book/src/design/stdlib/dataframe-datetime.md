@@ -80,7 +80,7 @@ before calendar extraction or formatting.
 
 Parquet preserves temporal dtypes and metadata. CSV does not: format columns
 explicitly before writing and parse the resulting strings after reading.
-CSV schema overrides and `Expr.cast` still accept only the four scalar target
+CSV schema overrides and `Expr.cast` accept numeric, boolean and string target
 types; they do not construct temporal types. As-of joins remain integer-key
 operations. See the [runnable lesson](../../tutorial/special-purpose/dataframe-datetime.md)
 and [signature index](signatures.md#stddataframe).

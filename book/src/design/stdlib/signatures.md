@@ -374,10 +374,21 @@ Optional Polars analytical expression plans, typed nullable columns, schema insp
 enum TimeUnit
     Milliseconds | Microseconds | Nanoseconds
 enum DType
-    I64 | F64 | Bool | String | Date | Datetime(TimeUnit, Option[str]) | Other(str)
+    I8 | I16 | I32 | U8 | U16 | U32 | U64 | F32 | I64 | F64 | Bool | String | Binary | Date | Datetime(TimeUnit, Option[str]) | List | Struct | Other(str)
 class Field
     name: str
     dtype: DType
+class SchemaNode
+    parent: i64
+    name: str
+    dtype: DType
+class ListParts
+    values: Column
+    offsets: list[i64]
+    valid: list[bool]
+class StructParts
+    fields: DataFrame
+    valid: list[bool]
 enum JoinKind
     Inner | Left | Full | Semi | Anti
 enum AsOfStrategy
@@ -387,7 +398,13 @@ class SortKey
 enum DataFrameError
     Schema(str) | Query(str) | Io(str) | NativePanic(str) | Null(str) | Bounds(str) | Allocation(AllocError) | Message(IoError)
 class Column
+    def len(self) -> Result[i64, DataFrameError]
+    def to_frame(self) -> Result[DataFrame, DataFrameError]
+    def list_parts(self) -> Result[ListParts, DataFrameError]
+    def struct_parts(self) -> Result[StructParts, DataFrameError]
 class DataFrame
+    def column(self, name: &str) -> Result[Column, DataFrameError]
+    def schema_tree(self) -> Result[list[SchemaNode], DataFrameError]
     def height(self) -> Result[i64, DataFrameError]
     def lazy(self) -> Result[Query, DataFrameError]
     def write_parquet(self, path: &str) -> Result[(), DataFrameError]
@@ -398,12 +415,39 @@ class DataFrame
     def values_date_days_nullable(self, name: &str) -> Result[list[Option[i32]], DataFrameError]
     def values_datetime_ticks(self, name: &str, unit: TimeUnit, utc: bool = False) -> Result[list[i64], DataFrameError]
     def values_datetime_ticks_nullable(self, name: &str, unit: TimeUnit, utc: bool = False) -> Result[list[Option[i64]], DataFrameError]
+    def get_i8(self, name: &str, row: i64) -> Result[Option[i8], DataFrameError]
+    def values_i8(self, name: &str) -> Result[list[i8], DataFrameError]
+    def values_i8_nullable(self, name: &str) -> Result[list[Option[i8]], DataFrameError]
+    def get_i16(self, name: &str, row: i64) -> Result[Option[i16], DataFrameError]
+    def values_i16(self, name: &str) -> Result[list[i16], DataFrameError]
+    def values_i16_nullable(self, name: &str) -> Result[list[Option[i16]], DataFrameError]
+    def get_i32(self, name: &str, row: i64) -> Result[Option[i32], DataFrameError]
+    def values_i32(self, name: &str) -> Result[list[i32], DataFrameError]
+    def values_i32_nullable(self, name: &str) -> Result[list[Option[i32]], DataFrameError]
+    def get_u8(self, name: &str, row: i64) -> Result[Option[u8], DataFrameError]
+    def values_u8(self, name: &str) -> Result[list[u8], DataFrameError]
+    def values_u8_nullable(self, name: &str) -> Result[list[Option[u8]], DataFrameError]
+    def get_u16(self, name: &str, row: i64) -> Result[Option[u16], DataFrameError]
+    def values_u16(self, name: &str) -> Result[list[u16], DataFrameError]
+    def values_u16_nullable(self, name: &str) -> Result[list[Option[u16]], DataFrameError]
+    def get_u32(self, name: &str, row: i64) -> Result[Option[u32], DataFrameError]
+    def values_u32(self, name: &str) -> Result[list[u32], DataFrameError]
+    def values_u32_nullable(self, name: &str) -> Result[list[Option[u32]], DataFrameError]
+    def get_u64(self, name: &str, row: i64) -> Result[Option[u64], DataFrameError]
+    def values_u64(self, name: &str) -> Result[list[u64], DataFrameError]
+    def values_u64_nullable(self, name: &str) -> Result[list[Option[u64]], DataFrameError]
+    def get_f32(self, name: &str, row: i64) -> Result[Option[f32], DataFrameError]
+    def values_f32(self, name: &str) -> Result[list[f32], DataFrameError]
+    def values_f32_nullable(self, name: &str) -> Result[list[Option[f32]], DataFrameError]
     def get_i64(self, name: &str, row: i64) -> Result[Option[i64], DataFrameError]
     def values_i64(self, name: &str) -> Result[list[i64], DataFrameError]
     def get_f64(self, name: &str, row: i64) -> Result[Option[f64], DataFrameError]
     def values_f64(self, name: &str) -> Result[list[f64], DataFrameError]
     def schema(self) -> Result[list[Field], DataFrameError]
     def get_bool(self, name: &str, row: i64) -> Result[Option[bool], DataFrameError]
+    def get_binary(self, name: &str, row: i64) -> Result[Option[Bytes], DataFrameError]
+    def values_binary(self, name: &str) -> Result[list[Bytes], DataFrameError]
+    def values_binary_nullable(self, name: &str) -> Result[list[Option[Bytes]], DataFrameError]
     def get_str(self, name: &str, row: i64) -> Result[Option[str], DataFrameError]
     def values_bool(self, name: &str) -> Result[list[bool], DataFrameError]
     def values_str(self, name: &str) -> Result[list[str], DataFrameError]
@@ -412,6 +456,9 @@ class DataFrame
     def values_f64_nullable(self, name: &str) -> Result[list[Option[f64]], DataFrameError]
     def values_bool_nullable(self, name: &str) -> Result[list[Option[bool]], DataFrameError]
 class Expr
+    def list_len(self) -> Result[Expr, DataFrameError]
+    def list_get(self, index: i64) -> Result[Expr, DataFrameError]
+    def struct_field(self, name: &str) -> Result[Expr, DataFrameError]
     def str_to_date(self, format: &str = "%Y-%m-%d", strict: bool = True) -> Result[Expr, DataFrameError]
     def str_to_datetime(self, format: &str, unit: TimeUnit, utc: bool = False, strict: bool = True) -> Result[Expr, DataFrameError]
     def dt_year(self) -> Result[Expr, DataFrameError]
@@ -451,6 +498,7 @@ class Expr
     def is_null(self) -> Result[Expr, DataFrameError]
     def alias(self, name: &str) -> Result[Expr, DataFrameError]
 class Query
+    def schema_tree(self) -> Result[list[SchemaNode], DataFrameError]
     def schema(self) -> Result[list[Field], DataFrameError]
     def filter(self, predicate: &Expr) -> Result[Query, DataFrameError]
     def with_columns(self, expressions: &list[Expr]) -> Result[Query, DataFrameError]
@@ -464,7 +512,35 @@ class Query
     def sort(self, keys: &list[SortKey]) -> Result[Query, DataFrameError]
     def slice(self, offset: i64, length: i64) -> Result[Query, DataFrameError]
     def limit(self, count: i64) -> Result[Query, DataFrameError]
+def column_list(name: &str, values: &Column, offsets: &list[i64]) -> Result[Column, DataFrameError]
+def column_list_nullable(name: &str, values: &Column, offsets: &list[i64], valid: &list[bool]) -> Result[Column, DataFrameError]
+def column_struct(name: &str, fields: &DataFrame) -> Result[Column, DataFrameError]
+def column_struct_nullable(name: &str, fields: &DataFrame, valid: &list[bool]) -> Result[Column, DataFrameError]
 def frame(columns: &list[Column]) -> Result[DataFrame, DataFrameError]
+def column_i8(name: &str, values: &list[i8]) -> Result[Column, DataFrameError]
+def column_i8_nullable(name: &str, values: &list[Option[i8]]) -> Result[Column, DataFrameError]
+def lit_i8(value: i8) -> Result[Expr, DataFrameError]
+def column_i16(name: &str, values: &list[i16]) -> Result[Column, DataFrameError]
+def column_i16_nullable(name: &str, values: &list[Option[i16]]) -> Result[Column, DataFrameError]
+def lit_i16(value: i16) -> Result[Expr, DataFrameError]
+def column_i32(name: &str, values: &list[i32]) -> Result[Column, DataFrameError]
+def column_i32_nullable(name: &str, values: &list[Option[i32]]) -> Result[Column, DataFrameError]
+def lit_i32(value: i32) -> Result[Expr, DataFrameError]
+def column_u8(name: &str, values: &list[u8]) -> Result[Column, DataFrameError]
+def column_u8_nullable(name: &str, values: &list[Option[u8]]) -> Result[Column, DataFrameError]
+def lit_u8(value: u8) -> Result[Expr, DataFrameError]
+def column_u16(name: &str, values: &list[u16]) -> Result[Column, DataFrameError]
+def column_u16_nullable(name: &str, values: &list[Option[u16]]) -> Result[Column, DataFrameError]
+def lit_u16(value: u16) -> Result[Expr, DataFrameError]
+def column_u32(name: &str, values: &list[u32]) -> Result[Column, DataFrameError]
+def column_u32_nullable(name: &str, values: &list[Option[u32]]) -> Result[Column, DataFrameError]
+def lit_u32(value: u32) -> Result[Expr, DataFrameError]
+def column_u64(name: &str, values: &list[u64]) -> Result[Column, DataFrameError]
+def column_u64_nullable(name: &str, values: &list[Option[u64]]) -> Result[Column, DataFrameError]
+def lit_u64(value: u64) -> Result[Expr, DataFrameError]
+def column_f32(name: &str, values: &list[f32]) -> Result[Column, DataFrameError]
+def column_f32_nullable(name: &str, values: &list[Option[f32]]) -> Result[Column, DataFrameError]
+def lit_f32(value: f32) -> Result[Expr, DataFrameError]
 def column_i64(name: &str, values: &list[i64]) -> Result[Column, DataFrameError]
 def column_date(name: &str, days: &list[i32]) -> Result[Column, DataFrameError]
 def column_date_nullable(name: &str, days: &list[Option[i32]]) -> Result[Column, DataFrameError]
@@ -476,11 +552,14 @@ def lit(value: f64) -> Result[Expr, DataFrameError]
 def lit_i64(value: i64) -> Result[Expr, DataFrameError]
 def lit_str(value: &str) -> Result[Expr, DataFrameError]
 def lit_bool(value: bool) -> Result[Expr, DataFrameError]
+def lit_binary(value: &Bytes) -> Result[Expr, DataFrameError]
 def when(predicate: &Expr, then_value: &Expr, otherwise: &Expr) -> Result[Expr, DataFrameError]
 def null_f64() -> Result[Expr, DataFrameError]
 def scan_parquet(path: &str) -> Result[Query, DataFrameError]
 def scan_csv(path: &str, has_header: bool = True, separator: &str = ",", infer_rows: i64 = 100, null_value: Option[str] = Nothing, schema_overrides: Option[list[Field]] = Nothing) -> Result[Query, DataFrameError]
 def column_bool(name: &str, values: &list[bool]) -> Result[Column, DataFrameError]
+def column_binary(name: &str, values: &list[Bytes]) -> Result[Column, DataFrameError]
+def column_binary_nullable(name: &str, values: &list[Option[Bytes]]) -> Result[Column, DataFrameError]
 def column_str(name: &str, values: &list[str]) -> Result[Column, DataFrameError]
 def column_i64_nullable(name: &str, values: &list[Option[i64]]) -> Result[Column, DataFrameError]
 def column_f64_nullable(name: &str, values: &list[Option[f64]]) -> Result[Column, DataFrameError]

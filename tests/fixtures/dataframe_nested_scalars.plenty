@@ -1,0 +1,81 @@
+import std.dataframe as df
+import std.bytes as buffers
+from std.bytes import Bytes, BytesError
+import std.test as test
+
+def record() -> Result[df.Column, df.DataFrameError | AllocError | BytesError]:
+    ids: list[Option[u64]] = [Some(u64.MAX), Nothing, Some(0u64)]?
+    payloads: list[Option[Bytes]] = [Some(buffers.from_bytes(b"\xff\0")?), Nothing, Some(buffers.empty()?)]?
+    blobs: list[Option[Bytes]] = [Some(buffers.empty()?), Some(buffers.from_bytes(b"hidden")?), Nothing, Some(buffers.from_bytes(b"\x80")?)]?
+    scores: list[Option[f32]] = [Some(1.25f32), Some(2.5f32), Nothing, Some(-0.0f32)]?
+    offsets = [0, 2, 2, 2, 3]?
+    valid = [True, False, True, True]?
+    fields = df.frame([
+        df.column_list_nullable("ids", df.column_u64_nullable("item", ids)?, offsets, valid)?,
+        df.column_list_nullable("payloads", df.column_binary_nullable("item", payloads)?, offsets, valid)?,
+        df.column_f32_nullable("score", scores)?,
+        df.column_binary_nullable("blob", blobs)?
+    ]?)?
+    df.column_struct_nullable("record", fields, valid)
+
+def retained_payloads() -> Result[df.ListParts, df.DataFrameError | AllocError | BytesError]:
+    value = record()?
+    parts = value.struct_parts()?
+    parts.fields.column("payloads")?.list_parts()
+
+def check_parts(frame: &df.DataFrame) -> Result[(), df.DataFrameError | AllocError | BytesError | test.TestError]:
+    parts = frame.column("record")?.struct_parts()?
+    test.equal(parts.valid, [True, False, True, True]?)?
+    ids = parts.fields.column("ids")?.list_parts()?
+    expected_ids: list[Option[u64]] = [Some(u64.MAX), Nothing, Some(0u64)]?
+    test.equal(ids.values.to_frame()?.values_u64_nullable("item")?, expected_ids)?
+    test.equal(ids.offsets, [0, 2, 2, 2, 3]?)?
+    test.equal(ids.valid, [True, False, True, True]?)?
+    payloads = parts.fields.column("payloads")?.list_parts()?
+    expected: list[Option[Bytes]] = [Some(buffers.from_bytes(b"\xff\0")?), Nothing, Some(buffers.empty()?)]?
+    test.equal(payloads.values.to_frame()?.values_binary_nullable("item")?, expected)?
+    test.equal(payloads.offsets, ids.offsets)?
+    test.equal(payloads.valid, ids.valid)?
+    test.equal(parts.fields.get_f32("score", 0)?, Some(1.25f32))?
+    test.check(parts.fields.get_f32("score", 1)?.is_none(), "parent null masks numeric field")?
+    test.equal(parts.fields.get_binary("blob", 0)?.unwrap().len(), 0)?
+    test.check(parts.fields.get_binary("blob", 1)?.is_none(), "parent null masks binary field")?
+    test.check(parts.fields.get_binary("blob", 2)?.is_none(), "binary child null preserved")?
+    test.equal(parts.fields.get_binary("blob", 3)?.unwrap(), buffers.from_bytes(b"\x80")?)?
+    Ok(())
+
+def main() -> Result[(), df.DataFrameError | AllocError | BytesError | IoError | test.TestError]:
+    frame = record()?.to_frame()?
+    check_parts(frame)?
+    tree = frame.schema_tree()?
+    test.equal(len(tree), 7)?
+    test.equal(tree[0].dtype, df.DType.Struct)?
+    test.equal(tree[1].dtype, df.DType.List)?
+    test.equal(tree[2].parent, 1)?
+    test.equal(tree[2].dtype, df.DType.U64)?
+    test.equal(tree[3].dtype, df.DType.List)?
+    test.equal(tree[4].parent, 3)?
+    test.equal(tree[4].dtype, df.DType.Binary)?
+    test.equal(tree[5].dtype, df.DType.F32)?
+    test.equal(tree[6].dtype, df.DType.Binary)?
+    frame.write_parquet("nested-scalars.parquet")?
+    scan = df.scan_parquet("nested-scalars.parquet")?
+    test.equal(scan.schema_tree()?, tree)?
+    restored = scan.collect_streaming()?
+    check_parts(restored)?
+    maximum = df.col("record")?.struct_field("ids")?.list_get(0)?
+    selected = restored.lazy()?.filter(maximum.eq(df.lit_u64(u64.MAX)?)?)?.select([
+        maximum.alias("id")?,
+        df.col("record")?.struct_field("payloads")?.list_get(0)?.alias("payload")?,
+        df.col("record")?.struct_field("score")?.alias("score")?
+    ]?)?.collect()?
+    test.equal(selected.values_u64("id")?, [u64.MAX]?)?
+    test.equal(selected.values_binary("payload")?, [buffers.from_bytes(b"\xff\0")?]?)?
+    test.equal(selected.values_f32("score")?, [1.25f32]?)?
+    retained = retained_payloads()?
+    expected: list[Option[Bytes]] = [Some(buffers.from_bytes(b"\xff\0")?), Nothing, Some(buffers.empty()?)]?
+    test.equal(retained.values.to_frame()?.values_binary_nullable("item")?, expected)?
+    rebuilt = df.column_list_nullable("again", retained.values, retained.offsets, retained.valid)?.to_frame()?
+    test.equal(rebuilt.schema_tree()?[1].dtype, df.DType.Binary)?
+    print("dataframe nested scalars ok")?
+    Ok(())

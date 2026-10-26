@@ -1,5 +1,9 @@
 # Optional Polars engine. All native owners are private and uniquely released.
 # Views are borrowed for one call. Native allocation failure can abort the process.
+import std.bytes as buffers
+from std.bytes import Bytes, BytesError
+
+opaque RawBinaryValues
 opaque RawStrings
 opaque RawError
 opaque RawColumn
@@ -9,8 +13,81 @@ opaque RawExprs
 opaque RawQuery
 opaque RawSortKeys
 opaque RawCsvSchema
+opaque RawSchemaTree
+
+extern def nested_list_raw(name: &str as utf8, child: RawColumn, offsets: &list[i64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_list"
+extern def nested_struct_raw(name: &str as utf8, fields: RawFrame, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_struct"
+extern def frame_column_raw(frame: RawFrame, name: &str as utf8, out: &mut RawColumn) -> RawError = "pldf_v1_frame_column"
+extern def column_frame_raw(column: RawColumn, out: &mut RawFrame) -> RawError = "pldf_v1_column_frame"
+extern def column_len_raw(column: RawColumn, out: &mut i64) -> RawError = "pldf_v1_column_len"
+extern def list_parts_raw(column: RawColumn, child: &mut RawColumn, offsets: &mut list[i64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_list_parts"
+extern def struct_parts_raw(column: RawColumn, fields: &mut RawFrame, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_struct_parts"
+extern def schema_tree_drop(tree: RawSchemaTree) -> () = "pldf_v1_schema_tree_drop"
+extern def frame_schema_tree_raw(frame: RawFrame, out: &mut RawSchemaTree) -> RawError = "pldf_v1_frame_schema_tree"
+extern def query_schema_tree_raw(query: RawQuery, out: &mut RawSchemaTree) -> RawError = "pldf_v1_query_schema_tree"
+extern def schema_tree_len_raw(tree: RawSchemaTree, out: &mut i64) -> RawError = "pldf_v1_schema_tree_len"
+extern def schema_tree_copy_raw(tree: RawSchemaTree, parents: &mut list[i64] as strided, fields: &mut RawStrings) -> RawError = "pldf_v1_schema_tree_copy"
+extern def list_len_raw(expr: RawExpr, out: &mut RawExpr) -> RawError = "pldf_v1_list_len"
+extern def list_get_raw(expr: RawExpr, index: i64, out: &mut RawExpr) -> RawError = "pldf_v1_list_get"
+extern def struct_field_raw(expr: RawExpr, name: &str as utf8, out: &mut RawExpr) -> RawError = "pldf_v1_struct_field"
+
+extern def native_i8(name: &str as utf8, values: &list[i8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i8"
+extern def native_i8_nullable(name: &str as utf8, values: &list[i8] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i8_nullable"
+extern def get_i8_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut i8, valid: &mut u8) -> RawError = "pldf_v1_get_i8"
+extern def values_i8_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i8] as strided) -> RawError = "pldf_v1_values_i8"
+extern def values_i8_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i8] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_i8_nullable"
+extern def lit_i8_raw(value: i8, out: &mut RawExpr) -> RawError = "pldf_v1_lit_i8"
+extern def native_i16(name: &str as utf8, values: &list[i16] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i16"
+extern def native_i16_nullable(name: &str as utf8, values: &list[i16] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i16_nullable"
+extern def get_i16_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut i16, valid: &mut u8) -> RawError = "pldf_v1_get_i16"
+extern def values_i16_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i16] as strided) -> RawError = "pldf_v1_values_i16"
+extern def values_i16_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i16] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_i16_nullable"
+extern def lit_i16_raw(value: i16, out: &mut RawExpr) -> RawError = "pldf_v1_lit_i16"
+extern def native_i32(name: &str as utf8, values: &list[i32] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i32"
+extern def native_i32_nullable(name: &str as utf8, values: &list[i32] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i32_nullable"
+extern def get_i32_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut i32, valid: &mut u8) -> RawError = "pldf_v1_get_i32"
+extern def values_i32_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i32] as strided) -> RawError = "pldf_v1_values_i32"
+extern def values_i32_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i32] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_i32_nullable"
+extern def lit_i32_raw(value: i32, out: &mut RawExpr) -> RawError = "pldf_v1_lit_i32"
+extern def native_u8(name: &str as utf8, values: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u8"
+extern def native_u8_nullable(name: &str as utf8, values: &list[u8] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u8_nullable"
+extern def get_u8_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut u8, valid: &mut u8) -> RawError = "pldf_v1_get_u8"
+extern def values_u8_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u8] as strided) -> RawError = "pldf_v1_values_u8"
+extern def values_u8_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u8] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_u8_nullable"
+extern def lit_u8_raw(value: u8, out: &mut RawExpr) -> RawError = "pldf_v1_lit_u8"
+extern def native_u16(name: &str as utf8, values: &list[u16] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u16"
+extern def native_u16_nullable(name: &str as utf8, values: &list[u16] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u16_nullable"
+extern def get_u16_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut u16, valid: &mut u8) -> RawError = "pldf_v1_get_u16"
+extern def values_u16_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u16] as strided) -> RawError = "pldf_v1_values_u16"
+extern def values_u16_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u16] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_u16_nullable"
+extern def lit_u16_raw(value: u16, out: &mut RawExpr) -> RawError = "pldf_v1_lit_u16"
+extern def native_u32(name: &str as utf8, values: &list[u32] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u32"
+extern def native_u32_nullable(name: &str as utf8, values: &list[u32] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u32_nullable"
+extern def get_u32_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut u32, valid: &mut u8) -> RawError = "pldf_v1_get_u32"
+extern def values_u32_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u32] as strided) -> RawError = "pldf_v1_values_u32"
+extern def values_u32_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u32] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_u32_nullable"
+extern def lit_u32_raw(value: u32, out: &mut RawExpr) -> RawError = "pldf_v1_lit_u32"
+extern def native_u64(name: &str as utf8, values: &list[u64] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u64"
+extern def native_u64_nullable(name: &str as utf8, values: &list[u64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u64_nullable"
+extern def get_u64_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut u64, valid: &mut u8) -> RawError = "pldf_v1_get_u64"
+extern def values_u64_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u64] as strided) -> RawError = "pldf_v1_values_u64"
+extern def values_u64_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_u64_nullable"
+extern def lit_u64_raw(value: u64, out: &mut RawExpr) -> RawError = "pldf_v1_lit_u64"
+extern def native_f32(name: &str as utf8, values: &list[f32] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_f32"
+extern def native_f32_nullable(name: &str as utf8, values: &list[f32] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_f32_nullable"
+extern def get_f32_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut f32, valid: &mut u8) -> RawError = "pldf_v1_get_f32"
+extern def values_f32_raw(frame: RawFrame, name: &str as utf8, values: &mut list[f32] as strided) -> RawError = "pldf_v1_values_f32"
+extern def values_f32_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[f32] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_f32_nullable"
+extern def lit_f32_raw(value: f32, out: &mut RawExpr) -> RawError = "pldf_v1_lit_f32"
 
 extern def error_drop(raw: RawError) -> () = "pldf_v1_error_drop"
+extern def binary_values_drop(raw: RawBinaryValues) -> () = "pldf_v1_binary_values_drop"
+extern def binary_values_meta(raw: RawBinaryValues, rows: &mut i64, bytes: &mut i64) -> RawError = "pldf_v1_binary_values_meta"
+extern def binary_values_copy(raw: RawBinaryValues, bytes: &mut list[u8] as strided, offsets: &mut list[i64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_binary_values_copy"
+extern def native_binary(name: &str as utf8, bytes: &list[u8] as strided, offsets: &list[i64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_binary_column"
+extern def get_binary_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut RawBinaryValues) -> RawError = "pldf_v1_get_binary"
+extern def values_binary_raw(frame: RawFrame, name: &str as utf8, nullable: u8, out: &mut RawBinaryValues) -> RawError = "pldf_v1_values_binary"
+extern def lit_binary_raw(bytes: &list[u8] as strided, out: &mut RawExpr) -> RawError = "pldf_v1_lit_binary"
 extern def column_drop(raw: RawColumn) -> () = "pldf_v1_column_drop"
 extern def frame_drop(raw: RawFrame) -> () = "pldf_v1_frame_drop"
 extern def expr_drop(raw: RawExpr) -> () = "pldf_v1_expr_drop"
@@ -113,20 +190,77 @@ def time_unit_code(unit: TimeUnit) -> i32:
             2i32
 
 pub enum DType:
+    I8
+    I16
+    I32
+    U8
+    U16
+    U32
+    U64
+    F32
     I64
     F64
     Bool
     String
+    Binary
     Date
     Datetime(TimeUnit, Option[str])
+    List
+    Struct
     Other(str)
 
 pub class Field:
     pub name: str
     pub dtype: DType
 
+# Preorder indexes describe a tree without making ordinary DType values recursive.
+pub class SchemaNode:
+    pub parent: i64
+    pub name: str
+    pub dtype: DType
+
+class SchemaTree:
+    raw: RawSchemaTree
+    def __init__(self) -> ():
+        self.raw = RawSchemaTree.null()
+    def __del__(self) -> ():
+        schema_tree_drop(self.raw)
+    def unpack(self) -> Result[list[SchemaNode], DataFrameError]:
+        mut count = 0
+        checked(schema_tree_len_raw(self.raw, &mut count))?
+        mut parents = allocated([0 for _ in range(count)])?
+        mut strings = Strings()
+        checked(schema_tree_copy_raw(self.raw, &mut parents, &mut strings.raw))?
+        descriptions = fields(strings)?
+        allocated([SchemaNode(parents[i], descriptions[i].name, descriptions[i].dtype) for i in range(count)])
+
+pub class ListParts:
+    pub values: Column
+    pub offsets: list[i64]
+    pub valid: list[bool]
+
+pub class StructParts:
+    pub fields: DataFrame
+    pub valid: list[bool]
+
 def scalar_dtype(dtype: DType) -> Result[i32, DataFrameError]:
     match dtype:
+        case DType.I8:
+            Ok(10i32)
+        case DType.I16:
+            Ok(11i32)
+        case DType.I32:
+            Ok(12i32)
+        case DType.U8:
+            Ok(13i32)
+        case DType.U16:
+            Ok(14i32)
+        case DType.U32:
+            Ok(15i32)
+        case DType.U64:
+            Ok(16i32)
+        case DType.F32:
+            Ok(17i32)
         case DType.I64:
             Ok(0i32)
         case DType.F64:
@@ -135,8 +269,10 @@ def scalar_dtype(dtype: DType) -> Result[i32, DataFrameError]:
             Ok(2i32)
         case DType.String:
             Ok(3i32)
+        case DType.Binary:
+            Ok(30i32)
         case _:
-            Err(DataFrameError.Schema("cast and CSV schema overrides require I64, F64, Bool or String"))
+            Err(DataFrameError.Schema("cast and CSV schema overrides require a supported scalar dtype"))
 
 class CsvSchema:
     raw: RawCsvSchema
@@ -182,6 +318,41 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, DataFrameError]:
             Ok(value)
         case Err(error):
             Err(DataFrameError.Allocation(error))
+
+def buffered[T](result: Result[T, BytesError]) -> Result[T, DataFrameError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(error)):
+            Err(DataFrameError.Allocation(error))
+        case Err(BytesError.OutOfRange):
+            Err(DataFrameError.Bounds("binary buffer range is out of bounds"))
+        case Err(BytesError.InvalidUtf8):
+            Err(DataFrameError.Schema("unexpected UTF-8 conversion in binary transfer"))
+
+class BinaryValues:
+    raw: RawBinaryValues
+    def __init__(self) -> ():
+        self.raw = RawBinaryValues.null()
+    def __del__(self) -> ():
+        binary_values_drop(self.raw)
+    def unpack(self) -> Result[list[Option[Bytes]], DataFrameError]:
+        mut rows = 0
+        mut count = 0
+        checked(binary_values_meta(self.raw, &mut rows, &mut count))?
+        mut data = allocated([0u8 for _ in range(count)])?
+        mut offsets = allocated([0 for _ in range(rows + 1)])?
+        mut valid = allocated([0u8 for _ in range(rows)])?
+        checked(binary_values_copy(self.raw, &mut data, &mut offsets, &mut valid))?
+        packed = buffered(buffers.from_list(data))?
+        mut result = allocated(list[Option[Bytes]]())?
+        for i in range(rows):
+            if valid[i] == 0u8:
+                allocated(result.append(Nothing))?
+            else:
+                value = buffered(packed.slice(offsets[i], offsets[i + 1]))?
+                allocated(result.append(Some(value)))?
+        Ok(result)
 
 class ErrorOwner:
     raw: RawError
@@ -288,6 +459,22 @@ def fields(strings: &Strings) -> Result[list[Field], DataFrameError]:
         name = entries[i].unwrap()
         native = entries[i + 1].unwrap()
         dtype = match native:
+            case "Int8":
+                DType.I8
+            case "Int16":
+                DType.I16
+            case "Int32":
+                DType.I32
+            case "UInt8":
+                DType.U8
+            case "UInt16":
+                DType.U16
+            case "UInt32":
+                DType.U32
+            case "UInt64":
+                DType.U64
+            case "Float32":
+                DType.F32
             case "Int64":
                 DType.I64
             case "Float64":
@@ -296,8 +483,14 @@ def fields(strings: &Strings) -> Result[list[Field], DataFrameError]:
                 DType.Bool
             case "String":
                 DType.String
+            case "Binary":
+                DType.Binary
             case "Date":
                 DType.Date
+            case "List":
+                DType.List
+            case "Struct":
+                DType.Struct
             case _:
                 temporal_dtype(native)?
         allocated(out.append(Field(name, dtype)))?
@@ -317,6 +510,29 @@ pub class Column:
         self.raw = RawColumn.null()
     def __del__(self) -> ():
         column_drop(self.raw)
+    pub def len(self) -> Result[i64, DataFrameError]:
+        mut out = 0
+        checked(column_len_raw(self.raw, &mut out))?
+        Ok(out)
+    pub def to_frame(self) -> Result[DataFrame, DataFrameError]:
+        mut out = DataFrame()
+        checked(column_frame_raw(self.raw, &mut out.raw))?
+        Ok(out)
+    pub def list_parts(self) -> Result[ListParts, DataFrameError]:
+        count = self.len()?
+        mut values = Column()
+        mut offsets = allocated([0 for _ in range(count + 1)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(list_parts_raw(self.raw, &mut values.raw, &mut offsets, &mut valid))?
+        present = allocated([*v != 0u8 for v in &valid])?
+        Ok(ListParts(values, offsets, present))
+    pub def struct_parts(self) -> Result[StructParts, DataFrameError]:
+        count = self.len()?
+        mut fields = DataFrame()
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(struct_parts_raw(self.raw, &mut fields.raw, &mut valid))?
+        present = allocated([*v != 0u8 for v in &valid])?
+        Ok(StructParts(fields, present))
 
 pub class DataFrame:
     raw: RawFrame
@@ -324,6 +540,14 @@ pub class DataFrame:
         self.raw = RawFrame.null()
     def __del__(self) -> ():
         frame_drop(self.raw)
+    pub def column(self, name: &str) -> Result[Column, DataFrameError]:
+        mut out = Column()
+        checked(frame_column_raw(self.raw, name, &mut out.raw))?
+        Ok(out)
+    pub def schema_tree(self) -> Result[list[SchemaNode], DataFrameError]:
+        mut out = SchemaTree()
+        checked(frame_schema_tree_raw(self.raw, &mut out.raw))?
+        out.unpack()
     pub def height(self) -> Result[i64, DataFrameError]:
         mut out = 0
         checked(height_raw(self.raw, &mut out))?
@@ -368,6 +592,126 @@ pub class DataFrame:
         mut valid = allocated([0u8 for _ in range(count)])?
         checked(values_datetime_raw(self.raw, name, time_unit_code(unit), 1u8 if utc else 0u8, 1u8, &mut out, &mut valid))?
         allocated([optional(out[i], valid[i]) for i in range(count)])
+    pub def get_i8(self, name: &str, row: i64) -> Result[Option[i8], DataFrameError]:
+        mut out = 0i8
+        mut valid = 0u8
+        checked(get_i8_raw(self.raw, name, row, &mut out, &mut valid))?
+        Ok(optional(out, valid))
+    pub def values_i8(self, name: &str) -> Result[list[i8], DataFrameError]:
+        mut out = allocated([0i8 for _ in range(self.height()?)])?
+        checked(values_i8_raw(self.raw, name, &mut out))?
+        Ok(out)
+    pub def values_i8_nullable(self, name: &str) -> Result[list[Option[i8]], DataFrameError]:
+        count = self.height()?
+        mut out = allocated([0i8 for _ in range(count)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(values_i8_nullable_raw(self.raw, name, &mut out, &mut valid))?
+        allocated([optional(out[i], valid[i]) for i in range(count)])
+    pub def get_i16(self, name: &str, row: i64) -> Result[Option[i16], DataFrameError]:
+        mut out = 0i16
+        mut valid = 0u8
+        checked(get_i16_raw(self.raw, name, row, &mut out, &mut valid))?
+        Ok(optional(out, valid))
+    pub def values_i16(self, name: &str) -> Result[list[i16], DataFrameError]:
+        mut out = allocated([0i16 for _ in range(self.height()?)])?
+        checked(values_i16_raw(self.raw, name, &mut out))?
+        Ok(out)
+    pub def values_i16_nullable(self, name: &str) -> Result[list[Option[i16]], DataFrameError]:
+        count = self.height()?
+        mut out = allocated([0i16 for _ in range(count)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(values_i16_nullable_raw(self.raw, name, &mut out, &mut valid))?
+        allocated([optional(out[i], valid[i]) for i in range(count)])
+    pub def get_i32(self, name: &str, row: i64) -> Result[Option[i32], DataFrameError]:
+        mut out = 0i32
+        mut valid = 0u8
+        checked(get_i32_raw(self.raw, name, row, &mut out, &mut valid))?
+        Ok(optional(out, valid))
+    pub def values_i32(self, name: &str) -> Result[list[i32], DataFrameError]:
+        mut out = allocated([0i32 for _ in range(self.height()?)])?
+        checked(values_i32_raw(self.raw, name, &mut out))?
+        Ok(out)
+    pub def values_i32_nullable(self, name: &str) -> Result[list[Option[i32]], DataFrameError]:
+        count = self.height()?
+        mut out = allocated([0i32 for _ in range(count)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(values_i32_nullable_raw(self.raw, name, &mut out, &mut valid))?
+        allocated([optional(out[i], valid[i]) for i in range(count)])
+    pub def get_u8(self, name: &str, row: i64) -> Result[Option[u8], DataFrameError]:
+        mut out = 0u8
+        mut valid = 0u8
+        checked(get_u8_raw(self.raw, name, row, &mut out, &mut valid))?
+        Ok(optional(out, valid))
+    pub def values_u8(self, name: &str) -> Result[list[u8], DataFrameError]:
+        mut out = allocated([0u8 for _ in range(self.height()?)])?
+        checked(values_u8_raw(self.raw, name, &mut out))?
+        Ok(out)
+    pub def values_u8_nullable(self, name: &str) -> Result[list[Option[u8]], DataFrameError]:
+        count = self.height()?
+        mut out = allocated([0u8 for _ in range(count)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(values_u8_nullable_raw(self.raw, name, &mut out, &mut valid))?
+        allocated([optional(out[i], valid[i]) for i in range(count)])
+    pub def get_u16(self, name: &str, row: i64) -> Result[Option[u16], DataFrameError]:
+        mut out = 0u16
+        mut valid = 0u8
+        checked(get_u16_raw(self.raw, name, row, &mut out, &mut valid))?
+        Ok(optional(out, valid))
+    pub def values_u16(self, name: &str) -> Result[list[u16], DataFrameError]:
+        mut out = allocated([0u16 for _ in range(self.height()?)])?
+        checked(values_u16_raw(self.raw, name, &mut out))?
+        Ok(out)
+    pub def values_u16_nullable(self, name: &str) -> Result[list[Option[u16]], DataFrameError]:
+        count = self.height()?
+        mut out = allocated([0u16 for _ in range(count)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(values_u16_nullable_raw(self.raw, name, &mut out, &mut valid))?
+        allocated([optional(out[i], valid[i]) for i in range(count)])
+    pub def get_u32(self, name: &str, row: i64) -> Result[Option[u32], DataFrameError]:
+        mut out = 0u32
+        mut valid = 0u8
+        checked(get_u32_raw(self.raw, name, row, &mut out, &mut valid))?
+        Ok(optional(out, valid))
+    pub def values_u32(self, name: &str) -> Result[list[u32], DataFrameError]:
+        mut out = allocated([0u32 for _ in range(self.height()?)])?
+        checked(values_u32_raw(self.raw, name, &mut out))?
+        Ok(out)
+    pub def values_u32_nullable(self, name: &str) -> Result[list[Option[u32]], DataFrameError]:
+        count = self.height()?
+        mut out = allocated([0u32 for _ in range(count)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(values_u32_nullable_raw(self.raw, name, &mut out, &mut valid))?
+        allocated([optional(out[i], valid[i]) for i in range(count)])
+    pub def get_u64(self, name: &str, row: i64) -> Result[Option[u64], DataFrameError]:
+        mut out = 0u64
+        mut valid = 0u8
+        checked(get_u64_raw(self.raw, name, row, &mut out, &mut valid))?
+        Ok(optional(out, valid))
+    pub def values_u64(self, name: &str) -> Result[list[u64], DataFrameError]:
+        mut out = allocated([0u64 for _ in range(self.height()?)])?
+        checked(values_u64_raw(self.raw, name, &mut out))?
+        Ok(out)
+    pub def values_u64_nullable(self, name: &str) -> Result[list[Option[u64]], DataFrameError]:
+        count = self.height()?
+        mut out = allocated([0u64 for _ in range(count)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(values_u64_nullable_raw(self.raw, name, &mut out, &mut valid))?
+        allocated([optional(out[i], valid[i]) for i in range(count)])
+    pub def get_f32(self, name: &str, row: i64) -> Result[Option[f32], DataFrameError]:
+        mut out = 0f32
+        mut valid = 0u8
+        checked(get_f32_raw(self.raw, name, row, &mut out, &mut valid))?
+        Ok(optional(out, valid))
+    pub def values_f32(self, name: &str) -> Result[list[f32], DataFrameError]:
+        mut out = allocated([0f32 for _ in range(self.height()?)])?
+        checked(values_f32_raw(self.raw, name, &mut out))?
+        Ok(out)
+    pub def values_f32_nullable(self, name: &str) -> Result[list[Option[f32]], DataFrameError]:
+        count = self.height()?
+        mut out = allocated([0f32 for _ in range(count)])?
+        mut valid = allocated([0u8 for _ in range(count)])?
+        checked(values_f32_nullable_raw(self.raw, name, &mut out, &mut valid))?
+        allocated([optional(out[i], valid[i]) for i in range(count)])
     pub def get_i64(self, name: &str, row: i64) -> Result[Option[i64], DataFrameError]:
         mut out = 0
         mut valid = 0u8
@@ -402,6 +746,20 @@ pub class DataFrame:
         mut valid = 0u8
         checked(get_bool_raw(self.raw, name, row, &mut out, &mut valid))?
         Ok(optional(out != 0u8, valid))
+    pub def get_binary(self, name: &str, row: i64) -> Result[Option[Bytes], DataFrameError]:
+        mut out = BinaryValues()
+        checked(get_binary_raw(self.raw, name, row, &mut out.raw))?
+        mut values = out.unpack()?
+        Ok(values.pop().unwrap())
+    pub def values_binary(self, name: &str) -> Result[list[Bytes], DataFrameError]:
+        mut out = BinaryValues()
+        checked(values_binary_raw(self.raw, name, 0u8, &mut out.raw))?
+        values = out.unpack()?
+        allocated([value.unwrap() for value in values])
+    pub def values_binary_nullable(self, name: &str) -> Result[list[Option[Bytes]], DataFrameError]:
+        mut out = BinaryValues()
+        checked(values_binary_raw(self.raw, name, 1u8, &mut out.raw))?
+        out.unpack()
     pub def get_str(self, name: &str, row: i64) -> Result[Option[str], DataFrameError]:
         mut out = Strings()
         checked(get_str_raw(self.raw, name, row, &mut out.raw))?
@@ -446,6 +804,18 @@ pub class Expr:
         self.raw = RawExpr.null()
     def __del__(self) -> ():
         expr_drop(self.raw)
+    pub def list_len(self) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(list_len_raw(self.raw, &mut out.raw))?
+        Ok(out)
+    pub def list_get(self, index: i64) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(list_get_raw(self.raw, index, &mut out.raw))?
+        Ok(out)
+    pub def struct_field(self, name: &str) -> Result[Expr, DataFrameError]:
+        mut out = Expr()
+        checked(struct_field_raw(self.raw, name, &mut out.raw))?
+        Ok(out)
     pub def str_to_date(self, format: &str = "%Y-%m-%d", strict: bool = True) -> Result[Expr, DataFrameError]:
         mut out = Expr()
         checked(str_to_date_raw(self.raw, format, 1u8 if strict else 0u8, &mut out.raw))?
@@ -617,6 +987,10 @@ class SortKeys:
 
 pub class Query:
     raw: RawQuery
+    pub def schema_tree(self) -> Result[list[SchemaNode], DataFrameError]:
+        mut out = SchemaTree()
+        checked(query_schema_tree_raw(self.raw, &mut out.raw))?
+        out.unpack()
     def __init__(self) -> ():
         self.raw = RawQuery.null()
     def __del__(self) -> ():
@@ -705,11 +1079,167 @@ def expression_list(expressions: &list[Expr]) -> Result[Exprs, DataFrameError]:
         checked(exprs_add_raw(out.raw, expr.raw))?
     Ok(out)
 
+pub def column_list(name: &str, values: &Column, offsets: &list[i64]) -> Result[Column, DataFrameError]:
+    valid = allocated([True for _ in range(len(offsets) - 1)])?
+    column_list_nullable(name, values, offsets, valid)
+
+pub def column_list_nullable(name: &str, values: &Column, offsets: &list[i64], valid: &list[bool]) -> Result[Column, DataFrameError]:
+    flags = allocated([1u8 if *v else 0u8 for v in valid])?
+    mut out = Column()
+    checked(nested_list_raw(name, values.raw, offsets, flags, &mut out.raw))?
+    Ok(out)
+
+pub def column_struct(name: &str, fields: &DataFrame) -> Result[Column, DataFrameError]:
+    valid = allocated([True for _ in range(fields.height()?)])?
+    column_struct_nullable(name, fields, valid)
+
+pub def column_struct_nullable(name: &str, fields: &DataFrame, valid: &list[bool]) -> Result[Column, DataFrameError]:
+    flags = allocated([1u8 if *v else 0u8 for v in valid])?
+    mut out = Column()
+    checked(nested_struct_raw(name, fields.raw, flags, &mut out.raw))?
+    Ok(out)
+
 pub def frame(columns: &list[Column]) -> Result[DataFrame, DataFrameError]:
     mut out = DataFrame()
     checked(frame_new_raw(&mut out.raw))?
     for column in columns:
         checked(frame_add_raw(out.raw, column.raw))?
+    Ok(out)
+
+pub def column_i8(name: &str, values: &list[i8]) -> Result[Column, DataFrameError]:
+    mut out = Column()
+    checked(native_i8(name, values, &mut out.raw))?
+    Ok(out)
+
+pub def column_i8_nullable(name: &str, values: &list[Option[i8]]) -> Result[Column, DataFrameError]:
+    scalars = allocated([payload(value, 0i8) for value in values])?
+    valid = allocated([validity(value) for value in values])?
+    mut out = Column()
+    checked(native_i8_nullable(name, scalars, valid, &mut out.raw))?
+    Ok(out)
+
+pub def lit_i8(value: i8) -> Result[Expr, DataFrameError]:
+    mut out = Expr()
+    checked(lit_i8_raw(value, &mut out.raw))?
+    Ok(out)
+
+pub def column_i16(name: &str, values: &list[i16]) -> Result[Column, DataFrameError]:
+    mut out = Column()
+    checked(native_i16(name, values, &mut out.raw))?
+    Ok(out)
+
+pub def column_i16_nullable(name: &str, values: &list[Option[i16]]) -> Result[Column, DataFrameError]:
+    scalars = allocated([payload(value, 0i16) for value in values])?
+    valid = allocated([validity(value) for value in values])?
+    mut out = Column()
+    checked(native_i16_nullable(name, scalars, valid, &mut out.raw))?
+    Ok(out)
+
+pub def lit_i16(value: i16) -> Result[Expr, DataFrameError]:
+    mut out = Expr()
+    checked(lit_i16_raw(value, &mut out.raw))?
+    Ok(out)
+
+pub def column_i32(name: &str, values: &list[i32]) -> Result[Column, DataFrameError]:
+    mut out = Column()
+    checked(native_i32(name, values, &mut out.raw))?
+    Ok(out)
+
+pub def column_i32_nullable(name: &str, values: &list[Option[i32]]) -> Result[Column, DataFrameError]:
+    scalars = allocated([payload(value, 0i32) for value in values])?
+    valid = allocated([validity(value) for value in values])?
+    mut out = Column()
+    checked(native_i32_nullable(name, scalars, valid, &mut out.raw))?
+    Ok(out)
+
+pub def lit_i32(value: i32) -> Result[Expr, DataFrameError]:
+    mut out = Expr()
+    checked(lit_i32_raw(value, &mut out.raw))?
+    Ok(out)
+
+pub def column_u8(name: &str, values: &list[u8]) -> Result[Column, DataFrameError]:
+    mut out = Column()
+    checked(native_u8(name, values, &mut out.raw))?
+    Ok(out)
+
+pub def column_u8_nullable(name: &str, values: &list[Option[u8]]) -> Result[Column, DataFrameError]:
+    scalars = allocated([payload(value, 0u8) for value in values])?
+    valid = allocated([validity(value) for value in values])?
+    mut out = Column()
+    checked(native_u8_nullable(name, scalars, valid, &mut out.raw))?
+    Ok(out)
+
+pub def lit_u8(value: u8) -> Result[Expr, DataFrameError]:
+    mut out = Expr()
+    checked(lit_u8_raw(value, &mut out.raw))?
+    Ok(out)
+
+pub def column_u16(name: &str, values: &list[u16]) -> Result[Column, DataFrameError]:
+    mut out = Column()
+    checked(native_u16(name, values, &mut out.raw))?
+    Ok(out)
+
+pub def column_u16_nullable(name: &str, values: &list[Option[u16]]) -> Result[Column, DataFrameError]:
+    scalars = allocated([payload(value, 0u16) for value in values])?
+    valid = allocated([validity(value) for value in values])?
+    mut out = Column()
+    checked(native_u16_nullable(name, scalars, valid, &mut out.raw))?
+    Ok(out)
+
+pub def lit_u16(value: u16) -> Result[Expr, DataFrameError]:
+    mut out = Expr()
+    checked(lit_u16_raw(value, &mut out.raw))?
+    Ok(out)
+
+pub def column_u32(name: &str, values: &list[u32]) -> Result[Column, DataFrameError]:
+    mut out = Column()
+    checked(native_u32(name, values, &mut out.raw))?
+    Ok(out)
+
+pub def column_u32_nullable(name: &str, values: &list[Option[u32]]) -> Result[Column, DataFrameError]:
+    scalars = allocated([payload(value, 0u32) for value in values])?
+    valid = allocated([validity(value) for value in values])?
+    mut out = Column()
+    checked(native_u32_nullable(name, scalars, valid, &mut out.raw))?
+    Ok(out)
+
+pub def lit_u32(value: u32) -> Result[Expr, DataFrameError]:
+    mut out = Expr()
+    checked(lit_u32_raw(value, &mut out.raw))?
+    Ok(out)
+
+pub def column_u64(name: &str, values: &list[u64]) -> Result[Column, DataFrameError]:
+    mut out = Column()
+    checked(native_u64(name, values, &mut out.raw))?
+    Ok(out)
+
+pub def column_u64_nullable(name: &str, values: &list[Option[u64]]) -> Result[Column, DataFrameError]:
+    scalars = allocated([payload(value, 0u64) for value in values])?
+    valid = allocated([validity(value) for value in values])?
+    mut out = Column()
+    checked(native_u64_nullable(name, scalars, valid, &mut out.raw))?
+    Ok(out)
+
+pub def lit_u64(value: u64) -> Result[Expr, DataFrameError]:
+    mut out = Expr()
+    checked(lit_u64_raw(value, &mut out.raw))?
+    Ok(out)
+
+pub def column_f32(name: &str, values: &list[f32]) -> Result[Column, DataFrameError]:
+    mut out = Column()
+    checked(native_f32(name, values, &mut out.raw))?
+    Ok(out)
+
+pub def column_f32_nullable(name: &str, values: &list[Option[f32]]) -> Result[Column, DataFrameError]:
+    scalars = allocated([payload(value, 0f32) for value in values])?
+    valid = allocated([validity(value) for value in values])?
+    mut out = Column()
+    checked(native_f32_nullable(name, scalars, valid, &mut out.raw))?
+    Ok(out)
+
+pub def lit_f32(value: f32) -> Result[Expr, DataFrameError]:
+    mut out = Expr()
+    checked(lit_f32_raw(value, &mut out.raw))?
     Ok(out)
 
 pub def column_i64(name: &str, values: &list[i64]) -> Result[Column, DataFrameError]:
@@ -773,6 +1303,12 @@ pub def lit_bool(value: bool) -> Result[Expr, DataFrameError]:
     checked(lit_bool_raw(1u8 if value else 0u8, &mut out.raw))?
     Ok(out)
 
+pub def lit_binary(value: &Bytes) -> Result[Expr, DataFrameError]:
+    data = buffered(value.to_list())?
+    mut out = Expr()
+    checked(lit_binary_raw(data, &mut out.raw))?
+    Ok(out)
+
 pub def when(predicate: &Expr, then_value: &Expr, otherwise: &Expr) -> Result[Expr, DataFrameError]:
     mut out = Expr()
     checked(when_raw(predicate.raw, then_value.raw, otherwise.raw, &mut out.raw))?
@@ -805,6 +1341,35 @@ pub def column_bool(name: &str, values: &list[bool]) -> Result[Column, DataFrame
     packed = allocated([1u8 if *value else 0u8 for value in values])?
     mut out = Column()
     checked(native_bool(name, packed, &mut out.raw))?
+    Ok(out)
+
+pub def column_binary(name: &str, values: &list[Bytes]) -> Result[Column, DataFrameError]:
+    mut packed = buffered(buffers.empty())?
+    mut offsets = allocated([0])?
+    for value in values:
+        buffered(packed.extend(value))?
+        allocated(offsets.append(packed.len()))?
+    data = buffered(packed.to_list())?
+    valid = allocated([1u8 for _ in range(len(values))])?
+    mut out = Column()
+    checked(native_binary(name, data, offsets, valid, &mut out.raw))?
+    Ok(out)
+
+pub def column_binary_nullable(name: &str, values: &list[Option[Bytes]]) -> Result[Column, DataFrameError]:
+    mut packed = buffered(buffers.empty())?
+    mut offsets = allocated([0])?
+    mut valid = allocated(list[u8]())?
+    for value in values:
+        match value:
+            case Some(buffer):
+                buffered(packed.extend(buffer))?
+                allocated(valid.append(1u8))?
+            case Nothing:
+                allocated(valid.append(0u8))?
+        allocated(offsets.append(packed.len()))?
+    data = buffered(packed.to_list())?
+    mut out = Column()
+    checked(native_binary(name, data, offsets, valid, &mut out.raw))?
     Ok(out)
 
 pub def column_str(name: &str, values: &list[str]) -> Result[Column, DataFrameError]:

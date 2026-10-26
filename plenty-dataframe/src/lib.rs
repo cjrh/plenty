@@ -143,6 +143,10 @@ destroy!(pldf_v1_sort_keys_drop, SortKeys);
 
 mod columns;
 pub use columns::*;
+mod numeric;
+pub use numeric::*;
+mod binary;
+pub use binary::*;
 mod expressions;
 pub use expressions::*;
 mod io;
@@ -151,6 +155,8 @@ mod asof;
 pub use asof::*;
 mod temporal;
 pub use temporal::*;
+mod nested;
+pub use nested::*;
 
 /// # Safety
 /// Borrow a non-null error owner for the call.
@@ -254,7 +260,7 @@ export!(pldf_v1_scan(path: *const u8, len: usize, out: *mut *mut LazyFrame) {
 export!(pldf_v1_lazy(frame: *const DataFrame, out: *mut *mut LazyFrame) { put(out, get(frame)?.clone().lazy()) });
 export!(pldf_v1_col(name: *const u8, len: usize, out: *mut *mut Expr) { put(out, col(text(name, len)?)) });
 export!(pldf_v1_lit_f64(value: f64, out: *mut *mut Expr) { put(out, lit(value)) });
-export!(pldf_v1_lit_i64(value: i64, out: *mut *mut Expr) { put(out, lit(value)) });
+export!(pldf_v1_lit_i64(value: i64, out: *mut *mut Expr) { put(out, lit(Scalar::from(value))) });
 export!(pldf_v1_null_f64(out: *mut *mut Expr) { put(out, lit(NULL).cast(DataType::Float64)) });
 export!(pldf_v1_binary(a: *const Expr, b: *const Expr, op: i32, out: *mut *mut Expr) {
     let (a, b) = (get(a)?.clone(), get(b)?.clone());

@@ -1,0 +1,400 @@
+import std.dataframe as df
+import std.test as test
+
+def check_i8() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    values = [i8.MIN, 0i8, i8.MAX]?
+    query = df.frame([df.column_i8("v", values)?]?)?.lazy()?
+    test.equal(query.schema()?[0].dtype, df.DType.I8)?
+    data = query.collect()?
+    test.equal(data.values_i8("v")?, values)?
+    test.equal(data.get_i8("v", 2)?, Some(i8.MAX))?
+    test.equal(data.lazy()?.select([df.lit_i8(i8.MAX)?.alias("v")?]?)?.collect()?.get_i8("v", 0)?, Some(i8.MAX))?
+    data.write_parquet("i8.parquet")?
+    restored = df.scan_parquet("i8.parquet")?.collect()?
+    test.equal(restored.schema()?, data.schema()?)?
+    test.equal(restored.values_i8("v")?, values)?
+    nullable: list[Option[i8]] = [Some(i8.MIN), Nothing, Some(i8.MAX)]?
+    missing = df.frame([df.column_i8_nullable("v", nullable)?]?)?
+    test.equal(missing.values_i8_nullable("v")?, nullable)?
+    test.check(missing.get_i8("v", 1)?.is_none(), "null preserved")?
+    missing.write_parquet("i8-nullable.parquet")?
+    test.equal(df.scan_parquet("i8-nullable.parquet")?.collect()?.values_i8_nullable("v")?, nullable)?
+    match missing.values_i8("v"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nullable i8 silently extracted as non-null")?
+    match data.get_i8("v", -1):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("negative i8 row accepted")?
+    match data.values_i64("v"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("i8 silently extracted as i64")?
+    empty_values: list[i8] = []?
+    empty = df.frame([df.column_i8("v", empty_values)?]?)?
+    test.equal(empty.values_i8("v")?, empty_values)?
+    test.equal(empty.schema()?[0].dtype, df.DType.I8)?
+    nulls: list[Option[i8]] = [Nothing, Nothing]?
+    all_null = df.frame([df.column_i8_nullable("v", nulls)?]?)?
+    test.equal(all_null.values_i8_nullable("v")?, nulls)?
+    test.equal(all_null.schema()?[0].dtype, df.DType.I8)?
+    typed = df.frame([df.column_i64("v", [1, 2]?)?]?)?.lazy()?.select([df.col("v")?.cast(df.DType.I8)?]?)?.collect()?
+    test.equal(typed.values_i8("v")?, [1i8, 2i8]?)?
+    Ok(())
+
+def check_i16() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    values = [i16.MIN, 0i16, i16.MAX]?
+    query = df.frame([df.column_i16("v", values)?]?)?.lazy()?
+    test.equal(query.schema()?[0].dtype, df.DType.I16)?
+    data = query.collect()?
+    test.equal(data.values_i16("v")?, values)?
+    test.equal(data.get_i16("v", 2)?, Some(i16.MAX))?
+    test.equal(data.lazy()?.select([df.lit_i16(i16.MAX)?.alias("v")?]?)?.collect()?.get_i16("v", 0)?, Some(i16.MAX))?
+    data.write_parquet("i16.parquet")?
+    restored = df.scan_parquet("i16.parquet")?.collect()?
+    test.equal(restored.schema()?, data.schema()?)?
+    test.equal(restored.values_i16("v")?, values)?
+    nullable: list[Option[i16]] = [Some(i16.MIN), Nothing, Some(i16.MAX)]?
+    missing = df.frame([df.column_i16_nullable("v", nullable)?]?)?
+    test.equal(missing.values_i16_nullable("v")?, nullable)?
+    test.check(missing.get_i16("v", 1)?.is_none(), "null preserved")?
+    missing.write_parquet("i16-nullable.parquet")?
+    test.equal(df.scan_parquet("i16-nullable.parquet")?.collect()?.values_i16_nullable("v")?, nullable)?
+    match missing.values_i16("v"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nullable i16 silently extracted as non-null")?
+    match data.get_i16("v", -1):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("negative i16 row accepted")?
+    match data.values_i64("v"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("i16 silently extracted as i64")?
+    empty_values: list[i16] = []?
+    empty = df.frame([df.column_i16("v", empty_values)?]?)?
+    test.equal(empty.values_i16("v")?, empty_values)?
+    test.equal(empty.schema()?[0].dtype, df.DType.I16)?
+    nulls: list[Option[i16]] = [Nothing, Nothing]?
+    all_null = df.frame([df.column_i16_nullable("v", nulls)?]?)?
+    test.equal(all_null.values_i16_nullable("v")?, nulls)?
+    test.equal(all_null.schema()?[0].dtype, df.DType.I16)?
+    typed = df.frame([df.column_i64("v", [1, 2]?)?]?)?.lazy()?.select([df.col("v")?.cast(df.DType.I16)?]?)?.collect()?
+    test.equal(typed.values_i16("v")?, [1i16, 2i16]?)?
+    Ok(())
+
+def check_i32() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    values = [i32.MIN, 0i32, i32.MAX]?
+    query = df.frame([df.column_i32("v", values)?]?)?.lazy()?
+    test.equal(query.schema()?[0].dtype, df.DType.I32)?
+    data = query.collect()?
+    test.equal(data.values_i32("v")?, values)?
+    test.equal(data.get_i32("v", 2)?, Some(i32.MAX))?
+    test.equal(data.lazy()?.select([df.lit_i32(i32.MAX)?.alias("v")?]?)?.collect()?.get_i32("v", 0)?, Some(i32.MAX))?
+    data.write_parquet("i32.parquet")?
+    restored = df.scan_parquet("i32.parquet")?.collect()?
+    test.equal(restored.schema()?, data.schema()?)?
+    test.equal(restored.values_i32("v")?, values)?
+    nullable: list[Option[i32]] = [Some(i32.MIN), Nothing, Some(i32.MAX)]?
+    missing = df.frame([df.column_i32_nullable("v", nullable)?]?)?
+    test.equal(missing.values_i32_nullable("v")?, nullable)?
+    test.check(missing.get_i32("v", 1)?.is_none(), "null preserved")?
+    missing.write_parquet("i32-nullable.parquet")?
+    test.equal(df.scan_parquet("i32-nullable.parquet")?.collect()?.values_i32_nullable("v")?, nullable)?
+    match missing.values_i32("v"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nullable i32 silently extracted as non-null")?
+    match data.get_i32("v", -1):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("negative i32 row accepted")?
+    match data.values_i64("v"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("i32 silently extracted as i64")?
+    empty_values: list[i32] = []?
+    empty = df.frame([df.column_i32("v", empty_values)?]?)?
+    test.equal(empty.values_i32("v")?, empty_values)?
+    test.equal(empty.schema()?[0].dtype, df.DType.I32)?
+    nulls: list[Option[i32]] = [Nothing, Nothing]?
+    all_null = df.frame([df.column_i32_nullable("v", nulls)?]?)?
+    test.equal(all_null.values_i32_nullable("v")?, nulls)?
+    test.equal(all_null.schema()?[0].dtype, df.DType.I32)?
+    typed = df.frame([df.column_i64("v", [1, 2]?)?]?)?.lazy()?.select([df.col("v")?.cast(df.DType.I32)?]?)?.collect()?
+    test.equal(typed.values_i32("v")?, [1i32, 2i32]?)?
+    Ok(())
+
+def check_u8() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    values = [u8.MIN, 0u8, u8.MAX]?
+    query = df.frame([df.column_u8("v", values)?]?)?.lazy()?
+    test.equal(query.schema()?[0].dtype, df.DType.U8)?
+    data = query.collect()?
+    test.equal(data.values_u8("v")?, values)?
+    test.equal(data.get_u8("v", 2)?, Some(u8.MAX))?
+    test.equal(data.lazy()?.select([df.lit_u8(u8.MAX)?.alias("v")?]?)?.collect()?.get_u8("v", 0)?, Some(u8.MAX))?
+    data.write_parquet("u8.parquet")?
+    restored = df.scan_parquet("u8.parquet")?.collect()?
+    test.equal(restored.schema()?, data.schema()?)?
+    test.equal(restored.values_u8("v")?, values)?
+    nullable: list[Option[u8]] = [Some(u8.MIN), Nothing, Some(u8.MAX)]?
+    missing = df.frame([df.column_u8_nullable("v", nullable)?]?)?
+    test.equal(missing.values_u8_nullable("v")?, nullable)?
+    test.check(missing.get_u8("v", 1)?.is_none(), "null preserved")?
+    missing.write_parquet("u8-nullable.parquet")?
+    test.equal(df.scan_parquet("u8-nullable.parquet")?.collect()?.values_u8_nullable("v")?, nullable)?
+    match missing.values_u8("v"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nullable u8 silently extracted as non-null")?
+    match data.get_u8("v", -1):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("negative u8 row accepted")?
+    match data.values_i64("v"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("u8 silently extracted as i64")?
+    empty_values: list[u8] = []?
+    empty = df.frame([df.column_u8("v", empty_values)?]?)?
+    test.equal(empty.values_u8("v")?, empty_values)?
+    test.equal(empty.schema()?[0].dtype, df.DType.U8)?
+    nulls: list[Option[u8]] = [Nothing, Nothing]?
+    all_null = df.frame([df.column_u8_nullable("v", nulls)?]?)?
+    test.equal(all_null.values_u8_nullable("v")?, nulls)?
+    test.equal(all_null.schema()?[0].dtype, df.DType.U8)?
+    typed = df.frame([df.column_i64("v", [1, 2]?)?]?)?.lazy()?.select([df.col("v")?.cast(df.DType.U8)?]?)?.collect()?
+    test.equal(typed.values_u8("v")?, [1u8, 2u8]?)?
+    Ok(())
+
+def check_u16() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    values = [u16.MIN, 0u16, u16.MAX]?
+    query = df.frame([df.column_u16("v", values)?]?)?.lazy()?
+    test.equal(query.schema()?[0].dtype, df.DType.U16)?
+    data = query.collect()?
+    test.equal(data.values_u16("v")?, values)?
+    test.equal(data.get_u16("v", 2)?, Some(u16.MAX))?
+    test.equal(data.lazy()?.select([df.lit_u16(u16.MAX)?.alias("v")?]?)?.collect()?.get_u16("v", 0)?, Some(u16.MAX))?
+    data.write_parquet("u16.parquet")?
+    restored = df.scan_parquet("u16.parquet")?.collect()?
+    test.equal(restored.schema()?, data.schema()?)?
+    test.equal(restored.values_u16("v")?, values)?
+    nullable: list[Option[u16]] = [Some(u16.MIN), Nothing, Some(u16.MAX)]?
+    missing = df.frame([df.column_u16_nullable("v", nullable)?]?)?
+    test.equal(missing.values_u16_nullable("v")?, nullable)?
+    test.check(missing.get_u16("v", 1)?.is_none(), "null preserved")?
+    missing.write_parquet("u16-nullable.parquet")?
+    test.equal(df.scan_parquet("u16-nullable.parquet")?.collect()?.values_u16_nullable("v")?, nullable)?
+    match missing.values_u16("v"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nullable u16 silently extracted as non-null")?
+    match data.get_u16("v", -1):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("negative u16 row accepted")?
+    match data.values_i64("v"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("u16 silently extracted as i64")?
+    empty_values: list[u16] = []?
+    empty = df.frame([df.column_u16("v", empty_values)?]?)?
+    test.equal(empty.values_u16("v")?, empty_values)?
+    test.equal(empty.schema()?[0].dtype, df.DType.U16)?
+    nulls: list[Option[u16]] = [Nothing, Nothing]?
+    all_null = df.frame([df.column_u16_nullable("v", nulls)?]?)?
+    test.equal(all_null.values_u16_nullable("v")?, nulls)?
+    test.equal(all_null.schema()?[0].dtype, df.DType.U16)?
+    typed = df.frame([df.column_i64("v", [1, 2]?)?]?)?.lazy()?.select([df.col("v")?.cast(df.DType.U16)?]?)?.collect()?
+    test.equal(typed.values_u16("v")?, [1u16, 2u16]?)?
+    Ok(())
+
+def check_u32() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    values = [u32.MIN, 0u32, u32.MAX]?
+    query = df.frame([df.column_u32("v", values)?]?)?.lazy()?
+    test.equal(query.schema()?[0].dtype, df.DType.U32)?
+    data = query.collect()?
+    test.equal(data.values_u32("v")?, values)?
+    test.equal(data.get_u32("v", 2)?, Some(u32.MAX))?
+    test.equal(data.lazy()?.select([df.lit_u32(u32.MAX)?.alias("v")?]?)?.collect()?.get_u32("v", 0)?, Some(u32.MAX))?
+    data.write_parquet("u32.parquet")?
+    restored = df.scan_parquet("u32.parquet")?.collect()?
+    test.equal(restored.schema()?, data.schema()?)?
+    test.equal(restored.values_u32("v")?, values)?
+    nullable: list[Option[u32]] = [Some(u32.MIN), Nothing, Some(u32.MAX)]?
+    missing = df.frame([df.column_u32_nullable("v", nullable)?]?)?
+    test.equal(missing.values_u32_nullable("v")?, nullable)?
+    test.check(missing.get_u32("v", 1)?.is_none(), "null preserved")?
+    missing.write_parquet("u32-nullable.parquet")?
+    test.equal(df.scan_parquet("u32-nullable.parquet")?.collect()?.values_u32_nullable("v")?, nullable)?
+    match missing.values_u32("v"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nullable u32 silently extracted as non-null")?
+    match data.get_u32("v", -1):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("negative u32 row accepted")?
+    match data.values_i64("v"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("u32 silently extracted as i64")?
+    empty_values: list[u32] = []?
+    empty = df.frame([df.column_u32("v", empty_values)?]?)?
+    test.equal(empty.values_u32("v")?, empty_values)?
+    test.equal(empty.schema()?[0].dtype, df.DType.U32)?
+    nulls: list[Option[u32]] = [Nothing, Nothing]?
+    all_null = df.frame([df.column_u32_nullable("v", nulls)?]?)?
+    test.equal(all_null.values_u32_nullable("v")?, nulls)?
+    test.equal(all_null.schema()?[0].dtype, df.DType.U32)?
+    typed = df.frame([df.column_i64("v", [1, 2]?)?]?)?.lazy()?.select([df.col("v")?.cast(df.DType.U32)?]?)?.collect()?
+    test.equal(typed.values_u32("v")?, [1u32, 2u32]?)?
+    Ok(())
+
+def check_u64() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    values = [u64.MIN, 0u64, u64.MAX]?
+    query = df.frame([df.column_u64("v", values)?]?)?.lazy()?
+    test.equal(query.schema()?[0].dtype, df.DType.U64)?
+    data = query.collect()?
+    test.equal(data.values_u64("v")?, values)?
+    test.equal(data.get_u64("v", 2)?, Some(u64.MAX))?
+    test.equal(data.lazy()?.select([df.lit_u64(u64.MAX)?.alias("v")?]?)?.collect()?.get_u64("v", 0)?, Some(u64.MAX))?
+    data.write_parquet("u64.parquet")?
+    restored = df.scan_parquet("u64.parquet")?.collect()?
+    test.equal(restored.schema()?, data.schema()?)?
+    test.equal(restored.values_u64("v")?, values)?
+    nullable: list[Option[u64]] = [Some(u64.MIN), Nothing, Some(u64.MAX)]?
+    missing = df.frame([df.column_u64_nullable("v", nullable)?]?)?
+    test.equal(missing.values_u64_nullable("v")?, nullable)?
+    test.check(missing.get_u64("v", 1)?.is_none(), "null preserved")?
+    missing.write_parquet("u64-nullable.parquet")?
+    test.equal(df.scan_parquet("u64-nullable.parquet")?.collect()?.values_u64_nullable("v")?, nullable)?
+    match missing.values_u64("v"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nullable u64 silently extracted as non-null")?
+    match data.get_u64("v", -1):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("negative u64 row accepted")?
+    match data.values_i64("v"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("u64 silently extracted as i64")?
+    empty_values: list[u64] = []?
+    empty = df.frame([df.column_u64("v", empty_values)?]?)?
+    test.equal(empty.values_u64("v")?, empty_values)?
+    test.equal(empty.schema()?[0].dtype, df.DType.U64)?
+    nulls: list[Option[u64]] = [Nothing, Nothing]?
+    all_null = df.frame([df.column_u64_nullable("v", nulls)?]?)?
+    test.equal(all_null.values_u64_nullable("v")?, nulls)?
+    test.equal(all_null.schema()?[0].dtype, df.DType.U64)?
+    typed = df.frame([df.column_i64("v", [1, 2]?)?]?)?.lazy()?.select([df.col("v")?.cast(df.DType.U64)?]?)?.collect()?
+    test.equal(typed.values_u64("v")?, [1u64, 2u64]?)?
+    Ok(())
+
+def check_f32() -> Result[(), df.DataFrameError | AllocError | test.TestError]:
+    values = [-3.4028234663852886e38f32, 0f32, 3.4028234663852886e38f32]?
+    query = df.frame([df.column_f32("v", values)?]?)?.lazy()?
+    test.equal(query.schema()?[0].dtype, df.DType.F32)?
+    data = query.collect()?
+    test.equal(data.values_f32("v")?, values)?
+    test.equal(data.get_f32("v", 2)?, Some(3.4028234663852886e38f32))?
+    test.equal(data.lazy()?.select([df.lit_f32(3.4028234663852886e38f32)?.alias("v")?]?)?.collect()?.get_f32("v", 0)?, Some(3.4028234663852886e38f32))?
+    data.write_parquet("f32.parquet")?
+    restored = df.scan_parquet("f32.parquet")?.collect()?
+    test.equal(restored.schema()?, data.schema()?)?
+    test.equal(restored.values_f32("v")?, values)?
+    nullable: list[Option[f32]] = [Some(-3.4028234663852886e38f32), Nothing, Some(3.4028234663852886e38f32)]?
+    missing = df.frame([df.column_f32_nullable("v", nullable)?]?)?
+    test.equal(missing.values_f32_nullable("v")?, nullable)?
+    test.check(missing.get_f32("v", 1)?.is_none(), "null preserved")?
+    missing.write_parquet("f32-nullable.parquet")?
+    test.equal(df.scan_parquet("f32-nullable.parquet")?.collect()?.values_f32_nullable("v")?, nullable)?
+    match missing.values_f32("v"):
+        case Err(df.DataFrameError.Null(_)):
+            pass
+        case _:
+            test.fail("nullable f32 silently extracted as non-null")?
+    match data.get_f32("v", -1):
+        case Err(df.DataFrameError.Bounds(_)):
+            pass
+        case _:
+            test.fail("negative f32 row accepted")?
+    match data.values_i64("v"):
+        case Err(_):
+            pass
+        case _:
+            test.fail("f32 silently extracted as i64")?
+    empty_values: list[f32] = []?
+    empty = df.frame([df.column_f32("v", empty_values)?]?)?
+    test.equal(empty.values_f32("v")?, empty_values)?
+    test.equal(empty.schema()?[0].dtype, df.DType.F32)?
+    nulls: list[Option[f32]] = [Nothing, Nothing]?
+    all_null = df.frame([df.column_f32_nullable("v", nulls)?]?)?
+    test.equal(all_null.values_f32_nullable("v")?, nulls)?
+    test.equal(all_null.schema()?[0].dtype, df.DType.F32)?
+    typed = df.frame([df.column_i64("v", [1, 2]?)?]?)?.lazy()?.select([df.col("v")?.cast(df.DType.F32)?]?)?.collect()?
+    test.equal(typed.values_f32("v")?, [1f32, 2f32]?)?
+    Ok(())
+
+def unsigned_casts_and_float_specials() -> Result[(), df.DataFrameError | AllocError | test.TestError | IoError]:
+    data = df.frame([df.column_u64("v", [0u64, u64.MAX]?)?]?)?
+    query = data.lazy()?
+    match query.select([df.col("v")?.cast(df.DType.I64)?]?)?.collect():
+        case Err(_):
+            pass
+        case _:
+            test.fail("u64 overflow accepted by strict cast")?
+    casted = query.select([df.col("v")?.cast(df.DType.I64, strict=False)?]?)?.collect()?
+    test.equal(casted.values_i64_nullable("v")?, [Some(0), Nothing]?)?
+    floats = df.frame([df.column_f32("v", [f32.NAN, f32.INF, -f32.INF, -0f32]?)?]?)?
+    floats.write_parquet("f32-special.parquet")?
+    values = df.scan_parquet("f32-special.parquet")?.collect()?.values_f32("v")?
+    test.check(values[0] != values[0], "NaN survives Parquet")?
+    test.equal(values[1], f32.INF)?
+    test.equal(values[2], -f32.INF)?
+    test.equal(1f32 / values[3], -f32.INF)?
+    df.frame([df.column_u64("id", [u64.MAX]?)?, df.column_f32("reading", [1.5f32]?)?]?)?.write_csv("numeric.csv")?
+    schema = [df.Field("id", df.DType.U64), df.Field("reading", df.DType.F32)]?
+    csv = df.scan_csv("numeric.csv", schema_overrides=Some(schema))?.collect()?
+    test.equal(csv.get_u64("id", 0)?, Some(u64.MAX))?
+    test.equal(csv.get_f32("reading", 0)?, Some(1.5f32))?
+    Ok(())
+
+def main() -> Result[(), df.DataFrameError | AllocError | test.TestError | IoError]:
+    check_i8()?
+    check_i16()?
+    check_i32()?
+    check_u8()?
+    check_u16()?
+    check_u32()?
+    check_u64()?
+    check_f32()?
+    unsigned_casts_and_float_specials()?
+    print("dataframe numeric types ok")?
+    Ok(())
+

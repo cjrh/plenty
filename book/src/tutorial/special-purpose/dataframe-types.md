@@ -45,8 +45,38 @@ absence and query failure are different outcomes.
 For an unfamiliar file, inspect `df.scan_parquet(path)?.schema()?` before
 choosing columns or collecting. Its ordered fields describe the native
 runtime schema. `DType.Other(description)` reports a native type that
-Plenty cannot yet extract, such as a narrow integer or a nested value.
+Plenty cannot yet extract, such as an unsupported nested value.
 Inspection reads metadata as needed; collection can still encounter errors.
+
+## Keep numeric widths and unsigned identifiers
+
+Every Plenty numeric type has matching column constructors and getters.
+Choose the type your data needs: a `u64` identifier can exceed `i64.MAX`,
+while `f32` readings use less native column memory than `f64` readings.
+Neither needs a conversion through the default numeric types.
+
+```plenty dataframe
+import std.dataframe as df
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
+    data = df.frame([
+        df.column_u64("device", [u64.MAX, 42u64]?)?,
+        df.column_f32("reading", [18.5f32, 22.0f32]?)?
+    ]?)?
+    selected = data.lazy()?.filter(df.col("device")?.eq(df.lit_u64(u64.MAX)?)?)?.collect()?
+    print(selected.values_u64("device")?)?
+    print(selected.values_f32("reading")?)?
+    Ok(())
+```
+```output
+[18446744073709551615]
+[18.5]
+```
+
+Use `column_TYPE_nullable` and `values_TYPE_nullable` when values may be
+missing. Extraction checks the exact dtype; it does not widen integers
+or floats implicitly. An expression or aggregation can change the result's
+dtype, so inspect its schema or make a deliberate `cast` before extracting.
 
 Lists are copied across the native boundary. Keep filtering, grouping and
 sorting inside the query, then extract only the columns and rows your

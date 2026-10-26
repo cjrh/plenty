@@ -29,7 +29,19 @@ without internal stored-error retrieval. The client retains its legacy Reader
 bridge and adds typed response composition and partial body-collection progress.
 Preserve the installed CLI/data, JSON-service and mutual-TLS acceptance checks.
 
+The B76 dataframe datatype expansion is complete for native numeric widths
+(issue #458), binary columns backed by owned byte buffers (issue #459), and
+composable nested list/struct columns (issue #460). Structured schema trees,
+native nested access and Parquet interchange preserve the supported types and
+parent/child null distinctions.
+
 ### Next batches
+
+Other analytical types remain deferred; decimal dataframe columns should follow
+a separate `std.decimal` design and implementation rather than invent another
+numeric representation at the dataframe boundary. Continue to target the pinned
+Polars engine's Parquet capabilities; fixed-size arrays, dictionary semantics,
+nested casts and broader list operations remain outside the current API.
 
 The B76 [daily sales report application](tutorial/special-purpose/dataframe-application.md)
 exercises CSV/partitioned Parquet ingestion, catalogue validation, nullable
