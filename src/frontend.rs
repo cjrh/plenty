@@ -970,7 +970,7 @@ impl TypeRef {
                     .error("concrete type name exceeds the implementation limit"));
             }
             // Only the success payload of an Option or Result may carry a
-            // reference: book/src/design/language/05-ownership/optional-references.md.
+            // reference: book/src/design/language/05-ownership/05-optional-references.md.
             let success = match name.as_str() {
                 "Option" | "Result" => Some(0),
                 _ => None,

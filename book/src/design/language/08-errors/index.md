@@ -9,7 +9,7 @@ fatal traps terminate without unwinding.
 - [Allocation and traps](02-allocation-and-traps.md)
 - [Resource scopes](03-resource-scopes.md)
 
-[Destruction](../05-ownership/06-destruction.md) defines cleanup order.
+[Destruction](../05-ownership/07-destruction.md) defines cleanup order.
 [The entrypoint](../02-source/entrypoint.md) defines process exit status and
 reporting of a `main` error. [`std.error`](../../stdlib/error.md) adds operation
 and path context around a typed error and reports it on standard error.

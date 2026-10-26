@@ -339,7 +339,7 @@ impl Ty {
     /// The `&T` or `&mut T` that a reference-carrying `Option` or `Result`
     /// holds in its success payload, directly or through further
     /// `Option`/`Result` success payloads. Error payloads never carry one.
-    /// See book/src/design/language/05-ownership/optional-references.md.
+    /// See book/src/design/language/05-ownership/05-optional-references.md.
     pub fn carried_reference(&self) -> Option<Ty> {
         let Self::Enum(t) = self else {
             return None;

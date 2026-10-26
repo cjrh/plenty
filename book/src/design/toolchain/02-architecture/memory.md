@@ -4,7 +4,7 @@ Each live managed operand, local, field, and capture has an owner. Moving an aff
 value clears its source slot. Loading a copyable inline value copies its storage
 and retains contained strings. Stores stage the new value before releasing the
 old owner. Source cleanup order is defined by
-[destruction](../../language/05-ownership/06-destruction.md), not reference counts.
+[destruction](../../language/05-ownership/07-destruction.md), not reference counts.
 
 Runtime objects share `{atomic u64 refs, destroy_callback}`. Heap objects begin
 with one reference; literals use an immortal count. A

@@ -34,4 +34,4 @@ payload borrowed from itself; the arm's payload bindings are immutable.
 A returned `Option[&T]` or `Result[&T, E]` already holds a reference: match it
 by value, not with `match &result`. Its payload bindings are the carried
 reference and extend the call's origin loan; see
-[optional and fallible references](optional-references.md).
+[optional and fallible references](05-optional-references.md).
