@@ -104,8 +104,11 @@ worker trapped std.actor.TrapKind.Unwrap
 The trap also prints its usual message to standard error, followed by
 `note: contained in an actor; its heap is discarded`.
 
-The repository's `examples/actor_echo.plenty` is a TCP echo server with one actor per connection; a connection whose first
-byte is `X` traps, and only that connection closes.
+For TCP servers and clients, [`std.actor.net`](actor-net.md) provides a
+listener with one actor per connection, bounded connection buffers, deadlines,
+and nonblocking connect and lookup. The repository's
+`examples/actor_echo.plenty` is an echo server built on it; a connection whose
+first byte is `X` traps, and only that connection closes.
 
 ## Actors and stages
 
@@ -176,6 +179,7 @@ parent's heap before the child's heap is discarded, and the parent receives
 | `Context.heap_used()` | Bytes in the running actor's heap |
 | `Context.watch_stream(&stream, interest)`, `unwatch_stream(&stream)` | `Result[(), NetError]`: delivers the stream's readiness as `Mail.Ready` |
 | `Context.watch_listener(&listener)`, `unwatch_listener(&listener)` | `Result[(), NetError]`: `Mail.Ready` while a connection waits |
+| `Context.watch_connecting(&attempt)`, `unwatch_connecting(&attempt)`, `watch_lookup(&lookup)`, `unwatch_lookup(&lookup)` | `Result[(), NetError]`: `Mail.Ready` when a [`std.net`](net.md#name-lookup) connect or lookup can be finished |
 | `supported()` | Whether this target has actor heaps |
 | `heaps_live()`, `heap_bytes_used()`, `heap_bytes_committed()` | Process totals over all actor heaps |
 | `max_heap_limit` | 64 MiB, the largest heap limit |

@@ -104,6 +104,10 @@ Both distinctions survive the network-error wrappers in
 | `listener.local_address()` | `Result[SocketAddress, NetError]` |
 | `listener.close()` | `Result[(), NetError]` |
 | `connect(address: &SocketAddress, deadline, cancel)` | `Result[TcpStream, NetError]` |
+| `start_connect(address: &SocketAddress)` | `Result[Connecting, NetError]`: starts a connection without waiting |
+| `connecting.watch(&mut selector, key)`, `unwatch(&mut selector)` | `Result[(), NetError]`: the attempt is ready when it can be finished |
+| `connecting.finish_now()` | `Result[(), NetError]`: `WouldBlock` while the attempt continues, then success or why it failed |
+| `connecting.stream()` | `TcpStream`: consumes a finished attempt |
 | `stream.read_now(buffer, start, stop)` | `Result[i64, NetError]`: one nonblocking read attempt into `&mut Bytes` |
 | `stream.write_now(source, start, stop)` | `Result[i64, NetError]`: one nonblocking write attempt from any [`ByteSource`](bytes.md#byte-sources) |
 | `stream.read_before(buffer, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one read; 0 is end of input |
@@ -239,6 +243,14 @@ on the reading end within the deadline and the token, so it returns
 An abandoned lookup finishes on the resolver's own timeouts
 (`/etc/resolv.conf`), then discards its result and exits. At most 32 lookups
 run at once in a process, counting abandoned ones; another is `TryAgain`.
+`start_lookup(host: &str, port: u16)` returns `Result[Lookup, NetError]`: the
+same lookup without waiting. `lookup.watch(&mut selector, key)` reports it
+ready when the reply arrives, and `lookup.finish_now()` returns `WouldBlock`
+until then and the addresses or error afterwards. Dropping an unfinished
+`Lookup` abandons it. [`std.actor.net`](actor-net.md#outbound-connections-and-lookup)
+uses `start_connect` and `start_lookup` so actors connect and resolve without
+blocking their stage.
+
 The resolver's result list is allocated by the C library and freed on the
 helper thread. Test builds with allocation checks wait at exit for every
 helper thread, abandoned ones included, to free its memory.
@@ -249,7 +261,7 @@ Opening a socket and resolving a name have the `Network` effect; operations
 on an existing socket have the `Handle` effect. Both are allowed on workers;
 see [native effects on worker threads](../facilities/03-concurrency/effects.md).
 A listener, stream or socket owns one descriptor, opened close-on-exec, and
-closes it when explicitly closed or dropped. Only `resolve` starts a thread,
+closes it when explicitly closed or dropped. Only `resolve` and `start_lookup` start a thread,
 as above.
 
 ## Example

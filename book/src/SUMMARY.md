@@ -363,6 +363,7 @@
     - [Standard library](design/stdlib/index.md)
         - [Signature index](design/stdlib/signatures.md)
         - [`std.actor`](design/stdlib/actor.md)
+        - [`std.actor.net`](design/stdlib/actor-net.md)
         - [`std.archive`](design/stdlib/archive.md)
         - [`std.atomic`](design/stdlib/atomic.md)
         - [`std.bytes`](design/stdlib/bytes.md)
