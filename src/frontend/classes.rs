@@ -768,6 +768,93 @@ impl Lower<'_> {
         ops.push(Op::Class(ClassOp::Field(class, index)));
         Ok((ty, loans))
     }
+    /// Who owns the field that `e` names: an owned binding reached only through
+    /// class fields held inline, a reference, or something else (a temporary,
+    /// a Box, a Shared handle, an element, or a closure capture).
+    pub(super) fn field_owner(&self, e: &Expr) -> Result<FieldOwner> {
+        let Expression::Member(base, name, _) = &ungroup(e).kind else {
+            return Ok(FieldOwner::Other);
+        };
+        let (local, mut steps, class) = match &ungroup(base).kind {
+            Expression::Name(root) if !self.captures.contains(root) => match self.names.get(root) {
+                Some(Local {
+                    ty: Ty::Ref(..) | Ty::KeyView(_),
+                    ..
+                }) => return Ok(FieldOwner::Reference),
+                Some(
+                    local @ Local {
+                        ty: Ty::Class(class),
+                        ..
+                    },
+                ) => (local.clone(), Vec::new(), class.clone()),
+                _ => return Ok(FieldOwner::Other),
+            },
+            Expression::Member(..) => match self.field_owner(base)? {
+                FieldOwner::Owned(OwnedField { local, steps }) => {
+                    let (owner, index) = steps.last().expect("a field path");
+                    let Ty::Class(class) = &owner.get().fields[*index].1 else {
+                        return Ok(FieldOwner::Other);
+                    };
+                    let class = class.clone();
+                    (local, steps, class)
+                }
+                owner => return Ok(owner),
+            },
+            _ => return Ok(FieldOwner::Other),
+        };
+        let index = field_index(&class, name, &e.at)?;
+        modules::check_member(self.access, &class.name, name, &e.at)?;
+        steps.push((class, index));
+        Ok(FieldOwner::Owned(OwnedField { local, steps }))
+    }
+    /// Move the field out of an owned binding, leaving its storage empty. The
+    /// ownership checker tracks the field until it is assigned again, and
+    /// rejects whole uses of the binding meanwhile (issue #534).
+    pub(super) fn move_field(
+        &mut self,
+        e: &Expr,
+        field: OwnedField,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        // `__del__` receives the whole object, so none of its fields may be
+        // missing when it runs.
+        if let Some((class, _)) = field
+            .steps
+            .iter()
+            .find(|(class, _)| class.get().destructor.is_some())
+        {
+            return Err(e.at.error(format!(
+                "cannot move out of a field of `{}`: its `__del__` expects every field initialized; use replace(value.field, replacement) on a mutable owner",
+                class.name
+            )));
+        }
+        let (class, index) = field.steps.last().expect("a field path").clone();
+        let ty = class.get().fields[index].1.clone();
+        // The vacated field holds an empty value, as a moved local does.
+        let empty = self.slot(ty.clone(), &e.at)?;
+        ops.push(Op::EmptyLocal(empty));
+        ops.push(Op::MoveLocal(empty));
+        self.mark(&e.at, ops);
+        self.use_carried(&field.local, ops);
+        let path: Arc<[usize]> = field.steps.iter().map(|(_, index)| *index).collect();
+        // Moving out needs no `mut` binding, as moving the whole value does not.
+        let loan = self.new_loan(field.local.slot, true, None, ops);
+        self.loans[loan].fields = path.to_vec();
+        if let Some(Op::Loan(fact)) = ops.last_mut() {
+            *fact = self.loans[loan].clone();
+        }
+        ops.push(Op::BorrowLocal(field.local.slot, true));
+        for (class, index) in field.steps {
+            ops.push(Op::Class(ClassOp::FieldRef(class, index, true)));
+        }
+        ops.push(Op::ReplaceRef(ty.clone()));
+        ops.push(Op::UseLoan(loan));
+        ops.push(Op::FieldMove(crate::ownership::FieldMove::Out(
+            field.local.slot,
+            path,
+        )));
+        Ok(ty)
+    }
     pub(super) fn set_field(
         &mut self,
         target: &Expr,
@@ -782,6 +869,7 @@ impl Lower<'_> {
             target,
             value,
             "assignment requires a named binding, field, or collection element",
+            true,
             ops,
         )?;
         match collections::scalar_element_ref(ops) {
@@ -822,6 +910,7 @@ impl Lower<'_> {
             target,
             value,
             "replace requires a mutable field or element of a named owner",
+            false,
             ops,
         )?;
         ops.push(Op::MoveLocal(temp));
@@ -832,12 +921,14 @@ impl Lower<'_> {
     }
     /// Shared prefix of assignment and `replace`: evaluates `value` into a
     /// local, then leaves a mutable reference to `target` on the stack.
+    /// `assigns` marks a tracked field of an owned binding as initialized.
     /// Returns the place type, the local holding the value, and the loan.
     fn borrow_place_after_value(
         &mut self,
         target: &Expr,
         value: &Expr,
         unnamed: &str,
+        assigns: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, u8, usize)> {
         let ty = self
@@ -851,6 +942,15 @@ impl Lower<'_> {
         ops.push(Op::StoreLocal(temp));
         let mut indices = Vec::new();
         self.assignment_indices(target, &mut indices, ops)?;
+        // Assignment initializes a field that was moved out. `replace` does
+        // not: it returns the old value, so the field must still hold one.
+        if assigns && let Ok(FieldOwner::Owned(field)) = self.field_owner(target) {
+            let path = field.steps.iter().map(|(_, index)| *index).collect();
+            ops.push(Op::FieldMove(crate::ownership::FieldMove::Assign(
+                field.local.slot,
+                path,
+            )));
+        }
         // Resolve addresses only once all user code has finished evaluating.
         let (_, loan) = self.borrow_with_indices(target, true, &mut Some(indices.iter()), ops)?;
         Ok((ty, temp, loan))
@@ -1251,4 +1351,17 @@ pub(super) fn field_index(
         .iter()
         .position(|(n, _)| n == name)
         .ok_or_else(|| at.error(format!("unknown field `{name}` on {}", class.name)))
+}
+
+/// A field reached from an owned binding through class fields held inline.
+pub(super) struct OwnedField {
+    pub(super) local: Local,
+    /// Each class on the path and the index of the field taken from it.
+    pub(super) steps: Vec<(crate::nominal::Nominal<ClassType>, usize)>,
+}
+
+pub(super) enum FieldOwner {
+    Owned(OwnedField),
+    Reference,
+    Other,
 }

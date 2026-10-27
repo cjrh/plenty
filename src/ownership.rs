@@ -96,6 +96,34 @@ impl Demand {
     }
 }
 
+/// Field-level ownership of an owned local (issue #534). A moved field is
+/// tracked like a binding of its own until it, or a field or binding that
+/// contains it, is assigned again.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FieldMove {
+    /// The field at this path moves out, leaving its storage empty.
+    Out(u8, Arc<[usize]>),
+    /// The field at this path is about to be assigned, which initializes it
+    /// and every field inside it.
+    Assign(u8, Arc<[usize]>),
+}
+
+impl FieldMove {
+    pub fn root(&self) -> u8 {
+        match self {
+            FieldMove::Out(root, _) | FieldMove::Assign(root, _) => *root,
+        }
+    }
+
+    /// The same fact about the binding renumbered to `root`.
+    pub fn with_root(&self, root: u8) -> Self {
+        match self {
+            FieldMove::Out(_, path) => FieldMove::Out(root, path.clone()),
+            FieldMove::Assign(_, path) => FieldMove::Assign(root, path.clone()),
+        }
+    }
+}
+
 impl Instantiation {
     /// The rendered diagnostic of a body error that a type argument causes:
     /// the primary message names the parameter and its argument at the use,
@@ -188,6 +216,12 @@ fn short(name: &str) -> std::borrow::Cow<'_, str> {
 pub enum Kind {
     /// Moved on every path reaching the use (`true`) or only on some.
     Moved(bool),
+    /// A whole value is used while one of its fields is moved out on every
+    /// path (`true`) or only on some.
+    PartlyMoved {
+        field: String,
+        definite: bool,
+    },
     /// Never initialized, or already released by scope cleanup.
     Unavailable,
     MovedInLoop,
@@ -366,6 +400,7 @@ impl fmt::Display for Error {
             .map(|site| self.location(site))
             .unwrap_or_default();
         let binding = match &self.place {
+            Some(place) if place.contains('.') => format!("field `{place}`"),
             Some(place) => format!("binding `{place}`"),
             None => "temporary value".into(),
         };
@@ -394,6 +429,11 @@ impl fmt::Display for Error {
         let message = match &self.kind {
             Kind::Moved(true) => format!("use of moved {binding}"),
             Kind::Moved(false) => format!("use of possibly moved {binding}"),
+            Kind::PartlyMoved { field, definite } => format!(
+                "use of partly moved {binding}: `{field}` is moved{}; \
+                 assign `{field}` before using {place} as a whole",
+                if *definite { "" } else { " on some paths" }
+            ),
             Kind::Unavailable => format!("use of moved or uninitialized {binding}"),
             Kind::MovedInLoop => format!(
                 "{place} is moved in a loop, so the next iteration would use a moved value; \
@@ -636,6 +676,12 @@ struct Checker<'a, 'p> {
     /// site, and the length of that list where each open statement began.
     building: RefCell<Vec<(u8, Site)>>,
     statements: RefCell<Vec<usize>>,
+    /// Each field path that moves out of an owned binding. Field `k` has slot
+    /// `locals.len() + k` in a `State`, so joins and loops treat it like a
+    /// binding of its own.
+    fields: Vec<(u8, Arc<[usize]>)>,
+    /// The place each precise loan covers, for an access through it.
+    places: HashMap<usize, (u8, Vec<usize>)>,
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -646,6 +692,7 @@ pub fn check(
     origins: &Origins,
     program: &Program,
 ) -> Result<()> {
+    let fields = moved_fields(ops);
     let checker = Checker {
         body: ops,
         program,
@@ -657,6 +704,12 @@ pub fn check(
         returning: RefCell::default(),
         building: RefCell::default(),
         statements: RefCell::default(),
+        places: if fields.is_empty() {
+            HashMap::default()
+        } else {
+            loan_places(ops)
+        },
+        fields,
         futures: crate::profile_block!(
             "ownership::prepare_futures",
             futures::Futures::new(ops, locals.len(), program)
@@ -672,6 +725,7 @@ pub fn check(
                     Slot::Unset
                 }
             })
+            .chain(checker.fields.iter().map(|_| Slot::Owned))
             .collect()
     );
     crate::profile_block!("ownership::check_moves", {
@@ -681,6 +735,64 @@ pub fn check(
     });
     crate::profile_block!("ownership::check_cancels", cancel::check(&checker))?;
     checker.loans(ops)
+}
+
+/// The distinct field paths that move out of owned bindings in `ops`.
+fn moved_fields(ops: &[Op]) -> Vec<(u8, Arc<[usize]>)> {
+    let mut fields: Vec<(u8, Arc<[usize]>)> = Vec::new();
+    in_body(ops, &mut |op| {
+        if let Op::FieldMove(FieldMove::Out(root, path)) = op
+            && !fields.iter().any(|(r, p)| r == root && p == path)
+        {
+            fields.push((*root, path.clone()));
+        }
+    });
+    fields
+}
+
+/// The binding and field path that each precise loan in `ops` covers.
+fn loan_places(ops: &[Op]) -> HashMap<usize, (u8, Vec<usize>)> {
+    let mut places = HashMap::default();
+    in_body(ops, &mut |op| {
+        if let Op::Loan(loan) = op {
+            let fields = if loan.precise {
+                loan.fields.clone()
+            } else {
+                Vec::new()
+            };
+            places.insert(loan.id, (loan.root, fields));
+        }
+    });
+    places
+}
+
+/// Visit every operation of one function body, without nested definitions,
+/// whose slots and loans are numbered separately.
+fn in_body(ops: &[Op], visit: &mut impl FnMut(&Op)) {
+    for op in ops {
+        visit(op);
+        match op {
+            Op::Match(arms) => arms.iter().for_each(|arm| in_body(&arm.body, visit)),
+            Op::Loop { condition, body } => {
+                in_body(condition, visit);
+                in_body(body, visit);
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                in_body(then, visit);
+                for arm in elifs.iter() {
+                    in_body(&arm.condition, visit);
+                    in_body(&arm.body, visit);
+                }
+                in_body(otherwise, visit);
+            }
+            Op::Try { cleanup, .. } => in_body(cleanup, visit),
+            _ => {}
+        }
+    }
 }
 
 /// A value is owned after a join only if every continuing path owns it. One
@@ -977,6 +1089,88 @@ impl Checker<'_, '_> {
         Some(path)
     }
 
+    /// The place a state slot stands for: a binding, or a moved field path.
+    fn slot_place(&self, slot: usize) -> Option<String> {
+        match slot.checked_sub(self.locals.len()) {
+            Some(field) => {
+                let (root, path) = &self.fields[field];
+                self.place(*root, path, true)
+            }
+            None => self.place(slot as u8, &[], false),
+        }
+    }
+
+    /// Reject a use of `path` in binding `root` that overlaps a moved field:
+    /// the field itself or a place inside it, and when `whole` holds, also a
+    /// value containing it.
+    fn fields_available(
+        &self,
+        root: u8,
+        path: &[usize],
+        whole: bool,
+        state: &State,
+        site: Option<Site>,
+    ) -> Result<()> {
+        for (k, (field_root, moved)) in self.fields.iter().enumerate() {
+            let slot = self.locals.len() + k;
+            let Slot::Moved { at, definite } = state[slot] else {
+                continue;
+            };
+            if *field_root != root || !(path.starts_with(moved) || whole && moved.starts_with(path))
+            {
+                continue;
+            }
+            let field = self.place(root, moved, true);
+            let mut error = if path.starts_with(moved) {
+                self.error(Kind::Moved(definite), field.clone(), site)
+            } else {
+                self.error(
+                    Kind::PartlyMoved {
+                        field: field.clone().unwrap_or_default(),
+                        definite,
+                    },
+                    self.place(root, path, true),
+                    site,
+                )
+            };
+            if let (Some(at), Some(field)) = (at, field) {
+                error.notes.push((
+                    at,
+                    if definite {
+                        format!("`{field}` is moved here")
+                    } else {
+                        format!("`{field}` is moved here on some paths")
+                    },
+                ));
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Assigning binding `root`, or the field at `path` in it, initializes
+    /// every moved field inside.
+    fn initialize_fields(&self, root: u8, path: &[usize], state: &mut State) {
+        for (k, (field_root, moved)) in self.fields.iter().enumerate() {
+            if *field_root == root && moved.starts_with(path) {
+                state[self.locals.len() + k] = Slot::Owned;
+            }
+        }
+    }
+
+    /// The place a `BorrowLocal` at `index` covers, from the loan fact just
+    /// before it. Without a precise fact it covers the whole binding.
+    fn borrowed_path<'o>(&self, ops: &'o [Op], index: usize, root: u8) -> &'o [usize] {
+        let fact = ops[..index]
+            .iter()
+            .rev()
+            .find(|op| !matches!(op, Op::Site(_) | Op::CallerSite(_)));
+        match fact {
+            Some(Op::Loan(loan)) if loan.root == root && loan.precise => &loan.fields,
+            _ => &[],
+        }
+    }
+
     fn unavailable(&self, slot: u8, state: &State, site: Option<Site>) -> Box<Error> {
         let place = self.place(slot, &[], false);
         match state.get(slot as usize) {
@@ -1048,7 +1242,7 @@ impl Checker<'_, '_> {
             return None;
         }
         let mut error: Option<Box<Error>> = None;
-        for (slot, owned) in state.iter().enumerate() {
+        for (slot, owned) in state.iter().enumerate().take(self.locals.len()) {
             let partly = match owned {
                 Slot::Owned => false,
                 Slot::Moved {
@@ -1489,7 +1683,7 @@ impl Checker<'_, '_> {
         if self.submitted.borrow().is_empty() {
             return Ok(());
         }
-        for slot in (0..state.len()).rev() {
+        for slot in (0..self.locals.len()).rev() {
             if self.closes(slot, state) {
                 self.shutdown(Some(slot), state, site)?;
             }
@@ -1505,11 +1699,7 @@ impl Checker<'_, '_> {
                     Slot::Moved { at, .. } => *at,
                     _ => None,
                 };
-                let mut error = self.error(
-                    Kind::MovedInLoop,
-                    self.place(i as u8, &[], false),
-                    moved.or(site),
-                );
+                let mut error = self.error(Kind::MovedInLoop, self.slot_place(i), moved.or(site));
                 error.copied = self.origins.parameter_values.get(i).cloned().flatten();
                 return Err(error);
             }
@@ -1664,6 +1854,7 @@ impl Checker<'_, '_> {
                     if state.get(*i as usize) != Some(&Slot::Owned) {
                         return Err(self.unavailable(*i, state, site));
                     }
+                    self.fields_available(*i, &[], true, state, site)?;
                     if matches!(op, Op::MoveLocal(_)) {
                         // `drop(pool)` shuts the pool down where it is written.
                         if matches!(ops.get(index + 1), Some(Op::Drop))
@@ -1681,15 +1872,45 @@ impl Checker<'_, '_> {
                     if state.get(*i as usize) != Some(&Slot::Owned) {
                         return Err(self.unavailable(*i, state, site));
                     }
+                    if !self.fields.is_empty() {
+                        let path = match op {
+                            Op::BorrowLocal(..) => self.borrowed_path(ops, index, *i),
+                            Op::Access(_, _, Some(loan)) => match self.places.get(loan) {
+                                Some((root, path)) if root == i => path.as_slice(),
+                                _ => &[],
+                            },
+                            _ => &[],
+                        };
+                        self.fields_available(*i, path, true, state, site)?;
+                    }
+                }
+                Op::FieldMove(FieldMove::Out(root, path)) => {
+                    if let Some(k) = self.fields.iter().position(|(r, p)| r == root && p == path) {
+                        state[self.locals.len() + k] = Slot::Moved {
+                            at: site,
+                            definite: true,
+                        };
+                    }
+                }
+                Op::FieldMove(FieldMove::Assign(root, path)) => {
+                    // A field inside a moved one has nowhere to go.
+                    if let Some(parent) = path.len().checked_sub(1) {
+                        self.fields_available(*root, &path[..parent], false, state, site)?;
+                    }
+                    self.initialize_fields(*root, path, state);
                 }
                 Op::StoreLocal(i) => {
                     // Assignment drops the pool the binding held.
                     if self.closes(*i as usize, state) {
                         self.shutdown(None, state, site)?;
                     }
-                    state[*i as usize] = Slot::Owned
+                    state[*i as usize] = Slot::Owned;
+                    self.initialize_fields(*i, &[], state);
                 }
-                Op::EmptyLocal(i) => state[*i as usize] = Slot::Owned,
+                Op::EmptyLocal(i) => {
+                    state[*i as usize] = Slot::Owned;
+                    self.initialize_fields(*i, &[], state);
+                }
                 Op::DropLocal(i) => {
                     if self.closes(*i as usize, state) {
                         self.shutdown(Some(*i as usize), state, site)
@@ -1697,7 +1918,8 @@ impl Checker<'_, '_> {
                                 leaving(error, written, early_exit(&ops[index + 1..], written))
                             })?;
                     }
-                    state[*i as usize] = Slot::Unset
+                    state[*i as usize] = Slot::Unset;
+                    self.initialize_fields(*i, &[], state);
                 }
                 Op::Match(arms) => {
                     let initial = state.clone();

@@ -881,6 +881,9 @@ pub enum Op {
     /// for plan state that is read under a flag saying it holds a value,
     /// such as a `flat_map` inner source between outer items.
     EmptyLocal(u8),
+    /// A field of an owned local moves out or is assigned; ownership checks
+    /// only. The move itself is a `ReplaceRef` that leaves the field empty.
+    FieldMove(crate::ownership::FieldMove),
     Enum(crate::sum::EnumOp),
     Box(crate::boxed::BoxOp),
     /// Move every field out of a multi-field variant or tuple, in field order.
@@ -1991,6 +1994,7 @@ fn step(
         | Op::Passes(_)
         | Op::Forwards(_)
         | Op::Tokens(_)
+        | Op::FieldMove(_)
         | Op::ForwardsReferences => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;

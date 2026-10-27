@@ -476,7 +476,7 @@ impl Lower<'_> {
         ops.push(Op::Collection(operation));
     }
     /// Reading a reference-carrying local uses the loan it holds.
-    fn use_carried(&self, local: &Local, ops: &mut Vec<Op>) {
+    pub(super) fn use_carried(&self, local: &Local, ops: &mut Vec<Op>) {
         if local.ty.carried_reference().is_some()
             && let Some(&loan) = self.reference_locals.get(&local.slot)
         {
