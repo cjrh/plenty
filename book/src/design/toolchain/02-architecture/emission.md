@@ -251,7 +251,17 @@ nothing (issue #391). Every write of an empty slot in a function uses the same
 one-word and two-word zero constants from its entry block, so where all paths
 into a join leave a slot empty, the slot's value there is that constant and its
 later release emits nothing. A slot moved from on only some paths keeps its
-release; for a two-word value it tests for zero before calling the runtime.
+release, which tests for zero before calling the runtime. In user code the
+test also skips the call-chain bookkeeping that names the release site, so an
+empty slot costs a compare and branch.
+
+A local whose address is taken lives in a stack slot, and lowering reads it
+back with a load, so it cannot see the zero there. Before compiling a
+function, `src/codegen/empty_slots.rs` finds stack slots whose address is only
+loaded from or stored to, and tracks which of their bytes hold zero on every
+path; a call does not change them. A zero test or one-word release that reads
+such bytes is removed (issue #549). A constructed value whose fields have all
+been moved out is the common case.
 
 A backward liveness pass over each function finds these reads. Loops are
 solved to a fixed point; `break`, `continue`, early returns and the error path

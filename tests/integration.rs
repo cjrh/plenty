@@ -157,6 +157,8 @@ mod test_dictionary_views;
 mod test_dump;
 #[path = "test_element_references.rs"]
 mod test_element_references;
+#[path = "test_empty_release.rs"]
+mod test_empty_release;
 mod test_entry_report_format;
 #[path = "test_entrypoint.rs"]
 mod test_entrypoint;

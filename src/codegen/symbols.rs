@@ -122,6 +122,11 @@ impl Symbols {
         self.declared.lines
     }
 
+    /// The function declared as `name` before bodies were built.
+    pub(super) fn declared_function(&self, name: &str) -> Option<FuncId> {
+        self.declared.names.get(name).copied()
+    }
+
     /// Whether Cranelift's optimizer runs on the bodies built here.
     pub(super) fn optimizes(&self) -> bool {
         self.declared.isa.flags().opt_level() != cranelift_codegen::settings::OptLevel::None

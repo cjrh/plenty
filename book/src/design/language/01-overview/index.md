@@ -1,8 +1,8 @@
 # Language overview
 
-Plenty is a statically typed, ahead-of-time compiled language with Python-shaped
-syntax. Its design favors fast compilation, explicit interfaces, and predictable
-memory use.
+Plenty is a statically typed, ahead-of-time compiled language with
+Python-shaped syntax and Rust-influenced behaviours. Its design favors fast
+compilation, explicit interfaces, and predictable memory use.
 
 Every function declares its parameter and return types. Local expressions can
 infer types, while [generics](../07-generics/index.md) reuse definitions at concrete

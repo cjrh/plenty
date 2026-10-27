@@ -77,6 +77,7 @@ mod collections;
 mod control;
 mod coverage;
 mod dump;
+mod empty_slots;
 mod enums;
 mod executors;
 mod exits;
@@ -2220,19 +2221,38 @@ impl Lowerer<'_, '_> {
         }
         let value = self.raw_word(value);
         if ty.managed() {
-            let f = self
-                .module
-                .declare_func_in_func(self.runtime.release, self.bcx.func);
             // User code names itself as the caller of std destructors. In
             // std the context is already right, and the runtime restores it
             // after destructors.
-            let saved = if self.in_standard_library() {
-                None
-            } else {
+            let bookkeeping = !self.in_standard_library() && self.runtime.standard_calls;
+            // An empty slot owns nothing, and the runtime returns at once.
+            // Where the call has caller bookkeeping, testing here keeps both
+            // off that path. A value read from the stack frame may be known
+            // empty once the function is built; `remove_empty_releases` then
+            // folds this test, or removes a bare call (issue #549).
+            let done = bookkeeping.then(|| {
+                let release = self.bcx.create_block();
+                let done = self.bcx.create_block();
+                self.bcx.ins().brif(value, release, &[], done, &[]);
+                self.bcx.switch_to_block(release);
+                self.bcx.seal_block(release);
+                done
+            });
+            let saved = if bookkeeping {
                 self.enter_call().expect("drop caller site")
+            } else {
+                None
             };
+            let f = self
+                .module
+                .declare_func_in_func(self.runtime.release, self.bcx.func);
             self.bcx.ins().call(f, &[value]);
             self.leave_call(saved);
+            if let Some(done) = done {
+                self.bcx.ins().jump(done, &[]);
+                self.bcx.switch_to_block(done);
+                self.bcx.seal_block(done);
+            }
         }
     }
     fn release_locals(&mut self) {
