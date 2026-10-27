@@ -709,6 +709,9 @@ impl TypeAliases {
                 if ty.layout_depth() > 64 {
                     return Err(at().error("type nesting exceeds the implementation limit of 64"));
                 }
+                if let Ty::Class(class) = ty {
+                    self.check_copy_class(class, &self.data.classes[name])?;
+                }
             }
             Ok(())
         })();

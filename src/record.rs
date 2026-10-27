@@ -9,6 +9,10 @@ pub struct ClassType {
     pub fields: Vec<(String, Ty)>,
     pub destructor: Option<String>,
     pub fallible_init: bool,
+    /// Declared `@copy`: instances copy on ordinary use instead of moving.
+    /// The declaration check guarantees every field copies and there is no
+    /// `__del__`; see book/src/design/language/03-types/classes.md.
+    pub copy: bool,
     /// Inline field storage size; excluded from nominal equality.
     pub bytes: std::sync::OnceLock<usize>,
     /// Whether an instance needs cleanup; excluded from nominal equality.

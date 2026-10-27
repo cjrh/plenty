@@ -83,11 +83,63 @@ access automatically.
 Instances store their fields inline: `Point(3, 4)` needs no allocation or `?`.
 Copying list fields can still fail to allocate.
 
-Class instances move even when their fields are all integers. `other = point`
-transfers ownership; `copy(point)` requests an independent instance. Integer
-and string fields can be read directly. Owned fields such as lists or other
-classes must be borrowed, observed, or explicitly copied. Equality compares
-fields; printing shows the class name and fields.
+By default, class instances move even when their fields are all integers.
+`other = point` transfers ownership; `copy(point)` requests an independent
+instance. Integer and string fields can be read directly. Owned fields such as
+lists or other classes must be borrowed, observed, or explicitly copied.
+Equality compares fields; printing shows the class name and fields.
+
+## Copy small value types
+
+Write `@copy` on the line before `class` when instances are plain values, like
+integers. Assignment, argument passing, returning, and storing in a collection
+then copy the instance and leave the original usable:
+
+```plenty
+@copy
+class Money:
+    cents: i64
+    currency: str
+
+def add(a: Money, b: Money) -> Money:
+    Money(a.cents + b.cents, a.currency)
+
+def main() -> Result[(), IoError]:
+    price = Money(250, "EUR")
+    tax = Money(50, "EUR")
+    paid = add(price, tax)
+    mut discounted = price
+    discounted.cents = 200
+    print(price, paid, discounted)?
+    Ok(())
+```
+
+```output
+Money(cents=250, currency="EUR") Money(cents=300, currency="EUR") Money(cents=200, currency="EUR")
+```
+
+Every field must itself copy: a scalar, `str`, another `@copy` class, or a tuple
+or enum of those. Copying duplicates the inline fields and never allocates, so
+it needs no `?`. A field that owns storage is rejected:
+
+```plenty-error
+@copy
+class Basket:
+    items: list[str]
+
+def main() -> ():
+    pass
+```
+
+```error
+every field of a `@copy` class must copy
+```
+
+A `@copy` class also cannot define `__del__` or take type parameters. Keep the
+default for instances that own resources or should be used only once; see
+[copy classes](../../design/language/03-types/classes.md#copy-classes).
+
+## Limits
 
 There is no inheritance, dynamic attribute creation, or class-variable syntax.
 Fields currently have no default values. Constructors and methods accept named

@@ -135,6 +135,8 @@ mod test_context_reporting_bounds;
 mod test_contexts;
 #[path = "test_conversion_errors.rs"]
 mod test_conversion_errors;
+#[path = "test_copy_classes.rs"]
+mod test_copy_classes;
 #[path = "test_copyable_tuple_mutation.rs"]
 mod test_copyable_tuple_mutation;
 #[path = "test_data_callable_bounds.rs"]

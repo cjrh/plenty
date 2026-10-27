@@ -196,20 +196,19 @@ impl Ty {
             weights.push(weight);
             depths.push(weight);
             let children = match &nodes[i] {
-                Self::Class(t) => {
-                    facts.affine = true;
-                    match t.try_get() {
-                        Some(t) => {
-                            facts.destructor |= t.destructor.is_some();
-                            facts.copyable &= t.destructor.is_none();
-                            t.fields.iter().map(|(_, t)| t.clone()).collect()
-                        }
-                        _ => {
-                            facts.complete = false;
-                            vec![]
-                        }
+                Self::Class(t) => match t.try_get() {
+                    Some(t) => {
+                        facts.affine |= !t.copy;
+                        facts.destructor |= t.destructor.is_some();
+                        facts.copyable &= t.destructor.is_none();
+                        t.fields.iter().map(|(_, t)| t.clone()).collect()
                     }
-                }
+                    _ => {
+                        facts.affine = true;
+                        facts.complete = false;
+                        vec![]
+                    }
+                },
                 Self::Enum(t) => match t.try_get() {
                     Some(t) => t
                         .variants
@@ -370,6 +369,7 @@ mod tests {
                 .collect(),
             destructor: destructor.then(|| "__del__".into()),
             fallible_init: false,
+            copy: false,
             bytes: OnceLock::new(),
             managed: OnceLock::new(),
         }

@@ -45,6 +45,7 @@ impl Parser {
         let mut public_members = HashSet::default();
         let mut declared = HashSet::default();
         while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
+            self.misplaced_annotations("enum members")?;
             let public = self.eat("pub");
             if self.peek().is("def") {
                 let mut f = self.function_in(Some(&name))?;

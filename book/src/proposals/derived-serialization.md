@@ -49,7 +49,7 @@ Probes in this section ran on local `main` at `7923a7c0` with a debug compiler.
 | Generic code reaches another module's methods only when the type and method are `pub`; automatic destruction ignores `__del__` privacy | Compiler-dispatched hooks can follow the `__del__` rule instead |
 | The runtime prints `Point(x=3, y=4)` by walking a static descriptor with field names (`plenty-runtime/src/aggregates.rs`) | A descriptor-driven serializer is possible, at the cost discussed below |
 | `std.json` has a resumable event decoder; `std.toml` has only a tree, because TOML tables can be extended anywhere in a file | The data model must work over both an event stream and a tree |
-| There is no annotation syntax today; [protocol method bodies](protocol-method-bodies/final-and-visibility.md#method-annotations) agreed a closed set of `@` annotations (`@final`, `@protocol.Name`), not yet implemented | An opt-in can extend that closed set rather than introduce user decorators |
+| A closed set of declaration annotations exists with one member, [`@copy`](../design/language/03-types/classes.md#copy-classes) on classes; [protocol method bodies](protocol-method-bodies/final-and-visibility.md#method-annotations) agreed `@final` and `@protocol.Name`, not yet implemented | An opt-in can extend that closed set rather than introduce user decorators |
 
 ## Precedents
 
@@ -122,7 +122,8 @@ pub enum Mode:
 
 `@serial` extends the closed annotation set agreed for
 [protocol method bodies](protocol-method-bodies/final-and-visibility.md#method-annotations)
-to class and enum declarations. It derives each of two hooks the type does not
+to class and enum declarations. The parser already reads class annotations
+for `@copy`; `@serial` adds a member and accepts annotations on `enum`. It derives each of two hooks the type does not
 already define:
 
 ```text

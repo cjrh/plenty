@@ -26,6 +26,7 @@ impl Parser {
         let mut methods = Vec::new();
         let mut seen = HashSet::default();
         while self.peek().kind != Kind::Dedent && self.peek().kind != Kind::Eof {
+            self.misplaced_annotations("protocol members")?;
             if !self.peek().is("def") {
                 return Err(self
                     .peek()
@@ -196,6 +197,7 @@ fn placeholder(name: &str) -> Ty {
         fields: vec![],
         destructor: None,
         fallible_init: false,
+        copy: false,
         bytes: std::sync::OnceLock::new(),
         managed: std::sync::OnceLock::new(),
     }))

@@ -59,7 +59,7 @@ fn split_fragment(source: &str) -> (String, String) {
             && !line.trim().is_empty()
             && !line.starts_with('#')
         {
-            declaration = ["def ", "type ", "class ", "enum ", "protocol "]
+            declaration = ["def ", "type ", "class ", "enum ", "protocol ", "@"]
                 .iter()
                 .any(|prefix| line.starts_with(prefix));
         }
