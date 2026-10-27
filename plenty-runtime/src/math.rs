@@ -75,7 +75,11 @@ pub(crate) extern "C" fn plenty_int_pow(
     let bits = (kind & !1) as u32;
     let (base, min, max) = if kind & 1 == 1 {
         if (exponent as i64) < 0 {
-            crate::fail_at(site, format_args!("negative integer exponent"))
+            crate::fail_kind_at(
+                crate::actor_heap::TrapKind::Arithmetic,
+                site,
+                format_args!("negative integer exponent"),
+            )
         }
         let max = (1i128 << (bits - 1)) - 1;
         (base as i64 as i128, -max - 1, max)
@@ -84,7 +88,11 @@ pub(crate) extern "C" fn plenty_int_pow(
     };
     match checked_pow(base, exponent, min, max) {
         Some(value) => value as u64,
-        None => crate::fail_at(site, format_args!("integer overflow")),
+        None => crate::fail_kind_at(
+            crate::actor_heap::TrapKind::Arithmetic,
+            site,
+            format_args!("integer overflow"),
+        ),
     }
 }
 

@@ -22,7 +22,9 @@ const max_spawns: i64 = 16
 class Address
     def key(self) -> u64
 enum Exit[E]
-    # Stopped by `Context.stop`, a `Stop` request, or a spawn hook that | Failed(E) | Trapped
+    # Stopped by `Context.stop`, a `Stop` request, or a spawn hook that | Failed(E) | Trapped(TrapKind)
+enum TrapKind
+    Memory | Index | Arithmetic | Unwrap | Other
 enum Mail[M, E]
     Message(M) | Ready(Readiness) | Down(Address, Exit[E]) | Stop
 enum Undelivered[M]

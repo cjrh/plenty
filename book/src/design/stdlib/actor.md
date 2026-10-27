@@ -57,8 +57,8 @@ pub enum Node:
                     case Mail.Down(_, Exit.Stopped):
                         print("worker stopped")?
                         boss.ended += 1
-                    case Mail.Down(_, Exit.Trapped):
-                        print("worker trapped")?
+                    case Mail.Down(_, Exit.Trapped(kind)):
+                        print("worker trapped", kind)?
                         boss.ended += 1
                     case _:
                         pass
@@ -77,8 +77,8 @@ pub enum Node:
                         pass
         Ok(())
 
-    # Runs with the new child's heap current.
-    pub def spawn(self: &mut Node, tag: i64, child: Address, context: &mut Context[Job, Fault]) -> Result[Option[Node], Fault]:
+    # Runs with the new child's heap current; see "The spawn hook".
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Job, Fault]) -> Result[Option[Node], Fault]:
         match self:
             case Node.Leading(boss):
                 Ok(Some(Node.Working(Worker(boss.me.unwrap()))))
@@ -97,7 +97,7 @@ def main() -> Result[(), AllocError | IoError | WaitError]:
 ```output
 answer 49
 worker stopped
-worker trapped
+worker trapped std.actor.TrapKind.Unwrap
 3 2 1 0 0
 ```
 
@@ -116,11 +116,41 @@ type `E`. `N` is a public class or enum with three public methods:
 |---|---|
 | `started(self: &mut N, context: &mut Context[M, E]) -> Result[(), E]` | Once, before any mail |
 | `receive(self: &mut N, mail: Mail[M, E], context: &mut Context[M, E]) -> Result[(), E]` | For each delivered mail |
-| `spawn(self: &mut N, tag: i64, child: Address, context: &mut Context[M, E]) -> Result[Option[N], E]` | On the parent, after a handler that called `Context.spawn` returns; builds the child with the child's heap current. `Nothing` stops the child at once |
+| `spawn(self, tag: i64, child: Address, context: &mut Context[M, E]) -> Result[Option[N], E]` | On the parent, after a handler that called `Context.spawn` returns; builds the child with the child's heap current. `Nothing` stops the child at once. See [the spawn hook](#the-spawn-hook) |
 
 `M` and `E` must be copyable with `copy`; delivery copies them into another
 heap. Use an enum node type to run several kinds of actor on one stage, as in
 the example.
+
+### The spawn hook
+
+The `spawn` hook runs the parent's code while the child's heap is current, so
+everything it allocates belongs to the child. Two rules keep the parent's heap
+and the child's apart:
+
+- The hook takes `self` as a shared borrow. It cannot store a value in the
+  parent's node, so nothing it allocates outlives the child's heap there, and
+  it cannot move a value out of the parent's node into the child.
+- The node type holds only values that a shared borrow neither aliases nor
+  changes: numbers, `bool`, `bytes`, `Bytes`, files and sockets, functions,
+  and lists, dicts, sets, boxes, classes and enums of these. A `str` copy
+  shares its storage and `Mutex.lock` gives `&mut` through a shared borrow,
+  so the compiler rejects a node holding `str`, `Shared`, a lock, an atomic,
+  a channel, a closure or a task, naming the type and the field's holder:
+
+```text
+error: an actor node cannot hold `str` (in `Node`): its `spawn` hook reads the node while the child's heap is current; keep text in `Bytes` and pass shared state in messages
+```
+
+The hook builds the child's node from copies of what it reads, and creates
+values the child owns, such as an accepted socket, inside the hook. A hook
+declared `self: &mut N` is rejected with `cannot borrow shared reference as
+mutable` in the standard library's `run_spawn`.
+
+In the hook, `Context.spawn` returns `StartError.Capacity` and `Context.stop`
+has no effect. When the hook returns `Err(error)`, the error is copied into the
+parent's heap before the child's heap is discarded, and the parent receives
+`Down(child, Exit.Failed(error))`.
 
 | Export | Contract |
 |---|---|
@@ -149,7 +179,8 @@ the example.
 |---|---|
 | `Address` | A slot and a generation. A stopped actor's address is never reused; `key()` returns it as `u64` |
 | `Mail[M, E]` | `Message(M)`, `Ready(Readiness)`, `Down(Address, Exit[E])`, `Stop` |
-| `Exit[E]` | `Stopped`, `Failed(E)`, `Trapped` |
+| `Exit[E]` | `Stopped`, `Failed(E)`, `Trapped(TrapKind)` |
+| `TrapKind` | `Memory`, `Index`, `Arithmetic`, `Unwrap`, `Other`; see [Traps](#traps) |
 | `Undelivered[M]` | `Full(M)`: the mailbox is full or the receiver's heap cannot hold the copy. `Gone(M)`: the receiver has stopped |
 | `StartError` | `Unsupported`, `Capacity` (no free slot, or `max_spawns` reached), `Heaps` (1024 heaps live or the reservation failed), `Limit` (not in 1..`max_heap_limit`), `Mailbox` (its allocation failed) |
 | `Stats` | `started`, `stopped`, `failed`, `trapped`, `delivered`, `full` (refused sends, and readiness deferred by a full mailbox), `gone` (sends and readiness for stopped actors), `lost` (`Down` for a parent that had stopped) |
@@ -164,7 +195,8 @@ on a later wait.
 
 `Stop` stops the actor after its handler returns. An `Err(error)` from any
 handler stops the actor and gives its parent `Exit.Failed(error)`, copied into
-the parent's heap; if that copy does not fit, the parent sees `Exit.Trapped`.
+the parent's heap; if that copy does not fit, the parent sees
+`Exit.Trapped(TrapKind.Memory)`.
 Destructors run for a stopped or failed actor's node.
 
 ### Supervision
@@ -208,7 +240,7 @@ pub class Greedy:
     pub def receive(self: &mut Greedy, mail: Mail[i64, Fault], context: &mut Context[i64, Fault]) -> Result[(), Fault]:
         Ok(())
 
-    pub def spawn(self: &mut Greedy, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Greedy], Fault]:
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Greedy], Fault]:
         Ok(Nothing)
 
 def main() -> Result[(), AllocError | IoError | WaitError]:
@@ -242,12 +274,22 @@ A trap in a handler, including an allocation failure that cannot be returned:
 - discards the actor's heap, returning its memory;
 - closes up to 4096 files and sockets the actor opened, which also removes
   them from the stage's selector;
-- gives the parent `Exit.Trapped`;
+- gives the parent `Exit.Trapped(kind)`;
 - does not run destructors for the trapped actor's node or the handler's
   locals, since they lived in the discarded heap.
 
-The trap kind and message are not reported to the parent; they appear on
-standard error. These are not contained and still end the process:
+`kind` is a `TrapKind`:
+
+| Kind | Cause |
+|---|---|
+| `Memory` | An allocation failure the program cannot handle, or an exit that does not fit the parent's heap |
+| `Index` | A list, string, byte or slice index out of bounds, or a missing dictionary key |
+| `Arithmetic` | Integer overflow, division by zero, an invalid shift or a lossy cast |
+| `Unwrap` | `unwrap` on `Nothing` or `Err` |
+| `Other` | Any other runtime error, such as a failed assertion |
+
+The message appears on standard error only; reporting the kind allocates
+nothing. These are not contained and still end the process:
 
 - stack overflow;
 - internal runtime panics;
@@ -262,12 +304,7 @@ actor heaps and are neither limited nor freed by a trap.
 - One thread. Heaps belong to the thread that created the first one, and
   heap operations from another thread fail. Starting a thread in a handler
   traps the actor, since the thread could outlive the heap holding its task.
-- The `spawn` hook runs the parent's code with the child's heap current. It can
-  move values between the two heaps, and the compiler does not reject this.
-  Create values the child owns, such as an accepted socket, inside the hook,
-  and keep nothing the hook allocated in the parent. A test pins this escape
-  until the checker confines the hook. In the hook, `Context.spawn` returns
-  `StartError.Capacity` and `Context.stop` has no effect.
+- An actor node cannot hold `str`; use `Bytes`, which also accepts text.
 - Copying a message copies owned values. Where `copy` would share storage
   instead, a `str` is duplicated and any other shared value stops the program
   with a runtime error.

@@ -16,6 +16,7 @@ const op_committed_total: i64 = 4
 const op_live: i64 = 5
 const op_switch: i64 = 6
 const op_prepare: i64 = 7
+const op_trap_kind: i64 = 8
 # `op_switch` argument and result naming the process allocator.
 const system: i64 = -1
 # `op_create` result on targets without actor heaps.
@@ -52,7 +53,36 @@ pub enum Exit[E]:
     # A handler returned this error.
     Failed(E)
     # A handler trapped or exhausted its heap. The heap was discarded.
-    Trapped
+    Trapped(TrapKind)
+
+# Why an actor trapped. The runtime prints the trap's message and position.
+pub enum TrapKind:
+    # An allocation failed where the runtime could not return `AllocError`,
+    # usually at the heap limit; or the actor's error did not fit in its
+    # parent's heap.
+    Memory
+    # An index out of bounds or a missing dictionary key.
+    Index
+    # Integer overflow, division by zero, or a shift or cast out of range.
+    Arithmetic
+    # `unwrap()` on `Nothing` or `Err`.
+    Unwrap
+    # Any other runtime failure.
+    Other
+
+# The kind of the last trap `__actor_run` contained.
+def last_trap() -> TrapKind:
+    match __actor_heap(op_trap_kind, 0):
+        case 1:
+            TrapKind.Memory
+        case 2:
+            TrapKind.Index
+        case 3:
+            TrapKind.Arithmetic
+        case 4:
+            TrapKind.Unwrap
+        case _:
+            TrapKind.Other
 
 # What an actor receives.
 pub enum Mail[M, E]:
@@ -218,8 +248,9 @@ pub class Context[M, E]:
 
     # Reserves a child slot, a heap of `limit` bytes and a mailbox. After the
     # handler returns, the stage calls the parent's `spawn(tag, child,
-    # context)` with the child's heap current to build the child. The parent
-    # receives `Down` when the child stops.
+    # context)` with the child's heap current to build the child; the hook
+    # borrows the parent shared. The parent receives `Down` when the child
+    # stops.
     pub def spawn(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]:
         if self._building or self._spawn_count == max_spawns:
             return Err(StartError.Capacity)
@@ -309,9 +340,10 @@ pub class Context[M, E]:
 #
 #   def started(self: &mut N, context: &mut Context[M, E]) -> Result[(), E]
 #   def receive(self: &mut N, mail: Mail[M, E], context: &mut Context[M, E]) -> Result[(), E]
-#   def spawn(self: &mut N, tag: i64, child: Address, context: &mut Context[M, E]) -> Result[Option[N], E]
+#   def spawn(self, tag: i64, child: Address, context: &mut Context[M, E]) -> Result[Option[N], E]
 #
-# M and E must be copyable with `copy`.
+# M and E must be copyable with `copy`. N holds no `str` and no value that
+# shares or changes state through a shared borrow; see actor.md.
 pub class Stage[N, M, E]:
     _nodes: list[Option[N]]
     _context: Context[M, E]
@@ -501,8 +533,8 @@ pub class Stage[N, M, E]:
         match outcome:
             case Outcome.Failed(error):
                 self.fail(index, error)
-            case Outcome.Trapped:
-                self.contain(index)
+            case Outcome.Trapped(kind):
+                self.contain(index, kind)
             case Outcome.Done:
                 pass
 
@@ -516,7 +548,7 @@ pub class Stage[N, M, E]:
         child_address = address(child, self._context._boxes[child].generation)
         self._context._self = child_address._key
         self._context._building = True
-        outcome = __actor_run(heap, run_spawn, &mut self._nodes[parent], tag, child_address, &mut self._context)
+        outcome = __actor_run(heap, run_spawn, &self._nodes[parent], tag, child_address, &mut self._context)
         self._context._building = False
         self._context._boxes[child].pending = False
         match outcome:
@@ -531,11 +563,13 @@ pub class Stage[N, M, E]:
                 self.release(child)
                 Outcome[E].Done
             case Ok(Err(error)):
+                # The error was made in the child's heap; the parent keeps it.
+                kept = self.adopt(parent, error)
                 self.release(child)
-                Outcome[E].Failed(error)
+                kept
             case Err(_):
                 self.release(child)
-                Outcome[E].Trapped
+                Outcome[E].Trapped(last_trap())
 
     # Releases the slots of spawn requests `start` to `stop` that were not built.
     def release_spawns(self: &mut Stage[N, M, E], start: i64, stop: i64) -> ():
@@ -565,35 +599,44 @@ pub class Stage[N, M, E]:
 
     # The child's error copied into its parent's heap. Without a live parent
     # nothing receives it; when the copy does not fit, the parent sees
-    # `Trapped`.
+    # `Trapped(Memory)`.
     def exit_for(self: &mut Stage[N, M, E], index: i64, error: E) -> Exit[E]:
         box = &self._context._boxes[index]
         if not box.has_parent or not self._context.accepts(box.parent):
             drop(error)
             return Exit[E].Stopped
-        previous = __actor_heap(op_switch, self._context._boxes[slot_of(box.parent)].heap)
-        mut exit = Exit[E].Trapped
+        match self.adopt(slot_of(box.parent), error):
+            case Outcome.Failed(copied):
+                Exit[E].Failed(copied)
+            case _:
+                Exit[E].Trapped(TrapKind.Memory)
+
+    # `error` copied into slot `index`'s heap, or `Trapped(Memory)` when the
+    # copy does not fit. The original is dropped.
+    def adopt(self: &mut Stage[N, M, E], index: i64, error: E) -> Outcome[E]:
+        previous = __actor_heap(op_switch, self._context._boxes[index].heap)
+        mut outcome = Outcome[E].Trapped(TrapKind.Memory)
         match copy(&error):
             case Ok(copied):
-                exit = Exit[E].Failed(copied)
+                outcome = Outcome[E].Failed(copied)
             case Err(_):
                 pass
         __actor_heap(op_switch, previous)
         drop(error)
-        exit
+        outcome
 
     # Contains a trapped actor. Its frames are gone and its node may be half
     # updated, so no method or destructor of it runs again: the node is
     # forgotten and its heap discarded, which frees its memory and closes
     # its files.
-    def contain(self: &mut Stage[N, M, E], index: i64) -> ():
+    def contain(self: &mut Stage[N, M, E], index: i64, kind: TrapKind) -> ():
         self._context._stats.trapped += 1
         match replace(self._nodes[index], Nothing):
             case Some(node):
                 __actor_forget(node)
             case Nothing:
                 pass
-        self.retire(index, Exit[E].Trapped)
+        self.retire(index, Exit[E].Trapped(kind))
 
     # Tells the parent, frees queued mail, discards the heap and frees the slot.
     def retire(self: &mut Stage[N, M, E], index: i64, exit: Exit[E]) -> ():
@@ -682,7 +725,7 @@ pub def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage
 enum Outcome[E]:
     Done
     Failed(E)
-    Trapped
+    Trapped(TrapKind)
 
 def outcome_of[E, T](result: Result[Result[(), E], T]) -> Outcome[E]:
     match result:
@@ -691,7 +734,7 @@ def outcome_of[E, T](result: Result[Result[(), E], T]) -> Outcome[E]:
         case Ok(Err(error)):
             Outcome[E].Failed(error)
         case Err(_):
-            Outcome[E].Trapped
+            Outcome[E].Trapped(last_trap())
 
 # The functions `__actor_run` calls with the actor's heap current.
 def run_started[N, M, E](slot: &mut Option[N], context: &mut Context[M, E]) -> Result[(), E]:
@@ -708,7 +751,10 @@ def run_receive[N, M, E](slot: &mut Option[N], mail: Mail[M, E], context: &mut C
         case Nothing:
             Ok(())
 
-def run_spawn[N, M, E](slot: &mut Option[N], tag: i64, child: Address, context: &mut Context[M, E]) -> Result[Option[N], E]:
+# The hook borrows the parent's node shared: it runs with the child's heap
+# current, and `__actor_run` checks that N cannot reach another heap's
+# storage through that borrow.
+def run_spawn[N, M, E](slot: &Option[N], tag: i64, child: Address, context: &mut Context[M, E]) -> Result[Option[N], E]:
     match slot:
         case Some(node):
             node.spawn(tag, child, context)

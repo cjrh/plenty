@@ -93,7 +93,7 @@ pub enum Node:
                     case Mail.Down(_, exit):
                         acceptor.ended += 1
                         match exit:
-                            case Exit.Trapped:
+                            case Exit.Trapped(_):
                                 acceptor.trapped += 1
                             case _:
                                 pass
@@ -111,7 +111,7 @@ pub enum Node:
 
     # Runs with the child's heap current, so the accepted stream and its
     # buffer belong to the connection actor.
-    pub def spawn(self: &mut Node, tag: i64, child: Address, context: &mut Context[Note, NetError | BytesError]) -> Result[Option[Node], NetError | BytesError]:
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Note, NetError | BytesError]) -> Result[Option[Node], NetError | BytesError]:
         match self:
             case Node.Accepting(acceptor):
                 match acceptor.listener.accept_now():

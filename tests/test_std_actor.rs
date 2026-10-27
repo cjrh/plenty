@@ -149,7 +149,7 @@ fn supervisor_receives_errors_traps_and_stops() {
         "0 got reply from 2\n\
          down 1 std.actor.Exit[AllocError].Failed(AllocError.OutOfMemory)\n\
          down 2 std.actor.Exit[AllocError].Stopped\n\
-         down 3 std.actor.Exit[AllocError].Trapped\n\
+         down 3 std.actor.Exit[AllocError].Trapped(std.actor.TrapKind.Unwrap)\n\
          std.actor.Stats(started=4, stopped=2, failed=1, trapped=1, delivered=7, full=0, gone=0, lost=0) 0 0 0\n\
          gone Note.Text(\"late\")\n\
          sent\n\
@@ -191,17 +191,13 @@ fn raw_actor_builtins_are_reserved_for_std() {
     }
 }
 
-/// The spawn hook runs the parent's code with the child's heap current, so it
-/// can store child-heap values in the parent or hand parent values to the
-/// child. Neither is rejected; actor.md documents the rule. This test pins
-/// the escape: delete it when the checker confines the hook.
-#[test]
-fn spawn_hook_can_move_values_between_heaps() {
-    let source = r#"
+/// A node for the spawn-hook checks: `FIELD`, `RECEIVER` and `BODY` vary.
+const HOOK_NODE: &str = r#"
 from std.actor import Address, Context, Mail, stage
+from std.sync import Mutex
 
 pub class Node:
-    pub kept: list[list[i64]]
+    pub value: FIELD
 
     pub def started(self: &mut Node, context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
         Ok(())
@@ -209,19 +205,70 @@ pub class Node:
     pub def receive(self: &mut Node, mail: Mail[i64, AllocError], context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
         Ok(())
 
-    pub def spawn(self: &mut Node, tag: i64, child: Address, context: &mut Context[i64, AllocError]) -> Result[Option[Node], AllocError]:
-        # Allocated in the child's heap, kept by the parent.
-        self.kept.append([tag]?)?
-        # Owned by the parent, moved into the child.
-        kept = replace(self.kept, []?)
-        Ok(Some(Node(kept)))
+    pub def spawn(RECEIVER, tag: i64, child: Address, context: &mut Context[i64, AllocError]) -> Result[Option[Node], AllocError]:
+        BODY
 
 def main() -> Result[(), AllocError]:
     mut actors = stage[Node, i64, AllocError](4, 4, 4).unwrap()
-    actors.start(Node([]?), 65536).unwrap()
+    actors.start(Node(INIT), 65536).unwrap()
     Ok(())
 "#;
+
+fn hook_node(field: &str, receiver: &str, body: &str, init: &str) -> String {
+    HOOK_NODE
+        .replace("FIELD", field)
+        .replace("RECEIVER", receiver)
+        .replace("BODY", body)
+        .replace("INIT", init)
+}
+
+/// The spawn hook runs with the child's heap current, so it borrows the
+/// parent's node shared, and the node cannot hold values that a shared borrow
+/// aliases or changes across heaps.
+#[test]
+fn spawn_hook_cannot_move_values_between_heaps() {
+    // Allocated in the child's heap and kept by the parent, then moved out.
+    let error = support::check_file_error(&hook_node(
+        "list[list[i64]]",
+        "self: &mut Node",
+        "self.value.append([tag]?)?\n        Ok(Some(Node(replace(self.value, []?))))",
+        "[]?",
+    ));
+    assert!(
+        error.contains("run_spawn") && error.contains("cannot borrow shared reference as mutable"),
+        "{error}"
+    );
+    // A `str` copy would share the parent's storage with the child.
+    let error = support::check_file_error(&hook_node(
+        "str",
+        "self",
+        "Ok(Some(Node(self.value)))",
+        "\"root\"",
+    ));
+    assert!(
+        error.contains("an actor node cannot hold `str` (in `Node`)"),
+        "{error}"
+    );
+    // `Mutex.lock` gives `&mut` through a shared borrow.
+    let error = support::check_file_error(&hook_node(
+        "Mutex[list[i64]]",
+        "self",
+        "Ok(Nothing)",
+        "Mutex[list[i64]]([]?)",
+    ));
+    assert!(
+        error.contains("an actor node cannot hold `Atomic[u32]` (in `std.sync.Mutex[list[i64]]`)"),
+        "{error}"
+    );
+    // `Bytes` is allowed.
+    let source = hook_node(
+        "std.bytes.Bytes",
+        "self",
+        "Ok(Some(Node(std.bytes.with_capacity(self.value.len()).unwrap())))",
+        "std.bytes.with_capacity(4).unwrap()",
+    )
+    .replace("from std.sync import Mutex", "import std.bytes");
     let dir = tempfile::tempdir().unwrap();
-    let path = support::write_main(dir.path(), source);
+    let path = support::write_main(dir.path(), &source);
     plenty::check_file(&path, None).unwrap_or_else(|error| panic!("{error}"));
 }

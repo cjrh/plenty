@@ -227,26 +227,46 @@ pub(crate) extern "C" fn plenty_print_space() {
 }
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_trap_overflow(site: *const crate::Site) -> ! {
-    crate::fail_at(site, format_args!("integer overflow"))
+    crate::fail_kind_at(
+        crate::actor_heap::TrapKind::Arithmetic,
+        site,
+        format_args!("integer overflow"),
+    )
 }
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_trap_div_zero(site: *const crate::Site) -> ! {
-    crate::fail_at(site, format_args!("division by zero"))
+    crate::fail_kind_at(
+        crate::actor_heap::TrapKind::Arithmetic,
+        site,
+        format_args!("division by zero"),
+    )
 }
 /// `unwrap()` on the variant without a value: `Nothing` for an option, `Err`
 /// for a result.
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_trap_unwrap(site: *const crate::Site, option: u64) -> ! {
     let variant = if option != 0 { "Nothing" } else { "Err" };
-    crate::fail_at(site, format_args!("unwrap on {variant}"))
+    crate::fail_kind_at(
+        crate::actor_heap::TrapKind::Unwrap,
+        site,
+        format_args!("unwrap on {variant}"),
+    )
 }
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_trap_shift(site: *const crate::Site) -> ! {
-    crate::fail_at(site, format_args!("shift count outside integer width"))
+    crate::fail_kind_at(
+        crate::actor_heap::TrapKind::Arithmetic,
+        site,
+        format_args!("shift count outside integer width"),
+    )
 }
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_trap_cast_range(site: *const crate::Site) -> ! {
-    crate::fail_at(site, format_args!("integer cast out of range"))
+    crate::fail_kind_at(
+        crate::actor_heap::TrapKind::Arithmetic,
+        site,
+        format_args!("integer cast out of range"),
+    )
 }
 
 #[cfg(test)]

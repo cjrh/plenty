@@ -52,9 +52,14 @@ mod unicode;
 pub(crate) use unicode::vendor::{lookups, perfect_hash, quick_check, tables};
 
 fn fail(message: &str) -> ! {
+    fail_kind(actor_heap::TrapKind::Other, message)
+}
+
+/// `fail` for a trap that `std.actor` reports by kind.
+fn fail_kind(kind: actor_heap::TrapKind, message: &str) -> ! {
     io::flush();
     eprintln!("error: {message}");
-    actor_heap::recover();
+    actor_heap::recover(kind);
     std::process::exit(1)
 }
 
@@ -170,6 +175,11 @@ extern "C" fn plenty_write_caller_location() -> u8 {
 /// The message is formatted straight to standard error, so a trap never
 /// allocates.
 fn fail_at(site: *const Site, message: std::fmt::Arguments) -> ! {
+    fail_kind_at(actor_heap::TrapKind::Other, site, message)
+}
+
+/// `fail_at` for a trap that `std.actor` reports by kind.
+fn fail_kind_at(kind: actor_heap::TrapKind, site: *const Site, message: std::fmt::Arguments) -> ! {
     io::flush();
     if site.is_null() {
         eprintln!("error: {message}");
@@ -182,7 +192,7 @@ fn fail_at(site: *const Site, message: std::fmt::Arguments) -> ! {
     {
         eprintln!("note: called from {caller}");
     }
-    actor_heap::recover();
+    actor_heap::recover(kind);
     std::process::exit(1)
 }
 

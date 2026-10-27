@@ -12,7 +12,7 @@ pub class Node:
     pub def receive(self: &mut Node, mail: Mail[i64, AllocError], context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
         Ok(())
 
-    pub def spawn(self: &mut Node, tag: i64, child: Address, context: &mut Context[i64, AllocError]) -> Result[Option[Node], AllocError]:
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, AllocError]) -> Result[Option[Node], AllocError]:
         Ok(Nothing)
 
 def main() -> Result[(), AllocError | IoError | std.test.TestError]:

@@ -408,11 +408,23 @@ impl Lower<'_> {
                 "__actor_run results cannot contain references, generators, borrowed/unresolved closures, or scoped tasks",
             ));
         }
-        let inputs = self.sigs[&symbol]
+        let inputs: Vec<Ty> = self.sigs[&symbol]
             .inputs
             .iter()
             .map(|(_, t)| t.clone())
             .collect();
+        // A shared borrow is the parent's node lent to a spawn hook, which
+        // runs with the child's heap current.
+        for input in &inputs {
+            if let Ty::Ref(node, false) = input
+                && let Some((barrier, holder)) = node.actor_barrier()
+            {
+                let place = holder.map_or(String::new(), |holder| format!(" (in `{holder}`)"));
+                return Err(at.error(format!(
+                    "an actor node cannot hold `{barrier}`{place}: its `spawn` hook reads the node while the child's heap is current; keep text in `Bytes` and pass shared state in messages"
+                )));
+            }
+        }
         let task = Arc::new(Task {
             adapter: format!(
                 "__plenty_actor_run_{}_{}_{}",

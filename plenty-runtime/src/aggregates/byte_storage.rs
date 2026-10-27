@@ -101,7 +101,10 @@ pub(super) fn size(value: u128) -> usize {
 pub(super) fn range(start: u128, stop: u128, len: usize) -> std::ops::Range<usize> {
     let (start, stop) = (size(start), size(stop));
     if start > stop || stop > len {
-        crate::fail("byte range out of bounds");
+        crate::fail_kind(
+            crate::actor_heap::TrapKind::Index,
+            "byte range out of bounds",
+        );
     }
     start..stop
 }
@@ -123,7 +126,10 @@ pub(super) fn result(value: Result<u128, AllocError>) -> u128 {
 fn prefixed(bytes: &[u8], offset: usize, other: &[u8]) -> bool {
     match bytes.get(offset..) {
         Some(tail) => tail.starts_with(other),
-        None => crate::fail("byte offset out of bounds"),
+        None => crate::fail_kind(
+            crate::actor_heap::TrapKind::Index,
+            "byte offset out of bounds",
+        ),
     }
 }
 
@@ -159,14 +165,20 @@ pub(super) unsafe fn call(
             172 => storage(a).capacity() as u128,
             173 => match storage(a).get(size(b)) {
                 Some(byte) => *byte as u128,
-                None => crate::fail("byte index out of bounds"),
+                None => crate::fail_kind(
+                    crate::actor_heap::TrapKind::Index,
+                    "byte index out of bounds",
+                ),
             },
             174 => match storage(a).get_mut(size(b)) {
                 Some(byte) => {
                     *byte = c as u8;
                     0
                 }
-                None => crate::fail("byte index out of bounds"),
+                None => crate::fail_kind(
+                    crate::actor_heap::TrapKind::Index,
+                    "byte index out of bounds",
+                ),
             },
             175 => result(memory::try_reserve(storage(a), size(b)).map(|()| 0)),
             176 => {
@@ -198,7 +210,10 @@ pub(super) unsafe fn call(
                     .and_then(|end| bytes.get_mut(offset..end))
                 {
                     Some(target) => target.copy_from_slice(source),
-                    None => crate::fail("byte range out of bounds"),
+                    None => crate::fail_kind(
+                        crate::actor_heap::TrapKind::Index,
+                        "byte range out of bounds",
+                    ),
                 }
                 0
             }

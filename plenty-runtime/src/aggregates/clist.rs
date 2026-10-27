@@ -19,7 +19,11 @@ const _: () = {
 
 #[unsafe(no_mangle)]
 extern "C" fn plenty_trap_clist_index(site: *const crate::Site) -> ! {
-    crate::fail_at(site, format_args!("clist index out of bounds"))
+    crate::fail_kind_at(
+        crate::actor_heap::TrapKind::Index,
+        site,
+        format_args!("clist index out of bounds"),
+    )
 }
 
 fn width(kind: u8) -> usize {
