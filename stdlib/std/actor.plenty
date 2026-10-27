@@ -2,7 +2,7 @@
 # allocate there, a trap discards the heap and closes its files, and the
 # actor's parent receives the exit. Messages are copied into the receiver's
 # heap and mailboxes are bounded. See book/src/design/stdlib/actor.md.
-from std.net import NetError, TcpListener, TcpStream
+from std.net import Connecting, Lookup, NetError, TcpListener, TcpStream
 from std.ready import Interest, Readiness, Selector, WaitError, selector
 from std.sync import CancellationToken
 from std.time import Deadline, Duration, deadline_at, instant_at, monotonic_now
@@ -473,6 +473,22 @@ pub class Context[M, E]:
 
     pub def unwatch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]:
         listener.unwatch(&mut self._selector)
+
+    # Delivers `Mail.Ready` when an outbound connection attempt has
+    # finished; then call `Connecting.finish_now`.
+    pub def watch_connecting(self: &mut Context[M, E], attempt: &Connecting) -> Result[(), NetError]:
+        attempt.watch(&mut self._selector, self._self)
+
+    pub def unwatch_connecting(self: &mut Context[M, E], attempt: &Connecting) -> Result[(), NetError]:
+        attempt.unwatch(&mut self._selector)
+
+    # Delivers `Mail.Ready` when a name lookup has replied; then call
+    # `Lookup.finish_now`.
+    pub def watch_lookup(self: &mut Context[M, E], lookup: &Lookup) -> Result[(), NetError]:
+        lookup.watch(&mut self._selector, self._self)
+
+    pub def unwatch_lookup(self: &mut Context[M, E], lookup: &Lookup) -> Result[(), NetError]:
+        lookup.unwatch(&mut self._selector)
 
     # `message` copied into slot `index`'s heap, or Nothing when it does not fit.
     def copy_into(self, index: i64, message: &M) -> Option[M]:
