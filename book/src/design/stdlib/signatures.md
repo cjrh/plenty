@@ -295,6 +295,34 @@ def drain[T](heap: Heap[T]) -> Generator[T]
 def drain_by[T, F: Callable[[&T, &T], bool]](heap: HeapBy[T, F]) -> Generator[T]
 ```
 
+## `std.complex`
+
+`Complex` numbers over `f64` with arithmetic operators, polar form, `exp`, `log`, `sqrt`, `pow`, and `a+bi` display. [Reference](complex.md).
+
+```text
+class Complex
+    re: f64
+    im: f64
+    def __add__(self, other: &Complex) -> Complex
+    def __sub__(self, other: &Complex) -> Complex
+    def __mul__(self, other: &Complex) -> Complex
+    def __truediv__(self, other: &Complex) -> Complex
+    def __neg__(self) -> Complex
+    def scale(self, factor: f64) -> Complex
+    def conj(self) -> Complex
+    def norm(self) -> f64
+    def abs(self) -> f64
+    def arg(self) -> f64
+    def to_polar(self) -> (f64, f64)
+    def exp(self) -> Complex
+    def log(self) -> Complex
+    def sqrt(self) -> Complex
+    def pow(self, exponent: &Complex) -> Complex
+    def powi(self, n: i64) -> Complex
+    def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]
+def from_polar(r: f64, theta: f64) -> Complex
+```
+
 ## `std.compress`
 
 Bounded gzip, zlib, DEFLATE and Brotli compression of buffers and `std.io` streams, and CRC-32. Errors: `CompressError`. [Reference](compress.md).
@@ -2083,7 +2111,7 @@ TCP listeners and streams, UDP sockets, IP addresses and name lookup, with deadl
 
 ```text
 enum NetError
-    TimedOut | Cancelled | Refused | Reset | AddressInUse | AddressUnavailable | Unreachable | NameNotFound | TryAgain | InvalidAddress | HandleLimit | Stream(StreamError)
+    TimedOut | ConnectionTimedOut | WouldBlock | Cancelled | Refused | Reset | AddressInUse | AddressUnavailable | Unreachable | NameNotFound | TryAgain | InvalidAddress | HandleLimit | Stream(StreamError)
 enum IpAddress
     V4(u32) | V6(u64, u64)
 class SocketAddress
@@ -2108,6 +2136,8 @@ class TcpStream
     def write[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
     def flush(self: &mut TcpStream) -> Result[(), StreamError]
     def close(self: &mut TcpStream) -> Result[(), StreamError]
+    def read_now(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, NetError]
+    def write_now[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, NetError]
     def read_before(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
     def write_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
     def write_all_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]
@@ -2122,6 +2152,7 @@ class TcpListener
     def local_address(self) -> Result[SocketAddress, NetError]
     def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]
     def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
+    def accept_now(self) -> Result[TcpStream, NetError]
     def accept(self, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, NetError]
     def close(self: &mut TcpListener) -> Result[(), NetError]
 def listen(address: &SocketAddress, backlog: i64) -> Result[TcpListener, NetError]

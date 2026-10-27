@@ -1,0 +1,144 @@
+# Complex numbers over f64. Arithmetic follows IEEE f64 rules instead of
+# returning Result, so operators compose like float arithmetic: overflow gives
+# infinity and invalid operations give NaN. See
+# book/src/design/stdlib/complex.md for contracts.
+# Division uses Smith's scaled algorithm (CACM Algorithm 116, 1962).
+from std.fmt import Formatter, FormatError
+
+pub class Complex:
+    pub re: f64
+    pub im: f64
+
+    pub def __add__(self, other: &Complex) -> Complex:
+        Complex(self.re + other.re, self.im + other.im)
+
+    pub def __sub__(self, other: &Complex) -> Complex:
+        Complex(self.re - other.re, self.im - other.im)
+
+    pub def __mul__(self, other: &Complex) -> Complex:
+        Complex(self.re * other.re - self.im * other.im, self.re * other.im + self.im * other.re)
+
+    # Scaling by the larger divisor component avoids the overflow and
+    # underflow of c * c + d * d. A zero divisor divides each component by
+    # the real zero, exactly as f64 division does.
+    pub def __truediv__(self, other: &Complex) -> Complex:
+        c = other.re
+        d = other.im
+        if c == 0.0 and d == 0.0:
+            return Complex(self.re / c, self.im / c)
+        if c.fabs() >= d.fabs():
+            ratio = d / c
+            denominator = c + d * ratio
+            Complex((self.re + self.im * ratio) / denominator, (self.im - self.re * ratio) / denominator)
+        else:
+            ratio = c / d
+            denominator = c * ratio + d
+            Complex((self.re * ratio + self.im) / denominator, (self.im * ratio - self.re) / denominator)
+
+    pub def __neg__(self) -> Complex:
+        Complex(-self.re, -self.im)
+
+    # Multiplying each component avoids the NaN that inf * 0 creates when a
+    # real factor is written as a complex value with a zero imaginary part.
+    pub def scale(self, factor: f64) -> Complex:
+        Complex(self.re * factor, self.im * factor)
+
+    pub def conj(self) -> Complex:
+        Complex(self.re, -self.im)
+
+    # Squared magnitude, as C++ std::norm. It overflows before abs does.
+    pub def norm(self) -> f64:
+        self.re * self.re + self.im * self.im
+
+    # Scaled like hypot: no intermediate overflow or underflow, and an
+    # infinite component gives infinity even when the other one is NaN.
+    pub def abs(self) -> f64:
+        x = self.re.fabs()
+        y = self.im.fabs()
+        if x == f64.INF or y == f64.INF:
+            return f64.INF
+        if x != x or y != y:
+            return f64.NAN
+        big = x if x >= y else y
+        small = y if x >= y else x
+        if big == 0.0:
+            return 0.0
+        ratio = small / big
+        big * (1.0 + ratio * ratio).sqrt()
+
+    pub def arg(self) -> f64:
+        self.im.atan2(self.re)
+
+    pub def to_polar(self) -> (f64, f64):
+        (self.abs(), self.arg())
+
+    pub def exp(self) -> Complex:
+        magnitude = self.re.exp()
+        # A real argument stays exactly real, even when the magnitude is infinite.
+        if self.im == 0.0:
+            return Complex(magnitude, self.im)
+        Complex(magnitude * self.im.cos(), magnitude * self.im.sin())
+
+    # Principal branch: the imaginary part is arg(), in [-pi, pi].
+    pub def log(self) -> Complex:
+        Complex(self.abs().log(), self.arg())
+
+    # Principal root, with a nonnegative real part and the imaginary sign of
+    # the input. Zero keeps its imaginary sign.
+    pub def sqrt(self) -> Complex:
+        if self.re == 0.0 and self.im == 0.0:
+            return Complex(0.0, self.im)
+        if self.im.fabs() == f64.INF:
+            return Complex(f64.INF, self.im)
+        total = self.re.fabs() + self.abs()
+        # Finite inputs near the f64 limit: scaling by a power of two is exact.
+        if total == f64.INF and self.re.fabs() != f64.INF:
+            return self.scale(0.25).sqrt().scale(2.0)
+        root = (total * 0.5).sqrt()
+        if self.re >= 0.0:
+            Complex(root, self.im / (2.0 * root))
+        else:
+            Complex(self.im.fabs() / (2.0 * root), root.copysign(self.im))
+
+    # Small real integral exponents use repeated squaring, as CPython's
+    # complex_pow does, so (1+1i).pow(2) is exactly 2i. Repeated squaring
+    # roughly doubles relative error per squaring, so above |n| = 100 the
+    # principal value exp(exponent * log(self)) is used instead.
+    pub def pow(self, exponent: &Complex) -> Complex:
+        if exponent.im == 0.0 and exponent.re.floor() == exponent.re and exponent.re.fabs() <= 100.0:
+            return self.powi(i64(exponent.re))
+        if self.re == 0.0 and self.im == 0.0 and exponent.im == 0.0 and exponent.re > 0.0:
+            return Complex(0.0, 0.0)
+        (self.log() * exponent).exp()
+
+    # Binary exponentiation for any i64; a negative power is the reciprocal
+    # of the positive one. Zero gives 1+0i, even for a NaN base.
+    pub def powi(self, n: i64) -> Complex:
+        if n < 0:
+            # -(n + 1) + 1 avoids negating i64.MIN.
+            return Complex(1.0, 0.0) / self.powu(u64(-(n + 1)) + 1u64)
+        self.powu(u64(n))
+
+    def powu(self, n: u64) -> Complex:
+        mut result = Complex(1.0, 0.0)
+        mut power = Complex(self.re, self.im)
+        mut remaining = n
+        while remaining > 0u64:
+            if remaining & 1u64 == 1u64:
+                result = result * power
+            remaining = remaining >> 1
+            # Skipping the final square avoids a spurious overflow.
+            if remaining > 0u64:
+                power = power * power
+        result
+
+    # `1.5+2.0i`, `1.5-2.0i`: each part uses the f64 print spelling. A
+    # negative zero imaginary part is written with `-`.
+    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        if self.im == self.im and (1.0).copysign(self.im) < 0.0:
+            out.format(f"{self.re}-{-self.im}i")
+        else:
+            out.format(f"{self.re}+{self.im}i")
+
+pub def from_polar(r: f64, theta: f64) -> Complex:
+    Complex(r * theta.cos(), r * theta.sin())

@@ -1,10 +1,11 @@
 # `std.net`
 
 `import std.net` provides TCP listeners and streams, UDP sockets, IPv4 and IPv6
-addresses, and name lookup. Every operation that waits for the network takes a
-[`Deadline`](time.md) and a [cancellation token](sync.md) and waits through
-[`std.ready`](ready.md); there is no event loop or `async` syntax. A worker
-that serves a connection blocks only in bounded waits.
+addresses, and name lookup. Its deadline operations take a
+[`Deadline`](time.md) and a [cancellation token](sync.md) and wait through
+[`std.ready`](ready.md). Immediate TCP operations make one nonblocking attempt;
+the plain `std.io` methods wait without a deadline. There is no required event
+loop or `async` syntax. Use deadline operations to keep a worker's waits bounded.
 
 The runtime supplies one primitive per socket call (opcodes 410–418).
 Selectors and cancellable waits come from `std.ready` (opcodes 419–422).
@@ -13,16 +14,18 @@ Addresses, waits, retries and error naming are checked Plenty in
 
 ```plenty
 import std.bytes
+from std.io import StreamError
 from std.net import NetError, TcpListener, connect, listen, loopback_v4
 from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 
-def greet(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError | std.bytes.BytesError]:
+def greet(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError | StreamError | std.bytes.BytesError]:
     mut stream = listener.accept(deadline, cancel)?
     reply = std.bytes.from_text("hello from the server")?
-    stream.write_all_before(&reply, 0, reply.len(), deadline, cancel)
+    stream.write_all_before(&reply, 0, reply.len(), deadline, cancel)?
+    stream.close()
 
-def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | NetError | std.bytes.BytesError]:
+def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | NetError | StreamError | std.bytes.BytesError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     listener = listen(&loopback_v4(0u16), 8)?
@@ -70,7 +73,9 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 
 | Variant | Cause |
 |---|---|
-| `TimedOut` | The deadline passed, or the kernel gave up on a connection (`ETIMEDOUT`) |
+| `TimedOut` | The caller's deadline passed |
+| `ConnectionTimedOut` | The kernel gave up on the connection (`ETIMEDOUT`) |
+| `WouldBlock` | An immediate TCP operation cannot make progress now (`EAGAIN`/`EWOULDBLOCK`); wait for readiness before trying again |
 | `Cancelled` | The token was cancelled |
 | `Refused` | Nothing listens at the address (`ECONNREFUSED`) |
 | `Reset` | The peer reset or closed the connection while data was moving (`ECONNRESET`, `EPIPE`) |
@@ -83,19 +88,29 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 | `InvalidAddress` | Address text outside the grammar, or an empty or NUL-containing host name |
 | `Stream(StreamError)` | Any other failure, with its native code in `StreamError.Io(IoError.System(code))`, or allocation failure |
 
+`TimedOut` ends the current wait; it does not mark an established connection
+as failed, so the caller may retry with another deadline. `ConnectionTimedOut`
+is a connection failure: close that stream rather than retrying a wait on it.
+Both distinctions survive the network-error wrappers in
+[`std.tls`](tls.md#errors) and the [HTTP client](http-client.md#errors).
+
 ## TCP
 
 | Function or method | Result |
 |---|---|
 | `listen(address: &SocketAddress, backlog: i64)` | `Result[TcpListener, NetError]` |
 | `listener.accept(deadline, cancel)` | `Result[TcpStream, NetError]` |
+| `listener.accept_now()` | `Result[TcpStream, NetError]`: one nonblocking accept attempt |
 | `listener.local_address()` | `Result[SocketAddress, NetError]` |
 | `listener.close()` | `Result[(), NetError]` |
 | `connect(address: &SocketAddress, deadline, cancel)` | `Result[TcpStream, NetError]` |
+| `stream.read_now(buffer, start, stop)` | `Result[i64, NetError]`: one nonblocking read attempt into `&mut Bytes` |
+| `stream.write_now(source, start, stop)` | `Result[i64, NetError]`: one nonblocking write attempt from any [`ByteSource`](bytes.md#byte-sources) |
 | `stream.read_before(buffer, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one read; 0 is end of input |
 | `stream.write_before(source, start, stop, deadline, cancel)` | `Result[i64, NetError]`: offer the whole range in one write and return the count accepted; `source` is any [`ByteSource`](bytes.md#byte-sources) |
 | `stream.write_all_before(source, start, stop, deadline, cancel)` | `Result[(), NetError]` |
-| `stream.read`, `write`, `flush`, `close` | The [`std.io`](io.md) `Reader` and `Writer` methods; `read` and `write` block without a bound |
+| `stream.read`, `write`, `flush` | The [`std.io`](io.md) `Reader` and `Writer` methods, returning `StreamError` on failure; `read` and `write` block without a bound |
+| `stream.close()` | `Result[(), StreamError]`, as required by [`std.io.Closer`](io.md#stream-contracts) |
 | `stream.shutdown(direction: Shutdown)` | `Result[(), NetError]`; `Shutdown.Read`, `Write` or `Both` |
 | `stream.set_no_delay(enabled: bool)` | `Result[(), NetError]`: send small writes immediately |
 | `stream.acknowledge_now()` | `Result[(), NetError]`: acknowledge data already received at once, not after the kernel's delay (Linux `TCP_QUICKACK`); later data is acknowledged as usual |
@@ -135,15 +150,51 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 - On `TimedOut` or `Cancelled` the socket and the caller's buffer are
   unchanged, apart from what earlier steps of `write_all_before` sent.
 
+### Closing a stream
+
+`TcpStream.close` deliberately returns `StreamError`: its signature satisfies
+the [`std.io.Closer`](io.md#stream-contracts) protocol. Together with `Reader` and
+`Writer`, this lets a TCP stream work with generic I/O helpers, including
+[`close_buffered`](io.md#bounded-buffering), which flushes a `BufWriter[TcpStream]`
+and closes its underlying stream. Changing `close` to return `NetError` would
+break that protocol contract. Listeners and UDP sockets do not implement
+`Closer`; their `close` methods return `NetError`.
+
+A function that uses deadline operations and explicitly closes a TCP stream
+can propagate both error types with `NetError | StreamError`, as `greet` does
+above. Keeping both types preserves the original close failure. Dropping a
+stream also releases its descriptor, but cannot report a close error.
+
 ## Waiting on many sockets
 
 `stream.watch(selector, key, interest)`, `listener.watch(selector, key)` and
 `socket.watch(selector, key, interest)` register a socket with a
 [`std.ready` selector](ready.md#selectors); `unwatch(selector)` removes it. A
 listener is readable while a connection waits to be accepted. After
-`selector.wait`, each `Event` names a ready socket by its key, and the worker
-calls `accept`, `read_before` or `write_before` on it. If readiness has become
-stale, the operation waits again within its deadline.
+`selector.wait`, each `Event` names a ready socket by its key. Use
+`accept_now`, `read_now` or `write_now` to attempt the operation without a
+second readiness wait. These methods also work without a prior selector wait.
+
+Each immediate method makes at most one socket operation. It never polls,
+waits for readiness, or retries interruption. `WouldBlock` means that the
+accept queue is empty, no input is available, or the send buffer is full.
+It remains possible after a readiness report; return to the selector so other
+connections can make progress. No bytes move on `WouldBlock`. An interrupted
+attempt returns `Stream(StreamError.Interrupted)`, and an aborted accept
+returns the native `Stream(StreamError.Io(IoError.System(103)))` (`ECONNABORTED`)
+instead of silently taking another connection. The caller decides when to retry.
+
+A successful read or write may transfer only a prefix of the requested range.
+Keep the write offset and unsent bytes between events; subscribe to write
+readiness only while output remains. Zero from a nonempty read range is EOF,
+not `WouldBlock`. Empty ranges return zero. Ranges are checked before I/O:
+`0 <= start <= stop <= buffer.len()` for reads, or `source.len()` for writes;
+invalid ranges return `Stream(StreamError.OutOfRange)` and transfer nothing.
+
+Immediate methods take no deadline or cancellation token. Apply the server's
+deadline and cancellation policy to its selector waits and between bounded
+batches of attempts. The deadline-based methods remain useful when one worker
+can wait for that connection alone.
 
 ```text
 mut chosen = selector(64).unwrap()
@@ -153,6 +204,9 @@ count = chosen.wait(&deadline, &cancel)?
 for index in range(count):
     key = chosen.event(index)?.key
 ```
+
+The [selector tutorial](../../tutorial/11-concurrency/tcp-sockets.md#wait-on-many-connections)
+demonstrates reading the reported connection and handling stale readiness.
 
 ## UDP
 

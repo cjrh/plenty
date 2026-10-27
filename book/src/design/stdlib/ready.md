@@ -121,6 +121,13 @@ bytes per event; it starts no thread.
 - [`std.net`](net.md) streams, listeners and UDP sockets have `watch` and
   `unwatch` methods that report `NetError`.
 
+For TCP, follow an event with [`accept_now`, `read_now` or
+`write_now`](net.md#waiting-on-many-sockets). They make one nonblocking attempt
+without a second `ppoll`. If the event is stale, `NetError.WouldBlock` returns
+control to the selector loop instead of blocking other connections. Keep an
+offset after a partial write, and stop watching for write readiness when the
+output is drained. EOF is zero from a nonempty read range, not `WouldBlock`.
+
 `examples/net_wait_bench.plenty` measures one worker serving N idle loopback
 connections, one ready at a time, with a selector against a loop that polls
 each connection with an expired deadline. Mean round trip in nanoseconds over

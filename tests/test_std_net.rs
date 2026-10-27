@@ -28,7 +28,24 @@ fn runs_with(body: &str, expected: &str, descriptors: Option<u32>) {
         }
         None => Command::new(executable),
     };
-    let output = command.stdin(Stdio::null()).output().unwrap();
+    // A regression to blocking in an immediate operation must fail the test,
+    // not leave the whole suite waiting for input that will never be sent.
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while child.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() >= deadline {
+            child.kill().unwrap();
+            let output = child.wait_with_output().unwrap();
+            panic!("network program did not finish: {:?}", output);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let output = child.wait_with_output().unwrap();
     assert!(
         output.status.success(),
         "status {:?}; {}",
@@ -81,6 +98,121 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
     stream.shutdown(Shutdown.Write)?
     Ok(data.len())
 "#;
+
+#[test]
+fn immediate_tcp_operations_handle_stale_readiness_and_eof() {
+    runs(
+        r#"
+def main() -> Result[(), std.bytes.BytesError | NetError | WaitError | RangeError | AllocError | IoError]:
+    cancel = CancellationToken()?
+    deadline = within(5000u32)?
+    mut listener = listen(&loopback_v4(0u16), 4)?
+    print(outcome(listener.accept_now())?)?
+    mut chosen = selector(4)?
+    listener.watch(&mut chosen, 1u64)?
+    mut client = connect(&listener.local_address()?, &deadline, &cancel)?
+    chosen.wait(&deadline, &cancel)?
+    mut server = listener.accept_now()?
+    # Another accept consumes the readiness report without waiting again.
+    print(outcome(listener.accept_now())?)?
+    listener.unwatch(&mut chosen)?
+    server.watch(&mut chosen, 2u64, Interest.Read)?
+    mut buffer = zeroed(4)?
+    print(outcome(server.read_now(&mut buffer, 1, 3))?, buffer[1])?
+    print(client.write_now(&b"!x!", 1, 2)?)?
+    chosen.wait(&deadline, &cancel)?
+    print(server.read_now(&mut buffer, 1, 3)?, buffer[0], buffer[1], buffer[2])?
+    print(outcome(server.read_now(&mut buffer, 1, 3))?)?
+    print(server.read_now(&mut buffer, 2, 2)?, client.write_now(&b"", 0, 0)?)?
+    client.shutdown(Shutdown.Write)?
+    chosen.wait(&deadline, &cancel)?
+    print(server.read_now(&mut buffer, 0, 4)?)?
+    server.close().unwrap()
+    print(outcome(server.read_now(&mut buffer, 0, 1))?)?
+    print(outcome(server.write_now(&b"x", 0, 1))?)?
+    listener.close()?
+    print(outcome(listener.accept_now())?)?
+    Ok(())
+"#,
+        "std.net.NetError.WouldBlock\nstd.net.NetError.WouldBlock\n\
+std.net.NetError.WouldBlock 0\n1\n1 0 120 0\nstd.net.NetError.WouldBlock\n0 0\n0\n\
+std.net.NetError.Stream(std.io.StreamError.Io(IoError.Closed))\n\
+std.net.NetError.Stream(std.io.StreamError.Io(IoError.Closed))\n\
+std.net.NetError.Stream(std.io.StreamError.Io(IoError.Closed))\n",
+    );
+}
+
+#[test]
+fn immediate_tcp_ranges_are_checked_before_attempting_io() {
+    runs(
+        r#"
+def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocError | IoError]:
+    cancel = CancellationToken()?
+    deadline = within(5000u32)?
+    listener = listen(&loopback_v4(0u16), 1)?
+    mut client = connect(&listener.local_address()?, &deadline, &cancel)?
+    mut server = listener.accept_now()?
+    mut buffer = zeroed(4)?
+    for bounds in [(-1, 1), (3, 2), (0, 5), (1, i64.MAX)]?:
+        (start, stop) = bounds
+        print(outcome(server.read_now(&mut buffer, start, stop))?)?
+        print(outcome(client.write_now(&buffer, start, stop))?)?
+    print(outcome(server.read_now(&mut buffer, 0, 4))?)?
+    print(buffer[0], buffer[3])?
+    Ok(())
+"#,
+        &format!(
+            "{}std.net.NetError.WouldBlock\n0 0\n",
+            "std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n".repeat(8)
+        ),
+    );
+}
+
+#[test]
+fn immediate_tcp_writes_report_backpressure_and_resume_after_drain() {
+    runs(
+        r#"
+def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocError | IoError]:
+    cancel = CancellationToken()?
+    deadline = within(10000u32)?
+    listener = listen(&loopback_v4(0u16), 1)?
+    mut client = connect(&listener.local_address()?, &deadline, &cancel)?
+    mut server = listener.accept_now()?
+    data = zeroed(8388608)?
+    mut sent = 0
+    mut short = False
+    mut larger_than_page = False
+    while True:
+        match client.write_now(&data, 0, data.len()):
+            case Ok(count):
+                if count <= 0 or count > data.len() or sent >= 67108864:
+                    return Err(IoError.InvalidInput)
+                short = short or count < data.len()
+                larger_than_page = larger_than_page or count > 4096
+                sent += count
+            case Err(NetError.WouldBlock):
+                break
+            case Err(error):
+                return Err(error)
+    mut buffer = zeroed(65536)?
+    mut received = 0
+    while received < sent:
+        count = server.read_before(&mut buffer, 0, 65536, &deadline, &cancel)?
+        if count == 0:
+            return Err(IoError.InvalidInput)
+        received += count
+    print(short, larger_than_page, received == sent)?
+    print(outcome(server.read_now(&mut buffer, 0, 1))?)?
+    mut chosen = selector(1).unwrap()
+    client.watch(&mut chosen, 1u64, Interest.Write)?
+    chosen.wait(&deadline, &cancel).unwrap()
+    print(client.write_now(&b"x", 0, 1)?)?
+    print(server.read_before(&mut buffer, 0, 1, &deadline, &cancel)?, buffer[0])?
+    Ok(())
+"#,
+        "True True True\nstd.net.NetError.WouldBlock\n1\n1 120\n",
+    );
+}
 
 #[test]
 fn addresses_parse_and_format() {
@@ -386,6 +518,65 @@ def main() -> Result[(), RangeError | AllocError | IoError]:
 "#
         ),
         "ok\nok\nstd.net.NetError.TimedOut\nstd.net.NetError.Cancelled\nstd.net.NetError.Stream(std.io.StreamError.Io(IoError.Closed))\n",
+    );
+}
+
+/// Kernel TCP timeouts take minutes and depend on packet loss. Exercise the
+/// production error policy directly so the regression needs neither timing
+/// tricks nor privileged network configuration.
+#[test]
+fn kernel_connection_timeouts_are_not_deadline_expiry() {
+    let module = include_str!("../stdlib/std/net.plenty");
+    let constants = &module
+        [module.find("const would_block:").unwrap()..module.find("const max_port:").unwrap()];
+    let errors =
+        &module[module.find("def named(").unwrap()..module.find("def ready_for(").unwrap()];
+    let blocked = &module
+        [module.find("def blocked(").unwrap()..module.find("# Plain Reader/Writer").unwrap()];
+    let retry = &module[module.find("def retry_transfer(").unwrap()
+        ..module.find("# Address encoding shared").unwrap()];
+    let client = include_str!("../stdlib/std/http/client.plenty");
+    let deadline_policy = client
+        [client.find("def timed_out(").unwrap()..client.find("# Copies `body`").unwrap()]
+        .replacen("def timed_out(", "def client_deadline_passed(", 1);
+    runs(
+        &format!(
+            r#"
+from std.io import StreamError, classify
+from std.tls import TlsError
+from std.http.client import ClientError
+from std.http.https import secure_error
+{constants}
+{errors}
+{blocked}
+{retry}
+{deadline_policy}
+def main() -> Result[(), RangeError | AllocError | IoError]:
+    kernel = IoError.System(110i32)
+    print(named(kernel))?
+    print(streamed(StreamError.Io(kernel)))?
+    print(waited(WaitError.Stream(StreamError.Io(kernel))))?
+    print(waited(WaitError.TimedOut))?
+    cancel = CancellationToken()?
+    cancel.cancel()
+    print(outcome(retry_transfer(StreamError.Io(kernel), &within(0u32)?, &cancel))?)?
+    failed = secure_error(TlsError.Net(named(kernel)))
+    expired = secure_error(TlsError.Net(waited(WaitError.TimedOut)))
+    print(failed, expired)?
+    print(client_deadline_passed(&failed), client_deadline_passed(&expired))?
+    print(named(IoError.System(11i32)))?
+    print(streamed(StreamError.Interrupted))?
+    print(named(IoError.System(103i32)))?
+    Ok(())
+"#
+        ),
+        "std.net.NetError.ConnectionTimedOut\nstd.net.NetError.ConnectionTimedOut\n\
+std.net.NetError.ConnectionTimedOut\nstd.net.NetError.TimedOut\n\
+std.net.NetError.ConnectionTimedOut\n\
+std.http.client.ClientError.Net(std.net.NetError.ConnectionTimedOut) std.http.client.ClientError.Net(std.net.NetError.TimedOut)\n\
+False True\nstd.net.NetError.WouldBlock\n\
+std.net.NetError.Stream(std.io.StreamError.Interrupted)\n\
+std.net.NetError.Stream(std.io.StreamError.Io(IoError.System(103)))\n",
     );
 }
 

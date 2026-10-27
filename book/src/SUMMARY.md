@@ -370,6 +370,7 @@
         - [`std.cli`](design/stdlib/cli.md)
         - [`std.cli.progress`](design/stdlib/cli-progress.md)
         - [`std.collections`](design/stdlib/collections.md)
+        - [`std.complex`](design/stdlib/complex.md)
         - [`std.compress`](design/stdlib/compress.md)
             - [Brotli streams](design/stdlib/compress-brotli.md)
         - [`std.concurrent`](design/stdlib/concurrent.md)
