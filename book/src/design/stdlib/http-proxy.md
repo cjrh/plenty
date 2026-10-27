@@ -6,6 +6,27 @@ program names. The module is checked Plenty in
 `stdlib/std/http/proxy.plenty` and adds no runtime primitives. This page
 also gives the deployment guidance for [`std.http.server`](http-server.md).
 
+```plenty
+import std.http.proxy
+import std.net
+from std.http import Header
+from std.http.proxy import Forwarding, ProxyError
+
+def main() -> Result[(), ProxyError | std.net.NetError | AllocError | IoError]:
+    mut proxies = std.http.proxy.proxies(Forwarding.XForwardedFor)?
+    proxies.trust("10.0.0.0/8")?
+    headers = [Header("X-Forwarded-For", "198.51.100.7, 10.0.0.3"), Header("X-Forwarded-Proto", "https")]?
+    for peer_text in ["10.0.0.2:443", "203.0.113.9:443"]?:
+        peer = std.net.parse_address(&peer_text)?
+        found = std.http.proxy.client(&peer, &headers, &proxies)?
+        print(std.net.format_ip(found.address)?, found.scheme, found.proxied)?
+    Ok(())
+```
+```output
+198.51.100.7 Option[str].Some("https") True
+203.0.113.9 Option[str].Nothing False
+```
+
 ## Clients
 
 | Item | Meaning |

@@ -10,6 +10,23 @@ there is no implicit cast. Derive a named key with `with_columns` when needed.
 Floating-point, date/time, grouped and composite as-of keys are not supported.
 Use [equality joins](dataframe-joins.md) for exact multi-column matching.
 
+```plenty dataframe
+import std.dataframe as df
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
+    trades = df.frame([df.column_i64("second", [3, 7]?)?]?)?
+    quotes = df.frame([
+        df.column_i64("second", [1, 5, 6]?)?,
+        df.column_f64("bid", [9.5, 10.0, 10.5]?)?
+    ]?)?
+    result = trades.lazy()?.join_asof(quotes.lazy()?, "second", "second")?.collect()?
+    print(result.values_f64("bid")?)?
+    Ok(())
+```
+```output
+[9.5, 10.5]
+```
+
 ## Ordering and matching
 
 Both inputs must be sorted ascending by their key, with nulls first. Sorting

@@ -6,6 +6,30 @@ value can add an attribute or a header field. The module is checked Plenty
 in `stdlib/std/http/cookie.plenty` and adds no runtime primitives; signing
 uses [`std.crypto`](crypto.md).
 
+```plenty
+import std.http.cookie
+from std.http import Header
+from std.http.cookie import CookieError
+
+def main() -> Result[(), CookieError | AllocError | IoError]:
+    headers = [Header("Cookie", "theme=dark; bad value; lang=\"en\"")]?
+    received = std.http.cookie.cookies(&headers, 16)?
+    for cookie in &received:
+        print(cookie.name, cookie.value)?
+
+    mut reply = std.http.cookie.set_cookie("theme", "light")?
+    reply.max_age = Some(3600)
+    print(reply.format()?)?
+    print(std.http.cookie.removal("lang")?.format()?)?
+    Ok(())
+```
+```output
+theme dark
+lang en
+theme=light; Path=/; Max-Age=3600; Secure; HttpOnly; SameSite=Lax
+lang=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax
+```
+
 ## Reading
 
 | Item | Meaning |

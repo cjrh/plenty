@@ -13,6 +13,34 @@ handle's descriptor with a nanosecond timeout, and opening, registering with
 and waiting on a selector. Deadlines, interruption retries, cancellation and
 event decoding are checked Plenty in `stdlib/std/ready.plenty`.
 
+```plenty
+import std.bytes
+import std.io
+import std.process
+from std.process import Stdio
+from std.ready import WaitError, read_before
+from std.sync import CancellationToken
+from std.time import deadline_after, milliseconds, monotonic_now
+
+def main() -> Result[(), AllocError | IoError | RangeError | WaitError | std.bytes.BytesError | str]:
+    mut command = std.process.shell("echo ready")?
+    command.stdout(Stdio.Piped)
+    mut child = command.spawn()?
+    pipe: Result[File, str] = child.take_stdout().ok_or("missing piped stdout")
+    mut output = std.io.from_file(pipe?)
+    cancel = CancellationToken()?
+    deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
+    mut buffer = std.bytes.with_capacity(16)?
+    buffer.resize(16, 0u8)?
+    count = read_before(&mut output, &mut buffer, 0, 16, &deadline, &cancel)?
+    print(count, buffer.to_text_range(0, count)?.strip()?)?
+    child.wait()?
+    Ok(())
+```
+```output
+6 ready
+```
+
 ## Types
 
 | Type | Contents |

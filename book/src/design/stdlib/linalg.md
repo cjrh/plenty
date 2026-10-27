@@ -7,6 +7,25 @@ Plenty; the substantial numerical algorithms use faer 0.24.4 through an
 transposing, adding, subtracting and scaling matrices works without installing
 that engine.
 
+```plenty linalg
+import std.linalg as la
+
+def main() -> Result[(), AllocError | IoError | la.LinalgError]:
+    a = la.matrix(2, 2, &[2.0, 1.0, 1.0, 1.0]?)?
+    b = la.vector(&[5.0, 3.0]?)?
+    x = a.solve(&b)?
+    print(x.to_list()?)?
+    gram = (a.transpose()? * a)?
+    print(gram.rows(), gram.cols(), gram.to_list()?)?
+    print((2.0 * a)?.get(0, 0)?)?
+    Ok(())
+```
+```output
+[2.0, 1.0]
+2 2 [5.0, 3.0, 3.0, 2.0]
+4.0
+```
+
 ## Matrices and vectors
 
 `matrix(rows, cols, values)` copies a flat **row-major** list. Both dimensions
