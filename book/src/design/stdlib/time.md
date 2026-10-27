@@ -10,6 +10,26 @@ affine: pass it by reference, as every operation here does, and use `copy` for
 an independent value. `==` compares values structurally. Ordering has no
 operator; compare `as_nanoseconds()` results or use the operations below.
 
+```plenty
+from std.time import deadline_after, instant_at, milliseconds, monotonic_now, seconds, sleep
+
+def main() -> Result[(), RangeError | IoError]:
+    start = monotonic_now()
+    sleep(&milliseconds(20))
+    elapsed = monotonic_now().duration_since(&start)?
+    print(elapsed.as_milliseconds() >= 20)?
+
+    # A fake timeline makes deadline arithmetic exact.
+    deadline = deadline_after(&instant_at(0), &seconds(5))?
+    later = instant_at(seconds(2).as_nanoseconds())
+    print(deadline.remaining(&later).as_milliseconds(), deadline.expired(&later))?
+    Ok(())
+```
+```output
+True
+3000 False
+```
+
 ## Durations
 
 A `Duration` is a span of `u64` nanoseconds, from zero to just over 584 years.

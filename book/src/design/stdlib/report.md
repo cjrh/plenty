@@ -7,6 +7,30 @@ constructs the formatter without allocating. Text, integer and boolean output
 to stderr also need no heap allocation. User methods are responsible for their
 own allocations.
 
+```plenty
+import std.report
+from std.report import FormatError, Formatter
+
+pub class DiskFull:
+    path: str
+    needed: u64
+
+    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+        output.text("disk full writing ")?
+        output.text(&self.path)?
+        output.text(": need ")?
+        output.unsigned(self.needed, 10)?
+        output.text(" more bytes")
+
+def main() -> Result[(), IoError | FormatError]:
+    error = DiskFull("out.csv", 4096u64)
+    print(std.report.to_string(&error, 256, 4)?)?
+    Ok(())
+```
+```output
+disk full writing out.csv: need 4096 more bytes
+```
+
 ## Formatting contract
 
 The structural `Formattable` protocol requires a public shared-receiver method

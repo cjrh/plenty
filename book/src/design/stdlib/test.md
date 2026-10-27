@@ -6,6 +6,29 @@ with one error type, `TestError`. The module is checked Plenty code. Any
 program may import it; it depends on the runner only for reading
 `PLENTY_TEST_SEED` and for [failure injection](#failure-injection).
 
+A test file with `main` passes when it exits with status zero, so a plain
+program can run assertions:
+
+```plenty
+import std.test
+from std.test import TestError
+
+def test_split() -> Result[(), AllocError | TestError]:
+    parts = "a,b,,c".split(",")?
+    std.test.equal(&len(parts), &4)?
+    std.test.equal(&parts[2], &"")?
+    std.test.check(parts[0] < parts[1], "parts keep their order")?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | TestError]:
+    test_split()?
+    print("test_split passed")?
+    Ok(())
+```
+```output
+test_split passed
+```
+
 ## Assertions
 
 An assertion that holds returns `Ok(())` without allocating. One that fails

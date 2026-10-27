@@ -5,6 +5,27 @@ own their memory and random state. They do not wrap Apache DataSketches or share
 its serialized formats. Also see [xor filters](sketch-xor.md) and
 [cuckoo filters](sketch-cuckoo.md).
 
+```plenty
+from std.bytes import BytesError
+from std.fmt import FormatError
+from std.sketch import SketchError, hyperloglog, hash_u64, quantiles
+
+def main() -> Result[(), SketchError | AllocError | BytesError | FormatError | IoError]:
+    mut users = hyperloglog()?
+    mut latency = quantiles()?
+    for i in range(10000):
+        user = u64(i % 2500)
+        users.add(hash_u64(user))
+        latency.add(f64(i % 100))?
+    print(f"about {users.estimate():.0f} distinct users"?)?
+    print("median", latency.quantile(0.5)?, "max", latency.quantile(1.0)?)?
+    Ok(())
+```
+```output
+about 2511 distinct users
+median 47.0 max 99.0
+```
+
 ## Distinct identities
 
 `hyperloglog(precision=12, seed=0)` creates a dense `HyperLogLog`. Precision is

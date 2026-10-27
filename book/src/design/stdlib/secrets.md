@@ -12,6 +12,22 @@ Policy is checked Plenty code over one native primitive,
 `getrandom(2)` request. The module is available on the supported x86-64 Linux
 GNU target and needs glibc 2.25 or later and Linux 3.17 or later.
 
+```plenty
+import std.secrets
+from std.secrets import SecretsError
+
+def main() -> Result[(), IoError | SecretsError]:
+    session = std.secrets.token_urlsafe(32)?
+    reset_code = std.secrets.token_hex(16)?
+    roll = std.secrets.below(6u64)? + 1u64
+    # The values differ on every run; their shapes do not.
+    print(len(session), len(reset_code), roll >= 1u64 and roll <= 6u64)?
+    Ok(())
+```
+```output
+43 32 True
+```
+
 ## Functions
 
 | Function | Result | Contract |

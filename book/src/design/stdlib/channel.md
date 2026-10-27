@@ -20,6 +20,35 @@ existing prelude facilities, with identical generic type identity.
 | `Selected[A, B]` | `First(value)`, `Second(value)` |
 | `SelectError` | `Empty`, `TimedOut`, `Disconnected` |
 
+A worker sums messages until the sender's scope drops it:
+
+```plenty
+from std.channel import channel, Receiver, ChannelError, SendError
+from std.thread import spawn, ThreadError
+
+def total(inbox: Receiver[i64]) -> i64:
+    mut sum = 0
+    while True:
+        match inbox.recv():
+            case Ok(value):
+                sum += value
+            case Err(_):
+                break
+    sum
+
+def main() -> Result[(), ChannelError | SendError[i64] | ThreadError | IoError]:
+    sender, inbox = channel[i64](2)?
+    with spawn(total, inbox)? as task:
+        with sender as outbox:
+            for n in range(1, 6):
+                outbox.send(n * 10)?
+        print(task.join())?
+    Ok(())
+```
+```output
+150
+```
+
 The linked facility pages specify every endpoint method. Capacity must be
 positive and bounds queued messages. Construction makes one fallible allocation;
 send, receive, share, error transport and selection allocate nothing. Messages
