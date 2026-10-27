@@ -57,6 +57,9 @@ def main() -> Result[(), ThreadError | IoError]:
     print(final.total)?
     Ok(())
 ```
+```output
+7
+```
 
 | Operation | Result | Effect |
 |---|---|---|

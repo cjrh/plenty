@@ -125,7 +125,11 @@ enum Job<'a> {
 fn tutorial_fences() -> Vec<Fence> {
     summary_pages()
         .into_iter()
-        .filter(|page| page.starts_with("tutorial/") || page.starts_with("design/examples/"))
+        .filter(|page| {
+            page.starts_with("tutorial/")
+                || page.starts_with("design/examples/")
+                || page.starts_with("design/stdlib/")
+        })
         .flat_map(|page| {
             let markdown = std::fs::read_to_string(book_src().join(&page)).unwrap();
             fences(&page, &markdown)
