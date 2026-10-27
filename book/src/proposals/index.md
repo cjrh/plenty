@@ -53,7 +53,7 @@ moved to `completed/`.
 | Error composition | [Composition overview](completed/error-composition.md) | [Anonymous sums and the `Failure` policy](completed/error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](completed/error-composition/streams-and-evidence.md) |
 | Ownership and state | [Typestate](typestate-and-owned-transitions.md) | [Linear obligations](linear-obligations.md), [resolution scopes](linear-scope-resolution.md), [integration boundaries](linear-integration.md) |
 | Optional and fallible borrows | [Returned enums that carry references](returned-reference-enums.md) | [Returned references](../design/language/05-ownership/04-returned-references.md), [borrowed matching](../design/language/05-ownership/06-borrowed-matching.md) |
-| [Value generic parameters](value-generics.md) — `const N: i64` parameters with literal, constant or forwarded arguments, shipped with an inline `Array[T, N]` | None yet; related B13, B23 |
+| [Value generic parameters](value-generics.md) — `const N: i64` parameters with literal, constant or forwarded arguments, shipped with an inline `array[T, N]` | None yet; related B13, B23 |
 | Linked structures and graphs | [Owned structures and checked identities](arenas.md) | [Recursive representation](recursive-data.md), [arena prototype](arenas/prototype.md) |
 | Collections | [Ordering](user-type-ordering.md) | [Stable sorting algorithm](timsort.md), [hashing and equality](user-type-hashing.md) |
 | Compile-time sizes and fixed inline arrays | [Value generic parameters](value-generics.md) | [Fixed capacity and inline storage](memory-parallelism-and-simd.md#fixed-capacity-and-inline-storage), [portable `std.simd` API](std-simd/api.md) |
