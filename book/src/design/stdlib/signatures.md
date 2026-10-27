@@ -291,6 +291,7 @@ class Bytes
     def extend[S: ByteSource](self: &mut Bytes, source: &S) -> Result[(), BytesError]
     def extend_range[S: ByteSource](self: &mut Bytes, source: &S, start: i64, stop: i64) -> Result[(), BytesError]
     def overwrite[S: ByteSource](self: &mut Bytes, offset: i64, source: &S, start: i64, stop: i64) -> Result[(), BytesError]
+    def copy_within(self: &mut Bytes, start: i64, stop: i64, to: i64) -> Result[(), BytesError]
     def slice(self, start: i64, stop: i64) -> Result[Bytes, BytesError]
     def copy(self) -> Result[Bytes, BytesError]
     def find(self, value: u8, start: i64, stop: i64) -> Result[Option[i64], BytesError]
