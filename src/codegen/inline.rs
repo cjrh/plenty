@@ -24,8 +24,8 @@ impl Lowerer<'_, '_> {
         if !ty.has_inline_storage() {
             return value;
         }
-        if ty.flat_record() {
-            return self.copy_flat_record(value, ty, destination);
+        if ty.flat_record() || matches!(ty, Ty::Class(_)) && record_fixes(ty).is_some() {
+            return self.copy_record(value, ty, destination);
         }
         if !ty.wide()
             && let Some(bytes) = plain_bytes(ty)
@@ -51,7 +51,7 @@ impl Lowerer<'_, '_> {
         let copied = if let Ty::Enum(t) = ty
             && let Some(variants) = plain_variants(t)
         {
-            self.copy_plain_variant(packed, destination, t.tag_bits(), &variants)
+            self.copy_plain_variant(packed, destination, t, &variants)
         } else {
             self.collection_call(117, &[packed, destination], Some(ty))
                 .expect("inline payload metadata")
@@ -71,11 +71,11 @@ impl Lowerer<'_, '_> {
         &mut self,
         packed: NativeValue,
         destination: NativeValue,
-        tag_bits: u32,
+        ty: &crate::nominal::Nominal<crate::sum::EnumType>,
         variants: &[(usize, u64)],
     ) -> NativeValue {
         let (word, tags) = self.bcx.ins().isplit(packed);
-        let tag = self.bcx.ins().band_imm_s(tags, (1i64 << tag_bits) - 1);
+        let tag = self.bcx.ins().band_imm_s(tags, (1i64 << ty.tag_bits()) - 1);
         let done = self.bcx.create_block();
         self.bcx.append_block_param(done, types::I128);
         let config = self.module.target_config();
@@ -96,6 +96,7 @@ impl Lowerer<'_, '_> {
                 false,
                 MemFlagsData::trusted(),
             );
+            self.fix_variant(&ty.get().variants[variant].fields, destination);
             let moved = self.bcx.ins().iconcat(destination, tags);
             self.bcx.ins().jump(done, &[moved.into()]);
             self.bcx.switch_to_block(next);
@@ -107,9 +108,10 @@ impl Lowerer<'_, '_> {
         self.bcx.block_params(done)[0]
     }
 
-    /// Copy a record whose fields keep no inline data of their own: its bytes
-    /// need no relocation. A null value word owns nothing and is not copied.
-    fn copy_flat_record(
+    /// Copy a record whose nested payloads sit at offsets known here (see
+    /// [`record_fixes`]): its bytes, then the address of each nested payload.
+    /// A null value word owns nothing and is not copied.
+    fn copy_record(
         &mut self,
         value: NativeValue,
         ty: &Ty,
@@ -135,12 +137,141 @@ impl Lowerer<'_, '_> {
             false,
             MemFlagsData::trusted(),
         );
+        if let Ty::Class(_) = ty {
+            self.fix_record(ty, destination);
+        }
         let tags = self.high_word(value);
         let moved = self.bcx.ins().iconcat(destination, tags);
         self.bcx.ins().jump(done, &[moved.into()]);
         self.bcx.switch_to_block(done);
         self.bcx.seal_block(done);
         self.bcx.block_params(done)[0]
+    }
+
+    /// Point the nested payload addresses of a class record just copied to
+    /// `base` at their new places, as the runtime's `Payload::relocate` does.
+    fn fix_record(&mut self, ty: &Ty, base: NativeValue) {
+        let Ty::Class(t) = ty else {
+            unreachable!("record fixes apply to classes")
+        };
+        let mut offset = t.get().state_bytes() as i32;
+        for (_, field) in &t.get().fields {
+            self.fix_slot(field, base, offset);
+            offset += field.slot_bytes() as i32;
+        }
+    }
+
+    /// `fix_record` for the payload of a sum variant just copied to `base`.
+    /// A single field is the payload itself; several form a record of slots.
+    fn fix_variant(&mut self, fields: &[Ty], base: NativeValue) {
+        match fields {
+            [] => {}
+            [field] => {
+                if matches!(field, Ty::Class(_)) {
+                    self.fix_record(field, base);
+                }
+            }
+            fields => {
+                let mut offset = 0;
+                for field in fields {
+                    self.fix_slot(field, base, offset);
+                    offset += field.slot_bytes() as i32;
+                }
+            }
+        }
+    }
+
+    /// Move the payload address of the slot at `base + offset` to the inline
+    /// storage that follows it, when the slot holds a payload. `record_fixes`
+    /// accepted `field`, so its payload layout is known here.
+    fn fix_slot(&mut self, field: &Ty, base: NativeValue, offset: i32) {
+        if !field.has_inline_storage() {
+            return;
+        }
+        let flags = MemFlagsData::trusted();
+        let word = self.bcx.ins().load(types::I64, flags, base, offset);
+        let fix = self.bcx.create_block();
+        let done = self.bcx.create_block();
+        self.bcx.ins().brif(word, fix, &[], done, &[]);
+        self.bcx.switch_to_block(fix);
+        self.bcx.seal_block(fix);
+        let payload = self.bcx.ins().iadd_imm_s(base, offset as i64 + 16);
+        match field {
+            Ty::Enum(t) => {
+                let tags = self.bcx.ins().load(types::I64, flags, base, offset + 8);
+                let tag = self.bcx.ins().band_imm_s(tags, (1i64 << t.tag_bits()) - 1);
+                for (variant, v) in t.get().variants.iter().enumerate() {
+                    if !variant_storage(&v.fields) {
+                        continue;
+                    }
+                    let moved = self.bcx.create_block();
+                    let next = self.bcx.create_block();
+                    let matches = self.bcx.ins().icmp_imm_s(IntCC::Equal, tag, variant as i64);
+                    self.bcx.ins().brif(matches, moved, &[], next, &[]);
+                    self.bcx.switch_to_block(moved);
+                    self.bcx.seal_block(moved);
+                    self.bcx.ins().store(flags, payload, base, offset);
+                    self.fix_variant(&v.fields, payload);
+                    self.bcx.ins().jump(done, &[]);
+                    self.bcx.switch_to_block(next);
+                    self.bcx.seal_block(next);
+                }
+            }
+            _ => {
+                self.bcx.ins().store(flags, payload, base, offset);
+                if matches!(field, Ty::Class(_)) {
+                    self.fix_record(field, payload);
+                }
+            }
+        }
+        self.bcx.ins().jump(done, &[]);
+        self.bcx.switch_to_block(done);
+        self.bcx.seal_block(done);
+    }
+
+    /// Release a class `release_fields` accepts field by field, as the
+    /// runtime's record release does, without walking its descriptor: a record
+    /// whose owned fields were moved out then costs a few loads (issue #544).
+    pub(super) fn release_record(&mut self, value: NativeValue, ty: &Ty) {
+        let Ty::Class(t) = ty else {
+            unreachable!("inline release applies to classes")
+        };
+        let base = self.raw_word(value);
+        let release = self.bcx.create_block();
+        let done = self.bcx.create_block();
+        self.bcx.ins().brif(base, release, &[], done, &[]);
+        self.bcx.switch_to_block(release);
+        self.bcx.seal_block(release);
+        let mut offset = 0;
+        for (_, field) in &t.get().fields {
+            if field.managed() {
+                let packed =
+                    self.bcx
+                        .ins()
+                        .load(types::I128, MemFlagsData::trusted(), base, offset);
+                let field_value = self.unpack(packed, field);
+                if field.wide() || matches!(field, Ty::Generator(_) | Ty::Closure(_)) {
+                    // These test for an empty slot themselves.
+                    self.release(field_value, field);
+                } else {
+                    // A field moved out of leaves a zero word behind.
+                    let word = self.raw_word(field_value);
+                    let owned = self.bcx.create_block();
+                    let next = self.bcx.create_block();
+                    self.bcx.ins().brif(word, owned, &[], next, &[]);
+                    self.bcx.switch_to_block(owned);
+                    self.bcx.seal_block(owned);
+                    self.release(field_value, field);
+                    self.bcx.ins().jump(next, &[]);
+                    self.bcx.switch_to_block(next);
+                    self.bcx.seal_block(next);
+                }
+            }
+            offset += field.slot_bytes() as i32;
+        }
+        self.bcx.ins().jump(done, &[]);
+        self.bcx.switch_to_block(done);
+        self.bcx.seal_block(done);
     }
 
     /// Copy a payload of `bytes` plain bytes with no internal addresses to
@@ -248,22 +379,108 @@ fn plain_bytes(ty: &Ty) -> Option<u64> {
     }
 }
 
+/// Copying more nested payloads than this calls the runtime's descriptor walk
+/// rather than growing the code at every copy site.
+const RECORD_FIX_LIMIT: usize = 8;
+
+/// How many nested payload addresses a copy of the class `ty` must fix, when
+/// all of them sit at offsets known at compile time: classes, ranges, closures
+/// whose captures keep no inline storage, and sums of those. `None` when the
+/// copy needs the runtime, such as for a generator frame. A class around a
+/// class around a `File` then moves with a byte copy and one address fix
+/// (issue #544).
+fn record_fixes(ty: &Ty) -> Option<usize> {
+    let Ty::Class(t) = ty else { return None };
+    let fixes = t
+        .get()
+        .fields
+        .iter()
+        .try_fold(0, |n, (_, field)| Some(n + slot_fixes(field)?))?;
+    (fixes <= RECORD_FIX_LIMIT).then_some(fixes)
+}
+
+/// The address fixes for a slot holding `ty`, including those inside its payload.
+fn slot_fixes(ty: &Ty) -> Option<usize> {
+    if !ty.has_inline_storage() {
+        return Some(0);
+    }
+    match ty {
+        Ty::Range(_) => Some(1),
+        Ty::Closure(_) => plain_bytes(ty).map(|_| 1),
+        Ty::Class(_) => Some(1 + record_fixes(ty)?),
+        Ty::Enum(t) => t
+            .get()
+            .variants
+            .iter()
+            .try_fold(1, |n, v| Some(n + variant_fixes(&v.fields)?)),
+        _ => None,
+    }
+}
+
+/// The address fixes inside one variant's payload once it has moved.
+fn variant_fixes(fields: &[Ty]) -> Option<usize> {
+    match fields {
+        [] => Some(0),
+        [field] if !field.has_inline_storage() => Some(0),
+        // A nested sum's own tags are packed into its owner's: leave those
+        // to the runtime.
+        [Ty::Enum(_)] => None,
+        [field @ Ty::Class(_)] => record_fixes(field),
+        [field] => slot_fixes(field).map(|n| n - 1),
+        fields => fields.iter().try_fold(0, |n, f| Some(n + slot_fixes(f)?)),
+    }
+}
+
+/// How many owned fields an inline release of the class `ty` visits, when it
+/// has no destructor and that count is small; `None` leaves the release to
+/// the runtime's descriptor walk. Fields that are such classes count their
+/// own fields.
+pub(super) fn release_fields(ty: &Ty) -> Option<usize> {
+    let Ty::Class(t) = ty else { return None };
+    let class = t.try_get()?;
+    if class.destructor.is_some() {
+        return None;
+    }
+    let fields = class
+        .fields
+        .iter()
+        .filter(|(_, f)| f.managed())
+        .try_fold(0, |n, (_, f)| Some(n + release_fields(f).unwrap_or(1)))?;
+    (fields <= RECORD_FIX_LIMIT).then_some(fields)
+}
+
+/// Whether a variant with these fields keeps a payload in inline storage.
+fn variant_storage(fields: &[Ty]) -> bool {
+    match fields {
+        [] => false,
+        [field] => field.has_inline_storage(),
+        _ => true,
+    }
+}
+
 /// For a sum, each variant with inline storage and the bytes its payload keeps,
-/// when every such payload is plain: a single field with [`plain_bytes`], or
-/// several fields none of which keeps inline storage. A `Result[Bytes, E]`
-/// then copies without a runtime call (issue #384).
+/// when every such payload copies without the runtime: a single field with
+/// [`plain_bytes`] or a class [`record_fixes`] accepts, or several fields
+/// whose nested payloads [`slot_fixes`] accepts. A `Result[Bytes, E]` then
+/// copies without a runtime call (issue #384), as does a `Result` of a class
+/// holding a class (issue #544).
 fn plain_variants(ty: &crate::nominal::Nominal<crate::sum::EnumType>) -> Option<Vec<(usize, u64)>> {
     let mut variants = Vec::new();
     for (tag, variant) in ty.get().variants.iter().enumerate() {
         match variant.fields.as_slice() {
             [] => {}
             [field] if !field.has_inline_storage() => {}
+            [field @ Ty::Class(_)] => {
+                record_fixes(field)?;
+                variants.push((tag, field.inline_bytes() as u64));
+            }
             [field] => variants.push((tag, plain_bytes(field)?)),
             fields => {
-                if fields.iter().any(Ty::has_inline_storage) {
+                let fixes = fields.iter().try_fold(0, |n, f| Some(n + slot_fixes(f)?))?;
+                if fixes > RECORD_FIX_LIMIT {
                     return None;
                 }
-                variants.push((tag, 16 * fields.len() as u64));
+                variants.push((tag, Lowerer::record_offset(fields.iter()) as u64));
             }
         }
     }

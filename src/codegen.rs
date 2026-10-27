@@ -2164,6 +2164,10 @@ impl Lowerer<'_, '_> {
         if ty.managed() && known::known_zero(&self.bcx.func.dfg, value) {
             return;
         }
+        if ty.managed() && inline::release_fields(ty).is_some() {
+            self.release_record(value, ty);
+            return;
+        }
         if ty.wide() || matches!(ty, Ty::Generator(_) | Ty::Closure(_)) {
             if ty.managed() {
                 // A zero value is an empty ownership slot, such as a local
