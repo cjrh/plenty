@@ -12,6 +12,7 @@ static INTEGER: Type = Type {
     variants: &[],
     drop: None,
     wrapper: None,
+    plan: None,
 };
 static MAP: Type = Type {
     kind: b'D',

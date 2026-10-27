@@ -28,6 +28,43 @@ fn define(
     module.define_data(id, &data)?;
     Ok(())
 }
+/// The class record facts at descriptor byte 72, mirroring
+/// `plenty_runtime::aggregates::Plan`: the strings' word offsets, whether
+/// they are all the record owns, and whether its bytes move without repair.
+fn plan(module: &mut ObjectModule, ty: &Ty, class: &crate::record::ClassType) -> Result<DataId> {
+    let mut strings = Vec::new();
+    let only_strings = string_words(class, 0, &mut strings);
+    let mut offsets: Vec<u8> = strings.iter().flat_map(|w| w.to_ne_bytes()).collect();
+    let len = strings.len();
+    // An empty slice still needs a non-null, aligned address.
+    offsets.resize(offsets.len().max(4), 0);
+    let mut bytes = vec![0; 24];
+    word(&mut bytes, 8, len);
+    bytes[16] = u8::from(only_strings);
+    bytes[17] = u8::from(ty.flat_record());
+    let offsets = blob(module, offsets, &[])?;
+    blob(module, bytes, &[(0, offsets)])
+}
+/// Collect the word offsets of the strings in `class`'s record, starting at
+/// word `base`, through flat class fields. Returns whether they are all it
+/// owns: no `__del__` at any depth and no other field needing cleanup.
+fn string_words(class: &crate::record::ClassType, base: usize, out: &mut Vec<u32>) -> bool {
+    if class.destructor.is_some() {
+        return false;
+    }
+    let mut only = true;
+    for (index, (_, field)) in class.fields.iter().enumerate() {
+        let at = base + class.field_offset(index) / 16;
+        match &*field.newtype_base() {
+            Ty::Str => out.push(at as u32),
+            Ty::Class(nested) if field.flat_field() => {
+                only &= string_words(&nested.get(), at, out);
+            }
+            _ => only &= !field.managed(),
+        }
+    }
+    only
+}
 fn word(bytes: &mut [u8], offset: usize, value: usize) {
     bytes[offset..offset + 8].copy_from_slice(&(value as u64).to_ne_bytes());
 }
@@ -63,7 +100,7 @@ fn define_type(
 ) -> Result<()> {
     let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
-    let mut bytes = vec![0; 72];
+    let mut bytes = vec![0; 80];
     // A newtype class has its field's values, so the runtime gets the
     // field's layout under the class's name; the wrapper link at byte 64
     // names the field for formatting and the columnar-list schema.
@@ -227,6 +264,11 @@ fn define_type(
     }
     links.push((40, blob(module, entries, &variant_links)?));
     word(&mut bytes, 48, variants.len());
+    if let Ty::Class(class) = ty
+        && ty.has_inline_storage()
+    {
+        links.push((72, plan(module, ty, &class.get())?));
+    }
     let hook = class_definition
         .as_ref()
         .and_then(|t| t.destructor.as_ref())

@@ -14,6 +14,7 @@ static INTEGER: Type = Type {
     variants: &[],
     drop: None,
     wrapper: None,
+    plan: None,
 };
 static RANGE: Type = Type {
     kind: b'R',

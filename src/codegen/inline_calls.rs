@@ -209,6 +209,7 @@ impl Lowerer<'_, '_> {
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),
+            moves: Default::default(),
         };
         let lowered = callee.lower_body(body, inputs);
         self.collection_scratch = callee.collection_scratch;

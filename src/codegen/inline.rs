@@ -4,6 +4,69 @@ use super::*;
 use cranelift_codegen::ir::{MemFlagsData, Value as NativeValue};
 
 impl Lowerer<'_, '_> {
+    /// Copy `bytes` (a multiple of 8) from `source` to `destination`, which
+    /// may overlap. Cranelift inlines copies of up to 32 bytes and calls
+    /// `memmove` above that; a nested record is usually larger, and the call
+    /// cost several times the copy (issue #550). Up to [`INLINE_COPY_LIMIT`]
+    /// bytes are therefore moved in 16-byte vector registers, all loaded
+    /// before any is stored so an overlapping copy stays correct.
+    pub(super) fn copy_bytes(&mut self, destination: NativeValue, source: NativeValue, bytes: u64) {
+        let config = self.module.target_config();
+        if bytes <= 32 || bytes > INLINE_COPY_LIMIT {
+            self.bcx.emit_small_memory_copy(
+                config,
+                destination,
+                source,
+                bytes,
+                8,
+                8,
+                false,
+                MemFlagsData::trusted(),
+            );
+            return;
+        }
+        let flags = MemFlagsData::new().with_notrap();
+        let mut loaded = Vec::new();
+        let mut offset = 0;
+        while offset < bytes {
+            let ty = if bytes - offset >= 16 {
+                types::I64X2
+            } else {
+                types::I64
+            };
+            let value = self.bcx.ins().load(ty, flags, source, offset as i32);
+            loaded.push((value, offset));
+            offset += ty.bytes() as u64;
+        }
+        for (value, offset) in loaded {
+            self.bcx
+                .ins()
+                .store(flags, value, destination, offset as i32);
+        }
+    }
+
+    /// Zero `bytes` (a multiple of 8) at `destination`, in vector stores up to
+    /// [`INLINE_COPY_LIMIT`] bytes for the reason given at [`Self::copy_bytes`].
+    pub(super) fn zero_bytes(&mut self, destination: NativeValue, bytes: u64) {
+        let config = self.module.target_config();
+        if bytes <= 32 || bytes > INLINE_COPY_LIMIT {
+            self.bcx
+                .emit_small_memset(config, destination, 0, bytes, 8, MemFlagsData::trusted());
+            return;
+        }
+        let flags = MemFlagsData::new().with_notrap();
+        let zero = self.bcx.ins().iconst(types::I64, 0);
+        let wide = self.bcx.ins().splat(types::I64X2, zero);
+        let mut offset = 0;
+        while offset < bytes {
+            let value = if bytes - offset >= 16 { wide } else { zero };
+            self.bcx
+                .ins()
+                .store(flags, value, destination, offset as i32);
+            offset += if bytes - offset >= 16 { 16 } else { 8 };
+        }
+    }
+
     pub(super) fn inline_storage(&mut self, bytes: usize) -> NativeValue {
         let slot = self
             .bcx
@@ -84,7 +147,6 @@ impl Lowerer<'_, '_> {
         let tag = self.bcx.ins().band_imm_s(tags, (1i64 << ty.tag_bits()) - 1);
         let done = self.bcx.create_block();
         self.bcx.append_block_param(done, types::I128);
-        let config = self.module.target_config();
         for &(variant, bytes) in variants {
             let copy = self.bcx.create_block();
             let next = self.bcx.create_block();
@@ -92,16 +154,7 @@ impl Lowerer<'_, '_> {
             self.bcx.ins().brif(matches, copy, &[], next, &[]);
             self.bcx.switch_to_block(copy);
             self.bcx.seal_block(copy);
-            self.bcx.emit_small_memory_copy(
-                config,
-                destination,
-                word,
-                bytes,
-                8,
-                8,
-                false,
-                MemFlagsData::trusted(),
-            );
+            self.copy_bytes(destination, word, bytes);
             self.fix_variant(&ty.get().variants[variant].fields, destination);
             let moved = self.bcx.ins().iconcat(destination, tags);
             self.bcx.ins().jump(done, &[moved.into()]);
@@ -132,17 +185,7 @@ impl Lowerer<'_, '_> {
             .brif(source, copy, &[], done, &[value.into()]);
         self.bcx.switch_to_block(copy);
         self.bcx.seal_block(copy);
-        let config = self.module.target_config();
-        self.bcx.emit_small_memory_copy(
-            config,
-            destination,
-            source,
-            ty.inline_bytes() as u64,
-            8,
-            8,
-            false,
-            MemFlagsData::trusted(),
-        );
+        self.copy_bytes(destination, source, ty.inline_bytes() as u64);
         if let Ty::Class(_) = ty {
             self.fix_record(ty, destination);
         }
@@ -310,21 +353,22 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().brif(value, copy, &[], done, &[value.into()]);
         self.bcx.switch_to_block(copy);
         self.bcx.seal_block(copy);
-        let config = self.module.target_config();
-        self.bcx.emit_small_memory_copy(
-            config,
-            destination,
-            value,
-            bytes,
-            8,
-            8,
-            false,
-            MemFlagsData::trusted(),
-        );
+        self.copy_bytes(destination, value, bytes);
         self.bcx.ins().jump(done, &[destination.into()]);
         self.bcx.switch_to_block(done);
         self.bcx.seal_block(done);
         self.bcx.block_params(done)[0]
+    }
+
+    /// Copy the pending in-place moves aside after all: the op being lowered
+    /// is not the consumer [`Moves`] expected.
+    pub(super) fn settle_moves(&mut self) {
+        for moved in std::mem::take(&mut self.moves.pending) {
+            if let Some(index) = self.stack.iter().rposition(|(value, _)| *value == moved) {
+                let ty = self.stack[index].1.clone();
+                self.stack[index].0 = self.snapshot_inline(moved, &ty);
+            }
+        }
     }
 
     pub(super) fn snapshot_inline(&mut self, value: NativeValue, ty: &Ty) -> NativeValue {
@@ -383,6 +427,12 @@ impl Lowerer<'_, '_> {
         returned
     }
 }
+
+/// The largest copy or clear [`Lowerer::copy_bytes`] emits inline: twelve
+/// vector registers, within x86-64's sixteen so the copy needs no spills.
+/// Raising it to 256 bytes sped up no measured workload and grew the `.text`
+/// of an actor example by a further 2.5%.
+const INLINE_COPY_LIMIT: u64 = 192;
 
 /// The bytes of a payload that moves without relocation: no field keeps inline
 /// storage, so no internal address points into it. `None` when copying needs
@@ -518,4 +568,84 @@ fn plain_variants(ty: &crate::nominal::Nominal<crate::sum::EnumType>) -> Option<
         }
     }
     Some(variants)
+}
+
+/// Moves out of a local whose bytes the consuming operation reads in place.
+///
+/// Moving a value with inline storage out of a local copies its bytes aside,
+/// since the local could be written again while the value is still in use.
+/// When the move is an argument a call copies before returning, or a result
+/// the return copies to its caller, and only operations that push values come
+/// between, nothing can write the local first, so that copy is redundant
+/// (issue #550).
+#[derive(Default)]
+pub(super) struct Moves {
+    /// Such `Op::MoveLocal`s, identified by address: the body outlives its
+    /// lowering.
+    candidates: crate::hash::HashSet<*const Op>,
+    /// The values of such moves, until their consumer is lowered. A call
+    /// that might keep an argument's address copies them there instead, and
+    /// [`Lowerer::settle_moves`] does for any other operation.
+    pub(super) pending: Vec<NativeValue>,
+}
+
+impl Moves {
+    pub(super) fn find(body: &[Op]) -> Self {
+        let mut candidates = crate::hash::HashSet::default();
+        let mut sequences = vec![body];
+        while let Some(ops) = sequences.pop() {
+            for (index, op) in ops.iter().enumerate() {
+                match op {
+                    Op::MoveLocal(_) => {
+                        let consumer = ops[index + 1..].iter().find(|op| !Self::passes(op));
+                        if matches!(consumer, Some(Op::Call(_) | Op::Return)) {
+                            candidates.insert(op as *const Op);
+                        }
+                    }
+                    Op::Match(arms) => sequences.extend(arms.iter().map(|arm| arm.body.as_ref())),
+                    Op::Loop { condition, body } => {
+                        sequences.extend([condition.as_ref(), body.as_ref()]);
+                    }
+                    Op::If {
+                        then,
+                        elifs,
+                        otherwise,
+                    } => {
+                        sequences.extend([then.as_ref(), otherwise.as_ref()]);
+                        for arm in elifs.iter() {
+                            sequences.extend([arm.condition.as_ref(), arm.body.as_ref()]);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Self {
+            candidates,
+            pending: Vec::new(),
+        }
+    }
+
+    /// Whether `op` may come between a move and its consumer: it only pushes
+    /// a value or marks a position, so it writes no local.
+    pub(super) fn passes(op: &Op) -> bool {
+        matches!(
+            op,
+            Op::Site(_)
+                | Op::CallerSite(_)
+                | Op::Access(..)
+                | Op::MoveLocal(_)
+                | Op::LoadLocal(_)
+                | Op::PushInt(_)
+                | Op::PushFloat { .. }
+                | Op::PushUnit
+                | Op::PushStr(_)
+                | Op::PushBool(_)
+        )
+    }
+
+    /// Whether the move `op` of a value of type `ty` skips its copy.
+    pub(super) fn in_place(&self, op: &Op, ty: &Ty) -> bool {
+        ty.has_inline_storage() && self.candidates.contains(&(op as *const Op))
+    }
 }

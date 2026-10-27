@@ -152,6 +152,7 @@ pub(super) fn build_generator(
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),
+            moves: Default::default(),
             generator: Some(GeneratorContext {
                 frame,
                 out,

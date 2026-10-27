@@ -60,9 +60,31 @@ pub(crate) struct Type {
     /// wrapper names the field and links its own descriptor for formatting
     /// and the columnar-list schema. See book/src/proposals/flat-class-layout.md.
     pub(crate) wrapper: Option<&'static Variant>,
+    /// Layout facts the compiler records for a class with a record, so
+    /// release and relocation can skip their field walks (issue #550).
+    pub(crate) plan: Option<&'static Plan>,
+}
+/// What releasing and moving a class record involves, precomputed from its
+/// field types. Mirrors `codegen::metadata::plan`.
+#[repr(C)]
+pub(crate) struct Plan {
+    /// Word offsets, from the record's first byte, of the strings it owns,
+    /// including those of flat class fields.
+    pub(crate) strings: &'static [u32],
+    /// Releasing the record only frees `strings`: it has no `__del__` at any
+    /// depth and owns nothing else. Freeing a string runs no user code, so
+    /// doing them all at once is indistinguishable from the field walk.
+    pub(crate) only_strings: bool,
+    /// The record holds no addresses into its own bytes, so moving them
+    /// needs no repair.
+    pub(crate) fixed: bool,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 72);
+    assert!(size_of::<Type>() == 80);
+    assert!(std::mem::offset_of!(Type, plan) == 72);
+    assert!(size_of::<Plan>() == 24);
+    assert!(std::mem::offset_of!(Plan, only_strings) == 16);
+    assert!(std::mem::offset_of!(Plan, fixed) == 17);
     assert!(std::mem::offset_of!(Type, key) == 8);
     assert!(std::mem::offset_of!(Type, name) == 24);
     assert!(std::mem::offset_of!(Type, variants) == 40);
@@ -100,6 +122,16 @@ impl Type {
     /// record, sum payload, closure environment or inline generator.
     fn owns_nothing(&self) -> bool {
         !self.managed() && self.kind != b'H'
+    }
+    /// A class record whose bytes can move without repair; see [`Plan::fixed`].
+    pub(crate) fn fixed(&self) -> bool {
+        self.plan.is_some_and(|plan| plan.fixed)
+    }
+    /// The strings a record of this class owns, when they are all it owns.
+    fn only_strings(&self) -> Option<&'static [u32]> {
+        self.plan
+            .filter(|plan| plan.only_strings)
+            .map(|plan| plan.strings)
     }
     fn key(&self) -> &Type {
         self.key.expect("collection key type")
@@ -428,6 +460,10 @@ pub(crate) unsafe fn release(value: u128, ty: &Type) {
     unsafe {
         if ty.kind == b'H' {
             crate::closures::release(value as *mut u128);
+        } else if let Some(strings) = ty.only_strings()
+            && value as u64 != 0
+        {
+            release_strings(value as u64 as *mut u128, strings);
         } else if let Some(record) = ty.record(value) {
             if record.begin_release(ty) {
                 record.release();
@@ -440,6 +476,18 @@ pub(crate) unsafe fn release(value: u128, ty: &Type) {
             crate::generators::release_inline(value as *mut Generator);
         } else if ty.managed() {
             plenty_release(value as *mut Header);
+        }
+    }
+}
+
+/// Free the strings of a record at `base`; see [`Plan::only_strings`].
+unsafe fn release_strings(base: *mut u128, strings: &[u32]) {
+    for &word in strings {
+        // SAFETY: the plan's offsets lie inside the record.
+        let text = unsafe { base.add(word as usize).read() } as u64;
+        // A moved-out field is clear.
+        if text != 0 {
+            unsafe { strings::release_leaf(text as *mut Text) };
         }
     }
 }
@@ -467,6 +515,10 @@ unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
                     return Some(child);
                 }
             }
+        } else if let Some(strings) = ty.only_strings()
+            && value as u64 != 0
+        {
+            release_strings(value as u64 as *mut u128, strings);
         } else if let Some(record) = ty.record(value) {
             if !record.begin_release(ty) {
                 slot.write(0);
@@ -511,6 +563,11 @@ unsafe fn release_next_fields(record: Record<'_>) -> Option<*mut Header> {
             // skip finished flat records without descending into them.
             let child = if field.flat {
                 if field.is_clear(ty) {
+                    continue;
+                }
+                if let Some(strings) = ty.only_strings() {
+                    release_strings(field.at, strings);
+                    field.clear(ty);
                     continue;
                 }
                 let nested = field.record(ty);
@@ -568,7 +625,9 @@ unsafe extern "C" fn collection_destroy(header: *mut Header) {
         let ty = &*(*c).ty;
         // A list of values that own nothing needs no per-row release; skipping
         // the walk avoids touching every row before the buffer is freed.
-        let mut entry = if ty.kind == b'L' && ty.key().owns_nothing() {
+        let mut entry = if ty.kind == b'L'
+            && (ty.key().owns_nothing() || ty.key().only_strings().is_some_and(<[u32]>::is_empty))
+        {
             None
         } else {
             (*c).drop_entry.or_else(|| (*c).entries.indices().next())

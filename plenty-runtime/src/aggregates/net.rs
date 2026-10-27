@@ -624,6 +624,7 @@ mod native {
             variants: &[],
             drop: None,
             wrapper: None,
+            plan: None,
         };
 
         struct Owner(u128);

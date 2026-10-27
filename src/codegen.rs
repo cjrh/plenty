@@ -1819,6 +1819,7 @@ fn build_user_function(
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),
+            moves: inline::Moves::find(body),
         };
         // Argument addresses belong to the caller. Snapshot inline values into
         // this function's locals before any mutation or nested call can occur.
@@ -1944,6 +1945,7 @@ fn build_main(
             counters: Default::default(),
             position: Default::default(),
             trap_blocks: HashMap::default(),
+            moves: Default::default(),
         };
         if let Some((register, table)) = runtime.signal_traps {
             let table = lower.module.declare_data_in_func(table, lower.bcx.func);
@@ -2135,6 +2137,8 @@ struct Lowerer<'a, 'b> {
     /// rather than emitting another; see [`Lowerer::trap_if`]. The blocks are
     /// sealed together by [`Lowerer::seal_trap_blocks`].
     trap_blocks: HashMap<(TrapKind, Option<i64>), Block>,
+    /// Moves read in place; see [`inline::Moves`].
+    moves: inline::Moves,
     /// Blocks shared by a user function's exits; `None` lowers each exit
     /// inline. See [`exits`].
     exits: Option<exits::Exits>,
@@ -2315,6 +2319,12 @@ impl Lowerer<'_, '_> {
         }
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
+        if !self.moves.pending.is_empty()
+            && !inline::Moves::passes(op)
+            && !matches!(op, Op::Call(_) | Op::Return)
+        {
+            self.settle_moves();
+        }
         if self.gathering() && self.gather(op)? {
             return Ok(());
         }
@@ -2460,7 +2470,12 @@ impl Lowerer<'_, '_> {
             Op::MoveLocal(i) => {
                 let value = self.read_local(*i);
                 let ty = self.locals[*i as usize].1.clone();
-                let value = self.snapshot_inline(value, &ty);
+                let value = if self.moves.in_place(op, &ty) {
+                    self.moves.pending.push(value);
+                    value
+                } else {
+                    self.snapshot_inline(value, &ty)
+                };
                 let zero = self.empty_slot(&ty);
                 self.write_local(*i, zero);
                 self.stack.push((value, ty));
@@ -2625,6 +2640,8 @@ impl Lowerer<'_, '_> {
                 self.terminated = true;
             }
             Op::Return => {
+                // The results are copied out before the locals are released.
+                self.moves.pending.clear();
                 if self.generator.is_some() {
                     self.complete_generator();
                     return Ok(());
@@ -3503,7 +3520,26 @@ impl Lowerer<'_, '_> {
         let caller_standard = self.in_standard_library();
         let optimize = self.module.optimizes();
         let in_generator = self.generator.is_some();
-        let (decl, mut args) = self.pop_call_args(name)?;
+        let user_fns = self.user_fns;
+        let (_, mut args) = self.pop_call_args(name)?;
+        let decl: &UserFn = &user_fns[name];
+        // A native call or an inlined constructor copies what it keeps of its
+        // arguments before the caller runs again; a leaf may return one in
+        // place. A move this call does not take stays pending: no callee can
+        // write the caller's locals. See [`inline::Moves`].
+        let keeps_address = decl.inline.is_some()
+            || portable_simd::operation(name, decl, optimize).is_some()
+            || decl.sig.outputs.iter().any(Ty::contains_generator_frame);
+        for moved in std::mem::take(&mut self.moves.pending) {
+            match args.iter().rposition(|value| *value == moved) {
+                Some(index) if keeps_address => {
+                    let ty = decl.sig.inputs[index].1.clone();
+                    args[index] = self.snapshot_inline(moved, &ty);
+                }
+                Some(_) => {}
+                None => self.moves.pending.push(moved),
+            }
+        }
         if let Some(simd) = portable_simd::operation(name, decl, optimize) {
             self.lower_portable_simd(&simd, &args);
             return Ok(());

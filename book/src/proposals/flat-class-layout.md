@@ -243,3 +243,78 @@ instructions on base to 8,658; the release walk itself fell from 1,760 to
 1,210, and relocation is level with base (685 and 663). Compiled moves no longer
 fix flat fields but still copy their bytes, so the per-move saving is the fixes,
 not the copy.
+
+## Stage 3: fewer runtime walks (issue #550)
+
+Stage 2 left flat records copied by `memmove` and released and relocated by
+the runtime's generic field walk. Profiles of the stage 2 workloads
+(callgrind, 20k rows of three-level `Path` records) put the release walk at
+27% of the program, list appends' `copy_payload` relocation at 16%, and the
+`memmove` calls for 176-byte record copies at 9%. Each change below targets one
+of those shares.
+
+- **Inline copies.** Copies and clears of 33 to 192 bytes are 16-byte vector
+  loads and stores instead of `memmove`/`memset` calls. All loads precede the
+  stores, so overlapping copies stay correct. Larger records, such as the
+  272-byte `Shelf`, still call `memmove`.
+- **In-place moves.** A local moved into a call argument, with only operand
+  pushes between the move and the call, is passed at its own address: the
+  callee copies arguments on entry, so the snapshot copy was redundant.
+  Inlined constructors, generator producers and portable SIMD operations keep
+  argument addresses and still receive a copy (`inline::Moves`).
+- **Descriptor plans.** A class descriptor with a record grows from 72 to 80
+  bytes; byte 72 links a `Plan` with the word offsets of the strings the record
+  owns (through flat fields), whether they are all it owns, and whether its
+  bytes contain addresses into themselves. The runtime frees such a record's
+  strings in one pass instead of walking its fields, skips relocation for a
+  record without internal addresses, and skips per-row release for a list of
+  records that own nothing. Records with `__del__` at any depth, or any other
+  managed field, keep the walk, so destructor order is unchanged.
+
+The plan is data rather than a compiled hook. Descriptors are defined lazily
+while relocations are resolved, after the parallel function build; a compiled
+release function would need every eligible class declared before that build.
+For records owning only strings the data plan reaches the same result: no
+per-field dispatch, one load and release per string.
+
+### Measurements
+
+Retired instructions (`perf stat -e instructions:u`, `--release`, mean of 5,
+pinned to 8 cores). *Main* is 240cdd71.
+
+| Program | Main | Stage 3 |
+|---|---|---|
+| Three-level `Point`/`Segment`/`Path` workload | 2,508,593,168 | 1,312,945,806 (−47.7%) |
+| 2M moves of a `Path` through `keep` | 466,240,999 | 376,240,717 (−19.3%) |
+| 300k `Path` rows appended and destroyed | 2,035,990,651 | 932,943,557 (−54.2%) |
+| 300k shelves of nested records appended and destroyed | 2,380,500,554 | 2,108,859,497 (−11.4%) |
+| Copies fixture, scaled | 3,024,103,704 | 2,756,512,591 (−8.8%) |
+| Constructor fixture, scaled | 1,205,241,633 | 1,205,241,629 |
+| Nested two-field records copied through a loop | 280,638 | 277,878 |
+| Constructor fixture (wrapped file) | 262,142 | 262,144 |
+| 200 loopback `connect`/`accept`/`close` pairs through `std.net` | 2,045,036 | 2,009,922 (−1.7%) |
+
+Wall-clock medians (15 runs): the three-level workload 254 to 140 ms, `Path`
+rows 187 to 116 ms, moves 68.7 to 27.5 ms, shelves 246 to 222 ms, copies 313 to
+291 ms. Per `Path` row (callgrind, 20k rows) the program fell from 5,819 to
+3,016 instructions: destroying the list, string frees included, from 1,611 to
+110, and the append's `copy_payload` from 920 to 204. Per shelf, destroying
+the list fell from 1,252 to 700 instructions, because its `Label` fields own
+only strings.
+
+Inline copies cost code size: `.text` grew 0.2% to 1.7% across examples
+(`classes` 81,121 to 81,313 bytes, `http_server_bench` 556,705 to 566,257,
+`semantic_search` 1,768,878 to 1,773,166, `actor_echo` 252,641 to 256,193) and
+1.3% to 3.2% for the record workloads. A 256-byte limit sped up none of the
+workloads and grew `actor_echo` by a further 2.5%; a 128-byte limit cost the
+moves workload 8%. `compile_bench` (`aot`, 1000 × 10) retires 0.18% more
+instructions (80.53 G to 80.68 G); its median times (332–340 ms on main,
+331–336 ms with stage 3) are within noise.
+
+### Remaining
+
+Shelves keep part of their walk cost: a `Shelf` holds ranges and sums, whose
+payload addresses depend on the active variant, so it is neither string-only
+nor free of internal addresses. Per shelf, relocation still costs about 930
+instructions and the 272-byte record copy still calls `memcpy`. A plan entry
+per internal address, tested against the sum's tag, would cover relocation.
