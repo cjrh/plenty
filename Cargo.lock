@@ -831,6 +831,7 @@ name = "plenty-runtime"
 version = "0.1.0"
 dependencies = [
  "hmac",
+ "ring",
  "rustls",
  "sha1",
  "sha2",

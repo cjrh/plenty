@@ -2,7 +2,8 @@
 
 `std.crypto` computes SHA-256 and SHA-512 digests and HMAC tags over
 [`std.bytes`](../../design/stdlib/bytes.md) buffers, and compares secrets in
-constant time.
+constant time. For AEAD encryption and public-key signatures, see
+[Encrypt and authenticate bytes](11a-standard-encryption.md).
 
 ## Digests
 

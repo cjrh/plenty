@@ -25,6 +25,8 @@ import sys
 from pathlib import Path
 
 TARGET = "x86_64-unknown-linux-gnu"
+# ring 0.17.14 ships for std.tls and advanced std.crypto. Its existing
+# vendored source and complete notices are covered through Cargo metadata.
 ROOTS = ("plenty", "plenty-runtime")
 LICENSE_PREFIXES = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "COPYRIGHT", "UNLICENSE")
 REPO = Path(__file__).resolve().parents[2]

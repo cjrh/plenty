@@ -375,3 +375,37 @@ pub def compress_state(kind: u8, level: i64, capacity: i64) -> Result[Bytes, Byt
 # std.db.sqlite's blob column read. Import std.db.sqlite instead.
 pub def sqlite_column(statement: &ByteStorage, column: i64) -> Result[Bytes, BytesError]:
     Ok(Bytes(allocated(__sqlite_column_blob(statement, column))?))
+
+# Advanced std.crypto back end; import std.crypto for validation and errors.
+pub def crypto_aes_seal(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_aes_seal(key._owner, nonce._owner, aad._owner, target._owner)
+
+pub def crypto_aes_open(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_aes_open(key._owner, nonce._owner, aad._owner, target._owner)
+
+pub def crypto_chacha_seal(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_chacha_seal(key._owner, nonce._owner, aad._owner, target._owner)
+
+pub def crypto_chacha_open(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_chacha_open(key._owner, nonce._owner, aad._owner, target._owner)
+
+pub def crypto_ed_public(seed: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_ed_public(seed._owner, target._owner)
+
+pub def crypto_ed_sign(seed: &Bytes, message: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_ed_sign(seed._owner, message._owner, target._owner)
+
+pub def crypto_ed_verify(key: &Bytes, message: &Bytes, signature: &Bytes) -> i64:
+    __crypto_ed_verify(key._owner, message._owner, signature._owner)
+
+pub def crypto_hkdf(salt: &Bytes, key: &Bytes, info: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_hkdf(salt._owner, key._owner, info._owner, target._owner)
+
+pub def crypto_x_public(state: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_x_public(state._owner, target._owner)
+
+pub def crypto_x_agree(state: &mut Bytes, peer: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_x_agree(state._owner, peer._owner, target._owner)
+
+pub def crypto_x_new() -> Result[Bytes, BytesError]:
+    Ok(Bytes(allocated(__crypto_x_new())?))

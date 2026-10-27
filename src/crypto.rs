@@ -1,5 +1,5 @@
-//! Native primitives behind `std.crypto`: RustCrypto SHA-2 digests, HMAC and
-//! constant-time comparison in the runtime. The public API, range validation
+//! Native primitives behind `std.crypto`: RustCrypto digests/HMAC and ring
+//! authenticated encryption, signatures, key exchange and derivation. The public API, range validation
 //! and error policy live in `std.crypto` and `std.bytes`.
 use crate::{op::Ty, sum};
 
@@ -12,6 +12,17 @@ pub enum CryptoOp {
     Finish,
     Verify,
     Equal,
+    AesSeal = 8,
+    AesOpen = 9,
+    ChaChaSeal = 10,
+    ChaChaOpen = 11,
+    EdPublic = 12,
+    EdSign = 13,
+    EdVerify = 14,
+    Hkdf = 15,
+    XNew = 16,
+    XPublic = 17,
+    XAgree = 18,
 }
 
 impl CryptoOp {
@@ -24,6 +35,17 @@ impl CryptoOp {
             "__crypto_finish" => Self::Finish,
             "__crypto_verify" => Self::Verify,
             "__crypto_equal" => Self::Equal,
+            "__crypto_aes_seal" => Self::AesSeal,
+            "__crypto_aes_open" => Self::AesOpen,
+            "__crypto_chacha_seal" => Self::ChaChaSeal,
+            "__crypto_chacha_open" => Self::ChaChaOpen,
+            "__crypto_ed_public" => Self::EdPublic,
+            "__crypto_ed_sign" => Self::EdSign,
+            "__crypto_ed_verify" => Self::EdVerify,
+            "__crypto_hkdf" => Self::Hkdf,
+            "__crypto_x_new" => Self::XNew,
+            "__crypto_x_public" => Self::XPublic,
+            "__crypto_x_agree" => Self::XAgree,
             _ => return None,
         })
     }
@@ -42,14 +64,27 @@ impl CryptoOp {
             // 1 for a match, 0 for a mismatch, -1 once finished.
             Self::Verify => (range(), Ty::I64),
             Self::Equal => (vec![storage(), storage()], Ty::Bool),
+            Self::AesSeal | Self::AesOpen | Self::ChaChaSeal | Self::ChaChaOpen | Self::Hkdf => {
+                (vec![storage(), storage(), storage(), storage()], Ty::I64)
+            }
+            Self::EdPublic | Self::XPublic => (vec![storage(), storage()], Ty::I64),
+            Self::EdSign | Self::EdVerify | Self::XAgree => {
+                (vec![storage(), storage(), storage()], Ty::I64)
+            }
+            Self::XNew => (vec![], state()),
         }
     }
 
-    /// Operands the primitive writes through: the hasher state, and the
-    /// output buffer of `Finish`.
+    /// Operands the primitive writes through: mutable state and output buffers.
     pub fn exclusive(self, operand: usize) -> bool {
         match self {
-            Self::New | Self::NewKeyed | Self::Equal => false,
+            Self::New | Self::NewKeyed | Self::Equal | Self::EdVerify | Self::XNew => false,
+            Self::AesSeal | Self::AesOpen | Self::ChaChaSeal | Self::ChaChaOpen | Self::Hkdf => {
+                operand == 3
+            }
+            Self::EdPublic | Self::XPublic => operand == 1,
+            Self::EdSign => operand == 2,
+            Self::XAgree => operand == 0 || operand == 2,
             Self::Finish => operand <= 1,
             Self::Update | Self::UpdateText | Self::Verify => operand == 0,
         }

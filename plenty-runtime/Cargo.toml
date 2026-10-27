@@ -26,3 +26,4 @@ zlib-rs = { version = "=0.6.8", default-features = false, features = ["std", "__
 # See book/src/design/stdlib/tls.md for the backend and update policy.
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 siphasher = { version = "=1.0.4", default-features = false }
+ring = { version = "=0.17.14", default-features = false, features = ["alloc"] }

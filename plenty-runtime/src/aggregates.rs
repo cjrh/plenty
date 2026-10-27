@@ -14,6 +14,7 @@ mod bytes;
 mod clist;
 mod compress;
 mod crypto;
+mod crypto_advanced;
 mod entry_error;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
@@ -1592,6 +1593,10 @@ operation_entries! {
 operation_entries! {
     300 301 302 303 304 305 306
 }
+// Advanced `std.crypto` primitives.
+operation_entries! {
+    308 309 310 311 312 313 314 315 316 317 318
+}
 // `std.compress`.
 operation_entries! {
     320 321 322 323 324 325
@@ -1636,9 +1641,16 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
         if matches!(op, 300..340 | 440..500) {
             // Three inputs, the output slot, then the fourth operand in the
             // first scratch word.
-            let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
+            // Advanced crypto entries with fewer than four operands must
+            // not read the uninitialized fourth scratch word.
+            let fourth = match op {
+                312..=314 | 316..=318 => 0,
+                _ => *args.add(4),
+            };
+            let operands = [*args, *args.add(1), *args.add(2), fourth];
             out.write(match op {
-                300..320 => crypto::call(op, operands),
+                300..308 => crypto::call(op, operands),
+                308..320 => crypto_advanced::call(op, operands),
                 320..340 => compress::call(op, operands),
                 #[cfg(plenty_runtime_sqlite)]
                 440..470 => sqlite::call(op, operands),

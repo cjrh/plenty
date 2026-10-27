@@ -402,6 +402,8 @@ mod test_std_collections;
 mod test_std_compress;
 #[path = "test_std_crypto.rs"]
 mod test_std_crypto;
+#[path = "test_std_crypto_advanced.rs"]
+mod test_std_crypto_advanced;
 #[path = "test_std_csv.rs"]
 mod test_std_csv;
 #[path = "test_std_diff.rs"]
