@@ -140,6 +140,25 @@ impl Ty {
     pub fn wide(&self) -> bool {
         matches!(self, Self::Enum(_) | Self::Class(_))
     }
+    /// The field a one-field class is represented as
+    /// (`ClassType::newtype_field`), if `self` is such a class.
+    pub fn newtype_field(&self) -> Option<Ty> {
+        match self {
+            Self::Class(t) => t.get().newtype_field().cloned(),
+            _ => None,
+        }
+    }
+    /// `self` with every newtype class layer removed: the type whose layout
+    /// the value actually has.
+    pub fn newtype_base(&self) -> std::borrow::Cow<'_, Ty> {
+        let Some(mut base) = self.newtype_field() else {
+            return std::borrow::Cow::Borrowed(self);
+        };
+        while let Some(inner) = base.newtype_field() {
+            base = inner;
+        }
+        std::borrow::Cow::Owned(base)
+    }
     pub fn is_float(&self) -> bool {
         matches!(self, Self::F32 | Self::F64)
     }

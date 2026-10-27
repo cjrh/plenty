@@ -2130,6 +2130,10 @@ impl Lowerer<'_, '_> {
         value: cranelift_codegen::ir::Value,
         ty: &Ty,
     ) -> Option<cranelift_codegen::ir::Inst> {
+        if let Some(field) = ty.newtype_field() {
+            let value = self.unpack(value, &field);
+            return self.retain(value, &field);
+        }
         if ty.wide() || matches!(ty, Ty::Closure(_)) {
             if ty.managed() {
                 self.collection_call(26, &[value], Some(ty))
@@ -2162,6 +2166,11 @@ impl Lowerer<'_, '_> {
         // A known zero is an empty slot, such as one a last-use move left
         // behind (issue #391); it owns nothing.
         if ty.managed() && known::known_zero(&self.bcx.func.dfg, value) {
+            return;
+        }
+        if let Some(field) = ty.newtype_field() {
+            let value = self.unpack(value, &field);
+            self.release(value, &field);
             return;
         }
         if ty.managed() && inline::release_fields(ty).is_some() {

@@ -56,6 +56,7 @@ static BLOCK: Type = Type {
     name: "reduce block",
     variants: &[],
     drop: None,
+    wrapper: None,
 };
 
 /// The width of the aligned blocks reduced inside one job: the smallest power

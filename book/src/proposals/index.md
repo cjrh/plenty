@@ -111,6 +111,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Derived serialization for classes and enums](derived-serialization.md) — `@serial` derives hooks against a JSON-shaped `std.serial` data model shared by JSON and TOML | None yet; candidate under B51/B38 (issue #471) |
 | [Returned enums that carry references](returned-reference-enums.md) — `Option[&T]` and `Result[&T, E]` returned under the first-reference-parameter rule, held in locals, never stored | None yet; extends B11 (issue #516) |
 | [Go-style scoped tasks](stackful-tasks.md), with [runtime choices](stackful-tasks/runtime.md) and [native spike evidence](stackful-tasks/evidence.md) — exploratory fixed-stack alternative; no lightweight scheduler adopted | B22 investigation; implementation uncommitted |
+| [Flat class layout](flat-class-layout.md) — one-field classes without `__del__` are their field (implemented); flat nested records assessed, not adopted | B19 (issue #547); related B35 |
 
 ## Completed investigations
 

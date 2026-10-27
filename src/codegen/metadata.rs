@@ -63,7 +63,22 @@ fn define_type(
 ) -> Result<()> {
     let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
-    let mut bytes = vec![0; 64];
+    let mut bytes = vec![0; 72];
+    // A newtype class has its field's values, so the runtime gets the
+    // field's layout under the class's name; the wrapper link at byte 64
+    // names the field for formatting and the columnar-list schema.
+    let newtype = match ty {
+        Ty::Class(t) => t.get().newtype_field().map(|field| (t, field.clone())),
+        _ => None,
+    };
+    let base;
+    let (display_name, ty) = match &newtype {
+        Some((class, _)) => {
+            base = ty.newtype_base().into_owned();
+            (Some(class.display_name()), &base)
+        }
+        None => (None, ty),
+    };
     // Atomics have their element's layout but stay affine, so the runtime
     // never copies one. The frontend keeps them out of every concurrent or
     // copying runtime operation; unborrowed atomics still move through pop,
@@ -180,6 +195,19 @@ fn define_type(
         ),
         _ => ("", Vec::new()),
     };
+    let name = display_name.unwrap_or(name);
+    if let Some((class, field)) = &newtype {
+        let field_name = class.get().fields[0].0.clone();
+        let mut entry = vec![0; 32];
+        word(&mut entry, 8, field_name.len());
+        word(&mut entry, 24, 1);
+        let field_link = reserve(module, runtime, field, pending)?;
+        let entry_links = [
+            (0, blob(module, field_name.into_bytes(), &[])?),
+            (16, blob(module, vec![0; 8], &[(0, field_link)])?),
+        ];
+        links.push((64, blob(module, entry, &entry_links)?));
+    }
     links.push((24, blob(module, name.as_bytes().to_vec(), &[])?));
     word(&mut bytes, 32, name.len());
     let mut entries = vec![0; variants.len() * 32];

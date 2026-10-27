@@ -247,7 +247,10 @@ impl Ty {
     pub fn has_inline_storage(&self) -> bool {
         match self {
             Self::Range(_) | Self::Generator(_) | Self::Closure(_) => true,
-            Self::Class(t) => t.get().state_bytes() != 0 || !t.get().fields.is_empty(),
+            Self::Class(t) => match t.get().newtype_field() {
+                Some(field) => field.has_inline_storage(),
+                None => t.get().state_bytes() != 0 || !t.get().fields.is_empty(),
+            },
             Self::Enum(t) => *t.get().storage.get_or_init(|| {
                 t.get().variants.iter().any(|v| match v.fields.as_slice() {
                     [] => false,
@@ -262,7 +265,10 @@ impl Ty {
     /// inline data: copying its storage needs no relocation.
     pub fn flat_record(&self) -> bool {
         match self {
-            Self::Class(t) => t.get().fields.iter().all(|(_, t)| !t.has_inline_storage()),
+            Self::Class(t) => match t.get().newtype_field() {
+                Some(field) => field.flat_record(),
+                None => t.get().fields.iter().all(|(_, t)| !t.has_inline_storage()),
+            },
             Self::Enum(t) => match t.get().variants.as_slice() {
                 [variant] if variant.fields.len() > 1 => {
                     variant.fields.iter().all(|t| !t.has_inline_storage())
@@ -285,13 +291,16 @@ impl Ty {
                     .max()
                     .unwrap_or(0)
             }),
-            Self::Class(t) => *t.get().bytes.get_or_init(|| {
-                t.get().state_bytes()
-                    + t.get()
-                        .fields
-                        .iter()
-                        .map(|(_, t)| t.slot_bytes())
-                        .sum::<usize>()
+            Self::Class(t) => *t.get().bytes.get_or_init(|| match t.get().newtype_field() {
+                Some(field) => field.inline_bytes(),
+                None => {
+                    t.get().state_bytes()
+                        + t.get()
+                            .fields
+                            .iter()
+                            .map(|(_, t)| t.slot_bytes())
+                            .sum::<usize>()
+                }
             }),
             _ => 0,
         }
@@ -409,6 +418,9 @@ pub fn measure(ty: &Ty, active: &mut Vec<String>) -> Result<Measured, String> {
                 });
             }
             nested(&t.name, active, |active| {
+                if let Some(field) = t.get().newtype_field() {
+                    return measure(field, active);
+                }
                 t.get().fields.iter().try_fold(
                     Measured {
                         bytes: t.get().state_bytes(),

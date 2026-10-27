@@ -55,13 +55,19 @@ pub(crate) struct Type {
     pub(crate) variants: &'static [Variant],
     /// A class's `__del__` adapter, which receives the instance's slot.
     pub(crate) drop: Option<unsafe extern "C" fn(*mut u128)>,
+    /// Set for a one-field class without `__del__`, whose values are its
+    /// field's: the rest of this descriptor is the field's layout, and the
+    /// wrapper names the field and links its own descriptor for formatting
+    /// and the columnar-list schema. See book/src/proposals/flat-class-layout.md.
+    pub(crate) wrapper: Option<&'static Variant>,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 64);
+    assert!(size_of::<Type>() == 72);
     assert!(std::mem::offset_of!(Type, key) == 8);
     assert!(std::mem::offset_of!(Type, name) == 24);
     assert!(std::mem::offset_of!(Type, variants) == 40);
     assert!(std::mem::offset_of!(Type, drop) == 56);
+    assert!(std::mem::offset_of!(Type, wrapper) == 64);
     assert!(size_of::<Variant>() == 32);
 };
 impl Type {
@@ -1335,6 +1341,15 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
     if out.failed() {
         return;
     }
+    if let Some(wrapper) = ty.wrapper {
+        out.extend_from_slice(ty.name.as_bytes());
+        out.push(b'(');
+        out.extend_from_slice(wrapper.name.as_bytes());
+        out.push(b'=');
+        unsafe { render(value, wrapper.fields[0], out) };
+        out.push(b')');
+        return;
+    }
     unsafe {
         match ty.kind {
             b'B' => {
@@ -1829,8 +1844,11 @@ pub(crate) unsafe fn collection_at(
                 }
             };
         }
+        // A newtype over str takes the generic paths: a class export adapter
+        // relocates it with op 117, which is not a string operation.
         if !descriptor.is_null()
             && (*descriptor).kind == b's'
+            && (*descriptor).wrapper.is_none()
             && !matches!(op, 35 | 110 | 111 | 122)
         {
             let text = a as *const Text;
@@ -1903,9 +1921,10 @@ pub(crate) unsafe fn collection_at(
                     crate::io::plenty_println(a as *const Text);
                     return wrap(0, 0);
                 }
-                if op == 111 && (*descriptor).kind == b's' {
+                if op == 111 && (*descriptor).kind == b's' && (*descriptor).wrapper.is_none() {
                     // A string already has its final byte representation. Printing
-                    // it needs no formatting buffer, including inside destructors.
+                    // it needs no formatting buffer, including inside destructors. A
+                    // newtype over str formats as the class instead.
                     let mut stdout = std::io::stdout().lock();
                     return crate::text_io::result(
                         stdout
@@ -1922,7 +1941,7 @@ pub(crate) unsafe fn collection_at(
                         if i != 0 {
                             out.push(b' ');
                         }
-                        if field.kind == b's' {
+                        if field.kind == b's' && field.wrapper.is_none() {
                             out.extend_from_slice(strings::bytes(&(value as *const Text)));
                         } else {
                             render(value, field, &mut out);

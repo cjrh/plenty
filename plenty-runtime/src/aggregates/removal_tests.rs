@@ -11,6 +11,7 @@ static INTEGER: Type = Type {
     name: "",
     variants: &[],
     drop: None,
+    wrapper: None,
 };
 static MAP: Type = Type {
     kind: b'D',

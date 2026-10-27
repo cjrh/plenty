@@ -14,6 +14,17 @@ failure cleanup walks the completed prefix backwards with a decreasing offset.
 This bounds offset work per pass; nested payload work and repeated visits while
 queued destruction resumes remain separate costs.
 
+A class with exactly one field and no `__del__` is represented as that field:
+same slot, same bytes, no record and no internal address. Constructing it,
+reading or moving its field, copying it, and releasing it are the field's own
+operations; `Wrap(file)` costs nothing beyond `file`. Its runtime descriptor
+carries the field's layout under the class's name, so formatting still prints
+`Wrap(x=1)` and columnar lists still see one column. A one-field class with
+`__del__` needs the cleanup state word and keeps the record layout, as do
+classes with two or more fields. The
+[flat class layout proposal](../../../proposals/flat-class-layout.md) records
+why the record holds an address and the layout contract C interop depends on.
+
 Compiled code avoids the runtime walk when the type makes it unnecessary. A
 payload with no internal addresses, such as a range, a flat record, or a closure
 environment without inline captures, is copied as plain bytes; a sum whose

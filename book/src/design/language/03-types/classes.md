@@ -47,6 +47,19 @@ duplication follow [ownership](../05-ownership/index.md); receiver signatures
 follow [methods](../06-functions/index.md), and constructor access follows
 [visibility](../02-source/visibility.md).
 
+## One-field classes
+
+A class with exactly one field and no `__del__` is represented as that field.
+Wrapping a value in such a class, reading its field, or moving the field out
+does not copy or allocate, so a wrapper such as `class Handle: _file: File`
+costs the same as the bare `File`. The field's type is unrestricted: a scalar,
+`str`, a collection, an enum, or another class. Nothing in the source changes:
+the class keeps its name, methods, equality, and printing
+(`Handle(_file=...)`), and the field keeps its
+[visibility](../02-source/visibility.md). A one-field class with `__del__` keeps a separate
+record because its cleanup state needs storage. See
+[value representations](../../toolchain/02-architecture/values.md).
+
 ## Copy classes
 
 `@copy` on the line before `class` declares a copy class. Its instances copy on
