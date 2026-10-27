@@ -9,6 +9,29 @@ They never replace an existing name. Limits, cancellation, read/write errors,
 allocation failures and publication errors leave no partial destination name.
 Unnamed partial data is released by descriptor destruction, not path unlink.
 
+```plenty
+import std.fs as fs
+import std.path as path
+from std.sync import CancellationToken
+
+def main() -> Result[(), AllocError | IoError | fs.FsError]:
+    write_text("report.txt", "quarterly totals")?
+    current = path.from_text(".")?
+    root = fs.root(&current)?
+    cancel = CancellationToken()?
+    source = path.from_text("report.txt")?
+    backup = path.from_text("report.bak.txt")?
+    print(fs.copy_file(&root, &source, &backup, 4096, &cancel)?)?
+    pattern = path.from_text("report*")?
+    matches = fs.glob(&root, &pattern, 100, 10, 10000)?
+    print(len(matches))?
+    Ok(())
+```
+```output
+16
+2
+```
+
 The loop uses one 8192-byte buffer, retries interrupted reads, checks reader
 progress, and checks cancellation before and after each read and before
 publication. Writes use `std.io.write_all`. Cancellation is cooperative,

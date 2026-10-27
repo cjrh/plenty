@@ -14,6 +14,28 @@ not an ORM: SQL is written by the program, and values are bound, never
 spliced into SQL text. The module is available on the supported x86-64 Linux
 GNU target.
 
+```plenty
+import std.db.sqlite as sqlite
+
+def main() -> Result[(), AllocError | IoError | sqlite.DbError]:
+    mut db = sqlite.connect("shop.db", sqlite.Mode.Create, 65536)?
+    db.execute("CREATE TABLE items(name TEXT NOT NULL, price INTEGER NOT NULL)")?
+    mut insert = db.prepare("INSERT INTO items VALUES (?, ?)")?
+    for name, price in [("pen", 3), ("book", 12), ("lamp", 25)]?:
+        insert.bind_text(1, name)?
+        insert.bind_integer(2, price)?
+        insert.run()?
+    mut query = db.prepare("SELECT name, price FROM items WHERE price > ? ORDER BY price")?
+    query.bind_integer(1, 5)?
+    while query.step()?:
+        print(query.text(0)?, query.integer(1)?)?
+    Ok(())
+```
+```output
+book 12
+lamp 25
+```
+
 ## Opening
 
 | Function | Result | Contract |
