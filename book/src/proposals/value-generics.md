@@ -1,11 +1,11 @@
 # Value generic parameters
 
-**Status: Not implemented.** Nothing shipped. Generic parameters are types only;
+**Status: Design accepted, not implemented.** Generic parameters are types only;
 the [generics reference](../design/language/07-generics/index.md) is
-authoritative. No backlog entry exists yet; the closest rows are B13 (bounded
-and inline-capacity storage) and B23 (SIMD). Researched against local `main` at
-`1b5b96b1` on 2026-10-27. Per-instance assertions depend on the module-scope
-`assert` in local PR #628, which is not yet merged.
+authoritative. Tracked as backlog B83, with B13 (bounded and inline-capacity
+storage) and B23 (SIMD). Researched against local `main` at `1b5b96b1` on
+2026-10-27. Per-instance assertions build on the module-scope `assert` from
+local PR #628, now merged.
 
 ## Problem
 
@@ -417,7 +417,7 @@ main.plenty:18:9: `sum_all` expects `array[T, N]` for `xs`, found `list[i64]`
    bodies as a literal, extend instance names and structural inference. Tests:
    kinds, constants as arguments, identity across aliases and constants,
    inference, rejected expressions, phantom value tags.
-2. **Per-instance assertions.** After PR #628 merges: accept `assert` at the
+2. **Per-instance assertions.** Accept `assert` at the
    start of class and function bodies, check at declaration that operands are
    constants and value parameters, and evaluate after substitution whenever an
    instance is created, including data-only instances whose methods are never
