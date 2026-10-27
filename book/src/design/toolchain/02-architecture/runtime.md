@@ -50,9 +50,21 @@ this for every module with native code; a new module adds a row there (see
 [size budgets](../01-building/linking.md#size-budgets)).
 
 The argument block holds three 16-byte inputs at offsets 0, 16 and 32, the
-result at 48, and further operands at 64 and 80. Each entry inlines the
-operation's handler, so it does not pay for a range test over unrelated
-operations.
+result at 48, and further operands at 64 and 80. The compiler always
+initializes the first three input words, using zero for omitted inputs.
+It initializes offsets 64 and 80 only for actual fourth and fifth operands;
+the result and unused scratch words may be uninitialized. Runtime handlers
+must not read those spare words, even if an optimizer would discard the value.
+
+The compiler and runtime share the scratch-operand count in
+`plenty-runtime/src/collection_opcodes.rs`. Code generation checks its actual
+native operand count against that contract, including hidden operands such as
+a column field index. The runtime reads only the declared scratch inputs and
+supplies zero for unused elements of its local operand array. Adding a native
+operation with more than three operands requires updating this shared contract.
+No extra caller stores initialize spare words. Each entry inlines its constant
+operation number and handler, so the operand count and handler selection fold
+away rather than adding a runtime arity lookup.
 
 `plenty_control`, `plenty_executor` and `plenty_channel` keep an operation
 number. Each serves one facility (cancellation tokens, executors and channels
