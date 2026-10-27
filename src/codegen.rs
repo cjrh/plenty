@@ -288,7 +288,7 @@ pub fn compile_legacy_source_to_executable_with_options(
     compile_ops_to_executable(ops, &heap, output, false, options, false)
 }
 
-/// With `test_hooks`, the executable is a `plenty test` build: it also links
+/// With `test_hooks`, the executable is an instrumented build: it also links
 /// [`TEST_HOOKS`], which wraps the C library's allocation and file calls, and
 /// std's `__test_fault` reaches it. Every other executable is linked exactly
 /// as without the hooks.
@@ -303,6 +303,7 @@ fn compile_ops_to_executable(
 ) -> Result<()> {
     op::check(&ops)?;
 
+    let test_hooks = test_hooks || options.test_hooks;
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
     let build = Build::new(options, test_hooks);
@@ -320,6 +321,7 @@ fn compile_sources_to_executable(
     options: &crate::CompileOptions,
     test_hooks: bool,
 ) -> Result<()> {
+    let test_hooks = test_hooks || options.test_hooks;
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
     let build = Build::new(options, test_hooks);
@@ -442,7 +444,7 @@ fn link_object(
 struct Build {
     /// Ask Cranelift to optimize for speed.
     optimize: bool,
-    /// Lower std's `__test_fault` to the `plenty test` hook object.
+    /// Lower std's `__test_fault` to the explicitly enabled hook object.
     test_hooks: bool,
     /// Count each block's runs for libFuzzer ([`coverage`]).
     coverage: bool,
@@ -491,8 +493,8 @@ fn report_cache(options: &crate::CompileOptions, cache: Option<&Cache>) {
     }
 }
 
-/// Failure injection for `plenty test` builds, compiled from
-/// `plenty-runtime/native/test_hooks.c`. Linked into no other executable.
+/// Failure injection for `plenty test` and `--test-hooks` builds, compiled from
+/// `plenty-runtime/native/test_hooks.c`. Linked only into instrumented executables.
 const TEST_HOOKS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plenty_test_hooks.o"));
 /// The libFuzzer entry of `--fuzz` executables, compiled from
 /// `plenty-runtime/native/fuzz_driver.c`. Linked into no other executable.
@@ -935,7 +937,6 @@ struct Runtime {
     /// `plenty_list_row_bytes(list) -> row size`, for borrowed iteration.
     list_rows: FuncId,
     list_row_bytes: FuncId,
-    list_canonicalize_signed: FuncId,
     /// `plenty_list_row(list, index, site) -> row address`, for explicit
     /// element references (`&xs[i]`, `&mut xs[i]`).
     list_row: FuncId,
@@ -1165,12 +1166,6 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_list_row_bytes", Linkage::Import, &sig)?
-        },
-        list_canonicalize_signed: {
-            let mut sig = module.make_signature();
-            sig.call_conv = CallConv::SystemV;
-            sig.params.push(AbiParam::new(PTR_TY));
-            module.declare_function("plenty_list_canonicalize_signed", Linkage::Import, &sig)?
         },
         list_scalar_get: {
             let mut sig = module.make_signature();
@@ -2338,7 +2333,7 @@ impl Lowerer<'_, '_> {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 // A scalar is entirely in its slot's first word.
                 let packed = if ty.is_numeric() || *ty == Ty::Bool {
-                    self.reference_word(reference)
+                    self.scalar_reference_word(reference, ty)
                 } else {
                     self.read_reference(reference)
                 };
@@ -2369,7 +2364,11 @@ impl Lowerer<'_, '_> {
             Op::ReplaceRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 let (value, _) = self.pop_typed(ty.clone())?;
-                let old = self.read_reference(reference);
+                let old = if ty.is_numeric() || *ty == Ty::Bool {
+                    self.scalar_reference_word(reference, ty)
+                } else {
+                    self.read_reference(reference)
+                };
                 let old = self.unpack(old, ty);
                 // Inline field storage is overwritten below; relocate the old
                 // owner without retaining it or running its destructor.

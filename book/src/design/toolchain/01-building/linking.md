@@ -85,7 +85,8 @@ objcopy --only-keep-debug app app.debug
 objcopy --strip-all --add-gnu-debuglink=app.debug app
 ```
 
-`--fuzz` targets and `plenty test` executables are never stripped: they run
+`--fuzz` targets, `plenty test` executables, and explicit `--test-hooks` builds
+are never stripped: they run
 and are debugged where they are built. Static libraries are archives of
 unlinked objects, so the final link decides; `--emit-object` likewise leaves
 stripping to the external link (see below). In the Rust API,

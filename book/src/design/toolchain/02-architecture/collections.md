@@ -5,8 +5,10 @@ lower to structured operations; Cranelift calls a fixed runtime ABI using
 128-bit slots and immutable element metadata. No per-element compilation or
 dynamic type inference occurs.
 
-Lists use dense `Vec` storage with constant-time indexing. Inline records, tuples,
-and enum payloads occupy contiguous rows; buffer moves relocate private addresses.
+Lists use dense storage with constant-time indexing. Primitive scalar rows use
+their declared widths; other rows use a value slot plus their inline payload.
+The buffer is a byte prefix of an aligned `Vec<u128>` allocation. Inline records,
+tuples, and enum payloads occupy contiguous rows; buffer moves relocate private addresses.
 Mutation grows buffers in place. Explicit `copy` duplicates owned contents.
 Literals and comprehensions build in amortized linear time under ordinary hash
 distribution; operation contracts retain their documented allocation failures.
@@ -56,11 +58,11 @@ Integer, float and `bool` element reads and writes through a list place are
 inline machine code, with no runtime call (issue #509). This applies to any
 list place: a local, a field (`self.xs[i]`, `a.b.xs[i] = v`), a borrowed
 receiver, or an inner row (`grid[i][j] += 1`), in any loop. Codegen loads the
-list's first-row address, stored word count and popped-row flag from the owner
+list's first-row address, stored byte count and popped-row flag from the owner
 at the offsets in `plenty-runtime/src/list_layout.rs`, which the runtime
-asserts against its `repr(C)` `Collection` and `Entries`; a scalar row is 32
-bytes. It normalizes a negative index, checks it against the live row count,
-and loads or stores the row's payload word. Reads preserve payload bits before
+asserts against its `repr(C)` `Collection` and `Entries`; a scalar row is 1, 2,
+4 or 8 bytes according to its type. It normalizes a negative index, checks it
+against the live row count, and loads or stores the declared bytes. Reads preserve payload bits before
 narrowing or bitcasting, and writes store the same bits a write through an
 element reference would. An index out of bounds calls
 `plenty_trap_list_index`, which reports the index as written, the length and

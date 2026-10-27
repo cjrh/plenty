@@ -152,7 +152,8 @@ A program calls the same function with `std.time.monotonic_clock()`.
 
 ## Failure injection
 
-Executables that `plenty test` builds can make the C library's allocation and
+Executables that `plenty test` builds, or that are compiled with `--test-hooks`,
+can make the C library's allocation and
 file calls fail, so a test reaches the error paths of code that allocates or
 does file I/O. Injection belongs to the calling thread.
 
@@ -185,11 +186,40 @@ def test_save_reports_a_full_disk() -> Result[(), std.test.TestError]:
     Ok(())
 ```
 
-In any other executable, including one built by `plenty build` or `plenty
-run`, these functions write `error: failure injection needs an executable
-built by plenty test` to standard error and return
-`Err(TestError.Unavailable)`. Only test builds link the interposition code;
-other executables do not contain it.
+Use `plenty --compile server.plenty --test-hooks -o server` to exercise a real
+program's refusal paths from an external client. The program can read its own
+test configuration and arm a budget immediately before admission, then restore
+it before reporting the result. `plenty build --test-hooks` and
+`plenty run --test-hooks` enable the same controls for project executables.
+This also enables file failure injection. The flag does not arm any failures
+by itself. Keep it out of production builds.
+
+Without this opt-in or `plenty test`, these functions write
+`error: failure injection needs plenty test or --test-hooks` to standard error
+and return `Err(TestError.Unavailable)`. Default executables contain no
+interposition code. Project and compiler caches distinguish instrumented builds
+from default builds.
+
+### Memory-limited integration runs
+
+On Linux, [playpen](https://github.com/cjrh/playpen) can bound the memory of the
+real executable and its descendants through the systemd user manager:
+
+```sh
+playpen --memory-limit 128M --memory-swap-max 0 --private-tmp false -- ./server
+```
+
+Build before launching, so the limit measures the program rather than the
+compiler. Disabling the private temporary directory lets a test driver share
+temporary fixtures with the program. Use a suitable limit for the workload and
+check both the exit status and the application's expected response.
+
+The cgroup limit is an integration resource ceiling: exhausting it can kill
+the process instead of returning `AllocError`. Use `--test-hooks` and
+`fail_allocations_after` for deterministic error-path checks, including under
+playpen. The budget is a count of allocation attempts, not bytes or a live-heap
+limit; it cannot measure peak memory or prove a program stays below a byte
+budget. Use an external memory profiler for those measurements.
 
 ## Errors
 
@@ -199,7 +229,7 @@ other executables do not contain it.
 | `Fixture(FsError)` | Creating or removing a scratch directory failed, or a name or path was invalid |
 | `Allocation(AllocError)` | Memory for a fixture ran out |
 | `InvalidSeed` | `PLENTY_TEST_SEED` is set but is not a decimal `u64` |
-| `Unavailable` | Failure injection was requested outside a `plenty test` build |
+| `Unavailable` | Failure injection was requested without `plenty test` or `--test-hooks` |
 
 ## Limits
 

@@ -17,7 +17,7 @@ tie breaker or constructing a separate decorated list. Exploiting existing order
 also suits logs, grouped records, and incrementally updated data.
 
 Today `sort()` is infallible and allocation-free. The runtime uses Rust's
-unstable slice sort for two-word rows and three-way introsort (with a heapsort
+unstable slice sort for rows without inline payloads and three-way introsort (with a heapsort
 fallback) for wider inline rows
 (`plenty-runtime/src/entries.rs`). `sort_by_key` uses the same introsort for every
 row width, calling a generated comparator (`src/codegen/sorting.rs`) that

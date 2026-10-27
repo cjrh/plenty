@@ -11,6 +11,23 @@ Each list keeps its own bounds check, including negative-index normalization;
 unrelated lists need not have equal lengths. Owned lists, exclusive or
 retargetable references, and generator bodies keep ordinary indexed access.
 
+## Storage costs
+
+Scalar lists store elements at their declared widths: one byte for `bool`, `i8`
+and `u8`; two for `i16` and `u16`; four for `i32`, `u32` and `f32`; eight for
+`i64`, `u64` and `f64`. Thus 128 live `u8` elements occupy 128 bytes of row
+storage, and 128 `i64` elements occupy 1,024 bytes. The allocation also includes
+a fixed owner, spare capacity from growth, and rounding to 16-byte allocation
+units. `reserve` counts elements, not bytes.
+
+Other elements use one 16-byte value slot plus any inline payload storage;
+lists reserve no dictionary value slot. Scalar-only `Option` and `Result`
+elements still take 16 bytes. Records and multi-field enum variants retain
+16-byte field slots, so an optional variant with three `bool` fields takes
+64 bytes per row. These are private implementation layouts, not an FFI ABI.
+Element references remain valid under the existing borrowing rules, including
+for packed scalar elements. See [value representations](../../toolchain/02-architecture/values.md).
+
 ## Lookup and removal
 
 | Operation | Result | Behavior |
@@ -68,7 +85,7 @@ a compile-time error. Elements that compare equal are indistinguishable, so the
 result is fully determined. `items.sort(True)` orders descending; an omitted or
 `False` argument orders ascending. Sorting takes O(n log n) comparisons.
 Wide inline rows use three-way introsort with insertion sort for small partitions
-and a heapsort fallback; two-word rows use Rust's unstable slice sort. Row swaps
+and a heapsort fallback; rows without inline payloads use Rust's unstable slice sort. Row swaps
 repair inline addresses immediately, without retaining or dropping elements.
 The wide-row algorithm uses O(log n) stack space and no heap workspace. A tuple
 of numbers and strings has its field offsets resolved once per sort.

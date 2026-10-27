@@ -32,6 +32,11 @@ object would skip their check.
 `--release` before `FILE`, `--compile`, `--fuzz`, or `--dump` selects Cranelift's speed
 optimizations, like the [release profile](packages.md#profiles).
 
+`--test-hooks` with `FILE` or `--compile` enables
+[failure injection](../../stdlib/test.md#failure-injection) in an ordinary
+executable. It does not arm failures automatically. Default builds have no hooks;
+library, object-only, fuzz, and checking modes reject this flag.
+
 `--compile` and `--shared-library` output is
 [stripped](linking.md#symbols-and-debug-information) of its symbol table and
 debug sections; `--no-strip` keeps them.

@@ -1,10 +1,12 @@
 # std.bytes
 
 `import std.bytes` provides `Bytes`, an owning contiguous buffer that stores one
-byte per element, `BytesError`, and the `ByteSource` protocol. A `list[u8]` stores each element in a
-general collection slot; `Bytes` exists for binary data large enough for that to
-matter. Bytes are never text: converting to `str` is an explicit, validated
-operation.
+byte per element, `BytesError`, and the `ByteSource` protocol. Use `Bytes` for
+checked byte-range operations and byte-oriented I/O. A `list[u8]` also stores
+one byte per element and provides ordinary list operations and element
+references; its capacity is rounded to allocation units as described under
+[list storage costs](../facilities/01-builtins/lists.md#storage-costs).
+Bytes are never text: converting to `str` is an explicit, validated operation.
 
 The module is embedded Plenty code over a private native storage owner. It is
 available on the supported x86-64 Linux GNU target.

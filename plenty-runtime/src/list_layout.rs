@@ -4,10 +4,9 @@
 
 /// Address of row 0, a `*mut u128`.
 pub const ROWS: i32 = 24;
-/// Initialized row words, a `usize`; a dense list has `WORDS / stride` rows.
-pub const WORDS: i32 = 32;
+/// Initialized row bytes, a `usize`; a dense list has `BYTES / stride` rows.
+pub const BYTES: i32 = 32;
 /// One byte, 1 while a popped row lies past the live rows, otherwise 0.
 pub const REMOVED: i32 = 48;
-/// A scalar (numeric or `bool`) row is two 16-byte words: the element's slot,
-/// whose low 64 bits hold its payload, then an unused value word.
-pub const SCALAR_ROW_SHIFT: u32 = 5;
+// Scalar rows occupy their declared 1, 2, 4 or 8 bytes. Other dense rows contain
+// one aligned slot and its inline payload, without a dictionary's value slot.

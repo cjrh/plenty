@@ -64,6 +64,8 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --target TRIPLE: require this target to match the supported packaged runtime.
 --release: optimize generated code for FILE, --compile, or --fuzz (slower
   compilation).
+--test-hooks: enable std.test failure injection for FILE or --compile.
+  Intended for testing ordinary programs; omitted builds contain no hooks.
 --no-cache: compile every function instead of reusing the compiled-function
   cache (also PLENTY_CACHE=off; PLENTY_CACHE_DIR selects the directory).
 --no-program-cache: reuse compiled functions but not a whole program's object.
@@ -207,6 +209,10 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         args.remove(index);
         options.cache_stats = true;
     }
+    if let Some(index) = args.iter().position(|a| a == "--test-hooks") {
+        args.remove(index);
+        options.test_hooks = true;
+    }
     let mut check = plenty::CheckOptions::default();
     if let Some(index) = args.iter().position(|a| a == "--check-all-methods") {
         args.remove(index);
@@ -259,6 +265,16 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     }
     if dump_options && !args.first().is_some_and(|a| a == "--dump") {
         return Err("--dump-std and --dump-filter require --dump".into());
+    }
+    if options.test_hooks {
+        let executable = match args.as_slice() {
+            [source] => !source.starts_with('-'),
+            [flag, ..] => flag == "--compile",
+            [] => false,
+        };
+        if !executable || legacy {
+            return Err("--test-hooks requires FILE or --compile (without --legacy)".into());
+        }
     }
     if options.target.is_some() {
         plenty::validate_target(options.target.as_deref())?;

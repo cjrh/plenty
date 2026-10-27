@@ -1,8 +1,9 @@
 # Pack bytes in a compact buffer
 
-A `list[u8]` spends a general collection slot on every byte. For a binary
-record, frame, or file body, use `std.bytes.Bytes`: one byte per element in one
-contiguous allocation.
+For a binary record, frame, or file body, `std.bytes.Bytes` provides checked
+byte-range operations and works with byte-oriented I/O. Its contiguous buffer
+stores one byte per element. A `list[u8]` also packs its elements into bytes;
+use its ordinary list operations and element references when those suit the task.
 
 ```plenty
 import std.bytes
