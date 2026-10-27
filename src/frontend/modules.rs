@@ -627,6 +627,20 @@ struct Items<'a, 's> {
 
 impl Items<'_, '_> {
     fn item(&mut self, module: &mut Module, declared: &mut HashSet<String>) -> Result<()> {
+        let annotations = self.parser.annotations()?;
+        if let Some((at, annotation)) = annotations.first() {
+            let declaration = self.parser.pos + usize::from(self.parser.peek().is("pub"));
+            if !self
+                .parser
+                .token(declaration)
+                .is_some_and(|token| token.is("class"))
+            {
+                return Err(at.error(format!(
+                    "`@{}` applies only to class declarations",
+                    annotation.name()
+                )));
+            }
+        }
         if self.parser.at_const_if() {
             self.parser.depth += 1;
             let result = if self.parser.depth > MAX_NESTING {
@@ -703,7 +717,23 @@ impl Items<'_, '_> {
             module.functions.push(f);
             name
         } else if self.parser.peek().is("class") {
-            let c = self.parser.class_decl()?;
+            let mut c = self.parser.class_decl()?;
+            c.copy = annotations
+                .iter()
+                .find(|(_, a)| *a == annotations::Annotation::Copy)
+                .map(|(at, _)| at.clone());
+            if let Some(at) = &c.copy {
+                if !c.type_params.is_empty() {
+                    return Err(at.error(
+                        "`@copy` classes cannot have type parameters; declare a `@copy` class for each field type",
+                    ));
+                }
+                if let Some(f) = c.methods.iter().find(|f| f.name == "__del__") {
+                    return Err(f
+                        .at
+                        .error("a `@copy` class cannot define `__del__`: each copy would run it"));
+                }
+            }
             let name = c.name.clone();
             module.classes.push(c);
             name

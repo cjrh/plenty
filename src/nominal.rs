@@ -388,6 +388,7 @@ mod tests {
             )],
             destructor: None,
             fallible_init: false,
+            copy: false,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -417,6 +418,7 @@ mod tests {
             )],
             destructor: None,
             fallible_init: false,
+            copy: false,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -440,6 +442,7 @@ mod tests {
             fields: vec![("b".into(), Ty::Class(b.clone()))],
             destructor: None,
             fallible_init: false,
+            copy: false,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });

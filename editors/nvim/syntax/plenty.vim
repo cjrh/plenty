@@ -17,6 +17,8 @@ syntax keyword plentyType list dict set tuple
 syntax match plentyOperator /[-+*\/%=<>!&|^~?]/
 syntax match plentyDelimiter /[()[\]{},.:]/
 syntax match plentyFunction /[A-Za-z_][A-Za-z_0-9]*/ contained
+" A declaration annotation, such as `@copy`, alone on its line.
+syntax match plentyAnnotation /^\s*\zs@[A-Za-z_][A-Za-z_0-9]*/
 
 " A leading sign is an operator; suffixes belong to the literal.
 syntax match plentyNumber /\<\d[0-9_]*\%([iu]\%(8\|16\|32\|64\)\)\?\>/
@@ -58,6 +60,7 @@ highlight default link plentyConstant Constant
 highlight default link plentyType Type
 highlight default link plentyDelimiter Delimiter
 highlight default link plentyFunction Function
+highlight default link plentyAnnotation PreProc
 highlight default link plentyNumber Number
 highlight default link plentyFloat Float
 highlight default link plentyTodo Todo

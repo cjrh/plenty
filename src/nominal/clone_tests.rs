@@ -6,6 +6,7 @@ fn definition(name: &str, fields: Vec<(String, Ty)>) -> ClassType {
         fields,
         destructor: None,
         fallible_init: false,
+        copy: false,
         bytes: OnceLock::new(),
         managed: OnceLock::new(),
     }

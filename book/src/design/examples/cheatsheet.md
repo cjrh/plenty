@@ -232,6 +232,11 @@ reads a scalar, `items.copy_row(i)` returns `Option[T]`, and
 Whole-row and packed-field references are unsupported.
 
 ```plenty
+@copy
+class Point:
+    x: f64
+    y: f64
+
 class Counter:
     name: str
     hits: i64
@@ -262,18 +267,25 @@ def main() -> Result[(), IoError]:
     counter.bump()
     print(counter.report(), counter)?
     print(Shape.Rect(2.0, 3.0).area(), Shape.Dot)?
+    origin = Point(0.0, 0.0)
+    mut shifted = origin
+    shifted.x = 1.5
+    print(origin, shifted)?
     Ok(())
 ```
 ```output
 2 Counter(name="clicks", hits=2)
 6.0 Shape.Dot
+Point(x=0.0, y=0.0) Point(x=1.5, y=0.0)
 ```
 
 Classes have typed fields and a generated positional constructor; there is no
 inheritance. Bare `self` is a shared borrow; mutating methods declare
 `self: &mut Class`. Explicit `self: Class` transfers an owned receiver into the
 method, just like a by-value function parameter; the caller cannot reuse an
-affine receiver. A field can move out of an owned binding or receiver, after
+affine receiver. `@copy` before `class` makes instances copy like integers; every
+field must copy, and the class cannot define `__del__` or take type parameters
+([copy classes](../language/03-types/classes.md#copy-classes)). A field can move out of an owned binding or receiver, after
 which the object cannot be used as a whole until that field is assigned again;
 see [moving fields](../language/05-ownership/01-bindings-moves-and-copies.md#moving-fields).
 Variants are always qualified (`Shape.Dot`), and matching a
@@ -358,8 +370,10 @@ def main() -> Result[(), AllocError | IoError]:
 [2, 4, 6] [2, 4, 6]
 ```
 
-Scalars, `str`, and tuples of copyable values copy. Collections, boxes, and
-every class instance move: after `moved = values`, `values` is unusable.
+Scalars, `str`, tuples of copyable values, and instances of
+[`@copy` classes](../language/03-types/classes.md#copy-classes) copy.
+Collections, boxes, and other class instances move: after `moved = values`,
+`values` is unusable.
 `copy(x)?` is the explicit, fallible deep copy. `&x` lends shared access and
 `&mut x` exclusive access; a `&T` parameter borrows an owner implicitly, but
 `&mut` must be written. Iterating `&list` yields `&T`, so dereference with `*`.

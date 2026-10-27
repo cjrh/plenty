@@ -82,6 +82,12 @@
             ),
             relevance: 0,
         };
+        // A declaration annotation, such as `@copy`, alone on its line.
+        const annotation = {
+            className: "meta",
+            begin: new RegExp("^[ \\t]*@" + IDENT),
+            relevance: 0,
+        };
         // Error propagation and borrows.
         const operator = { className: "operator", begin: /\?|&(?:mut\b)?/, relevance: 0 };
         const fieldCode = [...fieldStrings, number, member, type, operator];
@@ -136,6 +142,7 @@
                 string("'''", true),
                 string('"', false),
                 string("'", false),
+                annotation,
                 declaration("def", new RegExp("\\b(?!once\\b)" + IDENT)),
                 declaration("class enum protocol type", new RegExp(IDENT)),
                 number,

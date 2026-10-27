@@ -188,6 +188,16 @@ import, and a wrapper closure could allocate and change the signature. A later
 decorator design must keep the wrapped signature unchanged and must not alter
 the meaning of these annotations.
 
+The annotation mechanism now exists, with one member: `@copy` on class
+declarations ([copy classes](../../design/language/03-types/classes.md#copy-classes),
+issue #535). The parser reads each `@name` alone on its line against the closed
+set and rejects unknown names, arguments, repeats, and annotations where no
+declaration accepts them. Names after `@` are matched apart from identifiers, so
+`@copy` reserves nothing and the builtin `copy(value)` keeps its name; `@final`
+and `@protocol.Name` likewise do not need their names reserved. Adding them
+means adding members to that set and accepting annotations before `def` in
+protocol and class bodies, which the parser rejects today.
+
 ## Check provided bodies against the contract
 
 **Agreed requirement:** check protocol bodies against their declared contract,

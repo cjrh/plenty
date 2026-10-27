@@ -160,7 +160,8 @@ recursive data, but a written `__cmp__` may recurse explicitly through
 instance ([protocols](../design/language/07-generics/protocols.md)), so
 `std.math.min`, `max`, `std.test.less`, and `Heap[T]` accept ordered user types
 without signature changes. `min_all`/`max_all` still require copyable elements,
-and class instances are affine, so they remain unavailable for classes.
+and class instances are affine unless declared `@copy`, so they remain
+unavailable for other classes.
 
 **Protocols.** No `Ordered` protocol is needed for generic bodies. Protocols
 constrain only classes, enums, and `bytes`, so a protocol could not admit `i64`

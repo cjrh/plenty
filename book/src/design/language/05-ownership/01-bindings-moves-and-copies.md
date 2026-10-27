@@ -6,7 +6,8 @@ value use either copies or transfers ownership according to the value's type.
 
 Scalars, immutable strings, ranges, named function values, and aggregates of
 copyable components copy on ordinary value use. Strings may share immutable
-storage. Every class instance is affine, including a record of integers.
+storage. Class instances are affine, including a record of integers, unless
+the class is declared [`@copy`](../03-types/classes.md#copy-classes).
 Collections, boxes, generators, captured closures, and aggregates containing
 affine components also move on assignment, owned argument passing, and return.
 Inserting an affine value into a collection or capturing it transfers ownership.
