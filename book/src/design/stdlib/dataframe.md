@@ -12,6 +12,29 @@ compile-time class schema and Plenty arithmetic. Use `std.dataframe` for
 analytical queries and file-backed datasets with runtime schemas. Neither
 replaces ordinary lists.
 
+```plenty dataframe
+import std.dataframe as df
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
+    data = df.frame([
+        df.column_str("station", ["north", "south", "north", "south"]?)?,
+        df.column_f64("reading", [12.0, 30.0, 18.0, 24.0]?)?
+    ]?)?
+    recent = df.col("reading")?.gt(df.lit(15.0)?)?
+    keys = [df.col("station")?]?
+    averages = [df.col("reading")?.mean()?.alias("average")?]?
+    result = data.lazy()?.filter(recent)?.group_by(keys, averages)?.sort(
+        [df.SortKey(df.col("station")?)]?
+    )?.collect()?
+    print(result.values_str("station")?)?
+    print(result.values_f64("average")?)?
+    Ok(())
+```
+```output
+["north", "south"]
+[18.0, 27.0]
+```
+
 ## Construction and extraction
 
 `column_i64(name: &str, values: &list[i64])` and

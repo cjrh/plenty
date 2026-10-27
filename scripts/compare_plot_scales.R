@@ -50,3 +50,31 @@ b <- ggplot_build(ordered)$data[[1]]
 # ggplot2's discrete positions are one-based; std.plot's are zero-based.
 stopifnot(isTRUE(all.equal(as.numeric(b$x), c(2, NA, 1))))
 cat("Discrete order and excluded category: PASS\n")
+
+faceted <- ggplot(data.frame(x = "A", site = c("North", "North", "South")), aes(x)) +
+  geom_bar() + facet_wrap(vars(site))
+b <- ggplot_build(faceted)
+stopifnot(identical(as.numeric(b$data[[1]]$count), c(2, 1)))
+stopifnot(length(b$layout$panel_scales_y) == 1L)
+free <- ggplot_build(faceted + facet_wrap(vars(site), scales = "free_y"))
+stopifnot(length(free$layout$panel_scales_y) == 2L)
+cat("Per-panel counts and fixed/free y scales: PASS\n")
+
+observations <- data.frame(x = c(1, 2, 1, 2), y = c(1, 2, 10, 20),
+                           site = c("North", "North", "South", "South"))
+reference <- data.frame(x = c(1, 2), y = c(5, 5))
+b <- ggplot_build(ggplot(observations, aes(x, y)) + geom_point() +
+  geom_line(data = reference) + facet_wrap(vars(site)))
+stopifnot(nrow(b$data[[2]]) == 4L, length(unique(b$data[[2]]$PANEL)) == 2L)
+cat("Layers without facet variables repeat in every panel: PASS\n")
+
+intervals <- data.frame(x = 1:3, mean = c(2, 4, 3),
+                        low = c(1, 2, 1.5), high = c(3, 6, 4.5))
+b <- ggplot_build(ggplot(intervals, aes(x, mean, ymin = low, ymax = high)) +
+  geom_errorbar(width = 0.2) + geom_ribbon(stat = "identity"))
+stopifnot(identical(b$data[[1]]$ymin, intervals$low),
+          identical(b$data[[1]]$ymax, intervals$high))
+stopifnot(isTRUE(all.equal(b$data[[1]]$xmin, intervals$x - 0.1)))
+stopifnot(identical(b$data[[2]]$ymin, intervals$low),
+          identical(b$data[[2]]$ymax, intervals$high))
+cat("Supplied uncertainty bounds and error-bar cap widths: PASS\n")

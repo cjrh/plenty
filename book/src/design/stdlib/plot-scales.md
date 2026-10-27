@@ -4,6 +4,37 @@
 and mapping. The last scale component for each axis wins, including components
 added with `plus`. Scale names supply axis titles; `labs` overrides them.
 
+```plenty
+import std.bytes
+import std.io
+import std.plot as gg
+from std.bytes import BytesError
+from std.plot import Column, PlotError
+
+def main() -> Result[(), AllocError | IoError | PlotError | BytesError]:
+    data = gg.table([
+        ("requests", Column.Num([10.0, 100.0, 1000.0, 10000.0]?)),
+        ("latency", Column.Num([2.0, 3.0, 5.0, 9.0]?)),
+    ]?)?
+    chart = gg.ggplot(data, gg.aes("requests", "latency"), [
+        gg.geom_point(),
+        gg.scale_x_log10(
+            name="Requests per second",
+            breaks=Some([10.0, 1000.0]?),
+            labels=Some(["10", "1k"]?),
+        ),
+        gg.scale_y_continuous(name="Latency (ms)", limits=(0.0, 10.0)),
+    ]?)?
+    mut output = std.io.cursor(std.bytes.empty()?)
+    drop(chart.write_svg(&mut output)?)
+    svg = output.data.to_text()?
+    print(">1k<" in svg, ">100<" in svg, "Latency (ms)" in svg)?
+    Ok(())
+```
+```output
+True False True
+```
+
 ## Continuous axes
 
 `scale_x_continuous` and `scale_y_continuous` accept `name`, `breaks`

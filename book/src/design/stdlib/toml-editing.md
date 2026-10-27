@@ -29,6 +29,26 @@ only be replaced with tables; replacing a section with a scalar is rejected.
 `remove` returns whether a key existed and removes a table's descendant
 statements, even when its sections are separated in the source.
 
+```plenty
+import std.toml
+from std.toml import Toml
+
+def main() -> Result[(), AllocError | IoError | std.toml.TomlError]:
+    bounds = std.toml.limits()
+    source = "[package]\nname = \"demo\"  # keep this comment\nversion = \"0.1.0\"\n"
+    mut document = std.toml.document_text(source, &bounds)?
+    document.set(&["package", "version"]?, &Toml.Text("0.2.0"))?
+    document.insert(&["package", "edition"]?, &Toml.Int(2026))?
+    print(document.text()?.rstrip()?)?
+    Ok(())
+```
+```output
+[package]
+name = "demo"  # keep this comment
+version = "0.2.0"
+edition = 2026
+```
+
 ## Preservation contract
 
 - Parsing followed by `text` returns the exact original source, including

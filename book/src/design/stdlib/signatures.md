@@ -2603,7 +2603,7 @@ def rows[T](values: &list[T], fields: list[Field[T]]) -> Result[Table, PlotError
 class Factor
 def factor(name: str) -> Factor
 class Mapping
-def aes(x: str | Factor = "", y: str | Factor = "", colour: str | Factor = "", color: str | Factor = "", fill: str | Factor = "", group: str = "") -> Mapping
+def aes(x: str | Factor = "", y: str | Factor = "", colour: str | Factor = "", color: str | Factor = "", fill: str | Factor = "", group: str = "", ymin: str = "", ymax: str = "") -> Mapping
 enum Position
     Identity | Stack | Dodge | Fill
 def position_identity() -> Position
@@ -2618,7 +2618,12 @@ class Layer
 class Labels
 class Theme
 enum Component
-    Layer(Layer) | Labels(Labels) | Theme(Theme) | Cartesian(Option[(f64, f64)], Option[(f64, f64)]) | Flip | ColourScale(bool, ColourScale) | PositionScale(bool, PositionScale)
+    Layer(Layer) | Labels(Labels) | Theme(Theme) | Cartesian(Option[(f64, f64)], Option[(f64, f64)]) | Flip | ColourScale(bool, ColourScale) | PositionScale(bool, PositionScale) | Facet(Facet)
+enum Scales
+    Fixed | Free | FreeX | FreeY
+class Facet
+def facet_wrap(facets: str, nrow: i64 = 0, ncol: i64 = 0, scales: Scales = Scales.Fixed) -> Component
+def facet_grid(rows: str = "", cols: str = "", scales: Scales = Scales.Fixed) -> Component
 enum ColourScale
     Default | Manual(dict[str, str]) | Gradient(str, str)
 def scale_colour_manual(values: dict[str, str]) -> Component
@@ -2648,6 +2653,9 @@ def geom_path(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alp
 def geom_col(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
 def geom_bar(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
 def geom_histogram(colour: str = "", color: str = "", fill: str = "", bins: i64 = 30, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_errorbar(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, width: f64 | i64 = 0.2, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_linerange(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_ribbon(colour: str = "", color: str = "", fill: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 0.3, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
 def labs(title: str = "", x: str = "", y: str = "", colour: str = "", fill: str = "") -> Component
 def theme_grey(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component
 def theme_minimal(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component

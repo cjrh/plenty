@@ -3,6 +3,30 @@
 Typed byte streams preserve a caller-selected error payload without side
 storage. They complement [`std.io`](io.md); existing streams keep their APIs.
 
+```plenty
+import std.bytes
+import std.io
+import std.io.typed as typed
+from std.io.typed import Partial, ReadFailure
+
+def main() -> Result[(), IoError | std.bytes.BytesError | Partial[ReadFailure[std.io.StreamError]]]:
+    mut source = typed.reader(std.io.cursor(std.bytes.from_text("header:body")?))
+    mut buffer = std.bytes.with_capacity(6)?
+    buffer.resize(6, 0u8)?
+    typed.read_exact(&mut source, &mut buffer, 0, 6)?
+    print(buffer.to_text()?)?
+    match typed.read_exact(&mut source, &mut buffer, 0, 6):
+        case Ok(_):
+            print("complete")?
+        case Err(partial):
+            print(partial.completed, partial.cause)?
+    Ok(())
+```
+```output
+header
+5 std.io.typed.ReadFailure[std.io.StreamError].UnexpectedEof
+```
+
 `Reader[E].read(&mut self, &mut Bytes, start, stop)` and
 `Writer[E].write(&mut self, &Bytes, start, stop)` return
 `Result[i64, StepError[E]]`. The range is half-open. A successful call reports

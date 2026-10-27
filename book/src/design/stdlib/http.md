@@ -16,6 +16,33 @@ The module is checked Plenty in `stdlib/std/http.plenty`; it adds no runtime
 primitives. The same code runs over a [`std.net`](net.md) `TcpStream`, a
 `Cursor` in a test, or any other `Reader` and `Writer`.
 
+```plenty
+import std.bytes
+import std.http
+import std.io
+from std.http import HttpError
+
+def main() -> Result[(), AllocError | IoError | HttpError | std.io.StreamError | std.bytes.BytesError]:
+    wire = "POST /notes HTTP/1.1\r\nHost: example.com\r\nContent-Length: 5\r\n\r\nhello"
+    limits = std.http.limits()
+    mut conn = std.io.buffered_reader(std.io.cursor(std.bytes.from_text(wire)?), 1024)?
+    head = std.http.read_request(&mut conn, &limits)?.ok_or(HttpError.Truncated)?
+    framing = std.http.request_framing(&head)?
+    mut body = std.http.body_reader(conn, &framing, &limits)?
+    mut data = std.bytes.empty()?
+    std.http.read_to_end(&mut body, &mut data)?
+    print(head.method, head.target, data.to_text()?)?
+
+    mut reply = std.http.response(201, "Created")?
+    reply.add("Content-Length", "0")?
+    print(str.repr(std.http.encode_response(&reply)?.to_text()?)?)?
+    Ok(())
+```
+```output
+POST /notes hello
+"HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n"
+```
+
 ## Messages
 
 | Item | Meaning |
@@ -23,7 +50,7 @@ primitives. The same code runs over a [`std.net`](net.md) `TcpStream`, a
 | `Header(name: str, value: str)` | One field line |
 | `RequestHead(method, target, minor: i64, headers: list[Header])` | `minor` is the HTTP/1.x minor version, 0 or 1 |
 | `ResponseHead(minor, status: i64, reason: str, headers)` | |
-| `request(method, target)`, `response(status, reason)` | A head with HTTP/1.1 and no fields |
+| `request(method, target)`, `response(status, reason)` | `Result` with a head using HTTP/1.1 and no fields; fails only when allocating the field list fails |
 | `head.add(name, value)` | `Result[(), HttpError]`: append a field |
 | `find(headers: &list[Header], name: &str)` | `Option[i64]`: index of the first field named `name`, ignoring ASCII case |
 | `same_name(left: &str, right: &str)` | `bool`: whether two names are equal ignoring ASCII case; never allocates, and non-ASCII text never matches |

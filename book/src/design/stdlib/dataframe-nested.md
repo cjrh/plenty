@@ -5,6 +5,26 @@ dynamic Plenty object for every row. Constructors borrow their inputs; returned
 columns, extracted parts and query plans remain usable after those inputs drop.
 All operations below return `Result[..., DataFrameError]`.
 
+```plenty dataframe
+import std.dataframe as df
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
+    items = df.column_i64("item", [1, 2, 3, 4, 5]?)?
+    # Offsets split the items into rows [1, 2, 3], [] and [4, 5].
+    baskets = df.column_list("basket", items, [0, 3, 3, 5]?)?
+    report = baskets.to_frame()?.lazy()?.select([
+        df.col("basket")?.list_len()?.alias("count")?,
+        df.col("basket")?.list_get(0)?.alias("first")?
+    ]?)?.collect()?
+    print(report.values_i64("count")?)?
+    print(report.values_i64_nullable("first")?)?
+    Ok(())
+```
+```output
+[3, 0, 2]
+[Option[i64].Some(1), Option[i64].Nothing, Option[i64].Some(4)]
+```
+
 ## Construct lists and structs
 
 `column_list(name, values, offsets)` groups a flattened child `Column` into

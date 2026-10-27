@@ -9,6 +9,31 @@ primitives of its own. It is available on the supported x86-64 Linux GNU
 target. A URL is not a filesystem path: [`std.path`](path.md) is a separate
 type and nothing converts between them.
 
+```plenty
+import std.url
+from std.url import Component, Pair, UrlError
+
+def main() -> Result[(), AllocError | IoError | UrlError]:
+    url = std.url.parse("https://example.com:8443/search?q=caf%C3%A9&page=2#top", 2048)?
+    print(url.scheme, url.host, url.port, url.path)?
+    match &url.query:
+        case Some(query):
+            for pair in std.url.query_pairs(query)?:
+                print(pair.key, "=", pair.value)?
+        case Nothing:
+            print("no query")?
+    print(std.url.encode("a b/c", Component.Segment)?)?
+    print(std.url.query_text(&[Pair("q", "fish & chips"), Pair("n", "1")]?)?)?
+    Ok(())
+```
+```output
+https Option[str].Some("example.com") Option[i64].Some(8443) /search
+q = café
+page = 2
+a%20b%2Fc
+q=fish%20%26%20chips&n=1
+```
+
 ## The accepted syntax
 
 `std.url` implements the generic syntax of RFC 3986, with these stated

@@ -9,6 +9,21 @@ variable, snapshot the environment, and read or change the working directory.
 The module is available on the supported x86-64 Linux GNU target; elsewhere
 every operation reports `IoError.Unsupported`.
 
+```plenty
+import std.env
+
+def main() -> Result[(), IoError]:
+    mode = std.env.get("PLENTY_EXAMPLE_MODE")?.unwrap_or("development")
+    print("mode:", mode)?
+    cwd = std.env.current_dir()?
+    print(cwd.is_absolute())?
+    Ok(())
+```
+```output
+mode: development
+True
+```
+
 ## Variables
 
 | Function | Result | Contract |

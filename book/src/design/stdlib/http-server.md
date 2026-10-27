@@ -10,6 +10,55 @@ shows a complete server. [Qualification](http-qualification.md) records
 which production gates the server passes, its measured baselines, and
 deployment guidance; the server is production-ready.
 
+```plenty
+import std.bytes
+import std.http
+import std.http.client
+import std.http.server
+import std.net
+import std.time
+from std.fmt import FormatError
+from std.http.server import Exchange
+from std.net import TcpStream
+from std.sync import CancellationToken
+
+pub enum Route:
+    Hello
+
+pub class Greeter:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError | FormatError]:
+        name = exchange.params[0]
+        exchange.send_text(200, &f"hello, {name}"?)?
+        Ok(())
+
+type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | RangeError
+
+def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
+        client = std.http.client.client(std.http.client.config()?)?
+        for path in ["/hello/Ada", "/missing"]?:
+            reply = client.get(&f"http://127.0.0.1:{port}{path}"?, &deadline, &never)?
+            print(reply.status, reply.body.to_text()?.strip()?)?
+    Ok(())
+
+def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | VisitError]:
+    mut routes = std.http.server.router[Route]()?
+    routes.add("GET", "/hello/{name}", Route.Hello)?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    with spawn(visit, port, stop.share())? as task:
+        drop(std.http.server.serve(listener, &routes, &Greeter(), &std.http.server.config(), &stop)?)
+        task.join()?
+    Ok(())
+```
+```output
+200 hello, Ada
+404 Not Found
+```
+
 ## Serving
 
 | Item | Meaning |

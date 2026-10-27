@@ -4,6 +4,30 @@ The [optional dataframe engine](dataframe-engine.md) supports these boundary
 types. Construction and extraction return `Result[..., DataFrameError]`;
 names and dtypes are checked at runtime. No implicit cast is performed.
 
+```plenty dataframe
+import std.dataframe as df
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
+    labels: list[Option[str]] = [Some("low"), Nothing]?
+    data = df.frame([
+        df.column_u8("level", [3u8, 200u8]?)?,
+        df.column_str_nullable("label", labels)?
+    ]?)?
+    for field in data.schema()?:
+        print(field.name, field.dtype)?
+    print(data.values_u8("level")?)?
+    print(data.values_str_nullable("label")?)?
+    print(data.get_str("label", 1)?)?
+    Ok(())
+```
+```output
+level std.dataframe.DType.U8
+label std.dataframe.DType.String
+[3, 200]
+[Option[str].Some("low"), Option[str].Nothing]
+Option[str].Nothing
+```
+
 | Column dtype | Non-nullable constructor | Non-nullable extraction |
 |---|---|---|
 | `i8`, `i16`, `i32` | `column_i8/i16/i32(name, values)` | `frame.values_i8/i16/i32(name)` |
