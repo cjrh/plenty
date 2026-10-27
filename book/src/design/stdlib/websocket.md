@@ -11,6 +11,66 @@ and add no runtime primitives; the handshake's SHA-1 comes from
 [Talk over WebSockets](../../tutorial/11-concurrency/websockets.md) shows a
 complete program.
 
+```plenty
+import std.bytes
+import std.http.server
+import std.http.websocket
+import std.net
+import std.time
+from std.fmt import FormatError
+from std.http.server import Exchange
+from std.http.websocket import Message, WebSocketError
+from std.net import TcpStream
+from std.sync import CancellationToken
+from std.time import Deadline
+
+type ChatError = WebSocketError | std.bytes.BytesError | RangeError | AllocError
+
+def soon() -> Result[Deadline, RangeError]:
+    Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
+
+pub enum Route:
+    Chat
+
+pub class Shout:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), ChatError]:
+        mut socket = std.http.websocket.accept(exchange, &std.http.websocket.config())?
+        mut message = std.bytes.empty()?
+        while True:
+            message.clear()
+            match socket.receive(&mut message, &soon()?)?:
+                case Message.Close(_):
+                    return Ok(())
+                case _:
+                    socket.send_text(&message.to_text()?.upper()?, &soon()?)?
+        Ok(())
+
+def chat(port: u16, stop: CancellationToken) -> Result[(), ChatError | FormatError | IoError]:
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        url = f"ws://127.0.0.1:{port}/chat"?
+        mut socket = std.http.websocket.connect(&url, &std.http.websocket.config(), &soon()?, &never)?
+        socket.send_text("hello", &soon()?)?
+        mut reply = std.bytes.empty()?
+        print(socket.receive(&mut reply, &soon()?)?, reply.to_text()?)?
+        socket.close(1000, "bye", &soon()?)?
+    Ok(())
+
+def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | ChatError | FormatError | IoError]:
+    mut routes = std.http.server.router[Route]()?
+    routes.add("GET", "/chat", Route.Chat)?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    with spawn(chat, port, stop.share())? as task:
+        drop(std.http.server.serve(listener, &routes, &Shout(), &std.http.server.config(), &stop)?)
+        task.join()?
+    Ok(())
+```
+```output
+std.http.websocket.Message.Text HELLO
+```
+
 ## Connections
 
 `WebSocket[T]` is one open connection over a stream `T` that reads and

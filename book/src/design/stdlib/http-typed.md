@@ -8,6 +8,38 @@ framing, select the decoder, enforce body limits and recover a completed
 persistent connection. The lower-level adapters also remain available for
 callers that have already validated Content-Length and method/status semantics.
 
+```plenty
+import std.bytes
+import std.http
+import std.io
+import std.io.typed
+from std.http.typed import FramingError, read_request, request_body
+from std.io.typed import CopyFailure, Partial, ReadFailure, copy_all
+
+type HttpCause = FramingError[ReadFailure[std.io.StreamError]]
+type ReadBodyError = Partial[HttpCause] | HttpCause | CopyFailure[HttpCause, std.io.StreamError]
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.http.HttpError | ReadBodyError]:
+    wire = std.bytes.from_text("POST /notes HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n")?
+    limits = std.http.limits()
+    mut conn = std.io.typed.buffered_reader(std.io.typed.reader(std.io.cursor(wire)), 256)?
+    head = read_request(&mut conn, &limits)?.ok_or(std.http.HttpError.Truncated)?
+    mut body = request_body(conn, &head, &limits)?
+    mut output = std.io.typed.writer(std.io.cursor(std.bytes.empty()?))
+    mut scratch = std.bytes.with_capacity(16)?
+    scratch.resize(16, 0u8)?
+    copy_all(&mut body, &mut output, &mut scratch)?
+    print(head.method, head.target, std.io.typed.unwrap_writer(output).data.to_text()?)?
+    print(body.total(), body.is_done())?
+    # The connection comes back only after a complete, reusable message.
+    drop(body.finish()?)
+    Ok(())
+```
+```output
+POST /notes hello
+5 True
+```
+
 ## Reading and writing heads
 
 `read_request(reader, limits)` and `read_response(reader, limits)` return

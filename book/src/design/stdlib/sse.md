@@ -11,6 +11,62 @@ server shuts down. The module is checked Plenty in
 lesson [Stream events to browsers](../../tutorial/11-concurrency/server-sent-events.md)
 shows a complete program. There is no client-side reader.
 
+```plenty
+import std.bytes
+import std.http.client
+import std.http.server
+import std.http.sse
+import std.net
+import std.time
+from std.fmt import FormatError
+from std.http.server import Exchange
+from std.http.sse import SseError
+from std.net import TcpStream
+from std.sync import CancellationToken
+
+pub enum Route:
+    Events
+
+pub class Feed:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), SseError | RangeError]:
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(1u32))?
+        mut events = std.http.sse.accept(exchange)?
+        events.send("first line\nsecond line", &deadline, event="note", id=Some("1"))?
+        events.send("done", &deadline)?
+        events.close()
+        Ok(())
+
+type WatchError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | RangeError
+
+def watch(port: u16, stop: CancellationToken) -> Result[(), WatchError]:
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
+        client = std.http.client.client(std.http.client.config()?)?
+        reply = client.get(&f"http://127.0.0.1:{port}/events"?, &deadline, &never)?
+        print(reply.body.to_text()?.strip()?)?
+    Ok(())
+
+def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | WatchError]:
+    mut routes = std.http.server.router[Route]()?
+    routes.add("GET", "/events", Route.Events)?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    with spawn(watch, port, stop.share())? as task:
+        drop(std.http.server.serve(listener, &routes, &Feed(), &std.http.server.config(), &stop)?)
+        task.join()?
+    Ok(())
+```
+```output
+event: note
+id: 1
+data: first line
+data: second line
+
+data: done
+```
+
 ## Opening a stream
 
 | Item | Meaning |

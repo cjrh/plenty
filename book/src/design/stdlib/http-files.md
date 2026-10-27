@@ -21,6 +21,38 @@ path = exchange.params[0]
 std.http.files.serve(exchange, &self.public, &path)?
 ```
 
+```plenty
+import std.fs
+import std.io
+import std.http.files
+import std.path
+from std.http.files import FilesError
+
+def main() -> Result[(), AllocError | IoError | std.fs.FsError | std.io.StreamError | FilesError]:
+    parent = std.fs.root(&std.path.from_text(".")?)?
+    mut site = std.fs.temporary_dir(&parent, &std.path.from_text("site-")?, 8)?
+    for name in ["index.html", ".env"]?:
+        mut staged = std.fs.temporary_file(site.root())?
+        staged.stream.file.write("<h1>Welcome</h1>\n")?
+        staged.publish(&std.path.from_text(name)?)?
+        staged.close()?
+    for path in ["index.html", ".env", "../index.html", "missing.css"]?:
+        found = std.http.files.open_file(site.root(), &path)?
+        print(path, found.is_some(), std.http.files.media_type(&path))?
+    print(std.http.files.http_date(784111777)?)?
+    for name in ["index.html", ".env"]?:
+        site.root().remove_file(&std.path.from_text(name)?)?
+    site.cleanup()?
+    Ok(())
+```
+```output
+index.html True text/html; charset=utf-8
+.env False application/octet-stream
+../index.html False text/html; charset=utf-8
+missing.css False text/css; charset=utf-8
+Option[str].Some("Sun, 06 Nov 1994 08:49:37 GMT")
+```
+
 ## Confinement
 
 `path` is relative and already percent-decoded, as a `{name...}` capture
