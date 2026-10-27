@@ -260,8 +260,8 @@ actor heaps and are neither limited nor freed by a trap.
 ## Limits
 
 - One thread. Heaps belong to the thread that created the first one, and
-  heap operations from another thread fail. Do not start threads or pools in
-  a handler.
+  heap operations from another thread fail. Starting a thread in a handler
+  traps the actor, since the thread could outlive the heap holding its task.
 - The `spawn` hook runs the parent's code with the child's heap current. It can
   move values between the two heaps, and the compiler does not reject this.
   Create values the child owns, such as an accepted socket, inside the hook,
