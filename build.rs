@@ -193,6 +193,7 @@ const RUNTIME_EXTERNS: &[&str] = &[
     "subtle",
     "zlib_rs",
     "rustls",
+    "ring",
     "siphasher",
 ];
 

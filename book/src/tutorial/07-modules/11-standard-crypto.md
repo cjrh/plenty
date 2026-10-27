@@ -2,7 +2,8 @@
 
 `std.crypto` computes BLAKE3, SHA-256 and SHA-512 digests and keyed tags over
 [`std.bytes`](../../design/stdlib/bytes.md) buffers, and compares secrets in
-constant time.
+constant time. For AEAD encryption and public-key signatures, see
+[Encrypt and authenticate bytes](11a-standard-encryption.md).
 
 ## Digests
 

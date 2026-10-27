@@ -2,10 +2,13 @@
 
 `import std.crypto` computes BLAKE3, SHA-256, SHA-512 and legacy SHA-1 digests and HMAC tags over
 [`std.bytes`](bytes.md) buffers, and compares byte buffers in constant time.
-It has one error type, `CryptoError`.
+The digest and HMAC operations use `CryptoError`.
 
-Primitives use third-party implementations: the RustCrypto `sha2`, `sha1`,
-`hmac`, `subtle`, and the BLAKE3 team's `blake3` crate, compiled into the runtime. The Plenty module validates
+The module also provides [authenticated encryption, Ed25519 signatures,
+X25519 key agreement, and HKDF](crypto-advanced.md), with `AdvancedError`.
+
+Every primitive is third-party code: the RustCrypto `sha2`, `sha1`,
+`hmac`, and `subtle` crates, the BLAKE3 team’s `blake3`, and `ring`, compiled into the runtime. The Plenty module validates
 arguments and reports errors; it implements no cryptography. The module is
 available on the supported x86-64 Linux GNU target.
 
@@ -195,8 +198,7 @@ only through its own runtime entry symbols, so a program that does not use
 
 ## Limits
 
-- No encryption, authenticated encryption, signatures, or key exchange.
-- Key derivation currently uses BLAKE3 only; no HKDF, PBKDF2, Argon2 or password hashing.
+- No password hashing or password KDFs (PBKDF2, Argon2).
 - No MD5, SHA-3, BLAKE2, or truncated SHA-512 variants.
 - No zero-on-drop buffer type; see [Key material](#key-material).
 - One target, x86-64 Linux GNU.
@@ -206,3 +208,5 @@ only through its own runtime entry symbols, so a program that does not use
 - Wraps the BLAKE3 team's [`blake3`](https://github.com/BLAKE3-team/BLAKE3) 1.8.7 (CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception), with [dependency credits](crypto-blake3.md#acknowledgements).
 
 - Wraps the RustCrypto [`sha2`](https://github.com/RustCrypto/hashes) 0.10.9, [`sha1`](https://github.com/RustCrypto/hashes) 0.10.6 and [`hmac`](https://github.com/RustCrypto/MACs) 0.12.1 crates (MIT OR Apache-2.0) and [`subtle`](https://github.com/dalek-cryptography/subtle) 2.6.1 (BSD-3-Clause), vendored in the runtime.
+
+- Wraps [`ring`](https://github.com/briansmith/ring) 0.17.14 (Apache-2.0 AND ISC) for [AEAD, Ed25519, X25519, and HKDF](crypto-advanced.md), using the runtime’s existing vendored copy.

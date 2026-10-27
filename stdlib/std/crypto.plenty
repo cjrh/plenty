@@ -1,7 +1,7 @@
-# Curated digests, HMAC and constant-time comparison over std.bytes buffers.
-# Primitives use RustCrypto (sha2, sha1, hmac, subtle) and the BLAKE3 team's
-# blake3 crate (CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception); this
-# module validates arguments and reports errors. See
+# Curated cryptography over std.bytes buffers. Primitives use RustCrypto
+# (sha2, sha1, hmac, subtle), ring, and the BLAKE3 team’s blake3 crate
+# (CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception). This module
+# validates arguments and reports errors. See
 # book/src/design/stdlib/crypto.md.
 import std.bytes
 from std.bytes import Bytes, BytesError
@@ -202,3 +202,145 @@ pub def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
 # lengths. Use it for secrets such as tags and tokens; `==` may stop early.
 pub def equal(a: &Bytes, b: &Bytes) -> bool:
     a.crypto_equal(b)
+
+# Authenticated encryption, Ed25519, X25519 and HKDF use ring 0.17.14
+# (Apache-2.0 AND ISC, https://github.com/briansmith/ring). No primitive is
+# implemented here. See crypto-advanced.md for nonce and key-use contracts.
+pub enum AdvancedError:
+    InvalidLength
+    AuthenticationFailed
+    InvalidPeer
+    Finished
+    RandomFailure
+    Allocation(AllocError)
+
+pub enum AeadAlgorithm:
+    Aes256Gcm
+    ChaCha20Poly1305
+
+def advanced_bytes[T](result: Result[T, BytesError]) -> Result[T, AdvancedError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(AdvancedError.Allocation(cause))
+                case _:
+                    Err(AdvancedError.InvalidLength)
+
+def advanced_status(status: i64) -> Result[(), AdvancedError]:
+    match status:
+        case 1:
+            Ok(())
+        case 0:
+            Err(AdvancedError.AuthenticationFailed)
+        case -2:
+            Err(AdvancedError.Finished)
+        case -3:
+            Err(AdvancedError.RandomFailure)
+        case -4:
+            Err(AdvancedError.InvalidPeer)
+        case _:
+            Err(AdvancedError.InvalidLength)
+
+def advanced_output(size: i64) -> Result[Bytes, AdvancedError]:
+    mut target = advanced_bytes(std.bytes.with_capacity(size))?
+    advanced_bytes(target.resize(size, 0u8))?
+    Ok(target)
+
+# Never reuse a nonce with a key. Encryption appends a 16-byte tag; growth
+# is fallible and happens before encryption. Invalid inputs leave data intact.
+pub def seal_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]:
+    if key.len() != 32 or nonce.len() != 12 or data.len() > 68719476704:
+        return Err(AdvancedError.InvalidLength)
+    advanced_bytes(data.resize(data.len() + 16, 0u8))?
+    status = match algorithm:
+        case AeadAlgorithm.Aes256Gcm:
+            std.bytes.crypto_aes_seal(key, nonce, aad, data)
+        case AeadAlgorithm.ChaCha20Poly1305:
+            std.bytes.crypto_chacha_seal(key, nonce, aad, data)
+    advanced_status(status)
+
+# Success removes the tag. Authentication failure zeros the entire buffer
+# and leaves its length unchanged; no unauthenticated plaintext is exposed.
+pub def open_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]:
+    if key.len() != 32 or nonce.len() != 12 or data.len() < 16 or data.len() > 68719476720:
+        return Err(AdvancedError.InvalidLength)
+    status = match algorithm:
+        case AeadAlgorithm.Aes256Gcm:
+            std.bytes.crypto_aes_open(key, nonce, aad, data)
+        case AeadAlgorithm.ChaCha20Poly1305:
+            std.bytes.crypto_chacha_open(key, nonce, aad, data)
+    advanced_status(status)?
+    advanced_bytes(data.truncate(data.len() - 16))
+
+# The seed must contain 32 cryptographically random bytes. Signatures are
+# deterministic; reuse of a signing seed is permitted.
+pub def ed25519_public_key_into(seed: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+    advanced_status(std.bytes.crypto_ed_public(seed, target))
+
+pub def ed25519_public_key(seed: &Bytes) -> Result[Bytes, AdvancedError]:
+    if seed.len() != 32:
+        return Err(AdvancedError.InvalidLength)
+    mut target = advanced_output(32)?
+    ed25519_public_key_into(seed, &mut target)?
+    Ok(target)
+
+pub def ed25519_sign_into(seed: &Bytes, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+    advanced_status(std.bytes.crypto_ed_sign(seed, message, target))
+
+pub def ed25519_sign(seed: &Bytes, message: &Bytes) -> Result[Bytes, AdvancedError]:
+    if seed.len() != 32:
+        return Err(AdvancedError.InvalidLength)
+    mut target = advanced_output(64)?
+    ed25519_sign_into(seed, message, &mut target)?
+    Ok(target)
+
+pub def ed25519_verify(public_key: &Bytes, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
+    status = std.bytes.crypto_ed_verify(public_key, message, signature)
+    if status < 0:
+        return Err(AdvancedError.InvalidLength)
+    Ok(status == 1)
+
+# HKDF-SHA256 extract + expand. The salt and info may be empty; output is
+# 0..8160 bytes. This derives keys from key material, not from passwords.
+pub def hkdf_sha256_into(salt: &Bytes, key_material: &Bytes, info: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+    advanced_status(std.bytes.crypto_hkdf(salt, key_material, info, target))
+
+pub def hkdf_sha256(salt: &Bytes, key_material: &Bytes, info: &Bytes, size: i64) -> Result[Bytes, AdvancedError]:
+    if size < 0 or size > 8160:
+        return Err(AdvancedError.InvalidLength)
+    mut target = advanced_output(size)?
+    hkdf_sha256_into(salt, key_material, info, &mut target)?
+    Ok(target)
+
+# OS-generated ephemeral X25519 private key. One agreement attempt consumes
+# it, even if the peer key is invalid. Length errors do not consume it.
+pub class X25519Key:
+    _state: Bytes
+
+    pub def public_key_into(self, target: &mut Bytes) -> Result[(), AdvancedError]:
+        advanced_status(std.bytes.crypto_x_public(&self._state, target))
+
+    pub def public_key(self) -> Result[Bytes, AdvancedError]:
+        mut target = advanced_output(32)?
+        self.public_key_into(&mut target)?
+        Ok(target)
+
+    pub def agree_into(self: &mut X25519Key, peer_public_key: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+        advanced_status(std.bytes.crypto_x_agree(&mut self._state, peer_public_key, target))
+
+    pub def agree(self: &mut X25519Key, peer_public_key: &Bytes) -> Result[Bytes, AdvancedError]:
+        if peer_public_key.len() != 32:
+            return Err(AdvancedError.InvalidLength)
+        mut target = advanced_output(32)?
+        self.agree_into(peer_public_key, &mut target)?
+        Ok(target)
+
+pub def x25519() -> Result[X25519Key, AdvancedError]:
+    state = advanced_bytes(std.bytes.crypto_x_new())?
+    key = X25519Key(state)
+    # Validate entropy/key generation before returning a usable key.
+    drop(key.public_key()?)
+    Ok(key)
