@@ -896,6 +896,9 @@ pub enum Op {
     ReadRef(Ty),
     Reborrow(Ty),
     WriteRef(Ty),
+    /// `WriteRef` into storage known to be empty, such as a field `__init__`
+    /// assigns for the first time: there is no old owner to release.
+    FillRef(Ty),
     /// Exchange initialized storage with a new owner, returning its old owner.
     ReplaceRef(Ty),
     Loan(crate::ownership::Loan),
@@ -2094,7 +2097,7 @@ fn step(
             }
             stack.push(target.clone());
         }
-        Op::WriteRef(ty) | Op::ReplaceRef(ty) => {
+        Op::WriteRef(ty) | Op::FillRef(ty) | Op::ReplaceRef(ty) => {
             if stack.pop() != Some(Ty::Ref(Arc::new(ty.clone()), true))
                 || stack.pop().as_ref() != Some(ty)
             {

@@ -896,6 +896,7 @@ impl Lower<'_> {
             return self.set_clist_field(target, value, ops);
         }
         self.ide_member(target);
+        let fills = self.fills_init_field(target);
         let (ty, temp, loan) = self.borrow_place_after_value(
             target,
             value,
@@ -914,11 +915,32 @@ impl Lower<'_> {
             _ => {
                 ops.push(Op::MoveLocal(temp));
                 ops.push(Op::Swap);
-                ops.push(Op::WriteRef(ty));
+                ops.push(if fills {
+                    Op::FillRef(ty)
+                } else {
+                    Op::WriteRef(ty)
+                });
             }
         }
         ops.push(Op::UseLoan(loan));
         Ok(())
+    }
+    /// Whether `target` is `self.field` assigned for the first time in an
+    /// `__init__`, outside any loop, so its slot is still empty.
+    fn fills_init_field(&mut self, target: &Expr) -> bool {
+        let Expression::Member(base, field, _) = &ungroup(target).kind else {
+            return false;
+        };
+        let receiver = matches!(&ungroup(base).kind, Expression::Name(n) if n == "self")
+            && self.names.get("self").is_some_and(|local| local.slot == 0);
+        let in_loop = !self.loop_scopes.is_empty();
+        // Record a loop's assignment too: a later one may see its value.
+        receiver
+            && self
+                .init_fields
+                .as_mut()
+                .is_some_and(|fields| fields.insert(field.clone()))
+            && !in_loop
     }
     pub(super) fn replace_field(
         &mut self,

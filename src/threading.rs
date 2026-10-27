@@ -484,7 +484,9 @@ fn inspect(
             types.push(Ty::Enum(t.clone()));
             types.extend(t.get().variants[*tag].fields.iter().cloned());
         }
-        Op::ReadRef(ty) | Op::WriteRef(ty) | Op::ReplaceRef(ty) => types.push(ty.clone()),
+        Op::ReadRef(ty) | Op::WriteRef(ty) | Op::FillRef(ty) | Op::ReplaceRef(ty) => {
+            types.push(ty.clone())
+        }
         _ => {}
     });
     error.map_or(Ok(()), |message| Err(message.into()))
