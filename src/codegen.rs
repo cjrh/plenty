@@ -97,6 +97,7 @@ mod references;
 mod relax;
 pub(crate) use output::describe_error;
 pub(crate) use relax::relax_local_addresses;
+mod inline_calls;
 mod leaf_calls;
 mod reachability;
 mod scalar_captures;
@@ -712,6 +713,7 @@ fn object_module(
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
     if build.optimize {
         leaf_calls::prepare(&bodies, &mut user_fns);
+        inline_calls::prepare(&bodies, &mut user_fns);
         clist_simd::prepare(&bodies, &mut user_fns);
     }
     sites::mark_context_preserving(&bodies, &mut user_fns);
@@ -1490,6 +1492,9 @@ fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, (
 struct UserFn {
     /// Small scalar leaf body, retained only for optimized call substitution.
     inline: Option<Arc<leaf_calls::Leaf>>,
+    /// Small constructor body lowered at each call site in optimized builds;
+    /// see [`inline_calls`].
+    inline_body: Option<Arc<[Op]>>,
     column_predicate: Option<Arc<clist_simd::Predicate>>,
     standard_library: bool,
     drop_callback: Option<FuncId>,
@@ -1556,6 +1561,7 @@ fn collect_user_fns(
                     name.clone(),
                     UserFn {
                         inline: None,
+                        inline_body: None,
                         column_predicate: None,
                         drop_callback: if name.starts_with("__plenty_class_")
                             && name.ends_with(".__del__")
@@ -1664,6 +1670,53 @@ struct LocalFrame {
     offsets: Vec<Option<i32>>,
 }
 
+/// Keep the `addressed` locals in one stack frame, storing their entry
+/// values: the first `inputs` locals are parameters.
+fn local_frame(
+    bcx: &mut FunctionBuilder<'_>,
+    locals: &[(Variable, Ty)],
+    addressed: &[bool],
+    inputs: usize,
+) -> Option<LocalFrame> {
+    addressed.contains(&true).then(|| {
+        let mut size = 0;
+        let offsets: Vec<Option<i32>> = locals
+            .iter()
+            .zip(addressed)
+            .map(|((_, ty), &addressed)| {
+                addressed.then(|| {
+                    let offset = size;
+                    size += ty.slot_bytes() as i32;
+                    offset
+                })
+            })
+            .collect();
+        let slot = bcx.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+            size as u32,
+            4,
+        ));
+        let base = bcx.ins().stack_addr(PTR_TY, slot, 0);
+        for (i, ((var, ty), offset)) in locals.iter().zip(&offsets).enumerate() {
+            let Some(offset) = offset else { continue };
+            let packed = if i < inputs || ty.managed() {
+                let value = bcx.use_var(*var);
+                enums::pack_value(bcx, value, ty)
+            } else {
+                let zero = bcx.ins().iconst(types::I64, 0);
+                bcx.ins().uextend(types::I128, zero)
+            };
+            bcx.ins().store(
+                cranelift_codegen::ir::MemFlagsData::trusted(),
+                packed,
+                base,
+                *offset,
+            );
+        }
+        LocalFrame { base, offsets }
+    })
+}
+
 /// Emit the body of one user function. Each input becomes a CLIF
 /// `Variable` defined once at entry from the matching block parameter;
 /// `Op::LoadLocal(i)` later reads that variable. If the body falls
@@ -1731,43 +1784,7 @@ fn build_user_function(
                 *addressed = false;
             }
         }
-        let local_frame = addressed.contains(&true).then(|| {
-            let mut size = 0;
-            let offsets: Vec<Option<i32>> = locals
-                .iter()
-                .zip(&addressed)
-                .map(|((_, ty), &addressed)| {
-                    addressed.then(|| {
-                        let offset = size;
-                        size += ty.slot_bytes() as i32;
-                        offset
-                    })
-                })
-                .collect();
-            let slot = bcx.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                size as u32,
-                4,
-            ));
-            let base = bcx.ins().stack_addr(PTR_TY, slot, 0);
-            for (i, ((var, ty), offset)) in locals.iter().zip(&offsets).enumerate() {
-                let Some(offset) = offset else { continue };
-                let packed = if i < decl.sig.inputs.len() || ty.managed() {
-                    let value = bcx.use_var(*var);
-                    enums::pack_value(&mut bcx, value, ty)
-                } else {
-                    let zero = bcx.ins().iconst(types::I64, 0);
-                    bcx.ins().uextend(types::I128, zero)
-                };
-                bcx.ins().store(
-                    cranelift_codegen::ir::MemFlagsData::trusted(),
-                    packed,
-                    base,
-                    *offset,
-                );
-            }
-            LocalFrame { base, offsets }
-        });
+        let local_frame = local_frame(&mut bcx, &locals, &addressed, decl.sig.inputs.len());
         let return_storage = decl
             .sig
             .outputs
@@ -2364,11 +2381,12 @@ impl Lowerer<'_, '_> {
             Op::Reborrow(ty) => {
                 self.stack.last_mut().ok_or("reference stack underflow")?.1 = ty.clone();
             }
-            Op::WriteRef(ty) => {
+            Op::WriteRef(ty) | Op::FillRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 let (value, _) = self.pop_typed(ty.clone())?;
-                // An unmanaged old value owns nothing to release.
-                if ty.managed() {
+                // An unmanaged old value owns nothing to release, and filled
+                // storage holds none.
+                if ty.managed() && matches!(op, Op::WriteRef(_)) {
                     let old = self.read_reference(reference);
                     self.release(old, ty);
                 }
@@ -3463,6 +3481,7 @@ impl Lowerer<'_, '_> {
     ) -> Result<()> {
         let caller_standard = self.in_standard_library();
         let optimize = self.module.optimizes();
+        let in_generator = self.generator.is_some();
         let (decl, mut args) = self.pop_call_args(name)?;
         if let Some(simd) = portable_simd::operation(name, decl, optimize) {
             self.lower_portable_simd(&simd, &args);
@@ -3485,6 +3504,12 @@ impl Lowerer<'_, '_> {
             self.lower_leaf_call(&inline, &args, captures)?;
             self.leave_call(saved);
             return Ok(());
+        }
+        if let Some(body) = decl.inline_body.clone()
+            && captures.is_empty()
+            && !in_generator
+        {
+            return self.lower_inlined_call(name, &body, args, track_caller);
         }
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;

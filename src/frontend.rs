@@ -2920,6 +2920,10 @@ struct Lower<'a> {
     /// `function_name` in the function table.
     symbol: functions::Symbol,
     bare_self_receiver: bool,
+    /// In a class `__init__`, the fields assigned so far in source order. The
+    /// synthesized constructor is its only caller and passes zeroed storage,
+    /// so a field's first assignment outside a loop fills an empty slot.
+    init_fields: Option<HashSet<String>>,
     source_tail: Vec<crate::ownership::Site>,
     tail_candidates: Vec<tail_calls::Candidate>,
     closure_loans: HashMap<String, Vec<usize>>,
@@ -5950,6 +5954,8 @@ fn lower_body(
                 bare_self_receiver: f.inputs.first().is_some_and(|(name, ty)| {
                     name == "self" && ty.name.as_deref() == Some("&") && ty.at.is("self")
                 }),
+                init_fields: (crate::record::is_method(&f.name) && f.name.ends_with(".__init__"))
+                    .then(HashSet::default),
                 source_tail: Vec::new(),
                 tail_candidates: Vec::new(),
                 closure_loans: HashMap::default(),
