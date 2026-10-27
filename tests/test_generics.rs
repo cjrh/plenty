@@ -444,6 +444,110 @@ def main() -> Result[(), AllocError]:
     );
 }
 
+/// A type the definition writes itself is not blamed on a parameter whose
+/// argument it equals (issue #519).
+#[test]
+fn instance_errors_on_types_the_definition_writes_keep_the_instance_form() {
+    // A field type names the copied list; the argument `list[i64]` is not
+    // what the method copies.
+    assert_eq!(
+        rejection(
+            "class Holder[T]:
+    item: T
+    rows: list[list[i64]]
+
+    def row(self) -> list[i64]:
+        self.rows[0]
+
+def main() -> Result[(), AllocError]:
+    holder = Holder([1]?, [[2]?]?)
+    row = holder.row()
+    Ok(())
+"
+        ),
+        "10:11: cannot instantiate `Holder[list[i64]].row`: its definition is rejected
+  6:9: note: in instantiation `Holder[list[i64]].row`: cannot move out of indexed storage; \
+         use copy(collection[index])"
+    );
+    // A parameter type of a generic function.
+    assert_eq!(
+        rejection(
+            "def pick[T](value: T, rows: list[list[i64]]) -> list[i64]:
+    rows[0]
+
+def main() -> Result[(), AllocError]:
+    row = pick([1]?, [[2]?]?)
+    Ok(())
+"
+        ),
+        "5:11: cannot instantiate `pick[list[i64]]`: its definition is rejected
+  2:5: note: in instantiation `pick[list[i64]]`: cannot move out of indexed storage; \
+         use copy(collection[index])"
+    );
+    // An annotation in the body, rejected by the ownership check.
+    assert_eq!(
+        rejection(
+            "def twice[T](value: T) -> Result[(), AllocError]:
+    row: list[i64] = [1]?
+    first = row
+    second = row
+    Ok(())
+
+def main() -> Result[(), AllocError]:
+    twice([1]?)?
+    Ok(())
+"
+        ),
+        "8:5: cannot instantiate `twice[list[i64]]`: its definition is rejected
+  4:14: note: in instantiation `twice[list[i64]]`: use of moved binding `row`
+  3:13: note: `row` is moved here"
+    );
+    // Types do not record substitution, so once the definition writes the
+    // argument's type, copying the parameter's value is not attributed either.
+    assert_eq!(
+        rejection(
+            "def twice[T](value: T) -> Result[(), AllocError]:
+    row: list[i64] = [1]?
+    first = value
+    second = value
+    Ok(())
+
+def main() -> Result[(), AllocError]:
+    twice([1]?)?
+    Ok(())
+"
+        ),
+        "8:5: cannot instantiate `twice[list[i64]]`: its definition is rejected
+  4:14: note: in instantiation `twice[list[i64]]`: use of moved binding `value`
+  3:13: note: `value` is moved here"
+    );
+}
+
+/// A field counts only for the bodies that access it, so a method that copies
+/// `T` is still blamed on it when another field writes the argument's type, as
+/// `LruCache[K, V].get` relies on (issue #519).
+#[test]
+fn fields_a_method_does_not_access_keep_the_parameter_blame() {
+    assert_eq!(
+        rejection(
+            "class Holder[T]:
+    item: T
+    rows: list[list[i64]]
+
+    def get(self) -> T:
+        self.item
+
+def main() -> Result[(), AllocError]:
+    holder = Holder([1]?, [[2]?]?)
+    item = holder.get()
+    Ok(())
+"
+        ),
+        "10:12: `Holder[list[i64]].get` copies `T`, but `list[i64]` cannot be copied
+  6:9: note: in instantiation `Holder[list[i64]].get`: cannot move out of a field"
+    );
+}
+
 #[test]
 fn expanding_recursion_keeps_instance_names_readable() {
     let error = rejection(
