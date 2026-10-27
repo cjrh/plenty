@@ -5,6 +5,7 @@
 # Division uses Smith's scaled algorithm (CACM Algorithm 116, 1962).
 from std.fmt import Formatter, FormatError
 
+@copy
 pub class Complex:
     pub re: f64
     pub im: f64

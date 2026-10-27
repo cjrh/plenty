@@ -3,13 +3,18 @@
 use std::process::Command;
 
 fn run_mode(body: &str, optimize: bool) -> String {
+    run_program(
+        &format!(
+            "from std.complex import Complex, from_polar\nimport std.math as math\nimport std.fmt\nfrom std.fmt import FormatError\ndef main() -> Result[(), AllocError | IoError | FormatError | math.MathError]:\n{body}    Ok(())\n"
+        ),
+        optimize,
+    )
+}
+
+fn run_program(source_text: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("main.plenty");
-    std::fs::write(
-        &source,
-        format!("from std.complex import Complex, from_polar\nimport std.math as math\nimport std.fmt\nfrom std.fmt import FormatError\ndef main() -> Result[(), AllocError | IoError | FormatError | math.MathError]:\n{body}    Ok(())\n"),
-    )
-    .unwrap();
+    std::fs::write(&source, source_text).unwrap();
     plenty::check_file(&source, None).unwrap();
     let program = dir.path().join("program");
     plenty::compile_file_to_executable_with_options(
@@ -204,5 +209,36 @@ fn small_integral_powers_are_exact() {
          inf+NaNi 0.0+0.0i NaN+NaNi\n\
          0.20787957635076193+0.0i 1.414213562373095+0.0i 1.2246467991473532e-16+2.0i\n\
          NaN+NaNi 8.0+0.0i\n"
+    );
+}
+
+#[test]
+fn complex_values_copy() {
+    let output = run_program(
+        r#"from std.complex import Complex
+
+def conj_by_value(z: Complex) -> Complex:
+    mut w = z
+    w.im = -w.im
+    w
+
+def main() -> Result[(), AllocError | IoError]:
+    a = Complex(1.0, 2.0)
+    mut b = a
+    b.re = 5.0
+    c = conj_by_value(a)
+    mut zs = [a, b]?
+    zs.append(a)?
+    zs[0].im = 9.0
+    print(a, b, c)?
+    print(zs[0].im, zs[2] == a, a + a == Complex(2.0, 4.0))?
+    Ok(())
+"#,
+        false,
+    );
+    assert_eq!(
+        output,
+        "std.complex.Complex(re=1.0, im=2.0) std.complex.Complex(re=5.0, im=2.0) std.complex.Complex(re=1.0, im=-2.0)\n\
+         9.0 True True\n"
     );
 }

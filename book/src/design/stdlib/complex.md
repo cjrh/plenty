@@ -28,11 +28,30 @@ std.complex.Complex(re=1.5, im=2.0)
 ```
 
 `Complex(re, im)` is the generated constructor, and `re` and `im` are public
-fields. Like every class instance, a `Complex` is affine: it moves on
-assignment and by-value argument passing. Operators and methods borrow their
-operands, so `a + b` leaves both usable. Write `Complex(z.re, z.im)` for an
-independent value. There are no in-place hooks; accumulate with
-`total = total + term` on a `mut` binding.
+fields. `Complex` is a [copy class](../language/03-types/classes.md#copy-classes):
+assignment, by-value argument passing, return, and collection insertion copy
+its two `f64` parts and leave the source usable. Copying never allocates.
+Operators and methods borrow their operands, which reads the parts in place
+instead of copying them into the call. There are no in-place hooks; accumulate
+with `total = total + term` on a `mut` binding.
+
+```plenty
+from std.complex import Complex
+
+def double(z: Complex) -> Complex:
+    z + z
+
+def main() -> Result[(), AllocError | IoError]:
+    a = Complex(1.0, 2.0)
+    mut b = a
+    b.im = -2.0
+    zs = [a, b, double(a)]?
+    print(a == zs[0], b == zs[1], zs[2].re, len(zs))?
+    Ok(())
+```
+```output
+True True 2.0 3
+```
 
 ## Operations
 
