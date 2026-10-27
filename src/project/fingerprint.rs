@@ -42,12 +42,13 @@ pub(super) fn digest(
         }
     }
     field(&format!(
-        "{:?} {:?} {:?} {} {} {:?}",
+        "{:?} {:?} {:?} {} {} {} {:?}",
         options.target,
         options.linker,
         options.link_args,
         options.optimize,
         options.strip,
+        options.test_hooks,
         // Package libraries are checked, not linked.
         if kind == "library" {
             None

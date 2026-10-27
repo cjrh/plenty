@@ -109,8 +109,11 @@ way.
 A real file fails rarely, so `test_save_reports_a_full_disk` makes it fail:
 after `fail_files_after(0u32, 28i32)`, every file call fails with error 28, the
 system's code for a full disk, until `restore_files`. `fail_allocations_after`
-does the same for memory. Both work only in the executables `plenty test`
-builds; a shipped program cannot be made to fail this way.
+does the same for memory. `plenty test` enables these hooks automatically.
+For an integration test that launches the ordinary application, explicitly use
+`plenty build --test-hooks` and arm the budget at the operation being tested.
+Default builds contain no hooks. See
+[failure injection and memory-limited runs](../../design/stdlib/test.md#failure-injection).
 
 ```sh plenty-project stats
 plenty test

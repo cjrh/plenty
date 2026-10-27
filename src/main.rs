@@ -59,6 +59,7 @@ default ~/.cache/plenty; PLENTY_CACHE=off disables it).
 lsp: serve the Language Server Protocol on stdin and stdout for an editor:
 diagnostics, hover, go to definition, and completion.
 --no-strip: keep the symbol table and debug sections in built executables.
+--test-hooks: with build or run, enable std.test failure injection.
 --locked: fail instead of creating or updating plenty.lock.
 --offline: never fetch; use only the package cache in .pkg/.
 A file whose name matches a command runs as ./NAME.
@@ -280,6 +281,7 @@ fn build_options(
         match arg.as_str() {
             "--release" if profiles => options.profile = Profile::Release,
             "--no-strip" if profiles => options.compile.strip = false,
+            "--test-hooks" if profiles => options.compile.test_hooks = true,
             "--locked" => options.locked = true,
             "--offline" => options.offline = true,
             "--bin" if running => {

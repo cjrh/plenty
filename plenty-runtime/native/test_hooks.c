@@ -1,8 +1,8 @@
-/* Failure injection for `plenty test` executables; see "Failure injection"
+/* Failure injection for `plenty test` and --test-hooks executables; see "Failure injection"
  * in book/src/design/stdlib/test.md. The compiler links this object only into
- * test builds, with `-Wl,--wrap=NAME` for each call below, so the program and
- * runtime reach these definitions instead of the C library's. Shipped
- * programs never contain it.
+ * instrumented builds, with `-Wl,--wrap=NAME` for each call below, so the program and
+ * runtime reach these definitions instead of the C library's. Default builds
+ * never contain it.
  *
  * Each budget belongs to the calling thread. A negative budget never fails;
  * otherwise each call spends one unit and fails once none remain, until the
