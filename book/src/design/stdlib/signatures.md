@@ -3150,3 +3150,38 @@ def v4() -> Result[Uuid, SecretsError]
 def v7_from[R: Reader](at: &Timestamp, source: &mut Source[R]) -> Result[Uuid, RangeError | SecretsError]
 def v7() -> Result[Uuid, RangeError | SecretsError]
 ```
+
+## `std.xml`
+
+Bounded UTF-8 XML event readers and validating stream writers, without DTDs or external entities. Errors: `XmlError`. [Reference](xml.md).
+
+```text
+enum Fault
+    Syntax | UnexpectedEnd | InvalidName | InvalidCharacter | InvalidUtf8 | InvalidReference | UnknownEntity | DuplicateAttribute | MismatchedEnd | DoctypeForbidden | UnsupportedDeclaration | DepthExceeded | InputTooLarge | OutputTooLarge | TokenTooLarge | TooManyAttributes | InvalidLimits | InvalidState | Stopped | Allocation(AllocError) | Stream(StreamError)
+class XmlError
+    fault: Fault
+    offset: i64
+class Limits
+    max_depth: i64
+    max_input: i64
+    max_output: i64
+    max_token: i64
+    max_attributes: i64
+def limits() -> Limits
+class Attribute
+    name: str
+    value: str
+enum Event
+    Declaration(Option[bool]) | Start(str, list[Attribute]) | Empty(str, list[Attribute]) | End(str) | Text(str) | CData(str) | Comment(str) | ProcessingInstruction(str, str) | Eof
+class Reader[R]
+    inner: R
+    def offset(self) -> i64
+    def next(self: &mut Reader[R]) -> Result[Event, XmlError]
+def reader[R](inner: R, bounds: &Limits) -> Result[Reader[R], XmlError]
+class Writer[W]
+    inner: W
+    def offset(self) -> i64
+    def write(self: &mut Writer[W], event: &Event) -> Result[(), XmlError]
+    def finish(self: &mut Writer[W]) -> Result[(), XmlError]
+def writer[W](inner: W, bounds: &Limits) -> Result[Writer[W], XmlError]
+```

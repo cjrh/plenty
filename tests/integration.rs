@@ -584,3 +584,6 @@ fn every_test_file_is_listed() {
         entries.join("\n")
     );
 }
+
+#[path = "test_std_xml.rs"]
+mod test_std_xml;

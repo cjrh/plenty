@@ -83,7 +83,7 @@ choice with a measurement or allocation check before implementation.
 | Issue | Module | Choice | Reason |
 |---|---|---|---|
 | #461 | [`std.uuid`](../design/stdlib/uuid.md) | Plenty | Implemented: byte formatting over `std.secrets` and `std.time` |
-| #462 | `std.xml` | Plenty | Streaming parser like `std.json`; `quick-xml` allocates infallibly |
+| #462 | [`std.xml`](../design/stdlib/xml.md) | Plenty | Implemented bounded UTF-8 event reader/writer; no DTDs or external entities. Pure Plenty keeps allocation failures explicit. |
 | #463 | Time zones | Plenty | Package; packages carry only Plenty source |
 | #464 | AEAD, signatures, key exchange | Native | Cryptography; `ring` is already linked for `std.tls` |
 | #465 | Unicode segmentation | Plenty | Package; generated tables |
