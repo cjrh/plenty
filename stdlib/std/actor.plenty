@@ -1,0 +1,721 @@
+# Supervised actors on one thread. Every actor owns a heap: its handlers
+# allocate there, a trap discards the heap and closes its files, and the
+# actor's parent receives the exit. Messages are copied into the receiver's
+# heap and mailboxes are bounded. See book/src/design/stdlib/actor.md.
+from std.net import NetError, TcpListener, TcpStream
+from std.ready import Interest, Readiness, Selector, WaitError, selector
+from std.sync import CancellationToken
+from std.time import Deadline, deadline_at, monotonic_now
+
+# Operations of the runtime's `plenty_actor_heap`.
+const op_create: i64 = 0
+const op_discard: i64 = 1
+const op_used: i64 = 2
+const op_used_total: i64 = 3
+const op_committed_total: i64 = 4
+const op_live: i64 = 5
+const op_switch: i64 = 6
+const op_prepare: i64 = 7
+# `op_switch` argument and result naming the process allocator.
+const system: i64 = -1
+# `op_create` result on targets without actor heaps.
+const unsupported: i64 = -4
+
+# The largest heap limit, 64 MiB. At most 1024 heaps are live per process.
+pub const max_heap_limit: i64 = 67108864
+# Spawn requests one handler can make.
+pub const max_spawns: i64 = 16
+
+# An actor's identity: a slot and a generation. A stopped actor's address is
+# never reused, so sending to it reports `Gone`.
+@copy
+pub class Address:
+    _key: u64
+
+    pub def key(self) -> u64:
+        self._key
+
+def address(slot: i64, generation: u32) -> Address:
+    Address((u64(generation) << 32u64) | u64(slot))
+
+def slot_of(key: u64) -> i64:
+    i64(key & 4294967295u64)
+
+def generation_of(key: u64) -> u32:
+    u32(key >> 32u64)
+
+# How an actor ended, as its parent sees it.
+pub enum Exit[E]:
+    # Stopped by `Context.stop`, a `Stop` request, or a spawn hook that
+    # returned `Nothing`.
+    Stopped
+    # A handler returned this error.
+    Failed(E)
+    # A handler trapped or exhausted its heap. The heap was discarded.
+    Trapped
+
+# What an actor receives.
+pub enum Mail[M, E]:
+    Message(M)
+    # Readiness of a handle the actor watches.
+    Ready(Readiness)
+    # A child stopped.
+    Down(Address, Exit[E])
+    # A stop request; the actor stops after handling it.
+    Stop
+
+# A message that was not delivered, returned to the sender.
+pub enum Undelivered[M]:
+    # The receiver's mailbox is full, or its heap cannot hold the copy.
+    Full(M)
+    # The receiver has stopped.
+    Gone(M)
+
+pub enum StartError:
+    # This target has no actor heaps; only x86-64 Linux does.
+    Unsupported
+    # The stage has no free slot, or a handler made `max_spawns` requests.
+    Capacity
+    # The process already has 1024 live heaps, or reserving one failed.
+    Heaps
+    # The limit is not in 1..max_heap_limit.
+    Limit
+    # The mailbox could not be allocated.
+    Mailbox
+
+# Counts since the stage was created.
+@copy
+pub class Stats:
+    pub started: i64
+    pub stopped: i64
+    pub failed: i64
+    pub trapped: i64
+    pub delivered: i64
+    # Messages refused because a mailbox was full.
+    pub full: i64
+    # Messages and readiness for an actor that had stopped.
+    pub gone: i64
+    # `Down` mail for a parent that had stopped.
+    pub lost: i64
+
+# Whether this target supports actor heaps.
+pub def supported() -> bool:
+    heap = __actor_heap(op_create, 4096)
+    if heap < 0:
+        return False
+    __actor_heap(op_discard, heap)
+    True
+
+# Live heaps in the process.
+pub def heaps_live() -> i64:
+    __actor_heap(op_live, 0)
+
+# Bytes in live blocks over all heaps, each rounded up to its size class.
+pub def heap_bytes_used() -> i64:
+    __actor_heap(op_used_total, 0)
+
+# Bytes made writable over all heaps; discarding a heap returns its bytes.
+pub def heap_bytes_committed() -> i64:
+    __actor_heap(op_committed_total, 0)
+
+# A slot's mailbox and bookkeeping. Allocated outside every actor heap.
+class Mailbox[M, E]:
+    generation: u32
+    # The slot's heap, or -1 when the slot is free.
+    heap: i64
+    parent: u64
+    has_parent: bool
+    # Placed by a spawn request; its node is built after the handler returns.
+    pending: bool
+    # Built but not yet started; `started` runs before any mail.
+    fresh: bool
+    # A readiness message is queued; level-triggered readiness is not queued twice.
+    ready: bool
+    # Delivered `Stop`: the actor stops after the handler returns.
+    stopping: bool
+    items: list[Option[Mail[M, E]]]
+    head: i64
+    count: i64
+    # A stopped child whose `Down` its parent has not received yet. The slot
+    # holds the exit, so `Down` needs no mailbox room and is never refused.
+    zombie: bool
+    exit: Option[Exit[E]]
+    down_key: u64
+    down_next: i64
+    # This actor's queue of zombie children, linked through `down_next`.
+    down_head: i64
+    down_tail: i64
+
+# Lent to every handler. Its fields live outside every actor heap and hold
+# no actor's pointers, so a handler cannot leave one behind in it.
+pub class Context[M, E]:
+    _boxes: list[Mailbox[M, E]]
+    _free: list[i64]
+    _runnable: list[i64]
+    _run_head: i64
+    _run_count: i64
+    _queued: list[bool]
+    _selector: Selector
+    _mailbox: i64
+    _self: u64
+    _stopping: bool
+    # A spawn hook is running; it cannot request more spawns.
+    _building: bool
+    _spawn_slots: list[i64]
+    _spawn_tags: list[i64]
+    _spawn_count: i64
+    _stats: Stats
+
+    # The running actor's address.
+    pub def address(self) -> Address:
+        Address(self._self)
+
+    # Stops the running actor after this handler returns.
+    pub def stop(self: &mut Context[M, E]) -> ():
+        self._stopping = True
+
+    # Bytes used by the running actor's heap.
+    pub def heap_used(self) -> i64:
+        __actor_heap(op_used, self._boxes[slot_of(self._self)].heap)
+
+    # Copies `message` into the receiver's heap and queues it. The original
+    # is dropped on success and returned on failure.
+    pub def send(self: &mut Context[M, E], to: Address, message: M) -> Result[(), Undelivered[M]]:
+        index = slot_of(to._key)
+        if not self.accepts(to._key):
+            self._stats.gone += 1
+            return Err(Undelivered[M].Gone(message))
+        if self._boxes[index].count == len(self._boxes[index].items):
+            self._stats.full += 1
+            return Err(Undelivered[M].Full(message))
+        previous = __actor_heap(op_switch, self._boxes[index].heap)
+        copied = copy(&message)
+        mut mail: Option[Mail[M, E]] = Nothing
+        match copied:
+            case Ok(value):
+                mail = Some(Mail[M, E].Message(value))
+            case Err(_):
+                pass
+        __actor_heap(op_switch, previous)
+        match mail:
+            case Some(value):
+                self.push(index, Some(value))
+                Ok(())
+            case Nothing:
+                self._stats.full += 1
+                Err(Undelivered[M].Full(message))
+
+    # Asks the actor at `to` to stop. False when it has stopped or its
+    # mailbox is full.
+    pub def stop_actor(self: &mut Context[M, E], to: Address) -> bool:
+        index = slot_of(to._key)
+        if not self.accepts(to._key):
+            return False
+        if self._boxes[index].count == len(self._boxes[index].items):
+            return False
+        self.push(index, Some(Mail[M, E].Stop))
+        True
+
+    # Reserves a child slot, a heap of `limit` bytes and a mailbox. After the
+    # handler returns, the stage calls the parent's `spawn(tag, child,
+    # context)` with the child's heap current to build the child. The parent
+    # receives `Down` when the child stops.
+    pub def spawn(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]:
+        if self._building or self._spawn_count == max_spawns:
+            return Err(StartError.Capacity)
+        previous = __actor_heap(op_switch, system)
+        reserved = self.reserve(limit)
+        __actor_heap(op_switch, previous)
+        index = reserved?
+        self._boxes[index].pending = True
+        self._boxes[index].parent = self._self
+        self._boxes[index].has_parent = True
+        self._spawn_slots[self._spawn_count] = index
+        self._spawn_tags[self._spawn_count] = tag
+        self._spawn_count += 1
+        Ok(address(index, self._boxes[index].generation))
+
+    # Delivers the stream's readiness to the running actor as `Mail.Ready`.
+    pub def watch_stream(self: &mut Context[M, E], stream: &TcpStream, interest: Interest) -> Result[(), NetError]:
+        stream.watch(&mut self._selector, self._self, interest)
+
+    pub def unwatch_stream(self: &mut Context[M, E], stream: &TcpStream) -> Result[(), NetError]:
+        stream.unwatch(&mut self._selector)
+
+    # Delivers `Mail.Ready` while a connection is waiting to be accepted.
+    pub def watch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]:
+        listener.watch(&mut self._selector, self._self)
+
+    pub def unwatch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]:
+        listener.unwatch(&mut self._selector)
+
+    def accepts(self, key: u64) -> bool:
+        index = slot_of(key)
+        if index >= len(self._boxes):
+            return False
+        box = &self._boxes[index]
+        box.heap >= 0 and box.generation == generation_of(key)
+
+    # Queues `mail` for slot `index`, which has room.
+    def push(self: &mut Context[M, E], index: i64, mail: Option[Mail[M, E]]) -> ():
+        size = len(self._boxes[index].items)
+        at = (self._boxes[index].head + self._boxes[index].count) % size
+        self._boxes[index].items[at] = mail
+        self._boxes[index].count += 1
+        self.enqueue(index)
+
+    def enqueue(self: &mut Context[M, E], index: i64) -> ():
+        if self._queued[index] or self._boxes[index].pending:
+            return
+        self._queued[index] = True
+        at = (self._run_head + self._run_count) % len(self._runnable)
+        self._runnable[at] = index
+        self._run_count += 1
+
+    # Takes a free slot with a new heap and mailbox. Runs with System current.
+    def reserve(self: &mut Context[M, E], limit: i64) -> Result[i64, StartError]:
+        if limit < 1 or limit > max_heap_limit:
+            return Err(StartError.Limit)
+        if len(self._free) == 0:
+            return Err(StartError.Capacity)
+        heap = __actor_heap(op_create, limit)
+        if heap == unsupported:
+            return Err(StartError.Unsupported)
+        if heap < 0:
+            return Err(StartError.Heaps)
+        items: Result[list[Option[Mail[M, E]]], AllocError] = [Nothing for _ in range(self._mailbox)]
+        match items:
+            case Ok(storage):
+                index = self._free.pop().unwrap()
+                box = &mut self._boxes[index]
+                box.heap = heap
+                box.items = storage
+                box.head = 0
+                box.count = 0
+                box.has_parent = False
+                box.pending = False
+                box.fresh = False
+                box.ready = False
+                box.stopping = False
+                box.down_head = -1
+                box.down_tail = -1
+                Ok(index)
+            case Err(_):
+                __actor_heap(op_discard, heap)
+                Err(StartError.Mailbox)
+
+# Runs actors of one node type N, message type M and error type E. N is a
+# public class or enum with these public methods:
+#
+#   def started(self: &mut N, context: &mut Context[M, E]) -> Result[(), E]
+#   def receive(self: &mut N, mail: Mail[M, E], context: &mut Context[M, E]) -> Result[(), E]
+#   def spawn(self: &mut N, tag: i64, child: Address, context: &mut Context[M, E]) -> Result[Option[N], E]
+#
+# M and E must be copyable with `copy`.
+pub class Stage[N, M, E]:
+    _nodes: list[Option[N]]
+    _context: Context[M, E]
+    _live: i64
+
+    # Starts a root actor with a heap of `limit` bytes. `node` was built
+    # outside that heap: what it already owns stays outside, and a trap
+    # leaks it. Build anything large in `started` instead.
+    pub def start(self: &mut Stage[N, M, E], node: N, limit: i64) -> Result[Address, StartError]:
+        index = self._context.reserve(limit)?
+        self._nodes[index] = Some(node)
+        self._live += 1
+        self._context._stats.started += 1
+        self.begin(index)
+        Ok(address(index, self._context._boxes[index].generation))
+
+    # Copies `message` into the receiver's heap and queues it.
+    pub def send(self: &mut Stage[N, M, E], to: Address, message: M) -> Result[(), Undelivered[M]]:
+        self._context.send(to, message)
+
+    pub def stop_actor(self: &mut Stage[N, M, E], to: Address) -> bool:
+        self._context.stop_actor(to)
+
+    # Live actors.
+    pub def live(self) -> i64:
+        self._live
+
+    pub def stats(self) -> Stats:
+        self._context._stats
+
+    # Bytes used by the actor's heap, or Nothing once it has stopped.
+    pub def heap_used(self, actor: Address) -> Option[i64]:
+        if not self._context.accepts(actor._key):
+            return Nothing
+        Some(__actor_heap(op_used, self._context._boxes[slot_of(actor._key)].heap))
+
+    # Delivers mail and readiness until no actor is live. Fails when the
+    # deadline passes or `cancel` is cancelled first.
+    pub def run(self: &mut Stage[N, M, E], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]:
+        while self._live > 0:
+            if self._context._run_count > 0:
+                self.round()
+                # Collect readiness without waiting while mail is queued.
+                self.poll(&deadline_at(&monotonic_now()), cancel, False)?
+            else:
+                self.poll(deadline, cancel, True)?
+        Ok(())
+
+    def poll(self: &mut Stage[N, M, E], deadline: &Deadline, cancel: &CancellationToken, blocking: bool) -> Result[(), WaitError]:
+        mut count = 0
+        match self._context._selector.wait(deadline, cancel):
+            case Ok(ready):
+                count = ready
+            case Err(error):
+                match error:
+                    case WaitError.TimedOut:
+                        if blocking:
+                            return Err(error)
+                        return Ok(())
+                    case _:
+                        return Err(error)
+        for position in range(count):
+            event = self._context._selector.event(position)?
+            key = event.key
+            index = slot_of(key)
+            if not self._context.accepts(key):
+                self._context._stats.gone += 1
+            elif not self._context._boxes[index].ready:
+                if self._context._boxes[index].count == len(self._context._boxes[index].items):
+                    # Level-triggered readiness is reported again later.
+                    self._context._stats.full += 1
+                else:
+                    self._context._boxes[index].ready = True
+                    self._context.push(index, Some(Mail[M, E].Ready(Readiness(event.readiness.readable, event.readiness.writable, event.readiness.hangup, event.readiness.error))))
+        Ok(())
+
+    # Delivers one message to each actor that was runnable at the start.
+    def round(self: &mut Stage[N, M, E]) -> ():
+        for _ in range(self._context._run_count):
+            index = self._context._runnable[self._context._run_head]
+            self._context._run_head = (self._context._run_head + 1) % len(self._context._runnable)
+            self._context._run_count -= 1
+            self._context._queued[index] = False
+            self.deliver(index)
+
+    def deliver(self: &mut Stage[N, M, E], index: i64) -> ():
+        box = &mut self._context._boxes[index]
+        if box.heap < 0:
+            return
+        if box.fresh:
+            box.fresh = False
+            self.begin(index)
+            return
+        # Queued mail first, so `Down` follows every message the child sent.
+        if box.count == 0:
+            if box.down_head >= 0:
+                self.deliver_down(index)
+            return
+        mail = replace(box.items[box.head], Nothing)
+        box.head = (box.head + 1) % len(box.items)
+        box.count -= 1
+        match &mail:
+            case Some(Mail.Ready(_)):
+                box.ready = False
+            case Some(Mail.Stop):
+                box.stopping = True
+            case _:
+                pass
+        heap = box.heap
+        self.prepare(index)
+        self._context._stats.delivered += 1
+        match mail:
+            case Some(next):
+                outcome = __actor_run(heap, run_receive, &mut self._nodes[index], next, &mut self._context)
+                self.settle(index, outcome_of(outcome))
+            case Nothing:
+                pass
+
+    # Delivers the oldest child exit and frees the child's slot.
+    def deliver_down(self: &mut Stage[N, M, E], index: i64) -> ():
+        zombie = self.unlink_down(index)
+        exit = replace(self._context._boxes[zombie].exit, Nothing)
+        child = Address(self._context._boxes[zombie].down_key)
+        self.bury(zombie)
+        heap = self._context._boxes[index].heap
+        self.prepare(index)
+        self._context._stats.delivered += 1
+        match exit:
+            case Some(value):
+                outcome = __actor_run(heap, run_receive, &mut self._nodes[index], Mail[M, E].Down(child, value), &mut self._context)
+                self.settle(index, outcome_of(outcome))
+            case Nothing:
+                pass
+
+    def unlink_down(self: &mut Stage[N, M, E], index: i64) -> i64:
+        zombie = self._context._boxes[index].down_head
+        next = self._context._boxes[zombie].down_next
+        self._context._boxes[index].down_head = next
+        if next < 0:
+            self._context._boxes[index].down_tail = -1
+        zombie
+
+    # Returns a zombie's slot to the free list.
+    def bury(self: &mut Stage[N, M, E], zombie: i64) -> ():
+        self._context._boxes[zombie].zombie = False
+        self._context._boxes[zombie].down_next = -1
+        self._context._free.append(zombie).unwrap()
+
+    def prepare(self: &mut Stage[N, M, E], index: i64) -> ():
+        self._context._self = address(index, self._context._boxes[index].generation)._key
+        self._context._stopping = False
+        self._context._spawn_count = 0
+
+    def begin(self: &mut Stage[N, M, E], index: i64) -> ():
+        heap = self._context._boxes[index].heap
+        self.prepare(index)
+        outcome = __actor_run(heap, run_started, &mut self._nodes[index], &mut self._context)
+        self.settle(index, outcome_of(outcome))
+
+    # Applies a handler's outcome: its spawn requests, then its stop or exit.
+    def settle(self: &mut Stage[N, M, E], index: i64, outcome: Outcome[E]) -> ():
+        count = self._context._spawn_count
+        self._context._spawn_count = 0
+        match outcome:
+            case Outcome.Done:
+                stopping = self._context._stopping or self._context._boxes[index].stopping
+                for position in range(count):
+                    hook = self.build(index, position)
+                    match hook:
+                        case Outcome.Done:
+                            pass
+                        case _:
+                            self.release_spawns(position + 1, count)
+                            self.end(index, hook)
+                            return
+                if stopping:
+                    self.finish(index)
+                    self.retire(index, Exit[E].Stopped)
+                elif self._context._boxes[index].count > 0 or self._context._boxes[index].down_head >= 0:
+                    self._context.enqueue(index)
+            case _:
+                self.release_spawns(0, count)
+                self.end(index, outcome)
+
+    def end(self: &mut Stage[N, M, E], index: i64, outcome: Outcome[E]) -> ():
+        match outcome:
+            case Outcome.Failed(error):
+                self.fail(index, error)
+            case Outcome.Trapped:
+                self.contain(index)
+            case Outcome.Done:
+                pass
+
+    # Builds spawn request `position` by calling the parent's spawn hook with
+    # the child's heap current. The hook is the parent's code, so its error
+    # or trap ends the parent.
+    def build(self: &mut Stage[N, M, E], parent: i64, position: i64) -> Outcome[E]:
+        child = self._context._spawn_slots[position]
+        tag = self._context._spawn_tags[position]
+        heap = self._context._boxes[child].heap
+        child_address = address(child, self._context._boxes[child].generation)
+        self._context._self = child_address._key
+        self._context._building = True
+        outcome = __actor_run(heap, run_spawn, &mut self._nodes[parent], tag, child_address, &mut self._context)
+        self._context._building = False
+        self._context._boxes[child].pending = False
+        match outcome:
+            case Ok(Ok(Some(node))):
+                self._nodes[child] = Some(node)
+                self._live += 1
+                self._context._stats.started += 1
+                self._context._boxes[child].fresh = True
+                self._context.enqueue(child)
+                Outcome[E].Done
+            case Ok(Ok(Nothing)):
+                self.release(child)
+                Outcome[E].Done
+            case Ok(Err(error)):
+                self.release(child)
+                Outcome[E].Failed(error)
+            case Err(_):
+                self.release(child)
+                Outcome[E].Trapped
+
+    # Releases the slots of spawn requests `start` to `stop` that were not built.
+    def release_spawns(self: &mut Stage[N, M, E], start: i64, stop: i64) -> ():
+        for position in range(start, stop):
+            self.release(self._context._spawn_slots[position])
+
+    # Frees a slot that never held a started actor.
+    def release(self: &mut Stage[N, M, E], index: i64) -> ():
+        self.clear(index)
+        __actor_heap(op_discard, self._context._boxes[index].heap)
+        self.free(index)
+
+    # Drops a stopped node with its heap current, so a trap in a destructor
+    # is contained too.
+    def finish(self: &mut Stage[N, M, E], index: i64) -> ():
+        node = replace(self._nodes[index], Nothing)
+        # A trap here changes nothing: the heap is discarded next either way.
+        match __actor_run(self._context._boxes[index].heap, run_drop, node):
+            case _:
+                pass
+
+    def fail(self: &mut Stage[N, M, E], index: i64, error: E) -> ():
+        exit = self.exit_for(index, &error)
+        drop(error)
+        self.finish(index)
+        self.retire(index, exit)
+
+    # The child's error copied into its parent's heap; without a live
+    # parent nothing receives it.
+    def exit_for(self: &mut Stage[N, M, E], index: i64, error: &E) -> Exit[E]:
+        box = &self._context._boxes[index]
+        if not box.has_parent or not self._context.accepts(box.parent):
+            return Exit[E].Trapped
+        previous = __actor_heap(op_switch, self._context._boxes[slot_of(box.parent)].heap)
+        mut exit = Exit[E].Trapped
+        match copy(error):
+            case Ok(copied):
+                exit = Exit[E].Failed(copied)
+            case Err(_):
+                pass
+        __actor_heap(op_switch, previous)
+        exit
+
+    # Contains a trapped actor. Its frames are gone and its node may be half
+    # updated, so no method or destructor of it runs again: the node is
+    # forgotten and its heap discarded, which frees its memory and closes
+    # its files.
+    def contain(self: &mut Stage[N, M, E], index: i64) -> ():
+        match replace(self._nodes[index], Nothing):
+            case Some(node):
+                __actor_forget(node)
+            case Nothing:
+                pass
+        self.retire(index, Exit[E].Trapped)
+
+    # Tells the parent, frees queued mail, discards the heap and frees the slot.
+    def retire(self: &mut Stage[N, M, E], index: i64, exit: Exit[E]) -> ():
+        match &exit:
+            case Exit.Stopped:
+                self._context._stats.stopped += 1
+            case Exit.Failed(_):
+                self._context._stats.failed += 1
+            case Exit.Trapped:
+                self._context._stats.trapped += 1
+        self.clear(index)
+        self.notify(index, exit)
+        __actor_heap(op_discard, self._context._boxes[index].heap)
+        self.free(index)
+        self._live -= 1
+
+    # Queues the exit for the parent: the slot becomes a zombie that holds it
+    # until the parent receives `Down`.
+    def notify(self: &mut Stage[N, M, E], index: i64, exit: Exit[E]) -> ():
+        box = &self._context._boxes[index]
+        if not box.has_parent:
+            return
+        parent = box.parent
+        child = address(index, box.generation)
+        if not self._context.accepts(parent):
+            self._context._stats.lost += 1
+            return
+        target = slot_of(parent)
+        zombie = &mut self._context._boxes[index]
+        zombie.zombie = True
+        zombie.exit = Some(exit)
+        zombie.down_key = child._key
+        zombie.down_next = -1
+        tail = self._context._boxes[target].down_tail
+        if tail < 0:
+            self._context._boxes[target].down_head = index
+        else:
+            self._context._boxes[tail].down_next = index
+        self._context._boxes[target].down_tail = index
+        self._context.enqueue(target)
+
+    # Drops queued mail and child exits, and frees the zombie slots. Each
+    # value lives in this slot's heap or outside every heap, and is whole, so
+    # dropping it is safe before the discard.
+    def clear(self: &mut Stage[N, M, E], index: i64) -> ():
+        box = &mut self._context._boxes[index]
+        while box.count > 0:
+            drop(replace(box.items[box.head], Nothing))
+            box.head = (box.head + 1) % len(box.items)
+            box.count -= 1
+        while self._context._boxes[index].down_head >= 0:
+            zombie = self.unlink_down(index)
+            drop(replace(self._context._boxes[zombie].exit, Nothing))
+            self._context._stats.lost += 1
+            self.bury(zombie)
+
+    def free(self: &mut Stage[N, M, E], index: i64) -> ():
+        zombie = self._context._boxes[index].zombie
+        box = &mut self._context._boxes[index]
+        box.heap = -1
+        box.generation += 1u32
+        box.pending = False
+        # An empty list owns no storage, so this releases the mailbox.
+        match list[Option[Mail[M, E]]]():
+            case Ok(empty):
+                box.items = empty
+            case Err(_):
+                box.items.clear()
+        self._context._queued[index] = False
+        if not zombie:
+            self._context._free.append(index).unwrap()
+
+# Allocates a stage for at most `capacity` live actors, each with a mailbox
+# of `mailbox` messages, reporting up to `events` ready handles per wait.
+pub def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], AllocError | WaitError]:
+    # Initializes runtime globals now, so admission needs no hidden allocation.
+    __actor_heap(op_prepare, 0)
+    nodes: list[Option[N]] = [Nothing for _ in range(capacity)]?
+    mut boxes: list[Mailbox[M, E]] = []?
+    for _ in range(capacity):
+        boxes.append(Mailbox[M, E](0u32, -1, 0u64, False, False, False, False, False, []?, 0, 0, False, Nothing, 0u64, -1, -1, -1))?
+    # Popped from the end, so slot 0 is used first.
+    free: list[i64] = [capacity - 1 - index for index in range(capacity)]?
+    runnable: list[i64] = [0 for _ in range(capacity)]?
+    queued: list[bool] = [False for _ in range(capacity)]?
+    spawn_slots: list[i64] = [0 for _ in range(max_spawns)]?
+    spawn_tags: list[i64] = [0 for _ in range(max_spawns)]?
+    context = Context[M, E](boxes, free, runnable, 0, 0, queued, selector(events)?, mailbox, 0u64, False, False, spawn_slots, spawn_tags, 0, Stats(0, 0, 0, 0, 0, 0, 0, 0))
+    Ok(Stage[N, M, E](nodes, context, 0))
+
+# A handler's result. `__actor_run` reports a trap through an error type
+# that source cannot name, so callers convert with `outcome_of`.
+enum Outcome[E]:
+    Done
+    Failed(E)
+    Trapped
+
+def outcome_of[E, T](result: Result[Result[(), E], T]) -> Outcome[E]:
+    match result:
+        case Ok(Ok(_)):
+            Outcome[E].Done
+        case Ok(Err(error)):
+            Outcome[E].Failed(error)
+        case Err(_):
+            Outcome[E].Trapped
+
+# The functions `__actor_run` calls with the actor's heap current.
+def run_started[N, M, E](slot: &mut Option[N], context: &mut Context[M, E]) -> Result[(), E]:
+    match slot:
+        case Some(node):
+            node.started(context)
+        case Nothing:
+            Ok(())
+
+def run_receive[N, M, E](slot: &mut Option[N], mail: Mail[M, E], context: &mut Context[M, E]) -> Result[(), E]:
+    match slot:
+        case Some(node):
+            node.receive(mail, context)
+        case Nothing:
+            Ok(())
+
+def run_spawn[N, M, E](slot: &mut Option[N], tag: i64, child: Address, context: &mut Context[M, E]) -> Result[Option[N], E]:
+    match slot:
+        case Some(node):
+            node.spawn(tag, child, context)
+        case Nothing:
+            Ok(Nothing)
+
+def run_drop[N](node: Option[N]) -> ():
+    drop(node)

@@ -392,6 +392,8 @@ mod test_slicing;
 mod test_small_conveniences;
 #[path = "test_stack_overflow.rs"]
 mod test_stack_overflow;
+#[path = "test_std_actor.rs"]
+mod test_std_actor;
 #[path = "test_std_archive.rs"]
 mod test_std_archive;
 #[path = "test_std_atomic.rs"]

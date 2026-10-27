@@ -1,0 +1,82 @@
+from std.actor import Address, Context, Exit, Mail, Undelivered, heap_bytes_committed, heap_bytes_used, heaps_live, stage
+from std.ready import WaitError
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+const small_heap: i64 = 65536
+
+pub enum Note:
+    Text(str)
+    Grow(i64)
+    Reply(Address)
+    Boom
+
+pub class Node:
+    pub tag: i64
+    pub downs: i64
+
+    pub def started(self: &mut Node, context: &mut Context[Note, AllocError]) -> Result[(), AllocError]:
+        if self.tag == 0:
+            grower = context.spawn(1, small_heap).unwrap()
+            replier = context.spawn(2, small_heap).unwrap()
+            trapper = context.spawn(3, small_heap).unwrap()
+            context.send(grower, Note.Grow(100000)).unwrap()
+            context.send(replier, Note.Reply(context.address())).unwrap()
+            context.send(trapper, Note.Boom).unwrap()
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[Note, AllocError], context: &mut Context[Note, AllocError]) -> Result[(), AllocError]:
+        match mail:
+            case Mail.Message(Note.Text(text)):
+                print(self.tag, "got", text).unwrap()
+                if self.tag == 9:
+                    context.stop()
+            case Mail.Message(Note.Grow(count)):
+                values: list[i64] = [0 for _ in range(count)]?
+                print("grew", len(values)).unwrap()
+            case Mail.Message(Note.Reply(to)):
+                text = f"reply from {self.tag}".unwrap()
+                context.send(to, Note.Text(text)).unwrap()
+                context.stop()
+            case Mail.Message(Note.Boom):
+                missing: Option[i64] = Nothing
+                missing.unwrap()
+            case Mail.Down(child, exit):
+                print("down", child.key() & 4294967295u64, exit).unwrap()
+                self.downs += 1
+                if self.downs == 3:
+                    context.stop()
+            case _:
+                pass
+        Ok(())
+
+    pub def spawn(self: &mut Node, tag: i64, child: Address, context: &mut Context[Note, AllocError]) -> Result[Option[Node], AllocError]:
+        Ok(Some(Node(tag, 0)))
+
+def describe(result: Result[(), Undelivered[Note]]) -> Result[(), IoError]:
+    match result:
+        case Ok(_):
+            print("sent")?
+        case Err(Undelivered.Full(note)):
+            print("full", note)?
+        case Err(Undelivered.Gone(note)):
+            print("gone", note)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | WaitError]:
+    deadline = deadline_after(&monotonic_now(), &seconds(10)).unwrap()
+    cancel = CancellationToken()?
+    mut tree = stage[Node, Note, AllocError](8, 4, 8)?
+    root = tree.start(Node(0, 0), small_heap).unwrap()
+    tree.run(&deadline, &cancel)?
+    print(tree.stats(), heaps_live(), heap_bytes_used(), heap_bytes_committed())?
+    describe(tree.send(root, Note.Text("late")))?
+
+    mut sink = stage[Node, Note, AllocError](1, 1, 1)?
+    only = sink.start(Node(9, 0), small_heap).unwrap()
+    describe(sink.send(only, Note.Text("first")))?
+    describe(sink.send(only, Note.Text("second")))?
+    sink.run(&deadline, &cancel)?
+    describe(sink.send(only, Note.Text("third")))?
+    print(sink.stats(), heaps_live(), heap_bytes_used())?
+    Ok(())
