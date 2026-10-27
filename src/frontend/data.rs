@@ -50,13 +50,6 @@ pub(super) struct DataTypes {
     required: RefCell<HashMap<String, Arc<Instantiation>>>,
     /// Signature-shape probes use placeholder arguments, not real instances.
     shapes_only: bool,
-    /// The type arguments of the instance being checked that its definition
-    /// also writes, while one is checked (issue #519).
-    naming: RefCell<Option<Naming>>,
-    /// The type arguments each field of a generic class instance writes, by
-    /// instance and field, where there are any. A body that accesses the
-    /// field records them.
-    field_names: RefCell<HashMap<Arc<str>, Vec<FieldNames>>>,
     /// The shape-only tables, created by the first probe and shared by the rest.
     shapes: RefCell<Option<TypeAliases>>,
 }
@@ -100,100 +93,6 @@ impl DataTypes {
     }
 }
 
-/// A field of a class instance and the type arguments its type writes.
-type FieldNames = (String, Vec<Ty>);
-
-/// The record behind `Instantiation::named`. A type reference that is not
-/// a substituted parameter resolves to a type the definition writes; such a
-/// type matching an argument is recorded. Substituted parameters are concrete
-/// references, which resolve without this record.
-pub(super) struct Naming {
-    arguments: Arc<[(Arc<str>, Ty)]>,
-    named: Vec<Ty>,
-}
-
-impl DataTypes {
-    /// Starts recording for the instance `required` describes, and returns
-    /// the enclosing record, which the caller restores with `restore_names`.
-    pub(super) fn record_names(&self, required: Option<&Arc<Instantiation>>) -> Option<Naming> {
-        let naming = required
-            .filter(|r| !r.parameters.is_empty())
-            .map(|r| Naming {
-                arguments: Arc::clone(&r.parameters),
-                named: r.named.to_vec(),
-            });
-        self.naming.replace(naming)
-    }
-
-    pub(super) fn restore_names(&self, outer: Option<Naming>) {
-        *self.naming.borrow_mut() = outer;
-    }
-
-    /// Notes the type of a written, non-parameter type reference.
-    pub(super) fn note_written(&self, ty: &Ty) {
-        if let Some(naming) = self.naming.borrow_mut().as_mut()
-            && !naming.named.contains(ty)
-            && naming.arguments.iter().any(|(_, t)| t == ty)
-        {
-            naming.named.push(ty.clone());
-        }
-    }
-
-    /// Records the arguments that each field of class instance `class`
-    /// writes. The fields are resolved again by the declaration, which
-    /// reports their errors.
-    fn record_fields(
-        &self,
-        class: &Arc<str>,
-        fields: &[(String, TypeRef)],
-        required: &Arc<Instantiation>,
-        aliases: &TypeAliases,
-    ) {
-        let mut written = Vec::new();
-        for (name, ty) in fields {
-            let outer = self.record_names(Some(required));
-            let _ = ty.resolve(aliases);
-            let naming = self.naming.replace(outer);
-            if let Some(naming) = naming.filter(|n| !n.named.is_empty()) {
-                written.push((name.clone(), naming.named));
-            }
-        }
-        if !written.is_empty() {
-            self.field_names
-                .borrow_mut()
-                .insert(Arc::clone(class), written);
-        }
-    }
-
-    /// Notes the arguments that field `field` of `class` writes, for a body
-    /// that accesses it.
-    pub(super) fn note_field(&self, class: &str, field: &str) {
-        if self.naming.borrow().is_none() {
-            return;
-        }
-        let fields = self.field_names.borrow();
-        let Some(fields) = fields.get(class) else {
-            return;
-        };
-        for (_, ty) in fields.iter().filter(|(name, _)| name == field) {
-            for ty in ty {
-                self.note_written(ty);
-            }
-        }
-    }
-
-    /// `required` with the arguments recorded since `record_names`.
-    pub(super) fn with_names(&self, required: &Arc<Instantiation>) -> Arc<Instantiation> {
-        match &*self.naming.borrow() {
-            Some(naming) if naming.named.len() > required.named.len() => Arc::new(Instantiation {
-                named: naming.named.as_slice().into(),
-                ..(**required).clone()
-            }),
-            _ => Arc::clone(required),
-        }
-    }
-}
-
 /// One link in the chain of instances that required the current one. Walked
 /// only to explain an expansion that reaches a specialization limit.
 struct Requirer {
@@ -234,6 +133,11 @@ impl DataTypes {
         self.arguments.borrow().get(&**name).cloned()
     }
 
+    pub(super) fn origin_class(&self, ty: &Ty) -> Option<(&classes::ClassDecl, Vec<Ty>)> {
+        let (name, arguments) = self.arguments(ty)?;
+        Some((self.classes.get(&name)?, arguments))
+    }
+
     /// The reporting method of the toolchain's Context is available only when
     /// its cause can be reported. Nominal identity and source provenance both
     /// matter: a user type with the same short name has no special behavior.
@@ -266,10 +170,12 @@ impl DataTypes {
         let name = "std.report.Formattable".to_owned();
         method.inputs[0].1 = TypeRef {
             concrete: None,
+            parameter: false,
             at: declaration.at.clone(),
             name: Some("&".into()),
             args: vec![TypeRef {
                 concrete: None,
+                parameter: false,
                 at: declaration.at.clone(),
                 name: Some(name.clone()),
                 args: vec![],
@@ -299,6 +205,7 @@ impl DataTypes {
                 let at = &class.at;
                 let reference = |name: String, args: Vec<TypeRef>| TypeRef {
                     concrete: None,
+                    parameter: false,
                     at: at.clone(),
                     name: Some(name),
                     args,
@@ -592,7 +499,6 @@ impl TypeAliases {
             Some(Requiring::Instance(outer)) => Instantiation {
                 instance,
                 parameters,
-                named: Arc::default(),
                 ..(**outer).clone()
             },
             Some(Requiring::Use(at)) => Instantiation {
@@ -600,7 +506,6 @@ impl TypeAliases {
                 requested: instance.clone(),
                 instance,
                 parameters,
-                named: Arc::default(),
                 unused_method: None,
             },
             None => Instantiation {
@@ -608,7 +513,6 @@ impl TypeAliases {
                 requested: instance.clone(),
                 instance,
                 parameters,
-                named: Arc::default(),
                 unused_method: None,
             },
         });
@@ -752,17 +656,11 @@ impl TypeAliases {
                         for method in &mut declaration.methods {
                             substitute_method(method, &substitutions)?;
                         }
-                        // Variant types the declaration writes may name a
-                        // type argument without the parameter (issue #519).
-                        let outer = self.data.record_names(Some(&required));
-                        let resolved = self.resolve_enum(&declaration);
-                        let required = self.data.with_names(&required);
-                        self.data.restore_names(outer);
-                        let resolved = resolved?;
+                        let resolved = self.resolve_enum(&declaration)?;
                         self.data
                             .required
                             .borrow_mut()
-                            .insert(concrete_name.clone(), required);
+                            .insert(concrete_name.clone(), Arc::clone(&required));
                         self.data.pending_enums.borrow_mut().push(declaration);
                         Ok((resolved, None))
                     } else {
@@ -774,11 +672,6 @@ impl TypeAliases {
                         }
                         for method in &mut declaration.methods {
                             substitute_method(method, &substitutions)?;
-                        }
-                        // Recorded by field, for the bodies that access it.
-                        if let Ty::Class(t) = &ty {
-                            self.data
-                                .record_fields(&t.name, &declaration.fields, &required, self);
                         }
                         Ok((declaration.resolve(self)?, Some(declaration)))
                     }

@@ -162,6 +162,7 @@ impl ClassDecl {
 fn type_ref(at: &Token, name: &str) -> TypeRef {
     TypeRef {
         concrete: None,
+        parameter: false,
         at: at.clone(),
         name: Some(name.into()),
         args: vec![],
@@ -197,6 +198,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 "self".into(),
                 TypeRef {
                     concrete: None,
+                    parameter: false,
                     at: at.clone(),
                     name: Some("&mut".into()),
                     args: vec![type_ref(at, &class.name)],
@@ -235,6 +237,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 defaults: vec![],
                 output: TypeRef {
                     concrete: None,
+                    parameter: false,
                     at: at.clone(),
                     name: None,
                     args: vec![],
@@ -301,6 +304,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             let output = if fallible {
                 TypeRef {
                     concrete: None,
+                    parameter: false,
                     at: at.clone(),
                     name: Some("Result".into()),
                     args: vec![type_ref(at, &class.name), type_ref(at, "AllocError")],
@@ -760,7 +764,6 @@ impl Lower<'_> {
         }
         let index = field_index(&class, name, &e.at)?;
         modules::check_member(self.access, &class.name, name, &e.at)?;
-        self.aliases.data.note_field(&class.name, name);
         let ty = class.get().fields[index].1.clone();
         ops.push(Op::Class(ClassOp::Field(class, index)));
         Ok((ty, loans))
@@ -895,7 +898,6 @@ impl Lower<'_> {
         let Ty::Class(t) = unbox(owner) else {
             return None;
         };
-        self.aliases.data.note_field(&t.name, name);
         t.get()
             .fields
             .iter()
@@ -978,9 +980,12 @@ impl Lower<'_> {
             .ok_or_else(|| {
                 let message = format!("unknown method `{name}` on {owner}");
                 match self.place_type(base).map(unbox) {
-                    Some(ty) => base.at.demand_error(
+                    Some(ty) => self.value_demand_error(
+                        &base.at,
+                        base,
                         message,
                         crate::ownership::Demand::Method(name.to_owned(), ty),
+                        true,
                     ),
                     None => base.at.error(message),
                 }

@@ -719,7 +719,6 @@ impl Lower<'_> {
             };
             let index = classes::field_index(class, name, &e.at)?;
             modules::check_member(self.access, &class.name, name, &e.at)?;
-            self.aliases.data.note_field(&class.name, name);
             if self.loans[loan].precise {
                 self.loans[loan].fields.push(index);
             }

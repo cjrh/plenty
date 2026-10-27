@@ -204,6 +204,7 @@ impl Parser {
         let qualifier = (!path.is_empty()).then(|| {
             Box::new(TypeRef {
                 concrete: None,
+                parameter: false,
                 at: at.clone(),
                 name: Some(path.join(".")),
                 args: vec![],
@@ -1063,7 +1064,7 @@ impl Lower<'_> {
             return Ok(());
         };
         if let Some(concrete) = &owner.concrete {
-            return self.same(Some(concrete.clone()), Some(matched), &owner.at);
+            return self.same(Some((**concrete).clone()), Some(matched), &owner.at);
         }
         let name = owner.name.as_deref().unwrap_or_default();
         if matches!(name, "Option" | "Result") {

@@ -50,6 +50,7 @@ mod operators;
 mod patterns;
 mod pipelines;
 mod protocols;
+mod provenance;
 mod references;
 mod retention;
 mod shared;
@@ -713,7 +714,11 @@ struct Capture {
 #[derive(Clone)]
 struct TypeRef {
     /// Internal substitutions preserve inferred frame identities directly.
-    concrete: Type,
+    /// Boxing keeps parsed type references and statement nodes compact.
+    concrete: Option<Box<Ty>>,
+    /// This node substitutes a source type parameter, rather than a concrete
+    /// type written by the definition or supplied by compiler-generated code.
+    parameter: bool,
     at: Token,
     /// None denotes unit, spelled `()`.
     name: Option<String>,
@@ -728,16 +733,11 @@ impl TypeRef {
                 .at
                 .error("type nesting exceeds the implementation limit of 64"));
         }
-        if self.concrete.is_none()
-            && let Some(ty) = &ty
-        {
-            aliases.data.note_written(ty);
-        }
         Ok(ty)
     }
     fn resolve_inner(&self, aliases: &TypeAliases) -> Result<Type> {
         if let Some(ty) = &self.concrete {
-            return Ok(Some(ty.clone()));
+            return Ok(Some((**ty).clone()));
         }
         let Some(name) = &self.name else {
             return Ok(None);
@@ -1479,6 +1479,7 @@ impl Parser {
         }
         Ok(TypeRef {
             concrete: None,
+            parameter: false,
             at,
             name: Some("|".into()),
             args,
@@ -1496,6 +1497,7 @@ impl Parser {
             self.type_depth -= 1;
             return Ok(TypeRef {
                 concrete: None,
+                parameter: false,
                 at,
                 name: Some(name.into()),
                 args: vec![inner?],
@@ -1517,6 +1519,7 @@ impl Parser {
             }
             return Ok(TypeRef {
                 concrete: None,
+                parameter: false,
                 at,
                 name: if args.is_empty() {
                     None
@@ -1558,6 +1561,7 @@ impl Parser {
                 self.expect("]")?;
                 return Ok(TypeRef {
                     concrete: None,
+                    parameter: false,
                     at,
                     name: Some(name),
                     args,
@@ -1565,6 +1569,7 @@ impl Parser {
             }
             return Ok(TypeRef {
                 concrete: None,
+                parameter: false,
                 at,
                 name: Some(name),
                 args: self.type_arguments()?,
@@ -1880,6 +1885,7 @@ impl Parser {
             {
                 TypeRef {
                     concrete: None,
+                    parameter: false,
                     // Preserve the shorthand's provenance for receiver diagnostics.
                     at: param_at.clone(),
                     name: Some(
@@ -1892,6 +1898,7 @@ impl Parser {
                     ),
                     args: vec![TypeRef {
                         concrete: None,
+                        parameter: false,
                         at: at.clone(),
                         name: Some(class.into()),
                         args: vec![],
@@ -2938,6 +2945,7 @@ struct Lower<'a> {
     /// Source name of each slot, kept after the binding leaves scope so an
     /// ownership diagnostic can still name it.
     slot_names: Vec<Option<Arc<str>>>,
+    value_origins: HashMap<u8, provenance::Origin>,
     /// Position of the last source marker, restored after scope cleanup.
     site: std::cell::Cell<Option<crate::ownership::Site>>,
     /// The next identity for `Forward` markers.
@@ -3412,6 +3420,7 @@ impl Lower<'_> {
                 if self.aliases.data.contains(name) {
                     let ty = TypeRef {
                         concrete: None,
+                        parameter: false,
                         at: e.at.clone(),
                         name: Some(name.clone()),
                         args: types.clone(),
@@ -3466,9 +3475,10 @@ impl Lower<'_> {
                             } else {
                                 "&value.field (or &mut value.field)"
                             };
-                            return Err(e.at.demand_error(
+                            return Err(self.value_demand_error(&e.at, e,
                                 format!("cannot move out of a field; use {copy}{borrow}, or replace(value.field, replacement) on a mutable owner"),
                                 crate::ownership::Demand::Copy(ty, "cannot move out of a field"),
+                                false,
                             ));
                         }
                         Self::end_reads(loans, ops);
@@ -3622,12 +3632,15 @@ impl Lower<'_> {
                         return Err(e.at.error("an atomic is read with load(), not through `*`"));
                     }
                     if ty.affine() {
-                        return Err(e.at.demand_error(
+                        return Err(self.value_demand_error(
+                            &e.at,
+                            e,
                             "cannot move out of a reference; use copy or borrow",
                             crate::ownership::Demand::Copy(
                                 (*ty).clone(),
                                 "cannot move out of a reference",
                             ),
+                            false,
                         ));
                     }
                     ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
@@ -3857,12 +3870,15 @@ impl Lower<'_> {
                             || (a == Ty::Str && op == "+")
                             || (a.is_orderable() && is_comparison(op)))
                     {
-                        return Err(e.at.demand_error(
+                        return Err(self.value_demand_error(
+                            &e.at,
+                            e,
                             format!(
                                 "operator `{op}` does not accept {}",
                                 type_name(Some(a.clone()))
                             ),
                             crate::ownership::Demand::Operator(op.clone(), a.clone()),
+                            false,
                         ));
                     }
                     if op == "/" && !a.is_float() {
@@ -5073,6 +5089,10 @@ impl Lower<'_> {
                     };
                     let value_start = ops.len();
                     let (ty, origin) = self.binding_value(value, context, ops)?;
+                    let diagnostic_origin = annotation
+                        .as_ref()
+                        .map(provenance::Origin::written)
+                        .unwrap_or_else(|| self.value_origin(value));
                     if let Some(expected) = annotation {
                         let expected = expected.resolve(self.aliases)?.ok_or_else(|| {
                             expected.at.error("unit bindings are not supported yet")
@@ -5124,6 +5144,7 @@ impl Lower<'_> {
                         }
                         slot
                     };
+                    self.record_value_origin(slot, diagnostic_origin);
                     self.mark(&stmt.at, ops);
                     ops.push(Op::StoreLocal(slot));
                     self.building(&value.at, value_start, ops, block_value(value));
@@ -5788,21 +5809,9 @@ fn lower_function(
     let outer = aliases
         .data
         .attribute(required.clone().map(data::Requiring::Instance));
-    let outer_names = aliases.data.record_names(required.as_ref());
-    if required.is_some() {
-        // The parameter types were resolved when the instance was required;
-        // this records the types they write. Any error was reported then.
-        // The return type supplies no value to the body, and recording it
-        // would hide the cause of `def size[T](value: &T) -> i64` for `i64`.
-        for (_, t) in &f.inputs {
-            let _ = t.resolve(aliases);
-        }
-    }
     let lowered = generics
         .complete_instance(symbol, f, sigs)
         .and_then(|f| lower_body(symbol, f, heap, sigs, generics, aliases, access));
-    let required = required.map(|required| aliases.data.with_names(&required));
-    aliases.data.restore_names(outer_names);
     aliases.data.attribute(outer);
     lowered.map_err(|error| {
         if error.is::<Attributed>() {
@@ -5944,6 +5953,7 @@ fn lower_body(
                     None
                 },
                 slot_names: Vec::new(),
+                value_origins: HashMap::default(),
                 site: Default::default(),
                 forwarded: Default::default(),
             };
@@ -5951,6 +5961,14 @@ fn lower_body(
                 ide::local_type(&written.at, ty);
             }
             for (i, (name, ty)) in sig.inputs.iter().enumerate() {
+                let origin = if name == "self" {
+                    lower
+                        .self_origin(ty)
+                        .unwrap_or_else(|| provenance::Origin::written(&f.inputs[i].1))
+                } else {
+                    provenance::Origin::written(&f.inputs[i].1)
+                };
+                lower.record_value_origin(i as u8, origin);
                 lower.bind(
                     name.clone(),
                     Local {
@@ -6089,6 +6107,7 @@ fn lower_body(
         let facts = source
             .as_ref()
             .map(|source| lower.generics.source_facts(source));
+        let parameter_values = lower.parameter_values();
         let compiled = CompiledFn {
             location: source
                 .as_ref()
@@ -6098,10 +6117,8 @@ fn lower_body(
                 source,
                 trap_file: facts.map(|(relative, _)| relative),
                 names: lower.slot_names,
-                required: lower
-                    .generics
-                    .requirement(symbol)
-                    .map(|required| lower.aliases.data.with_names(required)),
+                parameter_values,
+                required: lower.generics.requirement(symbol).cloned(),
             }),
             generator: yield_type,
             sig,

@@ -502,8 +502,7 @@ def main() -> Result[(), AllocError]:
   4:14: note: in instantiation `twice[list[i64]]`: use of moved binding `row`
   3:13: note: `row` is moved here"
     );
-    // Types do not record substitution, so once the definition writes the
-    // argument's type, copying the parameter's value is not attributed either.
+    // An unrelated concrete annotation must not suppress a genuine T value.
     assert_eq!(
         rejection(
             "def twice[T](value: T) -> Result[(), AllocError]:
@@ -517,10 +516,83 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "
         ),
-        "8:5: cannot instantiate `twice[list[i64]]`: its definition is rejected
+        "8:5: `twice[list[i64]]` copies `T`, but `list[i64]` cannot be copied
   4:14: note: in instantiation `twice[list[i64]]`: use of moved binding `value`
   3:13: note: `value` is moved here"
     );
+}
+
+#[test]
+fn inferred_concrete_values_are_not_blamed_on_matching_type_parameters() {
+    let cases = [
+        (
+            "def inferred[T](value: T) -> Result[(), AllocError]:\n    row = [1]?\n    first = row\n    second = row\n    Ok(())\n\ndef main() -> Result[(), AllocError]:\n    inferred([0]?)?\n    Ok(())\n",
+            "inferred[list[i64]]",
+            "use of moved binding `row`",
+        ),
+        (
+            "def inferred[T](value: T) -> Result[(), AllocError]:\n    rows = [[1]?]?\n    row = rows[0]\n    Ok(())\n\ndef main() -> Result[(), AllocError]:\n    inferred([0]?)?\n    Ok(())\n",
+            "inferred[list[i64]]",
+            "cannot move out of indexed storage",
+        ),
+        (
+            "def inferred[T](value: T) -> bool:\n    flag = True\n    flag + flag\n\ndef main() -> ():\n    drop(inferred(False))\n",
+            "inferred[bool]",
+            "operator `+` does not accept bool",
+        ),
+        (
+            "def inferred[T](value: T) -> i64:\n    count = 1\n    count.size()\n\ndef main() -> ():\n    drop(inferred(42))\n",
+            "inferred[i64]",
+            "unsupported method `size`",
+        ),
+        (
+            "def inferred[T](value: T, flag: bool) -> Result[(), AllocError]:\n    mut row = value\n    if flag:\n        row = [1]?\n    first = row\n    second = row\n    Ok(())\n\ndef main() -> Result[(), AllocError]:\n    inferred([0]?, True)?\n    Ok(())\n",
+            "inferred[list[i64]]",
+            "use of moved binding `row`",
+        ),
+        (
+            "def inferred[T](key: T, values: &dict[T, bool]) -> bool:\n    values[key] + values[key]\n\ndef main() -> Result[(), AllocError]:\n    values = {True: False}?\n    drop(inferred(True, &values))\n    Ok(())\n",
+            "inferred[bool]",
+            "operator `+` does not accept bool",
+        ),
+        (
+            "def inferred[T, U](items: &T, other: U) -> bool:\n    items[0] + items[0]\n\ndef main() -> Result[(), AllocError]:\n    items = [True]?\n    drop(inferred(&items, False))\n    Ok(())\n",
+            "inferred[list[bool], bool]",
+            "operator `+` does not accept bool",
+        ),
+    ];
+    for (source, instance, reason) in cases {
+        let error = rejection(source);
+        assert!(
+            error.contains(&format!(
+                "cannot instantiate `{instance}`: its definition is rejected"
+            )),
+            "{source}\n{error}"
+        );
+        assert!(error.contains(reason), "{source}\n{error}");
+    }
+}
+
+#[test]
+fn parameter_values_keep_their_origin_through_aliases_and_projections() {
+    let comparison = rejection(
+        "def before[T](value: T) -> bool:\n    value < value\n\ndef main() -> ():\n    drop(before(True))\n",
+    );
+    assert!(
+        comparison.contains("`before[bool]` applies `<` to `T`"),
+        "{comparison}"
+    );
+    for source in [
+        "def actual[T](value: T) -> Result[(), AllocError]:\n    concrete = [1]?\n    alias = value\n    first = alias\n    second = alias\n    Ok(())\n\ndef main() -> Result[(), AllocError]:\n    actual([0]?)?\n    Ok(())\n",
+        "def actual[T](value: T) -> Result[(), AllocError]:\n    rows = [value]?\n    item = rows[0]\n    Ok(())\n\ndef main() -> Result[(), AllocError]:\n    actual([0]?)?\n    Ok(())\n",
+        "def actual[T](values: &list[T]) -> T:\n    values[0]\n\ndef main() -> Result[(), AllocError]:\n    values = [[0]?]?\n    drop(actual(&values))\n    Ok(())\n",
+    ] {
+        let error = rejection(source);
+        assert!(
+            error.contains("`actual[list[i64]]` copies `T`, but `list[i64]` cannot be copied"),
+            "{source}\n{error}"
+        );
+    }
 }
 
 /// A field counts only for the bodies that access it, so a method that copies

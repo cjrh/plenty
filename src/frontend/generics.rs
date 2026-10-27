@@ -378,16 +378,15 @@ impl Engine {
             return;
         };
         // The owner's instance recorded its type arguments under the method.
-        let (parameters, named) = self
+        let parameters = self
             .required
             .get(&symbol)
-            .map(|owner| (Arc::clone(&owner.parameters), Arc::clone(&owner.named)))
+            .map(|owner| Arc::clone(&owner.parameters))
             .unwrap_or_default();
         let required = match outer {
             Some(outer) => Instantiation {
                 instance: display,
                 parameters,
-                named,
                 ..(**outer).clone()
             },
             None => Instantiation {
@@ -395,7 +394,6 @@ impl Engine {
                 requested: Arc::clone(&display),
                 instance: display,
                 parameters,
-                named,
                 unused_method: None,
             },
         };
@@ -449,7 +447,6 @@ impl Engine {
                     requested: Arc::clone(&display),
                     instance: Arc::clone(&display),
                     parameters: Arc::default(),
-                    named: Arc::default(),
                     unused_method: None,
                 },
             };
@@ -601,7 +598,8 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
         Ty::Closure(_) | Ty::BoxedCallable(_) | Ty::Iter(..) => {
             return TypeRef {
                 at: at.clone(),
-                concrete: Some(ty.clone()),
+                concrete: Some(Box::new(ty.clone())),
+                parameter: false,
                 name: None,
                 args: vec![],
             };
@@ -647,7 +645,8 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
     TypeRef {
         // Unit has no expression operand: resolving its type reference must
         // produce None, just like a source-level `()` annotation.
-        concrete: (*ty != Ty::Unit).then(|| ty.clone()),
+        concrete: (*ty != Ty::Unit).then(|| Box::new(ty.clone())),
+        parameter: false,
         at: at.clone(),
         name,
         args: children.into_iter().map(|t| type_ref(t, at)).collect(),
@@ -950,7 +949,6 @@ impl Lower<'_> {
                 Some(outer) => Instantiation {
                     instance,
                     parameters,
-                    named: Arc::default(),
                     ..(**outer).clone()
                 },
                 None => Instantiation {
@@ -958,7 +956,6 @@ impl Lower<'_> {
                     requested: instance.clone(),
                     instance,
                     parameters,
-                    named: Arc::default(),
                     unused_method: None,
                 },
             });
@@ -1211,6 +1208,7 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
             return Err(t.at.error("a type parameter cannot take type arguments"));
         }
         *t = replacement.clone();
+        t.parameter = true;
     } else {
         for arg in &mut t.args {
             substitute(arg, replacements)?;
@@ -1649,7 +1647,6 @@ impl Engine {
                     instance: Arc::clone(&requested),
                     requested,
                     parameters: Arc::clone(&instance.parameters),
-                    named: Arc::default(),
                     unused_method: None,
                 })
             });

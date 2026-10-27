@@ -483,7 +483,8 @@ impl Lower<'_> {
         // The worker: the serial pipeline over one chunk.
         let offset_name = "__plenty_par_offset";
         let typed = |ty: Ty| TypeRef {
-            concrete: Some(ty),
+            concrete: Some(Box::new(ty)),
+            parameter: false,
             at: at.clone(),
             name: None,
             args: vec![],

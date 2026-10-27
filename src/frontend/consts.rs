@@ -119,7 +119,8 @@ fn is_assert(f: &Function) -> bool {
 fn declared(f: &Function) -> Ty {
     f.output
         .concrete
-        .clone()
+        .as_deref()
+        .cloned()
         .or_else(|| f.output.name.as_deref().and_then(named_type))
         .expect("module constants have a concrete type")
 }

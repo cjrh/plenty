@@ -232,6 +232,7 @@ impl Lower<'_> {
                     .map(|(parameter, _)| TypeRef {
                         at: at.clone(),
                         concrete: None,
+                        parameter: false,
                         name: Some(parameter.clone()),
                         args: vec![],
                     })

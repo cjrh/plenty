@@ -441,7 +441,8 @@ impl Parser {
             at: at.clone(),
             name: None,
             args: vec![],
-            concrete: Some(Ty::Bool),
+            concrete: Some(Box::new(Ty::Bool)),
+            parameter: false,
         };
         Ok(self.constant_getter(
             at,
@@ -665,7 +666,10 @@ impl Items<'_, '_> {
                         at: at.clone(),
                         name: None,
                         args: vec![],
-                        concrete: Some(Ty::ForeignPtr(qualified(&module.name, &name).into())),
+                        concrete: Some(Box::new(Ty::ForeignPtr(
+                            qualified(&module.name, &name).into(),
+                        ))),
+                        parameter: false,
                     },
                 });
                 name
@@ -1934,6 +1938,7 @@ fn canonical_facility_expression(e: &mut Expr) {
             Box::new(TypeRef {
                 at: e.at.clone(),
                 concrete: None,
+                parameter: false,
                 name: Some(name.clone()),
                 args: std::mem::take(types),
             }),
@@ -1958,6 +1963,7 @@ fn canonical_facility_expression(e: &mut Expr) {
         e.kind = Expression::Type(Box::new(TypeRef {
             at: e.at.clone(),
             concrete: None,
+            parameter: false,
             name: Some(name.clone()),
             args: std::mem::take(types),
         }));
@@ -2156,7 +2162,7 @@ fn resolve(
             }
         }
         for a in &mut m.declarations {
-            if let Some(Ty::ForeignPtr(name)) = &a.target.concrete {
+            if let Some(Ty::ForeignPtr(name)) = a.target.concrete.as_deref() {
                 result.access.types.insert(
                     name.to_string(),
                     Access {

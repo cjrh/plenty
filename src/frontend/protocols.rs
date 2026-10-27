@@ -227,6 +227,7 @@ fn same_generic(
         .map(|((own, _), (name, _))| {
             let reference = TypeRef {
                 concrete: None,
+                parameter: false,
                 at: method.at.clone(),
                 name: Some(name.clone()),
                 args: vec![],

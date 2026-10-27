@@ -692,6 +692,7 @@ fn statement(value: Expr) -> Stmt {
 fn type_ref(at: &Token, name: &str, args: Vec<TypeRef>) -> TypeRef {
     TypeRef {
         concrete: None,
+        parameter: false,
         at: at.clone(),
         name: Some(name.into()),
         args,
@@ -1280,6 +1281,7 @@ fn format_function(symbol: &str, template: &Arc<Template>, write: bool, at: &Tok
     let output = if write {
         TypeRef {
             concrete: None,
+            parameter: false,
             at: at.clone(),
             name: None,
             args: vec![],

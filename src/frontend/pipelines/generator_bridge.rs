@@ -156,6 +156,7 @@ impl Lower<'_> {
         self.generics
             .inherit_requirement(self.sigs, &self.function_name, &name);
         self.sigs.insert(name.clone(), sig.clone());
+        let parameter_values = self.parameter_values();
         self.generics.compiled.push(Op::DefineFn(
             name.clone(),
             Box::new(CompiledFn {
@@ -165,6 +166,10 @@ impl Lower<'_> {
                     .as_ref()
                     .map(|path| format!("{path}:{}:{}", source.at.line, source.at.column).into()),
                 origins: Arc::new(crate::ownership::Origins {
+                    parameter_values: order
+                        .iter()
+                        .map(|slot| parameter_values.get(*slot as usize).cloned().flatten())
+                        .collect(),
                     standard_library: facts.as_ref().is_some_and(|(_, standard)| *standard),
                     source: source.at.source(),
                     trap_file: facts.map(|(relative, _)| relative),

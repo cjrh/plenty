@@ -61,6 +61,14 @@ The error is reported at the line of your code that first required
 the method cannot accept. The note below it gives the line in the definition
 and the reason.
 
+That wording follows the value: here `self.value` is declared as `T`. An
+unrelated list created inside the method does not become a `T` value just
+because the caller also chooses a list for `T`. For failures without a clear
+parameter origin, the compiler instead reports that the instance's definition
+is rejected, followed by the operation's error. See
+[instance diagnostics](../../design/language/07-generics/index.md#diagnostics-from-instances)
+for the attribution rules.
+
 When you write a generic class for others to use, `plenty --check
 --check-all-methods FILE` also checks the methods your program never calls,
 for every instance it creates of a generic type it declares. The

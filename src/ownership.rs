@@ -42,6 +42,9 @@ pub struct Origins {
     /// reused, so a name stays valid after its scope ends. Compiler
     /// temporaries have none.
     pub names: Vec<Option<Arc<str>>>,
+    /// A slot's value is known to have a substituted parameter's type.
+    /// Concrete/inferred values with an equal type must not blame that parameter.
+    pub parameter_values: Vec<Option<Ty>>,
     /// Present when the function is a generic instance.
     pub required: Option<Arc<Instantiation>>,
 }
@@ -62,11 +65,6 @@ pub struct Instantiation {
     /// The type parameters of `instance` and their arguments, which name the
     /// caller's cause of a body error (issue #518).
     pub parameters: Arc<[(Arc<str>, Ty)]>,
-    /// Arguments among `parameters` that the definition also writes as a
-    /// type of its own, such as `list[i64]` in a `list[list[i64]]` field for
-    /// `T = list[i64]`. A rejected value of such a type need not come from
-    /// the parameter, so it is not blamed on it (issue #519).
-    pub named: Arc<[Ty]>,
     /// The method that `--check-all-methods` checked although nothing uses
     /// it, when that check required this instance. Such an error has no use
     /// site, so `at` is where the method's type was instantiated (issue #517).
@@ -102,9 +100,9 @@ impl Instantiation {
     /// The rendered diagnostic of a body error that a type argument causes:
     /// the primary message names the parameter and its argument at the use,
     /// and the body position becomes a note for the body's author. `None`
-    /// when the rejected type is not exactly one parameter's argument, or
-    /// when the definition writes that type itself; the caller then uses
-    /// `report`.
+    /// when the rejected type is not exactly one parameter's argument. The
+    /// caller must establish the value's parameter provenance first; otherwise
+    /// it uses `report` even if the concrete type happens to match.
     pub fn explain(&self, body: &str, detail: &str, demand: &Demand) -> Option<String> {
         if self.requested.starts_with("__plenty_fstring_") {
             return None;
@@ -112,9 +110,6 @@ impl Instantiation {
         let ty = match demand {
             Demand::Copy(ty, _) | Demand::Operator(_, ty) | Demand::Method(_, ty) => ty,
         };
-        if self.named.contains(ty) {
-            return None;
-        }
         let mut matching = self.parameters.iter().filter(|(_, t)| t == ty);
         let (parameter, _) = matching.next()?;
         if matching.next().is_some() {
@@ -987,7 +982,12 @@ impl Checker<'_, '_> {
         match state.get(slot as usize) {
             Some(Slot::Moved { at, definite }) => {
                 let mut error = self.error(Kind::Moved(*definite), place.clone(), site);
-                error.copied = self.locals.get(slot as usize).cloned();
+                error.copied = self
+                    .origins
+                    .parameter_values
+                    .get(slot as usize)
+                    .cloned()
+                    .flatten();
                 if let (Some(at), Some(place)) = (at, place) {
                     error.notes.push((
                         *at,
@@ -1489,7 +1489,7 @@ impl Checker<'_, '_> {
                     self.place(i as u8, &[], false),
                     moved.or(site),
                 );
-                error.copied = self.locals.get(i).cloned();
+                error.copied = self.origins.parameter_values.get(i).cloned().flatten();
                 return Err(error);
             }
         }

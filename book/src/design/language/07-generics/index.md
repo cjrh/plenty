@@ -70,17 +70,19 @@ main.plenty:8:9: `outer[list[i64]]` requires `pairs.twice[list[i64]]`, which cop
 ```
 
 The note then describes the rejected operation without advice for changing the
-body, which the caller may not own. A cause is attributed when the rejected type
-is exactly one parameter's argument; otherwise, including when two parameters
-have that argument, the first form is used. The first form is also used when the
-definition writes the argument's type itself in a parameter type, a body type,
-or the type of a field the body accesses, such as `list[i64]` inside a
-`list[list[i64]]` field for `T = list[i64]`: the match is by type, so a value of
-that type need not come from `T`. This holds even when the rejected value is the
-parameter's own. The return type and fields the body does not access do not
-count, since they supply no value to the body. A type the body only infers,
-such as that of `row = [1]?`, is not written, so a rejected value of it is still
-attributed to a parameter with that argument.
+body, which the caller may not own. A cause is attributed when the rejected
+value comes from a type parameter and its type is exactly one parameter's
+argument. Equal concrete types alone do not establish that origin: an inferred
+`row = [1]?` is not a `T` value merely because `T = list[i64]`. Conversely,
+an unrelated concrete annotation does not hide a failure on an actual `T`.
+
+The diagnostic tracks parameter origins through local aliases, borrows,
+collection displays, and field or element projections whose declared shape
+identifies the parameter. Projecting inside an opaque `T` does not establish
+the origin of its contents. Attribution is conservative: mixed assignments,
+untracked transformations such as call results, or two parameters with the
+same concrete argument retain the first form. These rules affect diagnostic
+wording only, not which programs are accepted.
 
 This covers generic functions, generic methods, functions written inside them,
 and the methods of a generic class or enum instance. A method of an instance is

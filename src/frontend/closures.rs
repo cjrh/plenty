@@ -66,7 +66,8 @@ impl Lower<'_> {
                 capture.name.clone(),
                 TypeRef {
                     at: at.clone(),
-                    concrete: Some(parameter),
+                    concrete: Some(Box::new(parameter)),
+                    parameter: false,
                     name: None,
                     args: vec![],
                 },
