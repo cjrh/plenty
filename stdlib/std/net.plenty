@@ -598,7 +598,8 @@ pub enum Shutdown:
     Both
 
 # A connected TCP stream. `read`, `write`, `flush` and `close` make it a
-# std.io Reader and Writer; `read` and `write` block until the peer acts.
+# std.io Reader, Writer and Closer; their StreamError results preserve generic
+# I/O compatibility. `read` and `write` block until the peer acts.
 pub class TcpStream:
     _stream: FileStream
 
