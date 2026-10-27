@@ -62,6 +62,11 @@ pub struct Instantiation {
     /// The type parameters of `instance` and their arguments, which name the
     /// caller's cause of a body error (issue #518).
     pub parameters: Arc<[(Arc<str>, Ty)]>,
+    /// Arguments among `parameters` that the definition also writes as a
+    /// type of its own, such as `list[i64]` in a `list[list[i64]]` field for
+    /// `T = list[i64]`. A rejected value of such a type need not come from
+    /// the parameter, so it is not blamed on it (issue #519).
+    pub named: Arc<[Ty]>,
     /// The method that `--check-all-methods` checked although nothing uses
     /// it, when that check required this instance. Such an error has no use
     /// site, so `at` is where the method's type was instantiated (issue #517).
@@ -97,10 +102,9 @@ impl Instantiation {
     /// The rendered diagnostic of a body error that a type argument causes:
     /// the primary message names the parameter and its argument at the use,
     /// and the body position becomes a note for the body's author. `None`
-    /// when the rejected type is not exactly one parameter's argument; the
-    /// caller then uses `report`. A body that names the argument's type
-    /// itself is attributed to the parameter too, since types carry no record
-    /// of substitution.
+    /// when the rejected type is not exactly one parameter's argument, or
+    /// when the definition writes that type itself; the caller then uses
+    /// `report`.
     pub fn explain(&self, body: &str, detail: &str, demand: &Demand) -> Option<String> {
         if self.requested.starts_with("__plenty_fstring_") {
             return None;
@@ -108,6 +112,9 @@ impl Instantiation {
         let ty = match demand {
             Demand::Copy(ty, _) | Demand::Operator(_, ty) | Demand::Method(_, ty) => ty,
         };
+        if self.named.contains(ty) {
+            return None;
+        }
         let mut matching = self.parameters.iter().filter(|(_, t)| t == ty);
         let (parameter, _) = matching.next()?;
         if matching.next().is_some() {
