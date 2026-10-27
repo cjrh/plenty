@@ -14,6 +14,26 @@ from std.math import pi, MathError
 Recoverable failures are `MathError.Domain` and `MathError.Overflow`. No
 function in this module allocates.
 
+```plenty
+import std.math as math
+from std.math import MathError
+
+def main() -> Result[(), AllocError | IoError | MathError]:
+    print(math.sqrt(2.0)?, math.log10(1000.0)?, math.round(2.5)?)?
+    print(str.repr(math.sqrt(-1.0))?)?
+    print(math.isclose(0.1 + 0.2, 0.3, 1e-9, 0.0)?)?
+    print(math.gcd(84u64, 36u64), math.comb(10u64, 3u64)?)?
+    print(math.max(3, 9), math.abs(-4.5), math.pi)?
+    Ok(())
+```
+```output
+1.4142135623730951 3.0 2
+Result[f64, std.math.MathError].Err(std.math.MathError.Domain)
+True
+12 120
+9 4.5 3.141592653589793
+```
+
 ## Floating-point functions
 
 Inputs are `f64`, following Python's double-precision math surface. Explicitly

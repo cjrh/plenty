@@ -12,6 +12,30 @@ These are binary encodings. They do not normalize, transcode, or validate text;
 turning decoded bytes into a `str` is the separate, strict
 [`Bytes.to_text`](bytes.md) conversion.
 
+```plenty
+import std.bytes
+import std.encoding
+from std.encoding import EncodingError, Endian
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | EncodingError]:
+    data = std.bytes.from_text("hi!")?
+    print(std.encoding.hex_text(&data, 0, data.len())?)?
+    print(std.encoding.base64_text(&data, 0, data.len())?)?
+    print(std.encoding.base64_from_text("aGkh")?.to_text()?)?
+    mut header = std.bytes.with_capacity(4)?
+    std.encoding.append_u32(&mut header, 258u32, Endian.Big)?
+    print(std.encoding.hex_text(&header, 0, header.len())?)?
+    print(std.encoding.unpack_u32(&header, 0, Endian.Big)?)?
+    Ok(())
+```
+```output
+686921
+aGkh
+hi!
+00000102
+258
+```
+
 ## Codecs
 
 `source` is `&Bytes`; `start` and `stop` are `i64` and follow the

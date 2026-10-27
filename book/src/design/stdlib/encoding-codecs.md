@@ -4,6 +4,26 @@ These operations extend [`std.encoding`](encoding.md). They are implemented in
 Plenty over [`Bytes`](bytes.md), without another runtime primitive or native
 dependency. Inputs are whole buffers; there is no streaming state.
 
+```plenty
+import std.bytes
+import std.encoding
+from std.encoding import EncodingError
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | EncodingError]:
+    data = std.bytes.from_text("hello")?
+    print(std.encoding.base32_text(&data, 0, data.len())?)?
+    print(std.encoding.base32_from_text("NBSWY3DP")?.to_text()?)?
+    lower = std.encoding.custom("abcdefghijklmnopqrstuvwxyz234567", Nothing)?
+    text = lower.text(&data, 0, data.len())?
+    print(text, lower.from_text(&text)?.to_text()?)?
+    Ok(())
+```
+```output
+NBSWY3DP
+hello
+nbswy3dp hello
+```
+
 ## Base32
 
 `base32` uses the uppercase alphabet `ABCDEFGHIJKLMNOPQRSTUVWXYZ234567` from

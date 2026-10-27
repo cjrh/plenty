@@ -13,6 +13,34 @@ For a small monomorphic formatting contract with allocation-free stderr
 construction, see [`std.report`](report.md). Its `Formattable.format` protocol
 is separate from the writer-generic display/debug methods on this page.
 
+```plenty
+import std.fmt
+from std.fmt import Formatter, FormatError
+
+pub class Point:
+    x: i64
+    y: i64
+
+    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        out.text("(")?
+        out.integer(self.x, 0)?
+        out.text(", ")?
+        out.integer(self.y, 0)?
+        out.text(")")
+
+def main() -> Result[(), AllocError | IoError | FormatError]:
+    print(std.fmt.to_string(&Point(3, -4), 80, 8)?)?
+    mut out = std.fmt.string_formatter(80, 8)?
+    out.text("total:")?
+    out.float_spec(1234.5, &std.fmt.spec(width=10, grouping=",", precision=2, kind="f"))?
+    print(std.fmt.finish(&out)?)?
+    Ok(())
+```
+```output
+(3, -4)
+total:  1,234.50
+```
+
 ## Writers and strings
 
 `formatter(writer, scratch, max_bytes, max_depth)` consumes a writer and a

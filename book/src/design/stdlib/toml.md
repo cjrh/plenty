@@ -12,6 +12,38 @@ The module is checked Plenty code with no native primitives of its own. It
 reads and writes [`std.bytes`](bytes.md) buffers and [`std.io`](io.md) streams,
 and is available on the supported x86-64 Linux GNU target.
 
+```plenty
+import std.toml
+from std.toml import Toml
+
+def main() -> Result[(), AllocError | IoError | std.toml.TomlError]:
+    bounds = std.toml.limits()
+    config = std.toml.parse_text("title = \"demo\"\n\n[server]\nport = 8080\nhosts = [\"a\", \"b\"]\n", &bounds)?
+    match &config:
+        case Toml.Table(entries):
+            for entry in entries:
+                match &entry.value:
+                    case Toml.Text(text):
+                        print(entry.key, "is", text)?
+                    case Toml.Table(fields):
+                        print(entry.key, "has", len(fields), "entries")?
+                    case _:
+                        print(entry.key, "is another type")?
+        case _:
+            print("not a table")?
+    print(std.toml.encode_text(&config, &bounds)?.rstrip()?)?
+    Ok(())
+```
+```output
+title is demo
+server has 2 entries
+title = "demo"
+
+[server]
+port = 8080
+hosts = ["a", "b"]
+```
+
 ## Accepted text
 
 The parser accepts TOML 1.0 and rejects everything else, including TOML 1.1
