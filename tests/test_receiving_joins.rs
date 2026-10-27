@@ -55,6 +55,84 @@ fn receiving_joins_report_surviving_senders() {
 }
 
 #[test]
+fn suggested_sender_guards_avoid_existing_bindings_and_type_check() {
+    for (sender, task, bindings, expected) in [
+        ("outbox", "task", "", "outbox_2"),
+        ("sender", "outbox", "", "outbox_2"),
+        (
+            "sender",
+            "task",
+            "    outbox = 0\n    outbox_2 = 0\n",
+            "outbox_3",
+        ),
+    ] {
+        let body = format!(
+            "def main() -> ():
+{bindings}    {sender}, receiver = channel[i64](1).unwrap()
+    with spawn(consume, receiver).unwrap() as {task}:
+        {sender}.send(1).unwrap()
+"
+        );
+        let error = rejected(&body);
+        let prefix = format!("`with spawn(...)?, {sender} as ");
+        let suggested = error
+            .split_once(&prefix)
+            .unwrap()
+            .1
+            .split_once(":`")
+            .unwrap()
+            .0;
+        assert_eq!(suggested, expected, "{error}");
+        let fixed = body
+            .replace(
+                &format!("as {task}:"),
+                &format!("as {task}, {sender} as {suggested}:"),
+            )
+            .replace(
+                &format!("        {sender}.send"),
+                &format!("        {suggested}.send"),
+            );
+        support::check_source(&format!("{CONSUME}{fixed}"))
+            .unwrap_or_else(|error| panic!("{fixed}\n{error}"));
+    }
+}
+
+#[test]
+fn suggested_guards_avoid_parameters_and_bindings_inside_the_task_block() {
+    let body = "def run(outbox: i64) -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    outbox_2 = 0
+    with spawn(consume, receiver).unwrap() as task:
+        outbox_3 = 0
+def main() -> ():
+    run(0)
+";
+    let error = rejected(body);
+    assert!(error.contains("sender as outbox_4:"), "{error}");
+    let fixed = body.replace("as task:", "as task, sender as outbox_4:");
+    support::check_source(&format!("{CONSUME}{fixed}")).unwrap();
+}
+
+#[test]
+fn suggested_receiver_guards_also_avoid_existing_bindings() {
+    let source = "def produce(sender: Sender[i64]) -> ():
+    drop(sender.send(1))
+def main() -> ():
+    sender, inbox = channel[i64](1).unwrap()
+    inbox_2 = 0
+    with spawn(produce, sender).unwrap() as task:
+        drop(inbox.recv())
+";
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains("could block the worker's send"), "{error}");
+    assert!(error.contains("inbox as inbox_3:"), "{error}");
+    let fixed = source
+        .replace("as task:", "as task, inbox as inbox_3:")
+        .replace("drop(inbox.recv())", "drop(inbox_3.recv())");
+    support::check_source(&fixed).unwrap();
+}
+
+#[test]
 fn receiving_joins_check_every_exit_and_failed_later_start() {
     for exit in ["return Ok(())", "break", "continue", "print(1)?"] {
         let error = rejected(&format!(
