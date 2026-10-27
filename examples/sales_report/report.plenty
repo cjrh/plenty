@@ -3,6 +3,7 @@ import std.dataframe as df
 # Bounding both inputs makes the native i64 aggregation safe from overflow.
 const MAX_ROWS: i64 = 100000000
 const MAX_CENTS: i64 = 1000000000
+assert MAX_ROWS * MAX_CENTS <= i64.MAX, "the largest possible total must fit in i64"
 
 pub def scan_orders(kind: str, path: str) -> Result[df.Query, df.DataFrameError | AllocError]:
     source = df.scan_parquet(path)? if kind == "parquet" else df.scan_csv(path, infer_rows=0)?

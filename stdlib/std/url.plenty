@@ -69,7 +69,7 @@ pub class Url:
                 host_end = out.len()
                 match self.port:
                     case Some(port):
-                        if port < 0 or port > 65535:
+                        if port < 0 or port > i64(u16.MAX):
                             return Err(UrlError.InvalidPort(out.len() + 1))
                         emit(&mut out, 58)?
                         digits = allocated(str.repr(port))?
@@ -451,7 +451,7 @@ def port_number(source: &Bytes, start: i64, stop: i64) -> Result[i64, UrlError]:
         if not digit(code):
             return Err(UrlError.InvalidPort(start))
         value = value * 10 + code - 48
-    if value > 65535 or (stop - start > 1 and i64(source[start]) == 48):
+    if value > i64(u16.MAX) or (stop - start > 1 and i64(source[start]) == 48):
         return Err(UrlError.InvalidPort(start))
     Ok(value)
 

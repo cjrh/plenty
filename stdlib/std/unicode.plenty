@@ -72,7 +72,7 @@ def normalized(text: &str, limit: i64, compatible: bool, compose: bool) -> Resul
     for code in result:
         scalar = chr(code).unwrap()
         output.append(&scalar)?
-    output.to_text()
+    output.finish()
 
 pub def nfd(text: &str, max_scalars: i64) -> Result[str, TextError]:
     normalized(text, max_scalars, False, False)

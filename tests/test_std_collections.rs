@@ -123,7 +123,7 @@ mut heap = Heap[i64]()?
 print(heap.len(), heap.is_empty(), heap.pop())?
 for n in [5, 3, 8, 1, 9, 2, 3]?:
     heap.push(n)?
-print(heap.len(), *heap.peek())?
+print(heap.len(), heap.peek().unwrap())?
 while not heap.is_empty():
     print(heap.pop().unwrap())?
 print(heap.pop())?
@@ -222,7 +222,7 @@ mut steps = 0
 mut greatest = HeapBy(def [mut steps](a: &i64, b: &i64) -> bool: *a > *b)?
 for n in [4, 9, 7]?:
     greatest.push(n)?
-print(greatest.pop(), *greatest.peek())?
+print(greatest.pop(), greatest.peek().unwrap())?
 "#,
         r#"
 1 first
@@ -243,7 +243,11 @@ fn heaps_move_owned_elements_and_drop_the_rest_once() {
 mut heap = HeapBy(larger)?
 for n in [2, 7, 4, 9, 1]?:
     heap.push(Guard(n))?
-print("peek", heap.peek().n)?
+match heap.peek_ref():
+    case Some(top):
+        print("peek", top.n)?
+    case Nothing:
+        pass
 taken = heap.pop().unwrap()
 print("took", taken.n)?
 drop(taken)
@@ -298,11 +302,26 @@ while not heap.is_empty():
 }
 
 #[test]
-fn empty_peek_traps_like_a_missing_index() {
-    let output = execute("heap = Heap[i64]()?\nprint(*heap.peek())?");
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("index out of bounds"), "{stderr}");
+fn peek_copies_or_borrows_the_first_element_and_reports_empty() {
+    native(
+        r#"
+mut heap = Heap[i64]()?
+print(heap.peek(), heap.peek_ref())?
+heap.push(3)?
+heap.push(1)?
+print(heap.peek(), heap.peek_ref(), heap.len())?
+mut guards = HeapBy(larger)?
+print(guards.peek_ref().is_some())?
+"#,
+        "Option[i64].Nothing Option[&i64].Nothing\nOption[i64].Some(1) Option[&i64].Some(1) 2\nFalse",
+    );
+    // `peek` copies, so it is checked per use and rejected for affine elements.
+    let affine =
+        rejected("mut heap = HeapBy(larger)?\nheap.push(Guard(1))?\nprint(heap.peek().is_some())?");
+    assert!(
+        affine.contains("copies `T`, but `Guard` cannot be copied"),
+        "{affine}"
+    );
 }
 
 #[test]
@@ -387,7 +406,7 @@ print("__test_fail_allocations_after_0__")?
 print("__test_begin_no_allocations__")?
 for n in range(8):
     heap.push(8 - n).unwrap()
-least = *heap.peek()
+least = heap.peek().unwrap()
 first = heap.pop().unwrap()
 jobs.push(Quiet(1)).unwrap()
 jobs.push(Quiet(2)).unwrap()
@@ -420,7 +439,11 @@ while not failed:
         case Err(error):
             print(error)?
             failed = True
-print(heap.len(), heap.peek().n == heap.len() - 1)?
+match heap.peek_ref():
+    case Some(top):
+        print(heap.len(), top.n == heap.len() - 1)?
+    case Nothing:
+        pass
 "#,
     );
     let lines = text.lines().collect::<Vec<_>>();
@@ -448,7 +471,7 @@ fn unsupported_orders_sources_and_escaping_borrows_are_rejected() {
         "{reference}"
     );
     let loan = rejected(
-        "mut heap = Heap[i64]()?\nheap.push(1)?\nleast = heap.peek()\nheap.push(2)?\nprint(*least)?",
+        "mut heap = Heap[i64]()?\nheap.push(1)?\nleast = heap.peek_ref()\nheap.push(2)?\nprint(least)?",
     );
     assert!(loan.contains("conflicting borrow"), "{loan}");
     let stored = rejected(
@@ -472,7 +495,7 @@ fn heap_orders_tuple_priorities_lexicographically() {
 mut heap = Heap[(i64, str)]()?
 for value in [(2, "a"), (1, "z"), (1, "a"), (1, "a")]?:
     heap.push(value)?
-print(*heap.peek())?
+print(heap.peek().unwrap())?
 for value in drain(heap):
     print(value)?
 "#,

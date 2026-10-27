@@ -471,16 +471,16 @@ pub def parse_address(text: &str) -> Result[SocketAddress, NetError]:
         mut scope = 0
         percent = found(&source, 37u8, 1, close)?
         if percent >= 0:
-            scope = decimal(&source, percent + 1, close, 4294967295)?
+            scope = decimal(&source, percent + 1, close, i64(u32.MAX))?
             end = percent
         ip = v6_in(&source, 1, end)?
-        port = decimal(&source, close + 2, stop, 65535)?
+        port = decimal(&source, close + 2, stop, i64(u16.MAX))?
         return Ok(SocketAddress(ip, u16(port), u32(scope)))
     colon = found(&source, 58u8, 0, stop)?
     if colon < 0:
         return Err(NetError.InvalidAddress)
     ip = IpAddress.V4(v4_in(&source, 0, colon)?)
-    port = decimal(&source, colon + 1, stop, 65535)?
+    port = decimal(&source, colon + 1, stop, i64(u16.MAX))?
     Ok(SocketAddress(ip, u16(port), 0u32))
 
 # Lookup reply status bytes: a five-byte header of the status and a

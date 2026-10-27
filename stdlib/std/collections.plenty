@@ -16,8 +16,20 @@ pub class Heap[T]:
     pub def reserve(self: &mut Heap[T], additional: i64) -> Result[(), AllocError]:
         self._items.reserve(additional)
 
-    pub def peek(self) -> &T:
-        &self._items[0]
+    # A copy of the first element, like `dict.get`. Only a copyable `T`
+    # type-checks; generic methods are checked when used, so other element
+    # types are rejected at the call. There is no `peek_mut`: changing the
+    # first element in place could break the heap order.
+    pub def peek(self) -> Option[T]:
+        if len(self._items) == 0:
+            return Nothing
+        Some(self._items[0])
+
+    # Borrows the first element; the result borrows the heap until its last use.
+    pub def peek_ref(self) -> Option[&T]:
+        if len(self._items) == 0:
+            return Nothing
+        Some(&self._items[0])
 
     pub def push(self: &mut Heap[T], value: T) -> Result[(), AllocError]:
         self._items.append(value)?
@@ -72,8 +84,20 @@ pub class HeapBy[T, F: Callable[[&T, &T], bool]]:
     pub def reserve(self: &mut HeapBy[T, F], additional: i64) -> Result[(), AllocError]:
         self._items.reserve(additional)
 
-    pub def peek(self) -> &T:
-        &self._items[0]
+    # A copy of the first element, like `dict.get`. Only a copyable `T`
+    # type-checks; generic methods are checked when used, so other element
+    # types are rejected at the call. There is no `peek_mut`: changing the
+    # first element in place could break the heap order.
+    pub def peek(self) -> Option[T]:
+        if len(self._items) == 0:
+            return Nothing
+        Some(self._items[0])
+
+    # Borrows the first element; the result borrows the heap until its last use.
+    pub def peek_ref(self) -> Option[&T]:
+        if len(self._items) == 0:
+            return Nothing
+        Some(&self._items[0])
 
     pub def push(self: &mut HeapBy[T, F], value: T) -> Result[(), AllocError]:
         self._items.append(value)?

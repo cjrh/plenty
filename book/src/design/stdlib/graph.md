@@ -44,11 +44,12 @@ nodes without allocating. `nodes()` and `edges()` return live handles in
 increasing order.
 
 Operations that take a handle trap when it is negative, out of range, or
-removed; test with `contains_node` or `contains_edge` first when unsure. The
-trap is an index-out-of-bounds report inside `std.graph` with a
-`note: called from` line naming the caller. `remove_node`, `remove_edge`,
-`contains_node` and `contains_edge` never trap: removal of an invalid handle
-returns `Nothing`.
+removed, as indexing does. The trap is an index-out-of-bounds report inside
+`std.graph` with a `note: called from` line naming the caller. `remove_node`,
+`remove_edge`, `contains_node`, `contains_edge` and the `get_*` getters never
+trap: removal of an invalid handle returns `Nothing`, and so does a checked
+getter, so a possibly stale handle needs one lookup rather than a
+`contains_node` test followed by `node`.
 
 ## Building and reading
 
@@ -62,6 +63,8 @@ returns `Nothing`.
 | `graph.remove_edge(edge)` | `Option[E]` | Remove the edge, transferring its data |
 | `graph.node(node)`, `graph.edge(edge)` | `&N`, `&E` | Borrow the data |
 | `graph.node_mut(node)`, `graph.edge_mut(edge)` | `&mut N`, `&mut E` | Borrow the data exclusively |
+| `graph.get_node_ref(node)`, `graph.get_edge_ref(edge)` | `Option[&N]`, `Option[&E]` | Borrow the data; `Nothing` for an invalid handle |
+| `graph.get_node_mut(node)`, `graph.get_edge_mut(edge)` | `Option[&mut N]`, `Option[&mut E]` | Borrow the data exclusively; `Nothing` for an invalid handle |
 | `graph.find_edge(a, b)` | `Option[EdgeId]` | The earliest live edge from `a` to `b` (either way for `UnGraph`) |
 | `di.source(edge)`, `di.target(edge)` | `NodeId` | Endpoints of a directed edge |
 | `un.endpoints(edge)` | `(NodeId, NodeId)` | Endpoints in the order given to `add_edge` |

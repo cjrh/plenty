@@ -264,7 +264,8 @@ class Heap[T]
     def len(self) -> i64
     def is_empty(self) -> bool
     def reserve(self: &mut Heap[T], additional: i64) -> Result[(), AllocError]
-    def peek(self) -> &T
+    def peek(self) -> Option[T]
+    def peek_ref(self) -> Option[&T]
     def push(self: &mut Heap[T], value: T) -> Result[(), AllocError]
     def pop(self: &mut Heap[T]) -> Option[T]
     def clear(self: &mut Heap[T]) -> ()
@@ -273,7 +274,8 @@ class HeapBy[T, F: Callable[[&T, &T], bool]]
     def len(self) -> i64
     def is_empty(self) -> bool
     def reserve(self: &mut HeapBy[T, F], additional: i64) -> Result[(), AllocError]
-    def peek(self) -> &T
+    def peek(self) -> Option[T]
+    def peek_ref(self) -> Option[&T]
     def push(self: &mut HeapBy[T, F], value: T) -> Result[(), AllocError]
     def pop(self: &mut HeapBy[T, F]) -> Option[T]
     def clear(self: &mut HeapBy[T, F]) -> ()
@@ -1082,6 +1084,10 @@ class DiGraph[N, E]
     def node_mut(self: &mut DiGraph[N, E], node: NodeId) -> &mut N
     def edge(self, edge: EdgeId) -> &E
     def edge_mut(self: &mut DiGraph[N, E], edge: EdgeId) -> &mut E
+    def get_node_ref(self, node: NodeId) -> Option[&N]
+    def get_node_mut(self: &mut DiGraph[N, E], node: NodeId) -> Option[&mut N]
+    def get_edge_ref(self, edge: EdgeId) -> Option[&E]
+    def get_edge_mut(self: &mut DiGraph[N, E], edge: EdgeId) -> Option[&mut E]
     def source(self, edge: EdgeId) -> NodeId
     def target(self, edge: EdgeId) -> NodeId
     def find_edge(self, source: NodeId, target: NodeId) -> Option[EdgeId]
@@ -1116,6 +1122,10 @@ class UnGraph[N, E]
     def node_mut(self: &mut UnGraph[N, E], node: NodeId) -> &mut N
     def edge(self, edge: EdgeId) -> &E
     def edge_mut(self: &mut UnGraph[N, E], edge: EdgeId) -> &mut E
+    def get_node_ref(self, node: NodeId) -> Option[&N]
+    def get_node_mut(self: &mut UnGraph[N, E], node: NodeId) -> Option[&mut N]
+    def get_edge_ref(self, edge: EdgeId) -> Option[&E]
+    def get_edge_mut(self: &mut UnGraph[N, E], edge: EdgeId) -> Option[&mut E]
     def endpoints(self, edge: EdgeId) -> (NodeId, NodeId)
     def opposite(self, edge: EdgeId, node: NodeId) -> NodeId
     def find_edge(self, a: NodeId, b: NodeId) -> Option[EdgeId]

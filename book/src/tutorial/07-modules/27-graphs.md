@@ -57,16 +57,19 @@ def main() -> Result[(), AllocError | IoError | GraphError]:
     town.add_edge(park, shop, 3)?
     print(town.remove_node(park))?
     print(town.contains_node(park), town.edge_count())?
+    print(town.get_node_ref(park), town.get_node_ref(shop))?
     print(town.dijkstra(home, &minutes)?.distance(shop))?
     Ok(())
 ```
 ```output
 Option[str].Some("park")
 False 1
+Option[&str].Nothing Option[&str].Some("shop")
 Option[f64].Some(10.0)
 ```
 
-Using a removed handle with `node` or `add_edge` traps, so check
-`contains_node` when a handle may be stale. See
+Using a removed handle with `node` or `add_edge` traps. When a handle may be
+stale, `get_node_ref` and `get_edge_ref` return `Nothing` instead of trapping,
+and `get_node_mut` and `get_edge_mut` do the same for changes. See
 [the module reference](../../design/stdlib/graph.md) for traversal,
 topological order, components, spanning trees and costs.
