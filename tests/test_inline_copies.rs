@@ -179,3 +179,123 @@ fn unmanaged_environments_and_plain_payloads_skip_the_dispatcher() {
     let filled = dispatches(dir.path(), "filled ");
     assert!(!filled.contains(&COPY_PAYLOAD), "{filled:?}");
 }
+
+/// Nested classes of ranges, strings, files and sums of those, moved through
+/// constructors, returns and field moves (issue #544).
+const NESTED: &str = r#"from std.io import open_file, FileStream, StreamError
+
+class Wrap:
+    _file: File
+
+    def out(self: Wrap) -> Outer:
+        Outer(FileStream(self._file))
+
+class Outer:
+    _stream: FileStream
+
+def cycle(file: File) -> File:
+    w = Wrap(file)
+    o = w.out()
+    o._stream.file
+
+class Label:
+    text: str
+    span: range[i64]
+
+enum Slot:
+    Empty
+    Held(Label)
+    Pair(Label, i64)
+
+class Shelf:
+    first: Label
+    second: Option[Label]
+    slot: Slot
+    count: i64
+
+def shelf(name: str, n: i64) -> Result[Shelf, AllocError]:
+    second = Label((name + "/2")?, range(n, n + 2))
+    mut slot = Slot.Pair(Label((name + "/p")?, range(1)), n)
+    if n % 2 == 0:
+        slot = Slot.Held(Label((name + "/h")?, range(n)))
+    Ok(Shelf(Label(name, range(n)), Some(second), slot, n))
+
+def total_of(span: &range[i64]) -> i64:
+    mut total = 0
+    for i in span:
+        total += *i
+    total
+
+def describe(s: &Shelf) -> Result[(), AllocError | IoError]:
+    print(s.first.text, total_of(&s.first.span))?
+    match &s.second:
+        case Some(l):
+            print(l.text, total_of(&l.span))?
+        case Nothing:
+            print("none")?
+    match &s.slot:
+        case Slot.Held(l):
+            print(l.text, total_of(&l.span))?
+        case Slot.Pair(l, n):
+            print(l.text, n)?
+        case Slot.Empty:
+            print("empty")?
+    Ok(())
+
+def keep(s: Shelf) -> Shelf:
+    s
+
+def main() -> Result[(), AllocError | IoError | StreamError]:
+    mut stream = open_file("/dev/null", "r")?
+    mut file = stream.file
+    for i in range(3):
+        file = cycle(file)
+    stream = FileStream(file)
+    stream.close()?
+    mut shelves: list[Shelf] = []?
+    for n in range(3):
+        moved = keep(shelf(("s" + str.from(n)?)?, n)?)
+        shelves.append(moved)?
+    for s in shelves:
+        describe(&s)?
+    s = shelf("t", 4)?
+    first = s.first
+    print(first.text)?
+    Ok(())
+"#;
+
+const NESTED_EXPECTED: &str =
+    "s0 0\ns0/2 1\ns0/h 0\ns1 0\ns1/2 3\ns1/p 1\ns2 1\ns2/2 5\ns2/h 1\nt\n";
+
+#[test]
+fn nested_records_move_and_drop_their_fields() {
+    native(NESTED, NESTED_EXPECTED);
+}
+
+/// A class holding a class copies its bytes and fixes the nested payload
+/// address inline, and a class without a destructor releases its fields
+/// inline, so wrapping a `File` and moving it out calls no runtime operation.
+/// Before issue #544 each step called `copy_payload` or the record release.
+#[test]
+fn nested_records_skip_the_dispatcher() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), NESTED).unwrap();
+    let args = ["--release", "--dump", "ops,asm", "p.plenty", "-o", "out"];
+    stdout(plenty(dir.path(), &args));
+    for name in [
+        "cycle ",
+        "Wrap.new ",
+        "Wrap.out ",
+        "Outer.new ",
+        "Outer.__init__ ",
+        "Label.new ",
+    ] {
+        let calls = dispatches(dir.path(), name);
+        assert!(calls.is_empty(), "{name}: {calls:?}");
+    }
+    // Sums still release through the runtime; their records copy inline.
+    for name in ["shelf ", "keep ", "Shelf.new ", "Shelf.__init__ ", "main "] {
+        let calls = dispatches(dir.path(), name);
+        assert!(!calls.contains(&COPY_PAYLOAD), "{name}: {calls:?}");
+    }
+}
