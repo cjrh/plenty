@@ -2083,7 +2083,7 @@ TCP listeners and streams, UDP sockets, IP addresses and name lookup, with deadl
 
 ```text
 enum NetError
-    TimedOut | Cancelled | Refused | Reset | AddressInUse | AddressUnavailable | Unreachable | NameNotFound | TryAgain | InvalidAddress | HandleLimit | Stream(StreamError)
+    TimedOut | ConnectionTimedOut | Cancelled | Refused | Reset | AddressInUse | AddressUnavailable | Unreachable | NameNotFound | TryAgain | InvalidAddress | HandleLimit | Stream(StreamError)
 enum IpAddress
     V4(u32) | V6(u64, u64)
 class SocketAddress

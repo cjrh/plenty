@@ -289,7 +289,7 @@ pub enum TlsError:
 
 | Variant | Meaning |
 |---|---|
-| `Net(cause)` | The TCP stream failed, including `TimedOut` and `Cancelled` |
+| `Net(cause)` | The TCP operation ended, including deadline `TimedOut`, kernel `ConnectionTimedOut`, and `Cancelled` |
 | `UntrustedCertificate` | The peer's chain does not lead to a trust root, or a signature is wrong |
 | `ExpiredCertificate` | A certificate in the chain is expired or not yet valid |
 | `WrongHost` | The leaf certificate does not name `server_name` |
@@ -311,6 +311,9 @@ pub enum TlsError:
 Every `_before` method passes its deadline and token to each `std.net` call
 it makes, so a handshake against a silent peer ends with
 `Net(NetError.TimedOut)` and a cancelled token with `Net(NetError.Cancelled)`.
+The kernel's connection timeout is `Net(NetError.ConnectionTimedOut)` and is
+not resumable. The `try_` methods also return this error; they do not mistake it
+for a socket that would block.
 Use one deadline for a whole exchange, as with `std.net`. Ciphertext that a
 timed-out write did not send stays buffered and goes out with the next call,
 but which plaintext the peer has received is unknown; after a timeout in the

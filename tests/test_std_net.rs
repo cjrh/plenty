@@ -358,6 +358,60 @@ def main() -> Result[(), RangeError | AllocError | IoError]:
     );
 }
 
+/// Kernel TCP timeouts take minutes and depend on packet loss. Exercise the
+/// production error policy directly so the regression needs neither timing
+/// tricks nor privileged network configuration.
+#[test]
+fn kernel_connection_timeouts_are_not_deadline_expiry() {
+    let module = include_str!("../stdlib/std/net.plenty");
+    let constants = &module
+        [module.find("const would_block:").unwrap()..module.find("const max_port:").unwrap()];
+    let errors =
+        &module[module.find("def named(").unwrap()..module.find("def ready_for(").unwrap()];
+    let blocked = &module
+        [module.find("def blocked(").unwrap()..module.find("# Plain Reader/Writer").unwrap()];
+    let retry = &module[module.find("def retry_transfer(").unwrap()
+        ..module.find("# Address encoding shared").unwrap()];
+    let client = include_str!("../stdlib/std/http/client.plenty");
+    let deadline_policy = client
+        [client.find("def timed_out(").unwrap()..client.find("# Copies `body`").unwrap()]
+        .replacen("def timed_out(", "def client_deadline_passed(", 1);
+    runs(
+        &format!(
+            r#"
+from std.io import StreamError, classify
+from std.tls import TlsError
+from std.http.client import ClientError
+from std.http.https import secure_error
+{constants}
+{errors}
+{blocked}
+{retry}
+{deadline_policy}
+def main() -> Result[(), RangeError | AllocError | IoError]:
+    kernel = IoError.System(110i32)
+    print(named(kernel))?
+    print(streamed(StreamError.Io(kernel)))?
+    print(waited(WaitError.Stream(StreamError.Io(kernel))))?
+    print(waited(WaitError.TimedOut))?
+    cancel = CancellationToken()?
+    cancel.cancel()
+    print(outcome(retry_transfer(StreamError.Io(kernel), &within(0u32)?, &cancel))?)?
+    failed = secure_error(TlsError.Net(named(kernel)))
+    expired = secure_error(TlsError.Net(waited(WaitError.TimedOut)))
+    print(failed, expired)?
+    print(client_deadline_passed(&failed), client_deadline_passed(&expired))?
+    Ok(())
+"#
+        ),
+        "std.net.NetError.ConnectionTimedOut\nstd.net.NetError.ConnectionTimedOut\n\
+std.net.NetError.ConnectionTimedOut\nstd.net.NetError.TimedOut\n\
+std.net.NetError.ConnectionTimedOut\n\
+std.http.client.ClientError.Net(std.net.NetError.ConnectionTimedOut) std.http.client.ClientError.Net(std.net.NetError.TimedOut)\n\
+False True\n",
+    );
+}
+
 #[test]
 fn waits_end_at_the_deadline_or_on_cancellation() {
     runs(
