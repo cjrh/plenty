@@ -41,8 +41,14 @@ impl Lowerer<'_, '_> {
     pub(super) fn lower_checked_cast(&mut self, target: &Ty) -> Result<()> {
         let (value, source) = self.stack.pop().ok_or("AOT: stack underflow on cast")?;
         let out_of_range = if source.is_float() {
+            // A known value in range needs no guard; `trap_if` cannot see
+            // through the float comparisons.
+            let known = known::known_float(&self.bcx.func.dfg, value);
             target
                 .int_range()
+                .filter(|&(min, end)| {
+                    !known.is_some_and(|x| (min as f64..end as f64).contains(&x.trunc()))
+                })
                 .map(|(min, end)| self.float_out_of_range(value, &source, min, end))
         } else {
             range_check(&source, target).map(|check| match check {
@@ -101,6 +107,60 @@ impl Lowerer<'_, '_> {
             .ins()
             .fcmp(FloatCC::UnorderedOrGreaterThanOrEqual, value, high);
         self.bcx.ins().bor(too_low, too_high)
+    }
+
+    /// A conversion of a value known at compile time, emitted as one constant
+    /// of the target type, or `None` when the value is not known (issue #522).
+    /// Cranelift's optimizer keeps an extension, reduction, or conversion of a
+    /// constant, so `i64(u16.MAX)` would otherwise cost an `iconst` and a
+    /// `uextend`. Results match `cast`: integers keep their low bits, integer
+    /// and float conversions round to nearest, and floats convert to integers
+    /// by truncating and saturating. A NaN is left to run time, since
+    /// `known_float` does not keep an `f32` payload.
+    pub(super) fn constant_cast(
+        &mut self,
+        value: NativeValue,
+        from: &Ty,
+        to: &Ty,
+    ) -> Option<NativeValue> {
+        if !from.is_numeric() || !to.is_numeric() {
+            return None;
+        }
+        let dfg = &self.bcx.func.dfg;
+        let number = if from.is_float() {
+            let x = known::known_float(dfg, value).filter(|x| !x.is_nan())?;
+            match to {
+                Ty::F32 => return Some(self.bcx.ins().f32const(x as f32)),
+                Ty::F64 => return Some(self.bcx.ins().f64const(x)),
+                _ => {}
+            }
+            let (min, end) = to.int_range()?;
+            // `as` truncates toward zero and saturates at the i128 bounds,
+            // which lie outside every target range.
+            (x as i128).clamp(min, end - 1)
+        } else if is_signed(from.clone()) {
+            i128::from(known::known_signed(dfg, value)?)
+        } else {
+            i128::from(known::known_int(dfg, value)?)
+        };
+        match to {
+            // Converting from i128 rounds once, as converting the source
+            // integer does.
+            Ty::F32 => return Some(self.bcx.ins().f32const(number as f32)),
+            Ty::F64 => return Some(self.bcx.ins().f64const(number as f64)),
+            _ => {}
+        }
+        let bits = u32::from(width_bits(to.clone()));
+        let low = (number as u64) & (u64::MAX >> (64 - bits));
+        // The immediate's form matches `int_value_bits`: sign-extended for a
+        // signed type, zero-extended for an unsigned one.
+        let immediate = if is_signed(to.clone()) {
+            let shift = 64 - bits;
+            ((low << shift) as i64) >> shift
+        } else {
+            low as i64
+        };
+        Some(self.bcx.ins().iconst(clif_type(to.clone()), immediate))
     }
 
     fn float_const(&mut self, single: bool, value: i128) -> NativeValue {
