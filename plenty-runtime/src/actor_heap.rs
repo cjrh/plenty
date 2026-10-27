@@ -28,6 +28,9 @@ const USED_TOTAL: i64 = 3;
 const COMMITTED_TOTAL: i64 = 4;
 const LIVE_COUNT: i64 = 5;
 const SWITCH: i64 = 6;
+/// Reserves the heap range and initializes runtime globals; 0 or a `CREATE`
+/// failure.
+const PREPARE: i64 = 7;
 
 /// `CREATE` failures.
 const BAD_LIMIT: i64 = -1;
@@ -50,7 +53,7 @@ mod native {
     use super::*;
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::{Cell, UnsafeCell};
-    use std::sync::atomic::{AtomicPtr, Ordering};
+    use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
     /// Virtual bytes reserved per heap; also the largest limit.
     pub(super) const SLOT_BYTES: usize = 1 << 26;
@@ -121,6 +124,10 @@ mod native {
     }));
     /// Start of the reserved range, or null before the first heap exists.
     static BASE: AtomicPtr<u8> = AtomicPtr::new(std::ptr::null_mut());
+    /// The owning thread's `TOKEN`, set with `BASE`.
+    static OWNER: AtomicUsize = AtomicUsize::new(0);
+    /// The last thread token handed out.
+    static TOKENS: AtomicUsize = AtomicUsize::new(0);
 
     thread_local! {
         /// One plus the index of the heap that receives this thread's
@@ -128,6 +135,29 @@ mod native {
         static CURRENT: Cell<usize> = const { Cell::new(0) };
         /// The register save area of the running `plenty_actor_run`, or null.
         static RECOVERY: Cell<*mut Resume> = const { Cell::new(std::ptr::null_mut()) };
+        /// This thread's unique nonzero token, or 0 before its first use.
+        static TOKEN: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn token() -> usize {
+        TOKEN.with(|token| {
+            if token.get() == 0 {
+                token.set(TOKENS.fetch_add(1, Ordering::Relaxed) + 1);
+            }
+            token.get()
+        })
+    }
+
+    /// Whether this thread owns the heap table.
+    fn owning() -> bool {
+        OWNER.load(Ordering::Acquire) == token()
+    }
+
+    /// Stops a thread other than the owner from reaching the table.
+    fn check_owner() {
+        if !BASE.load(Ordering::Acquire).is_null() && !owning() {
+            crate::fail("std.actor: actor heaps belong to the thread that created the first one");
+        }
     }
 
     fn table() -> *mut Table {
@@ -270,7 +300,10 @@ mod native {
         unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
             match owner(pointer) {
                 // SAFETY: the owner made this block with this layout.
-                Some(index) => unsafe { heap_free(index, pointer, layout) },
+                Some(index) if owning() => unsafe { heap_free(index, pointer, layout) },
+                // Another thread must not touch the free lists; the block is
+                // reclaimed when its heap is discarded.
+                Some(_) => {}
                 // SAFETY: as GlobalAlloc requires of the caller.
                 None => unsafe { System.dealloc(pointer, layout) },
             }
@@ -285,6 +318,16 @@ mod native {
             let Ok(new) = Layout::from_size_align(size, old.align()) else {
                 return std::ptr::null_mut();
             };
+            if !owning() {
+                // As in `dealloc`: copy out to System and leave the block.
+                // SAFETY: `new` has a nonzero size and a valid alignment.
+                let moved = unsafe { System.alloc(new) };
+                if !moved.is_null() {
+                    // SAFETY: both blocks hold the copied prefix.
+                    unsafe { std::ptr::copy_nonoverlapping(pointer, moved, old.size().min(size)) };
+                }
+                return moved;
+            }
             if class_of(old).map(|c| c.0) == class_of(new).map(|c| c.0) {
                 return pointer;
             }
@@ -440,6 +483,7 @@ mod native {
         storage: *mut u8,
         entry: unsafe extern "C" fn(*mut u8) -> *mut u8,
     ) -> i64 {
+        check_owner();
         let Some(index) = live(heap) else {
             crate::fail("std.actor: the actor heap is not live");
         };
@@ -470,6 +514,36 @@ mod native {
 
     // ---------------------------------------------------------- operations
 
+    /// Reserves the heap range once. Runtime globals that std initializes on
+    /// first use are initialized here, outside every heap: one created by a
+    /// handler would live in a heap that is later discarded.
+    pub(super) fn prepare() -> i64 {
+        if !BASE.load(Ordering::Acquire).is_null() {
+            check_owner();
+            return 0;
+        }
+        drop(std::io::stdout().lock());
+        drop(std::io::stderr().lock());
+        drop(std::io::stdin().lock());
+        // SAFETY: a fresh anonymous reservation; nothing is accessible.
+        let base = unsafe {
+            mmap(
+                std::ptr::null_mut(),
+                SLOT_BYTES * MAX_HEAPS,
+                PROT_NONE,
+                MAP_PRIVATE_ANONYMOUS_NORESERVE,
+                -1,
+                0,
+            )
+        };
+        if base as isize == -1 {
+            return RESERVE_FAILED;
+        }
+        OWNER.store(token(), Ordering::Release);
+        BASE.store(base, Ordering::Release);
+        0
+    }
+
     pub(super) fn create(limit: i64) -> i64 {
         let Some(limit) = usize::try_from(limit)
             .ok()
@@ -477,27 +551,9 @@ mod native {
         else {
             return BAD_LIMIT;
         };
-        if BASE.load(Ordering::Acquire).is_null() {
-            // Process-lifetime buffers std creates on first use must not land
-            // in a heap that is later discarded.
-            drop(std::io::stdout().lock());
-            drop(std::io::stderr().lock());
-            drop(std::io::stdin().lock());
-            // SAFETY: a fresh anonymous reservation; nothing is accessible.
-            let base = unsafe {
-                mmap(
-                    std::ptr::null_mut(),
-                    SLOT_BYTES * MAX_HEAPS,
-                    PROT_NONE,
-                    MAP_PRIVATE_ANONYMOUS_NORESERVE,
-                    -1,
-                    0,
-                )
-            };
-            if base as isize == -1 {
-                return RESERVE_FAILED;
-            }
-            BASE.store(base, Ordering::Release);
+        let prepared = prepare();
+        if prepared != 0 {
+            return prepared;
         }
         // SAFETY: owning thread; see the module comment.
         let heaps = unsafe { &mut (*table()).heaps };
@@ -544,7 +600,8 @@ mod native {
     }
 
     pub(super) fn operate(op: i64, argument: i64) -> i64 {
-        // SAFETY (each table read): owning thread; see the module comment.
+        check_owner();
+        // SAFETY (each table read): owning thread, checked above.
         let heaps = || unsafe { &(*table()).heaps };
         match op {
             CREATE => {
@@ -553,6 +610,13 @@ mod native {
                 } else {
                     // Without the router, handler allocations would not
                     // reach the heap.
+                    UNSUPPORTED
+                }
+            }
+            PREPARE => {
+                if cfg!(plenty_runtime_embedded) {
+                    prepare()
+                } else {
                     UNSUPPORTED
                 }
             }
@@ -615,7 +679,7 @@ mod native {
 
     pub(super) fn operate(op: i64, _argument: i64) -> i64 {
         match op {
-            CREATE => UNSUPPORTED,
+            CREATE | PREPARE => UNSUPPORTED,
             USED_TOTAL | COMMITTED_TOTAL | LIVE_COUNT => 0,
             SWITCH => -1,
             _ => -1,
