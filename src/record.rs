@@ -24,6 +24,17 @@ impl ClassType {
     pub fn state_bytes(&self) -> usize {
         if self.destructor.is_some() { 16 } else { 0 }
     }
+    /// The field a one-field class without `__del__` is represented as: the
+    /// instance is that field's slot, bytes and runtime layout, so construction,
+    /// field access and moving the field out emit no code. A destructor needs
+    /// the state word, so such a class keeps a record. See
+    /// book/src/proposals/flat-class-layout.md.
+    pub fn newtype_field(&self) -> Option<&Ty> {
+        match self.fields.as_slice() {
+            [(_, field)] if self.destructor.is_none() => Some(field),
+            _ => None,
+        }
+    }
 }
 impl PartialEq for ClassType {
     fn eq(&self, other: &Self) -> bool {

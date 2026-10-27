@@ -11,6 +11,7 @@ static INTEGER: Type = Type {
     name: "",
     variants: &[],
     drop: None,
+    wrapper: None,
 };
 static WIDE: Type = Type {
     inline_bytes: 64,

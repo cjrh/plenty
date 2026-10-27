@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     fn a_reference_call_stays_a_transfer_only_with_the_frontend_fact() {
-        let source = "class Item:\n    value: i64\ndef read(item: &Item, n: i64) -> i64:\n    n\ndef keep(item: &Item, owned: Item) -> i64:\n    0\ndef forwards(item: &Item) -> i64:\n    read(item, 1)\ndef stages(item: &Item, owned: Item) -> i64:\n    keep(item, owned)\ndef main() -> ():\n    pass\n";
+        let source = "class Item:\n    value: i64\n    tag: i64\ndef read(item: &Item, n: i64) -> i64:\n    n\ndef keep(item: &Item, owned: Item) -> i64:\n    0\ndef forwards(item: &Item) -> i64:\n    read(item, 1)\ndef stages(item: &Item, owned: Item) -> i64:\n    keep(item, owned)\ndef main() -> ():\n    pass\n";
         let mut heap = crate::value::Heap::default();
         let program = crate::frontend::compile(source, &mut heap).unwrap();
         crate::op::check(&program.ops).unwrap();

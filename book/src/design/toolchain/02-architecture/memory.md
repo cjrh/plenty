@@ -13,6 +13,12 @@ count is shared by its source-level owners. Native helpers borrow inputs
 and return owned managed results, including retained projections and builder aliases.
 Buffers have explicit owners; type metadata is immutable program data.
 
+A class instance owns its fields in a record inside its owner's slot; the slot's
+value word is the record's address, which moves relocate. A one-field class
+without `__del__` has no record: the instance is its field, so moving it or
+moving the field out copies the field's bits and releases nothing. See
+[value representations](values.md).
+
 Retain uses relaxed atomic updates. Final release acquires preceding releases
 before destruction; the final thread owns the destruction queue entry. This
 protects ownership counts, not concurrent mutable payload access or foreign

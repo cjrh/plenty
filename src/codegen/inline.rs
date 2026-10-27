@@ -24,6 +24,12 @@ impl Lowerer<'_, '_> {
         if !ty.has_inline_storage() {
             return value;
         }
+        // A newtype's 128 bits are its field's: copy that.
+        if let Some(field) = ty.newtype_field() {
+            let value = self.unpack(value, &field);
+            let copied = self.copy_inline_to(value, &field, destination);
+            return self.pack(copied, &field);
+        }
         if ty.flat_record() || matches!(ty, Ty::Class(_)) && record_fixes(ty).is_some() {
             return self.copy_record(value, ty, destination);
         }
@@ -167,8 +173,9 @@ impl Lowerer<'_, '_> {
         match fields {
             [] => {}
             [field] => {
-                if matches!(field, Ty::Class(_)) {
-                    self.fix_record(field, base);
+                let field = field.newtype_base();
+                if matches!(*field, Ty::Class(_)) {
+                    self.fix_record(&field, base);
                 }
             }
             fields => {
@@ -188,6 +195,7 @@ impl Lowerer<'_, '_> {
         if !field.has_inline_storage() {
             return;
         }
+        let field = &*field.newtype_base();
         let flags = MemFlagsData::trusted();
         let word = self.bcx.ins().load(types::I64, flags, base, offset);
         let fix = self.bcx.create_block();
@@ -368,13 +376,13 @@ impl Lowerer<'_, '_> {
 /// storage, so no internal address points into it. `None` when copying needs
 /// the runtime's descriptor walk.
 fn plain_bytes(ty: &Ty) -> Option<u64> {
-    match ty {
+    match &*ty.newtype_base() {
         Ty::Range(_) => Some(32),
         // An environment holds its descriptor and capture slots.
         Ty::Closure(t) if t.captures.iter().all(|(_, t)| !t.has_inline_storage()) => {
             Some(t.bytes() as u64)
         }
-        Ty::Class(_) if ty.flat_record() => Some(ty.inline_bytes() as u64),
+        base @ Ty::Class(_) if base.flat_record() => Some(base.inline_bytes() as u64),
         _ => None,
     }
 }
@@ -391,6 +399,10 @@ const RECORD_FIX_LIMIT: usize = 8;
 /// (issue #544).
 fn record_fixes(ty: &Ty) -> Option<usize> {
     let Ty::Class(t) = ty else { return None };
+    // A newtype has its field's layout, not a record's.
+    if t.get().newtype_field().is_some() {
+        return None;
+    }
     let fixes = t
         .get()
         .fields
@@ -404,10 +416,10 @@ fn slot_fixes(ty: &Ty) -> Option<usize> {
     if !ty.has_inline_storage() {
         return Some(0);
     }
-    match ty {
+    match &*ty.newtype_base() {
         Ty::Range(_) => Some(1),
         Ty::Closure(_) => plain_bytes(ty).map(|_| 1),
-        Ty::Class(_) => Some(1 + record_fixes(ty)?),
+        base @ Ty::Class(_) => Some(1 + record_fixes(base)?),
         Ty::Enum(t) => t
             .get()
             .variants
@@ -422,11 +434,13 @@ fn variant_fixes(fields: &[Ty]) -> Option<usize> {
     match fields {
         [] => Some(0),
         [field] if !field.has_inline_storage() => Some(0),
-        // A nested sum's own tags are packed into its owner's: leave those
-        // to the runtime.
-        [Ty::Enum(_)] => None,
-        [field @ Ty::Class(_)] => record_fixes(field),
-        [field] => slot_fixes(field).map(|n| n - 1),
+        [field] => match &*field.newtype_base() {
+            // A nested sum's own tags are packed into its owner's: leave those
+            // to the runtime.
+            Ty::Enum(_) => None,
+            base @ Ty::Class(_) => record_fixes(base),
+            base => slot_fixes(base).map(|n| n - 1),
+        },
         fields => fields.iter().try_fold(0, |n, f| Some(n + slot_fixes(f)?)),
     }
 }
@@ -438,7 +452,8 @@ fn variant_fixes(fields: &[Ty]) -> Option<usize> {
 pub(super) fn release_fields(ty: &Ty) -> Option<usize> {
     let Ty::Class(t) = ty else { return None };
     let class = t.try_get()?;
-    if class.destructor.is_some() {
+    // A newtype releases as its field; a destructor needs the runtime.
+    if class.destructor.is_some() || class.newtype_field().is_some() {
         return None;
     }
     let fields = class
@@ -470,11 +485,13 @@ fn plain_variants(ty: &crate::nominal::Nominal<crate::sum::EnumType>) -> Option<
         match variant.fields.as_slice() {
             [] => {}
             [field] if !field.has_inline_storage() => {}
-            [field @ Ty::Class(_)] => {
-                record_fixes(field)?;
-                variants.push((tag, field.inline_bytes() as u64));
-            }
-            [field] => variants.push((tag, plain_bytes(field)?)),
+            [field] => match &*field.newtype_base() {
+                base @ Ty::Class(_) => {
+                    record_fixes(base)?;
+                    variants.push((tag, base.inline_bytes() as u64));
+                }
+                base => variants.push((tag, plain_bytes(base)?)),
+            },
             fields => {
                 let fixes = fields.iter().try_fold(0, |n, f| Some(n + slot_fixes(f)?))?;
                 if fixes > RECORD_FIX_LIMIT {

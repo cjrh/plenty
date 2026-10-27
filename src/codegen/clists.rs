@@ -99,6 +99,22 @@ impl Lowerer<'_, '_> {
                             self.bcx.ins().iconst(clif_type(Ty::Unit), 0)
                         }
                     }
+                    ClistOp::CopyRow(_) if row.get().newtype_field().is_some() => {
+                        // A one-field row is its scalar: `Some(row)` is that
+                        // scalar's bits under the option's tag.
+                        let ty = &fields[0].1;
+                        let address = self.clist_field_address(owner, capacity, 0, index, ty);
+                        let value = self.bcx.ins().load(
+                            clif_type(ty.clone()),
+                            MemFlagsData::trusted(),
+                            address,
+                            0,
+                        );
+                        let packed = self.pack(value, ty);
+                        let word = self.raw_word(packed);
+                        let some = self.bcx.ins().iconst(types::I64, 1);
+                        self.bcx.ins().iconcat(word, some)
+                    }
                     ClistOp::CopyRow(_) => {
                         // Fresh destination is already a snapshot. Store tagged
                         // row slots once, preserving the primitive's exact bits.

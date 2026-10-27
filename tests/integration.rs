@@ -300,6 +300,8 @@ mod test_nested_closures;
 mod test_nested_indexing;
 #[path = "test_nesting.rs"]
 mod test_nesting;
+#[path = "test_newtype_classes.rs"]
+mod test_newtype_classes;
 #[path = "test_numeric_builtins.rs"]
 mod test_numeric_builtins;
 #[path = "test_numeric_casts.rs"]

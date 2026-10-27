@@ -2147,6 +2147,10 @@ impl Lowerer<'_, '_> {
         value: cranelift_codegen::ir::Value,
         ty: &Ty,
     ) -> Option<cranelift_codegen::ir::Inst> {
+        if let Some(field) = ty.newtype_field() {
+            let value = self.unpack(value, &field);
+            return self.retain(value, &field);
+        }
         if ty.wide() || matches!(ty, Ty::Closure(_)) {
             if ty.managed() {
                 self.collection_call(26, &[value], Some(ty))
@@ -2179,6 +2183,11 @@ impl Lowerer<'_, '_> {
         // A known zero is an empty slot, such as one a last-use move left
         // behind (issue #391); it owns nothing.
         if ty.managed() && known::known_zero(&self.bcx.func.dfg, value) {
+            return;
+        }
+        if let Some(field) = ty.newtype_field() {
+            let value = self.unpack(value, &field);
+            self.release(value, &field);
             return;
         }
         if ty.managed() && inline::release_fields(ty).is_some() {
@@ -3593,6 +3602,7 @@ impl Lowerer<'_, '_> {
     fn lower_tail_call(&mut self, name: &str) -> Result<()> {
         let caller_standard = self.in_standard_library();
         let cleanup_free = !self.locals.iter().any(|(_, ty)| ty.managed());
+        let in_generator = self.generator.is_some();
         let (decl, mut args) = self.pop_call_args(name)?;
         // Only user code sets a site; std would pass null, which changes
         // nothing.
@@ -3610,6 +3620,16 @@ impl Lowerer<'_, '_> {
             };
             self.lower_leaf_call(&inline, &args, &[])?;
             self.leave_call(saved);
+            return self.lower(&Op::Return);
+        }
+        // A constructor lowered in its callers keeps a real tail call's order:
+        // the caller's locals are released before the callee's body runs, and
+        // the return's shared exit then finds only empty slots.
+        if let Some(body) = decl.inline_body.clone()
+            && !in_generator
+        {
+            self.release_locals();
+            self.lower_inlined_call(name, &body, args, track_caller)?;
             return self.lower(&Op::Return);
         }
         let func_id = decl.id;

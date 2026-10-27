@@ -101,7 +101,27 @@ impl Lowerer<'_, '_> {
     pub(super) fn lower_class(&mut self, op: &crate::record::ClassOp) -> Result<()> {
         use crate::record::ClassOp;
         let (inputs, output) = op.signature().ok_or("invalid class operation")?;
+        let newtype = match op {
+            ClassOp::New(t)
+            | ClassOp::ArmDrop(t)
+            | ClassOp::Field(t, _)
+            | ClassOp::FieldRef(t, ..) => t.get().newtype_field().is_some(),
+        };
+        // A newtype is its field: nothing to allocate, arm, project or
+        // release. The `unpack` below converts between the class's 128-bit
+        // slot and the field's native type.
         let result = match op {
+            ClassOp::New(_) if newtype => {
+                let zero = self.bcx.ins().iconst(types::I64, 0);
+                self.bcx.ins().uextend(types::I128, zero)
+            }
+            ClassOp::ArmDrop(_) if newtype => {
+                self.pop_typed(inputs[0].clone())?;
+                self.bcx.ins().iconst(types::I64, 0)
+            }
+            ClassOp::Field(..) | ClassOp::FieldRef(..) if newtype => {
+                self.pop_typed(inputs[0].clone())?.0
+            }
             ClassOp::New(t) => {
                 let storage = self.record_storage(Ty::Class(t.clone()).inline_bytes());
                 self.bcx.ins().uextend(types::I128, storage)

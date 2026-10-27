@@ -623,6 +623,7 @@ mod native {
             name: "",
             variants: &[],
             drop: None,
+            wrapper: None,
         };
 
         struct Owner(u128);

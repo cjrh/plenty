@@ -13,6 +13,7 @@ static INTEGER: Type = Type {
     name: "",
     variants: &[],
     drop: None,
+    wrapper: None,
 };
 static RANGE: Type = Type {
     kind: b'R',

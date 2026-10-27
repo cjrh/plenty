@@ -1,6 +1,6 @@
 //! One allocation containing a header and dense native-width scalar columns.
 //! Capacity growth allocates/copies before publishing the new owner pointer.
-use super::{Type, wrap};
+use super::{Type, Variant, wrap};
 use crate::memory::{self, AllocError, Header};
 
 #[repr(C)]
@@ -26,6 +26,16 @@ extern "C" fn plenty_trap_clist_index(site: *const crate::Site) -> ! {
     )
 }
 
+/// The row class's fields: its variants, or its wrapper when a one-field row
+/// class is represented as its field.
+fn schema(ty: &Type) -> &'static [Variant] {
+    let key = ty.key();
+    match key.wrapper {
+        Some(wrapper) => std::slice::from_ref(wrapper),
+        None => key.variants,
+    }
+}
+
 fn width(kind: u8) -> usize {
     match kind {
         b'1' | b'5' | b'b' => 1,
@@ -36,11 +46,7 @@ fn width(kind: u8) -> usize {
     }
 }
 fn row_bytes(ty: &Type) -> usize {
-    ty.key()
-        .variants
-        .iter()
-        .map(|f| width(f.fields[0].kind))
-        .sum()
+    schema(ty).iter().map(|f| width(f.fields[0].kind)).sum()
 }
 unsafe extern "C" fn destroy(header: *mut Header) {
     // SAFETY: final release owns this exact flexible allocation.
@@ -53,7 +59,7 @@ unsafe fn column(owner: *mut Columns, ty: &Type, field: usize) -> *mut u8 {
     // Capacity is rounded to a multiple of eight so every column base is
     // naturally aligned even when earlier columns contain bytes.
     unsafe {
-        let prefix: usize = ty.key().variants[..field]
+        let prefix: usize = schema(ty)[..field]
             .iter()
             .map(|f| width(f.fields[0].kind))
             .sum();
@@ -92,7 +98,7 @@ unsafe fn reserve(slot: *mut u128, ty: &Type, additional: i64) -> Result<(), All
             bytes,
         });
         if !old.is_null() {
-            for (field, schema) in ty.key().variants.iter().enumerate() {
+            for (field, schema) in schema(ty).iter().enumerate() {
                 std::ptr::copy_nonoverlapping(
                     column(old, ty, field),
                     column(new, ty, field),
@@ -118,7 +124,7 @@ unsafe fn position(owner: *mut Columns, index: i64) -> Option<usize> {
 }
 unsafe fn read(owner: *mut Columns, ty: &Type, field: usize, index: usize) -> u128 {
     unsafe {
-        let kind = ty.key().variants[field].fields[0].kind;
+        let kind = schema(ty)[field].fields[0].kind;
         let ptr = column(owner, ty, field).add(index * width(kind));
         match kind {
             b'1' => ptr.cast::<i8>().read() as i64 as u64 as u128,
@@ -135,7 +141,7 @@ unsafe fn read(owner: *mut Columns, ty: &Type, field: usize, index: usize) -> u1
 }
 unsafe fn write(owner: *mut Columns, ty: &Type, field: usize, index: usize, value: u128) {
     unsafe {
-        let kind = ty.key().variants[field].fields[0].kind;
+        let kind = schema(ty)[field].fields[0].kind;
         let ptr = column(owner, ty, field).add(index * width(kind));
         match kind {
             b'1' | b'5' | b'b' => ptr.write(value as u8),
@@ -173,9 +179,15 @@ pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crat
                     return wrap(wrap(b, error as u64), 1);
                 }
                 let owner = slot.read() as *mut Columns;
-                let row = b as *const u128;
-                for field in 0..ty.key().variants.len() {
-                    write(owner, ty, field, (*owner).len, row.add(field).read());
+                // A one-field row is its scalar; wider rows arrive by record
+                // address.
+                if ty.key().wrapper.is_some() {
+                    write(owner, ty, 0, (*owner).len, b);
+                } else {
+                    let row = b as *const u128;
+                    for field in 0..schema(ty).len() {
+                        write(owner, ty, field, (*owner).len, row.add(field).read());
+                    }
                 }
                 (*owner).len += 1;
                 wrap(0, 0)
@@ -198,13 +210,18 @@ pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crat
                 let Some(index) = position(owner, b as i64) else {
                     return wrap(0, 0);
                 };
-                let row = c as *mut u128;
-                for field in 0..ty.key().variants.len() {
-                    row.add(field).write(read(owner, ty, field, index));
-                }
+                let result = if ty.key().wrapper.is_some() {
+                    read(owner, ty, 0, index)
+                } else {
+                    let row = c as *mut u128;
+                    for field in 0..schema(ty).len() {
+                        row.add(field).write(read(owner, ty, field, index));
+                    }
+                    c
+                };
                 if op == 530 {
                     let following = (*owner).len - index - 1;
-                    for (field, schema) in ty.key().variants.iter().enumerate() {
+                    for (field, schema) in schema(ty).iter().enumerate() {
                         let width = width(schema.fields[0].kind);
                         let destination = column(owner, ty, field).add(index * width);
                         // Source and destination overlap. All live columns
@@ -214,7 +231,7 @@ pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crat
                     }
                     (*owner).len -= 1;
                 }
-                wrap(c, 1)
+                wrap(result, 1)
             }
             531 => {
                 if !owner.is_null() {
@@ -253,7 +270,7 @@ pub(super) unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
         let len = |p: *mut Columns| if p.is_null() { 0 } else { (*p).len };
         len(a) == len(b)
             && (0..len(a)).all(|i| {
-                ty.key().variants.iter().enumerate().all(|(f, schema)| {
+                schema(ty).iter().enumerate().all(|(f, schema)| {
                     super::equal(read(a, ty, f, i), read(b, ty, f, i), schema.fields[0])
                 })
             })
