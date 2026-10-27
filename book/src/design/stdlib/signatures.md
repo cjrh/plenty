@@ -318,6 +318,7 @@ class Complex
     def log(self) -> Complex
     def sqrt(self) -> Complex
     def pow(self, exponent: &Complex) -> Complex
+    def powi(self, n: i64) -> Complex
     def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]
 def from_polar(r: f64, theta: f64) -> Complex
 ```

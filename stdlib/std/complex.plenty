@@ -100,14 +100,37 @@ pub class Complex:
         else:
             Complex(self.im.fabs() / (2.0 * root), root.copysign(self.im))
 
-    # Principal value of exp(exponent * log(self)), so results carry the
-    # rounding of exp and log: (1+1i).pow(2) is close to, not exactly, 2i.
+    # Small real integral exponents use repeated squaring, as CPython's
+    # complex_pow does, so (1+1i).pow(2) is exactly 2i. Repeated squaring
+    # roughly doubles relative error per squaring, so above |n| = 100 the
+    # principal value exp(exponent * log(self)) is used instead.
     pub def pow(self, exponent: &Complex) -> Complex:
-        if exponent.re == 0.0 and exponent.im == 0.0:
-            return Complex(1.0, 0.0)
+        if exponent.im == 0.0 and exponent.re.floor() == exponent.re and exponent.re.fabs() <= 100.0:
+            return self.powi(i64(exponent.re))
         if self.re == 0.0 and self.im == 0.0 and exponent.im == 0.0 and exponent.re > 0.0:
             return Complex(0.0, 0.0)
         (self.log() * exponent).exp()
+
+    # Binary exponentiation for any i64; a negative power is the reciprocal
+    # of the positive one. Zero gives 1+0i, even for a NaN base.
+    pub def powi(self, n: i64) -> Complex:
+        if n < 0:
+            # -(n + 1) + 1 avoids negating i64.MIN.
+            return Complex(1.0, 0.0) / self.powu(u64(-(n + 1)) + 1u64)
+        self.powu(u64(n))
+
+    def powu(self, n: u64) -> Complex:
+        mut result = Complex(1.0, 0.0)
+        mut power = Complex(self.re, self.im)
+        mut remaining = n
+        while remaining > 0u64:
+            if remaining & 1u64 == 1u64:
+                result = result * power
+            remaining = remaining >> 1
+            # Skipping the final square avoids a spurious overflow.
+            if remaining > 0u64:
+                power = power * power
+        result
 
     # `1.5+2.0i`, `1.5-2.0i`: each part uses the f64 print spelling. A
     # negative zero imaginary part is written with `-`.

@@ -51,7 +51,8 @@ independent value. There are no in-place hooks; accumulate with
 | `z.exp()` | `Complex` | Complex exponential |
 | `z.log()` | `Complex` | Principal natural logarithm: `abs().log() + arg() i` |
 | `z.sqrt()` | `Complex` | Principal square root: nonnegative real part |
-| `z.pow(exponent: &Complex)` | `Complex` | Principal value of `exp(exponent * log(z))` |
+| `z.pow(exponent: &Complex)` | `Complex` | `z.powi(n)` for a real integral exponent `n` with `abs(n) <= 100`; otherwise the principal value of `exp(exponent * log(z))` |
+| `z.powi(n: i64)` | `Complex` | `z` multiplied by itself `n` times by repeated squaring; a negative `n` gives `1 / z.powi(-n)` |
 
 Both operands of an operator must be `Complex`; there are no mixed operations
 with `f64`. Operator hooks dispatch on the left operand's type and cannot be
@@ -79,6 +80,7 @@ def main() -> Result[(), IoError | FormatError | math.MathError]:
     print(f"{Complex(-1.0, 0.0).log()}"?)?
     i = Complex(0.0, 1.0)
     print(f"{i.pow(i)} {Complex(0.0, 0.0).pow(Complex(2.0, 0.0))}"?)?
+    print(f"{Complex(1.0, 1.0).pow(Complex(2.0, 0.0))} {Complex(1.0, 1.0).powi(-2)}"?)?
     print(f"{Complex(0.0, f64.PI).exp()}"?)?
     Ok(())
 ```
@@ -87,15 +89,23 @@ True True
 0.0+2.0i 2.0+1.0i
 0.0+3.141592653589793i
 0.20787957635076193+0.0i 0.0+0.0i
+0.0+2.0i 0.0-0.5i
 -1.0+1.2246467991473532e-16i
 ```
 
 The functions are computed from `f64` primitives, so results carry their
-rounding: `exp(pi i)` has a tiny imaginary part, and `pow` inherits the
-rounding of both `exp` and `log`. Compare results with a tolerance, for example
-[`math.isclose`](math.md) on each part. `pow` returns `1+0i` for a zero
-exponent, including a NaN base, as `f64.pow` does, and `0+0i` for a zero base
-with a real positive exponent.
+rounding: `exp(pi i)` has a tiny imaginary part. Compare results with a
+tolerance, for example [`math.isclose`](math.md) on each part.
+
+`pow` uses the method of Python's `complex.__pow__`. A real integral exponent `n` with
+`abs(n) <= 100` uses `powi`, which multiplies by repeated squaring, so small
+powers of exactly representable values are exact: `(1+1i).pow(2)` is `0+2i`.
+Each squaring can roughly double the relative error, so larger or
+non-integral exponents use `exp(exponent * log(z))` and inherit the rounding
+of `exp` and `log`. A zero exponent gives `1+0i`, including for a NaN base, as
+`f64.pow` does. A zero base gives `0+0i` for a real positive exponent;
+otherwise it follows `f64` division and `log`, so `0.pow(-2)` is `inf+NaNi`
+rather than an error. Call `powi` directly for an `i64` exponent of any size.
 
 ## Floating-point behavior
 

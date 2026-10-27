@@ -180,3 +180,29 @@ fn operands_must_both_be_complex() {
         "{message}"
     );
 }
+
+#[test]
+fn small_integral_powers_are_exact() {
+    let output = run(r#"    a = Complex(1.0, 1.0)
+    i = Complex(0.0, 1.0)
+    print(f"{a.pow(Complex(2.0, 0.0))} {a.pow(Complex(-2.0, 0.0))} {i.pow(Complex(4.0, 0.0))} {a.powi(3)} {a.powi(0)}"?)?
+    print(a.pow(Complex(2.0, 0.0)) == Complex(0.0, 2.0), i.pow(Complex(4.0, 0.0)) == Complex(1.0, 0.0))?
+    exact = Complex(-1125899906842624.0, -1125899906842624.0)
+    print(a.pow(Complex(100.0, 0.0)) == Complex(-1125899906842624.0, 0.0), a.powi(101) == exact)?
+    general = a.pow(Complex(101.0, 0.0))
+    print(general == exact, math.isclose(general.re, exact.re, 1e-13, 0.0)?, math.isclose(general.im, exact.im, 1e-13, 0.0)?)?
+    print(f"{Complex(0.0, 0.0).pow(Complex(-2.0, 0.0))} {Complex(0.0, 0.0).pow(Complex(2.5, 0.0))} {Complex(0.0, 0.0).pow(Complex(1.0, 1.0))}"?)?
+    print(f"{i.pow(i)} {Complex(2.0, 0.0).pow(Complex(0.5, 0.0))} {a.pow(Complex(2.0, 1e-300))}"?)?
+    print(f"{Complex(2.0, 0.0).powi(-9223372036854775807 - 1)} {Complex(0.5, 0.0).powi(-3)}"?)?
+"#);
+    assert_eq!(
+        output,
+        "0.0+2.0i 0.0-0.5i 1.0+0.0i -2.0+2.0i 1.0+0.0i\n\
+         True True\n\
+         True True\n\
+         False True True\n\
+         inf+NaNi 0.0+0.0i NaN+NaNi\n\
+         0.20787957635076193+0.0i 1.414213562373095+0.0i 1.2246467991473532e-16+2.0i\n\
+         NaN+NaNi 8.0+0.0i\n"
+    );
+}
