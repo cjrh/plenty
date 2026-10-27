@@ -5,7 +5,7 @@
 from std.net import NetError, TcpListener, TcpStream
 from std.ready import Interest, Readiness, Selector, WaitError, selector
 from std.sync import CancellationToken
-from std.time import Deadline, deadline_at, monotonic_now
+from std.time import Deadline, Duration, deadline_at, instant_at, monotonic_now
 
 # Operations of the runtime's `plenty_actor_heap`.
 const op_create: i64 = 0
@@ -44,6 +44,51 @@ def slot_of(key: u64) -> i64:
 
 def generation_of(key: u64) -> u32:
     u32(key >> 32u64)
+
+# A timer started by `Context.after` or `Context.every`. Its `tag` is the
+# caller's.
+@copy
+pub class Timer:
+    _key: u64
+    _tag: i64
+
+    pub def key(self) -> u64:
+        self._key
+
+    pub def tag(self) -> i64:
+        self._tag
+
+# A request sent by `Context.request`. The receiver answers it with
+# `Context.reply`; the requester compares `key()` to match the reply.
+@copy
+pub class Request:
+    _key: u64
+
+    pub def key(self) -> u64:
+        self._key
+
+# The answer to a request, as the requester receives it.
+pub enum Reply[M]:
+    Answer(M)
+    # The timeout passed first.
+    TimedOut
+    # The receiver stopped or restarted before answering.
+    Gone
+
+pub enum TimerError:
+    # Every timer is in use; see `Stage.add_timers`.
+    Capacity
+    # A repeating timer's period is zero, or the time is out of range.
+    Range
+
+# A request that was not sent, returned to the sender.
+pub enum RequestError[M]:
+    # The receiver's mailbox is full, or its heap cannot hold the copy.
+    Full(M)
+    # The receiver has stopped.
+    Gone(M)
+    # Every timer is in use; a pending request holds one.
+    Capacity(M)
 
 # How an actor ended, as its parent sees it.
 pub enum Exit[E]:
@@ -93,6 +138,12 @@ pub enum Mail[M, E]:
     Down(Address, Exit[E])
     # A stop request; the actor stops after handling it.
     Stop
+    # A timer of this actor is due.
+    Timer(Timer)
+    # A request from another actor; answer with `Context.reply`.
+    Request(Request, M)
+    # The answer to this actor's request, or why there is none.
+    Reply(Request, Reply[M])
 
 # A message that was not delivered, returned to the sender.
 pub enum Undelivered[M]:
@@ -120,6 +171,8 @@ pub class Stats:
     pub stopped: i64
     pub failed: i64
     pub trapped: i64
+    # Children rebuilt after failing or trapping; see `Context.restart`.
+    pub restarted: i64
     pub delivered: i64
     # Messages refused because a mailbox was full.
     pub full: i64
@@ -175,6 +228,50 @@ class Mailbox[M, E]:
     # This actor's queue of zombie children, linked through `down_next`.
     down_head: i64
     down_tail: i64
+    # Timer records this actor owns, and pending requests sent to it.
+    clocks_head: i64
+    incoming_head: i64
+    # Owned records that are due, delivered outside the mailbox.
+    notice_head: i64
+    notice_tail: i64
+    # The next delivery prefers a due notice over the mailbox.
+    turn: bool
+    # The spawn tag and heap limit, which a restart reuses.
+    tag: i64
+    limit: i64
+    # Restart policy: at most `restart_limit` restarts per window.
+    restart_limit: i64
+    restart_window: u64
+    restart_start: u64
+    restart_count: i64
+
+# A timer or a pending request. Records live outside every actor heap, are
+# allocated by `Stage.add_timers`, and are linked by index, so handlers use
+# them without allocating.
+class Clock:
+    generation: u32
+    owner: i64
+    owner_prev: i64
+    # Also links the free list.
+    owner_next: i64
+    tag: i64
+    due: u64
+    # Nanoseconds between ticks; 0 for a one-shot timer.
+    period: u64
+    request: bool
+    # A request's receiver slot, or -1 once answered, timed out or gone.
+    target: i64
+    target_prev: i64
+    target_next: i64
+    # Index in the stage's due order, or -1.
+    position: i64
+    noticed: bool
+    notice_next: i64
+    # A request whose receiver stopped: `Reply.Gone` instead of `TimedOut`.
+    gone: bool
+
+def clock_now() -> u64:
+    monotonic_now().saturating_duration_since(&instant_at(0u64)).as_nanoseconds()
 
 # Lent to every handler. Its fields live outside every actor heap and hold
 # no actor's pointers, so a handler cannot leave one behind in it.
@@ -195,6 +292,12 @@ pub class Context[M, E]:
     _spawn_tags: list[i64]
     _spawn_count: i64
     _stats: Stats
+    _clocks: list[Clock]
+    # Free records, linked through `owner_next`.
+    _clock_free: i64
+    # A binary min-heap of record indices by `due`.
+    _order: list[i64]
+    _order_count: i64
 
     # The running actor's address.
     pub def address(self) -> Address:
@@ -218,18 +321,10 @@ pub class Context[M, E]:
         if self._boxes[index].count == len(self._boxes[index].items):
             self._stats.full += 1
             return Err(Undelivered[M].Full(message))
-        previous = __actor_heap(op_switch, self._boxes[index].heap)
-        copied = copy(&message)
-        mut mail: Option[Mail[M, E]] = Nothing
-        match copied:
-            case Ok(value):
-                mail = Some(Mail[M, E].Message(value))
-            case Err(_):
-                pass
-        __actor_heap(op_switch, previous)
-        match mail:
-            case Some(value):
-                self.push(index, Some(value))
+        match self.copy_into(index, &message):
+            case Some(copied):
+                self.push(index, Some(Mail[M, E].Message(copied)))
+                drop(message)
                 Ok(())
             case Nothing:
                 self._stats.full += 1
@@ -261,10 +356,109 @@ pub class Context[M, E]:
         self._boxes[index].pending = True
         self._boxes[index].parent = self._self
         self._boxes[index].has_parent = True
+        self._boxes[index].tag = tag
         self._spawn_slots[self._spawn_count] = index
         self._spawn_tags[self._spawn_count] = tag
         self._spawn_count += 1
         Ok(address(index, self._boxes[index].generation))
+
+    # Restarts `child`, a child of the running actor, when it fails or traps:
+    # its heap is discarded, a new one of the same limit is reserved, and this
+    # actor's `spawn` hook builds it again with the same tag. The address
+    # stays. At most `limit` restarts happen per `window`, counted from the
+    # first in the window; past that, or when the hook returns `Nothing`, the
+    # child stops and this actor receives `Down`. A `limit` of 0 turns
+    # restarting off. False when `child` is not a live child of this actor.
+    pub def restart(self: &mut Context[M, E], child: Address, limit: i64, window: &Duration) -> bool:
+        if limit < 0 or not self.accepts(child._key):
+            return False
+        box = &mut self._boxes[slot_of(child._key)]
+        if not box.has_parent or box.parent != self._self:
+            return False
+        box.restart_limit = limit
+        box.restart_window = window.as_nanoseconds()
+        box.restart_count = 0
+        True
+
+    # Delivers `Mail.Timer` once, after `delay`.
+    pub def after(self: &mut Context[M, E], delay: &Duration, tag: i64) -> Result[Timer, TimerError]:
+        self.start_timer(delay.as_nanoseconds(), 0u64, tag)
+
+    # Delivers `Mail.Timer` every `period`, starting one period from now. A
+    # tick that is still undelivered when the next falls due absorbs it.
+    pub def every(self: &mut Context[M, E], period: &Duration, tag: i64) -> Result[Timer, TimerError]:
+        if period.is_zero():
+            return Err(TimerError.Range)
+        self.start_timer(period.as_nanoseconds(), period.as_nanoseconds(), tag)
+
+    # Stops one of the running actor's timers. No `Mail.Timer` for it is
+    # delivered afterwards. False when it has already ended.
+    pub def cancel(self: &mut Context[M, E], timer: Timer) -> bool:
+        record = self.clock(timer._key)
+        if record < 0 or self._clocks[record].request or self._clocks[record].owner != slot_of(self._self):
+            return False
+        self.free_clock(record)
+        True
+
+    # Copies `message` into the receiver's heap and queues it as
+    # `Mail.Request`. Exactly one `Mail.Reply` for the returned request
+    # follows: the receiver's answer, `TimedOut` after `timeout`, or `Gone`
+    # when the receiver stops first. The request holds a timer record until
+    # then.
+    pub def request(self: &mut Context[M, E], to: Address, message: M, timeout: &Duration) -> Result[Request, RequestError[M]]:
+        index = slot_of(to._key)
+        if not self.accepts(to._key):
+            self._stats.gone += 1
+            return Err(RequestError[M].Gone(message))
+        if self._clock_free < 0:
+            return Err(RequestError[M].Capacity(message))
+        mut span = timeout.as_nanoseconds()
+        now = clock_now()
+        if span > u64.MAX - now:
+            span = u64.MAX - now
+        if self._boxes[index].count == len(self._boxes[index].items):
+            self._stats.full += 1
+            return Err(RequestError[M].Full(message))
+        match self.copy_into(index, &message):
+            case Some(copied):
+                record = self.take_clock(now + span, 0u64, 0)
+                self._clocks[record].request = True
+                self._clocks[record].target = index
+                head = self._boxes[index].incoming_head
+                self._clocks[record].target_next = head
+                if head >= 0:
+                    self._clocks[head].target_prev = record
+                self._boxes[index].incoming_head = record
+                request = Request(address(record, self._clocks[record].generation)._key)
+                self.push(index, Some(Mail[M, E].Request(request, copied)))
+                drop(message)
+                Ok(request)
+            case Nothing:
+                self._stats.full += 1
+                Err(RequestError[M].Full(message))
+
+    # Answers a request this actor received: copies `message` into the
+    # requester's heap and queues it as `Mail.Reply(request, Answer)`. `Gone`
+    # when the requester stopped, the request timed out or was answered, or
+    # it was not sent to this actor.
+    pub def reply(self: &mut Context[M, E], request: Request, message: M) -> Result[(), Undelivered[M]]:
+        record = self.clock(request._key)
+        if record < 0 or not self._clocks[record].request or self._clocks[record].target != slot_of(self._self):
+            self._stats.gone += 1
+            return Err(Undelivered[M].Gone(message))
+        owner = self._clocks[record].owner
+        if self._boxes[owner].count == len(self._boxes[owner].items):
+            self._stats.full += 1
+            return Err(Undelivered[M].Full(message))
+        match self.copy_into(owner, &message):
+            case Some(copied):
+                self.free_clock(record)
+                self.push(owner, Some(Mail[M, E].Reply(request, Reply[M].Answer(copied))))
+                drop(message)
+                Ok(())
+            case Nothing:
+                self._stats.full += 1
+                Err(Undelivered[M].Full(message))
 
     # Delivers the stream's readiness to the running actor as `Mail.Ready`.
     pub def watch_stream(self: &mut Context[M, E], stream: &TcpStream, interest: Interest) -> Result[(), NetError]:
@@ -279,6 +473,209 @@ pub class Context[M, E]:
 
     pub def unwatch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]:
         listener.unwatch(&mut self._selector)
+
+    # `message` copied into slot `index`'s heap, or Nothing when it does not fit.
+    def copy_into(self, index: i64, message: &M) -> Option[M]:
+        previous = __actor_heap(op_switch, self._boxes[index].heap)
+        mut copied: Option[M] = Nothing
+        match copy(message):
+            case Ok(value):
+                copied = Some(value)
+            case Err(_):
+                pass
+        __actor_heap(op_switch, previous)
+        copied
+
+    def start_timer(self: &mut Context[M, E], delay: u64, period: u64, tag: i64) -> Result[Timer, TimerError]:
+        if self._clock_free < 0:
+            return Err(TimerError.Capacity)
+        now = clock_now()
+        if delay > u64.MAX - now:
+            return Err(TimerError.Range)
+        record = self.take_clock(now + delay, period, tag)
+        Ok(Timer(address(record, self._clocks[record].generation)._key, tag))
+
+    # Takes a free record for the running actor and schedules it.
+    def take_clock(self: &mut Context[M, E], due: u64, period: u64, tag: i64) -> i64:
+        record = self._clock_free
+        self._clock_free = self._clocks[record].owner_next
+        owner = slot_of(self._self)
+        head = self._boxes[owner].clocks_head
+        clock = &mut self._clocks[record]
+        clock.owner = owner
+        clock.owner_prev = -1
+        clock.owner_next = head
+        clock.tag = tag
+        clock.due = due
+        clock.period = period
+        clock.request = False
+        clock.target = -1
+        clock.target_prev = -1
+        clock.target_next = -1
+        clock.noticed = False
+        clock.notice_next = -1
+        clock.gone = False
+        if head >= 0:
+            self._clocks[head].owner_prev = record
+        self._boxes[owner].clocks_head = record
+        self.order_insert(record)
+        record
+
+    # The live record with this key, or -1.
+    def clock(self, key: u64) -> i64:
+        record = slot_of(key)
+        if record >= len(self._clocks):
+            return -1
+        clock = &self._clocks[record]
+        if clock.owner < 0 or clock.generation != generation_of(key):
+            return -1
+        record
+
+    # Unlinks a record from everything that refers to it and frees it.
+    def free_clock(self: &mut Context[M, E], record: i64) -> ():
+        if self._clocks[record].position >= 0:
+            self.order_remove(record)
+        self.unlink_target(record)
+        if self._clocks[record].noticed:
+            self.unlink_notice(record)
+        owner = self._clocks[record].owner
+        previous = self._clocks[record].owner_prev
+        next = self._clocks[record].owner_next
+        if previous >= 0:
+            self._clocks[previous].owner_next = next
+        else:
+            self._boxes[owner].clocks_head = next
+        if next >= 0:
+            self._clocks[next].owner_prev = previous
+        clock = &mut self._clocks[record]
+        clock.owner = -1
+        clock.generation += 1u32
+        clock.owner_next = self._clock_free
+        self._clock_free = record
+
+    # Removes a request from its receiver's list of pending requests.
+    def unlink_target(self: &mut Context[M, E], record: i64) -> ():
+        target = self._clocks[record].target
+        if target < 0:
+            return
+        previous = self._clocks[record].target_prev
+        next = self._clocks[record].target_next
+        if previous >= 0:
+            self._clocks[previous].target_next = next
+        else:
+            self._boxes[target].incoming_head = next
+        if next >= 0:
+            self._clocks[next].target_prev = previous
+        self._clocks[record].target = -1
+
+    # Queues a due record for its owner, outside the mailbox.
+    def link_notice(self: &mut Context[M, E], record: i64) -> ():
+        owner = self._clocks[record].owner
+        self._clocks[record].noticed = True
+        self._clocks[record].notice_next = -1
+        tail = self._boxes[owner].notice_tail
+        if tail < 0:
+            self._boxes[owner].notice_head = record
+        else:
+            self._clocks[tail].notice_next = record
+        self._boxes[owner].notice_tail = record
+        self.enqueue(owner)
+
+    def unlink_notice(self: &mut Context[M, E], record: i64) -> ():
+        owner = self._clocks[record].owner
+        self._clocks[record].noticed = False
+        mut previous = -1
+        mut at = self._boxes[owner].notice_head
+        while at >= 0 and at != record:
+            previous = at
+            at = self._clocks[at].notice_next
+        if at < 0:
+            return
+        next = self._clocks[record].notice_next
+        if previous < 0:
+            self._boxes[owner].notice_head = next
+        else:
+            self._clocks[previous].notice_next = next
+        if self._boxes[owner].notice_tail == record:
+            self._boxes[owner].notice_tail = previous
+
+    # Moves due records to their owners' notices; repeating timers are
+    # scheduled again, skipping ticks that already passed.
+    def fire(self: &mut Context[M, E], now: u64) -> ():
+        while self._order_count > 0 and self._clocks[self._order[0]].due <= now:
+            record = self._order[0]
+            self.order_remove(record)
+            if self._clocks[record].request:
+                self.unlink_target(record)
+                self.link_notice(record)
+            else:
+                if not self._clocks[record].noticed:
+                    self.link_notice(record)
+                period = self._clocks[record].period
+                if period > 0u64:
+                    due = self._clocks[record].due
+                    mut next = now
+                    if due <= u64.MAX - period and due + period > now:
+                        next = due + period
+                    elif now <= u64.MAX - period:
+                        next = now + period
+                    else:
+                        next = u64.MAX
+                    self._clocks[record].due = next
+                    self.order_insert(record)
+
+    def order_insert(self: &mut Context[M, E], record: i64) -> ():
+        at = self._order_count
+        self._order[at] = record
+        self._clocks[record].position = at
+        self._order_count += 1
+        self.order_up(at)
+
+    def order_remove(self: &mut Context[M, E], record: i64) -> ():
+        at = self._clocks[record].position
+        last = self._order_count - 1
+        self._order_count = last
+        self._clocks[record].position = -1
+        if at != last:
+            moved = self._order[last]
+            self._order[at] = moved
+            self._clocks[moved].position = at
+            self.order_down(at)
+            self.order_up(self._clocks[moved].position)
+
+    def order_due(self, at: i64) -> u64:
+        self._clocks[self._order[at]].due
+
+    def order_swap(self: &mut Context[M, E], a: i64, b: i64) -> ():
+        first = self._order[a]
+        second = self._order[b]
+        self._order[a] = second
+        self._order[b] = first
+        self._clocks[second].position = a
+        self._clocks[first].position = b
+
+    def order_up(self: &mut Context[M, E], start: i64) -> ():
+        mut at = start
+        while at > 0:
+            parent = (at - 1) // 2
+            if self.order_due(at) >= self.order_due(parent):
+                break
+            self.order_swap(at, parent)
+            at = parent
+
+    def order_down(self: &mut Context[M, E], start: i64) -> ():
+        mut at = start
+        while True:
+            left = 2 * at + 1
+            if left >= self._order_count:
+                break
+            mut least = left
+            if left + 1 < self._order_count and self.order_due(left + 1) < self.order_due(left):
+                least = left + 1
+            if self.order_due(least) >= self.order_due(at):
+                break
+            self.order_swap(at, least)
+            at = least
 
     def accepts(self, key: u64) -> bool:
         index = slot_of(key)
@@ -330,6 +727,15 @@ pub class Context[M, E]:
                 box.stopping = False
                 box.down_head = -1
                 box.down_tail = -1
+                box.clocks_head = -1
+                box.incoming_head = -1
+                box.notice_head = -1
+                box.notice_tail = -1
+                box.turn = False
+                box.tag = 0
+                box.limit = limit
+                box.restart_limit = 0
+                box.restart_count = 0
                 Ok(index)
             case Err(_):
                 __actor_heap(op_discard, heap)
@@ -367,6 +773,23 @@ pub class Stage[N, M, E]:
     pub def stop_actor(self: &mut Stage[N, M, E], to: Address) -> bool:
         self._context.stop_actor(to)
 
+    # Allocates `count` more timer records. Each `Context.after` or
+    # `Context.every` timer and each pending request holds one until it
+    # ends. A stage starts with none.
+    pub def add_timers(self: &mut Stage[N, M, E], count: i64) -> Result[(), AllocError]:
+        context = &mut self._context
+        start = len(context._clocks)
+        for _ in range(count):
+            context._order.append(-1)?
+        for _ in range(count):
+            context._clocks.append(Clock(0u32, -1, -1, -1, 0, 0u64, 0u64, False, -1, -1, -1, -1, False, -1, False))?
+        # Linked only once every list has room, so a failed append changes
+        # no record in use.
+        for record in range(start, len(context._clocks)):
+            context._clocks[record].owner_next = context._clock_free
+            context._clock_free = record
+        Ok(())
+
     # Live actors.
     pub def live(self) -> i64:
         self._live
@@ -384,10 +807,19 @@ pub class Stage[N, M, E]:
     # deadline passes or `cancel` is cancelled first.
     pub def run(self: &mut Stage[N, M, E], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]:
         while self._live > 0:
+            if self._context._order_count > 0:
+                self._context.fire(clock_now())
             if self._context._run_count > 0:
                 self.round()
                 # Collect readiness without waiting while mail is queued.
                 self.poll(&deadline_at(&monotonic_now()), cancel, False)?
+            elif self._context._order_count > 0:
+                due = instant_at(self._context.order_due(0))
+                if deadline.expired(&due):
+                    self.poll(deadline, cancel, True)?
+                else:
+                    # Waking for the timer is not a failure.
+                    self.poll(&deadline_at(&due), cancel, False)?
             else:
                 self.poll(deadline, cancel, True)?
         Ok(())
@@ -437,6 +869,13 @@ pub class Stage[N, M, E]:
             box.fresh = False
             self.begin(index)
             return
+        # Due timers and requests alternate with other mail, so neither waits
+        # for the other to drain.
+        if box.notice_head >= 0 and (box.turn or (box.count == 0 and box.down_head < 0)):
+            box.turn = False
+            self.deliver_notice(index)
+            return
+        box.turn = True
         # Queued mail first, so `Down` follows every message the child sent.
         if box.count == 0:
             if box.down_head >= 0:
@@ -461,6 +900,28 @@ pub class Stage[N, M, E]:
                 self.settle(index, outcome_of(outcome))
             case Nothing:
                 pass
+
+    # Delivers the oldest due timer or ended request. A one-shot timer's or a
+    # request's record is freed first.
+    def deliver_notice(self: &mut Stage[N, M, E], index: i64) -> ():
+        record = self._context._boxes[index].notice_head
+        self._context.unlink_notice(record)
+        clock = &self._context._clocks[record]
+        key = address(record, clock.generation)._key
+        mut mail = Mail[M, E].Timer(Timer(key, clock.tag))
+        if clock.request:
+            if clock.gone:
+                mail = Mail[M, E].Reply(Request(key), Reply[M].Gone)
+            else:
+                mail = Mail[M, E].Reply(Request(key), Reply[M].TimedOut)
+            self._context.free_clock(record)
+        elif clock.period == 0u64:
+            self._context.free_clock(record)
+        heap = self._context._boxes[index].heap
+        self.prepare(index)
+        self._context._stats.delivered += 1
+        outcome = __actor_run(heap, run_receive, &mut self._nodes[index], mail, &mut self._context)
+        self.settle(index, outcome_of(outcome))
 
     # Delivers the oldest child exit and frees the child's slot.
     def deliver_down(self: &mut Stage[N, M, E], index: i64) -> ():
@@ -523,7 +984,7 @@ pub class Stage[N, M, E]:
                     self._context._stats.stopped += 1
                     self.finish(index)
                     self.retire(index, Exit[E].Stopped)
-                elif self._context._boxes[index].count > 0 or self._context._boxes[index].down_head >= 0:
+                elif self._context._boxes[index].count > 0 or self._context._boxes[index].down_head >= 0 or self._context._boxes[index].notice_head >= 0:
                     self._context.enqueue(index)
             case _:
                 self.release_spawns(0, count)
@@ -543,32 +1004,43 @@ pub class Stage[N, M, E]:
     # or trap ends the parent.
     def build(self: &mut Stage[N, M, E], parent: i64, position: i64) -> Outcome[E]:
         child = self._context._spawn_slots[position]
-        tag = self._context._spawn_tags[position]
+        outcome = self.hook(parent, child, self._context._spawn_tags[position])
+        match &outcome:
+            case Outcome.Done:
+                if self._nodes[child].is_some():
+                    self._live += 1
+                    self._context._stats.started += 1
+                    return outcome
+            case _:
+                pass
+        self.release(child)
+        outcome
+
+    # Runs the parent's spawn hook for slot `child`. When it returns a node,
+    # the node is placed and queued to start; `Done` with no node placed
+    # means the hook returned `Nothing`.
+    def hook(self: &mut Stage[N, M, E], parent: i64, child: i64, tag: i64) -> Outcome[E]:
         heap = self._context._boxes[child].heap
         child_address = address(child, self._context._boxes[child].generation)
+        running = self._context._self
         self._context._self = child_address._key
         self._context._building = True
         outcome = __actor_run(heap, run_spawn, &self._nodes[parent], tag, child_address, &mut self._context)
         self._context._building = False
+        self._context._self = running
         self._context._boxes[child].pending = False
         match outcome:
             case Ok(Ok(Some(node))):
                 self._nodes[child] = Some(node)
-                self._live += 1
-                self._context._stats.started += 1
                 self._context._boxes[child].fresh = True
                 self._context.enqueue(child)
                 Outcome[E].Done
             case Ok(Ok(Nothing)):
-                self.release(child)
                 Outcome[E].Done
             case Ok(Err(error)):
                 # The error was made in the child's heap; the parent keeps it.
-                kept = self.adopt(parent, error)
-                self.release(child)
-                kept
+                self.adopt(parent, error)
             case Err(_):
-                self.release(child)
                 Outcome[E].Trapped(last_trap())
 
     # Releases the slots of spawn requests `start` to `stop` that were not built.
@@ -579,6 +1051,8 @@ pub class Stage[N, M, E]:
     # Frees a slot that never held a started actor.
     def release(self: &mut Stage[N, M, E], index: i64) -> ():
         self.clear(index)
+        # The spawn hook may have started timers or requests for the child.
+        self.drop_clocks(index)
         __actor_heap(op_discard, self._context._boxes[index].heap)
         self.free(index)
 
@@ -638,13 +1112,93 @@ pub class Stage[N, M, E]:
                 pass
         self.retire(index, Exit[E].Trapped(kind))
 
-    # Tells the parent, frees queued mail, discards the heap and frees the slot.
+    # Frees queued mail and timers, then restarts the actor or tells the
+    # parent, discards the heap and frees the slot.
     def retire(self: &mut Stage[N, M, E], index: i64, exit: Exit[E]) -> ():
         self.clear(index)
+        self.drop_clocks(index)
+        if self.may_restart(index, &exit):
+            fresh = __actor_heap(op_create, self._context._boxes[index].limit)
+            if fresh >= 0:
+                __actor_heap(op_discard, self._context._boxes[index].heap)
+                self.orphan(index)
+                box = &mut self._context._boxes[index]
+                box.heap = fresh
+                box.pending = True
+                box.ready = False
+                box.stopping = False
+                box.turn = False
+                parent = slot_of(box.parent)
+                tag = box.tag
+                outcome = self.hook(parent, index, tag)
+                match outcome:
+                    case Outcome.Done:
+                        if self._nodes[index].is_some():
+                            self._context._stats.restarted += 1
+                            drop(exit)
+                            return
+                    case _:
+                        # The hook's error or trap ends the parent, which
+                        # would receive this exit.
+                        drop(exit)
+                        self._context._stats.lost += 1
+                        __actor_heap(op_discard, self._context._boxes[index].heap)
+                        self.free(index)
+                        self._live -= 1
+                        self.end(parent, outcome)
+                        return
         self.notify(index, exit)
         __actor_heap(op_discard, self._context._boxes[index].heap)
         self.free(index)
         self._live -= 1
+
+    # Whether the actor at `index` is restarted after `exit`, counting the
+    # restart against its window.
+    def may_restart(self: &mut Stage[N, M, E], index: i64, exit: &Exit[E]) -> bool:
+        match exit:
+            case Exit.Stopped:
+                return False
+            case _:
+                pass
+        box = &self._context._boxes[index]
+        if box.restart_limit == 0 or not box.has_parent or not self._context.accepts(box.parent):
+            return False
+        now = clock_now()
+        policy = &mut self._context._boxes[index]
+        if policy.restart_count == 0 or now - policy.restart_start >= policy.restart_window:
+            policy.restart_start = now
+            policy.restart_count = 0
+        if policy.restart_count == policy.restart_limit:
+            return False
+        policy.restart_count += 1
+        True
+
+    # The children of a restarting actor lose their parent: the new actor
+    # did not start them.
+    def orphan(self: &mut Stage[N, M, E], index: i64) -> ():
+        key = address(index, self._context._boxes[index].generation)._key
+        for slot in range(len(self._context._boxes)):
+            box = &mut self._context._boxes[slot]
+            if box.heap >= 0 and box.has_parent and box.parent == key:
+                box.has_parent = False
+
+    # Frees the actor's timers and requests. Requests sent to it end with
+    # `Reply.Gone` for their requesters.
+    def drop_clocks(self: &mut Stage[N, M, E], index: i64) -> ():
+        context = &mut self._context
+        context._boxes[index].notice_head = -1
+        context._boxes[index].notice_tail = -1
+        while context._boxes[index].clocks_head >= 0:
+            record = context._boxes[index].clocks_head
+            context._clocks[record].noticed = False
+            context.free_clock(record)
+        while context._boxes[index].incoming_head >= 0:
+            record = context._boxes[index].incoming_head
+            context.unlink_target(record)
+            if context._clocks[record].position >= 0:
+                context.order_remove(record)
+            context._clocks[record].gone = True
+            context.link_notice(record)
 
     # Queues the exit for the parent: the slot becomes a zombie that holds it
     # until the parent receives `Down`.
@@ -710,14 +1264,14 @@ pub def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage
     nodes: list[Option[N]] = [Nothing for _ in range(capacity)]?
     mut boxes: list[Mailbox[M, E]] = []?
     for _ in range(capacity):
-        boxes.append(Mailbox[M, E](0u32, -1, 0u64, False, False, False, False, False, []?, 0, 0, False, Nothing, 0u64, -1, -1, -1))?
+        boxes.append(Mailbox[M, E](0u32, -1, 0u64, False, False, False, False, False, []?, 0, 0, False, Nothing, 0u64, -1, -1, -1, -1, -1, -1, -1, False, 0, 0, 0, 0u64, 0u64, 0))?
     # Popped from the end, so slot 0 is used first.
     free: list[i64] = [capacity - 1 - index for index in range(capacity)]?
     runnable: list[i64] = [0 for _ in range(capacity)]?
     queued: list[bool] = [False for _ in range(capacity)]?
     spawn_slots: list[i64] = [0 for _ in range(max_spawns)]?
     spawn_tags: list[i64] = [0 for _ in range(max_spawns)]?
-    context = Context[M, E](boxes, free, runnable, 0, 0, queued, selector(events)?, mailbox, 0u64, False, False, spawn_slots, spawn_tags, 0, Stats(0, 0, 0, 0, 0, 0, 0, 0))
+    context = Context[M, E](boxes, free, runnable, 0, 0, queued, selector(events)?, mailbox, 0u64, False, False, spawn_slots, spawn_tags, 0, Stats(0, 0, 0, 0, 0, 0, 0, 0, 0), []?, -1, []?, 0)
     Ok(Stage[N, M, E](nodes, context, 0))
 
 # A handler's result. `__actor_run` reports a trap through an error type

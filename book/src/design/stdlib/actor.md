@@ -162,11 +162,17 @@ parent's heap before the child's heap is discarded, and the parent receives
 | `Stage.live()` | Live actors |
 | `Stage.stats()` | `Stats` |
 | `Stage.heap_used(actor)` | `Option[i64]`: bytes in the actor's heap, `Nothing` once it has stopped |
+| `Stage.add_timers(count)` | `Result[(), AllocError]`: allocates `count` more records for timers and pending requests; a stage starts with none |
 | `Context.address()` | The running actor's `Address` |
 | `Context.send(to, message)` | `Result[(), Undelivered[M]]` |
 | `Context.stop()` | Stops the running actor after this handler returns |
 | `Context.stop_actor(to)` | As `Stage.stop_actor` |
 | `Context.spawn(tag, limit)` | `Result[Address, StartError]`: reserves a child slot, heap and mailbox now; the parent's `spawn` hook builds the child after the handler returns |
+| `Context.restart(child, limit, &window)` | `bool`: restarts the child when it fails or traps, at most `limit` times per `window`; see [Restart](#restart) |
+| `Context.after(&delay, tag)`, `every(&period, tag)` | `Result[Timer, TimerError]`: delivers `Mail.Timer` once after `delay`, or every `period` |
+| `Context.cancel(timer)` | `bool`: no `Mail.Timer` for it follows; `False` when it has already ended |
+| `Context.request(to, message, &timeout)` | `Result[Request, RequestError[M]]`: queues `Mail.Request`; exactly one `Mail.Reply` follows |
+| `Context.reply(request, message)` | `Result[(), Undelivered[M]]`: answers a request this actor received |
 | `Context.heap_used()` | Bytes in the running actor's heap |
 | `Context.watch_stream(&stream, interest)`, `unwatch_stream(&stream)` | `Result[(), NetError]`: delivers the stream's readiness as `Mail.Ready` |
 | `Context.watch_listener(&listener)`, `unwatch_listener(&listener)` | `Result[(), NetError]`: `Mail.Ready` while a connection waits |
@@ -178,12 +184,17 @@ parent's heap before the child's heap is discarded, and the parent receives
 | Type | Values |
 |---|---|
 | `Address` | A slot and a generation. A stopped actor's address is never reused; `key()` returns it as `u64` |
-| `Mail[M, E]` | `Message(M)`, `Ready(Readiness)`, `Down(Address, Exit[E])`, `Stop` |
+| `Mail[M, E]` | `Message(M)`, `Ready(Readiness)`, `Down(Address, Exit[E])`, `Stop`, `Timer(Timer)`, `Request(Request, M)`, `Reply(Request, Reply[M])` |
+| `Timer` | `tag()`, and `key()` as `u64` |
+| `Request` | `key()` as `u64`, to match a reply to its request |
+| `Reply[M]` | `Answer(M)`, `TimedOut`, `Gone` (the receiver stopped or restarted first) |
+| `TimerError` | `Capacity` (every timer record is in use), `Range` (a zero period, or a time out of range) |
+| `RequestError[M]` | `Full(M)`, `Gone(M)` as for `Undelivered`; `Capacity(M)`: no free timer record |
 | `Exit[E]` | `Stopped`, `Failed(E)`, `Trapped(TrapKind)` |
 | `TrapKind` | `Memory`, `Index`, `Arithmetic`, `Unwrap`, `Other`; see [Traps](#traps) |
 | `Undelivered[M]` | `Full(M)`: the mailbox is full or the receiver's heap cannot hold the copy. `Gone(M)`: the receiver has stopped |
 | `StartError` | `Unsupported`, `Capacity` (no free slot, or `max_spawns` reached), `Heaps` (1024 heaps live or the reservation failed), `Limit` (not in 1..`max_heap_limit`), `Mailbox` (its allocation failed) |
-| `Stats` | `started`, `stopped`, `failed`, `trapped`, `delivered`, `full` (refused sends, and readiness deferred by a full mailbox), `gone` (sends and readiness for stopped actors), `lost` (`Down` for a parent that had stopped) |
+| `Stats` | `started`, `stopped`, `failed`, `trapped`, `restarted`, `delivered`, `full` (refused sends, and readiness deferred by a full mailbox), `gone` (sends and readiness for stopped actors), `lost` (`Down` for a parent that had stopped) |
 
 ### Delivery
 
@@ -191,7 +202,9 @@ Each round delivers one mail to every actor that was runnable when the round
 began, then waits on the stage's `std.ready` selector without blocking if any
 actor is still runnable. Readiness is level-triggered: an actor has at most one
 `Mail.Ready` queued, and readiness that finds a full mailbox is reported again
-on a later wait.
+on a later wait. Due timers and ended requests wait outside the mailbox and
+alternate with mailbox deliveries, so they never need mailbox room and neither
+kind delays the other indefinitely.
 
 `Stop` stops the actor after its handler returns. An `Err(error)` from any
 handler stops the actor and gives its parent `Exit.Failed(error)`, copied into
@@ -210,7 +223,164 @@ parent has already stopped, the exit is dropped and counted in `Stats.lost`. A
 stopping actor's undelivered mail is dropped, and so are its children's
 pending exits.
 
-Restart policy is the parent's code: on `Down`, call `Context.spawn` again.
+A parent can also call `Context.spawn` again on `Down`, or ask the stage to
+restart the child.
+
+## Timers, requests and restart
+
+A lead actor asks a counting service for its count, crashes it, and asks
+again. The request queued behind the crash is answered `Gone`, since the
+restart drops the old actor's mail; the retry reaches the restarted service,
+whose count starts again:
+
+```plenty
+from std.actor import Address, Context, Mail, Reply, stage
+from std.ready import WaitError
+from std.sync import CancellationToken
+from std.time import deadline_after, milliseconds, monotonic_now, seconds
+
+type Fault = AllocError | IoError
+
+pub enum Job:
+    Get
+    Count(i64)
+    Crash
+
+pub class Lead:
+    pub service: Option[Address]
+    pub answers: i64
+
+pub enum Node:
+    Leading(Lead)
+    Counting(i64)
+
+    pub def started(self: &mut Node, context: &mut Context[Job, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Leading(lead):
+                service = context.spawn(0, 65536).unwrap()
+                # Up to 3 restarts a minute.
+                context.restart(service, 3, &seconds(60))
+                context.request(service, Job.Get, &seconds(1)).unwrap()
+                lead.service = Some(service)
+            case Node.Counting(_):
+                pass
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[Job, Fault], context: &mut Context[Job, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Leading(lead):
+                service = lead.service.unwrap()
+                match mail:
+                    case Mail.Reply(_, Reply.Answer(Job.Count(count))):
+                        print("count", count)?
+                        lead.answers += 1
+                        if lead.answers == 1:
+                            context.send(service, Job.Crash).unwrap()
+                            context.request(service, Job.Get, &seconds(1)).unwrap()
+                        else:
+                            context.after(&milliseconds(10), 0).unwrap()
+                    case Mail.Reply(_, Reply.Gone):
+                        print("gone")?
+                        context.request(service, Job.Get, &seconds(1)).unwrap()
+                    case Mail.Timer(_):
+                        context.stop_actor(service)
+                    case Mail.Down(_, exit):
+                        print("service", exit)?
+                        context.stop()
+                    case _:
+                        pass
+            case Node.Counting(count):
+                match mail:
+                    case Mail.Request(request, Job.Get):
+                        *count += 1
+                        context.reply(request, Job.Count(*count)).unwrap()
+                    case Mail.Message(Job.Crash):
+                        missing: Option[i64] = Nothing
+                        missing.unwrap()
+                    case _:
+                        pass
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Job, Fault]) -> Result[Option[Node], Fault]:
+        Ok(Some(Node.Counting(0)))
+
+def main() -> Result[(), AllocError | IoError | WaitError]:
+    mut actors = stage[Node, Job, Fault](2, 4, 1)?
+    # Records for timers and pending requests.
+    actors.add_timers(4)?
+    actors.start(Node.Leading(Lead(Nothing, 0)), 65536).unwrap()
+    actors.run(&deadline_after(&monotonic_now(), &seconds(5)).unwrap(), &CancellationToken()?)?
+    stats = actors.stats()
+    print(stats.trapped, stats.restarted)?
+    Ok(())
+```
+```output
+count 1
+gone
+count 1
+service std.actor.Exit[AllocError | IoError].Stopped
+1 1
+```
+
+### Timers
+
+`Context.after(&delay, tag)` delivers `Mail.Timer(timer)` once, and
+`Context.every(&period, tag)` every `period` starting one period from now;
+`timer.tag()` is the caller's tag. A tick still undelivered when the next
+falls due absorbs it, and ticks missed while the stage was busy are skipped
+rather than delivered late in a burst. `Context.cancel(timer)` ends a timer,
+and no `Mail.Timer` for it is delivered afterwards. An actor's timers end when
+it stops.
+
+Timers need records, which `Stage.add_timers(count)` allocates outside every
+actor heap; a stage starts with none, and `after`, `every` and `request` return
+`Capacity` when every record is in use. Starting, firing and cancelling a
+timer allocate nothing. `Stage.run` waits on the selector until the earlier of
+its deadline and the next due timer; the timer's wake-up is not a timeout.
+
+### Request and reply
+
+`Context.request(to, message, &timeout)` copies `message` into the receiver's
+heap like `send`, queues it as `Mail.Request(request, message)`, and returns
+the `Request`. The receiver answers with `Context.reply(request, answer)`,
+which copies the answer into the requester's heap and queues it as
+`Mail.Reply(request, Reply.Answer(answer))` in the requester's mailbox, after
+the messages the receiver sent before it. Exactly one `Mail.Reply` reaches the
+requester for each request:
+
+- `Answer(M)` when the receiver replies in time;
+- `TimedOut` when `timeout` passes first;
+- `Gone` when the receiver stops or restarts first.
+
+A late or second `reply`, a `reply` to a request sent to another actor, and a
+`reply` after the requester stopped return `Undelivered.Gone`. A pending
+request holds a timer record until its reply. Handlers do not block, so the
+requester handles other mail while it waits. Compare `request.key()` to match
+replies when several requests are pending.
+
+### Restart
+
+`Context.restart(child, limit, &window)` makes the stage restart a child of
+the running actor when it fails or traps. Restart is opt-in per child; `limit`
+0 turns it off. On a restart:
+
+1. The child's queued mail, timers and child exits are dropped, requests sent
+   to it are answered `Gone`, and its heap is discarded.
+2. A heap of the child's original limit is reserved, and the parent's `spawn`
+   hook builds the child again with its original tag. The address stays, so
+   other actors can keep sending to it.
+3. The new child runs `started` before any mail. `Stats.restarted` counts it.
+
+The parent receives no mail for a restart. At most `limit` restarts happen per
+`window`, counted from the first restart in the window. After that, or when
+the hook returns `Nothing` or no heap can be reserved, the child stops and the
+parent receives `Down` with its exit. When the hook fails or traps, the parent
+ends as for any hook error, and the child's exit is counted in `Stats.lost`.
+
+Restart suits service actors that the hook can rebuild from the tag. An actor
+built around a resource the hook took once, such as an accepted connection,
+cannot be rebuilt: its socket was closed with its heap. Children that a
+restarted actor had started keep running without a parent.
 
 ## Memory accounting
 
@@ -308,8 +478,9 @@ actor heaps and are neither limited nor freed by a trap.
 - Copying a message copies owned values. Where `copy` would share storage
   instead, a `str` is duplicated and any other shared value stops the program
   with a runtime error.
-- One message type per stage. There is no request-reply helper, timer mail, or
-  restart strategy; supervision is ordinary parent code.
+- One message type per stage; a request and its reply are both `M`.
+- Restart is one-for-one: a child's restart does not stop or restart its
+  siblings, and the parent is not stopped when the restart limit is reached.
 - Files beyond 4096 per process are not tracked and stay open after a trap.
 - Handlers are not preempted: a handler that loops forever stalls the stage.
 

@@ -15,6 +15,9 @@ const ECHO_SERVER: &str = include_str!("../examples/actor_echo.plenty");
 /// sends to a stopped actor.
 const SUPERVISOR: &str = include_str!("fixtures/actor/supervise.plenty");
 
+/// Timers, request-reply and restart under one lead actor.
+const TIMERS: &str = include_str!("fixtures/actor/timers.plenty");
+
 /// Admission under injected allocation failure.
 const ADMISSION: &str = include_str!("fixtures/actor/admit.plenty");
 
@@ -129,7 +132,7 @@ fn echo_server_serves_many_connections_and_contains_a_trap() {
     assert!(stderr.contains("unwrap on Nothing"), "{stderr}");
     // The acceptor and every connection started; every heap is gone.
     let prefix = format!(
-        "std.actor.Stats(started={}, stopped={}, failed=0, trapped=1,",
+        "std.actor.Stats(started={}, stopped={}, failed=0, trapped=1, restarted=0,",
         GOOD + 2,
         GOOD + 1
     );
@@ -150,14 +153,61 @@ fn supervisor_receives_errors_traps_and_stops() {
          down 1 std.actor.Exit[AllocError].Failed(AllocError.OutOfMemory)\n\
          down 2 std.actor.Exit[AllocError].Stopped\n\
          down 3 std.actor.Exit[AllocError].Trapped(std.actor.TrapKind.Unwrap)\n\
-         std.actor.Stats(started=4, stopped=2, failed=1, trapped=1, delivered=7, full=0, gone=0, lost=0) 0 0 0\n\
+         std.actor.Stats(started=4, stopped=2, failed=1, trapped=1, restarted=0, delivered=7, full=0, gone=0, lost=0) 0 0 0\n\
          gone Note.Text(\"late\")\n\
          sent\n\
          full Note.Text(\"second\")\n\
          9 got first\n\
          gone Note.Text(\"third\")\n\
-         std.actor.Stats(started=1, stopped=1, failed=0, trapped=0, delivered=1, full=1, gone=1, lost=0) 0 0\n"
+         std.actor.Stats(started=1, stopped=1, failed=0, trapped=0, restarted=0, delivered=1, full=1, gone=1, lost=0) 0 0\n"
     );
+}
+
+/// Timer, reply and exit order depends on timing, so lines are compared
+/// sorted; each counter's own lines stay in order.
+#[test]
+fn timers_requests_and_restarts() {
+    let (_dir, executable) = support::build_file(TIMERS);
+    let output = Command::new(executable).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(stderr.matches("unwrap on Nothing").count(), 3, "{stderr}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines: Vec<&str> = stdout.lines().collect();
+    for ordered in [["tick 1", "tick 2", "tick 3"], ["up 1", "up 2", "up 3"]] {
+        let positions: Vec<usize> = ordered
+            .iter()
+            .map(|line| lines.iter().position(|l| l == line).unwrap())
+            .collect();
+        assert!(positions.is_sorted(), "{stdout}");
+    }
+    lines.sort_unstable();
+    let exit = "std.actor.Exit[AllocError | IoError]";
+    let mut expected = vec![
+        "cancelled True False".to_string(),
+        "restart True False".into(),
+        "again True".into(),
+        "asked answer 49".into(),
+        "waited timed out".into(),
+        "abandoned gone".into(),
+        "late reply refused True".into(),
+        "timer 1".into(),
+        "tick 1".into(),
+        "tick 2".into(),
+        "tick 3".into(),
+        "up 1".into(),
+        "up 2".into(),
+        "up 3".into(),
+        format!("down server {exit}.Stopped"),
+        format!("down slow {exit}.Stopped"),
+        format!("down quitter {exit}.Stopped"),
+        format!("down phoenix {exit}.Trapped(std.actor.TrapKind.Unwrap)"),
+        "std.actor.Stats(started=5, stopped=4, failed=0, trapped=3, restarted=2, delivered=21, full=0, gone=2, lost=0) 0".into(),
+        "no timer".into(),
+        "zero period".into(),
+    ];
+    expected.sort_unstable();
+    assert_eq!(lines, expected, "{stdout}");
 }
 
 #[test]
