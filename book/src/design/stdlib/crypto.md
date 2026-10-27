@@ -9,6 +9,32 @@ Every primitive is audited third-party code: the RustCrypto `sha2`, `sha1`,
 arguments and reports errors; it implements no cryptography. The module is
 available on the supported x86-64 Linux GNU target.
 
+```plenty
+import std.bytes
+import std.crypto
+import std.encoding
+from std.bytes import BytesError
+from std.crypto import Algorithm, CryptoError
+from std.encoding import EncodingError
+
+def main() -> Result[(), IoError | BytesError | CryptoError | EncodingError]:
+    message = std.bytes.from_text("hello")?
+    digest = std.crypto.sha256(&message)?
+    print(std.encoding.hex_text(&digest, 0, digest.len())?)?
+
+    key = std.bytes.from_text("server key")?
+    tag = std.crypto.hmac_sha256(&key, &message)?
+    # A receiver recomputes the tag and compares in constant time.
+    mut check = std.crypto.hmac(Algorithm.Sha256, &key)?
+    check.update_text("hello")?
+    print(tag.len(), check.verify(&tag, 0, tag.len())?)?
+    Ok(())
+```
+```output
+2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+32 True
+```
+
 ## Functions
 
 | Function | Result | Contract |

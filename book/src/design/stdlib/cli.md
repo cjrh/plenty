@@ -7,6 +7,27 @@ Plenty; it uses the existing byte arguments, strict UTF-8 decoder, integer parse
 and lossless [`Path`](path.md). No reflection, native parser, package download, or
 additional link dependency is involved. Supported target: x86_64 Linux GNU.
 
+```plenty
+from std.cli import CliError, Kind, Spec, Value, parse
+
+def main() -> Result[(), AllocError | IoError | CliError]:
+    schema = [
+        Spec("--count", Kind.Integer, False, False, False, "times to greet"),
+        Spec("--loud", Kind.Flag, False, False, False, "shout"),
+        Spec("NAME", Kind.Text, True, True, False, "who to greet")
+    ]?
+    # A real tool passes args_bytes()? with start 1 to skip the program name.
+    raw = [encode_utf8("--count")?, encode_utf8("3")?, encode_utf8("Ada")?]?
+    parsed = parse(&schema, &raw, 0)?
+    for entry in &parsed.entries:
+        print(schema[entry.spec].name, entry.value)?
+    Ok(())
+```
+```output
+--count std.cli.Value.Integer(3)
+NAME std.cli.Value.Text("Ada")
+```
+
 ## Schema and results
 
 Construct `Spec(name: str, kind: Kind, positional: bool, required: bool,

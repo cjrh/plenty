@@ -15,6 +15,29 @@ not change list indexing or `list.pop(0)` costs.
 | `queue.popleft()` | `Option[T]` | Remove and transfer the leftmost element |
 | `queue.clear()` | `()` | Destroy elements from right to left, retaining capacity |
 
+```plenty
+from std.deque import Deque
+
+def main() -> Result[(), AllocError | IoError]:
+    mut queue = Deque[str]()?
+    queue.append("b")?
+    queue.append("c")?
+    queue.appendleft("a")?
+    print(queue.len(), queue.pop())?
+    while True:
+        match queue.popleft():
+            case Some(item):
+                print(item)?
+            case Nothing:
+                break
+    Ok(())
+```
+```output
+3 Option[str].Some("c")
+a
+b
+```
+
 Mutation requires a mutable owner or exclusive reference. Empty removals return
 `Nothing`. Stored elements follow ordinary collection storage restrictions,
 including affine owners; references, generators, and unit elements are unsupported.

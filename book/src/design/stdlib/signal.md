@@ -10,6 +10,29 @@ The runtime supplies one primitive (opcode 500): it installs the handler and
 returns the program's end of a socket pair. Waiting, decoding and the
 `cancel_on` helper are checked Plenty in `stdlib/std/signal.plenty`.
 
+```plenty
+import std.process
+import std.signal
+from std.ready import WaitError
+from std.signal import SignalError
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+def main() -> Result[(), AllocError | IoError | RangeError | SignalError | WaitError]:
+    mut signals = std.signal.listen()?
+    # Play the supervisor: a shell sends SIGTERM to its parent, this program.
+    mut kill = std.process.shell("kill -TERM $PPID")?
+    kill.spawn()?.wait()?
+    deadline = deadline_after(&monotonic_now(), &seconds(5))?
+    received = signals.wait(&deadline, &CancellationToken()?)?
+    print("caught", received)?
+    signals.close()?
+    Ok(())
+```
+```output
+caught std.signal.Signal.Terminate
+```
+
 ## Types and functions
 
 | Item | Contents |

@@ -6,6 +6,25 @@ facilities and types available in the prelude, including through module and
 item aliases. Importing allocates nothing and introduces no wrapper or new
 execution model. Supported target: x86_64 Linux GNU.
 
+```plenty
+from std.thread import spawn, ThreadError
+
+def total(values: &list[i64], start: i64, stop: i64) -> i64:
+    mut sum = 0
+    for i in range(start, stop):
+        sum += values[i]
+    sum
+
+def main() -> Result[(), AllocError | IoError | ThreadError]:
+    values = [n for n in range(1, 101)]?
+    with spawn(total, &values, 0, 50)? as low, spawn(total, &values, 50, 100)? as high:
+        print(low.join() + high.join())?
+    Ok(())
+```
+```output
+5050
+```
+
 Use `with spawn(worker, arguments...)? as task:` for a named function, or
 `with spawn(job)? as task:` for an owned zero-argument job. `task.join()` waits
 and moves the result once; leaving the scope joins automatically. Tasks remain
