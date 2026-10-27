@@ -55,7 +55,7 @@ it, or [sign](#signing) it, before trusting it.
 | Item | Meaning |
 |---|---|
 | `set_cookie(name, value)` | `Result[SetCookie, CookieError]`: a cookie with the defaults below |
-| `removal(name)` | A cookie that deletes `name`: empty value, `Max-Age=0` |
+| `removal(name)` | `Result` with a cookie that deletes `name`: empty value, `Max-Age=0`; `CookieError` for an invalid name |
 | `SetCookie` | Public fields `name`, `value`, `path`, `domain`, `max_age: Option[i64]`, `secure`, `http_only`, `same_site: SameSite` |
 | `cookie.format()` | `Result[str, CookieError]`: the field value, after checking every part |
 | `add(&mut head, &cookie)` | Append a `Set-Cookie` field to a `ResponseHead` |

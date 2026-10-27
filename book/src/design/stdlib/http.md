@@ -50,7 +50,7 @@ POST /notes hello
 | `Header(name: str, value: str)` | One field line |
 | `RequestHead(method, target, minor: i64, headers: list[Header])` | `minor` is the HTTP/1.x minor version, 0 or 1 |
 | `ResponseHead(minor, status: i64, reason: str, headers)` | |
-| `request(method, target)`, `response(status, reason)` | A head with HTTP/1.1 and no fields |
+| `request(method, target)`, `response(status, reason)` | `Result` with a head using HTTP/1.1 and no fields; fails only when allocating the field list fails |
 | `head.add(name, value)` | `Result[(), HttpError]`: append a field |
 | `find(headers: &list[Header], name: &str)` | `Option[i64]`: index of the first field named `name`, ignoring ASCII case |
 | `same_name(left: &str, right: &str)` | `bool`: whether two names are equal ignoring ASCII case; never allocates, and non-ASCII text never matches |
