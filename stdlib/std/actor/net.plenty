@@ -4,11 +4,11 @@
 # connection is admitted; handling readiness and timers allocates nothing.
 # See book/src/design/stdlib/actor-net.md.
 import std.bytes
-from std.actor import Context, Mail, Timer, TimerError
+from std.actor import Context, Mail, Timer, TimerError, Watch
 from std.bytes import ByteSource, Bytes, BytesError
 from std.io import StreamError
 from std.net import Connecting, Lookup, NetError, Shutdown, SocketAddress, TcpListener, TcpStream, start_connect, start_lookup
-from std.ready import Interest
+from std.ready import Interest, WaitError
 from std.time import Duration, instant_at, monotonic_now, nanoseconds
 
 # Writes attempted per message, so one fast connection cannot hold the
@@ -93,6 +93,7 @@ pub class Connection:
     _progress: u64
     _timer: Option[Timer]
     _due: u64
+    _watch: Option[Watch]
 
     # Watches the socket and starts the deadlines. Call it from the actor's
     # `started`.
@@ -110,7 +111,9 @@ pub class Connection:
         if self._closed:
             return Ok(events)
         match mail:
-            case Mail.Ready(_):
+            case Mail.Ready(watch, _):
+                if not owns_watch(&self._watch, watch):
+                    return Ok(events)
                 events.mine = True
                 at = now()
                 self.flush(&mut events, at)?
@@ -279,7 +282,7 @@ pub class Connection:
         self.disarm(context)
         if self._watched != 0:
             self._watched = 0
-            context.unwatch_stream(&self._stream)?
+            watched(context.unwatch(&self._stream))?
         match self._stream.close():
             case Ok(_):
                 Ok(())
@@ -417,13 +420,14 @@ pub class Connection:
             wanted += 2
         if wanted != self._watched:
             if wanted == 0:
-                context.unwatch_stream(&self._stream)?
-            elif wanted == 1:
-                context.watch_stream(&self._stream, Interest.Read)?
-            elif wanted == 2:
-                context.watch_stream(&self._stream, Interest.Write)?
+                watched(context.unwatch(&self._stream))?
             else:
-                context.watch_stream(&self._stream, Interest.ReadWrite)?
+                mut interest = Interest.ReadWrite
+                if wanted == 1:
+                    interest = Interest.Read
+                elif wanted == 2:
+                    interest = Interest.Write
+                self._watch = Some(watched(context.watch(&self._stream, interest))?)
             self._watched = wanted
         due = self.next_due()
         if due == 0u64:
@@ -455,6 +459,25 @@ pub class Connection:
 def shift(buffer: &mut Bytes, start: i64, stop: i64) -> ():
     drop(buffer.copy_within(start, stop, 0))
 
+def watched[T](result: Result[T, WaitError]) -> Result[T, NetError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(WaitError.Stream(cause)):
+            Err(NetError.Stream(cause))
+        case Err(WaitError.TimedOut):
+            Err(NetError.TimedOut)
+        case Err(WaitError.Cancelled):
+            Err(NetError.Cancelled)
+
+# Whether readiness mail for `watch` is about the handle watched as `mine`.
+def owns_watch(mine: &Option[Watch], watch: &Watch) -> bool:
+    match mine:
+        case Some(own):
+            own.key() == watch.key()
+        case Nothing:
+            False
+
 def invalid() -> NetError:
     NetError.Stream(StreamError.Io(IoError.InvalidInput))
 
@@ -476,7 +499,7 @@ pub def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, Byt
     input.resize(limits.input, 0u8)?
     mut output = std.bytes.with_capacity(limits.output)?
     output.resize(limits.output, 0u8)?
-    Ok(Connection(stream, input, 0, 0, output, 0, 0, 0, True, True, False, False, False, limits.idle.as_nanoseconds(), limits.stall.as_nanoseconds(), 0u64, 0u64, 0u64, Nothing, 0u64))
+    Ok(Connection(stream, input, 0, 0, output, 0, 0, 0, True, True, False, False, False, limits.idle.as_nanoseconds(), limits.stall.as_nanoseconds(), 0u64, 0u64, 0u64, Nothing, 0u64, Nothing))
 
 # What a listener does with a connection that arrives at capacity.
 pub enum Admission:
@@ -488,7 +511,7 @@ pub enum Admission:
 
 # Accepts connections for the actor that owns it, starting one child actor
 # per connection with a heap of `heap` bytes, at most `capacity` at once.
-# Every child of that actor counts as a connection.
+# Only children spawned with the listener's tag count as connections.
 pub class Listener:
     _listener: TcpListener
     _limits: Limits
@@ -499,19 +522,23 @@ pub class Listener:
     _live: i64
     _watching: bool
     _refused: i64
+    _watch: Option[Watch]
 
     # Starts watching for connections. Call it from the actor's `started`.
     pub def start[M, E](self: &mut Listener, context: &mut Context[M, E]) -> Result[(), NetError]:
         self._watching = True
-        context.watch_listener(&self._listener)
+        self._watch = Some(watched(context.watch(&self._listener, Interest.Read))?)
+        Ok(())
 
-    # Applies one mail: readiness admits one connection by spawning a child
-    # with tag `tag`; a child's `Down` frees its place. Returns True for mail
-    # the listener used. The child is built by the actor's `spawn` hook,
-    # which calls `accept`.
+    # Applies one mail: readiness of the listening socket admits one
+    # connection by spawning a child with tag `tag`; `Down` of a child with
+    # that tag frees its place. Returns True for mail the listener used. The
+    # child is built by the actor's `spawn` hook, which calls `accept`.
     pub def handle[M, E](self: &mut Listener, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[bool, NetError]:
         match mail:
-            case Mail.Ready(_):
+            case Mail.Ready(watch, _):
+                if not owns_watch(&self._watch, watch):
+                    return Ok(False)
                 if self._watching:
                     if self._live < self._capacity:
                         match context.spawn(self._tag, self._heap):
@@ -523,11 +550,13 @@ pub class Listener:
                                 pass
                     self.full(context)?
                 Ok(True)
-            case Mail.Down(_, _):
+            case Mail.Down(_, tag, _):
+                if tag != self._tag:
+                    return Ok(False)
                 self._live -= 1
                 if not self._watching and self._live < self._capacity:
                     self._watching = True
-                    context.watch_listener(&self._listener)?
+                    watched(context.watch(&self._listener, Interest.Read))?
                 Ok(True)
             case _:
                 Ok(False)
@@ -564,7 +593,7 @@ pub class Listener:
         match self._admission:
             case Admission.Pause:
                 self._watching = False
-                context.unwatch_listener(&self._listener)?
+                watched(context.unwatch(&self._listener))?
             case Admission.Refuse:
                 match self._listener.accept_now():
                     case Ok(stream):
@@ -575,7 +604,7 @@ pub class Listener:
                     case Err(NetError.HandleLimit):
                         # Nothing can be accepted until a descriptor frees.
                         self._watching = False
-                        context.unwatch_listener(&self._listener)?
+                        watched(context.unwatch(&self._listener))?
                     case Err(error):
                         return Err(error)
         Ok(())
@@ -585,19 +614,22 @@ pub class Listener:
 pub def listener(socket: TcpListener, limits: Limits, capacity: i64, heap: i64, tag: i64, admission: Admission) -> Result[Listener, NetError]:
     if capacity < 1 or heap < 1 or limits.input < 1 or limits.output < 1:
         return Err(invalid())
-    Ok(Listener(socket, limits, capacity, heap, tag, admission, 0, False, 0))
+    Ok(Listener(socket, limits, capacity, heap, tag, admission, 0, False, 0, Nothing))
 
 # An outbound connection attempt owned by an actor, with a timeout.
 pub class Dialing:
     _attempt: Option[Connecting]
     _timer: Option[Timer]
+    _watch: Watch
 
     # Applies one mail. Returns the stream once connected, Nothing while the
     # attempt continues or for unrelated mail, or why it failed: Refused,
     # Unreachable, or TimedOut when the timeout passed.
     pub def handle[M, E](self: &mut Dialing, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Option[TcpStream], NetError]:
         match mail:
-            case Mail.Ready(_):
+            case Mail.Ready(watch, _):
+                if watch.key() != self._watch.key():
+                    return Ok(Nothing)
                 mut outcome: Result[(), NetError] = Ok(())
                 match &mut self._attempt:
                     case Some(attempt):
@@ -615,7 +647,7 @@ pub class Dialing:
                 self.stop_timer(context)
                 match replace(self._attempt, Nothing):
                     case Some(attempt):
-                        context.unwatch_connecting(&attempt)?
+                        watched(context.unwatch(&attempt))?
                         Ok(Some(attempt.stream()))
                     case Nothing:
                         Ok(Nothing)
@@ -633,7 +665,7 @@ pub class Dialing:
         self.stop_timer(context)
         match replace(self._attempt, Nothing):
             case Some(attempt):
-                context.unwatch_connecting(&attempt)?
+                watched(context.unwatch(&attempt))?
                 drop(attempt)
             case Nothing:
                 pass
@@ -658,24 +690,27 @@ def owns(armed: &Option[Timer], timer: &Timer) -> bool:
 # through `Dialing.handle`. A zero timeout waits indefinitely.
 pub def dial[M, E](address: &SocketAddress, timeout: &Duration, context: &mut Context[M, E]) -> Result[Dialing, NetError | TimerError]:
     attempt = start_connect(address)?
-    context.watch_connecting(&attempt)?
+    watch = watched(context.watch(&attempt, Interest.Write))?
     mut timer: Option[Timer] = Nothing
     if not timeout.is_zero():
         timer = Some(context.after(timeout, 0)?)
-    Ok(Dialing(Some(attempt), timer))
+    Ok(Dialing(Some(attempt), timer, watch))
 
 # A name lookup owned by an actor, with a timeout. The lookup runs on a
 # helper thread; the actor's stage keeps running meanwhile.
 pub class Resolving:
     _lookup: Option[Lookup]
     _timer: Option[Timer]
+    _watch: Watch
 
     # Applies one mail. Returns the addresses in preference order once the
     # lookup replies, Nothing while it continues or for unrelated mail, or
     # why it failed: NameNotFound, TryAgain, or TimedOut.
     pub def handle[M, E](self: &mut Resolving, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Option[list[SocketAddress]], NetError]:
         match mail:
-            case Mail.Ready(_):
+            case Mail.Ready(watch, _):
+                if watch.key() != self._watch.key():
+                    return Ok(Nothing)
                 mut outcome: Result[list[SocketAddress], NetError] = Err(NetError.WouldBlock)
                 match &mut self._lookup:
                     case Some(lookup):
@@ -710,7 +745,7 @@ pub class Resolving:
         self._timer = Nothing
         match replace(self._lookup, Nothing):
             case Some(lookup):
-                context.unwatch_lookup(&lookup)?
+                watched(context.unwatch(&lookup))?
                 drop(lookup)
             case Nothing:
                 pass
@@ -721,8 +756,8 @@ pub class Resolving:
 # lookups run at once in the process; past that the result is TryAgain.
 pub def lookup[M, E](host: &str, port: u16, timeout: &Duration, context: &mut Context[M, E]) -> Result[Resolving, NetError | TimerError]:
     pending = start_lookup(host, port)?
-    context.watch_lookup(&pending)?
+    watch = watched(context.watch(&pending, Interest.Read))?
     mut timer: Option[Timer] = Nothing
     if not timeout.is_zero():
         timer = Some(context.after(timeout, 0)?)
-    Ok(Resolving(Some(pending), timer))
+    Ok(Resolving(Some(pending), timer, watch))

@@ -21,6 +21,9 @@ const TIMERS: &str = include_str!("fixtures/actor/timers.plenty");
 /// Admission under injected allocation failure.
 const ADMISSION: &str = include_str!("fixtures/actor/admit.plenty");
 
+/// One actor watching two sockets; see the fixture's header.
+const WATCH: &str = include_str!("fixtures/actor/watch.plenty");
+
 /// Compiles with `--test-hooks`, which the library API does not expose.
 fn build_with_hooks(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
@@ -149,10 +152,10 @@ fn supervisor_receives_errors_traps_and_stops() {
     assert!(stderr.contains("unwrap on Nothing"), "{stderr}");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "0 got reply from 2\n\
-         down 1 std.actor.Exit[AllocError].Failed(AllocError.OutOfMemory)\n\
-         down 2 std.actor.Exit[AllocError].Stopped\n\
-         down 3 std.actor.Exit[AllocError].Trapped(std.actor.TrapKind.Unwrap)\n\
+        "0 got reply from 12\n\
+         down 1 11 std.actor.Exit[AllocError].Failed(AllocError.OutOfMemory)\n\
+         down 2 12 std.actor.Exit[AllocError].Stopped\n\
+         down 3 13 std.actor.Exit[AllocError].Trapped(std.actor.TrapKind.Unwrap)\n\
          std.actor.Stats(started=4, stopped=2, failed=1, trapped=1, restarted=0, delivered=7, full=0, gone=0, lost=0) 0 0 0\n\
          gone Note.Text(\"late\")\n\
          sent\n\
@@ -208,6 +211,33 @@ fn timers_requests_and_restarts() {
     ];
     expected.sort_unstable();
     assert_eq!(lines, expected, "{stdout}");
+}
+
+/// The two sockets' readiness arrives in epoll order, so those lines are
+/// compared sorted.
+#[test]
+fn ready_mail_names_its_handle_and_is_queued_once() {
+    let (_dir, executable) = support::build_file(WATCH);
+    let output = Command::new(executable).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines: Vec<&str> = stdout.lines().collect();
+    lines[1..3].sort_unstable();
+    assert_eq!(
+        lines,
+        [
+            "same True False",
+            "ready first 1",
+            "ready second 1",
+            "done",
+            "3 0 0"
+        ],
+        "{stdout}"
+    );
 }
 
 #[test]

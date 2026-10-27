@@ -54,10 +54,10 @@ pub enum Node:
                 match mail:
                     case Mail.Message(Job.Answer(value)):
                         print("answer", value)?
-                    case Mail.Down(_, Exit.Stopped):
+                    case Mail.Down(_, _, Exit.Stopped):
                         print("worker stopped")?
                         boss.ended += 1
-                    case Mail.Down(_, Exit.Trapped(kind)):
+                    case Mail.Down(_, _, Exit.Trapped(kind)):
                         print("worker trapped", kind)?
                         boss.ended += 1
                     case _:
@@ -154,7 +154,7 @@ mutable` in the standard library's `run_spawn`.
 In the hook, `Context.spawn` returns `StartError.Capacity` and `Context.stop`
 has no effect. When the hook returns `Err(error)`, the error is copied into the
 parent's heap before the child's heap is discarded, and the parent receives
-`Down(child, Exit.Failed(error))`.
+`Down(child, tag, Exit.Failed(error))`.
 
 | Export | Contract |
 |---|---|
@@ -178,19 +178,20 @@ parent's heap before the child's heap is discarded, and the parent receives
 | `Context.request(to, message, &timeout)` | `Result[Request, RequestError[M]]`: queues `Mail.Request`; exactly one `Mail.Reply` follows |
 | `Context.reply(request, message)` | `Result[(), Undelivered[M]]`: answers a request this actor received |
 | `Context.heap_used()` | Bytes in the running actor's heap |
-| `Context.watch_stream(&stream, interest)`, `unwatch_stream(&stream)` | `Result[(), NetError]`: delivers the stream's readiness as `Mail.Ready` |
-| `Context.watch_listener(&listener)`, `unwatch_listener(&listener)` | `Result[(), NetError]`: `Mail.Ready` while a connection waits |
-| `Context.watch_connecting(&attempt)`, `unwatch_connecting(&attempt)`, `watch_lookup(&lookup)`, `unwatch_lookup(&lookup)` | `Result[(), NetError]`: `Mail.Ready` when a [`std.net`](net.md#name-lookup) connect or lookup can be finished |
+| `Context.watch(&handle, interest)` | `Result[Watch, WaitError]`: delivers the handle's readiness as `Mail.Ready(watch, readiness)`; see [Watching handles](#watching-handles) |
+| `Context.unwatch(&handle)` | `Result[(), WaitError]`: stops delivering it |
 | `supported()` | Whether this target has actor heaps |
 | `heaps_live()`, `heap_bytes_used()`, `heap_bytes_committed()` | Process totals over all actor heaps |
 | `max_heap_limit` | 64 MiB, the largest heap limit |
 | `max_spawns` | 16 spawn requests per handler |
+| `max_capacity` | 1,048,576, the largest stage `capacity`; `stage` returns `OutOfMemory` above it |
 
 | Type | Values |
 |---|---|
 | `Address` | A slot and a generation. A stopped actor's address is never reused; `key()` returns it as `u64` |
-| `Mail[M, E]` | `Message(M)`, `Ready(Readiness)`, `Down(Address, Exit[E])`, `Stop`, `Timer(Timer)`, `Request(Request, M)`, `Reply(Request, Reply[M])` |
+| `Mail[M, E]` | `Message(M)`, `Ready(Watch, Readiness)`, `Down(Address, i64, Exit[E])` (the child, its spawn tag, its exit), `Stop`, `Timer(Timer)`, `Request(Request, M)`, `Reply(Request, Reply[M])` |
 | `Timer` | `tag()`, and `key()` as `u64` |
+| `Watch` | `key()` as `u64`, to tell watched handles apart; copyable |
 | `Request` | `key()` as `u64`, to match a reply to its request |
 | `Reply[M]` | `Answer(M)`, `TimedOut`, `Gone` (the receiver stopped or restarted first) |
 | `TimerError` | `Capacity` (every timer record is in use), `Range` (a zero period, or a time out of range) |
@@ -206,8 +207,8 @@ parent's heap before the child's heap is discarded, and the parent receives
 Each round delivers one mail to every actor that was runnable when the round
 began, then waits on the stage's `std.ready` selector without blocking if any
 actor is still runnable. Readiness is level-triggered: an actor has at most one
-`Mail.Ready` queued, and readiness that finds a full mailbox is reported again
-on a later wait. Due timers and ended requests wait outside the mailbox and
+`Mail.Ready` queued per handle, and readiness that finds a full mailbox is
+reported again on a later wait. Due timers and ended requests wait outside the mailbox and
 alternate with mailbox deliveries, so they never need mailbox room and neither
 kind delays the other indefinitely.
 
@@ -220,8 +221,10 @@ Destructors run for a stopped or failed actor's node.
 ### Supervision
 
 Every actor started by `Context.spawn` has a parent; the parent receives
-`Mail.Down(child, exit)` after the child's last message, so a reply always
-arrives before the `Down` that follows it. `Down` never needs mailbox room and
+`Mail.Down(child, tag, exit)` after the child's last message, so a reply always
+arrives before the `Down` that follows it. `tag` is the one the child was
+spawned with, so a parent can tell kinds of children apart without recording
+their addresses. `Down` never needs mailbox room and
 is never refused: the child's slot holds the exit until the parent receives
 it, so a stopped child occupies one unit of `capacity` until then. When the
 parent has already stopped, the exit is dropped and counted in `Stats.lost`. A
@@ -230,6 +233,22 @@ pending exits.
 
 A parent can also call `Context.spawn` again on `Down`, or ask the stage to
 restart the child.
+
+### Watching handles
+
+`Context.watch(&handle, interest)` delivers a handle's readiness to the running
+actor as `Mail.Ready(watch, readiness)`. It takes any
+[`std.ready.Watchable`](ready.md#selectors) handle: `std.net`'s `TcpStream`,
+`TcpListener`, `UdpSocket`, `Connecting` and `Lookup`. The returned `Watch` is
+the one the mail carries, so an actor watching several handles compares
+`watch.key()` to find which is ready. Watching a watched handle again changes
+its interest and returns the same `Watch`. `Context.unwatch(&handle)` stops
+delivery, and so does closing the handle.
+
+The key is built from the handle's descriptor number and the actor's slot, so
+watching allocates nothing. A closed handle's number can be reused by a later
+handle, which then has the same key; readiness already queued for the closed
+one can reach the new one, and its nonblocking calls return `WouldBlock`.
 
 ## Timers, requests and restart
 
@@ -289,7 +308,7 @@ pub enum Node:
                         context.request(service, Job.Get, &seconds(1)).unwrap()
                     case Mail.Timer(_):
                         context.stop_actor(service)
-                    case Mail.Down(_, exit):
+                    case Mail.Down(_, _, exit):
                         print("service", exit)?
                         context.stop()
                     case _:
@@ -488,6 +507,8 @@ actor heaps and are neither limited nor freed by a trap.
   siblings, and the parent is not stopped when the restart limit is reached.
 - Files beyond 4096 per process are not tracked and stay open after a trap.
 - Handlers are not preempted: a handler that loops forever stalls the stage.
+- A stage holds at most `max_capacity` (1,048,576) actors, since a watch key
+  holds a 20-bit slot.
 
 ## Acknowledgements
 

@@ -103,7 +103,7 @@ pub enum Node:
                 serving.listener.handle(&mail, context)?
                 match mail:
                     # This server handles one connection.
-                    case Mail.Down(_, _):
+                    case Mail.Down(_, _, _):
                         context.stop()
                     case _:
                         pass

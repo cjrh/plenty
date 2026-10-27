@@ -19,7 +19,10 @@ Supervised actors on one thread, each with its own heap, bounded mailbox and cop
 ```text
 const max_heap_limit: i64 = 67108864
 const max_spawns: i64 = 16
+const max_capacity: i64 = 1048576
 class Address
+    def key(self) -> u64
+class Watch
     def key(self) -> u64
 class Timer
     def key(self) -> u64
@@ -37,7 +40,7 @@ enum Exit[E]
 enum TrapKind
     Memory | Index | Arithmetic | Unwrap | Other
 enum Mail[M, E]
-    Message(M) | Ready(Readiness) | Down(Address, Exit[E]) | Stop | Timer(Timer) | Request(Request, M) | Reply(Request, Reply[M])
+    Message(M) | Ready(Watch, Readiness) | Down(Address, i64, Exit[E]) | Stop | Timer(Timer) | Request(Request, M) | Reply(Request, Reply[M])
 enum Undelivered[M]
     Full(M) | Gone(M)
 enum StartError
@@ -69,14 +72,8 @@ class Context[M, E]
     def cancel(self: &mut Context[M, E], timer: Timer) -> bool
     def request(self: &mut Context[M, E], to: Address, message: M, timeout: &Duration) -> Result[Request, RequestError[M]]
     def reply(self: &mut Context[M, E], request: Request, message: M) -> Result[(), Undelivered[M]]
-    def watch_stream(self: &mut Context[M, E], stream: &TcpStream, interest: Interest) -> Result[(), NetError]
-    def unwatch_stream(self: &mut Context[M, E], stream: &TcpStream) -> Result[(), NetError]
-    def watch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]
-    def unwatch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]
-    def watch_connecting(self: &mut Context[M, E], attempt: &Connecting) -> Result[(), NetError]
-    def unwatch_connecting(self: &mut Context[M, E], attempt: &Connecting) -> Result[(), NetError]
-    def watch_lookup(self: &mut Context[M, E], lookup: &Lookup) -> Result[(), NetError]
-    def unwatch_lookup(self: &mut Context[M, E], lookup: &Lookup) -> Result[(), NetError]
+    def watch[H: Watchable](self: &mut Context[M, E], handle: &H, interest: Interest) -> Result[Watch, WaitError]
+    def unwatch[H: Watchable](self: &mut Context[M, E], handle: &H) -> Result[(), WaitError]
 class Stage[N, M, E]
     def start(self: &mut Stage[N, M, E], node: N, limit: i64) -> Result[Address, StartError]
     def send(self: &mut Stage[N, M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
@@ -2304,6 +2301,7 @@ def parse_ip(text: &str) -> Result[IpAddress, NetError]
 def parse_address(text: &str) -> Result[SocketAddress, NetError]
 def resolve(host: &str, port: u16, deadline: &Deadline, cancel: &CancellationToken) -> Result[list[SocketAddress], NetError]
 class Lookup
+    def descriptor(self) -> &File
     def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]
     def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
     def finish_now(self: &mut Lookup) -> Result[list[SocketAddress], NetError]
@@ -2323,12 +2321,14 @@ class TcpStream
     def local_address(self) -> Result[SocketAddress, NetError]
     def peer_address(self) -> Result[SocketAddress, NetError]
     def shutdown(self: &mut TcpStream, direction: Shutdown) -> Result[(), NetError]
+    def descriptor(self) -> &File
     def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), NetError]
     def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
     def set_no_delay(self: &mut TcpStream, enabled: bool) -> Result[(), NetError]
     def acknowledge_now(self: &mut TcpStream) -> Result[(), NetError]
 class TcpListener
     def local_address(self) -> Result[SocketAddress, NetError]
+    def descriptor(self) -> &File
     def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]
     def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
     def accept_now(self) -> Result[TcpStream, NetError]
@@ -2337,6 +2337,7 @@ class TcpListener
 def listen(address: &SocketAddress, backlog: i64) -> Result[TcpListener, NetError]
 def connect(address: &SocketAddress, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, NetError]
 class Connecting
+    def descriptor(self) -> &File
     def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]
     def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
     def finish_now(self: &mut Connecting) -> Result[(), NetError]
@@ -2349,6 +2350,7 @@ class Datagram
     def truncated(self) -> bool
 class UdpSocket
     def local_address(self) -> Result[SocketAddress, NetError]
+    def descriptor(self) -> &File
     def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), NetError]
     def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
     def set_broadcast(self: &mut UdpSocket, enabled: bool) -> Result[(), NetError]
@@ -2466,6 +2468,8 @@ def wait_until(file: &File, interest: Interest, deadline: &Deadline) -> Result[R
 def wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[Readiness, WaitError]
 def read_before(stream: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]
 def write_before[S: ByteSource](stream: &mut FileStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]
+protocol Watchable
+    def descriptor(self) -> &File
 class Event
     key: u64
     readiness: Readiness

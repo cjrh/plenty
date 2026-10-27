@@ -2,8 +2,8 @@
 # allocate there, a trap discards the heap and closes its files, and the
 # actor's parent receives the exit. Messages are copied into the receiver's
 # heap and mailboxes are bounded. See book/src/design/stdlib/actor.md.
-from std.net import Connecting, Lookup, NetError, TcpListener, TcpStream
-from std.ready import Interest, Readiness, Selector, WaitError, selector
+from std.io import classify
+from std.ready import Interest, Readiness, Selector, WaitError, Watchable, selector
 from std.sync import CancellationToken
 from std.time import Deadline, Duration, deadline_at, instant_at, monotonic_now
 
@@ -26,6 +26,8 @@ const unsupported: i64 = -4
 pub const max_heap_limit: i64 = 67108864
 # Spawn requests one handler can make.
 pub const max_spawns: i64 = 16
+# The largest stage capacity; a selector key holds a 20-bit slot.
+pub const max_capacity: i64 = 1048576
 
 # An actor's identity: a slot and a generation. A stopped actor's address is
 # never reused, so sending to it reports `Gone`.
@@ -44,6 +46,29 @@ def slot_of(key: u64) -> i64:
 
 def generation_of(key: u64) -> u32:
     u32(key >> 32u64)
+
+# A watched handle's selector key: its descriptor number in the high 32 bits,
+# then the low 12 bits of the actor's generation and its 20-bit slot. The
+# number tells an actor's handles apart, and stays the same while the handle
+# is open, so watching it again changes its interest under the same key.
+def watch_key(number: i64, slot: i64, generation: u32) -> u64:
+    (u64(number) << 32u64) | (u64(generation & 4095u32) << 20u64) | u64(slot)
+
+def watch_slot(key: u64) -> i64:
+    i64(key & 1048575u64)
+
+def watch_generation(key: u64) -> u32:
+    u32((key >> 20u64) & 4095u64)
+
+# A handle the running actor watches, as `Context.watch` returned it.
+# `Mail.Ready` carries it; compare `key()` to tell handles apart. A closed
+# handle's descriptor number can be reused by a later handle.
+@copy
+pub class Watch:
+    _key: u64
+
+    pub def key(self) -> u64:
+        self._key
 
 # A timer started by `Context.after` or `Context.every`. Its `tag` is the
 # caller's.
@@ -132,10 +157,10 @@ def last_trap() -> TrapKind:
 # What an actor receives.
 pub enum Mail[M, E]:
     Message(M)
-    # Readiness of a handle the actor watches.
-    Ready(Readiness)
-    # A child stopped.
-    Down(Address, Exit[E])
+    # Readiness of a handle the actor watches, and which one.
+    Ready(Watch, Readiness)
+    # A child stopped: its address, the tag it was spawned with, and its exit.
+    Down(Address, i64, Exit[E])
     # A stop request; the actor stops after handling it.
     Stop
     # A timer of this actor is due.
@@ -212,8 +237,9 @@ class Mailbox[M, E]:
     pending: bool
     # Built but not yet started; `started` runs before any mail.
     fresh: bool
-    # A readiness message is queued; level-triggered readiness is not queued twice.
-    ready: bool
+    # Readiness messages queued. Level-triggered readiness of one handle is
+    # not queued twice.
+    ready: i64
     # Delivered `Stop`: the actor stops after the handler returns.
     stopping: bool
     items: list[Option[Mail[M, E]]]
@@ -460,35 +486,42 @@ pub class Context[M, E]:
                 self._stats.full += 1
                 Err(Undelivered[M].Full(message))
 
-    # Delivers the stream's readiness to the running actor as `Mail.Ready`.
-    pub def watch_stream(self: &mut Context[M, E], stream: &TcpStream, interest: Interest) -> Result[(), NetError]:
-        stream.watch(&mut self._selector, self._self, interest)
+    # Delivers the handle's readiness for `interest` to the running actor as
+    # `Mail.Ready(watch, readiness)`. Watching a watched handle changes its
+    # interest and returns the same `Watch`. Registering allocates nothing.
+    pub def watch[H: Watchable](self: &mut Context[M, E], handle: &H, interest: Interest) -> Result[Watch, WaitError]:
+        file = handle.descriptor()
+        mut number = 0
+        match __ready_number(file):
+            case Ok(value):
+                number = value
+            case Err(error):
+                return Err(WaitError.Stream(classify(error)))
+        key = watch_key(number, slot_of(self._self), generation_of(self._self))
+        self._selector.watch(file, key, interest)?
+        Ok(Watch(key))
 
-    pub def unwatch_stream(self: &mut Context[M, E], stream: &TcpStream) -> Result[(), NetError]:
-        stream.unwatch(&mut self._selector)
+    # Stops delivering the handle's readiness. A handle that is not watched
+    # is not an error; readiness already queued is still delivered. Closing
+    # a handle also stops it.
+    pub def unwatch[H: Watchable](self: &mut Context[M, E], handle: &H) -> Result[(), WaitError]:
+        self._selector.unwatch(handle.descriptor())
 
-    # Delivers `Mail.Ready` while a connection is waiting to be accepted.
-    pub def watch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]:
-        listener.watch(&mut self._selector, self._self)
-
-    pub def unwatch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]:
-        listener.unwatch(&mut self._selector)
-
-    # Delivers `Mail.Ready` when an outbound connection attempt has
-    # finished; then call `Connecting.finish_now`.
-    pub def watch_connecting(self: &mut Context[M, E], attempt: &Connecting) -> Result[(), NetError]:
-        attempt.watch(&mut self._selector, self._self)
-
-    pub def unwatch_connecting(self: &mut Context[M, E], attempt: &Connecting) -> Result[(), NetError]:
-        attempt.unwatch(&mut self._selector)
-
-    # Delivers `Mail.Ready` when a name lookup has replied; then call
-    # `Lookup.finish_now`.
-    pub def watch_lookup(self: &mut Context[M, E], lookup: &Lookup) -> Result[(), NetError]:
-        lookup.watch(&mut self._selector, self._self)
-
-    pub def unwatch_lookup(self: &mut Context[M, E], lookup: &Lookup) -> Result[(), NetError]:
-        lookup.unwatch(&mut self._selector)
+    # Whether readiness of the handle with `key` is already queued for slot
+    # `index`.
+    def ready_queued(self, index: i64, key: u64) -> bool:
+        box = &self._boxes[index]
+        if box.ready == 0:
+            return False
+        size = len(box.items)
+        for offset in range(box.count):
+            match &box.items[(box.head + offset) % size]:
+                case Some(Mail.Ready(watch, _)):
+                    if watch._key == key:
+                        return True
+                case _:
+                    pass
+        False
 
     # `message` copied into slot `index`'s heap, or Nothing when it does not fit.
     def copy_into(self, index: i64, message: &M) -> Option[M]:
@@ -739,7 +772,7 @@ pub class Context[M, E]:
                 box.has_parent = False
                 box.pending = False
                 box.fresh = False
-                box.ready = False
+                box.ready = 0
                 box.stopping = False
                 box.down_head = -1
                 box.down_tail = -1
@@ -856,16 +889,16 @@ pub class Stage[N, M, E]:
         for position in range(count):
             event = self._context._selector.event(position)?
             key = event.key
-            index = slot_of(key)
-            if not self._context.accepts(key):
+            index = watch_slot(key)
+            if index >= len(self._context._boxes) or self._context._boxes[index].heap < 0 or (self._context._boxes[index].generation & 4095u32) != watch_generation(key):
                 self._context._stats.gone += 1
-            elif not self._context._boxes[index].ready:
+            elif not self._context.ready_queued(index, key):
                 if self._context._boxes[index].count == len(self._context._boxes[index].items):
                     # Level-triggered readiness is reported again later.
                     self._context._stats.full += 1
                 else:
-                    self._context._boxes[index].ready = True
-                    self._context.push(index, Some(Mail[M, E].Ready(Readiness(event.readiness.readable, event.readiness.writable, event.readiness.hangup, event.readiness.error))))
+                    self._context._boxes[index].ready += 1
+                    self._context.push(index, Some(Mail[M, E].Ready(Watch(key), Readiness(event.readiness.readable, event.readiness.writable, event.readiness.hangup, event.readiness.error))))
         Ok(())
 
     # Delivers one message to each actor that was runnable at the start.
@@ -901,8 +934,8 @@ pub class Stage[N, M, E]:
         box.head = (box.head + 1) % len(box.items)
         box.count -= 1
         match &mail:
-            case Some(Mail.Ready(_)):
-                box.ready = False
+            case Some(Mail.Ready(_, _)):
+                box.ready -= 1
             case Some(Mail.Stop):
                 box.stopping = True
             case _:
@@ -944,13 +977,14 @@ pub class Stage[N, M, E]:
         zombie = self.unlink_down(index)
         exit = replace(self._context._boxes[zombie].exit, Nothing)
         child = Address(self._context._boxes[zombie].down_key)
+        tag = self._context._boxes[zombie].tag
         self.bury(zombie)
         heap = self._context._boxes[index].heap
         self.prepare(index)
         self._context._stats.delivered += 1
         match exit:
             case Some(value):
-                outcome = __actor_run(heap, run_receive, &mut self._nodes[index], Mail[M, E].Down(child, value), &mut self._context)
+                outcome = __actor_run(heap, run_receive, &mut self._nodes[index], Mail[M, E].Down(child, tag, value), &mut self._context)
                 self.settle(index, outcome_of(outcome))
             case Nothing:
                 pass
@@ -1141,7 +1175,7 @@ pub class Stage[N, M, E]:
                 box = &mut self._context._boxes[index]
                 box.heap = fresh
                 box.pending = True
-                box.ready = False
+                box.ready = 0
                 box.stopping = False
                 box.turn = False
                 parent = slot_of(box.parent)
@@ -1250,6 +1284,7 @@ pub class Stage[N, M, E]:
             drop(replace(box.items[box.head], Nothing))
             box.head = (box.head + 1) % len(box.items)
             box.count -= 1
+        box.ready = 0
         while self._context._boxes[index].down_head >= 0:
             zombie = self.unlink_down(index)
             drop(replace(self._context._boxes[zombie].exit, Nothing))
@@ -1274,13 +1309,16 @@ pub class Stage[N, M, E]:
 
 # Allocates a stage for at most `capacity` live actors, each with a mailbox
 # of `mailbox` messages, reporting up to `events` ready handles per wait.
+# A capacity over `max_capacity` is `OutOfMemory`.
 pub def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], AllocError | WaitError]:
     # Initializes runtime globals now, so admission needs no hidden allocation.
     __actor_heap(op_prepare, 0)
+    if capacity > max_capacity:
+        return Err(AllocError.OutOfMemory)
     nodes: list[Option[N]] = [Nothing for _ in range(capacity)]?
     mut boxes: list[Mailbox[M, E]] = []?
     for _ in range(capacity):
-        boxes.append(Mailbox[M, E](0u32, -1, 0u64, False, False, False, False, False, []?, 0, 0, False, Nothing, 0u64, -1, -1, -1, -1, -1, -1, -1, False, 0, 0, 0, 0u64, 0u64, 0))?
+        boxes.append(Mailbox[M, E](0u32, -1, 0u64, False, False, False, 0, False, []?, 0, 0, False, Nothing, 0u64, -1, -1, -1, -1, -1, -1, -1, False, 0, 0, 0, 0u64, 0u64, 0))?
     # Popped from the end, so slot 0 is used first.
     free: list[i64] = [capacity - 1 - index for index in range(capacity)]?
     runnable: list[i64] = [0 for _ in range(capacity)]?

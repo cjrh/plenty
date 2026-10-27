@@ -147,7 +147,7 @@ pub enum Node:
                             root.matched += 1
                         else:
                             root.mismatched += 1
-                    case Mail.Down(_, exit):
+                    case Mail.Down(_, _, exit):
                         root.ended += 1
                         match exit:
                             case Exit.Failed(error):

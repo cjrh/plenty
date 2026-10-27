@@ -31,7 +31,7 @@ fn scratch_operand_contract_matches_typed_primitives() {
         EntropyRead, Wait, FileWriteLiteral, StdWriteLiteral);
     check_family!(NetOp: Open, Accept, FinishConnect, Address, Shutdown,
         SetOption, SendTo, ReceiveFrom, Resolve, ReadyWait, SelectorOpen,
-        SelectorWatch, Select, SendToLiteral);
+        SelectorWatch, Select, ReadyNumber, SendToLiteral);
     check_family!(TlsOp: Roots, RootsCount, ClientConfig, ServerConfig, Client,
         Server, Feed, Take, Read, Write, State, Close, Builder, BuilderRoots,
         BuilderCertificate, BuilderProtocol, BuilderVersion, BuilderSuite,

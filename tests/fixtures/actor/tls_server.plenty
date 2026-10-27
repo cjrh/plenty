@@ -97,7 +97,7 @@ pub enum Node:
                     case Mail.Message(Note.Used(bytes)):
                         if bytes > acceptor.used:
                             acceptor.used = bytes
-                    case Mail.Down(_, exit):
+                    case Mail.Down(_, _, exit):
                         acceptor.ended += 1
                         match exit:
                             case Exit.Trapped(_):
