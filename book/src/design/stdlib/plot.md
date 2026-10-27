@@ -31,7 +31,8 @@ or borrowed records. This also supports lists of tuples and derived columns.
 
 ## Mappings and components
 
-`aes(x, y, colour=, color=, fill=, group=)` maps column **names**, not expressions.
+`aes(x, y, colour=, color=, fill=, group=, ymin=, ymax=)` maps column
+**names**, not expressions.
 `colour` and `color` are aliases; supplying both nonempty names is an error.
 An empty name leaves that mapping unset. Numeric columns are continuous; text
 and bool columns are discrete. `factor("name")` makes a numeric column discrete.
@@ -66,9 +67,17 @@ and shares the immutable plot and layer tables.
 | `geom_col` | Bars with supplied continuous y heights |
 | `geom_bar` | Counts rows at each x, per group; omit y |
 | `geom_histogram` | Counts continuous x in equal-width bins; omit y |
+| `geom_errorbar` | Supplied `ymin`/`ymax` intervals with caps |
+| `geom_linerange` | Supplied `ymin`/`ymax` intervals without caps |
+| `geom_ribbon` | Filled band between `ymin` and `ymax`, sorted by x within groups |
+
+See [uncertainty and intervals](plot-intervals.md) for bound validation,
+missing-value gaps, grouping, and transformations. These geoms draw supplied
+bounds; they do not estimate confidence intervals.
 
 Each geom accepts `colour`/`color`, `alpha`, and `na_rm`; bars also accept `fill`
-and `position`. Lines use `linewidth`. Numeric settings accept integer or float
+and `position`. Lines and interval geoms use `linewidth`; ribbons also accept
+`fill`. Numeric settings accept integer or float
 arguments. Supported constant colours are black, white, red, green, blue, grey,
 gray, orange, purple, yellow, pink, brown, navy, transparent, and `#RRGGBB` or
 `#RRGGBBAA`. More R colour names are not yet supported.
@@ -128,6 +137,10 @@ notes; `na_rm=True` suppresses the note. A missing y interrupts a line/path
 within its group. Numeric data magnitudes above `1e100` are rejected during construction.
 
 ## Labels, coordinates, and themes
+
+`facet_wrap` and `facet_grid` split layers into panels, with fixed or free
+position scales and shared colour legends. See [facets](plot-facets.md) for
+panel ordering, independent statistics and repeated reference layers.
 
 `labs(title=, x=, y=, colour=, fill=)` overrides nonempty labels; default axis and
 legend labels come from column names. Later nonempty label settings win.
@@ -193,7 +206,7 @@ failure is always returned; no infallible native plotting allocator is involved.
 ## Current scope
 
 Not yet implemented: `after_stat`, statistical
-smoothing, facets, date scales and other colour scales, full themes and font
+smoothing, date scales and other colour scales, full themes and font
 metrics, PNG/PDF, dataframe input, or record reflection. These remain part of
 the accepted proposal; priorities are tracked in [B80](../../backlog.md).
 
