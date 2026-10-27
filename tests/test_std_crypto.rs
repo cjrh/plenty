@@ -54,7 +54,7 @@ fn output(source: &str) -> String {
         .replace("std.bytes.Bytes", "Bytes")
 }
 
-fn native(body: &str, expected: &str) {
+pub(super) fn native(body: &str, expected: &str) {
     assert_eq!(
         output(&program(body)),
         expected.trim_matches('\n'),
@@ -400,7 +400,7 @@ fn vendored_runtime_crates_match_the_lockfile() {
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
     vendored.sort();
-    assert_eq!(vendored.len(), 22, "{vendored:?}");
+    assert_eq!(vendored.len(), 26, "{vendored:?}");
     for directory in vendored {
         let (name, version) = directory.rsplit_once('-').unwrap();
         let entry = format!("name = \"{name}\"\nversion = \"{version}\"\n");

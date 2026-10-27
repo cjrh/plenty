@@ -72,9 +72,15 @@ main.plenty:8:9: `outer[list[i64]]` requires `pairs.twice[list[i64]]`, which cop
 The note then describes the rejected operation without advice for changing the
 body, which the caller may not own. A cause is attributed when the rejected type
 is exactly one parameter's argument; otherwise, including when two parameters
-have that argument, the first form is used. The match is by type, so a body that
-names the argument's type itself, such as a `list[list[i64]]` field read for
-`T = list[i64]`, is attributed to `T`.
+have that argument, the first form is used. The first form is also used when the
+definition writes the argument's type itself in a parameter type, a body type,
+or the type of a field the body accesses, such as `list[i64]` inside a
+`list[list[i64]]` field for `T = list[i64]`: the match is by type, so a value of
+that type need not come from `T`. This holds even when the rejected value is the
+parameter's own. The return type and fields the body does not access do not
+count, since they supply no value to the body. A type the body only infers,
+such as that of `row = [1]?`, is not written, so a rejected value of it is still
+attributed to a parameter with that argument.
 
 This covers generic functions, generic methods, functions written inside them,
 and the methods of a generic class or enum instance. A method of an instance is

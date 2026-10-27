@@ -161,9 +161,21 @@ def from_list(values: &list[u8]) -> Result[Bytes, BytesError]
 def from_text(text: &str) -> Result[Bytes, BytesError]
 def from_bytes(value: bytes) -> Result[Bytes, BytesError]
 def crypto_state(kind: u8) -> Result[Bytes, BytesError]
+def crypto_derive_state(context: &str) -> Result[Bytes, BytesError]
 def crypto_keyed_state(kind: u8, key: &Bytes, start: i64, stop: i64) -> Result[Bytes, BytesError]
 def compress_state(kind: u8, level: i64, capacity: i64) -> Result[Bytes, BytesError]
 def sqlite_column(statement: &ByteStorage, column: i64) -> Result[Bytes, BytesError]
+def crypto_aes_seal(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64
+def crypto_aes_open(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64
+def crypto_chacha_seal(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64
+def crypto_chacha_open(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64
+def crypto_ed_public(seed: &Bytes, target: &mut Bytes) -> i64
+def crypto_ed_sign(seed: &Bytes, message: &Bytes, target: &mut Bytes) -> i64
+def crypto_ed_verify(key: &Bytes, message: &Bytes, signature: &Bytes) -> i64
+def crypto_hkdf(salt: &Bytes, key: &Bytes, info: &Bytes, target: &mut Bytes) -> i64
+def crypto_x_public(state: &Bytes, target: &mut Bytes) -> i64
+def crypto_x_agree(state: &mut Bytes, peer: &Bytes, target: &mut Bytes) -> i64
+def crypto_x_new() -> Result[Bytes, BytesError]
 ```
 
 ## `std.cache.lru`
@@ -323,13 +335,13 @@ Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `
 
 ## `std.crypto`
 
-SHA-256, SHA-512, and HMAC over `std.bytes`, incremental or one-shot, and constant-time comparison. Errors: `CryptoError`. [Reference](crypto.md).
+Digests, HMAC, BLAKE3 hashing/key derivation, constant-time comparison, AEAD encryption, Ed25519, X25519, and HKDF over `std.bytes`. Errors: `CryptoError`, `AdvancedError`. [Reference](crypto.md).
 
 ```text
 enum CryptoError
-    OutOfRange | Finished | Allocation(AllocError)
+    OutOfRange | Finished | InvalidKeyLength | UnsupportedAlgorithm | Allocation(AllocError)
 enum Algorithm
-    Sha256 | Sha512 | Sha1
+    Sha256 | Sha512 | Sha1 | Blake3
 def output_size(algorithm: Algorithm) -> i64
 class Digest
     def size(self) -> i64
@@ -348,10 +360,34 @@ def digest(algorithm: Algorithm) -> Result[Digest, CryptoError]
 def hmac(algorithm: Algorithm, key: &Bytes) -> Result[Mac, CryptoError]
 def sha256(data: &Bytes) -> Result[Bytes, CryptoError]
 def sha512(data: &Bytes) -> Result[Bytes, CryptoError]
+def blake3(data: &Bytes) -> Result[Bytes, CryptoError]
+def blake3_keyed_hasher(key: &Bytes) -> Result[Mac, CryptoError]
+def blake3_keyed(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
+def blake3_derive_hasher(context: &str) -> Result[Digest, CryptoError]
+def blake3_derive_key(context: &str, key_material: &Bytes) -> Result[Bytes, CryptoError]
 def sha1(data: &Bytes) -> Result[Bytes, CryptoError]
 def hmac_sha256(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def equal(a: &Bytes, b: &Bytes) -> bool
+enum AdvancedError
+    InvalidLength | AuthenticationFailed | InvalidPeer | Finished | RandomFailure | Allocation(AllocError)
+enum AeadAlgorithm
+    Aes256Gcm | ChaCha20Poly1305
+def seal_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]
+def open_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]
+def ed25519_public_key_into(seed: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
+def ed25519_public_key(seed: &Bytes) -> Result[Bytes, AdvancedError]
+def ed25519_sign_into(seed: &Bytes, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
+def ed25519_sign(seed: &Bytes, message: &Bytes) -> Result[Bytes, AdvancedError]
+def ed25519_verify(public_key: &Bytes, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]
+def hkdf_sha256_into(salt: &Bytes, key_material: &Bytes, info: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
+def hkdf_sha256(salt: &Bytes, key_material: &Bytes, info: &Bytes, size: i64) -> Result[Bytes, AdvancedError]
+class X25519Key
+    def public_key_into(self, target: &mut Bytes) -> Result[(), AdvancedError]
+    def public_key(self) -> Result[Bytes, AdvancedError]
+    def agree_into(self: &mut X25519Key, peer_public_key: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
+    def agree(self: &mut X25519Key, peer_public_key: &Bytes) -> Result[Bytes, AdvancedError]
+def x25519() -> Result[X25519Key, AdvancedError]
 ```
 
 ## `std.csv`

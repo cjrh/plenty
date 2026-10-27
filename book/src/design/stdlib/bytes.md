@@ -308,9 +308,10 @@ of input, seeking, and bounded buffering on top. `read_os_entropy` is the
 single native primitive behind [`std.secrets`](secrets.md); import that module
 for secret bytes and tokens.
 
-Methods named `crypto_*`, and the functions `crypto_state` and
-`crypto_keyed_state`, are the native back end of [`std.crypto`](crypto.md).
-They operate only on states that module creates; import it instead. The
+Methods and functions named `crypto_*` are the native back end of
+[`std.crypto`](crypto.md); import that module for its validated APIs.
+Operations taking opaque digest or X25519 state require a state created
+by that module; ordinary byte buffers cannot stand in for one. The
 `compress_*` methods and `compress_state` are likewise the back end of
 [`std.compress`](compress.md). `compress_state` rejects a capacity below 1
 with `OutOfRange`, since a state with no output room could never make

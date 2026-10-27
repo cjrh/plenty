@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 mod brotli_build;
 use std::process::Command;
 
-/// The runtime's only third-party code: RustCrypto digests, HMAC and
+/// The runtime's only third-party code: RustCrypto digests, HMAC, BLAKE3 and
 /// constant-time comparison for `std.crypto`, zlib-rs for `std.compress`, and
 /// rustls with its ring provider for `std.tls`, and SipHash for collections,
 /// copied unmodified from
@@ -82,6 +82,40 @@ const VENDORED: &[Vendored] = &[
         &["cfg_if", "digest", "cpufeatures"],
     ),
     ("hmac-0.12.1", "hmac", "2018", &[], &[], &["digest"]),
+    ("arrayvec-0.7.8", "arrayvec", "2018", &[], &[], &[]),
+    (
+        "constant_time_eq-0.4.2",
+        "constant_time_eq",
+        "2024",
+        &[],
+        &[],
+        &[],
+    ),
+    // SHA uses cpufeatures 0.2; BLAKE3 uses 0.3. Give the second crate a
+    // distinct artifact name and bind the upstream dependency through an alias.
+    (
+        "cpufeatures-0.3.1",
+        "cpufeatures_blake3",
+        "2024",
+        &[],
+        &[],
+        &[],
+    ),
+    (
+        "blake3-1.8.7",
+        "blake3",
+        "2024",
+        &["pure"],
+        // Match upstream's pure build: portable fallback and runtime-selected
+        // Rust SSE2/SSE4.1/AVX2 intrinsics, without assembly, AVX-512 or Rayon.
+        &["blake3_sse2_rust", "blake3_sse41_rust", "blake3_avx2_rust"],
+        &[
+            "arrayvec",
+            "cfg_if",
+            "constant_time_eq",
+            "cpufeatures=cpufeatures_blake3",
+        ],
+    ),
     (
         "zlib-rs-0.6.8",
         "zlib_rs",
@@ -152,12 +186,14 @@ const VENDORED: &[Vendored] = &[
     ),
 ];
 const RUNTIME_EXTERNS: &[&str] = &[
+    "blake3",
     "sha2",
     "sha1",
     "hmac",
     "subtle",
     "zlib_rs",
     "rustls",
+    "ring",
     "siphasher",
 ];
 

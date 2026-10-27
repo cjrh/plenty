@@ -728,6 +728,11 @@ impl TypeRef {
                 .at
                 .error("type nesting exceeds the implementation limit of 64"));
         }
+        if self.concrete.is_none()
+            && let Some(ty) = &ty
+        {
+            aliases.data.note_written(ty);
+        }
         Ok(ty)
     }
     fn resolve_inner(&self, aliases: &TypeAliases) -> Result<Type> {
@@ -5783,9 +5788,21 @@ fn lower_function(
     let outer = aliases
         .data
         .attribute(required.clone().map(data::Requiring::Instance));
+    let outer_names = aliases.data.record_names(required.as_ref());
+    if required.is_some() {
+        // The parameter types were resolved when the instance was required;
+        // this records the types they write. Any error was reported then.
+        // The return type supplies no value to the body, and recording it
+        // would hide the cause of `def size[T](value: &T) -> i64` for `i64`.
+        for (_, t) in &f.inputs {
+            let _ = t.resolve(aliases);
+        }
+    }
     let lowered = generics
         .complete_instance(symbol, f, sigs)
         .and_then(|f| lower_body(symbol, f, heap, sigs, generics, aliases, access));
+    let required = required.map(|required| aliases.data.with_names(&required));
+    aliases.data.restore_names(outer_names);
     aliases.data.attribute(outer);
     lowered.map_err(|error| {
         if error.is::<Attributed>() {
@@ -6081,7 +6098,10 @@ fn lower_body(
                 source,
                 trap_file: facts.map(|(relative, _)| relative),
                 names: lower.slot_names,
-                required: lower.generics.requirement(symbol).cloned(),
+                required: lower
+                    .generics
+                    .requirement(symbol)
+                    .map(|required| lower.aliases.data.with_names(required)),
             }),
             generator: yield_type,
             sig,

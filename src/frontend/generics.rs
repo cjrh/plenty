@@ -378,15 +378,16 @@ impl Engine {
             return;
         };
         // The owner's instance recorded its type arguments under the method.
-        let parameters = self
+        let (parameters, named) = self
             .required
             .get(&symbol)
-            .map(|owner| Arc::clone(&owner.parameters))
+            .map(|owner| (Arc::clone(&owner.parameters), Arc::clone(&owner.named)))
             .unwrap_or_default();
         let required = match outer {
             Some(outer) => Instantiation {
                 instance: display,
                 parameters,
+                named,
                 ..(**outer).clone()
             },
             None => Instantiation {
@@ -394,6 +395,7 @@ impl Engine {
                 requested: Arc::clone(&display),
                 instance: display,
                 parameters,
+                named,
                 unused_method: None,
             },
         };
@@ -447,6 +449,7 @@ impl Engine {
                     requested: Arc::clone(&display),
                     instance: Arc::clone(&display),
                     parameters: Arc::default(),
+                    named: Arc::default(),
                     unused_method: None,
                 },
             };
@@ -947,6 +950,7 @@ impl Lower<'_> {
                 Some(outer) => Instantiation {
                     instance,
                     parameters,
+                    named: Arc::default(),
                     ..(**outer).clone()
                 },
                 None => Instantiation {
@@ -954,6 +958,7 @@ impl Lower<'_> {
                     requested: instance.clone(),
                     instance,
                     parameters,
+                    named: Arc::default(),
                     unused_method: None,
                 },
             });
@@ -1644,6 +1649,7 @@ impl Engine {
                     instance: Arc::clone(&requested),
                     requested,
                     parameters: Arc::clone(&instance.parameters),
+                    named: Arc::default(),
                     unused_method: None,
                 })
             });
