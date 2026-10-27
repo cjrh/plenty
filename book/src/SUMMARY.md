@@ -559,6 +559,7 @@
     - [Single-file scripts with embedded manifests](proposals/single-file-scripts.md)
     - [Package language editions](proposals/language-editions.md)
     - [Flat class layout](proposals/flat-class-layout.md)
+    - [Faster linking](proposals/faster-linking.md)
     - [C interop and dynamic libraries](proposals/ffi-and-dynamic-libraries.md)
     - [Using Rust crates in Plenty](proposals/rust-crate-dependencies.md)
         - [Project and value contract](proposals/rust-crate-dependencies/contract.md)

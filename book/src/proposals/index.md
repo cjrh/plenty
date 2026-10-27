@@ -112,6 +112,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Returned enums that carry references](returned-reference-enums.md) — `Option[&T]` and `Result[&T, E]` returned under the first-reference-parameter rule, held in locals, never stored | None yet; extends B11 (issue #516) |
 | [Go-style scoped tasks](stackful-tasks.md), with [runtime choices](stackful-tasks/runtime.md) and [native spike evidence](stackful-tasks/evidence.md) — exploratory fixed-stack alternative; no lightweight scheduler adopted | B22 investigation; implementation uncommitted |
 | [Flat class layout](flat-class-layout.md) — one-field classes without `__del__` are their field (implemented); flat nested records assessed, not adopted | B19 (issue #547); related B35 |
+| [Faster linking](faster-linking.md) — measured link costs; caching the executable, running the linker directly and reusing the extracted runtime archive; object-format changes do not pay | B19; related B17 |
 
 ## Completed investigations
 
