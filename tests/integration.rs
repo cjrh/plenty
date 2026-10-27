@@ -168,6 +168,8 @@ mod test_enum_methods;
 mod test_error_composition;
 #[path = "test_error_context.rs"]
 mod test_error_context;
+#[path = "test_examples.rs"]
+mod test_examples;
 #[path = "test_executable_size.rs"]
 mod test_executable_size;
 #[path = "test_executors.rs"]

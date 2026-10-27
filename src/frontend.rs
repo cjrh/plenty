@@ -6339,7 +6339,8 @@ fn lower(
             .and_then(|declared| Some((declared.yields, declared.function.as_ref()?)))
             .ok_or_else(|| {
                 at.error(format!(
-                    "binary application requires a module-level main taking no parameters and returning {MAIN_RETURN_TYPES}"
+                    "binary application requires a module-level main taking no parameters and returning {MAIN_RETURN_TYPES}; \
+                     a module without main is a library: import it from a program, or check it with `plenty --check-module FILE`"
                 ))
             })?;
         let entry_sig = &sigs["main"];
