@@ -25,6 +25,8 @@ const host_unreachable: i32 = 113
 const timed_out: i32 = 110
 const process_handles: i32 = 24
 const system_handles: i32 = 23
+const max_port: i64 = i64(u16.MAX)
+const max_scope: i64 = i64(u32.MAX)
 
 # Socket kinds understood by the runtime.
 const listener_kind: u8 = 1
@@ -471,16 +473,16 @@ pub def parse_address(text: &str) -> Result[SocketAddress, NetError]:
         mut scope = 0
         percent = found(&source, 37u8, 1, close)?
         if percent >= 0:
-            scope = decimal(&source, percent + 1, close, i64(u32.MAX))?
+            scope = decimal(&source, percent + 1, close, max_scope)?
             end = percent
         ip = v6_in(&source, 1, end)?
-        port = decimal(&source, close + 2, stop, i64(u16.MAX))?
+        port = decimal(&source, close + 2, stop, max_port)?
         return Ok(SocketAddress(ip, u16(port), u32(scope)))
     colon = found(&source, 58u8, 0, stop)?
     if colon < 0:
         return Err(NetError.InvalidAddress)
     ip = IpAddress.V4(v4_in(&source, 0, colon)?)
-    port = decimal(&source, colon + 1, stop, i64(u16.MAX))?
+    port = decimal(&source, colon + 1, stop, max_port)?
     Ok(SocketAddress(ip, u16(port), 0u32))
 
 # Lookup reply status bytes: a five-byte header of the status and a

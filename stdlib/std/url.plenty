@@ -1,6 +1,8 @@
 import std.bytes
 from std.bytes import Bytes, BytesError
 
+const max_port: i64 = i64(u16.MAX)
+
 # Absolute URLs in the RFC 3986 generic syntax, split into components without
 # normalization, plus component-aware percent encoding. Everything here is
 # checked Plenty over `Bytes`: ranges are validated before reads, and an index
@@ -69,7 +71,7 @@ pub class Url:
                 host_end = out.len()
                 match self.port:
                     case Some(port):
-                        if port < 0 or port > i64(u16.MAX):
+                        if port < 0 or port > max_port:
                             return Err(UrlError.InvalidPort(out.len() + 1))
                         emit(&mut out, 58)?
                         digits = allocated(str.repr(port))?
@@ -451,7 +453,7 @@ def port_number(source: &Bytes, start: i64, stop: i64) -> Result[i64, UrlError]:
         if not digit(code):
             return Err(UrlError.InvalidPort(start))
         value = value * 10 + code - 48
-    if value > i64(u16.MAX) or (stop - start > 1 and i64(source[start]) == 48):
+    if value > max_port or (stop - start > 1 and i64(source[start]) == 48):
         return Err(UrlError.InvalidPort(start))
     Ok(value)
 
