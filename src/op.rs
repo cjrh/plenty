@@ -1957,6 +1957,22 @@ fn step(
                     return Err("invalid scoped thread cleanup".into());
                 }
             }
+            crate::threading::ThreadOp::Run(task) => {
+                for ty in task.inputs.iter().rev() {
+                    if stack.pop().as_ref() != Some(ty) {
+                        return Err("invalid __actor_run argument".into());
+                    }
+                }
+                if stack.pop() != Some(Ty::I64) {
+                    return Err("invalid __actor_run heap".into());
+                }
+                stack.push(task.run_result());
+            }
+            crate::threading::ThreadOp::Forget(ty) => {
+                if stack.pop().as_ref() != Some(ty) {
+                    return Err("invalid forgotten value".into());
+                }
+            }
         },
         Op::Try {
             source,

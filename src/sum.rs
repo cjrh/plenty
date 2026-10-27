@@ -289,6 +289,22 @@ pub fn allocation_result() -> Ty {
     result(Ty::Unit, alloc_error())
 }
 
+/// The error of an `__actor_run` whose handler trapped. Not nameable in
+/// source; std.actor matches it with a wildcard.
+pub fn trapped() -> Ty {
+    let Ty::Enum(template) = alloc_error() else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.facts = std::sync::OnceLock::new();
+    ty.name = "Trapped".into();
+    ty.variants = vec![Variant {
+        name: "Trap".into(),
+        fields: vec![],
+    }];
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
 /// Native creation errors are represented inline, even under memory pressure.
 pub fn thread_error() -> Ty {
     let Ty::Enum(template) = alloc_error() else {
