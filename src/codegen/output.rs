@@ -177,6 +177,7 @@ impl Output {
     /// Compile `func` on this thread as the body of the declared function
     /// `id`. Its IR must name only symbols declared in the module.
     pub(super) fn define(&mut self, id: FuncId, mut func: Function) -> Result<()> {
+        super::empty_slots::remove_empty_releases(&mut func, None);
         super::known::fold_constant_branches(&mut func);
         super::threading::thread_branches(&mut func);
         symbols::colocate(&self.module, &mut func);
@@ -460,6 +461,8 @@ impl Worker {
 
     /// Compile `func`, built against `symbols`, as the body of `id`.
     pub(super) fn define(&mut self, id: FuncId, mut func: Function, mut symbols: Symbols) {
+        let release = symbols.declared_function("plenty_release");
+        super::empty_slots::remove_empty_releases(&mut func, release);
         super::known::fold_constant_branches(&mut func);
         super::threading::thread_branches(&mut func);
         if self.coverage {
