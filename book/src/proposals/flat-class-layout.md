@@ -205,29 +205,41 @@ library exporting nested classes.
 
 ### Measurements
 
-Retired instructions (`perf stat -e instructions:u`, `--release`, mean of 5)
-against main at 5e6e98a4:
+Retired instructions (`perf stat -e instructions:u`, `--release`, mean of 5,
+pinned to 8 cores). *Base* is main at 5e6e98a4, before stage 2; *main* is
+0ec41c06, which adds the empty-slot release removal (issue #549).
 
-| Program | Before | After |
-|---|---|---|
-| Three-level `Point`/`Segment`/`Path` workload (moves, list rows, borrows) | 5,033,105,519 | 3,886,508,416 (−22.8%) |
-| Its move loop alone, per iteration | 1,840 | 1,302 (−29%) |
-| Its list rows alone | 1,325,304,782 | 1,282,707,905 (−3.2%) |
-| Nested copies, 200× scaled fixture | 5,612,022,727 | 5,848,707,786 (+4.2%) |
-| Shelves of nested records appended and destroyed | 3,387,022,996 | 3,623,707,735 (+7.0%) |
-| Nested two-field records copied through a loop | 282,905 | 283,067 |
-| Constructor fixture (wrapped file) | 331,431 | 331,429 |
-| 200 loopback `connect`/`accept`/`close` pairs through `std.net` | 1,864,882 | 1,864,158 |
+| Program | Base | Main | Stage 2 |
+|---|---|---|---|
+| Three-level `Point`/`Segment`/`Path` workload | 5,033,105,263 | 5,033,105,267 | 3,700,365,927 (−26.5%) |
+| Its move loop, per iteration | 1,840 | 1,840 | 1,302 (−29.2%) |
+| Its list rows alone | 1,325,304,563 | 1,325,304,542 | 1,096,565,424 (−17.3%) |
+| Nested two-field records copied through a loop | 282,667 | 281,066 | 280,637 |
+| Constructor fixture (wrapped file) | 331,192 | 262,145 | 262,143 |
+| Copies fixture, 5M wrapper cycles and 300k shelves | 5,612,022,549 | 3,868,322,585 | 3,570,485,254 (−7.7% vs main) |
+| Constructor fixture, scaled | 2,225,242,405 | 505,241,987 | 505,241,982 |
+| 300k shelves of nested records appended and destroyed | 3,387,022,898 | 3,363,322,395 | 3,065,484,601 (−8.9% vs main) |
+| 200 loopback `connect`/`accept`/`close` pairs through `std.net` | 1,864,648 | 1,833,413 | 1,832,631 |
 
 Code size for the three-level workload fell from 130,321 to 121,521 bytes of
-`.text`. `compile_bench` (`aot`, 1000 × 10, pinned to 8 cores) showed no
-difference beyond noise.
+`.text`. `compile_bench` (`aot`, 1000 × 10, pinned to 8 cores) retires 0.4%
+more instructions (12.28 G to 12.33 G for 3 repetitions); its median times
+(244–254 ms on main, 243–260 ms with stage 2) are within noise.
 
-The two regressions are runtime walks. A resumable release restarts at the
-first field after each heap child; it now scans each finished flat record's
-words to skip it and re-enters an unfinished one, where the address layout
-tested one zero word. Relocation and copying also test each field's kind.
-Together these cost about 590 instructions per released `Shelf` (callgrind).
-Moving those walks into compiled code for known record types would remove
-most of it. Compiled moves no longer fix flat fields, but still copy
-their bytes, so the per-move saving is the fixes, not the copy.
+The first version of stage 2 made the shelves workload 7% slower than base.
+The runtime release walk restarts at an owner's first field after each heap
+child, and with flat fields each restart re-entered nested records and scanned
+finished ones. Two runtime changes removed that cost:
+
+- The walk frees a string in place instead of queueing it and restarting;
+  a string owns nothing and runs no user code, so the order is unobservable.
+  A `Shelf` with three strings is now walked once instead of four times.
+- Record traversal decides a field's kind once per field, and walks into a
+  flat record build its `Record` directly instead of re-deriving it through
+  `Type::record`.
+
+Per shelf (callgrind, 20k shelves), the whole program fell from 9,716
+instructions on base to 8,658; the release walk itself fell from 1,760 to
+1,210, and relocation is level with base (685 and 663). Compiled moves no longer
+fix flat fields but still copy their bytes, so the per-move saving is the fixes,
+not the copy.

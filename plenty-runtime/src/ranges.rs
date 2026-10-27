@@ -153,8 +153,7 @@ impl Payload<'_> {
                         if field.flat {
                             // Its record moved with the owner; only its own
                             // payloads need new addresses.
-                            Payload::Record(ty.record(field.read()).expect("flat record"))
-                                .relocate(field.at);
+                            Payload::Record(field.record(ty)).relocate(field.at);
                         } else if ty.payload_bytes() != 0 {
                             relocate(field.at, ty);
                         }

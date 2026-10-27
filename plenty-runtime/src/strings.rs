@@ -207,6 +207,16 @@ pub(crate) unsafe fn try_duplicate(text: *const Text) -> Result<*mut Text, Alloc
         })
     }
 }
+/// Release one owned reference and free the text at once if it was the last:
+/// a string owns nothing, so it needs no place in the destruction queue.
+pub(crate) unsafe fn release_leaf(text: *mut Text) {
+    unsafe {
+        let header = text.cast::<Header>();
+        if !memory::inert(header) && (*header).release_last() {
+            destroy(header);
+        }
+    }
+}
 unsafe extern "C" fn destroy(header: *mut Header) {
     // SAFETY: callback installed only on dynamically allocated Text objects.
     unsafe {

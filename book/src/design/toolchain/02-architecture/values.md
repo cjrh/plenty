@@ -12,7 +12,8 @@ lookup per field, without allocating an offset table. Hashing, equality, orderin
 formatting, copying, relocation, and retain/release use this traversal. Copy
 failure cleanup walks the completed prefix backwards with a decreasing offset.
 This bounds offset work per pass; nested payload work and repeated visits while
-queued destruction resumes remain separate costs.
+queued destruction resumes remain separate costs. Strings, the most common heap
+field, are freed during the pass and cause no resumption.
 
 A class with exactly one field and no `__del__` is represented as that field:
 same slot, same bytes, no record and no internal address. Constructing it,

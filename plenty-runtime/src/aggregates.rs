@@ -233,14 +233,13 @@ impl Record<'_> {
             let ty = self.ty(index);
             // SAFETY: the owner reserved `words()` words at `base`.
             let at = unsafe { self.base.add(*offset) };
-            *offset += self.width(ty);
-            Some((
-                Field {
-                    at,
-                    flat: self.flat(ty),
-                },
-                ty,
-            ))
+            let flat = self.flat(ty);
+            *offset += if flat {
+                ty.field_words()
+            } else {
+                ty.slot_words()
+            };
+            Some((Field { at, flat }, ty))
         })
     }
     /// The record's storage, as its slot would address it: a flat record has
@@ -291,6 +290,16 @@ pub(crate) struct Field {
     pub(crate) flat: bool,
 }
 impl Field {
+    /// The record of a flat field of class type `ty`, without the checks
+    /// [`Type::record`] makes for a value word.
+    pub(crate) fn record(self, ty: &'static Type) -> Record<'static> {
+        debug_assert!(self.flat && ty.flat_field());
+        Record {
+            fields: Fields::Class(ty.variants),
+            base: self.at,
+            state: ty.drop.is_some(),
+        }
+    }
     /// The field's value: a flat record's value is its address.
     pub(crate) unsafe fn read(self) -> u128 {
         if self.flat {
@@ -477,6 +486,12 @@ unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
             }
         } else if ty.kind == b'G' && ty.inline_bytes != 0 {
             crate::generators::release_inline(value as *mut Generator);
+        } else if ty.kind == b's' {
+            // A string owns nothing and runs no user code, so freeing it now
+            // is unobservable and spares the owner a restart of its walk.
+            slot.write(0);
+            strings::release_leaf(value as *mut Text);
+            return None;
         } else if ty.managed() {
             slot.write(0);
             return Some(value as *mut Header);
@@ -498,7 +513,7 @@ unsafe fn release_next_fields(record: Record<'_>) -> Option<*mut Header> {
                 if field.is_clear(ty) {
                     continue;
                 }
-                let nested = ty.record(field.read()).expect("flat record");
+                let nested = field.record(ty);
                 if nested.begin_release(ty) {
                     let child = release_next_fields(nested);
                     if child.is_none() {

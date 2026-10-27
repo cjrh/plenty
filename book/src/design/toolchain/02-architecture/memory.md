@@ -28,6 +28,10 @@ protects ownership counts, not concurrent mutable payload access or foreign
 resource transfer. Source permissions still come from borrow and worker checks.
 
 An iterative queue destroys owned graphs without recursive native-stack growth.
+A record, list, or box being destroyed hands each heap child to the queue and
+resumes its walk after that child is gone, which keeps cleanup in declaration
+order. A string owns nothing and runs no user code, so the walk frees it in
+place instead.
 Inline generator cleanup uses the count handoff but finishes synchronously while
 its enclosing storage is live. Private helper aliases do not authorize mutable
 source aliases. Traps end the process without unwinding language scopes.
