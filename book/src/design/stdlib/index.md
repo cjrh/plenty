@@ -15,7 +15,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 
 | Module | Contents | Error type |
 |---|---|---|
-| [`std.actor`](actor.md) | Supervised actors on one thread, each with its own heap, bounded mailbox and copied messages; a trap discards only that actor's heap and files | `StartError`, `Undelivered[M]` |
+| [`std.actor`](actor.md) | Supervised actors on one thread, each with its own heap, bounded mailbox and copied messages; a trap discards only that actor's heap and files; timers, request-reply and restart | `StartError`, `Undelivered[M]`, `TimerError`, `RequestError[M]` |
 | [`std.archive`](archive.md) | TAR and ZIP readers and writers over `std.io`, and extraction into a new directory under explicit path, link, and size limits | `ArchiveError` |
 | [`std.atomic`](atomic.md) | Inline atomic integers and booleans with compile-time checked orderings, and fences | None |
 | [`std.bytes`](bytes.md) | Compact owning byte buffers with checked ranges, explicit copies and validated text conversion | `BytesError` |

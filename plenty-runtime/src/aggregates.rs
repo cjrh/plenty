@@ -487,7 +487,8 @@ pub(crate) fn index(index: i64, len: usize, site: *const crate::Site) -> usize {
 /// Reports the index as written, before negative-index normalization.
 #[cold]
 pub(crate) fn out_of_bounds(index: i64, len: usize, site: *const crate::Site) -> ! {
-    crate::fail_at(
+    crate::fail_kind_at(
+        crate::actor_heap::TrapKind::Index,
         site,
         format_args!("index out of bounds: index {index}, length {len}"),
     )
@@ -1868,7 +1869,8 @@ pub(crate) unsafe fn collection_at(
                     index(b as i64, c.entries.len(), site)
                 } else {
                     c.find(b).unwrap_or_else(|| {
-                        crate::fail_at(
+                        crate::fail_kind_at(
+                            crate::actor_heap::TrapKind::Index,
                             site,
                             format_args!("dictionary key not found; use insert to add a new key"),
                         )
@@ -2439,7 +2441,11 @@ pub(crate) unsafe fn collection_at(
                 let c = &*(a as *const Collection);
                 if op == 4 && c.ty().kind == b'D' {
                     let i = c.find(b).unwrap_or_else(|| {
-                        crate::fail_at(site, format_args!("dictionary key not found"))
+                        crate::fail_kind_at(
+                            crate::actor_heap::TrapKind::Index,
+                            site,
+                            format_args!("dictionary key not found"),
+                        )
                     });
                     retain(c.entries.get(i).value, c.ty().value());
                     c.entries.get(i).value

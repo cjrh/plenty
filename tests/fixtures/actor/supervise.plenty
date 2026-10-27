@@ -50,7 +50,7 @@ pub class Node:
                 pass
         Ok(())
 
-    pub def spawn(self: &mut Node, tag: i64, child: Address, context: &mut Context[Note, AllocError]) -> Result[Option[Node], AllocError]:
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Note, AllocError]) -> Result[Option[Node], AllocError]:
         Ok(Some(Node(tag, 0)))
 
 def describe(result: Result[(), Undelivered[Note]]) -> Result[(), IoError]:

@@ -1,0 +1,188 @@
+from std.actor import Address, Context, Exit, Mail, Reply, Request, TimerError, heaps_live, stage
+from std.ready import WaitError
+from std.sync import CancellationToken
+from std.time import deadline_after, milliseconds, monotonic_now, nanoseconds, seconds
+
+type Fault = AllocError | IoError
+
+pub enum Job:
+    Square(i64)
+    Answer(i64)
+    Boom
+    Up
+
+pub class Lead:
+    pub me: Option[Address]
+    pub server: u64
+    pub slow: u64
+    pub quitter: u64
+    pub phoenix: u64
+    pub rising: Option[Address]
+    pub asked: u64
+    pub waited: u64
+    pub abandoned: u64
+    pub ticks: i64
+    pub ups: i64
+    pub events: i64
+
+pub class Slow:
+    pub pending: Option[Request]
+
+pub enum Node:
+    Leading(Lead)
+    Serving
+    Waiting(Slow)
+    Quitting
+    Rising(Address)
+    Alone
+
+    pub def started(self: &mut Node, context: &mut Context[Job, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Leading(lead):
+                lead.me = Some(context.address())
+                context.after(&milliseconds(30), 1).unwrap()
+                context.every(&milliseconds(5), 2).unwrap()
+                gone = context.after(&milliseconds(1), 3).unwrap()
+                print("cancelled", context.cancel(gone), context.cancel(gone))?
+                server = context.spawn(1, 65536).unwrap()
+                slow = context.spawn(2, 65536).unwrap()
+                quitter = context.spawn(3, 65536).unwrap()
+                phoenix = context.spawn(4, 65536).unwrap()
+                print("restart", context.restart(phoenix, 2, &seconds(10)), context.restart(context.address(), 1, &seconds(1)))?
+                lead.server = server.key()
+                lead.slow = slow.key()
+                lead.quitter = quitter.key()
+                lead.phoenix = phoenix.key()
+                lead.rising = Some(phoenix)
+                lead.asked = context.request(server, Job.Square(7), &seconds(5)).unwrap().key()
+                lead.waited = context.request(slow, Job.Square(1), &milliseconds(10)).unwrap().key()
+                lead.abandoned = context.request(quitter, Job.Square(2), &seconds(5)).unwrap().key()
+            case Node.Alone:
+                match context.after(&milliseconds(1), 0):
+                    case Err(TimerError.Capacity):
+                        print("no timer")?
+                    case _:
+                        print("unexpected timer")?
+                match context.every(&nanoseconds(0u64), 0):
+                    case Err(TimerError.Range):
+                        print("zero period")?
+                    case _:
+                        print("unexpected period")?
+                context.stop()
+            case Node.Rising(lead):
+                context.send(*lead, Job.Up).unwrap()
+            case _:
+                pass
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[Job, Fault], context: &mut Context[Job, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Leading(lead):
+                match mail:
+                    case Mail.Timer(timer):
+                        if timer.tag() == 2:
+                            lead.ticks += 1
+                            print("tick", lead.ticks)?
+                            if lead.ticks == 3:
+                                context.cancel(timer)
+                                lead.events += 1
+                        else:
+                            print("timer", timer.tag())?
+                            lead.events += 1
+                    case Mail.Reply(request, reply):
+                        key = request.key()
+                        mut name = "abandoned"
+                        if key == lead.asked:
+                            name = "asked"
+                        elif key == lead.waited:
+                            name = "waited"
+                        match reply:
+                            case Reply.Answer(Job.Answer(value)):
+                                print(name, "answer", value)?
+                            case Reply.TimedOut:
+                                print(name, "timed out")?
+                            case Reply.Gone:
+                                print(name, "gone")?
+                            case _:
+                                print(name, "unexpected")?
+                        lead.events += 1
+                    case Mail.Message(Job.Up):
+                        lead.ups += 1
+                        print("up", lead.ups)?
+                        context.send(lead.rising.unwrap(), Job.Boom).unwrap()
+                    case Mail.Down(child, exit):
+                        key = child.key()
+                        mut name = "quitter"
+                        if key == lead.server:
+                            name = "server"
+                        elif key == lead.slow:
+                            name = "slow"
+                        elif key == lead.phoenix:
+                            name = "phoenix"
+                        print("down", name, exit)?
+                        lead.events += 1
+                    case _:
+                        pass
+                # Two timers, three replies and four exits.
+                if lead.events == 9:
+                    context.stop()
+            case Node.Serving:
+                match mail:
+                    case Mail.Request(request, Job.Square(value)):
+                        context.reply(request, Job.Answer(value * value)).unwrap()
+                        print("again", context.reply(request, Job.Answer(0)).is_err())?
+                        context.stop()
+                    case _:
+                        pass
+            case Node.Waiting(slow):
+                match mail:
+                    case Mail.Request(request, _):
+                        slow.pending = Some(request)
+                        context.after(&milliseconds(50), 0).unwrap()
+                    case Mail.Timer(_):
+                        late = context.reply(slow.pending.unwrap(), Job.Answer(1))
+                        print("late reply refused", late.is_err())?
+                        context.stop()
+                    case _:
+                        pass
+            case Node.Quitting:
+                context.stop()
+            case Node.Rising(_):
+                match mail:
+                    case Mail.Message(Job.Boom):
+                        missing: Option[i64] = Nothing
+                        missing.unwrap()
+                    case _:
+                        pass
+            case _:
+                pass
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Job, Fault]) -> Result[Option[Node], Fault]:
+        match self:
+            case Node.Leading(lead):
+                match tag:
+                    case 1:
+                        Ok(Some(Node.Serving))
+                    case 2:
+                        Ok(Some(Node.Waiting(Slow(Nothing))))
+                    case 3:
+                        Ok(Some(Node.Quitting))
+                    case _:
+                        Ok(Some(Node.Rising(lead.me.unwrap())))
+            case _:
+                Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | WaitError]:
+    deadline = deadline_after(&monotonic_now(), &seconds(10)).unwrap()
+    cancel = CancellationToken()?
+    mut actors = stage[Node, Job, Fault](8, 4, 4)?
+    actors.add_timers(8)?
+    actors.start(Node.Leading(Lead(Nothing, 0u64, 0u64, 0u64, 0u64, Nothing, 0u64, 0u64, 0u64, 0, 0, 0)), 65536).unwrap()
+    actors.run(&deadline, &cancel)?
+    print(actors.stats(), heaps_live())?
+
+    mut bare = stage[Node, Job, Fault](1, 1, 1)?
+    bare.start(Node.Alone, 65536).unwrap()
+    bare.run(&deadline, &cancel)?
+    Ok(())

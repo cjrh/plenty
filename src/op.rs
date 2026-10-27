@@ -276,6 +276,56 @@ impl Ty {
             _ => None,
         }
     }
+    /// The first type a `std.actor` node cannot hold, and the class or enum
+    /// that holds it. The spawn hook reads the parent's node through a shared
+    /// borrow while the child's heap is current, so the node may hold only
+    /// values that such a borrow cannot alias into, or change from, another
+    /// heap. A `str` copy shares its storage; shared owners, atomics (and so
+    /// `Mutex`), channels, tokens, closures and native handles share or
+    /// change state through `&`. `std.bytes.Bytes` is the one native owner
+    /// allowed: it has no such method. See book/src/design/stdlib/actor.md.
+    pub fn actor_barrier(&self) -> Option<(Ty, Option<Ty>)> {
+        let mut work: Vec<(Ty, Option<Ty>)> = vec![(self.clone(), None)];
+        let mut seen = crate::hash::HashSet::default();
+        while let Some((ty, holder)) = work.pop() {
+            match &ty {
+                _ if ty.is_numeric() => {}
+                Self::Bool | Self::Unit | Self::ByteStr | Self::File | Self::Callable(_) => {}
+                Self::Range(t) | Self::List(t) | Self::Clist(t) | Self::Set(t) | Self::Box(t) => {
+                    work.push(((**t).clone(), holder));
+                }
+                Self::Dict(k, v) => {
+                    work.push(((**k).clone(), holder.clone()));
+                    work.push(((**v).clone(), holder));
+                }
+                Self::Class(t) if &*t.name == "std.bytes.Bytes" => {}
+                Self::Class(t) => {
+                    if seen.insert(t.name.clone()) {
+                        let fields = t
+                            .get()
+                            .fields
+                            .iter()
+                            .map(|(_, f)| f.clone())
+                            .collect::<Vec<_>>();
+                        work.extend(fields.into_iter().map(|f| (f, Some(ty.clone()))));
+                    }
+                }
+                Self::Enum(t) => {
+                    if seen.insert(t.name.clone()) {
+                        let fields = t
+                            .get()
+                            .variants
+                            .iter()
+                            .flat_map(|v| v.fields.iter().cloned())
+                            .collect::<Vec<_>>();
+                        work.extend(fields.into_iter().map(|f| (f, Some(ty.clone()))));
+                    }
+                }
+                _ => return Some((ty.clone(), holder)),
+            }
+        }
+        None
+    }
     pub fn contains_generator_frame(&self) -> bool {
         self.find_generator_frame(true)
     }

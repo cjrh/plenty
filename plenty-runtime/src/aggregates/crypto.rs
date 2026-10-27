@@ -236,7 +236,10 @@ unsafe fn finish(state: u128, target: &mut [u8], offset: usize) -> bool {
         .and_then(|end| target.get_mut(offset..end))
     {
         Some(place) => place.copy_from_slice(output),
-        None => crate::fail("byte range out of bounds"),
+        None => crate::fail_kind(
+            crate::actor_heap::TrapKind::Index,
+            "byte range out of bounds",
+        ),
     };
     // SAFETY: forwarded from the caller; the slot is validated before access.
     if let Some(slot) = unsafe { blake3_slot(state) } {

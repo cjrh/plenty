@@ -63,7 +63,7 @@ extern "Rust" fn plenty_rust_alloc_error(size: usize, _align: usize) -> ! {
     let _ = writeln!(Stderr, "error: memory allocation of {size} bytes failed");
     // Inside an actor handler this is the handler's failure, usually its heap
     // limit: contain it like a trap.
-    crate::actor_heap::recover();
+    crate::actor_heap::recover(crate::actor_heap::TrapKind::Memory);
     // SAFETY: abort has no preconditions.
     unsafe { abort() }
 }

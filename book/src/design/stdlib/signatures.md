@@ -14,17 +14,30 @@ After changing a standard module, regenerate this page with
 
 ## `std.actor`
 
-Supervised actors on one thread, each with its own heap, bounded mailbox and copied messages; a trap discards only that actor's heap and files. Errors: `StartError`, `Undelivered[M]`. [Reference](actor.md).
+Supervised actors on one thread, each with its own heap, bounded mailbox and copied messages; a trap discards only that actor's heap and files; timers, request-reply and restart. Errors: `StartError`, `Undelivered[M]`, `TimerError`, `RequestError[M]`. [Reference](actor.md).
 
 ```text
 const max_heap_limit: i64 = 67108864
 const max_spawns: i64 = 16
 class Address
     def key(self) -> u64
+class Timer
+    def key(self) -> u64
+    def tag(self) -> i64
+class Request
+    def key(self) -> u64
+enum Reply[M]
+    Answer(M) | TimedOut | Gone
+enum TimerError
+    Capacity | Range
+enum RequestError[M]
+    Full(M) | Gone(M) | Capacity(M)
 enum Exit[E]
-    # Stopped by `Context.stop`, a `Stop` request, or a spawn hook that | Failed(E) | Trapped
+    # Stopped by `Context.stop`, a `Stop` request, or a spawn hook that | Failed(E) | Trapped(TrapKind)
+enum TrapKind
+    Memory | Index | Arithmetic | Unwrap | Other
 enum Mail[M, E]
-    Message(M) | Ready(Readiness) | Down(Address, Exit[E]) | Stop
+    Message(M) | Ready(Readiness) | Down(Address, Exit[E]) | Stop | Timer(Timer) | Request(Request, M) | Reply(Request, Reply[M])
 enum Undelivered[M]
     Full(M) | Gone(M)
 enum StartError
@@ -34,6 +47,7 @@ class Stats
     stopped: i64
     failed: i64
     trapped: i64
+    restarted: i64
     delivered: i64
     full: i64
     gone: i64
@@ -49,6 +63,12 @@ class Context[M, E]
     def send(self: &mut Context[M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
     def stop_actor(self: &mut Context[M, E], to: Address) -> bool
     def spawn(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]
+    def restart(self: &mut Context[M, E], child: Address, limit: i64, window: &Duration) -> bool
+    def after(self: &mut Context[M, E], delay: &Duration, tag: i64) -> Result[Timer, TimerError]
+    def every(self: &mut Context[M, E], period: &Duration, tag: i64) -> Result[Timer, TimerError]
+    def cancel(self: &mut Context[M, E], timer: Timer) -> bool
+    def request(self: &mut Context[M, E], to: Address, message: M, timeout: &Duration) -> Result[Request, RequestError[M]]
+    def reply(self: &mut Context[M, E], request: Request, message: M) -> Result[(), Undelivered[M]]
     def watch_stream(self: &mut Context[M, E], stream: &TcpStream, interest: Interest) -> Result[(), NetError]
     def unwatch_stream(self: &mut Context[M, E], stream: &TcpStream) -> Result[(), NetError]
     def watch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]
@@ -57,6 +77,7 @@ class Stage[N, M, E]
     def start(self: &mut Stage[N, M, E], node: N, limit: i64) -> Result[Address, StartError]
     def send(self: &mut Stage[N, M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
     def stop_actor(self: &mut Stage[N, M, E], to: Address) -> bool
+    def add_timers(self: &mut Stage[N, M, E], count: i64) -> Result[(), AllocError]
     def live(self) -> i64
     def stats(self) -> Stats
     def heap_used(self, actor: Address) -> Option[i64]

@@ -32,6 +32,24 @@ const SWITCH: i64 = 6;
 /// Reserves the heap range and initializes runtime globals; 0 or a `CREATE`
 /// failure.
 const PREPARE: i64 = 7;
+/// The kind of the last trap `plenty_actor_run` contained on this thread.
+const TRAP_KIND: i64 = 8;
+
+/// Why a handler trapped. `plenty_actor_run` returns the number, and
+/// `std.actor.TrapKind` lists the variants in this order from 1.
+#[derive(Clone, Copy)]
+pub(crate) enum TrapKind {
+    /// An allocation the runtime could not report as `AllocError`.
+    Memory = 1,
+    /// A list, text or clist index out of bounds, or a missing dictionary key.
+    Index = 2,
+    /// Integer overflow, division by zero, a shift or cast out of range.
+    Arithmetic = 3,
+    /// `unwrap()` on `Nothing` or `Err`.
+    Unwrap = 4,
+    /// Any other runtime failure.
+    Other = 5,
+}
 
 /// `CREATE` failures.
 const BAD_LIMIT: i64 = -1;
@@ -138,6 +156,8 @@ mod native {
         static RECOVERY: Cell<*mut Resume> = const { Cell::new(std::ptr::null_mut()) };
         /// This thread's unique nonzero token, or 0 before its first use.
         static TOKEN: Cell<usize> = const { Cell::new(0) };
+        /// The `TrapKind` of the last contained trap, or 0 before the first.
+        static LAST_TRAP: Cell<i64> = const { Cell::new(0) };
     }
 
     fn token() -> usize {
@@ -466,7 +486,7 @@ mod native {
 
     /// Called after a trap's message is printed. Returns only when no handler
     /// is running on this thread, and the process then exits as before.
-    pub(crate) fn recover() {
+    pub(crate) fn recover(kind: TrapKind) {
         let resume = RECOVERY.with(Cell::get);
         if resume.is_null() {
             return;
@@ -474,7 +494,7 @@ mod native {
         eprintln!("note: contained in an actor; its heap is discarded");
         // SAFETY: `resume` was filled by the enter call that is still on this
         // thread's stack, below every frame being abandoned.
-        unsafe { plenty_actor_resume(resume, 1) }
+        unsafe { plenty_actor_resume(resume, kind as u64) }
     }
 
     fn live(heap: i64) -> Option<usize> {
@@ -484,8 +504,8 @@ mod native {
     }
 
     /// Runs a compiled `__actor_run` adapter with `heap` current. Returns 0
-    /// when the handler returned (its result is in `storage`) or 1 when it
-    /// trapped.
+    /// when the handler returned (its result is in `storage`), or the
+    /// `TrapKind` when it trapped; `TRAP_KIND` reports that kind again.
     ///
     /// # Safety
     /// `entry` is the compiler's adapter for `storage`'s task layout.
@@ -516,6 +536,7 @@ mod native {
             // Thread-local runtime state the abandoned frames may have changed.
             crate::CALLER.with(|current| current.set(caller));
             crate::memory::restore_queue(queue);
+            LAST_TRAP.with(|last| last.set(status as i64));
         }
         status as i64
     }
@@ -641,6 +662,7 @@ mod native {
                 .sum(),
             COMMITTED_TOTAL => heaps().iter().map(|heap| heap.committed as i64).sum(),
             LIVE_COUNT => heaps().iter().filter(|heap| heap.live).count() as i64,
+            TRAP_KIND => LAST_TRAP.with(Cell::get),
             SWITCH => {
                 let next = if argument < 0 {
                     0
@@ -664,7 +686,7 @@ mod native {
     pub(crate) fn outside<R>(f: impl FnOnce() -> R) -> R {
         f()
     }
-    pub(crate) fn recover() {}
+    pub(crate) fn recover(_: TrapKind) {}
     #[cfg(feature = "allocation-checks")]
     pub(crate) fn in_heap(_: *const u8) -> bool {
         false
@@ -692,7 +714,7 @@ mod native {
     pub(super) fn operate(op: i64, _argument: i64) -> i64 {
         match op {
             CREATE | PREPARE => UNSUPPORTED,
-            USED_TOTAL | COMMITTED_TOTAL | LIVE_COUNT => 0,
+            USED_TOTAL | COMMITTED_TOTAL | LIVE_COUNT | TRAP_KIND => 0,
             SWITCH => -1,
             _ => -1,
         }
