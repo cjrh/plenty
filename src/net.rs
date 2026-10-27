@@ -28,6 +28,7 @@ pub enum NetOp {
     SelectorOpen,
     SelectorWatch,
     Select,
+    ReadyNumber,
     // The operations above reading their `source` operand from a `bytes`
     // literal, which the runtime tells from a buffer by its header.
     SendToLiteral,
@@ -49,6 +50,7 @@ impl NetOp {
             "__ready_selector" => Self::SelectorOpen,
             "__ready_watch" => Self::SelectorWatch,
             "__ready_select" => Self::Select,
+            "__ready_number" => Self::ReadyNumber,
             _ => return None,
         })
     }
@@ -113,6 +115,9 @@ impl NetOp {
                 vec![Ty::ByteStorage, Ty::File, Ty::U64, Ty::CancellationToken],
                 Ty::I64,
             ),
+            // The handle's descriptor number, which selector keys can hold to
+            // tell handles apart.
+            Self::ReadyNumber => (vec![Ty::File], Ty::I64),
             Self::SendToLiteral => {
                 unreachable!("a literal variant defers to its buffer form")
             }
@@ -140,7 +145,8 @@ impl NetOp {
             | Self::Address
             | Self::Resolve
             | Self::ReadyWait
-            | Self::SelectorOpen => false,
+            | Self::SelectorOpen
+            | Self::ReadyNumber => false,
             Self::SendToLiteral => {
                 unreachable!("a literal variant defers to its buffer form")
             }
@@ -172,7 +178,8 @@ impl NetOp {
             | Self::ReadyWait
             | Self::SelectorOpen
             | Self::SelectorWatch
-            | Self::Select => Effect::Handle,
+            | Self::Select
+            | Self::ReadyNumber => Effect::Handle,
             Self::SendToLiteral => {
                 unreachable!("a literal variant defers to its buffer form")
             }

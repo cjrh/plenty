@@ -1634,7 +1634,7 @@ operation_entries! {
 // `std.bytes` storage and single-call byte transport.
 operation_entries! {
     142 143 144 145 146 147 148 149 170 171 172 173 174 175 176 177 178 179 180 181
-    182 183 188 189 190 191 230 231 232 233 234 235 236 237 238 239 248 280 281
+    182 183 188 189 190 191 230 231 232 233 234 235 236 237 238 239 248 280 281 282
 }
 // `std.fs` paths and descriptors, file seeking and file readiness.
 operation_entries! {
@@ -1675,7 +1675,7 @@ operation_entries! {
 }
 // `std.ready`.
 operation_entries! {
-    419 420 421 422
+    419 420 421 422 423
 }
 // `std.tls`.
 operation_entries! {
@@ -1756,12 +1756,12 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
             out.write(clist::call(op, operands, &*descriptor, site));
             return;
         }
-        if matches!(op, 170..=183 | 188..=191 | 230..=239 | 248 | 280 | 281) {
+        if matches!(op, 170..=183 | 188..=191 | 230..=239 | 248 | 280..=282) {
             let operands = read_operands::<5>(op, args);
             out.write(byte_storage::call(op, operands, descriptor, site));
             return;
         }
-        if (419..423).contains(&op) {
+        if (419..424).contains(&op) {
             let operands = read_operands::<5>(op, args);
             out.write(readiness::call(op, operands, descriptor));
             return;

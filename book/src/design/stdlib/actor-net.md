@@ -8,11 +8,11 @@ allocates nothing. A trap in a connection actor closes that connection only.
 
 Supported target: x86-64 Linux, as for [`std.actor`](actor.md).
 
-A server echoes one connection, and a client actor dials it, sends a request
-and prints the reply:
+A server echoes one connection. It also starts a client as its own child,
+under a different tag, which dials it, sends a request and prints the reply:
 
 ```plenty
-from std.actor import Address, Context, Mail, TimerError, heaps_live, stage
+from std.actor import Address, Context, Mail, StartError, TimerError, heaps_live, stage
 from std.actor.net import Admission, Connection, Dialing, Limits, Listener, connection, dial, listener
 from std.bytes import BytesError
 from std.net import NetError, SocketAddress, listen, loopback_v4
@@ -20,7 +20,11 @@ from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
-type Fault = NetError | BytesError | TimerError | IoError
+type Fault = NetError | BytesError | TimerError | StartError | IoError
+
+# Spawn tags: the listener's connections and the client.
+const connection_tag: i64 = 0
+const client_tag: i64 = 1
 
 pub enum Step:
     Waiting(SocketAddress)
@@ -61,15 +65,22 @@ pub class Client:
                 pass
         Ok(())
 
+# Serves connections and stops once its one connection and the client have
+# both stopped.
+pub class Server:
+    pub listener: Listener
+    pub ended: i64
+
 pub enum Node:
-    Serving(Listener)
+    Serving(Server)
     Echoing(Connection)
     Calling(Client)
 
     pub def started(self: &mut Node, context: &mut Context[i64, Fault]) -> Result[(), Fault]:
         match self:
             case Node.Serving(server):
-                server.start(context)?
+                server.listener.start(context)?
+                context.spawn(client_tag, 65536)?
             case Node.Echoing(echo):
                 echo.start(context)?
             case Node.Calling(client):
@@ -79,11 +90,12 @@ pub enum Node:
     pub def receive(self: &mut Node, mail: Mail[i64, Fault], context: &mut Context[i64, Fault]) -> Result[(), Fault]:
         match self:
             case Node.Serving(server):
-                server.handle(&mail, context)?
+                server.listener.handle(&mail, context)?
                 match mail:
-                    # This server handles one connection.
-                    case Mail.Down(_, _):
-                        context.stop()
+                    case Mail.Down(_, _, _):
+                        server.ended += 1
+                        if server.ended == 2:
+                            context.stop()
                     case _:
                         pass
             case Node.Echoing(echo):
@@ -98,11 +110,14 @@ pub enum Node:
                 client.receive(&mail, context)?
         Ok(())
 
-    # Builds each connection's actor, with its buffers in the child's heap.
+    # Builds each child by its tag: a connection's actor, with its buffers in
+    # the child's heap, or the client.
     pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Node], Fault]:
         match self:
             case Node.Serving(server):
-                match server.accept()?:
+                if tag == client_tag:
+                    return Ok(Some(Node.Calling(Client(Step.Waiting(server.listener.local_address()?)))))
+                match server.listener.accept()?:
                     case Some(echo):
                         Ok(Some(Node.Echoing(echo)))
                     case Nothing:
@@ -112,13 +127,11 @@ pub enum Node:
 
 def main() -> Result[(), AllocError | IoError | WaitError | NetError]:
     socket = listen(&loopback_v4(0u16), 16)?
-    address = socket.local_address()?
     limits = Limits(4096, 4096, seconds(30), seconds(30))
-    server = listener(socket, limits, 100, 65536, 0, Admission.Refuse)?
+    server = listener(socket, limits, 100, 65536, connection_tag, Admission.Refuse)?
     mut actors = stage[Node, i64, Fault](8, 4, 8)?
     actors.add_timers(8)?
-    actors.start(Node.Serving(server), 65536).unwrap()
-    actors.start(Node.Calling(Client(Step.Waiting(address))), 65536).unwrap()
+    actors.start(Node.Serving(Server(server, 0)), 65536).unwrap()
     actors.run(&deadline_after(&monotonic_now(), &seconds(10)).unwrap(), &CancellationToken()?)?
     stats = actors.stats()
     print(stats.started, stats.stopped, heaps_live())?
@@ -139,7 +152,10 @@ actor for each connection. Call `start` from the actor's `started` and pass
 every mail to `handle`. On readiness, `handle` spawns one child with the
 listener's `tag` and heap limit; the actor's [spawn hook](actor.md#the-spawn-hook)
 then calls `accept`, which accepts the connection and allocates its buffers in
-the child's heap. A child's `Down` frees its place.
+the child's heap. A `Down` from a child with the listener's tag frees its
+place; `handle` ignores readiness of other handles and other children's
+`Down`, so the actor can watch other handles and start other children under
+other tags, as the client in the example above is.
 
 At most `capacity` connections are live. A connection that arrives at capacity,
 or when the stage has no free slot or heap, is handled by `Admission`:
@@ -168,8 +184,8 @@ and checks deadlines, and returns what happened as `Events`:
 | `drained` | All output has been sent |
 | `expired` | `Option[Expired]`: a deadline passed; see [Deadlines](#deadlines) |
 
-Readiness mail does not say which handle is ready, so `handle` tries the
-socket in the directions it is watching. Each mail reads at most once and
+`handle` acts only on `Mail.Ready` for its own socket, so one actor can hold
+several connections. Each mail reads at most once and
 writes at most four times, so a fast connection cannot hold the stage.
 Readiness is level-triggered, so unread input brings another `Mail.Ready`.
 
@@ -264,6 +280,8 @@ heap.
 | `Connection.write(source, start, stop, context)` | `Result[i64, NetError \| TimerError]`: bytes accepted; `Stream(StreamError.Io(IoError.Closed))` after `shutdown_write` or `close`, and `InvalidInput` for a range outside `source` |
 | `Connection.forward(count, context)` | `Result[i64, NetError \| TimerError]`: bytes moved from input to output |
 | `Connection.pending()`, `space()` | Unsent output bytes; bytes `write` would accept now |
+| `Connection.reserve(wanted)`, `output()`, `output_stop()`, `commit(count, context)` | Produce output in place: `reserve` compacts and returns `Result[i64, NetError]`, the room up to `wanted`; write into `output()` from `output_stop()`; `commit` sends the `count` bytes written. For layers such as [`std.actor.tls`](actor-tls.md) |
+| `Connection.acknowledge_now()` | Acknowledge received data at once (`TCP_QUICKACK`), as `TcpStream.acknowledge_now` in [`std.net`](net.md); best effort |
 | `Connection.read_within(&span, context)`, `clear_read_deadline()` | Set or clear the read deadline |
 | `Connection.shutdown_write(context)`, `close(context)` | End output after pending bytes; close at once |
 | `Connection.reading()`, `closed()`, `stream()` | Whether input may still arrive; whether closed; the stream |
@@ -281,14 +299,8 @@ heap.
 
 ## Limits
 
-- TCP only. No TLS: [`std.tls`](tls.md) wraps blocking streams, and a
-  nonblocking TLS connection needs a handshake and record state machine of
-  its own.
-- Every child of the actor that owns a `Listener` counts as a connection;
-  start other actors from another actor.
+- TCP only; [`std.actor.tls`](actor-tls.md) adds TLS.
 - The input and output buffers have fixed sizes. Input is read in place, so a
   message must fit in `Limits.input` to be handled whole.
 - A trap closes the actor's sockets without a graceful shutdown; the peer
   sees a reset or end of input.
-- Compacting a buffer copies its unconsumed bytes one at a time, since
-  `Bytes` has no overlapping copy.

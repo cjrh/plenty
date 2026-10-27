@@ -60,8 +60,21 @@ pub(super) struct Exits {
     pending: Option<Vec<Op>>,
     /// Exits leaving the function.
     function: Ladder,
+    /// Where the function's returns go when it is lowered into a caller
+    /// ([`super::inline_calls`]): a block taking the returned values.
+    pub(super) returns_to: Option<Block>,
     /// `break`s and `continue`s of each enclosing loop, innermost last.
     loops: Vec<Ladder>,
+}
+
+impl Exits {
+    /// Exits of a body lowered into its caller, returning to `block`.
+    pub(super) fn returning_to(block: Block) -> Self {
+        Self {
+            returns_to: Some(block),
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Default)]
@@ -207,7 +220,8 @@ impl Lowerer<'_, '_> {
         self.push_releases(&mut steps, cleanup);
         // With nothing to share, a jump would only replace the return.
         if steps.is_empty() {
-            self.bcx.ins().return_(&returned);
+            let returns_to = self.exits.as_ref().and_then(|exits| exits.returns_to);
+            self.return_to(returns_to, &returned);
         } else {
             self.take_exit(Which::Function, steps, restore, returned, End::Return)?;
         }
@@ -558,7 +572,7 @@ impl Lowerer<'_, '_> {
         let position = self.position.clone();
         let srcloc = self.bcx.srcloc();
         let exits = self.exits.take();
-        let lowered = self.lower_ladder(ladder, sites, restore, callee);
+        let lowered = self.lower_ladder(ladder, sites, restore, callee, None);
         self.exits = exits;
         self.stack = stack;
         self.position = position;
@@ -579,7 +593,13 @@ impl Lowerer<'_, '_> {
         };
         // The body's returned operands were passed to the blocks.
         self.stack.clear();
-        self.lower_ladder(exits.function, sites, exits.restore, exits.callee)?;
+        self.lower_ladder(
+            exits.function,
+            sites,
+            exits.restore,
+            exits.callee,
+            exits.returns_to,
+        )?;
         self.terminated = true;
         Ok(())
     }
@@ -590,6 +610,7 @@ impl Lowerer<'_, '_> {
         sites: (Variable, Variable),
         restore: Option<(Variable, Variable)>,
         callee: Option<Variable>,
+        returns_to: Option<Block>,
     ) -> Result<()> {
         self.terminated = false;
         self.slot_copies.clear();
@@ -639,9 +660,7 @@ impl Lowerer<'_, '_> {
             self.enter_shared(target.block, sites);
             let values = self.bcx.block_params(target.block)[..target.types.len()].to_vec();
             match &target.end {
-                End::Return => {
-                    self.bcx.ins().return_(&values);
-                }
+                End::Return => self.return_to(returns_to, &values),
                 End::Calls(callees) => self.dispatch(callees, callee, &values)?,
                 End::CallIndirect(_, reference, track_caller) => {
                     if *track_caller {
@@ -655,6 +674,19 @@ impl Lowerer<'_, '_> {
             }
         }
         Ok(())
+    }
+
+    /// Return `values`, or pass them to `returns_to` in an inlined body.
+    fn return_to(&mut self, returns_to: Option<Block>, values: &[NativeValue]) {
+        match returns_to {
+            Some(block) => {
+                let args: Vec<BlockArg> = values.iter().map(|v| BlockArg::Value(*v)).collect();
+                self.bcx.ins().jump(block, &args);
+            }
+            None => {
+                self.bcx.ins().return_(values);
+            }
+        }
     }
 
     /// Tail-call the callee `var` selects among `callees` with `values`.

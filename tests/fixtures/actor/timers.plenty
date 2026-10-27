@@ -110,7 +110,7 @@ pub enum Node:
                         lead.ups += 1
                         print("up", lead.ups)?
                         context.send(lead.rising.unwrap(), Job.Boom).unwrap()
-                    case Mail.Down(child, exit):
+                    case Mail.Down(child, _, exit):
                         key = child.key()
                         mut name = "quitter"
                         if key == lead.server:

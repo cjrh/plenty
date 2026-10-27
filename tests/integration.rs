@@ -238,6 +238,8 @@ mod test_generics;
 mod test_heap_drop_order;
 #[path = "test_indirect_ffi.rs"]
 mod test_indirect_ffi;
+#[path = "test_inline_constructors.rs"]
+mod test_inline_constructors;
 #[path = "test_inline_copies.rs"]
 mod test_inline_copies;
 #[path = "test_inline_generators.rs"]
@@ -400,6 +402,8 @@ mod test_stack_overflow;
 mod test_std_actor;
 #[path = "test_std_actor_net.rs"]
 mod test_std_actor_net;
+#[path = "test_std_actor_tls.rs"]
+mod test_std_actor_tls;
 #[path = "test_std_archive.rs"]
 mod test_std_archive;
 #[path = "test_std_atomic.rs"]

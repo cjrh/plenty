@@ -340,6 +340,20 @@ pub(super) unsafe fn call(
                 bytes[within].fill(d as u8);
                 0
             }
+            // `copy_within`: memmove inside one buffer, so the ranges may overlap.
+            282 => {
+                let bytes = storage(a);
+                let within = range(b, c, bytes.len());
+                let to = size(d);
+                if to > bytes.len() - within.len() {
+                    crate::fail_kind(
+                        crate::actor_heap::TrapKind::Index,
+                        "byte range out of bounds",
+                    );
+                }
+                bytes.copy_within(within, to);
+                0
+            }
             // `b[i]` and `b[i] = v`: list index rules, negatives from the end.
             238 => {
                 let bytes = view(a);
@@ -533,6 +547,22 @@ mod tests {
             assert_eq!(run(238, [owner.0, -5i64 as u128, 0, 0, 0]), 1);
             assert_eq!(run(239, [owner.0, -2i64 as u128, 255, 0, 0]), 0);
             assert_eq!(bytes(&owner), [1, 9, 9, 255, 5]);
+        }
+    }
+
+    #[test]
+    fn copy_within_moves_overlapping_ranges_in_both_directions() {
+        unsafe {
+            let owner = Owner(from_slice(&[0, 1, 2, 3, 4, 5]).unwrap());
+            // Toward the front, as buffer compaction does.
+            assert_eq!(run(282, [owner.0, 2, 6, 0, 0]), 0);
+            assert_eq!(bytes(&owner), [2, 3, 4, 5, 4, 5]);
+            // Toward the back.
+            assert_eq!(run(282, [owner.0, 0, 4, 2, 0]), 0);
+            assert_eq!(bytes(&owner), [2, 3, 2, 3, 4, 5]);
+            // An empty range may sit at the end.
+            assert_eq!(run(282, [owner.0, 3, 3, 6, 0]), 0);
+            assert_eq!(bytes(&owner), [2, 3, 2, 3, 4, 5]);
         }
     }
 

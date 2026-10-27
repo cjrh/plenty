@@ -802,3 +802,111 @@ pub def accept(tcp: TcpStream, config: &ServerConfig, deadline: &Deadline, cance
     mut stream = start_accept(tcp, config)?
     stream.handshake_before(deadline, cancel)?
     Ok(stream)
+
+# A TLS session over caller buffers, for event loops such as std.actor.tls.
+# It never touches a socket and never waits: `feed` takes ciphertext the
+# caller received, `take` gives ciphertext the caller must send, and `read`
+# and `write` move plaintext. Each step reports how far it got, so an empty
+# result means the session wants more input (`wants_read`) or has output to
+# give (`wants_write`). Methods that change the session take `&mut`.
+pub class Session:
+    _handle: ByteStorage
+    _closed: bool
+
+    # Processes ciphertext from source[start:stop]; the count consumed. The
+    # count falls short while decrypted bytes wait for `read`. On a TLS
+    # failure the session has queued an alert: send what `take` gives before
+    # closing.
+    pub def feed(self: &mut Session, source: &Bytes, start: i64, stop: i64) -> Result[i64, TlsError]:
+        if start == stop:
+            within(start, stop, source.len())?
+            return Ok(0)
+        counted(source.tls_feed(&self._handle, start, stop))
+
+    # Tells the session that the peer's stream has ended. Without the peer's
+    # close_notify, `read` then fails with Truncated. Allocates one empty
+    # buffer.
+    pub def feed_end(self: &mut Session) -> Result[(), TlsError]:
+        empty = stored(std.bytes.with_capacity(0))?
+        counted(empty.tls_feed(&self._handle, 0, 0))?
+        Ok(())
+
+    # Moves ciphertext to send into target[start:stop]; the count, 0 when
+    # none waits.
+    pub def take(self: &mut Session, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, TlsError]:
+        counted(target.tls_take(&self._handle, start, stop))
+
+    # Decrypted bytes into target[start:stop]. Nothing while none is ready;
+    # Some(0) is the peer's close_notify, or an empty range.
+    pub def read(self: &mut Session, target: &mut Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]:
+        if start == stop:
+            within(start, stop, target.len())?
+            return Ok(Some(0))
+        count = counted(target.tls_read(&self._handle, start, stop))?
+        if count == would_block:
+            return Ok(Nothing)
+        Ok(Some(count))
+
+    # Encrypts at most 16 KiB of source[start:stop]; the count taken, short
+    # once 64 KiB of ciphertext waits for `take`. While the handshake runs,
+    # plaintext waits in the session; check `handshaking` first to bound it.
+    # Fails after `close`.
+    pub def write[S: ByteSource](self: &mut Session, source: &S, start: i64, stop: i64) -> Result[i64, TlsError]:
+        if self._closed:
+            return Err(TlsError.Closed)
+        mut end = stop
+        if stop - start > buffer_size:
+            end = start + buffer_size
+        counted(encrypted(&self._handle, source, start, end))
+
+    # Queues close_notify for `take`; later writes fail.
+    pub def close(self: &mut Session) -> ():
+        if not self._closed:
+            self._closed = True
+            drop(__tls_close(self._handle))
+
+    pub def handshaking(self) -> bool:
+        (__tls_state(self._handle) & handshaking) != 0
+
+    # Ciphertext waits for `take`.
+    pub def wants_write(self) -> bool:
+        (__tls_state(self._handle) & wants_write) != 0
+
+    # The session can use more ciphertext from `feed`.
+    pub def wants_read(self) -> bool:
+        (__tls_state(self._handle) & wants_read) != 0
+
+    # As for TlsStream.
+    pub def application_protocol(self) -> Result[Option[str], TlsError]:
+        text_detail(&self._handle, 0)
+
+    pub def server_name(self) -> Result[Option[str], TlsError]:
+        text_detail(&self._handle, 1)
+
+    pub def peer_certificate(self) -> Result[Option[Bytes], TlsError]:
+        detail(&self._handle, 2)
+
+    pub def version(self) -> Option[TlsVersion]:
+        match __tls_version(self._handle):
+            case 12:
+                Some(TlsVersion.Tls12)
+            case 13:
+                Some(TlsVersion.Tls13)
+            case _:
+                Nothing
+
+    pub def cipher_suite(self) -> Option[CipherSuite]:
+        suite_named(__tls_suite(self._handle))
+
+# A client session that verifies the server against `config` and
+# `server_name`, as `connect` does.
+pub def client_session(config: &ClientConfig, server_name: &str) -> Result[Session, TlsError]:
+    Ok(Session(opened(__tls_client(config._handle, server_name))?, False))
+
+pub def server_session(config: &ServerConfig) -> Result[Session, TlsError]:
+    Ok(Session(opened(__tls_server(config._handle))?, False))
+
+def within(start: i64, stop: i64, length: i64) -> Result[(), TlsError]:
+    if start < 0 or start > stop or stop > length:
+        return Err(TlsError.Net(NetError.Stream(StreamError.OutOfRange)))
+    Ok(())

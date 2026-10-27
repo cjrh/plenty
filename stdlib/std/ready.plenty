@@ -134,6 +134,12 @@ def changed(result: Result[i64, IoError]) -> Result[(), WaitError]:
         case Err(error):
             Err(WaitError.Stream(classify(error)))
 
+# A handle a selector can watch: `descriptor` lends the native handle it
+# waits on. `std.actor.Context.watch` takes any watchable handle.
+pub protocol Watchable:
+    def descriptor(self) -> &File:
+        pass
+
 # One handle the last selector wait found ready, under the key it was
 # registered with.
 pub class Event:

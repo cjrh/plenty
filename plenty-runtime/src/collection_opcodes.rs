@@ -28,8 +28,8 @@ pub const fn scratch_operand_count(op: i64) -> usize {
         // Byte overwrite, membership/prefix scans, float formatting;
         // datagram send/receive.
         179 | 231 | 234 | 281 | 416 | 417 => 2,
-        // Byte append, file/standard-stream output, scans and fill.
-        178 | 188 | 189 | 191 | 230 | 232 | 233 | 236 | 237
+        // Byte append, file/standard-stream output, scans, fill and copy_within.
+        178 | 188 | 189 | 191 | 230 | 232 | 233 | 236 | 237 | 282
         // Digest/HMAC update/verification, AEAD and HKDF.
         | 301 | 302 | 305 | 308..=311 | 315
         // Codec steps and checksums; readiness and selectors.

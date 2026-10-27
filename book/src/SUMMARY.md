@@ -364,6 +364,7 @@
         - [Signature index](design/stdlib/signatures.md)
         - [`std.actor`](design/stdlib/actor.md)
         - [`std.actor.net`](design/stdlib/actor-net.md)
+        - [`std.actor.tls`](design/stdlib/actor-tls.md)
         - [`std.archive`](design/stdlib/archive.md)
         - [`std.atomic`](design/stdlib/atomic.md)
         - [`std.bytes`](design/stdlib/bytes.md)

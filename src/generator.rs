@@ -517,6 +517,7 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
             Op::ReadRef(t)
             | Op::Reborrow(t)
             | Op::WriteRef(t)
+            | Op::FillRef(t)
             | Op::ReplaceRef(t)
             | Op::Yield(t) => vec![t.clone()],
             Op::Match(arms) => {
