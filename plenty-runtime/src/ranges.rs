@@ -93,6 +93,23 @@ impl Type {
         (self.inline_bytes as usize).max(if self.has_inline_range() { 32 } else { 0 })
     }
 
+    /// Whether a class field of this type is stored flat: the record's bytes
+    /// sit in the owner's record with no value word. Matches `Ty::flat_field`
+    /// in the compiler: a class (after newtype layers, whose descriptors
+    /// carry their field's layout) that keeps a record.
+    pub(crate) fn flat_field(&self) -> bool {
+        self.kind == b'C' && self.inline_bytes != 0
+    }
+
+    /// Words a class field of this type takes in a class record.
+    pub(crate) fn field_words(&self) -> usize {
+        if self.flat_field() {
+            self.payload_bytes() / 16
+        } else {
+            self.slot_words()
+        }
+    }
+
     /// The bytes and kind of the owner-local storage `value` currently uses.
     fn active_payload(&self, value: u128) -> Option<Payload<'_>> {
         if let Some(record) = self.record(value) {
@@ -132,9 +149,13 @@ impl Payload<'_> {
                 Self::Object(_) => {}
                 Self::Record(record) => {
                     let moved = record.moved_to(destination);
-                    for (slot, ty) in moved.slots() {
-                        if ty.payload_bytes() != 0 {
-                            relocate(slot, ty);
+                    for (field, ty) in moved.slots() {
+                        if field.flat {
+                            // Its record moved with the owner; only its own
+                            // payloads need new addresses.
+                            Payload::Record(field.record(ty)).relocate(field.at);
+                        } else if ty.payload_bytes() != 0 {
+                            relocate(field.at, ty);
                         }
                     }
                 }
@@ -179,7 +200,10 @@ pub(crate) unsafe fn store(slot: *mut u128, value: u128, ty: &Type) {
 /// storage, so moving its slot only changes the address in its value word.
 pub(crate) fn flat_record(ty: &Type) -> bool {
     match ty.kind {
-        b'C' => ty.variants.iter().all(|v| v.fields[0].payload_bytes() == 0),
+        b'C' => ty.variants.iter().all(|v| {
+            let field = v.fields[0];
+            field.payload_bytes() == 0 || field.flat_field() && flat_record(field)
+        }),
         b'B' => {
             ty.variants.len() == 1
                 && ty.variants[0].fields.len() >= 2

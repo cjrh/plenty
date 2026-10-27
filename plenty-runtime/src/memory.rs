@@ -134,7 +134,7 @@ pub(crate) unsafe fn continue_after(parent: *mut Header, child: *mut Header) {
 }
 
 /// The null moved-slot sentinel and inline strings (low bit set) own nothing.
-fn inert(object: *mut Header) -> bool {
+pub(crate) fn inert(object: *mut Header) -> bool {
     object.is_null() || object as usize & 1 != 0
 }
 

@@ -267,7 +267,12 @@ impl Ty {
         match self {
             Self::Class(t) => match t.get().newtype_field() {
                 Some(field) => field.flat_record(),
-                None => t.get().fields.iter().all(|(_, t)| !t.has_inline_storage()),
+                // A flat class field adds no address of its own.
+                None => t
+                    .get()
+                    .fields
+                    .iter()
+                    .all(|(_, t)| !t.has_inline_storage() || t.flat_field() && t.flat_record()),
             },
             Self::Enum(t) => match t.get().variants.as_slice() {
                 [variant] if variant.fields.len() > 1 => {
@@ -298,7 +303,7 @@ impl Ty {
                         + t.get()
                             .fields
                             .iter()
-                            .map(|(_, t)| t.slot_bytes())
+                            .map(|(_, t)| t.field_bytes())
                             .sum::<usize>()
                 }
             }),
@@ -428,8 +433,9 @@ pub fn measure(ty: &Ty, active: &mut Vec<String>) -> Result<Measured, String> {
                     },
                     |n, (_, t)| {
                         let field = measure(t, active)?;
+                        let word = if t.flat_field() { 0 } else { 16 };
                         Ok(Measured {
-                            bytes: n.bytes + 16 + field.bytes,
+                            bytes: n.bytes + word + field.bytes,
                             reach: n.reach.max(field.reach),
                         })
                     },

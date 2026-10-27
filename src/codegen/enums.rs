@@ -98,6 +98,35 @@ impl Lowerer<'_, '_> {
         (self.snapshot_inline(value, ty), slot)
     }
 
+    /// The record of the class instance a reference addresses. A record
+    /// always follows its slot, and a flat field's reference addresses the
+    /// virtual slot before its record, so this needs no load.
+    pub(super) fn referenced_record(
+        &mut self,
+        address: cranelift_codegen::ir::Value,
+    ) -> cranelift_codegen::ir::Value {
+        self.bcx.ins().iadd_imm_s(address, 16)
+    }
+
+    /// Load the field at `offset` of a class value, copying its own inline
+    /// storage out of the record so it survives the record's release. A flat
+    /// field's value is its record's address.
+    pub(super) fn class_field(
+        &mut self,
+        owner: cranelift_codegen::ir::Value,
+        offset: i64,
+        ty: &Ty,
+    ) -> cranelift_codegen::ir::Value {
+        if !ty.flat_field() {
+            return self.record_field(owner, offset, ty).0;
+        }
+        let storage = self.raw_word(owner);
+        let record = self.bcx.ins().iadd_imm_s(storage, offset);
+        let value = self.bcx.ins().uextend(types::I128, record);
+        let value = self.unpack(value, ty);
+        self.snapshot_inline(value, ty)
+    }
+
     pub(super) fn lower_class(&mut self, op: &crate::record::ClassOp) -> Result<()> {
         use crate::record::ClassOp;
         let (inputs, output) = op.signature().ok_or("invalid class operation")?;
@@ -111,6 +140,13 @@ impl Lowerer<'_, '_> {
         // release. The `unpack` below converts between the class's 128-bit
         // slot and the field's native type.
         let result = match op {
+            // A newtype around a class record is filled through a reference
+            // like that record, so it needs the record's storage: a class
+            // slot's word always addresses the record after it.
+            ClassOp::New(t) if newtype && Ty::Class(t.clone()).flat_field() => {
+                let storage = self.record_storage(Ty::Class(t.clone()).inline_bytes());
+                self.bcx.ins().uextend(types::I128, storage)
+            }
             ClassOp::New(_) if newtype => {
                 let zero = self.bcx.ins().iconst(types::I64, 0);
                 self.bcx.ins().uextend(types::I128, zero)
@@ -132,12 +168,7 @@ impl Lowerer<'_, '_> {
                 let (reference, _) = self.pop_typed(inputs[0].clone())?;
                 if t.get().state_bytes() != 0 {
                     let address = self.raw_word(reference);
-                    let storage = self.bcx.ins().load(
-                        PTR_TY,
-                        cranelift_codegen::ir::MemFlagsData::trusted(),
-                        address,
-                        0,
-                    );
+                    let storage = self.referenced_record(address);
                     let one = self.bcx.ins().iconst(types::I64, 1);
                     self.bcx.ins().store(
                         cranelift_codegen::ir::MemFlagsData::trusted(),
@@ -150,9 +181,8 @@ impl Lowerer<'_, '_> {
             }
             ClassOp::Field(t, i) => {
                 let (owner, _) = self.pop_typed(inputs[0].clone())?;
-                let offset = t.get().state_bytes() as i64
-                    + Self::record_offset(t.get().fields[..*i].iter().map(|(_, t)| t));
-                let (value, _) = self.record_field(owner, offset, &output);
+                let offset = t.get().field_offset(*i) as i64;
+                let value = self.class_field(owner, offset, &output);
                 self.retain(value, &output);
                 self.release(owner, &inputs[0]);
                 self.pack(value, &output)
@@ -160,14 +190,13 @@ impl Lowerer<'_, '_> {
             ClassOp::FieldRef(t, i, _) => {
                 let (address, _) = self.pop_typed(inputs[0].clone())?;
                 let address = self.raw_word(address);
-                let owner = self.bcx.ins().load(
-                    PTR_TY,
-                    cranelift_codegen::ir::MemFlagsData::trusted(),
-                    address,
-                    0,
-                );
-                let offset = t.get().state_bytes() as i64
-                    + Self::record_offset(t.get().fields[..*i].iter().map(|(_, t)| t));
+                let owner = self.referenced_record(address);
+                let mut offset = t.get().field_offset(*i) as i64;
+                // A flat field has no slot: its reference addresses the
+                // virtual slot just before its record.
+                if t.get().fields[*i].1.flat_field() {
+                    offset -= 16;
+                }
                 self.bcx.ins().iadd_imm_s(owner, offset)
             }
         };

@@ -178,10 +178,12 @@ pub(crate) enum Fields<'a> {
     Variant(&'a [&'static Type]),
 }
 /// Typed field slots inside their owner's storage. Each slot reserves its
-/// type's complete inline payload. A class with `__del__` keeps one state word
-/// before its fields: bit 0 marks a completed initializer, and the remaining
-/// bits count observers, which borrow the instance through a retained copy of
-/// its value word and must not run its destructor.
+/// type's complete inline payload. A class field whose class has a record is
+/// flat instead: its record's bytes sit at the field's offset, with no value
+/// word (see [`Type::flat_field`]). A class with `__del__` keeps one state
+/// word before its fields: bit 0 marks a completed initializer, and the
+/// remaining bits count observers, which borrow the instance through a
+/// retained copy of its value word and must not run its destructor.
 #[derive(Clone, Copy)]
 pub(crate) struct Record<'a> {
     fields: Fields<'a>,
@@ -206,29 +208,52 @@ impl Record<'_> {
     pub(crate) fn words(&self) -> usize {
         usize::from(self.state)
             + (0..self.len())
-                .map(|i| self.ty(i).slot_words())
+                .map(|i| self.width(self.ty(i)))
                 .sum::<usize>()
+    }
+    /// Only class records store class fields flat; tuples and multi-field
+    /// variants keep a slot per field.
+    fn flat(&self, ty: &Type) -> bool {
+        matches!(self.fields, Fields::Class(_)) && ty.flat_field()
+    }
+    fn width(&self, ty: &Type) -> usize {
+        if self.flat(ty) {
+            ty.field_words()
+        } else {
+            ty.slot_words()
+        }
     }
     pub(crate) fn moved_to(&self, base: *mut u128) -> Self {
         Self { base, ..*self }
     }
     /// Visit fields in declaration order with one width lookup per field.
     /// Raw pointers avoid borrowing payloads that callers may move or release.
-    pub(crate) fn slots(&self) -> impl Iterator<Item = (*mut u128, &'static Type)> + '_ {
+    pub(crate) fn slots(&self) -> impl Iterator<Item = (Field, &'static Type)> + '_ {
         (0..self.len()).scan(usize::from(self.state), move |offset, index| {
             let ty = self.ty(index);
-            // SAFETY: the owner reserved `words()` slots at `base`.
-            let slot = unsafe { self.base.add(*offset) };
-            *offset += ty.slot_words();
-            Some((slot, ty))
+            // SAFETY: the owner reserved `words()` words at `base`.
+            let at = unsafe { self.base.add(*offset) };
+            let flat = self.flat(ty);
+            *offset += if flat {
+                ty.field_words()
+            } else {
+                ty.slot_words()
+            };
+            Some((Field { at, flat }, ty))
         })
+    }
+    /// The record's storage, as its slot would address it: a flat record has
+    /// no slot, so this is the virtual slot just before its bytes, which is
+    /// what a reference to the instance addresses.
+    fn receiver(&self) -> *mut u128 {
+        self.base.wrapping_sub(1)
     }
     fn state(&self) -> Option<*mut u64> {
         self.state.then_some(self.base.cast())
     }
     /// Return whether this owner must release the fields. Observers only consume
     /// their count; a live owner's hook is disarmed before calling user code.
-    unsafe fn begin_release(&self, value: u128, ty: &Type) -> bool {
+    unsafe fn begin_release(&self, ty: &Type) -> bool {
         unsafe {
             if let Some(state) = self.state() {
                 if *state >= 2 {
@@ -237,13 +262,12 @@ impl Record<'_> {
                 }
                 if *state & 1 != 0 {
                     *state = 0;
-                    let mut owner = value;
                     let hook = ty.drop.expect("class destructor");
                     let _caller = crate::CallerScope::save();
-                    memory::with_nested_drops(|| hook(&mut owner));
-                    if owner != value {
-                        crate::fail("destructor replaced its receiver");
-                    }
+                    // `self` addresses the record through its (possibly
+                    // virtual) slot; compiled code never reads or writes a
+                    // class slot's word through a reference.
+                    memory::with_nested_drops(|| hook(self.receiver()));
                 }
             }
             true
@@ -252,8 +276,73 @@ impl Record<'_> {
     /// Release the owned fields in declaration order. Inline fields finish
     /// immediately; heap fields join the destruction queue.
     unsafe fn release(&self) {
-        for (slot, ty) in self.slots() {
-            unsafe { release(slot.read(), ty) };
+        for (field, ty) in self.slots() {
+            unsafe { release(field.read(), ty) };
+        }
+    }
+}
+
+/// A field's place in its owner's record: a slot, or a flat class record.
+#[derive(Clone, Copy)]
+pub(crate) struct Field {
+    /// The slot, or the first byte of a flat field's record.
+    pub(crate) at: *mut u128,
+    pub(crate) flat: bool,
+}
+impl Field {
+    /// The record of a flat field of class type `ty`, without the checks
+    /// [`Type::record`] makes for a value word.
+    pub(crate) fn record(self, ty: &'static Type) -> Record<'static> {
+        debug_assert!(self.flat && ty.flat_field());
+        Record {
+            fields: Fields::Class(ty.variants),
+            base: self.at,
+            state: ty.drop.is_some(),
+        }
+    }
+    /// The field's value: a flat record's value is its address.
+    pub(crate) unsafe fn read(self) -> u128 {
+        if self.flat {
+            self.at as u64 as u128
+        } else {
+            unsafe { self.at.read() }
+        }
+    }
+    /// Store `value`, of type `ty`, whose inline payload is already in place.
+    /// A flat field keeps no word, so only an empty value changes it: zero
+    /// bytes own nothing.
+    pub(crate) unsafe fn write(self, value: u128, ty: &Type) {
+        unsafe {
+            if !self.flat {
+                self.at.write(value);
+            } else if value == 0 {
+                self.clear(ty);
+            } else {
+                debug_assert_eq!(value as u64, self.at as u64, "flat field moved");
+            }
+        }
+    }
+    /// Whether the field owns nothing: an empty slot, or a flat record whose
+    /// bytes are all zero (moved out, or already released).
+    pub(crate) unsafe fn is_clear(self, ty: &Type) -> bool {
+        unsafe {
+            if self.flat {
+                std::slice::from_raw_parts(self.at, ty.payload_bytes() / 16)
+                    .iter()
+                    .all(|word| *word == 0)
+            } else {
+                self.at.read() == 0
+            }
+        }
+    }
+    /// Leave the field empty.
+    pub(crate) unsafe fn clear(self, ty: &Type) {
+        unsafe {
+            if self.flat {
+                self.at.write_bytes(0, ty.payload_bytes() / 16);
+            } else {
+                self.at.write(0);
+            }
         }
     }
 }
@@ -322,8 +411,8 @@ pub(crate) unsafe fn retain(value: u128, ty: &Type) {
                 *state += 2;
                 return;
             }
-            for (slot, ty) in record.slots() {
-                retain(slot.read(), ty);
+            for (field, ty) in record.slots() {
+                retain(field.read(), ty);
             }
         } else if ty.kind == b'B' {
             if let Some(t) = ty.payload(value) {
@@ -340,7 +429,7 @@ pub(crate) unsafe fn release(value: u128, ty: &Type) {
         if ty.kind == b'H' {
             crate::closures::release(value as *mut u128);
         } else if let Some(record) = ty.record(value) {
-            if record.begin_release(value, ty) {
+            if record.begin_release(ty) {
                 record.release();
             }
         } else if ty.kind == b'B' {
@@ -379,14 +468,12 @@ unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
                 }
             }
         } else if let Some(record) = ty.record(value) {
-            if !record.begin_release(value, ty) {
+            if !record.begin_release(ty) {
                 slot.write(0);
                 return None;
             }
-            for (slot, ty) in record.slots() {
-                if let Some(child) = release_next(slot, ty) {
-                    return Some(child);
-                }
+            if let Some(child) = release_next_fields(record) {
+                return Some(child);
             }
         } else if ty.kind == b'B' {
             if let Some(payload_type) = ty.payload(value) {
@@ -399,11 +486,54 @@ unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
             }
         } else if ty.kind == b'G' && ty.inline_bytes != 0 {
             crate::generators::release_inline(value as *mut Generator);
+        } else if ty.kind == b's' {
+            // A string owns nothing and runs no user code, so freeing it now
+            // is unobservable and spares the owner a restart of its walk.
+            slot.write(0);
+            strings::release_leaf(value as *mut Text);
+            return None;
         } else if ty.managed() {
             slot.write(0);
             return Some(value as *mut Header);
         }
         slot.write(0);
+        None
+    }
+}
+
+/// `release_next` for each field of a record. A flat field's progress is
+/// recorded in its own fields, which are cleared as they finish: a record of
+/// zero bytes owns nothing.
+unsafe fn release_next_fields(record: Record<'_>) -> Option<*mut Header> {
+    unsafe {
+        for (field, ty) in record.slots() {
+            // A walk resumes from the first field after each heap child, so
+            // skip finished flat records without descending into them.
+            let child = if field.flat {
+                if field.is_clear(ty) {
+                    continue;
+                }
+                let nested = field.record(ty);
+                if nested.begin_release(ty) {
+                    let child = release_next_fields(nested);
+                    if child.is_none() {
+                        // Inline payload bytes outlive their slots' words.
+                        field.clear(ty);
+                    }
+                    child
+                } else {
+                    // An observer's count was consumed: forget the fields,
+                    // as clearing a slot does.
+                    field.clear(ty);
+                    None
+                }
+            } else {
+                release_next(field.at, ty)
+            };
+            if child.is_some() {
+                return child;
+            }
+        }
         None
     }
 }
@@ -1159,20 +1289,11 @@ unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
             for (i, (slot, ty)) in record.slots().enumerate() {
                 let mut field = slot.read();
                 if let Err(error) = try_copy_into(&mut field, ty) {
-                    // The prefix owns copies; the rest still names the source.
-                    let mut prefix = slot;
-                    for j in (0..i).rev() {
-                        let ty = record.ty(j);
-                        prefix = prefix.sub(ty.slot_words());
-                        release(prefix.read(), ty);
-                    }
-                    for (slot, _) in record.slots() {
-                        slot.write(0);
-                    }
+                    abandon_copy(record, i);
                     *value = 0;
                     return Err(error);
                 }
-                slot.write(field);
+                slot.write(field, ty);
             }
             return Ok(());
         }
@@ -1201,6 +1322,22 @@ unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
     }
 }
 
+/// Release the copies made of the first `copied` fields of `record`, then
+/// clear every field: the rest still names the source.
+unsafe fn abandon_copy(record: Record<'_>, copied: usize) {
+    unsafe {
+        // Walk the prefix backwards without allocating: this path handles
+        // allocation failure, and records have few fields.
+        for j in (0..copied).rev() {
+            let (field, ty) = record.slots().nth(j).expect("copied field");
+            release(field.read(), ty);
+        }
+        for (field, ty) in record.slots() {
+            field.clear(ty);
+        }
+    }
+}
+
 /// Copy a value whose storage may be shared, such as text. Sharing is
 /// replaced by duplication when the storage belongs to another std.actor heap
 /// than the current one, so a message copied into an actor never points into
@@ -1213,20 +1350,11 @@ unsafe fn try_copy_shared(value: &mut u128, ty: &Type) -> Result<(), AllocError>
             for (i, (slot, ty)) in record.slots().enumerate() {
                 let mut field = slot.read();
                 if let Err(error) = try_copy_shared(&mut field, ty) {
-                    // The prefix owns copies; the rest still names the source.
-                    let mut prefix = slot;
-                    for j in (0..i).rev() {
-                        let ty = record.ty(j);
-                        prefix = prefix.sub(ty.slot_words());
-                        release(prefix.read(), ty);
-                    }
-                    for (slot, _) in record.slots() {
-                        slot.write(0);
-                    }
+                    abandon_copy(record, i);
                     *value = 0;
                     return Err(error);
                 }
-                slot.write(field);
+                slot.write(field, ty);
             }
             return Ok(());
         }
@@ -1400,6 +1528,12 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                 if crate::entries::scalar_bytes(ty.key()).is_some() {
                     let scalar = crate::entries::read_scalar(value as u64 as *const u8, ty.key());
                     render(scalar, ty.key(), out);
+                    return;
+                }
+                // A class with a record may be a flat field, which has no
+                // word: its value is the address after the slot.
+                if ty.key().flat_field() {
+                    render(value as u64 as u128 + 16, ty.key(), out);
                     return;
                 }
                 let slot = (value as u64 as *const u128).read();

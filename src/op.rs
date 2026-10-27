@@ -135,6 +135,22 @@ impl Ty {
     pub fn slot_bytes(&self) -> usize {
         16 + self.inline_bytes()
     }
+    /// Whether a class field of this type is stored flat: its record's bytes
+    /// sit at the field's offset in the owner, with no value word of their
+    /// own. A class with a record (after removing newtype layers) qualifies;
+    /// its value is then the field's address. See
+    /// book/src/design/toolchain/02-architecture/values.md.
+    pub fn flat_field(&self) -> bool {
+        matches!(&*self.newtype_base(), Self::Class(_)) && self.has_inline_storage()
+    }
+    /// The bytes a class field of this type takes in its owner's record.
+    pub fn field_bytes(&self) -> usize {
+        if self.flat_field() {
+            self.inline_bytes()
+        } else {
+            self.slot_bytes()
+        }
+    }
     /// Values carried as 128 bits: a payload word plus binary tags. A class's
     /// own tag records whether its initializer completed.
     pub fn wide(&self) -> bool {

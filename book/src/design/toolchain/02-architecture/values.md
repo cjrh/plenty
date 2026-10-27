@@ -12,7 +12,8 @@ lookup per field, without allocating an offset table. Hashing, equality, orderin
 formatting, copying, relocation, and retain/release use this traversal. Copy
 failure cleanup walks the completed prefix backwards with a decreasing offset.
 This bounds offset work per pass; nested payload work and repeated visits while
-queued destruction resumes remain separate costs.
+queued destruction resumes remain separate costs. Strings, the most common heap
+field, are freed during the pass and cause no resumption.
 
 A class with exactly one field and no `__del__` is represented as that field:
 same slot, same bytes, no record and no internal address. Constructing it,
@@ -24,6 +25,28 @@ carries the field's layout under the class's name, so formatting still prints
 classes with two or more fields. The
 [flat class layout proposal](../../../proposals/flat-class-layout.md) records
 why the record holds an address and the layout contract C interop depends on.
+
+A field of a class record whose type is a class with a record (after looking
+through one-field wrappers) is stored *flat*: its record bytes sit at a fixed
+offset in the owner's record, with no slot word of its own. Reading, borrowing
+or writing `owner.inner.x` adds constant offsets to the owner's record address;
+moving the owner copies its bytes with no address fixes for flat fields. An
+all-zero flat record is an empty field, so moving a field out zeroes its bytes
+and releasing an empty field does nothing. The rule has these exceptions, which
+keep the slot word followed by the record:
+
+- top-level class values (locals, list elements, boxes, captures), because
+  runtime operations and sum payloads receive one 128-bit value;
+- class payloads of enum variants and tuple components, whose records are not
+  class records;
+- field-less classes without `__del__`, which have no record bytes to place.
+
+A reference to a class value names the 16 bytes before its record whether or
+not a slot word is stored there: readers use `address + 16` without loading
+the word, writers copy the record bytes, and writing an empty value zeroes
+them. A `__del__` hook receives such a reference and must not read the word.
+The runtime release walk clears a finished flat record so a resumed walk skips
+it.
 
 Compiled code avoids the runtime walk when the type makes it unnecessary. A
 payload with no internal addresses, such as a range, a flat record, or a closure

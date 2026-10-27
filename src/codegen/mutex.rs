@@ -13,13 +13,8 @@ impl Lowerer<'_, '_> {
         let result = match operation {
             MutexOp::Exclusive(_) => value,
             MutexOp::IntoInner(class) => {
-                let offset = class.get().state_bytes() as i64
-                    + Self::record_offset(
-                        class.get().fields[..crate::mutex::VALUE]
-                            .iter()
-                            .map(|(_, t)| t),
-                    );
-                self.record_field(value, offset, &output).0
+                let offset = class.get().field_offset(crate::mutex::VALUE) as i64;
+                self.class_field(value, offset, &output)
             }
             MutexOp::Lock(_) => {
                 let address = self.raw_word(value);

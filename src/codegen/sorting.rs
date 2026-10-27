@@ -96,8 +96,23 @@ pub(super) fn build_adapter(
     // References are slot addresses: the runtime passes each row's value word
     // through a slot it owns for the duration of the call.
     let callback = lower.bcx.ins().uextend(types::I128, params[0]);
+    // A class reference names a slot whose record follows it. The runtime's
+    // slot holds only the row's record address, so name the 16 bytes before
+    // that record instead.
+    let record = element.flat_field();
     for row in &params[1..] {
-        let row = lower.bcx.ins().uextend(types::I128, *row);
+        let row = if record {
+            let address = lower.bcx.ins().load(
+                PTR_TY,
+                cranelift_codegen::ir::MemFlagsData::trusted(),
+                *row,
+                0,
+            );
+            lower.bcx.ins().iadd_imm_s(address, -16)
+        } else {
+            *row
+        };
+        let row = lower.bcx.ins().uextend(types::I128, row);
         lower.stack.push((callback, sort.callback.clone()));
         lower.stack.push((row, item.clone()));
         lower.lower_call(&sort.key_of)?;

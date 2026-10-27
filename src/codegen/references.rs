@@ -62,6 +62,21 @@ impl Lowerer<'_, '_> {
         self.scalar_word(address, ty)
     }
 
+    /// Read a value of type `ty` through `reference`, packed. A class with a
+    /// record may be a flat field with no value word, so its value is the
+    /// address of the record that follows the (possibly virtual) slot.
+    pub(super) fn read_typed_reference(&mut self, reference: NativeValue, ty: &Ty) -> NativeValue {
+        if ty.is_numeric() || *ty == Ty::Bool {
+            return self.scalar_reference_word(reference, ty);
+        }
+        if ty.flat_field() {
+            let (address, _) = self.reference_parts(reference);
+            let record = self.referenced_record(address);
+            return self.bcx.ins().uextend(types::I128, record);
+        }
+        self.read_reference(reference)
+    }
+
     pub(super) fn read_reference(&mut self, reference: NativeValue) -> NativeValue {
         let (address, shift) = self.reference_parts(reference);
         let packed = self
@@ -92,6 +107,15 @@ impl Lowerer<'_, '_> {
             self.bcx
                 .ins()
                 .store(MemFlagsData::trusted(), value, address, 0);
+            return;
+        }
+        if ty.flat_field() {
+            // Every slot of such a class holds its record's address, so only
+            // the record changes; a flat field has no word to store. An empty
+            // value, left by a field move, clears the record: zero bytes own
+            // nothing.
+            let destination = self.referenced_record(address);
+            self.write_record(value, ty, destination);
             return;
         }
         let old = shift.map(|_| {
@@ -136,5 +160,34 @@ impl Lowerer<'_, '_> {
         self.bcx
             .ins()
             .store(MemFlagsData::trusted(), packed, address, 0);
+    }
+
+    /// Copy the class value `value` into the record storage at `destination`,
+    /// or zero that storage when `value` is empty.
+    fn write_record(&mut self, value: NativeValue, ty: &Ty, destination: NativeValue) {
+        let bytes = ty.inline_bytes() as u64;
+        let config = self.module.target_config();
+        if known::known_zero(&self.bcx.func.dfg, value) {
+            self.bcx
+                .emit_small_memset(config, destination, 0, bytes, 8, MemFlagsData::trusted());
+            return;
+        }
+        let packed = self.pack(value, ty);
+        let word = self.raw_word(packed);
+        let copy = self.bcx.create_block();
+        let clear = self.bcx.create_block();
+        let done = self.bcx.create_block();
+        self.bcx.ins().brif(word, copy, &[], clear, &[]);
+        self.bcx.switch_to_block(copy);
+        self.bcx.seal_block(copy);
+        self.copy_inline_to(value, ty, destination);
+        self.bcx.ins().jump(done, &[]);
+        self.bcx.switch_to_block(clear);
+        self.bcx.seal_block(clear);
+        self.bcx
+            .emit_small_memset(config, destination, 0, bytes, 8, MemFlagsData::trusted());
+        self.bcx.ins().jump(done, &[]);
+        self.bcx.switch_to_block(done);
+        self.bcx.seal_block(done);
     }
 }
