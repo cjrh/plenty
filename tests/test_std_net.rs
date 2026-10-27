@@ -189,7 +189,7 @@ def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | ThreadEr
 }
 
 #[test]
-fn large_transfers_complete_through_partial_writes() {
+fn large_transfers_offer_the_remaining_range_without_a_page_cap() {
     runs(
         r#"
 def sink(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
@@ -213,16 +213,47 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | Alloc
         mut stream = connect(&address, &deadline, &cancel).unwrap()
         data = zeroed(4000000)?
         mut sent = 0
-        mut calls = 0
+        mut larger_than_page = False
         while sent < data.len():
-            sent += stream.write_before(&data, sent, data.len(), &deadline, &cancel).unwrap()
-            calls += 1
+            count = stream.write_before(&data, sent, data.len(), &deadline, &cancel).unwrap()
+            if count <= 0 or count > data.len() - sent:
+                return Err(IoError.InvalidInput)
+            larger_than_page = larger_than_page or count > 4096
+            sent += count
         stream.close().unwrap()
-        print(sent, calls >= 977)?
+        print(sent, larger_than_page)?
         print(task.join().unwrap())?
     Ok(())
 "#,
         "4000000 True\n4000000\n",
+    );
+}
+
+#[test]
+fn tcp_writes_validate_the_whole_requested_range() {
+    runs(
+        r#"
+def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoError]:
+    cancel = CancellationToken()?
+    deadline = within(5000u32)?
+    listener = listen(&loopback_v4(0u16), 1).unwrap()
+    mut stream = connect(&listener.local_address().unwrap(), &deadline, &cancel).unwrap()
+    mut peer = listener.accept(&deadline, &cancel).unwrap()
+    data = zeroed(8192)?
+    print(outcome(stream.write_before(&data, 0, 8193, &deadline, &cancel))?)?
+    print(outcome(stream.write_before(&data, 1, i64.MAX, &deadline, &cancel))?)?
+    print(outcome(stream.write_before(&data, -1, i64.MAX, &deadline, &cancel))?)?
+    print(outcome(stream.write_before(&data, 8193, 8192, &deadline, &cancel))?)?
+    print(stream.write_before(&data, 8192, 8192, &deadline, &cancel).unwrap())?
+    stream.shutdown(Shutdown.Write).unwrap()
+    mut received = zeroed(1)?
+    print(peer.read_before(&mut received, 0, 1, &deadline, &cancel).unwrap())?
+    Ok(())
+"#,
+        "std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n\
+std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n\
+std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n\
+std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n0\n0\n",
     );
 }
 
@@ -303,16 +334,16 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | Alloc
     deadline = within(5000u32)?
     mut stream = connect(&listener.local_address().unwrap(), &deadline, &cancel).unwrap()
     accepted = listener.accept(&deadline, &cancel).unwrap()
-    data = zeroed(4096)?
+    data = zeroed(8000000)?
     short = within(50u32)?
-    mut result = stream.write_before(&data, 0, 4096, &short, &cancel)
+    mut result = stream.write_before(&data, 0, data.len(), &short, &cancel)
     while result.is_ok():
-        result = stream.write_before(&data, 0, 4096, &short, &cancel)
+        result = stream.write_before(&data, 0, data.len(), &short, &cancel)
     print(outcome(result)?)?
     with spawn(cancel_later, cancel.share())?:
-        mut cancelled = stream.write_before(&data, 0, 4096, &deadline, &cancel)
+        mut cancelled = stream.write_before(&data, 0, data.len(), &deadline, &cancel)
         while cancelled.is_ok():
-            cancelled = stream.write_before(&data, 0, 4096, &deadline, &cancel)
+            cancelled = stream.write_before(&data, 0, data.len(), &deadline, &cancel)
         print(outcome(cancelled)?)?
     Ok(())
 "#,
