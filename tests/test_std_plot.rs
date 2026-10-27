@@ -22,7 +22,7 @@ fn snapshot(name: &str, actual: &str) {
         .join(format!("{name}.svg"));
     if std::env::var_os("UPDATE_PLOT_SNAPSHOTS").is_some() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, format!("{actual}\n")).unwrap();
+        std::fs::write(&path, format!("{}\n", actual.trim_end())).unwrap();
     }
     assert_eq!(
         std::fs::read_to_string(path).unwrap().trim_end(),
