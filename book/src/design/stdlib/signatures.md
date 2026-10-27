@@ -12,6 +12,58 @@ indented under their owner. Summaries come from the
 After changing a standard module, regenerate this page with
 `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.
 
+## `std.actor`
+
+Supervised actors on one thread, each with its own heap, bounded mailbox and copied messages; a trap discards only that actor's heap and files. Errors: `StartError`, `Undelivered[M]`. [Reference](actor.md).
+
+```text
+const max_heap_limit: i64 = 67108864
+const max_spawns: i64 = 16
+class Address
+    def key(self) -> u64
+enum Exit[E]
+    # Stopped by `Context.stop`, a `Stop` request, or a spawn hook that | Failed(E) | Trapped
+enum Mail[M, E]
+    Message(M) | Ready(Readiness) | Down(Address, Exit[E]) | Stop
+enum Undelivered[M]
+    Full(M) | Gone(M)
+enum StartError
+    Unsupported | Capacity | Heaps | Limit | Mailbox
+class Stats
+    started: i64
+    stopped: i64
+    failed: i64
+    trapped: i64
+    delivered: i64
+    full: i64
+    gone: i64
+    lost: i64
+def supported() -> bool
+def heaps_live() -> i64
+def heap_bytes_used() -> i64
+def heap_bytes_committed() -> i64
+class Context[M, E]
+    def address(self) -> Address
+    def stop(self: &mut Context[M, E]) -> ()
+    def heap_used(self) -> i64
+    def send(self: &mut Context[M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
+    def stop_actor(self: &mut Context[M, E], to: Address) -> bool
+    def spawn(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]
+    def watch_stream(self: &mut Context[M, E], stream: &TcpStream, interest: Interest) -> Result[(), NetError]
+    def unwatch_stream(self: &mut Context[M, E], stream: &TcpStream) -> Result[(), NetError]
+    def watch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]
+    def unwatch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]
+class Stage[N, M, E]
+    def start(self: &mut Stage[N, M, E], node: N, limit: i64) -> Result[Address, StartError]
+    def send(self: &mut Stage[N, M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
+    def stop_actor(self: &mut Stage[N, M, E], to: Address) -> bool
+    def live(self) -> i64
+    def stats(self) -> Stats
+    def heap_used(self, actor: Address) -> Option[i64]
+    def run(self: &mut Stage[N, M, E], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
+def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], AllocError | WaitError]
+```
+
 ## `std.archive`
 
 TAR and ZIP readers and writers over `std.io`, and extraction into a new directory under explicit path, link, and size limits. Errors: `ArchiveError`. [Reference](archive.md).
