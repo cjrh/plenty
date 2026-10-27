@@ -80,6 +80,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         counters: Default::default(),
         position: Default::default(),
         trap_blocks: HashMap::default(),
+        moves: Default::default(),
     };
     lower.lower_tail_call("callee").unwrap();
     assert!(lower.terminated);

@@ -166,10 +166,8 @@ impl Lowerer<'_, '_> {
     /// or zero that storage when `value` is empty.
     fn write_record(&mut self, value: NativeValue, ty: &Ty, destination: NativeValue) {
         let bytes = ty.inline_bytes() as u64;
-        let config = self.module.target_config();
         if known::known_zero(&self.bcx.func.dfg, value) {
-            self.bcx
-                .emit_small_memset(config, destination, 0, bytes, 8, MemFlagsData::trusted());
+            self.zero_bytes(destination, bytes);
             return;
         }
         let packed = self.pack(value, ty);
@@ -184,8 +182,7 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().jump(done, &[]);
         self.bcx.switch_to_block(clear);
         self.bcx.seal_block(clear);
-        self.bcx
-            .emit_small_memset(config, destination, 0, bytes, 8, MemFlagsData::trusted());
+        self.zero_bytes(destination, bytes);
         self.bcx.ins().jump(done, &[]);
         self.bcx.switch_to_block(done);
         self.bcx.seal_block(done);

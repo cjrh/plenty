@@ -92,6 +92,7 @@ pub(super) fn build_adapter(
         counters: Default::default(),
         position: Default::default(),
         trap_blocks: HashMap::default(),
+        moves: Default::default(),
     };
     // References are slot addresses: the runtime passes each row's value word
     // through a slot it owns for the duration of the call.

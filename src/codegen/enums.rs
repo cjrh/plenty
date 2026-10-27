@@ -66,15 +66,7 @@ impl Lowerer<'_, '_> {
             return self.bcx.ins().iconst(PTR_TY, 0);
         }
         let storage = self.inline_storage(bytes);
-        let config = self.module.target_config();
-        self.bcx.emit_small_memset(
-            config,
-            storage,
-            0,
-            bytes as u64,
-            8,
-            cranelift_codegen::ir::MemFlagsData::trusted(),
-        );
+        self.zero_bytes(storage, bytes as u64);
         storage
     }
 

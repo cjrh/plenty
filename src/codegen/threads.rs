@@ -80,6 +80,7 @@ pub(super) fn build_adapter(
             counters: Default::default(),
             position: Default::default(),
             trap_blocks: HashMap::default(),
+            moves: Default::default(),
         };
         for (i, ty) in task.inputs.iter().enumerate() {
             let packed = lower.bcx.ins().load(

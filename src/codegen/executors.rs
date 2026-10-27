@@ -86,6 +86,7 @@ pub(super) fn build_adapter(
             counters: Default::default(),
             position: Default::default(),
             trap_blocks: HashMap::default(),
+            moves: Default::default(),
         };
         let packed = lower
             .bcx

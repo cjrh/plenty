@@ -56,6 +56,24 @@ ownership slot, such as a moved-from local, and its release makes no runtime
 call. These paths keep high-frequency helpers, such as error mappers called per
 byte, out of runtime operation calls.
 
+Record copies and clears of up to 192 bytes are emitted inline as 16-byte
+vector loads and stores rather than `memmove` and `memset` calls. A local moved
+straight into a call argument, with only operand pushes between the move and
+the call, is passed at its own address instead of a fresh copy: the callee
+copies its arguments on entry, so the caller's storage is not read again.
+Inlined constructors, generator producers and portable SIMD operations keep
+argument addresses, so moves into them still copy.
+
+A class with a record also has a plan in its runtime descriptor: the word
+offsets of the strings it owns, including those of flat class fields, whether
+those strings are all it owns, and whether its bytes hold any address into
+themselves. When the strings are all it owns (no `__del__` at any depth, no
+other managed field), the runtime releases the record by freeing those strings
+directly instead of walking its fields; freeing a string runs no user code, so
+the order is unobservable. A record holding no internal addresses moves without
+relocation: only its owner's value word changes. Collection rows use both, and
+a list whose row class owns nothing skips its per-row release entirely.
+
 References use two native words: an address and packed inline-sum tag-offset
 information. They point into typed local, frame, field, or collection storage;
 source loans determine when those locations remain usable. Function values are

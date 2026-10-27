@@ -19,6 +19,8 @@ mod test_pipelines;
 #[path = "test_clist.rs"]
 mod test_clist;
 
+#[path = "test_record_walks.rs"]
+mod test_record_walks;
 #[path = "test_std_dataframe.rs"]
 mod test_std_dataframe;
 #[path = "test_std_linalg.rs"]

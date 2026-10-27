@@ -153,7 +153,9 @@ impl Payload<'_> {
                         if field.flat {
                             // Its record moved with the owner; only its own
                             // payloads need new addresses.
-                            Payload::Record(field.record(ty)).relocate(field.at);
+                            if !ty.fixed() {
+                                Payload::Record(field.record(ty)).relocate(field.at);
+                            }
                         } else if ty.payload_bytes() != 0 {
                             relocate(field.at, ty);
                         }
@@ -175,7 +177,9 @@ pub(crate) unsafe fn copy_payload(value: u128, ty: &Type, destination: *mut Rang
                 destination.cast(),
                 active.bytes(),
             );
-            active.relocate(destination.cast());
+            if !ty.fixed() {
+                active.relocate(destination.cast());
+            }
         }
         (value & !(u64::MAX as u128)) | destination as u128
     } else {
@@ -230,7 +234,9 @@ pub(crate) unsafe fn relocate(slot: *mut u128, ty: &Type) {
         if let Some(active) = ty.active_payload(value) {
             let destination = slot.add(1);
             slot.write((value & !(u64::MAX as u128)) | destination as u128);
-            active.relocate(destination);
+            if !ty.fixed() {
+                active.relocate(destination);
+            }
         }
     }
 }

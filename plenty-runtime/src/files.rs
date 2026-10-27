@@ -487,6 +487,7 @@ mod tests {
         variants: &[],
         drop: None,
         wrapper: None,
+        plan: None,
     };
 
     #[test]
