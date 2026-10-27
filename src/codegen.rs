@@ -3602,6 +3602,7 @@ impl Lowerer<'_, '_> {
     fn lower_tail_call(&mut self, name: &str) -> Result<()> {
         let caller_standard = self.in_standard_library();
         let cleanup_free = !self.locals.iter().any(|(_, ty)| ty.managed());
+        let in_generator = self.generator.is_some();
         let (decl, mut args) = self.pop_call_args(name)?;
         // Only user code sets a site; std would pass null, which changes
         // nothing.
@@ -3619,6 +3620,16 @@ impl Lowerer<'_, '_> {
             };
             self.lower_leaf_call(&inline, &args, &[])?;
             self.leave_call(saved);
+            return self.lower(&Op::Return);
+        }
+        // A constructor lowered in its callers keeps a real tail call's order:
+        // the caller's locals are released before the callee's body runs, and
+        // the return's shared exit then finds only empty slots.
+        if let Some(body) = decl.inline_body.clone()
+            && !in_generator
+        {
+            self.release_locals();
+            self.lower_inlined_call(name, &body, args, track_caller)?;
             return self.lower(&Op::Return);
         }
         let func_id = decl.id;

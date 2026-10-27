@@ -73,6 +73,10 @@ own slot. Field-less classes already lower to a zero word and keep doing so.
   `release_fields` look through newtypes, so a record or sum holding a newtype
   copies and releases as if it held the field directly.
 - Columnar-list row access reads a one-field row as its scalar.
+- A newtype has no inline storage, so a function returning one built by a
+  constructor call ends in a tail call. The constructor inlining from
+  issue #548 now also lowers at that site: the caller's locals are released
+  first, as a real tail call would, and the shared exit then finds empty slots.
 
 ### Runtime descriptor
 
@@ -105,6 +109,22 @@ These three hold for every class, newtype or not.
 - A one-field class with `__del__` keeps the record layout.
 - Formatting a newtype walks one extra descriptor link.
 
+### Measurements
+
+Retired instructions (`perf stat -e instructions:u`) against main at c78365ad,
+which includes constructor inlining, compiled with `--release`:
+
+| Program | Before | After |
+|---|---|---|
+| Issue #544 reproduction, per `cycle` (file wrapped twice, 2000 iterations) | 486 | 444 |
+| Issue #544 reproduction, 200 iterations, whole program | 340,245 | 331,699 |
+| 200 loopback `connect`/`accept`/`close` pairs through `std.net` | 2,194,678 | 2,082,256 |
+| Nested two-field records copied through a loop (no one-field class) | 283,245 | 283,175 |
+
+The remaining per-cycle cost is caller-site bookkeeping around releases of
+slots the compiler could prove empty, not record copies. Programs without a
+one-field class produce identical machine code; only read-only data differs.
+
 ## Stage 2: flat nested records
 
 **Goal.** Store a class-typed field at a fixed offset inside the outermost
@@ -129,6 +149,7 @@ level removes fixes but not copies; a move still copies the inline bytes.
 **Decision.** Not adopted now. After stage 1, the nested-wrapper case that
 motivated #544 and #547 has no record at all, and the remaining per-move cost
 of a nested record is one fix per nested class, bounded by `RECORD_FIX_LIMIT`.
-The measured benefit (see the PR for numbers) does not justify a second record
-layout in the compiler and runtime. Revisit under B19 if a workload shows
+Stage 2 would save one load, test and store per nested class per move in the
+nested-record fixture above; that share was not isolated, and a bound this
+small does not justify a second record layout in the compiler and runtime. Revisit under B19 if a workload shows
 record moves dominated by fixes rather than by bytes copied.
