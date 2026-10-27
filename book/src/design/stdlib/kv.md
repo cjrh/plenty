@@ -5,6 +5,31 @@ in application code. The small public API is implemented in Plenty over the
 existing [`std.db.sqlite`](sqlite.md) engine. It adds no native dependency.
 See [the engine decision](kv-engine.md) for the SQLite/redb comparison.
 
+```plenty
+import std.bytes as buffers
+import std.db.kv as kv
+from std.bytes import BytesError
+
+def main() -> Result[(), IoError | BytesError | kv.KvError]:
+    mut store = kv.connect("settings.db")?
+    store.put("config", &buffers.from_text("theme")?, &buffers.from_text("dark")?)?
+    store.close()?
+
+    mut reopened = kv.connect("settings.db", mode=kv.Mode.ReadOnly)?
+    match reopened.get("config", &buffers.from_text("theme")?)?:
+        case Some(value):
+            print(value.to_text()?)?
+        case Nothing:
+            print("unset")?
+    print(reopened.len("config")?)?
+    reopened.close()?
+    Ok(())
+```
+```output
+dark
+1
+```
+
 ## Stores and tables
 
 `connect(path, mode=Mode.Create, max_length=1048576)` returns

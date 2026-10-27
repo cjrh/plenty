@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="432.00pt" height="288.00pt" viewBox="0 0 432.00 288.00">
+<g font-family="Liberation Sans,Arial,Helvetica,sans-serif" fill="#333333">
+<rect x="0.00" y="0.00" width="432.00" height="288.00" fill="white" stroke="none"/>
+<rect x="70.37" y="18.16" width="291.26" height="211.96" fill="white" stroke="none"/>
+<line x1="95.65" y1="18.16" x2="95.65" y2="230.12" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="95.65" y="251.08" font-size="8.80" text-anchor="middle" textLength="5.46" lengthAdjust="spacingAndGlyphs">1</text>
+<line x1="216.00" y1="18.16" x2="216.00" y2="230.12" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="216.00" y="251.08" font-size="8.80" text-anchor="middle" textLength="5.46" lengthAdjust="spacingAndGlyphs">2</text>
+<line x1="336.35" y1="18.16" x2="336.35" y2="230.12" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="336.35" y="251.08" font-size="8.80" text-anchor="middle" textLength="5.46" lengthAdjust="spacingAndGlyphs">3</text>
+<line x1="70.37" y1="181.95" x2="361.63" y2="181.95" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="64.37" y="184.59" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">2</text>
+<line x1="70.37" y1="104.87" x2="361.63" y2="104.87" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="64.37" y="107.51" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">4</text>
+<line x1="70.37" y1="27.79" x2="361.63" y2="27.79" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="64.37" y="30.43" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">6</text>
+<text x="216.00" y="271.60" font-size="11.00" text-anchor="middle" textLength="6.82" lengthAdjust="spacingAndGlyphs">x</text>
+<g transform="translate(19.70,124.14) rotate(-90)">
+<text x="0.00" y="3.30" font-size="11.00" text-anchor="middle" textLength="27.28" lengthAdjust="spacingAndGlyphs">mean</text>
+</g>
+<defs><clipPath id="panel"><rect x="70.37" y="18.16" width="291.26" height="211.96"/></clipPath></defs>
+<g clip-path="url(#panel)">
+<g data-geom="ribbon" opacity="0.20">
+<polygon points="95.65,143.41 216.00,27.79 336.35,85.60 336.35,201.22 216.00,181.95 95.65,220.49" fill="blue" stroke="transparent" stroke-width="1.42"/>
+</g>
+<g data-geom="errorbar" opacity="1.00">
+<line x1="95.65" y1="220.49" x2="95.65" y2="143.41" stroke="black" stroke-width="1.42"/>
+<line x1="83.61" y1="220.49" x2="107.68" y2="220.49" stroke="black" stroke-width="1.42"/>
+<line x1="83.61" y1="143.41" x2="107.68" y2="143.41" stroke="black" stroke-width="1.42"/>
+<line x1="216.00" y1="181.95" x2="216.00" y2="27.79" stroke="black" stroke-width="1.42"/>
+<line x1="203.96" y1="181.95" x2="228.04" y2="181.95" stroke="black" stroke-width="1.42"/>
+<line x1="203.96" y1="27.79" x2="228.04" y2="27.79" stroke="black" stroke-width="1.42"/>
+<line x1="336.35" y1="201.22" x2="336.35" y2="85.60" stroke="black" stroke-width="1.42"/>
+<line x1="324.32" y1="201.22" x2="348.39" y2="201.22" stroke="black" stroke-width="1.42"/>
+<line x1="324.32" y1="85.60" x2="348.39" y2="85.60" stroke="black" stroke-width="1.42"/>
+</g>
+<g data-geom="line" opacity="1.00">
+<line x1="95.65" y1="181.95" x2="216.00" y2="104.87" stroke="black" stroke-width="1.42"/>
+<line x1="216.00" y1="104.87" x2="336.35" y2="143.41" stroke="black" stroke-width="1.42"/>
+</g>
+<g data-geom="point" opacity="1.00">
+<circle cx="95.65" cy="181.95" r="2.13" fill="black"/>
+<circle cx="216.00" cy="104.87" r="2.13" fill="black"/>
+<circle cx="336.35" cy="143.41" r="2.13" fill="black"/>
+</g>
+</g>
+</g>
+</svg>

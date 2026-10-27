@@ -7,6 +7,29 @@ without allocating. `from_text(&text)` explicitly encodes UTF-8 and returns
 `Result[Path, IoError]`. NUL can occur in a lexical Path; filesystem operations
 reject it with `IoError.InvalidInput`.
 
+```plenty
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError]:
+    base = path.from_text("data/reports")?
+    child = path.from_text("2024/summary.csv")?
+    full = base.join(&child)?
+    print(full.display()?, full.is_absolute())?
+    print(full.file_name()?.ok_or(IoError.InvalidInput)?.display()?)?
+    print(full.parent()?.ok_or(IoError.InvalidInput)?.display()?)?
+    print(len(full.components()?))?
+    raw = path.from_bytes([110u8, 111u8, 255u8]?)
+    print(raw.display()?, raw.to_text().is_err())?
+    Ok(())
+```
+```output
+data/reports/2024/summary.csv False
+summary.csv
+data/reports/2024
+4
+no\xff True
+```
+
 | Operation | Result |
 | --- | --- |
 | `path.as_bytes()` | Shared borrow of the existing `list[u8]`; no allocation |

@@ -209,6 +209,8 @@ pub class Mapping:
     _cfactor: bool
     _ffactor: bool
     _conflict: bool
+    _ymin: str
+    _ymax: str
 
 def mapped(value: &(str | Factor)) -> str:
     match value:
@@ -224,9 +226,9 @@ def factored(value: &(str | Factor)) -> bool:
         case _:
             False
 
-pub def aes(x: str | Factor = "", y: str | Factor = "", colour: str | Factor = "", color: str | Factor = "", fill: str | Factor = "", group: str = "") -> Mapping:
+pub def aes(x: str | Factor = "", y: str | Factor = "", colour: str | Factor = "", color: str | Factor = "", fill: str | Factor = "", group: str = "", ymin: str = "", ymax: str = "") -> Mapping:
     use_color = mapped(&color) != ""
-    Mapping(mapped(&x), mapped(&y), mapped(&color) if use_color else mapped(&colour), mapped(&fill), group, factored(&x), factored(&y), factored(&color) if use_color else factored(&colour), factored(&fill), use_color and mapped(&colour) != "")
+    Mapping(mapped(&x), mapped(&y), mapped(&color) if use_color else mapped(&colour), mapped(&fill), group, factored(&x), factored(&y), factored(&color) if use_color else factored(&colour), factored(&fill), use_color and mapped(&colour) != "", ymin, ymax)
 
 pub enum Position:
     Identity
@@ -291,6 +293,47 @@ pub enum Component:
     Flip
     ColourScale(bool, ColourScale)
     PositionScale(bool, PositionScale)
+    Facet(Facet)
+
+pub enum Scales:
+    Fixed
+    Free
+    FreeX
+    FreeY
+
+pub class Facet:
+    _rows: str
+    _cols: str
+    _grid: bool
+    _nrow: i64
+    _ncol: i64
+    _scales: Scales
+
+pub def facet_wrap(facets: str, nrow: i64 = 0, ncol: i64 = 0, scales: Scales = Scales.Fixed) -> Component:
+    Component.Facet(Facet("", facets, False, nrow, ncol, scales))
+
+pub def facet_grid(rows: str = "", cols: str = "", scales: Scales = Scales.Fixed) -> Component:
+    Component.Facet(Facet(rows, cols, True, 0, 0, scales))
+
+def facet_setting(components: &list[Component]) -> Result[Option[Facet], PlotError]:
+    mut result: Option[Facet] = Nothing
+    for component in components:
+        match component:
+            case Component.Facet(value):
+                result = Some(allocated(copy(value))?)
+            case _:
+                pass
+    match &result:
+        case Some(value):
+            if value._rows == "" and value._cols == "":
+                return Err(PlotError.InvalidSetting("a facet needs at least one column name"))
+            if "~" in value._rows or "~" in value._cols:
+                return Err(PlotError.InvalidSetting("facets use column names; use rows= and cols= instead of formulas"))
+            if value._nrow < 0 or value._ncol < 0 or value._nrow > 1000 or value._ncol > 1000:
+                return Err(PlotError.InvalidSetting("facet row/column counts must be between 0 (automatic) and 1000"))
+        case Nothing:
+            pass
+    Ok(result)
 
 pub enum ColourScale:
     Default
@@ -484,6 +527,21 @@ pub def geom_bar(colour: str = "", color: str = "", fill: str = "", width: f64 |
 pub def geom_histogram(colour: str = "", color: str = "", fill: str = "", bins: i64 = 30, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component:
     layer(5, colour, color, fill, 0.5, alpha, 1.0, bins, position, na_rm, data, mapping, inherit_aes)
 
+pub def geom_errorbar(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, width: f64 | i64 = 0.2, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component:
+    layer(6, colour, color, "", linewidth, alpha, width, 30, Position.Identity, na_rm, data, mapping, inherit_aes)
+
+pub def geom_linerange(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component:
+    layer(7, colour, color, "", linewidth, alpha, 0.2, 30, Position.Identity, na_rm, data, mapping, inherit_aes)
+
+pub def geom_ribbon(colour: str = "", color: str = "", fill: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 0.3, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component:
+    layer(8, colour, color, fill, linewidth, alpha, 0.9, 30, Position.Identity, na_rm, data, mapping, inherit_aes)
+
+def counting(kind: i64) -> bool:
+    kind == 4 or kind == 5
+
+def bars(kind: i64) -> bool:
+    kind >= 3 and kind <= 5
+
 pub def labs(title: str = "", x: str = "", y: str = "", colour: str = "", fill: str = "") -> Component:
     Component.Labels(Labels(title, x, y, colour, fill))
 
@@ -543,7 +601,7 @@ def valid_colour(value: str) -> bool:
 def validate(data: &TableData, mapping: &Mapping, components: &list[Component]) -> Result[(), PlotError]:
     if mapping._conflict:
         return Err(PlotError.Conflict("aes: colour and color"))
-    for name in allocated([mapping._x, mapping._y, mapping._colour, mapping._fill, mapping._group])?:
+    for name in allocated([mapping._x, mapping._y, mapping._colour, mapping._fill, mapping._group, mapping._ymin, mapping._ymax])?:
         if name != "":
             drop(column_index(data, name)?)
     mut coordinates = 0
@@ -554,9 +612,9 @@ def validate(data: &TableData, mapping: &Mapping, components: &list[Component]) 
                     return Err(PlotError.MissingAesthetic("x"))
                 if geom._kind < 4 and mapping._y == "":
                     return Err(PlotError.MissingAesthetic("y"))
-                if geom._kind >= 4 and mapping._y != "":
+                if counting(geom._kind) and mapping._y != "":
                     return Err(PlotError.Conflict("count/bin layers compute y; omit the y mapping"))
-                if geom._kind >= 4:
+                if counting(geom._kind):
                     if mapping._colour != "" and geom._colour == "" and not mapping._cfactor:
                         colour = column_index(data, mapping._colour)?
                         if not data.columns[colour][1].discrete():
@@ -566,6 +624,21 @@ def validate(data: &TableData, mapping: &Mapping, components: &list[Component]) 
                         if not data.columns[fill][1].discrete():
                             return Err(PlotError.WrongKind("count/bin fill must be discrete; use factor"))
                 x = column_index(data, mapping._x)?
+                if geom._kind >= 6:
+                    if mapping._ymin == "" or mapping._ymax == "":
+                        return Err(PlotError.MissingAesthetic("ymin and ymax"))
+                    lo = column_index(data, mapping._ymin)?
+                    hi = column_index(data, mapping._ymax)?
+                    if data.columns[lo][1].discrete() or data.columns[hi][1].discrete():
+                        return Err(PlotError.WrongKind("interval bounds must be continuous"))
+                    for row in range(data.height):
+                        low = data.columns[lo][1].number(row)
+                        high = data.columns[hi][1].number(row)
+                        if low.is_some() and high.is_some():
+                            if finite(low.unwrap()) and finite(high.unwrap()) and low.unwrap() > high.unwrap():
+                                return Err(PlotError.InvalidSetting("ymin must not exceed ymax"))
+                    if geom._kind == 8 and (mapping._xfactor or data.columns[x][1].discrete()):
+                        return Err(PlotError.WrongKind("ribbon requires continuous x"))
                 if geom._kind == 5 and (mapping._xfactor or data.columns[x][1].discrete()):
                     return Err(PlotError.WrongKind("histogram requires continuous x"))
                 if geom._kind == 3:
@@ -627,7 +700,12 @@ pub class Plot:
 
 pub def ggplot(data: Table, mapping: Mapping, components: list[Component]) -> Result[Plot, PlotError]:
     plot = Plot(data, mapping, components)
-    drop(resolve(&plot)?)
+    resolved = resolve(&plot)?
+    match facet_setting(&plot._components)?:
+        case Some(facet):
+            drop(facet_keys(&resolved, &facet)?)
+        case Nothing:
+            pass
     Ok(plot)
 
 def layer_mapping(base: &Mapping, layer: &Layer) -> Result[Mapping, PlotError]:
@@ -648,6 +726,10 @@ def layer_mapping(base: &Mapping, layer: &Layer) -> Result[Mapping, PlotError]:
                 result._ffactor = value._ffactor
             if value._group != "":
                 result._group = value._group
+            if value._ymin != "":
+                result._ymin = value._ymin
+            if value._ymax != "":
+                result._ymax = value._ymax
             result._conflict = result._conflict or value._conflict
         case Nothing:
             pass
@@ -678,6 +760,8 @@ def copy_component(component: &Component) -> Result[Component, PlotError]:
             Ok(Component.ColourScale(*fill, allocated(copy(value))?))
         case Component.PositionScale(y, value):
             Ok(Component.PositionScale(*y, allocated(copy(value))?))
+        case Component.Facet(value):
+            Ok(Component.Facet(allocated(copy(value))?))
 
 class ResolvedLayer:
     data: Table
@@ -685,6 +769,7 @@ class ResolvedLayer:
     geom: Layer
     x: Axis
     y: Axis
+    lower: Axis
     colour: Axis
     fill: Axis
     groups: Axis
@@ -722,25 +807,28 @@ def resolve(plot: &Plot) -> Result[ResolvedPlot, PlotError]:
                 mapping = layer_mapping(&plot._mapping, geom)?
                 validate(&*data._data, &mapping, &allocated([copy_component(component)?])?)?
                 mut x = axis(&*data._data, mapping._x, mapping._xfactor)?
-                mut y = axis(&*data._data, mapping._y, mapping._yfactor)?
+                mut y = axis(&*data._data, mapping._ymax if geom._kind >= 6 else mapping._y, False if geom._kind >= 6 else mapping._yfactor)?
+                mut lower = axis(&*data._data, mapping._ymin if geom._kind >= 6 else "", False)?
                 apply_position(&mut x, &xs, mapping._x != "")?
-                apply_position(&mut y, &ys, mapping._y != "")?
+                apply_position(&mut y, &ys, mapping._y != "" or geom._kind >= 6)?
+                apply_position(&mut lower, &ys, geom._kind >= 6)?
                 colour = colour_axis(&*data._data, mapping._colour, mapping._cfactor, &plot._components, False)?
                 fill = colour_axis(&*data._data, mapping._fill, mapping._ffactor, &plot._components, True)?
                 groups = axis(&*data._data, mapping._group, True)?
                 train_axis(&mut tx, &x, mapping._x != "")?
-                train_axis(&mut ty, &y, mapping._y != "")?
+                train_axis(&mut ty, &y, mapping._y != "" or geom._kind >= 6)?
+                train_axis(&mut ty, &lower, geom._kind >= 6)?
                 train_axis(&mut tc, &colour, mapping._colour != "" and geom._colour == "")?
                 train_axis(&mut tf, &fill, mapping._fill != "" and geom._fill == "")?
                 if labels._x == "":
                     labels._x = mapping._x
                 if labels._y == "":
-                    labels._y = mapping._y
+                    labels._y = mapping._y if mapping._y != "" else mapping._ymax
                 if labels._colour == "" and geom._colour == "":
                     labels._colour = mapping._colour
                 if labels._fill == "" and geom._fill == "":
                     labels._fill = mapping._fill
-                allocated(layers.append(ResolvedLayer(data, mapping, copy_layer(geom)?, x, y, colour, fill, groups)))?
+                allocated(layers.append(ResolvedLayer(data, mapping, copy_layer(geom)?, x, y, lower, colour, fill, groups)))?
             case _:
                 allocated(globals.append(copy_component(component)?))?
     validate(&*plot._data._data, &aes(), &globals)?
@@ -770,17 +858,166 @@ def resolve(plot: &Plot) -> Result[ResolvedPlot, PlotError]:
     for item in &mut layers:
         align_axis(&mut item.x, &x)?
         align_axis(&mut item.y, &y)?
+        align_axis(&mut item.lower, &y)?
         if item.geom._colour == "":
             align_axis(&mut item.colour, &colour)?
         if item.geom._fill == "":
             align_axis(&mut item.fill, &fill)?
-        if item.geom._kind >= 4 and (y.discrete or ys._kind == 2):
+        if counting(item.geom._kind) and (y.discrete or ys._kind == 2):
             return Err(PlotError.WrongKind("computed counts cannot share a discrete y axis"))
     if xs._name != "":
         labels._x = xs._name
     if ys._name != "":
         labels._y = ys._name
     Ok(ResolvedPlot(layers, x, y, colour, fill, xs, ys, labels))
+
+def has_column(data: &TableData, name: str) -> bool:
+    if name == "":
+        return True
+    for entry in &data.columns:
+        if entry[0] == name:
+            return True
+    False
+
+class PanelKey:
+    row: Option[str]
+    col: Option[str]
+    title: str
+
+class FacetKeys:
+    keys: list[PanelKey]
+    nrow: i64
+    ncol: i64
+
+def facet_levels(resolved: &ResolvedPlot, name: str) -> Result[list[Option[str]], PlotError]:
+    if name == "":
+        return allocated([Some("")])
+    mut trained: Option[Axis] = Nothing
+    mut missing = False
+    for item in &resolved.layers:
+        data = &*item.data._data
+        if not has_column(data, name):
+            continue
+        source = axis(data, name, True)?
+        for value in &source.values:
+            missing = missing or value.is_none()
+        train_axis(&mut trained, &source, True)?
+    mut levels = allocated(list[Option[str]]())?
+    match trained:
+        case Some(scale):
+            for level in &scale.levels:
+                allocated(levels.append(Some(*level)))?
+        case Nothing:
+            return Err(PlotError.UnknownColumn(name))
+    if missing or len(levels) == 0:
+        allocated(levels.append(Nothing))?
+    Ok(levels)
+
+def facet_keys(resolved: &ResolvedPlot, facet: &Facet) -> Result[FacetKeys, PlotError]:
+    mut complete = False
+    for item in &resolved.layers:
+        if has_column(&*item.data._data, facet._rows) and has_column(&*item.data._data, facet._cols):
+            complete = True
+    if not complete:
+        return Err(PlotError.InvalidSetting("at least one layer must contain all facet columns"))
+    rows = facet_levels(resolved, facet._rows)?
+    cols = facet_levels(resolved, facet._cols)?
+    if len(rows) > 1000 or len(cols) > 1000 or len(rows) * len(cols) > 1000:
+        return Err(PlotError.InvalidSetting("at most 1000 facet panels are supported"))
+    mut keys = allocated(list[PanelKey]())?
+    for row in &rows:
+        for col in &cols:
+            mut title = ""
+            row_label = (*row).unwrap_or("(missing)")
+            col_label = (*col).unwrap_or("(missing)")
+            if facet._rows != "":
+                title = formatted(f"{facet._rows} = {row_label}")?
+            if facet._cols != "":
+                suffix = formatted(f"{facet._cols} = {col_label}")?
+                title = suffix if title == "" else formatted(f"{title}\n{suffix}")?
+            allocated(keys.append(PanelKey(*row, *col, title)))?
+    mut nrow = len(rows)
+    mut ncol = len(cols)
+    if not facet._grid:
+        ncol = facet._ncol
+        if ncol == 0:
+            if facet._nrow > 0:
+                ncol = (len(keys) + facet._nrow - 1) // facet._nrow
+            else:
+                ncol = 1
+                while ncol * ncol < len(keys):
+                    ncol += 1
+        nrow = facet._nrow if facet._nrow > 0 else (len(keys) + ncol - 1) // ncol
+        if nrow * ncol < len(keys):
+            return Err(PlotError.InvalidSetting("facet nrow/ncol do not provide enough panels"))
+    Ok(FacetKeys(keys, nrow, ncol))
+
+def panel_matches(data: &TableData, row: i64, name: str, value: Option[str]) -> Result[bool, PlotError]:
+    if name == "" or not has_column(data, name):
+        return Ok(True)
+    index = column_index(data, name)?
+    Ok(data.columns[index][1].label(row)? == value)
+
+def panel_table(source: &Table, facet: &Facet, key: &PanelKey) -> Result[Table, PlotError]:
+    data = &*source._data
+    mut selected = allocated(list[i64]())?
+    for row in range(data.height):
+        if panel_matches(data, row, facet._rows, key.row)? and panel_matches(data, row, facet._cols, key.col)?:
+            allocated(selected.append(row))?
+    if len(selected) == data.height:
+        return Ok(source.share())
+    mut columns = allocated(list[(str, Column)]())?
+    for entry in &data.columns:
+        name = entry[0]
+        match &entry[1]:
+            case Column.Num(values):
+                mut values_out = allocated(list[f64]())?
+                for row in &selected:
+                    allocated(values_out.append(values[*row]))?
+                allocated(columns.append((name, Column.Num(values_out))))?
+            case Column.Int(values):
+                mut ints = allocated(list[i64]())?
+                for row in &selected:
+                    allocated(ints.append(values[*row]))?
+                allocated(columns.append((name, Column.Int(ints))))?
+            case Column.Text(values):
+                mut texts = allocated(list[str]())?
+                for row in &selected:
+                    allocated(texts.append(values[*row]))?
+                allocated(columns.append((name, Column.Text(texts))))?
+            case Column.Bool(values):
+                mut flags = allocated(list[bool]())?
+                for row in &selected:
+                    allocated(flags.append(values[*row]))?
+                allocated(columns.append((name, Column.Bool(flags))))?
+            case Column.MaybeNum(values):
+                mut numbers = allocated(list[Option[f64]]())?
+                for row in &selected:
+                    allocated(numbers.append(values[*row]))?
+                allocated(columns.append((name, Column.MaybeNum(numbers))))?
+            case Column.MaybeText(values):
+                mut texts_out = allocated(list[Option[str]]())?
+                for row in &selected:
+                    allocated(texts_out.append(values[*row]))?
+                allocated(columns.append((name, Column.MaybeText(texts_out))))?
+    table(columns)
+
+def panel_resolved(plot: &Plot, resolved: &ResolvedPlot, facet: &Facet, key: &PanelKey) -> Result[ResolvedPlot, PlotError]:
+    mut components = allocated(list[Component]())?
+    for component in &plot._components:
+        match component:
+            case Component.Layer(_) | Component.Facet(_):
+                pass
+            case _:
+                allocated(components.append(copy_component(component)?))?
+    for item in &resolved.layers:
+        mut geom = copy_layer(&item.geom)?
+        geom._data = Some(panel_table(&item.data, facet, key)?)
+        geom._mapping = Some(allocated(copy(item.mapping))?)
+        geom._inherit_aes = False
+        allocated(components.append(Component.Layer(geom)))?
+    panel = Plot(plot._data.share(), aes(), components)
+    resolve(&panel)
 
 class Axis:
     values: list[Option[f64]]
@@ -948,6 +1185,20 @@ def sort_levels(scale: &mut Axis) -> Result[(), PlotError]:
         scale.levels.sort()
     Ok(())
 
+def observed_axis(source: &Axis) -> bool:
+    for value in &source.values:
+        if value.is_some():
+            return True
+    False
+
+def training_axis(source: &Axis) -> Result[Axis, PlotError]:
+    # A trained scale needs only ranges/levels, not another copy of every row.
+    # Retain one presence marker to distinguish empty from constant-zero data.
+    mut marker = allocated(list[Option[f64]]())?
+    if observed_axis(source):
+        allocated(marker.append(Some(source.low)))?
+    Ok(Axis(marker, allocated(copy(source.levels))?, source.discrete, source.low, source.high, allocated(copy(source.paint))?, source.ordering))
+
 def train_axis(target: &mut Option[Axis], source: &Axis, present: bool) -> Result[(), PlotError]:
     if not present:
         return Ok(())
@@ -964,12 +1215,16 @@ def train_axis(target: &mut Option[Axis], source: &Axis, present: bool) -> Resul
                 sort_levels(scale)?
                 scale.low = 0.0
                 scale.high = f64(std.math.max(0, len(scale.levels) - 1))
-            else:
-                for value in &source.values:
-                    allocated(scale.values.append(*value))?
-                axis_range(scale)
+            elif observed_axis(source):
+                if len(scale.values) == 0:
+                    scale.low = source.low
+                    scale.high = source.high
+                    allocated(scale.values.append(Some(source.low)))?
+                else:
+                    scale.low = std.math.min(scale.low, source.low)
+                    scale.high = std.math.max(scale.high, source.high)
         case Nothing:
-            *target = Some(allocated(copy(source))?)
+            *target = Some(training_axis(source)?)
     Ok(())
 
 def order_levels(scale: &mut Axis, setting: &PositionScale) -> Result[(), PlotError]:
@@ -1119,19 +1374,20 @@ def group_value(scale: &Axis, row: i64) -> i64:
         case Nothing:
             -1
 
-def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axis, colour: &Axis, fill: &Axis, groups: &Axis, ys: &PositionScale, notes: &mut list[str]) -> Result[LayerRows, PlotError]:
+def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axis, lower: &Axis, colour: &Axis, fill: &Axis, groups: &Axis, ys: &PositionScale, notes: &mut list[str]) -> Result[LayerRows, PlotError]:
     mut result = allocated(list[Row]())?
     mut identities = allocated(dict[(i64, i64, i64, i64, i64), i64]())?
     mut dropped = 0
     for row in range(data.height):
         xv = x.values[row]
-        yv = y.values[row] if geom._kind < 4 else Some(1.0)
-        cv = colour_at(colour, row, geom._colour, "black" if geom._kind < 3 else "transparent")?
+        yv = Some(1.0) if counting(geom._kind) else y.values[row]
+        bottom = lower.values[row] if geom._kind >= 6 else Some(0.0)
+        cv = colour_at(colour, row, geom._colour, "transparent" if bars(geom._kind) or geom._kind == 8 else "black")?
         fv = colour_at(fill, row, geom._fill, "#595959")?
-        valid = xv.is_some() and yv.is_some() and cv.is_some() and fv.is_some()
+        valid = xv.is_some() and yv.is_some() and bottom.is_some() and cv.is_some() and fv.is_some()
         if not valid:
             dropped += 1
-            if geom._kind != 1 and geom._kind != 2:
+            if geom._kind != 1 and geom._kind != 2 and geom._kind != 8:
                 continue
         if len(groups.values) > 0 and groups.values[row].is_none():
             dropped += 1
@@ -1142,7 +1398,7 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
         identity = (group_value(groups, row), -1 if explicit or geom._kind >= 3 else group_value(x, row), -1 if explicit or geom._kind >= 3 else group_value(y, row), -1 if explicit else group_value(colour, row), -1 if explicit else group_value(fill, row))
         if identity not in identities:
             allocated(identities.insert(identity, len(identities)))?
-        allocated(result.append(Row(xv.unwrap_or(0.0), yv.unwrap_or(0.0), 0.0, geom._width, cv.unwrap_or("black"), fv.unwrap_or("#595959"), identities[identity], row, valid)))?
+        allocated(result.append(Row(xv.unwrap_or(0.0), yv.unwrap_or(0.0), bottom.unwrap_or(0.0), geom._width, cv.unwrap_or("black"), fv.unwrap_or("#595959"), identities[identity], row, valid)))?
     mut ordered_groups = allocated(list[(i64, i64, i64, i64, i64)]())?
     for key in identities.keys():
         allocated(ordered_groups.append(*key))?
@@ -1201,7 +1457,7 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
                 removed += 1
         if removed > 0 and not geom._na_rm:
             allocated(notes.append(formatted(f"Removed {removed} computed rows outside scale limits or transform domain.")?))?
-    if geom._kind >= 3:
+    if bars(geom._kind):
         if geom._position == Position.Stack or geom._position == Position.Fill:
             mut totals = allocated(dict[(str, bool), f64]())?
             for row in &result:
@@ -1435,7 +1691,7 @@ class Layout:
     y_ticks: list[TickBox]
     legends: list[LegendBox]
 
-def layout(w: f64, h: f64, labels: &Labels, theme: &Theme, xticks: &list[(f64, str)], yticks: &list[(f64, str)], xlo: f64, xhi: f64, ylo: f64, yhi: f64, legends: list[LegendBox]) -> Result[Layout, PlotError]:
+def layout(w: f64, h: f64, labels: &Labels, theme: &Theme, xticks: &list[(f64, str)], yticks: &list[(f64, str)], xlo: f64, xhi: f64, ylo: f64, yhi: f64, legends: list[LegendBox], margins: (f64, f64, f64, f64)) -> Result[Layout, PlotError]:
     size = theme._size
     title = text_block(labels._title, size * 1.2, w - 24.0)?
     ytitle = text_block(labels._y, size, h * 0.5)?
@@ -1449,14 +1705,14 @@ def layout(w: f64, h: f64, labels: &Labels, theme: &Theme, xticks: &list[(f64, s
     # Reserve half a tick box at both ends before wrapping. Explicit limits can
     # put tick centres directly on panel edges.
     edge = std.math.min(70.0, (w - left - legend_width) * 0.15)
-    panel_left = std.math.max(left, 12.0 + edge)
-    pw = w - panel_left - 12.0 - edge - legend_width
+    panel_left = std.math.max(margins[0], std.math.max(left, 12.0 + edge))
+    pw = w - panel_left - std.math.max(margins[1], 12.0 + edge + legend_width)
     if pw < 40.0:
         return Err(PlotError.InvalidSetting("plot too narrow for axes and legend; increase width or hide the legend"))
     xt = tick_boxes(xticks, size * 0.8, std.math.min(edge * 2.0, tick_room(xticks, xlo, xhi, pw)))?
     xtitle = text_block(labels._x, size, pw)?
-    top = 12.0 + title.height + (8.0 if title.height > 0.0 else 0.0) + tick_extent(&yt, True) / 2.0
-    bottom = 12.0 + xtitle.height + tick_extent(&xt, True) + tick_extent(&yt, True) / 2.0 + 12.0
+    top = std.math.max(margins[2], 12.0 + title.height + (8.0 if title.height > 0.0 else 0.0) + tick_extent(&yt, True) / 2.0)
+    bottom = std.math.max(margins[3], 12.0 + xtitle.height + tick_extent(&xt, True) + tick_extent(&yt, True) / 2.0 + 12.0)
     ph = h - top - bottom
     if ph < 40.0 or ytitle.width > ph:
         return Err(PlotError.InvalidSetting("plot too short for axes and title; increase height or shorten labels"))
@@ -1506,9 +1762,29 @@ def number_label(value: f64, step: f64) -> Result[str, PlotError]:
         return Ok(medium)
     formatted(f"{rounded:.17g}")
 
-def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units: Units, dpi: f64) -> Result[list[str], PlotError]:
-    w, h = dimensions(width, height, units, dpi)?
-    resolved = resolve(plot)?
+class Scene:
+    layers: list[LayerRows]
+    notes: list[str]
+    labels: Labels
+    theme: Theme
+    flip: bool
+    x: Axis
+    y: Axis
+    colour: Axis
+    fill: Axis
+    xs: PositionScale
+    ys: PositionScale
+    bounds: (f64, f64, f64, f64)
+    xlimits: Option[(f64, f64)]
+    ylimits: Option[(f64, f64)]
+    xlo: f64
+    xhi: f64
+    ylo: f64
+    yhi: f64
+    uses_colour: bool
+    uses_fill: bool
+
+def prepare_scene(plot: &Plot, resolved: &ResolvedPlot) -> Result[Scene, PlotError]:
     x = &resolved.x
     y = &resolved.y
     colour = &resolved.colour
@@ -1531,12 +1807,12 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
         geom = &item.geom
         mapping = &item.mapping
         uses_colour = uses_colour or (geom._colour == "" and mapping._colour != "")
-        uses_fill = uses_fill or (geom._kind >= 3 and geom._fill == "" and mapping._fill != "")
-        prepared = prepare(&*item.data._data, mapping, geom, &item.x, &item.y, &item.colour, &item.fill, &item.groups, &resolved.ys, &mut notes)?
+        uses_fill = uses_fill or ((bars(geom._kind) or geom._kind == 8) and geom._fill == "" and mapping._fill != "")
+        prepared = prepare(&*item.data._data, mapping, geom, &item.x, &item.y, &item.lower, &item.colour, &item.fill, &item.groups, &resolved.ys, &mut notes)?
         for row in &prepared.rows:
             if not row.valid:
                 continue
-            half = row.width / 2.0 if geom._kind >= 3 else 0.0
+            half = row.width / 2.0 if bars(geom._kind) or geom._kind == 6 else 0.0
             xmin = std.math.min(xmin, row.x - half)
             xmax = std.math.max(xmax, row.x + half)
             if not ytrained:
@@ -1548,7 +1824,7 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
             if geom._kind >= 3:
                 ymin = std.math.min(ymin, row.bottom)
                 ymax = std.math.max(ymax, row.bottom)
-            if geom._kind >= 4 and labels._y == "":
+            if counting(geom._kind) and labels._y == "":
                 labels._y = "count"
         allocated(layers.append(prepared))?
     for component in &plot._components:
@@ -1573,13 +1849,19 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
             case Component.Cartesian(x, y):
                 xlimits = *x
                 ylimits = *y
-            case Component.ColourScale(_, _) | Component.PositionScale(_, _):
+            case Component.ColourScale(_, _) | Component.PositionScale(_, _) | Component.Facet(_):
                 pass
     xlo, xhi = display_range(xlimits, &resolved.xs, xmin, xmax, x.discrete)?
     ylo, yhi = display_range(ylimits, &resolved.ys, ymin, ymax, y.discrete)?
-    for ratio in allocated([(xmin - xlo) / (xhi - xlo), (xmax - xlo) / (xhi - xlo), (ymin - ylo) / (yhi - ylo), (ymax - ylo) / (yhi - ylo)])?:
-        if not finite(ratio) or std.math.abs(ratio) > 1.0e9:
-            return Err(PlotError.InvalidSetting("coordinate magnification is too large"))
+    Ok(Scene(layers, notes, labels, theme, flip, allocated(copy(x))?, allocated(copy(y))?, allocated(copy(colour))?, allocated(copy(fill))?, allocated(copy(resolved.xs))?, allocated(copy(resolved.ys))?, (xmin, xmax, ymin, ymax), xlimits, ylimits, xlo, xhi, ylo, yhi, uses_colour, uses_fill))
+
+def scene_legends(scene: &Scene, w: f64) -> Result[list[LegendBox], PlotError]:
+    theme = &scene.theme
+    labels = &scene.labels
+    colour = &scene.colour
+    fill = &scene.fill
+    uses_colour = scene.uses_colour
+    uses_fill = scene.uses_fill
     mut legends = allocated(list[LegendBox]())?
     if theme._legend != Legend.Hidden and (uses_colour or uses_fill):
         legend_width = std.math.min(140.0, w * 0.28)
@@ -1587,20 +1869,46 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
             allocated(legends.append(legend_box(colour, labels._colour, theme._size, legend_width)?))?
         if uses_fill and (not uses_colour or labels._fill != labels._colour or colour.paint != fill.paint or colour.levels != fill.levels or colour.low != fill.low or colour.high != fill.high):
             allocated(legends.append(legend_box(fill, labels._fill, theme._size, legend_width)?))?
-    xticks = axis_ticks(x, &resolved.xs, xlo, xhi)?
-    yticks = axis_ticks(y, &resolved.ys, ylo, yhi)?
+    Ok(legends)
+
+def scene_plan(scene: &Scene, w: f64, h: f64, margins: (f64, f64, f64, f64)) -> Result[Layout, PlotError]:
+    xlo = scene.xlo
+    xhi = scene.xhi
+    ylo = scene.ylo
+    yhi = scene.yhi
+    flip = scene.flip
+    theme = &scene.theme
+    labels = &scene.labels
+    x = &scene.x
+    y = &scene.y
+    xmin, xmax, ymin, ymax = scene.bounds
+    for ratio in allocated([(xmin - xlo) / (xhi - xlo), (xmax - xlo) / (xhi - xlo), (ymin - ylo) / (yhi - ylo), (ymax - ylo) / (yhi - ylo)])?:
+        if not finite(ratio) or std.math.abs(ratio) > 1.0e9:
+            return Err(PlotError.InvalidSetting("coordinate magnification is too large"))
+    legends = scene_legends(scene, w)?
+    xticks = axis_ticks(x, &scene.xs, xlo, xhi)?
+    yticks = axis_ticks(y, &scene.ys, ylo, yhi)?
     display_labels = Labels(labels._title, labels._y if flip else labels._x, labels._x if flip else labels._y, labels._colour, labels._fill)
     plan = match flip:
         case True:
-            layout(w, h, &display_labels, &theme, &yticks, &xticks, ylo, yhi, xlo, xhi, legends)?
+            layout(w, h, &display_labels, &theme, &yticks, &xticks, ylo, yhi, xlo, xhi, legends, margins)?
         case False:
-            layout(w, h, &display_labels, &theme, &xticks, &yticks, xlo, xhi, ylo, yhi, legends)?
+            layout(w, h, &display_labels, &theme, &xticks, &yticks, xlo, xhi, ylo, yhi, legends, margins)?
+    Ok(plan)
+
+def render_scene[W: Writer](writer: &mut W, scene: &Scene, plan: &Layout, w: f64, h: f64, identifier: str) -> Result[(), PlotError]:
+    xlo = scene.xlo
+    xhi = scene.xhi
+    ylo = scene.ylo
+    yhi = scene.yhi
+    flip = scene.flip
+    theme = &scene.theme
+    layers = &scene.layers
     left = plan.left
     top = plan.top
     pw = plan.width
     ph = plan.height
     tick_top = top + ph + tick_extent(&plan.y_ticks, True) / 2.0 + 6.0
-    emit(writer, formatted(f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w:.2f}pt\" height=\"{h:.2f}pt\" viewBox=\"0 0 {w:.2f} {h:.2f}\">\n")?)?
     emit(writer, "<g font-family=\"Liberation Sans,Arial,Helvetica,sans-serif\" fill=\"#333333\">\n")?
     rectangle(writer, 0.0, 0.0, w, h, "white")?
     rectangle(writer, left, top, pw, ph, "#EBEBEB" if theme._kind == 0 else "white")?
@@ -1615,7 +1923,7 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
     emit(writer, formatted(f"<g transform=\"translate({12.0 + plan.y_title.height / 2.0:.2f},{top + ph / 2.0:.2f}) rotate(-90)\">\n")?)?
     draw_text(writer, &plan.y_title, 0.0, -plan.y_title.height / 2.0)?
     emit(writer, "</g>\n")?
-    emit(writer, formatted(f"<defs><clipPath id=\"panel\"><rect x=\"{left:.2f}\" y=\"{top:.2f}\" width=\"{pw:.2f}\" height=\"{ph:.2f}\"/></clipPath></defs>\n<g clip-path=\"url(#panel)\">\n")?)?
+    emit(writer, formatted(f"<defs><clipPath id=\"{identifier}\"><rect x=\"{left:.2f}\" y=\"{top:.2f}\" width=\"{pw:.2f}\" height=\"{ph:.2f}\"/></clipPath></defs>\n<g clip-path=\"url(#{identifier})\">\n")?)?
     for layer in &layers:
         draw_layer(writer, layer, xlo, xhi, ylo, yhi, left, top, pw, ph, flip)?
     emit(writer, "</g>\n")?
@@ -1623,6 +1931,168 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
     for legend in &plan.legends:
         draw_legend(writer, legend, w - 12.0 - legend.width, legend_y, theme._size)?
         legend_y += legend.height + 12.0
+    emit(writer, "</g>\n")
+
+def svg_start[W: Writer](writer: &mut W, w: f64, h: f64) -> Result[(), PlotError]:
+    emit(writer, formatted(f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w:.2f}pt\" height=\"{h:.2f}pt\" viewBox=\"0 0 {w:.2f} {h:.2f}\">\n")?)?
+    Ok(())
+
+def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units: Units, dpi: f64) -> Result[list[str], PlotError]:
+    w, h = dimensions(width, height, units, dpi)?
+    resolved = resolve(plot)?
+    match facet_setting(&plot._components)?:
+        case Some(facet):
+            draw_facets(plot, &resolved, &facet, writer, w, h)
+        case Nothing:
+            scene = prepare_scene(plot, &resolved)?
+            plan = scene_plan(&scene, w, h, (0.0, 0.0, 0.0, 0.0))?
+            svg_start(writer, w, h)?
+            render_scene(writer, &scene, &plan, w, h, "panel")?
+            emit(writer, "</svg>\n")?
+            streamed(writer.flush())?
+            Ok(allocated(copy(scene.notes))?)
+
+def same_scale_group(facet: &Facet, a: &PanelKey, b: &PanelKey, vertical: bool) -> bool:
+    free = facet._scales == Scales.Free or (facet._scales == Scales.FreeY if vertical else facet._scales == Scales.FreeX)
+    if not free:
+        return True
+    if facet._grid:
+        return a.row == b.row if vertical else a.col == b.col
+    a.row == b.row and a.col == b.col
+
+def panel_axis(panels: &list[ResolvedPlot], keys: &FacetKeys, facet: &Facet, index: i64, vertical: bool) -> Result[Axis, PlotError]:
+    mut trained: Option[Axis] = Nothing
+    for other, panel in enumerate(panels):
+        if same_scale_group(facet, &keys.keys[index], &keys.keys[other], vertical):
+            if vertical:
+                train_axis(&mut trained, &panel.y, True)?
+            else:
+                train_axis(&mut trained, &panel.x, True)?
+    match trained:
+        case Some(scale):
+            Ok(scale)
+        case Nothing:
+            Err(PlotError.InvalidSetting("facet has no position scale"))
+
+def align_panel(panel: &mut ResolvedPlot, x: Axis, y: Axis, colour: &Axis, fill: &Axis) -> Result[(), PlotError]:
+    for item in &mut panel.layers:
+        align_axis(&mut item.x, &x)?
+        align_axis(&mut item.y, &y)?
+        align_axis(&mut item.lower, &y)?
+        if item.geom._colour == "":
+            align_axis(&mut item.colour, colour)?
+        if item.geom._fill == "":
+            align_axis(&mut item.fill, fill)?
+    panel.x = x
+    panel.y = y
+    panel.colour = allocated(copy(colour))?
+    panel.fill = allocated(copy(fill))?
+    Ok(())
+
+def facet_scenes(plot: &Plot, resolved: &ResolvedPlot, facet: &Facet, keys: &FacetKeys) -> Result[list[Scene], PlotError]:
+    mut panels = allocated(list[ResolvedPlot]())?
+    for key in &keys.keys:
+        allocated(panels.append(panel_resolved(plot, resolved, facet, key)?))?
+    mut xs = allocated(list[Axis]())?
+    mut ys = allocated(list[Axis]())?
+    for index in range(len(panels)):
+        mut x = panel_axis(&panels, keys, facet, index, False)?
+        mut y = panel_axis(&panels, keys, facet, index, True)?
+        order_levels(&mut x, &resolved.xs)?
+        order_levels(&mut y, &resolved.ys)?
+        allocated(xs.append(x))?
+        allocated(ys.append(y))?
+    mut scenes = allocated(list[Scene]())?
+    for index, panel in enumerate(&mut panels):
+        align_panel(panel, allocated(copy(xs[index]))?, allocated(copy(ys[index]))?, &resolved.colour, &resolved.fill)?
+        allocated(scenes.append(prepare_scene(plot, panel)?))?
+    # Statistics run independently, then fixed axes (or grid row/column axes)
+    # share their post-statistic ranges. Never count or stack across panels.
+    mut ranges = allocated(list[(f64, f64, f64, f64)]())?
+    for index, scene in enumerate(&scenes):
+        mut xmin = scene.bounds[0]
+        mut xmax = scene.bounds[1]
+        mut ymin = scene.bounds[2]
+        mut ymax = scene.bounds[3]
+        for other, candidate in enumerate(&scenes):
+            if same_scale_group(facet, &keys.keys[index], &keys.keys[other], False):
+                xmin = std.math.min(xmin, candidate.bounds[0])
+                xmax = std.math.max(xmax, candidate.bounds[1])
+            if same_scale_group(facet, &keys.keys[index], &keys.keys[other], True):
+                ymin = std.math.min(ymin, candidate.bounds[2])
+                ymax = std.math.max(ymax, candidate.bounds[3])
+        allocated(ranges.append((xmin, xmax, ymin, ymax)))?
+    for index, scene in enumerate(&mut scenes):
+        bounds = ranges[index]
+        xr = display_range(scene.xlimits, &scene.xs, bounds[0], bounds[1], scene.x.discrete)?
+        yr = display_range(scene.ylimits, &scene.ys, bounds[2], bounds[3], scene.y.discrete)?
+        scene.xlo = xr[0]
+        scene.xhi = xr[1]
+        scene.ylo = yr[0]
+        scene.yhi = yr[1]
+    Ok(scenes)
+
+def draw_facets[W: Writer](plot: &Plot, resolved: &ResolvedPlot, facet: &Facet, writer: &mut W, w: f64, h: f64) -> Result[list[str], PlotError]:
+    keys = facet_keys(resolved, facet)?
+    if w / f64(keys.ncol) < 40.0 or h / f64(keys.nrow) < 40.0:
+        return Err(PlotError.InvalidSetting("facet panels are too small; increase dimensions or use fewer rows/columns"))
+    mut scenes = facet_scenes(plot, resolved, facet, &keys)?
+    legends = scene_legends(&scenes[0], w)?
+    title = text_block(scenes[0].labels._title, scenes[0].theme._size * 1.2, w - 24.0)?
+    mut legend_width = 0.0
+    mut legend_height = 0.0
+    for legend in &legends:
+        legend_width = std.math.max(legend_width, legend.width + 16.0)
+        legend_height += legend.height + 12.0
+    start_y = title.height + (20.0 if title.height > 0.0 else 0.0)
+    cell_width = (w - legend_width) / f64(keys.ncol)
+    cell_height = (h - start_y) / f64(keys.nrow)
+    if legend_height > h - start_y - 24.0:
+        return Err(PlotError.InvalidSetting("facet legend does not fit; increase height or hide it"))
+    mut notes = allocated(list[str]())?
+    for index, scene in enumerate(&mut scenes):
+        scene.labels._title = keys.keys[index].title
+        scene.theme._legend = Legend.Hidden
+        for note in &scene.notes:
+            allocated(notes.append(formatted(f"Panel {keys.keys[index].title}: {note}")?))?
+    mut margins = (0.0, 0.0, 0.0, 0.0)
+    mut plans = allocated(list[Layout]())?
+    mut converged = False
+    for attempt in range(8):
+        plans = allocated(list[Layout]())?
+        mut left = margins[0]
+        mut right = margins[1]
+        mut top = margins[2]
+        mut bottom = margins[3]
+        for scene in &scenes:
+            plan = scene_plan(scene, cell_width, cell_height, margins)?
+            left = std.math.max(left, plan.left)
+            right = std.math.max(right, cell_width - plan.left - plan.width)
+            top = std.math.max(top, plan.top)
+            bottom = std.math.max(bottom, cell_height - plan.top - plan.height)
+            allocated(plans.append(plan))?
+        updated = (left, right, top, bottom)
+        if std.math.abs(left - margins[0]) < 1.0e-7 and std.math.abs(right - margins[1]) < 1.0e-7 and std.math.abs(top - margins[2]) < 1.0e-7 and std.math.abs(bottom - margins[3]) < 1.0e-7:
+            converged = True
+            break
+        margins = updated
+    if not converged:
+        return Err(PlotError.InvalidSetting("facet labels need more room; increase dimensions or shorten labels"))
+    svg_start(writer, w, h)?
+    emit(writer, "<g font-family=\"Liberation Sans,Arial,Helvetica,sans-serif\" fill=\"#333333\">\n")?
+    rectangle(writer, 0.0, 0.0, w, h, "white")?
+    draw_text(writer, &title, 12.0, 12.0, "start")?
+    for index, scene in enumerate(&scenes):
+        x = f64(index % keys.ncol) * cell_width
+        y = start_y + f64(index // keys.ncol) * cell_height
+        identifier = formatted(f"panel-{index}")?
+        emit(writer, formatted(f"<g data-panel=\"{index}\" transform=\"translate({x:.2f},{y:.2f})\">\n")?)?
+        render_scene(writer, scene, &plans[index], cell_width, cell_height, identifier)?
+        emit(writer, "</g>\n")?
+    mut at = start_y + 12.0
+    for legend in &legends:
+        draw_legend(writer, legend, w - 12.0 - legend.width, at, scenes[0].theme._size)?
+        at += legend.height + 12.0
     emit(writer, "</g>\n</svg>\n")?
     streamed(writer.flush())?
     Ok(notes)
@@ -1704,8 +2174,8 @@ def draw_layer[W: Writer](writer: &mut W, layer: &LayerRows, xlo: f64, xhi: f64,
     geom = &layer.layer
     mut order = allocated(list[(i64, f64, i64)]())?
     for index, row in enumerate(&layer.rows):
-        allocated(order.append((row.group, row.x if geom._kind == 1 else f64(index), index)))?
-    if geom._kind == 1 or geom._kind == 2:
+        allocated(order.append((row.group, row.x if geom._kind == 1 or geom._kind == 8 else f64(index), index)))?
+    if geom._kind == 1 or geom._kind == 2 or geom._kind == 8:
         order.sort()
     mut last_group = -1
     mut last_x = 0.0
@@ -1722,9 +2192,18 @@ def draw_layer[W: Writer](writer: &mut W, layer: &LayerRows, xlo: f64, xhi: f64,
             "col"
         case 4:
             "bar"
+        case 6:
+            "errorbar"
+        case 7:
+            "linerange"
+        case 8:
+            "ribbon"
         case _:
             "histogram"
     emit(writer, formatted(f"<g data-geom=\"{name}\" opacity=\"{geom._alpha:.2f}\">\n")?)?
+    if geom._kind == 8:
+        draw_ribbons(writer, layer, &order, xlo, xhi, ylo, yhi, left, top, width, height, flip)?
+        return emit(writer, "</g>\n")
     for item in &order:
         row = &layer.rows[item[2]]
         if not row.valid:
@@ -1742,6 +2221,22 @@ def draw_layer[W: Writer](writer: &mut W, layer: &LayerRows, xlo: f64, xhi: f64,
             last_x = px
             last_y = py
             last_colour = row.colour
+        elif geom._kind == 6 or geom._kind == 7:
+            stroke = geom._size * 72.0 / 25.4
+            low = coordinate(row.bottom, ylo, yhi, top + height, -height)
+            if flip:
+                low_x = coordinate(row.bottom, ylo, yhi, left, width)
+                line(writer, low_x, py, px, py, row.colour, stroke)?
+                if geom._kind == 6:
+                    cap = row.width / (xhi - xlo) * height / 2.0
+                    line(writer, low_x, py - cap, low_x, py + cap, row.colour, stroke)?
+                    line(writer, px, py - cap, px, py + cap, row.colour, stroke)?
+            else:
+                line(writer, px, low, px, py, row.colour, stroke)?
+                if geom._kind == 6:
+                    cap = row.width / (xhi - xlo) * width / 2.0
+                    line(writer, px - cap, low, px + cap, low, row.colour, stroke)?
+                    line(writer, px - cap, py, px + cap, py, row.colour, stroke)?
         else:
             x1 = coordinate(row.x - row.width / 2.0, xlo, xhi, left, width)
             x2 = coordinate(row.x + row.width / 2.0, xlo, xhi, left, width)
@@ -1756,6 +2251,41 @@ def draw_layer[W: Writer](writer: &mut W, layer: &LayerRows, xlo: f64, xhi: f64,
             else:
                 rectangle(writer, x1, std.math.min(y1, y2), x2 - x1, std.math.abs(y2 - y1), row.fill, row.colour)?
     emit(writer, "</g>\n")
+
+def draw_ribbons[W: Writer](writer: &mut W, layer: &LayerRows, order: &list[(i64, f64, i64)], xlo: f64, xhi: f64, ylo: f64, yhi: f64, left: f64, top: f64, width: f64, height: f64, flip: bool) -> Result[(), PlotError]:
+    mut start = 0
+    while start < len(order):
+        if not layer.rows[order[start][2]].valid:
+            start += 1
+            continue
+        first = &layer.rows[order[start][2]]
+        mut stop = start + 1
+        while stop < len(order):
+            row = &layer.rows[order[stop][2]]
+            if not row.valid or row.group != first.group:
+                break
+            if row.colour != first.colour or row.fill != first.fill:
+                return Err(PlotError.Conflict("ribbon aesthetics must be constant within each group"))
+            if row.x == layer.rows[order[stop - 1][2]].x:
+                return Err(PlotError.Conflict("ribbon x values must be distinct within each group"))
+            stop += 1
+        if stop - start >= 2:
+            mut points = allocated(list[str]())?
+            for index in range(start, stop):
+                row = &layer.rows[order[index][2]]
+                px = coordinate(row.y, ylo, yhi, left, width) if flip else coordinate(row.x, xlo, xhi, left, width)
+                py = coordinate(row.x, xlo, xhi, top + height, -height) if flip else coordinate(row.y, ylo, yhi, top + height, -height)
+                allocated(points.append(formatted(f"{px:.2f},{py:.2f}")?))?
+            for index in range(stop - 1, start - 1, -1):
+                row = &layer.rows[order[index][2]]
+                px = coordinate(row.bottom, ylo, yhi, left, width) if flip else coordinate(row.x, xlo, xhi, left, width)
+                py = coordinate(row.x, xlo, xhi, top + height, -height) if flip else coordinate(row.bottom, ylo, yhi, top + height, -height)
+                allocated(points.append(formatted(f"{px:.2f},{py:.2f}")?))?
+            joined = allocated(" ".join(&points))?
+            stroke = layer.layer._size * 72.0 / 25.4
+            emit(writer, formatted(f"<polygon points=\"{joined}\" fill=\"{first.fill}\" stroke=\"{first.colour}\" stroke-width=\"{stroke:.2f}\"/>\n")?)?
+        start = stop
+    Ok(())
 
 def draw_legend[W: Writer](writer: &mut W, legend: &LegendBox, x: f64, y: f64, size: f64) -> Result[(), PlotError]:
     draw_text(writer, &legend.title, x, y, "start")?

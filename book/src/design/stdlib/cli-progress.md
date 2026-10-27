@@ -16,6 +16,8 @@ def main() -> Result[(), ProgressError]:
     bar.finish()?
     Ok(())
 ```
+```output
+```
 
 ## Construction and updates
 

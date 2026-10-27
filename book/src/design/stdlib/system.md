@@ -14,6 +14,26 @@ of captured files; this also supports deterministic tests. `Procfs` owns a
 directory handle and closes it on drop. It resolves reads relative to that
 handle, following the rooted filesystem API's no-follow rules.
 
+```plenty
+import std.system
+from std.path import from_text
+from std.system import SystemError
+
+def main() -> Result[(), IoError | SystemError]:
+    # A captured procfs file gives fixed values; std.system.local() reads /proc.
+    write_text("loadavg", "0.50 0.25 0.10 2/180 4242\n")?
+    source = std.system.open_procfs(&from_text(".")?)?
+    load = source.load_average()?
+    print(load.one_minute, load.runnable_tasks, load.last_pid)?
+    live = std.system.local()?
+    print("CPUs found:", live.cpu_count()? > 0)?
+    Ok(())
+```
+```output
+0.5 2 4242
+CPUs found: True
+```
+
 ## Queries
 
 Every method returns `Result[T, SystemError]`. Calls read fresh data; two calls

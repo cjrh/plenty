@@ -23,6 +23,29 @@ optional `Option[i64]` that defaults to `Nothing`, no limit; see
 [Cost limit](#cost-limit). Import `Algorithm`, `Kind`, `Op`, and `TextDiff`
 from `std.diff` to name them.
 
+```plenty
+import std.diff
+
+def main() -> Result[(), AllocError | IoError]:
+    old = "apples\nbread\nmilk\n"
+    new = "apples\nbutter\nmilk\neggs\n"
+    changes = std.diff.lines(old, new)?
+    print(changes.has_changes(), len(changes.ops()))?
+    print(changes.unified(1, "a/list.txt", "b/list.txt")?.rstrip()?)?
+    Ok(())
+```
+```output
+True 5
+--- a/list.txt
++++ b/list.txt
+@@ -1,3 +1,4 @@
+ apples
+-bread
++butter
+ milk
++eggs
+```
+
 ## Operations
 
 An `Op` has public `kind`, `old_start`, `old_end`, `new_start`, and `new_end`

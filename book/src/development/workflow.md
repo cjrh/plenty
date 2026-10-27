@@ -191,7 +191,7 @@ every test after a failure and writes `target/nextest/ci/junit.xml`.
 
 ## Runnable documentation
 
-`tests/test_tutorial.rs` reads tutorial and `design/examples/` pages in
+`tests/test_tutorial.rs` reads tutorial, `design/examples/` and `design/stdlib/` pages in
 `SUMMARY.md` order. A `plenty` fence has an `output` fence and runs both through
 compile-and-run and an explicitly compiled binary. A `plenty-error` fence has an
 `error` substring and must fail without executing effects. A `plenty-file`

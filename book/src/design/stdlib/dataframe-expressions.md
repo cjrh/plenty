@@ -7,6 +7,29 @@ Receivers and expression arguments are borrowed; returned plans remain valid
 after those inputs are dropped. Invalid column names and incompatible dtypes
 can fail during schema resolution or collection.
 
+```plenty dataframe
+import std.dataframe as df
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
+    data = df.frame([
+        df.column_str("name", ["Ada", "lin"]?)?,
+        df.column_i64("score", [92, 61]?)?
+    ]?)?
+    result = df.when(
+        df.col("score")?.ge(df.lit_i64(70)?)?,
+        df.lit_str("pass")?,
+        df.lit_str("retry")?
+    )?.alias("result")?
+    report = data.lazy()?.with_columns([df.col("name")?.str_upper()?, result]?)?.collect()?
+    print(report.values_str("name")?)?
+    print(report.values_str("result")?)?
+    Ok(())
+```
+```output
+["ADA", "LIN"]
+["pass", "retry"]
+```
+
 ## Literals and conditions
 
 `lit_str(value: &str)` copies a UTF-8 literal into the native plan;

@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720.00pt" height="288.00pt" viewBox="0 0 720.00 288.00">
+<g font-family="Liberation Sans,Arial,Helvetica,sans-serif" fill="#333333">
+<rect x="0.00" y="0.00" width="720.00" height="288.00" fill="white" stroke="none"/>
+<text x="12.00" y="25.20" font-size="13.20" text-anchor="start" textLength="106.92" lengthAdjust="spacingAndGlyphs">Results by site</text>
+<g data-panel="0" transform="translate(0.00,38.48)">
+<g font-family="Liberation Sans,Arial,Helvetica,sans-serif" fill="#333333">
+<rect x="0.00" y="0.00" width="340.01" height="249.52" fill="white" stroke="none"/>
+<rect x="55.75" y="44.64" width="228.50" height="147.00" fill="white" stroke="none"/>
+<text x="12.00" y="25.20" font-size="13.20" text-anchor="start" textLength="86.33" lengthAdjust="spacingAndGlyphs">site = North</text>
+<line x1="66.14" y1="44.64" x2="66.14" y2="191.64" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="66.14" y="212.60" font-size="8.80" text-anchor="middle" textLength="5.46" lengthAdjust="spacingAndGlyphs">1</text>
+<line x1="170.01" y1="44.64" x2="170.01" y2="191.64" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="170.01" y="212.60" font-size="8.80" text-anchor="middle" textLength="13.73" lengthAdjust="spacingAndGlyphs">1.5</text>
+<line x1="273.87" y1="44.64" x2="273.87" y2="191.64" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="273.87" y="212.60" font-size="8.80" text-anchor="middle" textLength="5.46" lengthAdjust="spacingAndGlyphs">2</text>
+<line x1="55.75" y1="121.66" x2="284.26" y2="121.66" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="49.75" y="124.30" font-size="8.80" text-anchor="end" textLength="10.91" lengthAdjust="spacingAndGlyphs">10</text>
+<line x1="55.75" y1="51.32" x2="284.26" y2="51.32" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="49.75" y="53.96" font-size="8.80" text-anchor="end" textLength="10.91" lengthAdjust="spacingAndGlyphs">20</text>
+<text x="170.00" y="233.12" font-size="11.00" text-anchor="middle" textLength="6.82" lengthAdjust="spacingAndGlyphs">x</text>
+<g transform="translate(19.70,118.14) rotate(-90)">
+<text x="0.00" y="3.30" font-size="11.00" text-anchor="middle" textLength="6.82" lengthAdjust="spacingAndGlyphs">y</text>
+</g>
+<defs><clipPath id="panel-0"><rect x="55.75" y="44.64" width="228.50" height="147.00"/></clipPath></defs>
+<g clip-path="url(#panel-0)">
+<g data-geom="point" opacity="1.00">
+<circle cx="66.14" cy="184.96" r="2.13" fill="#00BFC4"/>
+<circle cx="273.87" cy="177.92" r="2.13" fill="#F8766D"/>
+</g>
+<g data-geom="line" opacity="1.00">
+<line x1="66.14" y1="156.82" x2="273.87" y2="156.82" stroke="navy" stroke-width="1.42"/>
+</g>
+</g>
+</g>
+</g>
+<g data-panel="1" transform="translate(340.01,38.48)">
+<g font-family="Liberation Sans,Arial,Helvetica,sans-serif" fill="#333333">
+<rect x="0.00" y="0.00" width="340.01" height="249.52" fill="white" stroke="none"/>
+<rect x="55.75" y="44.64" width="228.50" height="147.00" fill="white" stroke="none"/>
+<text x="12.00" y="25.20" font-size="13.20" text-anchor="start" textLength="86.33" lengthAdjust="spacingAndGlyphs">site = South</text>
+<line x1="66.14" y1="44.64" x2="66.14" y2="191.64" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="66.14" y="212.60" font-size="8.80" text-anchor="middle" textLength="5.46" lengthAdjust="spacingAndGlyphs">1</text>
+<line x1="170.01" y1="44.64" x2="170.01" y2="191.64" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="170.01" y="212.60" font-size="8.80" text-anchor="middle" textLength="13.73" lengthAdjust="spacingAndGlyphs">1.5</text>
+<line x1="273.87" y1="44.64" x2="273.87" y2="191.64" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="273.87" y="212.60" font-size="8.80" text-anchor="middle" textLength="5.46" lengthAdjust="spacingAndGlyphs">2</text>
+<line x1="55.75" y1="121.66" x2="284.26" y2="121.66" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="49.75" y="124.30" font-size="8.80" text-anchor="end" textLength="10.91" lengthAdjust="spacingAndGlyphs">10</text>
+<line x1="55.75" y1="51.32" x2="284.26" y2="51.32" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="49.75" y="53.96" font-size="8.80" text-anchor="end" textLength="10.91" lengthAdjust="spacingAndGlyphs">20</text>
+<text x="170.00" y="233.12" font-size="11.00" text-anchor="middle" textLength="6.82" lengthAdjust="spacingAndGlyphs">x</text>
+<g transform="translate(19.70,118.14) rotate(-90)">
+<text x="0.00" y="3.30" font-size="11.00" text-anchor="middle" textLength="6.82" lengthAdjust="spacingAndGlyphs">y</text>
+</g>
+<defs><clipPath id="panel-1"><rect x="55.75" y="44.64" width="228.50" height="147.00"/></clipPath></defs>
+<g clip-path="url(#panel-1)">
+<g data-geom="point" opacity="1.00">
+<circle cx="66.14" cy="121.66" r="2.13" fill="#F8766D"/>
+<circle cx="273.87" cy="51.32" r="2.13" fill="#00BFC4"/>
+</g>
+<g data-geom="line" opacity="1.00">
+<line x1="66.14" y1="156.82" x2="273.87" y2="156.82" stroke="navy" stroke-width="1.42"/>
+</g>
+</g>
+</g>
+</g>
+<text x="684.02" y="61.48" font-size="11.00" text-anchor="start" textLength="23.98" lengthAdjust="spacingAndGlyphs">kind</text>
+<rect x="684.02" y="69.88" width="11.00" height="11.00" fill="#F8766D" stroke="none"/>
+<text x="701.02" y="78.68" font-size="8.80" text-anchor="start" textLength="5.46" lengthAdjust="spacingAndGlyphs">A</text>
+<rect x="684.02" y="86.20" width="11.00" height="11.00" fill="#00BFC4" stroke="none"/>
+<text x="701.02" y="95.00" font-size="8.80" text-anchor="start" textLength="5.46" lengthAdjust="spacingAndGlyphs">B</text>
+</g>
+</svg>

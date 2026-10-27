@@ -11,8 +11,12 @@ fn program(body: &str) -> String {
 }
 
 fn render(body: &str) -> String {
+    render_size(body, 6.0, 4.0)
+}
+
+fn render_size(body: &str, width: f64, height: f64) -> String {
     support::run_file_stdout(&program(&format!(
-        "{body}\nmut output = std.io.cursor(std.bytes.empty()?)\nnotes = p.write_svg(&mut output)?\nprint(output.data.to_text()?)?"
+        "{body}\nmut output = std.io.cursor(std.bytes.empty()?)\nnotes = p.write_svg(&mut output, width={width:.1}, height={height:.1})?\nprint(output.data.to_text()?)?"
     )))
 }
 
@@ -28,6 +32,256 @@ fn snapshot(name: &str, actual: &str) {
         std::fs::read_to_string(path).unwrap().trim_end(),
         actual.trim_end()
     );
+}
+
+#[test]
+fn intervals_and_ribbons_include_their_bounds_in_axis_training() {
+    let svg = render(
+        r#"
+data = gg.table([("x", Column.Num([1.0, 2.0, 3.0]?)), ("mean", Column.Num([2.0, 4.0, 3.0]?)), ("low", Column.Num([1.0, 2.0, 1.5]?)), ("high", Column.Num([3.0, 6.0, 4.5]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "mean", ymin="low", ymax="high"), [gg.geom_ribbon(fill="blue", alpha=0.2), gg.geom_errorbar(), gg.geom_line(), gg.geom_point(), gg.theme_minimal()]?)?
+"#,
+    );
+    assert_eq!(svg.matches("<polygon ").count(), 1);
+    assert_eq!(svg.matches("<circle ").count(), 3);
+    let bars = svg
+        .split("data-geom=\"errorbar\"")
+        .nth(1)
+        .unwrap()
+        .split("</g>")
+        .next()
+        .unwrap();
+    assert_eq!(bars.matches("<line ").count(), 9);
+    assert!(svg.contains(">6</text>"));
+    snapshot("intervals-ribbon", &svg);
+}
+
+#[test]
+fn ribbons_break_at_missing_bounds_and_ranges_flip() {
+    let svg = render(
+        r#"
+data = gg.table([("x", Column.Num([0.0, 1.0, 2.0, 3.0, 4.0]?)), ("low", Column.Num([0.0, 1.0, 2.0, 1.0, 0.0]?)), ("high", Column.MaybeNum([Some(2.0), Some(3.0), Nothing, Some(3.0), Some(2.0)]?))]?)?
+p = gg.ggplot(data, gg.aes("x", ymin="low", ymax="high"), [gg.geom_ribbon(), gg.geom_linerange(), gg.coord_flip()]?)?
+"#,
+    );
+    assert_eq!(svg.matches("<polygon ").count(), 2);
+    let ranges = svg
+        .split("data-geom=\"linerange\"")
+        .nth(1)
+        .unwrap()
+        .split("</g>")
+        .next()
+        .unwrap();
+    assert_eq!(ranges.matches("<line ").count(), 4);
+}
+
+#[test]
+fn wrapped_facets_share_colours_and_repeat_reference_layers() {
+    let svg = render_size(
+        r#"
+data = gg.table([("x", Column.Num([1.0, 2.0, 1.0, 2.0]?)), ("y", Column.Num([1.0, 2.0, 10.0, 20.0]?)), ("site", Column.Text(["North", "North", "South", "South"]?)), ("kind", Column.Text(["B", "A", "A", "B"]?))]?)?
+reference = gg.table([("x", Column.Num([1.0, 2.0]?)), ("y", Column.Num([5.0, 5.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y", colour="kind"), [gg.geom_point(), gg.geom_line(data=reference, mapping=gg.aes("x", "y"), inherit_aes=False, colour="navy"), gg.facet_wrap("site", ncol=2), gg.labs(title="Results by site"), gg.theme_minimal()]?)?
+"#,
+        10.0,
+        4.0,
+    );
+    assert_eq!(svg.matches("data-panel=").count(), 2);
+    assert_eq!(svg.matches("data-geom=\"line\"").count(), 2);
+    assert_eq!(svg.matches("<circle ").count(), 4);
+    assert!(svg.contains("id=\"panel-0\"") && svg.contains("id=\"panel-1\""));
+    // One shared legend, not one guide per panel.
+    assert_eq!(svg.matches(">kind</text>").count(), 1);
+    snapshot("facet-wrap", &svg);
+}
+
+#[test]
+fn facet_counts_are_computed_per_panel_and_free_y_changes_ranges() {
+    let body = r#"
+data = gg.table([("x", Column.Text(["A", "A", "A"]?)), ("site", Column.Text(["North", "North", "South"]?))]?)?
+p = gg.ggplot(data, gg.aes("x"), [gg.geom_bar(), gg.facet_wrap("site", ncol=2, scales=SCALES)]?)?
+"#;
+    let heights = |svg: &str| -> Vec<f64> {
+        svg.split("data-geom=\"bar\"")
+            .skip(1)
+            .map(|part| {
+                part.split("<rect ")
+                    .nth(1)
+                    .unwrap()
+                    .split("height=\"")
+                    .nth(1)
+                    .unwrap()
+                    .split('"')
+                    .next()
+                    .unwrap()
+                    .parse()
+                    .unwrap()
+            })
+            .collect()
+    };
+    let fixed = render_size(&body.replace("SCALES", "gg.Scales.Fixed"), 8.0, 4.0);
+    let free = render_size(&body.replace("SCALES", "gg.Scales.FreeY"), 8.0, 4.0);
+    let fixed = heights(&fixed);
+    let free = heights(&free);
+    assert!((fixed[0] - 2.0 * fixed[1]).abs() < 0.02);
+    assert!((free[0] - free[1]).abs() < 0.02);
+}
+
+#[test]
+fn facet_grid_retains_empty_combinations_and_supports_free_scales() {
+    let svg = render_size(
+        r#"
+data = gg.table([("x", Column.Num([1.0, 2.0, 100.0]?)), ("y", Column.Num([1.0, 20.0, 30.0]?)), ("region", Column.Text(["North", "South", "South"]?)), ("period", Column.Text(["Before", "Before", "After"]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y"), [gg.geom_point(), gg.facet_grid(rows="region", cols="period", scales=gg.Scales.Free), gg.theme_minimal()]?)?
+"#,
+        10.0,
+        8.0,
+    );
+    assert_eq!(svg.matches("data-panel=").count(), 4);
+    assert_eq!(svg.matches("<circle ").count(), 3);
+    snapshot("facet-grid", &svg);
+}
+
+#[test]
+fn facet_and_interval_validation_is_eager() {
+    for (mapping, component, expected) in [
+        (
+            "gg.aes(\"x\", \"y\")",
+            "gg.geom_errorbar()",
+            "MissingAesthetic",
+        ),
+        (
+            "gg.aes(\"x\", ymin=\"high\", ymax=\"low\")",
+            "gg.geom_ribbon()",
+            "InvalidSetting",
+        ),
+        (
+            "gg.aes(\"site\", ymin=\"low\", ymax=\"high\")",
+            "gg.geom_ribbon()",
+            "WrongKind",
+        ),
+        (
+            "gg.aes(\"x\", \"y\")",
+            "gg.geom_point(), gg.facet_wrap(\"missing\")",
+            "InvalidSetting",
+        ),
+        (
+            "gg.aes(\"x\", \"y\")",
+            "gg.geom_point(), gg.facet_wrap(\"site\", ncol=1, nrow=1)",
+            "InvalidSetting",
+        ),
+    ] {
+        let source = program(&format!(
+            "data = gg.table([(\"x\", Column.Num([1.0, 2.0]?)), (\"y\", Column.Num([2.0, 3.0]?)), (\"low\", Column.Num([1.0, 2.0]?)), (\"high\", Column.Num([3.0, 4.0]?)), (\"site\", Column.Text([\"A\", \"B\"]?))]?)?\nmatch gg.ggplot(data, {mapping}, [{component}]?):\n    case Err(error):\n        print(error)?\n    case Ok(_):\n        print(\"unexpected\")?"
+        ));
+        assert!(support::run_file_stdout(&source).contains(expected));
+    }
+}
+
+#[test]
+fn facets_keep_missing_categories_and_allow_immutable_replacement() {
+    let output = support::run_file_stdout(&program(
+        r#"
+data = gg.table([("x", Column.Num([1.0, 2.0, 3.0]?)), ("y", Column.Num([1.0, 2.0, 3.0]?)), ("site", Column.MaybeText([Some("A"), Nothing, Some("B")]?))]?)?
+base = gg.ggplot(data, gg.aes("x", "y"), [gg.geom_point()]?)?
+changed = base.plus([gg.facet_wrap("site", ncol=1)]?)?
+mut first = std.io.cursor(std.bytes.empty()?)
+mut second = std.io.cursor(std.bytes.empty()?)
+drop(base.write_svg(&mut first)?)
+drop(changed.write_svg(&mut second, width=6.0, height=10.0)?)
+print("data-panel" in first.data.to_text()?, "site = (missing)" in second.data.to_text()?)?
+"#,
+    ));
+    assert_eq!(output, "False True");
+}
+
+#[test]
+fn facet_layout_preflights_every_panel_before_writing() {
+    let output = support::run_file_stdout(&program(
+        r#"
+data = gg.table([("x", Column.Num([1.0, 2.0]?)), ("y", Column.Num([1.0, 2.0]?)), ("site", Column.Text(["A", "B"]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y"), [gg.geom_point(), gg.facet_wrap("site", ncol=2)]?)?
+mut output = std.io.cursor(std.bytes.empty()?)
+match p.write_svg(&mut output, width=2.0, height=2.0):
+    case Err(PlotError.InvalidSetting(_)):
+        print(output.data.len())?
+    case _:
+        print("wrong")?
+"#,
+    ));
+    assert_eq!(output, "0");
+}
+
+#[test]
+fn transformed_intervals_keep_bound_order_and_report_invalid_domains() {
+    let output = support::run_file_stdout(&program(
+        r#"
+data = gg.table([("x", Column.Num([1.0, 2.0]?)), ("low", Column.Num([0.0, 10.0]?)), ("high", Column.Num([10.0, 100.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", ymin="low", ymax="high"), [gg.geom_errorbar(), gg.scale_y_log10()]?)?
+mut output = std.io.cursor(std.bytes.empty()?)
+print(p.write_svg(&mut output)?)?
+print(output.data.to_text()?)?
+"#,
+    ));
+    assert!(output.contains("Removed 1 rows"));
+    let geometry = output
+        .split("data-geom=\"errorbar\"")
+        .nth(1)
+        .unwrap()
+        .split("</g>")
+        .next()
+        .unwrap();
+    assert_eq!(geometry.matches("<line ").count(), 3);
+    let svg = render(
+        r#"
+data = gg.table([("x", Column.Num([1.0]?)), ("low", Column.Num([1.0]?)), ("high", Column.Num([3.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", ymin="low", ymax="high"), [gg.geom_errorbar(), gg.scale_y_reverse(), gg.coord_flip()]?)?
+"#,
+    );
+    assert!(svg.contains("data-geom=\"errorbar\""));
+}
+
+#[test]
+fn grid_reference_layers_repeat_only_across_the_missing_dimension() {
+    let svg = render_size(
+        r#"
+data = gg.table([("x", Column.Num([1.0, 2.0, 3.0]?)), ("y", Column.Num([1.0, 2.0, 3.0]?)), ("row", Column.Text(["N", "N", "S"]?)), ("col", Column.Text(["A", "B", "A"]?))]?)?
+reference = gg.table([("x", Column.Num([1.5]?)), ("y", Column.Num([2.5]?)), ("row", Column.Text(["N"]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y"), [gg.geom_point(), gg.geom_point(data=reference, colour="red"), gg.facet_grid(rows="row", cols="col")]?)?
+"#,
+        10.0,
+        8.0,
+    );
+    let counts: Vec<_> = svg
+        .split("data-panel=")
+        .skip(1)
+        .map(|panel| panel.matches("<circle ").count())
+        .collect();
+    assert_eq!(counts, [2, 2, 1, 0]);
+}
+
+#[test]
+fn ribbons_reject_ambiguous_shapes_and_styles() {
+    for (x, fill) in [("[1.0, 1.0]?", ""), ("[1.0, 2.0]?", ", fill=\"x\"")] {
+        let output = support::run_file_stdout(&program(&format!(
+            "data = gg.table([(\"x\", Column.Num({x})), (\"low\", Column.Num([1.0, 2.0]?)), (\"high\", Column.Num([3.0, 4.0]?))]?)?\np = gg.ggplot(data, gg.aes(\"x\", ymin=\"low\", ymax=\"high\"{fill}), [gg.geom_ribbon()]?)?\nmut output = std.io.cursor(std.bytes.empty()?)\nmatch p.write_svg(&mut output):\n    case Err(PlotError.Conflict(_)):\n        print(\"ambiguous\")?\n    case _:\n        print(\"wrong\")?"
+        )));
+        assert_eq!(output, "ambiguous");
+    }
+}
+
+#[test]
+fn wrap_layout_handles_fractional_cell_dimensions_and_unused_cells() {
+    let svg = render_size(
+        r#"
+data = gg.table([("x", Column.Text(["A", "A", "A", "A", "A"]?)), ("site", Column.Text(["One", "Two", "Three", "Four", "Five"]?))]?)?
+p = gg.ggplot(data, gg.aes("x"), [gg.geom_bar(), gg.facet_wrap("site", ncol=3)]?)?
+"#,
+        10.0,
+        7.0,
+    );
+    assert_eq!(svg.matches("data-panel=").count(), 5);
+    assert_eq!(svg.matches("data-geom=\"bar\"").count(), 5);
 }
 
 #[test]
@@ -805,6 +1059,54 @@ drop(p.save({:?})?)
     assert_eq!(
         std::fs::read_to_string(path).unwrap().trim_end(),
         svg.trim_end()
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn faceted_interval_allocation_failure_preserves_retry() {
+    let mut body = String::from(
+        r#"
+t = gg.table([("x", Column.Num([1.0, 2.0, 1.0, 2.0]?)), ("low", Column.Num([1.0, 2.0, 3.0, 4.0]?)), ("high", Column.Num([2.0, 3.0, 4.0, 5.0]?)), ("site", Column.Text(["A", "A", "B", "B"]?))]?)?
+p = gg.ggplot(t, gg.aes("x", ymin="low", ymax="high"), [gg.geom_ribbon(), gg.geom_errorbar(), gg.facet_wrap("site")]?)?
+"#,
+    );
+    let mut helpers = String::new();
+    let budgets: Vec<_> = (0..128)
+        .step_by(16)
+        .chain([512, 1024, 4096, 16384])
+        .collect();
+    for budget in &budgets {
+        body.push_str(&format!("facet_check{budget}(&p)?\n"));
+        helpers.push_str(&format!(
+            r#"
+def facet_check{budget}(p: &gg.Plot) -> Result[(), PlotError | BytesError | IoError]:
+    mut output = std.io.cursor(std.bytes.empty()?)
+    print("__test_fail_allocations_after_{budget}__")?
+    attempted = p.write_svg(&mut output, width=10.0, height=4.0)
+    print("__test_restore_allocations__")?
+    match attempted:
+        case Ok(_):
+            print("rendered")?
+        case Err(error):
+            print(error)?
+    mut retry = std.io.cursor(std.bytes.empty()?)
+    drop(p.write_svg(&mut retry, width=10.0, height=4.0)?)
+    Ok(())
+"#
+        ));
+    }
+    let output = support::run_file_stdout(&format!("{}\n{helpers}", program(&body)));
+    assert_eq!(output.lines().count(), budgets.len());
+    assert!(
+        output.contains("OutOfMemory") && output.contains("rendered"),
+        "{output}"
+    );
+    assert!(
+        output
+            .lines()
+            .all(|line| line == "rendered" || line.contains("OutOfMemory")),
+        "{output}"
     );
 }
 
