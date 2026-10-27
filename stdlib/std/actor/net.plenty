@@ -1,0 +1,680 @@
+# TCP for std.actor: a listener that starts one actor per connection, a
+# connection with bounded input and output buffers and deadlines, and
+# nonblocking connect and name lookup. Buffers are allocated when a
+# connection is admitted; handling readiness and timers allocates nothing.
+# See book/src/design/stdlib/actor-net.md.
+import std.bytes
+from std.actor import Context, Mail, Timer, TimerError
+from std.bytes import ByteSource, Bytes, BytesError
+from std.io import StreamError
+from std.net import Connecting, Lookup, NetError, Shutdown, SocketAddress, TcpListener, TcpStream, start_connect, start_lookup
+from std.ready import Interest
+from std.time import Duration, instant_at, monotonic_now, nanoseconds
+
+# Writes attempted per message, so one fast connection cannot hold the
+# stage; level-triggered readiness brings the rest.
+const max_writes: i64 = 4
+
+def now() -> u64:
+    monotonic_now().saturating_duration_since(&instant_at(0u64)).as_nanoseconds()
+
+def later(at: u64, span: u64) -> u64:
+    if span > u64.MAX - at:
+        u64.MAX
+    else:
+        at + span
+
+# Buffer sizes and deadlines for each connection. A zero duration turns that
+# deadline off.
+pub class Limits:
+    # Bytes of received input held until the handler consumes them. A full
+    # input buffer stops reading, so the peer's sends block in turn.
+    pub input: i64
+    # Bytes of output held until the socket takes them. `write` accepts only
+    # what fits.
+    pub output: i64
+    # Ends a connection that has moved no bytes either way for this long.
+    pub idle: Duration
+    # Ends a connection whose pending output has made no progress for this
+    # long, such as a peer that stopped reading.
+    pub stall: Duration
+
+# A deadline that passed.
+pub enum Expired:
+    # No bytes moved for `Limits.idle`.
+    Idle
+    # The deadline set by `Connection.read_within` passed.
+    Read
+    # Pending output made no progress for `Limits.stall`.
+    Write
+
+# What one mail did to a connection. `handle` returns it for every mail;
+# `mine` is False for mail that was not about the connection.
+@copy
+pub class Events:
+    pub mine: bool
+    # Bytes this mail added to the input.
+    pub received: i64
+    # The peer finished sending: no more input will arrive.
+    pub ended: bool
+    # Output space freed after `write` accepted less than it was offered.
+    pub writable: bool
+    # All output has been sent.
+    pub drained: bool
+    pub expired: Option[Expired]
+
+def no_events() -> Events:
+    Events(False, 0, False, False, False, Nothing)
+
+# One TCP connection, owned by one actor. Input arrives in a bounded buffer
+# that the handler reads in place and then consumes; output is copied into a
+# bounded buffer that is sent as the socket accepts it. Deadlines share one
+# timer, re-armed only when it fires or a sooner deadline starts.
+pub class Connection:
+    _stream: TcpStream
+    _input: Bytes
+    _input_start: i64
+    _input_stop: i64
+    _output: Bytes
+    _output_start: i64
+    _output_stop: i64
+    # The interest registered with the stage: 0 none, 1 read, 2 write, 3 both.
+    _watched: i64
+    _reading: bool
+    _writing: bool
+    _closed: bool
+    _shutdown: bool
+    _refused: bool
+    _idle: u64
+    _stall: u64
+    # Absolute times in nanoseconds; 0 is unset.
+    _read_by: u64
+    _active: u64
+    _progress: u64
+    _timer: Option[Timer]
+    _due: u64
+
+    # Watches the socket and starts the deadlines. Call it from the actor's
+    # `started`.
+    pub def start[M, E](self: &mut Connection, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]:
+        self._active = now()
+        self.refresh(context)?
+        Ok(())
+
+    # Applies one mail: readiness reads and writes, and the connection's timer
+    # checks its deadlines. Other mail returns `Events` with `mine` False.
+    # A reset or other socket failure is an error; the connection is then
+    # unusable, and returning the error ends the actor.
+    pub def handle[M, E](self: &mut Connection, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Events, NetError | TimerError]:
+        mut events = no_events()
+        if self._closed:
+            return Ok(events)
+        match mail:
+            case Mail.Ready(_):
+                events.mine = True
+                at = now()
+                self.flush(&mut events, at)?
+                self.fill(&mut events, at)?
+            case Mail.Timer(timer):
+                match self._timer:
+                    case Some(armed):
+                        if armed.key() != timer.key():
+                            return Ok(events)
+                    case Nothing:
+                        return Ok(events)
+                events.mine = True
+                self._timer = Nothing
+                self._due = 0u64
+                events.expired = self.expired(now())
+            case _:
+                return Ok(events)
+        self.refresh(context)?
+        Ok(events)
+
+    # The input buffer. Received bytes are `input()[input_start():input_stop()]`.
+    pub def input(self) -> &Bytes:
+        &self._input
+
+    pub def input_start(self) -> i64:
+        self._input_start
+
+    pub def input_stop(self) -> i64:
+        self._input_stop
+
+    # Received bytes not yet consumed.
+    pub def available(self) -> i64:
+        self._input_stop - self._input_start
+
+    # Releases the first `count` received bytes. Reading resumes if a full
+    # buffer had stopped it.
+    pub def consume[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]:
+        if count < 0 or count > self.available():
+            return Err(invalid())
+        self._input_start += count
+        if self._input_start == self._input_stop:
+            self._input_start = 0
+            self._input_stop = 0
+        self.refresh(context)?
+        Ok(())
+
+    # Output bytes not yet sent.
+    pub def pending(self) -> i64:
+        self._output_stop - self._output_start
+
+    # Output bytes `write` would accept now.
+    pub def space(self) -> i64:
+        self._output.len() - self.pending()
+
+    # Copies as much of source[start:stop] as fits into the output buffer,
+    # sends what the socket takes at once, and returns how many bytes were
+    # accepted. A short count is back-pressure: `Events.writable` reports
+    # when space frees. Fails after `shutdown_write` or `close`.
+    pub def write[S: ByteSource, M, E](self: &mut Connection, source: &S, start: i64, stop: i64, context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]:
+        if start < 0 or stop < start or stop > source.len():
+            return Err(invalid())
+        if self._closed or self._shutdown or not self._writing:
+            return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+        at = now()
+        count = self.make_room(stop - start, at)
+        lifted(self._output.overwrite(self._output_stop, source, start, start + count))?
+        self._output_stop += count
+        mut events = no_events()
+        self.flush(&mut events, at)?
+        self.refresh(context)?
+        Ok(count)
+
+    # Moves up to `count` received bytes to the output, consuming them, and
+    # returns how many moved: `write` from the input buffer, for echoing and
+    # relaying.
+    pub def forward[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]:
+        if count < 0 or count > self.available():
+            return Err(invalid())
+        if self._closed or self._shutdown or not self._writing:
+            return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+        at = now()
+        moved = self.make_room(count, at)
+        lifted(self._output.overwrite(self._output_stop, &self._input, self._input_start, self._input_start + moved))?
+        self._output_stop += moved
+        self._input_start += moved
+        if self._input_start == self._input_stop:
+            self._input_start = 0
+            self._input_stop = 0
+        mut events = no_events()
+        self.flush(&mut events, at)?
+        self.refresh(context)?
+        Ok(moved)
+
+    # Sets a deadline for input: `Events.expired` reports `Expired.Read` if
+    # it passes before `clear_read_deadline`. Use it to bound how long a
+    # request may take to arrive.
+    pub def read_within[M, E](self: &mut Connection, span: &Duration, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]:
+        self._read_by = later(now(), span.as_nanoseconds())
+        if self._read_by == 0u64:
+            self._read_by = 1u64
+        self.refresh(context)?
+        Ok(())
+
+    pub def clear_read_deadline(self: &mut Connection) -> ():
+        self._read_by = 0u64
+
+    # Ends output once the pending bytes are sent; the peer then reads end of
+    # input. Reading continues.
+    pub def shutdown_write[M, E](self: &mut Connection, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]:
+        if self._closed or self._shutdown:
+            return Ok(())
+        self._shutdown = True
+        mut events = no_events()
+        self.flush(&mut events, now())?
+        self.refresh(context)?
+        Ok(())
+
+    # Closes the socket at once, discarding unsent output, and stops the
+    # connection's timer. Later mail returns `Events` with `mine` False.
+    pub def close[M, E](self: &mut Connection, context: &mut Context[M, E]) -> Result[(), NetError]:
+        if self._closed:
+            return Ok(())
+        self._closed = True
+        self.disarm(context)
+        if self._watched != 0:
+            self._watched = 0
+            context.unwatch_stream(&self._stream)?
+        match self._stream.close():
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                Err(NetError.Stream(error))
+
+    # The peer has not finished sending.
+    pub def reading(self) -> bool:
+        self._reading
+
+    pub def closed(self) -> bool:
+        self._closed
+
+    pub def stream(self) -> &TcpStream:
+        &self._stream
+
+    # How many of `wanted` output bytes fit, after moving pending output to
+    # the front if that makes more room. Marks a short count for
+    # `Events.writable`.
+    def make_room(self: &mut Connection, wanted: i64, at: u64) -> i64:
+        if self._output_start == self._output_stop:
+            self._output_start = 0
+            self._output_stop = 0
+            self._progress = at
+        elif self._output_stop + wanted > self._output.len() and self._output_start > 0:
+            shift(&mut self._output, self._output_start, self._output_stop)
+            self._output_stop -= self._output_start
+            self._output_start = 0
+        room = self._output.len() - self._output_stop
+        if wanted > room:
+            self._refused = True
+            return room
+        wanted
+
+    # Sends pending output, at most `max_writes` attempts.
+    def flush(self: &mut Connection, events: &mut Events, at: u64) -> Result[(), NetError]:
+        if not self._writing:
+            return Ok(())
+        mut attempts = 0
+        while self._output_start < self._output_stop and attempts < max_writes:
+            attempts += 1
+            match self._stream.write_now(&self._output, self._output_start, self._output_stop):
+                case Ok(count):
+                    self._output_start += count
+                    self._active = at
+                    self._progress = at
+                case Err(NetError.WouldBlock):
+                    break
+                case Err(error):
+                    self._writing = False
+                    return Err(error)
+        if self._output_start == self._output_stop:
+            if self._output_stop > 0:
+                events.drained = True
+            self._output_start = 0
+            self._output_stop = 0
+            if self._shutdown:
+                self._writing = False
+                self._stream.shutdown(Shutdown.Write)?
+        if self._refused and self.space() > 0:
+            self._refused = False
+            events.writable = True
+        Ok(())
+
+    # Reads once into the free end of the input buffer.
+    def fill(self: &mut Connection, events: &mut Events, at: u64) -> Result[(), NetError]:
+        if not self._reading:
+            return Ok(())
+        size = self._input.len()
+        if self._input_stop == size and self._input_start > 0:
+            shift(&mut self._input, self._input_start, self._input_stop)
+            self._input_stop -= self._input_start
+            self._input_start = 0
+        if self._input_stop == size:
+            return Ok(())
+        match self._stream.read_now(&mut self._input, self._input_stop, size):
+            case Ok(0):
+                self._reading = False
+                events.ended = True
+            case Ok(count):
+                self._input_stop += count
+                events.received = count
+                self._active = at
+            case Err(NetError.WouldBlock):
+                pass
+            case Err(error):
+                self._reading = False
+                return Err(error)
+        Ok(())
+
+    # The first deadline that has passed. Each is reported once: idle and
+    # stall restart from now, and the read deadline is cleared.
+    def expired(self: &mut Connection, at: u64) -> Option[Expired]:
+        if self._read_by != 0u64 and at >= self._read_by:
+            self._read_by = 0u64
+            return Some(Expired.Read)
+        if self._stall != 0u64 and self.pending() > 0 and at >= later(self._progress, self._stall):
+            self._progress = at
+            return Some(Expired.Write)
+        if self._idle != 0u64 and at >= later(self._active, self._idle):
+            self._active = at
+            return Some(Expired.Idle)
+        Nothing
+
+    # The soonest deadline in force, or 0 for none.
+    def next_due(self) -> u64:
+        mut due = 0u64
+        if self._read_by != 0u64:
+            due = self._read_by
+        if self._stall != 0u64 and self.pending() > 0:
+            stall = later(self._progress, self._stall)
+            if due == 0u64 or stall < due:
+                due = stall
+        if self._idle != 0u64:
+            idle = later(self._active, self._idle)
+            if due == 0u64 or idle < due:
+                due = idle
+        due
+
+    # Brings the stage's interest and the timer in line with the buffers and
+    # deadlines. Each changes only when needed.
+    def refresh[M, E](self: &mut Connection, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]:
+        if self._closed:
+            return Ok(())
+        mut wanted = 0
+        if self._reading and self._input_stop - self._input_start < self._input.len():
+            wanted = 1
+        if self._writing and self._output_start < self._output_stop:
+            wanted += 2
+        if wanted != self._watched:
+            if wanted == 0:
+                context.unwatch_stream(&self._stream)?
+            elif wanted == 1:
+                context.watch_stream(&self._stream, Interest.Read)?
+            elif wanted == 2:
+                context.watch_stream(&self._stream, Interest.Write)?
+            else:
+                context.watch_stream(&self._stream, Interest.ReadWrite)?
+            self._watched = wanted
+        due = self.next_due()
+        if due == 0u64:
+            return Ok(())
+        # A timer that fires early finds nothing due and re-arms.
+        if self._due != 0u64 and self._due <= due:
+            return Ok(())
+        self.disarm(context)
+        at = now()
+        mut delay = 0u64
+        if due > at:
+            delay = due - at
+        self._timer = Some(context.after(&nanoseconds(delay), 0)?)
+        self._due = due
+        Ok(())
+
+    def disarm[M, E](self: &mut Connection, context: &mut Context[M, E]) -> ():
+        match self._timer:
+            case Some(timer):
+                context.cancel(timer)
+            case Nothing:
+                pass
+        self._timer = Nothing
+        self._due = 0u64
+
+# Moves buffer[start:stop] to the front. Only unconsumed bytes move, once per
+# trip through the buffer.
+def shift(buffer: &mut Bytes, start: i64, stop: i64) -> ():
+    for index in range(stop - start):
+        buffer[index] = buffer[start + index]
+
+def invalid() -> NetError:
+    NetError.Stream(StreamError.Io(IoError.InvalidInput))
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, NetError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(error)):
+            Err(NetError.Stream(StreamError.Allocation(error)))
+        case Err(_):
+            Err(invalid())
+
+# A connection over `stream` with buffers sized by `limits`, allocated in
+# the current heap. Call `start` from the owning actor.
+pub def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, BytesError]:
+    if limits.input < 1 or limits.output < 1:
+        return Err(BytesError.OutOfRange)
+    mut input = std.bytes.with_capacity(limits.input)?
+    input.resize(limits.input, 0u8)?
+    mut output = std.bytes.with_capacity(limits.output)?
+    output.resize(limits.output, 0u8)?
+    Ok(Connection(stream, input, 0, 0, output, 0, 0, 0, True, True, False, False, False, limits.idle.as_nanoseconds(), limits.stall.as_nanoseconds(), 0u64, 0u64, 0u64, Nothing, 0u64))
+
+# What a listener does with a connection that arrives at capacity.
+pub enum Admission:
+    # Stops accepting until a connection ends; arrivals wait in the kernel's
+    # backlog, and are refused by the kernel once it is full.
+    Pause
+    # Accepts and closes it at once, so the peer sees the connection end.
+    Refuse
+
+# Accepts connections for the actor that owns it, starting one child actor
+# per connection with a heap of `heap` bytes, at most `capacity` at once.
+# Every child of that actor counts as a connection.
+pub class Listener:
+    _listener: TcpListener
+    _limits: Limits
+    _capacity: i64
+    _heap: i64
+    _tag: i64
+    _admission: Admission
+    _live: i64
+    _watching: bool
+    _refused: i64
+
+    # Starts watching for connections. Call it from the actor's `started`.
+    pub def start[M, E](self: &mut Listener, context: &mut Context[M, E]) -> Result[(), NetError]:
+        self._watching = True
+        context.watch_listener(&self._listener)
+
+    # Applies one mail: readiness admits one connection by spawning a child
+    # with tag `tag`; a child's `Down` frees its place. Returns True for mail
+    # the listener used. The child is built by the actor's `spawn` hook,
+    # which calls `accept`.
+    pub def handle[M, E](self: &mut Listener, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[bool, NetError]:
+        match mail:
+            case Mail.Ready(_):
+                if self._watching:
+                    if self._live < self._capacity:
+                        match context.spawn(self._tag, self._heap):
+                            case Ok(_):
+                                self._live += 1
+                                return Ok(True)
+                            # No slot, heap or mailbox: as at capacity.
+                            case Err(_):
+                                pass
+                    self.full(context)?
+                Ok(True)
+            case Mail.Down(_, _):
+                self._live -= 1
+                if not self._watching and self._live < self._capacity:
+                    self._watching = True
+                    context.watch_listener(&self._listener)?
+                Ok(True)
+            case _:
+                Ok(False)
+
+    # Accepts the waiting connection into a `Connection`, allocating its
+    # buffers in the current heap. Call it from the `spawn` hook for this
+    # listener's tag; Nothing means another actor took the connection, and
+    # the hook should return Nothing.
+    pub def accept(self) -> Result[Option[Connection], NetError | BytesError]:
+        match self._listener.accept_now():
+            case Ok(stream):
+                Ok(Some(connection(stream, &self._limits)?))
+            case Err(NetError.WouldBlock):
+                Ok(Nothing)
+            case Err(error):
+                Err(error)
+
+    # Connections admitted and not yet ended.
+    pub def live(self) -> i64:
+        self._live
+
+    # Connections closed at capacity under `Admission.Refuse`.
+    pub def refused(self) -> i64:
+        self._refused
+
+    pub def tag(self) -> i64:
+        self._tag
+
+    pub def local_address(self) -> Result[SocketAddress, NetError]:
+        self._listener.local_address()
+
+    # At capacity, or the stage could not start a child.
+    def full[M, E](self: &mut Listener, context: &mut Context[M, E]) -> Result[(), NetError]:
+        match self._admission:
+            case Admission.Pause:
+                self._watching = False
+                context.unwatch_listener(&self._listener)?
+            case Admission.Refuse:
+                match self._listener.accept_now():
+                    case Ok(stream):
+                        drop(stream)
+                        self._refused += 1
+                    case Err(NetError.WouldBlock):
+                        pass
+                    case Err(NetError.HandleLimit):
+                        # Nothing can be accepted until a descriptor frees.
+                        self._watching = False
+                        context.unwatch_listener(&self._listener)?
+                    case Err(error):
+                        return Err(error)
+        Ok(())
+
+# A listener over `listener`. `capacity` bounds live connections and
+# `heap` is each connection actor's heap limit in bytes.
+pub def listener(socket: TcpListener, limits: Limits, capacity: i64, heap: i64, tag: i64, admission: Admission) -> Result[Listener, NetError]:
+    if capacity < 1 or heap < 1 or limits.input < 1 or limits.output < 1:
+        return Err(invalid())
+    Ok(Listener(socket, limits, capacity, heap, tag, admission, 0, False, 0))
+
+# An outbound connection attempt owned by an actor, with a timeout.
+pub class Dialing:
+    _attempt: Option[Connecting]
+    _timer: Option[Timer]
+
+    # Applies one mail. Returns the stream once connected, Nothing while the
+    # attempt continues or for unrelated mail, or why it failed: Refused,
+    # Unreachable, or TimedOut when the timeout passed.
+    pub def handle[M, E](self: &mut Dialing, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Option[TcpStream], NetError]:
+        match mail:
+            case Mail.Ready(_):
+                mut outcome: Result[(), NetError] = Ok(())
+                match &mut self._attempt:
+                    case Some(attempt):
+                        outcome = attempt.finish_now()
+                    case Nothing:
+                        return Ok(Nothing)
+                match outcome:
+                    case Ok(_):
+                        pass
+                    case Err(NetError.WouldBlock):
+                        return Ok(Nothing)
+                    case Err(error):
+                        self.abandon(context)?
+                        return Err(error)
+                self.stop_timer(context)
+                match replace(self._attempt, Nothing):
+                    case Some(attempt):
+                        context.unwatch_connecting(&attempt)?
+                        Ok(Some(attempt.stream()))
+                    case Nothing:
+                        Ok(Nothing)
+            case Mail.Timer(timer):
+                if not owns(&self._timer, timer):
+                    return Ok(Nothing)
+                self._timer = Nothing
+                self.abandon(context)?
+                Err(NetError.TimedOut)
+            case _:
+                Ok(Nothing)
+
+    # Stops the attempt and its timer.
+    pub def abandon[M, E](self: &mut Dialing, context: &mut Context[M, E]) -> Result[(), NetError]:
+        self.stop_timer(context)
+        match replace(self._attempt, Nothing):
+            case Some(attempt):
+                context.unwatch_connecting(&attempt)?
+                drop(attempt)
+            case Nothing:
+                pass
+        Ok(())
+
+    def stop_timer[M, E](self: &mut Dialing, context: &mut Context[M, E]) -> ():
+        match self._timer:
+            case Some(timer):
+                context.cancel(timer)
+            case Nothing:
+                pass
+        self._timer = Nothing
+
+def owns(armed: &Option[Timer], timer: &Timer) -> bool:
+    match armed:
+        case Some(mine):
+            mine.key() == timer.key()
+        case Nothing:
+            False
+
+# Starts connecting to `address` from the running actor; the result arrives
+# through `Dialing.handle`. A zero timeout waits indefinitely.
+pub def dial[M, E](address: &SocketAddress, timeout: &Duration, context: &mut Context[M, E]) -> Result[Dialing, NetError | TimerError]:
+    attempt = start_connect(address)?
+    context.watch_connecting(&attempt)?
+    mut timer: Option[Timer] = Nothing
+    if not timeout.is_zero():
+        timer = Some(context.after(timeout, 0)?)
+    Ok(Dialing(Some(attempt), timer))
+
+# A name lookup owned by an actor, with a timeout. The lookup runs on a
+# helper thread; the actor's stage keeps running meanwhile.
+pub class Resolving:
+    _lookup: Option[Lookup]
+    _timer: Option[Timer]
+
+    # Applies one mail. Returns the addresses in preference order once the
+    # lookup replies, Nothing while it continues or for unrelated mail, or
+    # why it failed: NameNotFound, TryAgain, or TimedOut.
+    pub def handle[M, E](self: &mut Resolving, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Option[list[SocketAddress]], NetError]:
+        match mail:
+            case Mail.Ready(_):
+                mut outcome: Result[list[SocketAddress], NetError] = Err(NetError.WouldBlock)
+                match &mut self._lookup:
+                    case Some(lookup):
+                        outcome = lookup.finish_now()
+                    case Nothing:
+                        return Ok(Nothing)
+                match outcome:
+                    case Err(NetError.WouldBlock):
+                        Ok(Nothing)
+                    case Ok(addresses):
+                        self.abandon(context)?
+                        Ok(Some(addresses))
+                    case Err(error):
+                        self.abandon(context)?
+                        Err(error)
+            case Mail.Timer(timer):
+                if not owns(&self._timer, timer):
+                    return Ok(Nothing)
+                self._timer = Nothing
+                self.abandon(context)?
+                Err(NetError.TimedOut)
+            case _:
+                Ok(Nothing)
+
+    # Stops waiting for the lookup; its helper thread finishes on its own.
+    pub def abandon[M, E](self: &mut Resolving, context: &mut Context[M, E]) -> Result[(), NetError]:
+        match self._timer:
+            case Some(timer):
+                context.cancel(timer)
+            case Nothing:
+                pass
+        self._timer = Nothing
+        match replace(self._lookup, Nothing):
+            case Some(lookup):
+                context.unwatch_lookup(&lookup)?
+                drop(lookup)
+            case Nothing:
+                pass
+        Ok(())
+
+# Starts looking up `host` from the running actor; the result arrives
+# through `Resolving.handle`. A zero timeout waits indefinitely. At most 32
+# lookups run at once in the process; past that the result is TryAgain.
+pub def lookup[M, E](host: &str, port: u16, timeout: &Duration, context: &mut Context[M, E]) -> Result[Resolving, NetError | TimerError]:
+    pending = start_lookup(host, port)?
+    context.watch_lookup(&pending)?
+    mut timer: Option[Timer] = Nothing
+    if not timeout.is_zero():
+        timer = Some(context.after(timeout, 0)?)
+    Ok(Resolving(Some(pending), timer))
