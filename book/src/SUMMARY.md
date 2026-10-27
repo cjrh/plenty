@@ -258,6 +258,7 @@
             - [Names and scopes](design/language/02-source/names.md)
             - [Modules and imports](design/language/02-source/modules.md)
             - [Visibility](design/language/02-source/visibility.md)
+            - [Target conditionals](design/language/02-source/target-conditionals.md)
             - [Application entrypoint](design/language/02-source/entrypoint.md)
         - [Types and data definitions](design/language/03-types/index.md)
             - [Numeric types and literals](design/language/03-types/numbers.md)

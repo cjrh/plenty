@@ -27,6 +27,7 @@ mod classes;
 mod clists;
 mod closures;
 mod collections;
+mod consts;
 mod contexts;
 mod control;
 mod data;
@@ -54,6 +55,7 @@ mod retention;
 mod shared;
 mod sorting;
 mod tail_calls;
+mod target;
 mod threads;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -1995,6 +1997,20 @@ impl Parser {
             |parser| &mut parser.scratch_stmts,
             |parser| {
                 while !matches!(parser.peek().kind, Kind::Dedent | Kind::Eof) {
+                    if parser.at_const_if() {
+                        let at = parser.peek().clone();
+                        let selected = parser.const_statements()?;
+                        if selected.is_empty() {
+                            // No arm holds: the chain stands for nothing,
+                            // but the suite must not become empty.
+                            parser.scratch_stmts.push(Stmt {
+                                at,
+                                kind: Statement::Pass,
+                            });
+                        }
+                        parser.scratch_stmts.extend(selected);
+                        continue;
+                    }
                     let statement = parser.statement()?;
                     parser.scratch_stmts.push(statement);
                 }

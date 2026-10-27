@@ -16,7 +16,8 @@ prefix makes a [byte literal](../03-types/bytes.md), `b"..."`, which holds ASCII
 characters and `\xHH` escapes.
 
 Module scope contains functions, classes, enums, protocols, type aliases,
-[numeric constants](modules.md#numeric-constants), and imports. Executable
+[constants](modules.md#constants), static assertions, imports, and
+[target conditionals](target-conditionals.md). Executable
 statements and mutable bindings belong inside functions; there are
 no global variables. Named functions belong at module scope; classes and
 enums can declare methods, and protocols declare method requirements.

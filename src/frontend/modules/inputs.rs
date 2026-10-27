@@ -9,7 +9,9 @@
 //! resolving it again repeats each existence check the loader made, so a new
 //! file that would shadow, conflict with, or replace a module is noticed.
 //! Standard modules are part of the compiler: the cache key covers the
-//! compiler's identity and [`standard_digest`].
+//! compiler's identity and [`standard_digest`]. A file that a constant reads
+//! with `include_str` or `include_bytes` is recorded like a source file with
+//! no imports.
 use super::{Import, Kind, Loader, ModuleSource, STANDARD_MODULES, Token, prepare_packages};
 use crate::hash::HashMap;
 use sha2::{Digest, Sha256};
@@ -49,11 +51,13 @@ struct Resolution {
 }
 
 impl File {
-    pub(super) fn new(path: &Path, package: usize, text: &str) -> File {
+    /// A file with contents `data`: a source file, whose imports are then
+    /// recorded, or a file a constant includes, which has none.
+    pub(super) fn new(path: &Path, package: usize, data: &[u8]) -> File {
         File {
             path: path.to_path_buf(),
             package,
-            digest: Sha256::digest(text.as_bytes()).into(),
+            digest: Sha256::digest(data).into(),
             imports: vec![],
         }
     }
@@ -221,7 +225,7 @@ mod tests {
 
     #[test]
     fn inputs_round_trip_and_reject_damage() {
-        let mut file = File::new(Path::new("/src/main.plenty"), 0, "import a\n");
+        let mut file = File::new(Path::new("/src/main.plenty"), 0, b"import a\n");
         file.import("a", &ModuleSource::File("/src/a.plenty".into()), 0);
         file.import("std.json", &ModuleSource::Standard("std.json"), 0);
         let inputs = Inputs::new(vec![file]);

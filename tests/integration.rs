@@ -511,6 +511,8 @@ mod test_symbol_references;
 mod test_tail_abi;
 #[path = "test_tail_call_cleanup.rs"]
 mod test_tail_call_cleanup;
+#[path = "test_target_conditionals.rs"]
+mod test_target_conditionals;
 #[path = "test_text_bytes_fast_paths.rs"]
 mod test_text_bytes_fast_paths;
 #[path = "test_text_characters.rs"]

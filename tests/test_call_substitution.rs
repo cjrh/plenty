@@ -99,6 +99,49 @@ fn constants_keep_their_values_types_and_bindings_without_getters() {
     }
 }
 
+/// Folded expressions, `str` and `bytes` constants, and included files are
+/// read as literals too: no getter survives and no code runs to compute them.
+#[test]
+fn folded_text_and_included_constants_have_no_getters() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("note.txt"), "noted").unwrap();
+    std::fs::write(
+        dir.path().join("main.plenty"),
+        "\
+const KIB: i64 = 1 << 10
+const MIB: i64 = KIB * KIB
+const NAME: str = \"plenty\" + \"-\" + \"lang\"
+const MAGIC: bytes = b\"\\x7fELF\"
+const NOTE: str = include_str(\"note.txt\")
+assert MIB == 1048576
+
+def main() -> Result[(), IoError]:
+    print(MIB)?
+    print(NAME)?
+    print(MAGIC)?
+    print(NOTE)?
+    Ok(())
+",
+    )
+    .unwrap();
+    for mode in [&[][..], &["--release"][..]] {
+        let mut args = mode.to_vec();
+        args.push("main.plenty");
+        assert_eq!(
+            stdout(plenty(dir.path(), &args)),
+            "1048576\nplenty-lang\nb\"\\x7fELF\"\nnoted\n",
+            "{mode:?}"
+        );
+        dump(dir.path(), mode, "main.plenty");
+        let index = std::fs::read_to_string(dir.path().join("out/index.txt")).unwrap();
+        assert!(!index.contains("$const."), "{mode:?}: {index}");
+        assert!(!index.contains("$assert"), "{mode:?}: {index}");
+        let main = section(dir.path(), "ops.txt", "main").unwrap();
+        assert!(main.contains("PushInt(I64(1048576))"), "{mode:?}: {main}");
+        assert!(!main.contains("$const"), "{main}");
+    }
+}
+
 /// `digit` and `blank` are leaf predicates; `bump` also substitutes its checked
 /// arithmetic in optimized native code. Recursive `countdown` stays a call.
 const PREDICATES: &str = "\

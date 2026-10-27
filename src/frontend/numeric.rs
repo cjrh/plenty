@@ -92,7 +92,7 @@ pub(super) fn extremum_replaces(min: bool, ty: &Ty, candidate: Expr, held: Expr)
     )
 }
 
-fn constant(ty: &Ty, name: &str) -> Option<Op> {
+pub(super) fn constant(ty: &Ty, name: &str) -> Option<Op> {
     if let (Some((min, end)), "MIN" | "MAX") = (ty.int_range(), name) {
         let value = if name == "MIN" { min } else { end - 1 };
         return Some(Op::PushInt(match ty {

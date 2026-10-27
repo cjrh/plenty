@@ -63,7 +63,7 @@ absolute tolerance may accept the difference. Negative tolerances produce
 `1e-9, 0.0` matches Python's defaults.
 
 The module exports `pi`, `e`, `tau`, `inf`, and `nan` as immutable `f64`
-[module constants](../language/02-source/modules.md#numeric-constants). They can also be imported
+[module constants](../language/02-source/modules.md#constants). They can also be imported
 individually. Numeric types retain `f64.PI`, `f64.E`, `f64.TAU`, `f64.INF`, and
 `f64.NAN`, with the same names on `f32`.
 
