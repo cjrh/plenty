@@ -13,12 +13,13 @@
 //!   heap in one call, closing the files it still owned.
 //!
 //! The heap table belongs to one thread: heaps are created, run and discarded
-//! on the thread that made the first heap. Other threads only ever allocate
-//! from System, because their `CURRENT` is zero.
+//! on the thread that made the first heap, and heap operations from any other
+//! thread fail. Other threads only ever allocate from System, because their
+//! `CURRENT` is zero. A block in the range freed by another thread is left in
+//! place, and reallocating one copies it to System.
 //!
-//! Programs that never create a heap pay one thread-local read per
-//! allocation and one compare per free; `BASE` stays null and every call goes
-//! to System.
+//! Programs that never create a heap pay one load of `BASE` per allocation and
+//! one compare per free; `BASE` stays null and every call goes to System.
 
 /// `plenty_actor_heap` operations; `stdlib/std/actor.plenty` mirrors them.
 const CREATE: i64 = 0;
@@ -273,9 +274,20 @@ mod native {
 
     // SAFETY: heap blocks are disjoint, aligned to the layout, and at least
     // the requested size; System handles every pointer outside the range.
+    /// One plus the current heap's index, or 0 for System. Reads no
+    /// thread-local before the first heap exists, so programs without actors
+    /// pay one load and a branch per allocation.
+    #[inline]
+    fn current() -> usize {
+        if BASE.load(Ordering::Relaxed).is_null() {
+            return 0;
+        }
+        CURRENT.with(Cell::get)
+    }
+
     unsafe impl GlobalAlloc for Router {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            match CURRENT.with(Cell::get) {
+            match current() {
                 // SAFETY: as GlobalAlloc requires of the caller.
                 0 => unsafe { System.alloc(layout) },
                 // SAFETY: CURRENT only ever names a live heap of this thread.
@@ -283,7 +295,7 @@ mod native {
             }
         }
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-            match CURRENT.with(Cell::get) {
+            match current() {
                 // SAFETY: as GlobalAlloc requires; keeps calloc's fresh pages.
                 0 => unsafe { System.alloc_zeroed(layout) },
                 current => {

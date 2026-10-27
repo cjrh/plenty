@@ -488,6 +488,7 @@ pub class Stage[N, M, E]:
                             self.end(index, hook)
                             return
                 if stopping:
+                    self._context._stats.stopped += 1
                     self.finish(index)
                     self.retire(index, Exit[E].Stopped)
                 elif self._context._boxes[index].count > 0 or self._context._boxes[index].down_head >= 0:
@@ -557,25 +558,28 @@ pub class Stage[N, M, E]:
                 pass
 
     def fail(self: &mut Stage[N, M, E], index: i64, error: E) -> ():
-        exit = self.exit_for(index, &error)
-        drop(error)
+        self._context._stats.failed += 1
+        exit = self.exit_for(index, error)
         self.finish(index)
         self.retire(index, exit)
 
-    # The child's error copied into its parent's heap; without a live
-    # parent nothing receives it.
-    def exit_for(self: &mut Stage[N, M, E], index: i64, error: &E) -> Exit[E]:
+    # The child's error copied into its parent's heap. Without a live parent
+    # nothing receives it; when the copy does not fit, the parent sees
+    # `Trapped`.
+    def exit_for(self: &mut Stage[N, M, E], index: i64, error: E) -> Exit[E]:
         box = &self._context._boxes[index]
         if not box.has_parent or not self._context.accepts(box.parent):
-            return Exit[E].Trapped
+            drop(error)
+            return Exit[E].Stopped
         previous = __actor_heap(op_switch, self._context._boxes[slot_of(box.parent)].heap)
         mut exit = Exit[E].Trapped
-        match copy(error):
+        match copy(&error):
             case Ok(copied):
                 exit = Exit[E].Failed(copied)
             case Err(_):
                 pass
         __actor_heap(op_switch, previous)
+        drop(error)
         exit
 
     # Contains a trapped actor. Its frames are gone and its node may be half
@@ -583,6 +587,7 @@ pub class Stage[N, M, E]:
     # forgotten and its heap discarded, which frees its memory and closes
     # its files.
     def contain(self: &mut Stage[N, M, E], index: i64) -> ():
+        self._context._stats.trapped += 1
         match replace(self._nodes[index], Nothing):
             case Some(node):
                 __actor_forget(node)
@@ -592,13 +597,6 @@ pub class Stage[N, M, E]:
 
     # Tells the parent, frees queued mail, discards the heap and frees the slot.
     def retire(self: &mut Stage[N, M, E], index: i64, exit: Exit[E]) -> ():
-        match &exit:
-            case Exit.Stopped:
-                self._context._stats.stopped += 1
-            case Exit.Failed(_):
-                self._context._stats.failed += 1
-            case Exit.Trapped:
-                self._context._stats.trapped += 1
         self.clear(index)
         self.notify(index, exit)
         __actor_heap(op_discard, self._context._boxes[index].heap)
