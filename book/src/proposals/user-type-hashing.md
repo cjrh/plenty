@@ -227,7 +227,7 @@ Keys cannot change while stored, by existing rules plus the key-type rule:
 
 ### Affine keys
 
-Every class is affine
+Every class not declared `@copy` is affine
 ([moves and copies](../design/language/05-ownership/01-bindings-moves-and-copies.md)),
 so class keys are the first affine keys. Operations that today retain keys into
 new storage need the same treatment affine *values* already have:

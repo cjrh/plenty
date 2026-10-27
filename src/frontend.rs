@@ -17,6 +17,7 @@ use crate::op::{
 };
 use crate::threading::ThreadOp;
 use crate::value::{Heap, Value};
+mod annotations;
 mod atomic;
 mod byte_buffers;
 mod callables;
@@ -76,10 +77,10 @@ pub(crate) struct Program {
 pub(crate) use modules::inputs::{Inputs, standard_digest};
 
 /// Every symbol the lexer accepts, so a symbol token needs no allocation.
-const SYMBOLS: [&str; 42] = [
-    "(", ")", "[", "]", "{", "}", ".", ":", ",", "+", "-", "*", "%", "/", "=", "!", "<", ">", "&",
-    "|", "^", "~", "?", "->", "==", "!=", "<=", ">=", "//", "<<", ">>", "+=", "-=", "*=", "/=",
-    "//=", "%=", "&=", "|=", "^=", "<<=", ">>=",
+const SYMBOLS: [&str; 43] = [
+    "@", "(", ")", "[", "]", "{", "}", ".", ":", ",", "+", "-", "*", "%", "/", "=", "!", "<", ">",
+    "&", "|", "^", "~", "?", "->", "==", "!=", "<=", ">=", "//", "<<", ">>", "+=", "-=", "*=",
+    "/=", "//=", "%=", "&=", "|=", "^=", "<<=", ">>=",
 ];
 
 /// The bytes that continue a word: ASCII letters, digits and `_`.
@@ -139,6 +140,7 @@ fn symbol(c: u8, next: Option<&u8>, after: Option<&u8>) -> &'static str {
         (b'^', _) => "^",
         (b'~', _) => "~",
         (b'?', _) => "?",
+        (b'@', _) => "@",
         _ => unreachable!("the lexer calls this only for symbol characters"),
     }
 }
@@ -641,7 +643,7 @@ impl<'a> Lexer<'a> {
                 }
                 b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'.' | b':' | b',' | b'+' | b'-'
                 | b'*' | b'%' | b'/' | b'=' | b'!' | b'<' | b'>' | b'&' | b'|' | b'^' | b'~'
-                | b'?' => {
+                | b'?' | b'@' => {
                     let symbol = symbol(c, bytes.get(self.pos + 1), bytes.get(self.pos + 2));
                     debug_assert!(SYMBOLS.contains(&symbol));
                     if matches!(c, b'(' | b'[' | b'{') {
@@ -2067,6 +2069,7 @@ impl Parser {
         })
     }
     fn statement(&mut self) -> Result<Stmt> {
+        self.misplaced_annotations("statements")?;
         if self.peek().is("with") {
             let at = self.take();
             let mut managers = Vec::new();

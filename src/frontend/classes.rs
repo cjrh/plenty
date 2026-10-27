@@ -10,6 +10,8 @@ pub(super) struct ClassDecl {
     pub(super) fields: Vec<(String, TypeRef)>,
     pub(super) methods: Vec<Function>,
     pub(super) public_members: HashSet<String>,
+    /// The `@copy` annotation, if the declaration has one.
+    pub(super) copy: Option<Token>,
 }
 
 impl ClassDecl {
@@ -28,6 +30,7 @@ impl ClassDecl {
             fields: self.fields.clone(),
             methods: self.methods.iter().map(header).collect(),
             public_members: self.public_members.clone(),
+            copy: self.copy.clone(),
         }
     }
 }
@@ -66,6 +69,7 @@ impl Parser {
         let mut names = HashSet::default();
         let mut public_members = HashSet::default();
         while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
+            self.misplaced_annotations("class members")?;
             let public = self.eat("pub");
             let member = if self.peek().is("def") {
                 let mut f = self.function_in(Some(&name))?;
@@ -121,6 +125,7 @@ impl Parser {
             fields,
             methods,
             public_members,
+            copy: None,
         })
     }
 }
@@ -153,9 +158,35 @@ impl ClassDecl {
             },
             fields,
             destructor,
+            copy: self.copy.is_some(),
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         })))
+    }
+}
+
+impl TypeAliases {
+    /// Every field of a `@copy` class must itself copy on ordinary use, so
+    /// copying the instance copies its inline fields and retains shared
+    /// strings, and never allocates or runs a destructor.
+    pub(super) fn check_copy_class(
+        &self,
+        class: &crate::nominal::Nominal<ClassType>,
+        declaration: &ClassDecl,
+    ) -> Result<()> {
+        let definition = class.get();
+        if !definition.copy {
+            return Ok(());
+        }
+        for ((name, ty), (_, written)) in definition.fields.iter().zip(&declaration.fields) {
+            if ty.affine() {
+                return Err(written.at.error(format!(
+                    "`@copy` class `{}` cannot have field `{name}` of type `{ty}`, which moves; every field of a `@copy` class must copy: a scalar, `str`, `@copy` class, or tuple or enum of those",
+                    class.display_name()
+                )));
+            }
+        }
+        Ok(())
     }
 }
 

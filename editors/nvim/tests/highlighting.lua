@@ -41,6 +41,7 @@ local cases = {
   {[[value = "a\"#b"]], '#', 'plentyString'},
   {[[value = "line\n"]], [[\n]], 'plentyEscape'},
   {[[value = "\\" # trailing]], 'trailing', 'plentyComment'},
+  {'@copy', '@copy', 'plentyAnnotation'},
   {'identifier123 = true', '123', ''},
   {'identifier123 = true', 'true', ''},
 }

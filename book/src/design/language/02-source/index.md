@@ -24,6 +24,10 @@ enums can declare methods, and protocols declare method requirements.
 Anonymous functions can appear in function bodies; see
 [functions](../06-functions/index.md).
 
+A line holding only `@name` annotates the declaration below it. The set of
+annotations is closed and compiler-known; `@copy` on a class is the only one.
+See [annotations](../03-types/classes.md#annotations).
+
 Names follow [lexical scope and prelude rules](names.md). Modules use
 [explicit imports](modules.md), with [visibility](visibility.md) controlled by
 `pub`. An application has a [main entrypoint](entrypoint.md).

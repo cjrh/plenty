@@ -157,6 +157,7 @@ mod tests {
                 fields: vec![],
                 destructor: Some(crate::record::method(name, "__del__")),
                 fallible_init: false,
+                copy: false,
                 bytes: Default::default(),
                 managed: Default::default(),
             }),

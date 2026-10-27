@@ -197,7 +197,6 @@ impl Ty {
                 | Self::Set(_)
                 | Self::Dict(_, _)
                 | Self::Generator(_)
-                | Self::Class(_)
                 | Self::Box(_)
                 | Self::Shared(_)
                 | Self::File
@@ -206,6 +205,8 @@ impl Ty {
                 | Self::FsMetadata
                 | Self::ByteStorage
         ) || matches!(self, Self::Enum(_) if self.facts().affine)
+            // An undefined forward reference is conservatively affine.
+            || matches!(self, Self::Class(t) if t.try_get().is_none_or(|t| !t.copy))
     }
     pub fn restricted_storage(&self) -> bool {
         match self {
