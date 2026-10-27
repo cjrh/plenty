@@ -301,6 +301,19 @@ struct Module {
     protocols: Vec<protocols::Protocol>,
     imports: Vec<Import>,
     exports: HashSet<String>,
+    /// `include_str`/`include_bytes` constants whose file the loader has not
+    /// read yet.
+    embeds: Vec<Embed>,
+}
+
+/// A constant initialized by `include_str("path")` or `include_bytes("path")`.
+struct Embed {
+    at: Token,
+    /// Index of the constant's getter in `Module::functions`, set when the
+    /// getter is added.
+    function: usize,
+    path: String,
+    text: bool,
 }
 
 pub(super) struct Access {
@@ -357,39 +370,93 @@ fn numeric_type_name(name: &str) -> bool {
 }
 
 impl Parser {
-    /// Scalar constants use the ordinary typed function lowering, with a
-    /// compiler-only getter name. Initializers cannot execute user code.
-    fn constant(&mut self) -> Result<Function> {
+    /// Constants use the ordinary typed function lowering, with a
+    /// compiler-only getter name. Initializers cannot execute user code:
+    /// `consts::fold` replaces each with its literal value after name
+    /// resolution. An `include_str`/`include_bytes` initializer is returned
+    /// separately, for the loader to read relative to the source file.
+    fn constant(&mut self) -> Result<(Function, Option<Embed>)> {
         let at = self.take(); // const
         let name = self.name()?;
         self.expect(":")?;
         let output = self.ty()?;
-        if !output.args.is_empty() || !output.name.as_deref().is_some_and(numeric_type_name) {
-            return Err(output
-                .at
-                .error("module constants require a concrete numeric type"));
+        let type_name = output.name.as_deref().unwrap_or_default();
+        if !output.args.is_empty()
+            || !(numeric_type_name(type_name) || matches!(type_name, "bool" | "str" | "bytes"))
+        {
+            return Err(output.at.error(
+                "module constants require a concrete numeric type, `bool`, `str`, or `bytes`",
+            ));
         }
         self.expect("=")?;
         let value = self.expr(0)?;
-        let valid = match &ungroup(&value).kind {
-            Expression::Number(_) => true,
-            Expression::Member(base, _, _) => {
-                matches!(&base.kind, Expression::Name(n) if numeric_type_name(n))
+        let mut embed = None;
+        if let Expression::Call(function, args) = &value.kind
+            && let Some(text) = match function.as_str() {
+                "include_str" => Some(true),
+                "include_bytes" => Some(false),
+                _ => None,
             }
-            Expression::Unary(op, inner) if op == "-" => {
-                matches!(&ungroup(inner).kind, Expression::Number(_))
-                    || matches!(&ungroup(inner).kind, Expression::Member(base, _, _)
-                        if matches!(&base.kind, Expression::Name(n) if n == "f32" || n == "f64"))
+        {
+            let [argument] = args.as_slice() else {
+                return Err(value
+                    .at
+                    .error(format!("`{function}` takes one string literal path")));
+            };
+            let Expression::Text(path) = &argument.kind else {
+                return Err(argument
+                    .at
+                    .error(format!("`{function}` takes one string literal path")));
+            };
+            let wanted = if text { "str" } else { "bytes" };
+            if type_name != wanted {
+                return Err(output
+                    .at
+                    .error(format!("`{function}` initializes a `{wanted}` constant")));
             }
-            _ => false,
-        };
-        if !valid {
-            return Err(value
-                .at
-                .error("constant initializer must be a numeric literal or numeric type constant"));
+            embed = Some(Embed {
+                at: value.at.clone(),
+                function: 0,
+                path: path.clone(),
+                text,
+            });
         }
         self.kind(Kind::Newline, "the end of the constant declaration")?;
-        Ok(Function {
+        let function = self.constant_getter(at, name, output, vec![value]);
+        Ok((function, embed))
+    }
+
+    /// `assert CONDITION` or `assert CONDITION, MESSAGE` at module scope: a
+    /// getter-shaped declaration that `consts::fold` evaluates and removes.
+    fn static_assert(&mut self, index: usize) -> Result<Function> {
+        let at = self.take(); // assert
+        let mut body = vec![self.expr(0)?];
+        if self.eat(",") {
+            body.push(self.expr(0)?);
+        }
+        self.kind(Kind::Newline, "the end of the assertion")?;
+        let output = TypeRef {
+            at: at.clone(),
+            name: None,
+            args: vec![],
+            concrete: Some(Ty::Bool),
+        };
+        Ok(self.constant_getter(
+            at,
+            format!("{}{index}", super::consts::ASSERT),
+            output,
+            body,
+        ))
+    }
+
+    fn constant_getter(
+        &self,
+        at: Token,
+        name: String,
+        output: TypeRef,
+        values: Vec<Expr>,
+    ) -> Function {
+        Function {
             once: false,
             captures: vec![],
             foreign: None,
@@ -402,11 +469,14 @@ impl Parser {
             output,
             doc: String::new(),
             doc_at: None,
-            body: vec![Stmt {
-                at,
-                kind: Statement::Expr(value),
-            }],
-        })
+            body: values
+                .into_iter()
+                .map(|value| Stmt {
+                    at: at.clone(),
+                    kind: Statement::Expr(value),
+                })
+                .collect(),
+        }
     }
 
     fn module_path(&mut self) -> Result<String> {
@@ -518,23 +588,74 @@ fn parse_items(
         if parser.peek().kind == Kind::Eof {
             break;
         }
-        let public = parser.eat("pub");
-        let at = parser.peek().clone();
-        let name = if parser.peek().is("extern") || parser.peek().is("opaque") {
-            if !path.is_some_and(|p| p.extension().is_some_and(|e| e == "plentyi")) {
+        let mut items = Items {
+            parser: &mut *parser,
+            lexer: &mut *lexer,
+            path,
+            lookahead,
+            located,
+        };
+        items.item(&mut module, &mut declared)?;
+    }
+    if parser.formats {
+        module.imports.push(Import {
+            at: parser.peek().clone(),
+            module: "std.fmt".into(),
+            item: None,
+            binding: fstrings::FMT_BINDING.into(),
+        });
+    }
+    Ok((module, parser.peek().clone()))
+}
+
+/// Parsing state for module items, shared with the items of `if const`
+/// branches.
+struct Items<'a, 's> {
+    parser: &'a mut Parser,
+    lexer: &'a mut Lexer<'s>,
+    path: Option<&'a Path>,
+    lookahead: usize,
+    located: &'a dyn Fn(Box<dyn Error>) -> Box<dyn Error>,
+}
+
+impl Items<'_, '_> {
+    fn item(&mut self, module: &mut Module, declared: &mut HashSet<String>) -> Result<()> {
+        if self.parser.at_const_if() {
+            self.parser.depth += 1;
+            let result = if self.parser.depth > MAX_NESTING {
+                Err(self.parser.peek().error(NESTING))
+            } else {
+                self.const_items(module, declared)
+            };
+            self.parser.depth -= 1;
+            return result;
+        }
+        if self.parser.peek().is("assert") {
+            let f = self.parser.static_assert(module.functions.len())?;
+            module.functions.push(f);
+            return Ok(());
+        }
+        let public = self.parser.eat("pub");
+        let at = self.parser.peek().clone();
+        let name = if self.parser.peek().is("extern") || self.parser.peek().is("opaque") {
+            if !self
+                .path
+                .is_some_and(|p| p.extension().is_some_and(|e| e == "plentyi"))
+            {
                 return Err(at.error("C declarations require a trusted .plentyi interface module"));
             }
-            if parser.eat("extern") {
-                parser.expect("def")?;
-                parser.pos -= 1;
-                let f = parser.function_header(None, true, false, false)?;
+            if self.parser.eat("extern") {
+                self.parser.expect("def")?;
+                self.parser.pos -= 1;
+                let f = self.parser.function_header(None, true, false, false)?;
                 let name = f.name.clone();
                 module.functions.push(f);
                 name
             } else {
-                parser.expect("opaque")?;
-                let name = parser.name()?;
-                parser.kind(Kind::Newline, "the end of the opaque pointer declaration")?;
+                self.parser.expect("opaque")?;
+                let name = self.parser.name()?;
+                self.parser
+                    .kind(Kind::Newline, "the end of the opaque pointer declaration")?;
                 module.declarations.push(TypeAlias {
                     at: at.clone(),
                     name: name.clone(),
@@ -547,46 +668,52 @@ fn parse_items(
                 });
                 name
             }
-        } else if parser.eat("export") {
-            parser.expect("def")?;
-            parser.pos -= 1;
-            let f = parser.function_header(None, false, true, false)?;
+        } else if self.parser.eat("export") {
+            self.parser.expect("def")?;
+            self.parser.pos -= 1;
+            let f = self.parser.function_header(None, false, true, false)?;
             let name = f.name.clone();
             module.functions.push(f);
             name
-        } else if parser.peek().is("def") {
-            let f = parser.function()?;
+        } else if self.parser.peek().is("def") {
+            let f = self.parser.function()?;
             let name = f.name.clone();
             module.functions.push(f);
             name
-        } else if parser.peek().is("const") {
-            let f = parser.constant()?;
+        } else if self.parser.peek().is("const") {
+            let (f, embed) = self.parser.constant()?;
             let name = f.name.clone();
+            if let Some(embed) = embed {
+                module.embeds.push(Embed {
+                    function: module.functions.len(),
+                    ..embed
+                });
+            }
             module.constants.insert(name.clone());
             module.functions.push(f);
             name
-        } else if parser.peek().is("class") {
-            let c = parser.class_decl()?;
+        } else if self.parser.peek().is("class") {
+            let c = self.parser.class_decl()?;
             let name = c.name.clone();
             module.classes.push(c);
             name
-        } else if parser.peek().is("protocol") {
-            let p = parser.protocol_decl()?;
+        } else if self.parser.peek().is("protocol") {
+            let p = self.parser.protocol_decl()?;
             let name = p.name.clone();
             module.protocols.push(p);
             name
-        } else if parser.peek().is("enum") {
-            let e = parser.enum_decl()?;
+        } else if self.parser.peek().is("enum") {
+            let e = self.parser.enum_decl()?;
             let name = e.name.clone();
             module.enums.push(e);
             name
-        } else if parser.peek().is("type") {
-            let a = parser.alias()?;
+        } else if self.parser.peek().is("type") {
+            let a = self.parser.alias()?;
             let name = a.name.clone();
             module.declarations.push(a);
             name
-        } else if !public && (parser.peek().is("import") || parser.peek().is("from")) {
-            let imports = parser.imports()?;
+        } else if !public && (self.parser.peek().is("import") || self.parser.peek().is("from")) {
+            let imports = self.parser.imports()?;
             for import in &imports {
                 if import.binding.split('.').next() == Some("std")
                     && import.module.split('.').next() != Some("std")
@@ -597,13 +724,13 @@ fn parse_items(
                 }
             }
             module.imports.extend(imports);
-            continue;
+            return Ok(());
         } else {
             return Err(at.error(if public {
-                "pub requires a function, class, enum, type, or const declaration; re-exports are not supported"
-            } else {
-                "executable statements are not allowed at module scope; put them inside `def main() -> ():`"
-            }));
+            "pub requires a function, class, enum, type, or const declaration; re-exports are not supported"
+        } else {
+            "executable statements are not allowed at module scope; put them inside `def main() -> ():`"
+        }));
         };
         if name == "std" {
             return Err(at.error("`std` is reserved for the toolchain standard library"));
@@ -617,16 +744,47 @@ fn parse_items(
         if public {
             module.exports.insert(name);
         }
+        Ok(())
     }
-    if parser.formats {
-        module.imports.push(Import {
-            at: parser.peek().clone(),
-            module: "std.fmt".into(),
-            item: None,
-            binding: fstrings::FMT_BINDING.into(),
-        });
+
+    /// An `if const` chain at module scope. The selected branch's items
+    /// join the module; the others are parsed into a discarded module, so
+    /// they must be well formed but are never resolved or checked.
+    fn const_items(&mut self, module: &mut Module, declared: &mut HashSet<String>) -> Result<()> {
+        let mut first = true;
+        let mut taken = false;
+        loop {
+            let (holds, else_arm) = self.parser.const_arm(first)?;
+            first = false;
+            self.parser.expect(":")?;
+            self.parser.kind(Kind::Newline, "a newline after `:`")?;
+            self.parser.kind(Kind::Indent, "an indented block")?;
+            let selected = holds && !taken;
+            taken |= selected;
+            let mut discarded = Module {
+                name: module.name.clone(),
+                ..Module::default()
+            };
+            let mut discarded_names = HashSet::default();
+            while !matches!(self.parser.peek().kind, Kind::Dedent | Kind::Eof) {
+                if self.parser.eat("pass") {
+                    self.parser.kind(Kind::Newline, "the end of `pass`")?;
+                } else if selected {
+                    self.item(module, declared)?;
+                } else {
+                    self.item(&mut discarded, &mut discarded_names)?;
+                }
+            }
+            self.parser
+                .kind(Kind::Dedent, "the end of an indented block")?;
+            self.parser
+                .fill(self.lexer, self.lookahead)
+                .map_err(self.located)?;
+            if else_arm || !(self.parser.peek().is("elif") || self.parser.peek().is("else")) {
+                return Ok(());
+            }
+        }
     }
-    Ok((module, parser.peek().clone()))
 }
 
 impl Module {
@@ -778,6 +936,53 @@ struct Loader {
     inputs: Vec<inputs::File>,
 }
 impl Loader {
+    /// Reads the files named by `include_str` and `include_bytes` in the
+    /// module at `path`, making each constant's initializer the literal it
+    /// denotes. Each file is a program input, so the program cache notices
+    /// an edit.
+    fn embed(&mut self, path: &Path, package: usize, module: &mut Module) -> Result<()> {
+        for embed in std::mem::take(&mut module.embeds) {
+            let relative = Path::new(&embed.path);
+            if relative.is_absolute() {
+                return Err(embed.at.error(format!(
+                    "included path `{}` must be relative to the source file",
+                    embed.path
+                )));
+            }
+            let joined = path.parent().unwrap_or(Path::new("")).join(relative);
+            let root = &self.packages[package].root;
+            let file = joined
+                .canonicalize()
+                .map_err(|e| embed.at.error(format!("reading `{}`: {e}", embed.path)))?;
+            if !file.starts_with(root) {
+                return Err(embed.at.error(format!(
+                    "included path `{}` is outside the source root {}",
+                    embed.path,
+                    root.display()
+                )));
+            }
+            let data = std::fs::read(&file)
+                .map_err(|e| embed.at.error(format!("reading `{}`: {e}", embed.path)))?;
+            self.inputs.push(inputs::File::new(&joined, package, &data));
+            let kind = if embed.text {
+                Expression::Text(String::from_utf8(data).map_err(|e| {
+                    embed.at.error(format!(
+                        "`include_str` file `{}` is not valid UTF-8 at byte {}; use `include_bytes`",
+                        embed.path,
+                        e.utf8_error().valid_up_to()
+                    ))
+                })?)
+            } else {
+                Expression::Bytes(data)
+            };
+            module.functions[embed.function].body = vec![Stmt {
+                at: embed.at.clone(),
+                kind: Statement::Expr(Expr { at: embed.at, kind }),
+            }];
+        }
+        Ok(())
+    }
+
     fn file(
         &mut self,
         source: ModuleSource,
@@ -802,7 +1007,8 @@ impl Loader {
         let mut text = source.read()?;
         let input = match &source {
             ModuleSource::File(path) => {
-                self.inputs.push(inputs::File::new(path, package, &text));
+                self.inputs
+                    .push(inputs::File::new(path, package, text.as_bytes()));
                 Some(self.inputs.len() - 1)
             }
             ModuleSource::Standard(_) => None,
@@ -818,6 +1024,9 @@ impl Loader {
         let (mut module, at) = parse(&text, Some(&source.path()), name)?;
         if let ModuleSource::Standard(name) = &source {
             module.facility_exports = facility_exports(name);
+        }
+        if let ModuleSource::File(path) = &source {
+            self.embed(path, package, &mut module)?;
         }
         let mut deps = Vec::new();
         for import in &module.imports {
@@ -1765,6 +1974,11 @@ fn resolve(
     at: Token,
     require_main: bool,
 ) -> Result<Resolved> {
+    if let Some(embed) = modules.iter().flat_map(|m| &m.embeds).next() {
+        return Err(embed.at.error(
+            "`include_str` and `include_bytes` read a file relative to the source file, so they require compiling a file",
+        ));
+    }
     let constants: Arc<HashMap<String, String>> = Arc::new(
         modules
             .iter()
@@ -2076,6 +2290,7 @@ fn resolve(
         result.classes.append(&mut m.classes);
         result.protocols.append(&mut m.protocols);
     }
+    super::consts::fold(&mut result.functions)?;
     Ok(result)
 }
 

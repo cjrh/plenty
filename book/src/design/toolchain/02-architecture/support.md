@@ -5,7 +5,7 @@ restrictions live with their contracts.
 
 | Area | Contract and principal limits |
 |---|---|
-| Source and modules | [Declarations, imports, visibility, and entrypoints](../../language/02-source/index.md); one source root per package, no import cycles or re-exports |
+| Source and modules | [Declarations, imports, visibility, and entrypoints](../../language/02-source/index.md); [compile-time constant expressions, static assertions, and included files](../../language/02-source/modules.md#constants); [`if const` target conditionals](../../language/02-source/target-conditionals.md) over a closed set of target facts; one source root per package, no import cycles or re-exports |
 | Packages | [`plenty.toml`, path and Git dependencies pinned in `plenty.lock`, version requirements, workspaces, `plenty add`/`fetch`/`update`, per-target build reuse, debug/release profiles, `plenty test` with per-process test functions run in parallel under optional timeouts, and `plentyc --package-graph`](../01-building/packages.md); no registry or version selection |
 | Types and data | [Types](../../language/03-types/index.md), including [byte literals](../../language/03-types/bytes.md) of type `bytes`; fixed layouts and recursive data through heap boundaries; read-only `std.bytes` operations and stream writes take `bytes` or `Bytes` through `std.bytes.ByteSource` without copying |
 | Expressions | [Operators, assignment, and control flow](../../language/04-expressions/index.md); blocks and expressions [nest to 64 levels](../../language/04-expressions/index.md#nesting); [f-strings](../../language/04-expressions/format-strings.md) with any expression as a field and compile-time Python format specs, whose nested fields supply only fill, alignment, width, and precision |

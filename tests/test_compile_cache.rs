@@ -740,6 +740,62 @@ fn editing_any_module_rebuilds_the_program() {
     }
 }
 
+/// A file a constant includes is a program input: editing it rebuilds the
+/// program, and the rebuilt executable has the new contents.
+#[test]
+fn editing_an_included_file_rebuilds_the_program() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let root = dir.path().join("project");
+    std::fs::create_dir_all(root.join("data")).unwrap();
+    std::fs::write(root.join("data/message.txt"), "first").unwrap();
+    std::fs::write(root.join("data/raw.bin"), [0u8, 1]).unwrap();
+    std::fs::write(
+        root.join("main.plenty"),
+        "const MESSAGE: str = include_str(\"data/message.txt\")\nconst RAW: bytes = include_bytes(\"data/raw.bin\")\n\ndef main() -> Result[(), IoError]:\n    print(MESSAGE)?\n    print(RAW)?\n    Ok(())\n",
+    )
+    .unwrap();
+    let run = |expected: &str| {
+        let executable = root.join("main");
+        let output = plenty()
+            .args(["--compile"])
+            .arg(root.join("main.plenty"))
+            .arg("-o")
+            .arg(&executable)
+            .env("PLENTY_CACHE_DIR", &cache)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = Command::new(&executable).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+    };
+    emit_project(&root, Some(&cache), &[]);
+    emit_project(&root, Some(&cache), &[]);
+    let warm = emit_project(&root, Some(&cache), &[]);
+    assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
+    run("first\nb\"\\x00\\x01\"\n");
+    for (file, contents) in [
+        ("data/message.txt", &b"second"[..]),
+        ("data/raw.bin", &[2u8][..]),
+    ] {
+        std::fs::write(root.join(file), contents).unwrap();
+        let reference = emit_project(&root, None, &[]);
+        let rebuilt = emit_project(&root, Some(&cache), &[]);
+        assert_eq!(
+            program(&rebuilt),
+            Some(false),
+            "{file}: {}",
+            rebuilt.stderr()
+        );
+        assert!(rebuilt.object == reference.object, "{file}");
+    }
+    run("second\nb\"\\x02\"\n");
+}
+
 /// A new file that changes how an import resolves is noticed, though the
 /// program never read it: here it makes the import ambiguous.
 #[test]

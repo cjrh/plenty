@@ -1,7 +1,7 @@
 //! Call-site substitution of tiny functions, before any body is lowered.
 //!
-//! - A *constant* function takes no parameters and returns one scalar
-//!   literal. Every module `const` lowers to one (`$const.NAME`), and each
+//! - A *constant* function takes no parameters and returns one scalar,
+//!   `str`, or `bytes` literal. Every module `const` lowers to one (`$const.NAME`), and each
 //!   read of the constant to a call of it. Calls to a constant become its
 //!   literal, with the literal's own type, so the width, sign and float bits
 //!   are those of the declaration. Constant getters are then unreferenced
@@ -88,13 +88,16 @@ fn collect_constants(ops: &[Op], callees: &mut HashMap<String, Callee>) {
         if !f.sig.inputs.is_empty()
             || f.generator.is_some()
             || !f.locals.is_empty()
-            || !matches!(f.sig.outputs.as_slice(), [ty] if scalar(ty))
+            || !matches!(f.sig.outputs.as_slice(), [ty] if scalar(ty) || matches!(ty, Ty::Str | Ty::ByteStr))
         {
             return;
         }
         let body: Vec<&Op> = f.body.iter().filter(|op| !marker(op)).collect();
         let value = match body.as_slice() {
             [value] if literal(value) => (*value).clone(),
+            // String and byte literals are immortal read-only data, so a read
+            // pushes the same reference the getter would return.
+            [value @ (Op::PushStr(_) | Op::PushBytes(_))] => (*value).clone(),
             // `-f64.INF` and other negated float constants: `fneg` flips
             // only the sign bit, NaN payloads included.
             [Op::PushFloat { bits, ty }, Op::FloatNeg] => {
