@@ -3463,6 +3463,15 @@ impl Lower<'_> {
                         self.variant(ty, name, None, &e.at, ops)?
                     }
                     _ => {
+                        let moving = self.place_type(e).is_some_and(|ty| ty.affine());
+                        let owner = if moving {
+                            self.field_owner(e)?
+                        } else {
+                            classes::FieldOwner::Other
+                        };
+                        if let classes::FieldOwner::Owned(field) = owner {
+                            return self.move_field(e, field, ops).map(Some);
+                        }
                         let (ty, loans) = self.field(e, ops)?;
                         if ty.affine() {
                             let copy = if ty.can_copy() && !ty.recursive_data() {
@@ -3475,8 +3484,19 @@ impl Lower<'_> {
                             } else {
                                 "&value.field (or &mut value.field)"
                             };
-                            return Err(self.value_demand_error(&e.at, e,
-                                format!("cannot move out of a field; use {copy}{borrow}, or replace(value.field, replacement) on a mutable owner"),
+                            let message = if matches!(owner, classes::FieldOwner::Reference) {
+                                format!(
+                                    "cannot move out of a field through a reference; use {copy}{borrow}, or replace(value.field, replacement) through a mutable reference"
+                                )
+                            } else {
+                                format!(
+                                    "cannot move out of a field here: fields move out only from a named class binding, not through a Box, Shared handle, element, capture, or temporary; use {copy}{borrow}, or replace(value.field, replacement) on a mutable owner"
+                                )
+                            };
+                            return Err(self.value_demand_error(
+                                &e.at,
+                                e,
+                                message,
                                 crate::ownership::Demand::Copy(ty, "cannot move out of a field"),
                                 false,
                             ));

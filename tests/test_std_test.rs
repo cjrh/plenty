@@ -202,7 +202,7 @@ fn failure_injection_needs_a_test_build() {
     assert_eq!(output.status.code(), Some(1));
     assert!(
         stderr(&output)
-            .starts_with("error: failure injection needs an executable built by `plenty test`\n"),
+            .starts_with("error: failure injection needs `plenty test` or --test-hooks\n"),
         "{}",
         stderr(&output)
     );
@@ -831,8 +831,7 @@ fn symbols(executable: &Path) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-/// Shipped programs never contain the failure-injection hooks; only the
-/// executables `plenty test` builds do.
+/// Default programs never contain the failure-injection hooks.
 #[test]
 fn only_test_builds_link_the_hooks() {
     let dir = tempfile::tempdir().unwrap();
@@ -856,4 +855,97 @@ fn only_test_builds_link_the_hooks() {
     for hook in ["plenty_test_fault", "__wrap_malloc", "__wrap_read"] {
         assert!(tested.contains(hook), "{hook} missing from a test build");
     }
+}
+
+const ORDINARY_FAULTS: &str = r#"import std.test
+
+def main() -> Result[(), std.test.TestError]:
+    std.test.fail_allocations_after(0u32)?
+    refused = [1, 2, 3]
+    std.test.restore_allocations()?
+    match refused:
+        case Err(AllocError.OutOfMemory):
+            pass
+        case _:
+            std.test.fail("admission must refuse")?
+    std.test.is_ok(&[1, 2, 3])?
+    Ok(())
+"#;
+
+#[test]
+fn ordinary_executables_can_opt_into_failure_injection() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(&root.join("main.plenty"), ORDINARY_FAULTS);
+    for args in [
+        vec!["--test-hooks", "main.plenty"],
+        vec!["--release", "main.plenty", "--test-hooks"],
+        vec!["--compile", "main.plenty", "--test-hooks", "-o", "server"],
+    ] {
+        let output = plenty(root, &args);
+        assert!(output.status.success(), "{args:?}: {}", stderr(&output));
+    }
+    let output = Command::new(root.join("server")).output().unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(symbols(&root.join("server")).contains("__wrap_malloc"));
+    // The same source and cache must not retain instrumented code by accident.
+    let output = plenty(root, &["main.plenty"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("TestError.Unavailable"));
+    for mode in ["--check", "--emit-object", "--shared-library", "--fuzz"] {
+        let output = plenty(root, &[mode, "main.plenty", "--test-hooks"]);
+        assert!(!output.status.success());
+        assert!(stderr(&output).contains("--test-hooks requires"));
+    }
+}
+
+#[test]
+fn project_rebuilds_when_test_hooks_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    suite(root, &[("src/main.plenty", ORDINARY_FAULTS)]);
+    for instrumented in [false, true, false, true] {
+        let args = if instrumented {
+            vec!["build", "--test-hooks", "--no-strip"]
+        } else {
+            vec!["build", "--no-strip"]
+        };
+        let output = plenty(root, &args);
+        assert!(output.status.success(), "{}", stderr(&output));
+        let executable = root.join("target/debug/calc");
+        assert_eq!(symbols(&executable).contains("__wrap_malloc"), instrumented);
+        let output = Command::new(executable).output().unwrap();
+        assert_eq!(output.status.success(), instrumented, "{}", stderr(&output));
+    }
+    let output = plenty(root, &["run", "--test-hooks"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+/// Run explicitly on Linux hosts with playpen and a systemd user manager.
+#[test]
+#[ignore = "requires playpen and access to the systemd user bus"]
+fn ordinary_failure_injection_under_playpen_memory_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let executable = dir.path().join("admission");
+    let options = plenty::CompileOptions {
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_source_to_executable_with_options(ORDINARY_FAULTS, &executable, &options)
+        .unwrap();
+    let output = Command::new("playpen")
+        .args([
+            "--memory-limit",
+            "128M",
+            "--memory-swap-max",
+            "0",
+            "--private-tmp",
+            "false",
+            "--quiet",
+            "--",
+        ])
+        .arg(executable)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
 }

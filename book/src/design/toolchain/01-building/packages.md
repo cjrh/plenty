@@ -27,6 +27,11 @@ never runs `git fetch`; it uses only the package cache in `.pkg/`. Executables
 are [stripped](linking.md#symbols-and-debug-information) of their symbol table
 and debug sections in both profiles; `--no-strip` keeps them.
 
+`build --test-hooks` and `run --test-hooks` enable
+[failure injection](../../stdlib/test.md#failure-injection) in project
+executables. Switching this flag rebuilds the executable. These instrumented
+builds retain symbols, like `plenty test`, and are intended for integration tests.
+
 The package name defaults to the directory name and must be a lowercase
 identifier other than `std`. Status lines go to standard error.
 

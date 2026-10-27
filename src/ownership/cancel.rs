@@ -61,6 +61,7 @@ fn operand(ops: &[Op], index: usize) -> Option<&Op> {
                 | Op::ReadRef(_)
                 | Op::Access(..)
                 | Op::Loan(_)
+                | Op::FieldMove(_)
                 | Op::Tokens(_)
         )
     })

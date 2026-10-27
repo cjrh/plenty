@@ -118,11 +118,14 @@ addresses in dotted form (`::ffff:192.0.2.1`).
   `TimedOut`. The kernel also caps `backlog` at `net.core.somaxconn`.
 - `connect` starts a non-blocking connection and waits for it within the
   deadline. A refused or unreachable peer is an error value.
-- An accepted or connected stream blocks. `read_before` and `write_before`
-  wait for readiness first, so they return within the deadline when the peer
-  is idle; plain `read` and `write` do not. A read may return fewer bytes than
-  were sent, and a write may accept fewer than offered: loop, or use
-  `write_all_before`.
+- Accepted and connected descriptors stay nonblocking. `read_before` and
+  `write_before` wait for readiness, attempt the transfer, and retry `EAGAIN`
+  or interruption against the original deadline and cancellation token. A
+  stale readiness report or a full send buffer cannot turn that transfer
+  into an unbounded kernel wait. Plain `read` and `write` retain their
+  blocking `std.io` contract by waiting without a deadline when the socket
+  would block. A read may return fewer bytes than were sent, and a write may
+  accept fewer than offered: loop, or use `write_all_before`.
 - Writing to a connection the peer has closed is `Reset`, never `SIGPIPE`.
 - On `TimedOut` or `Cancelled` the socket and the caller's buffer are
   unchanged, apart from what earlier steps of `write_all_before` sent.
@@ -134,8 +137,8 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 [`std.ready` selector](ready.md#selectors); `unwatch(selector)` removes it. A
 listener is readable while a connection waits to be accepted. After
 `selector.wait`, each `Event` names a ready socket by its key, and the worker
-calls `accept`, `read_before` or `write_before` on it; the call does not wait
-because the socket is ready.
+calls `accept`, `read_before` or `write_before` on it. If readiness has become
+stale, the operation waits again within its deadline.
 
 ```text
 mut chosen = selector(64).unwrap()

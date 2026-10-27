@@ -21,7 +21,7 @@ pub enum TestError:
     Allocation(AllocError)
     # PLENTY_TEST_SEED is set but is not a decimal u64.
     InvalidSeed
-    # Failure injection outside an executable that `plenty test` built.
+    # Failure injection outside an executable built with test hooks.
     Unavailable
 
 # Removal budgets for a scratch directory: beyond them cleanup reports
@@ -119,15 +119,15 @@ pub def is_err[T, E](result: &Result[T, E]) -> Result[(), TestError]:
         case Err(_):
             Ok(())
 
-# Failure injection: __test_fault reaches the hook object that only `plenty
-# test` links, and is false in every other build.
+# Failure injection: __test_fault reaches the hook object linked by `plenty
+# test` or --test-hooks, and is false in every other build.
 const fault_allocations: i64 = 0
 const fault_files: i64 = 1
 
 def fault(kind: i64, count: i64, code: i32) -> Result[(), TestError]:
     if __test_fault(kind, count, code):
         return Ok(())
-    say("error: failure injection needs an executable built by `plenty test`\n")
+    say("error: failure injection needs `plenty test` or --test-hooks\n")
     Err(TestError.Unavailable)
 
 # After `count` more allocations on this thread succeed, each one fails until

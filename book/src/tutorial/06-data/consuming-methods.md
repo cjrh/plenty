@@ -75,10 +75,57 @@ argument returns early with `?`, the pending receiver is cleaned up. Inside the
 method, owned `self` is an immutable binding; move it into a `mut` local if you
 need to change fields.
 
-This example reads a copyable string field. Owned list or resource fields still
-cannot be moved directly out of a class. Use existing enum-payload moves or
-`Option` plus [`replace`](../../design/language/04-expressions/assignment.md#replacing-a-field)
-when a transition needs to transfer such storage.
+This example reads a copyable string field. A transition can also move an owned
+field, such as a list, out of the consumed receiver into the next state:
+
+```plenty
+class Pending:
+    id: i64
+    items: list[str]
+
+    def ship(self: Pending) -> Shipped:
+        Shipped(self.id, self.items)
+
+class Shipped:
+    id: i64
+    items: list[str]
+
+def main() -> Result[(), AllocError | IoError]:
+    order = Pending(7, ["book", "pen"]?)
+    shipped = order.ship()
+    print(shipped.id, len(shipped.items))?
+    Ok(())
+```
+```output
+7 2
+```
+
+`self.items` transfers the list without copying it, and the rest of `self` is
+cleaned up when the method returns. After a field moves out, the object cannot
+be used as a whole until that field is assigned again:
+
+```plenty-error
+class Pending:
+    items: list[str]
+
+    def ship(self: Pending) -> Pending:
+        items = self.items
+        drop(items)
+        self
+
+def main() -> ():
+    pass
+```
+```error
+use of partly moved binding `self`: `self.items` is moved; assign `self.items` before using `self` as a whole
+```
+
+Fields cannot move out through a reference, or out of a class that defines
+`__del__`, because its hook receives the whole object. There, keep the field
+initialized with `Option` plus
+[`replace`](../../design/language/04-expressions/assignment.md#replacing-a-field).
+See [moving fields](../../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields)
+for the full rules.
 
 Consuming a value does not require callers to finish it: they can still drop it.
 Normal cleanup runs exactly once unless the method transfers ownership onward.

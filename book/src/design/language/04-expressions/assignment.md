@@ -123,3 +123,8 @@ boxed owners, and fields reached through collection elements. It allocates
 nothing and keeps the field initialized. It accepts a field rather than a whole
 binding, element, or temporary receiver. A user declaration named `replace`
 continues to resolve normally.
+
+Use `replace` when the owner is reached through a reference or defines
+`__del__`, or when it must stay usable as a whole. A field of an owned binding
+can instead [move out](../05-ownership/01-bindings-moves-and-copies.md#moving-fields)
+and be assigned later.

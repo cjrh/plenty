@@ -7,8 +7,8 @@ behavior. Scheduling belongs in [B72](../backlog.md).
 
 The [owned response experiment](typestate-response-experiment.md) refreshes this
 assessment, with native cleanup/retry checks and compiler rejections. Explicit
-owned receivers now support method-shaped transitions; individual field moves
-remain out of scope.
+owned receivers now support method-shaped transitions, and [field moves](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields) out of
+owned bindings are implemented (issue #534).
 
 The separate [linear-obligations proposal](linear-obligations.md) (issue #149)
 addresses non-abandonment of an owner, including retry errors. Typestate can
@@ -44,9 +44,11 @@ unused method need not work for every argument type. This improves flexibility
 but does not add explicit state-specialized method sets. Owned receivers are
 an independent feature, documented with [method contracts](../design/language/06-functions/01-signatures-and-calls.md).
 
-Moving an entire owner is supported; extracting affine class fields is not.
-Transitions that rebuild a wrapper around an owned connection may need an enum
-whose payload can be consumed, an `Option` plus `replace`, or API restructuring.
+Moving an entire owner is supported, and so is moving an affine field out of
+an owned binding (issue #534; see [field moves](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields)). A transition that rebuilds a wrapper
+around an owned connection can move the connection field out of the consumed
+state. A class with `__del__` still needs an `Option` plus `replace`, an enum
+whose payload can be consumed, or API restructuring.
 That friction is relevant to whether a typestate design is pleasant, not a
 reason to weaken initialization guarantees indiscriminately.
 

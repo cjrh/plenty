@@ -257,6 +257,108 @@ std.net.NetError.Reset\n",
 }
 
 #[test]
+fn plain_stream_io_still_waits_on_nonblocking_descriptors() {
+    runs(
+        r#"
+import std.io
+
+def delayed_sink(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> ():
+    mut stream = listener.accept(deadline, cancel).unwrap()
+    sleep(&milliseconds(100u32))
+    mut buffer = zeroed(65536).unwrap()
+    mut count = 0
+    while count < 8000000:
+        count += stream.read(&mut buffer, 0, 65536).unwrap()
+    sleep(&milliseconds(30u32))
+    std.io.write_all(&mut stream, &b"done", 0, 4).unwrap()
+
+def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
+    cancel = CancellationToken()?
+    deadline = within(5000u32)?
+    listener = listen(&loopback_v4(0u16), 1).unwrap()
+    with spawn(delayed_sink, &listener, &deadline, &cancel)?:
+        mut stream = connect(&listener.local_address().unwrap(), &deadline, &cancel).unwrap()
+        data = zeroed(8000000)?
+        std.io.write_all(&mut stream, &data, 0, data.len()).unwrap()
+        mut reply = zeroed(4)?
+        std.io.read_exact(&mut stream, &mut reply, 0, 4).unwrap()
+        print(reply.to_text()?)?
+    Ok(())
+"#,
+        "done\n",
+    );
+}
+
+#[test]
+fn backpressured_writes_obey_deadlines_and_cancellation() {
+    runs(
+        r#"
+def cancel_later(token: CancellationToken) -> ():
+    sleep(&milliseconds(30u32))
+    token.cancel()
+
+def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
+    cancel = CancellationToken()?
+    listener = listen(&loopback_v4(0u16), 1).unwrap()
+    deadline = within(5000u32)?
+    mut stream = connect(&listener.local_address().unwrap(), &deadline, &cancel).unwrap()
+    accepted = listener.accept(&deadline, &cancel).unwrap()
+    data = zeroed(4096)?
+    short = within(50u32)?
+    mut result = stream.write_before(&data, 0, 4096, &short, &cancel)
+    while result.is_ok():
+        result = stream.write_before(&data, 0, 4096, &short, &cancel)
+    print(outcome(result)?)?
+    with spawn(cancel_later, cancel.share())?:
+        mut cancelled = stream.write_before(&data, 0, 4096, &deadline, &cancel)
+        while cancelled.is_ok():
+            cancelled = stream.write_before(&data, 0, 4096, &deadline, &cancel)
+        print(outcome(cancelled)?)?
+    Ok(())
+"#,
+        "std.net.NetError.TimedOut\nstd.net.NetError.Cancelled\n",
+    );
+}
+
+/// Feed stale-readiness outcomes directly to the production retry policy;
+/// reproducing a kernel readiness race by timing threads is nondeterministic.
+#[test]
+fn stale_transfer_readiness_rechecks_the_original_budget() {
+    let module = include_str!("../stdlib/std/net.plenty");
+    let blocked = &module
+        [module.find("def blocked(").unwrap()..module.find("# Plain Reader/Writer").unwrap()];
+    let retry = &module[module.find("def retry_transfer(").unwrap()
+        ..module.find("# Address encoding shared").unwrap()];
+    let streamed =
+        &module[module.find("def streamed(").unwrap()..module.find("def waited(").unwrap()];
+    runs(
+        &format!(
+            r#"
+from std.io import StreamError
+const would_block: i32 = 11
+def named(error: IoError) -> NetError:
+    NetError.Stream(StreamError.Io(error))
+{blocked}
+{streamed}
+{retry}
+def main() -> Result[(), RangeError | AllocError | IoError]:
+    cancel = CancellationToken()?
+    deadline = within(5000u32)?
+    again = StreamError.Io(IoError.System(11i32))
+    print(outcome(retry_transfer(again, &deadline, &cancel))?)?
+    print(outcome(retry_transfer(StreamError.Interrupted, &deadline, &cancel))?)?
+    print(outcome(retry_transfer(again, &within(0u32)?, &cancel))?)?
+    cancel.cancel()
+    print(outcome(retry_transfer(again, &deadline, &cancel))?)?
+    print(outcome(retry_transfer(StreamError.Io(IoError.Closed), &deadline, &cancel))?)?
+    Ok(())
+"#
+        ),
+        "ok\nok\nstd.net.NetError.TimedOut\nstd.net.NetError.Cancelled\nstd.net.NetError.Stream(std.io.StreamError.Io(IoError.Closed))\n",
+    );
+}
+
+#[test]
 fn waits_end_at_the_deadline_or_on_cancellation() {
     runs(
         r#"

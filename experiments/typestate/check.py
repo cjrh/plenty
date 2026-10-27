@@ -70,18 +70,21 @@ REJECTIONS = {
     ),
 }
 
-# B72 field extraction remains outside the consuming-method implementation.
+# A field moves out of an owned binding (issue #534), but the rest of the
+# object stays unusable as a whole until the field is assigned again.
 BOUNDARIES = {
-    "owned_field_extraction": (
+    "whole_use_after_field_move": (
         "class Resource:\n"
         "    value: i64\n"
         "class State:\n"
         "    resource: Resource\n"
         "def consume(state: State) -> Resource:\n"
-        "    state.resource\n"
+        "    resource = state.resource\n"
+        "    drop(state)\n"
+        "    resource\n"
         "def main() -> ():\n"
         "    drop(consume(State(Resource(1))))\n",
-        "cannot move out of a field",
+        "use of partly moved binding `state`",
     ),
 }
 
