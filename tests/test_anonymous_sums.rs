@@ -612,6 +612,81 @@ def main() -> ():
     );
 }
 
+// Issue #523: `[..]?` produces the collection itself, so a sum containing it
+// supplies the element context instead of rejecting the annotation.
+#[test]
+fn propagated_collection_literals_select_their_collection_member() {
+    runs(
+        r#"
+enum Unset:
+    Unset
+def accept(values: list[f64] | Unset) -> f64:
+    match values:
+        case v: list[f64]:
+            mut total = 0.0
+            for x in v:
+                total += x
+            total
+        case _:
+            -1.0
+def optional(values: list[f64] | Unset = Unset.Unset) -> f64:
+    accept(values)
+def counts(table: dict[str, i64] | Unset) -> i64:
+    match table:
+        case d: dict[str, i64]:
+            len(d)
+        case _:
+            -1
+def members(items: set[i64] | str) -> i64:
+    match items:
+        case s: set[i64]:
+            len(s)
+        case _:
+            -1
+def main() -> Result[(), AllocError | IoError]:
+    print(accept([1.0, 2]?))?
+    print(accept([]?))?
+    print(accept(list()?))?
+    print(accept(([3.0])?))?
+    print(optional(values=[4.0]?))?
+    print(optional())?
+    print(counts({"a": 1}?))?
+    print(counts({}?))?
+    print(members({1, 2, 2}?))?
+    mut bound: list[f64] | Unset = [5.0, 6.0]?
+    print(accept(bound))?
+    bound = []?
+    print(accept(bound))?
+    Ok(())
+"#,
+        "3.0\n0.0\n0.0\n3.0\n4.0\n-1.0\n1\n0\n2\n11.0\n0.0\n",
+    );
+}
+
+#[test]
+fn propagated_collection_literals_reject_ambiguous_or_missing_members() {
+    rejects(
+        r#"
+def accept(values: list[f64] | list[i64]) -> ():
+    pass
+def main() -> Result[(), AllocError]:
+    accept([1.0]?)
+    Ok(())
+"#,
+        &["ambiguous anonymous sum constructor context"],
+    );
+    rejects(
+        r#"
+def accept(values: set[i64] | str) -> ():
+    pass
+def main() -> Result[(), AllocError]:
+    accept([1]?)
+    Ok(())
+"#,
+        &["collection type does not match its annotation"],
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn injection_widening_and_matching_need_no_runtime_allocation() {

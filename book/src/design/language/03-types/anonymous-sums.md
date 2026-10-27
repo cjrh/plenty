@@ -36,6 +36,11 @@ constructors and returns. `Result[T, E]` can widen to `Result[T, F]` when
 Other generic containers and references do not gain covariance. Conversions
 evaluate their source once, move owned payloads and invoke no user conversion.
 Public return types and binding types remain declared, never silently widened.
+A constructor, tuple or collection literal takes its context from the one
+member it can build, so `[1.0, 2]?` passed as `list[f64] | Unset` checks its
+elements as `f64`, and `[]?` or `{}?` needs no further annotation. Several
+viable members, such as `list[f64] | list[i64]`, are ambiguous and rejected;
+bind the value with a member type first.
 
 Match a whole member with `case name: MemberType:`. An ordinary wildcard
 matches any remaining value. Each member must be covered, and duplicate or
