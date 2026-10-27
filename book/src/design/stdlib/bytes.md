@@ -58,6 +58,7 @@ read another byte sequence accept a literal or a buffer through
 | `write_float_spec(value: f64, style: i64, precision: i64, offset: i64)` | exclusive | `Result[i64, BytesError]` | Write a Python format-spec spelling at `offset` for [`std.fmt`](fmt.md): style 1 fixed, 2 exponent, 3 general, 4 general keeping `.0`, 5 f64 and 6 f32 `print` spelling, plus 16 for `#`; a negative value starts with `-`. Returns bytes written, or the negated total length needed when shorter, writing nothing. Other styles, precision outside `0..=4096`, or an offset past the length are `OutOfRange`. Never allocates |
 | `fill(start, stop, value)` | exclusive | `Result[(), BytesError]` | Replace every byte of a range |
 | `overwrite(offset, source, start, stop)` | exclusive | `Result[(), BytesError]` | Copy `source[start:stop]` over existing bytes at `offset`; never grows |
+| `copy_within(start, stop, to)` | exclusive | `Result[(), BytesError]` | Copy `self[start:stop]` to `to` in the same buffer, like `memmove`; the ranges may overlap; never grows |
 | `push(value)` | exclusive | `Result[(), BytesError]` | Append one byte |
 | `extend(source)` | exclusive | `Result[(), BytesError]` | Append all of another buffer |
 | `extend_range(source, start, stop)` | exclusive | `Result[(), BytesError]` | Append a range of another buffer |
@@ -178,7 +179,8 @@ unlike [list slicing](../facilities/01-builtins/lists.md) and
 [index syntax](#index-syntax-and-iteration). A violation returns
 `Err(BytesError.OutOfRange)` and changes nothing. A zero-length range is valid
 anywhere from `0` to `len` inclusive. `overwrite` additionally requires
-`offset + (stop - start) <= len` of the destination. `matches` and
+`offset + (stop - start) <= len` of the destination, and `copy_within` requires
+`0 <= to` and `to + (stop - start) <= len`. `matches` and
 `matches_text` take an `offset` from `0` to `len` inclusive and never report a
 short remainder as an error.
 
@@ -210,8 +212,9 @@ The existing loan rules therefore define what may happen while a view exists:
 - while a `&Bytes` is live, the owner cannot be mutated, grown, cleared, moved,
   or exclusively borrowed;
 - while a `&mut Bytes` is live, the owner cannot be read, borrowed, or moved;
-- a buffer cannot be extended from itself, because the exclusive receiver
-  conflicts with the shared source. Copy the range first.
+- a buffer cannot be extended or overwritten from itself, because the
+  exclusive receiver conflicts with the shared source. Use `copy_within` to
+  move a range inside one buffer, or copy the range first.
 
 These are compile-time `conflicting borrow` errors. Growth may relocate the
 storage, but no address into it is ever exposed to a program, so relocation
@@ -233,12 +236,12 @@ may over-reserve; `reserve` requests an exact total.
 |---|---|
 | Constructors, `slice`, `copy`, `to_list`, `to_text`, `to_text_range` | `len`, `is_empty`, `capacity`, `get`, index syntax, iteration, every scan, `==`, transport |
 | `push`, `extend`, `extend_range`, `resize`, `reserve` beyond capacity | The same operations within capacity |
-| | `set`, `fill`, `overwrite`, `truncate`, `pop`, `clear` |
+| | `set`, `fill`, `overwrite`, `copy_within`, `truncate`, `pop`, `clear` |
 
 `get`, `set`, index syntax, `push` within capacity, `pop`, `truncate`, and
 `clear` take constant time. Range operations take time linear in the range;
-`extend`, `overwrite`, `slice`, `copy`, `resize`, and `fill` are single native
-bulk operations.
+`extend`, `overwrite`, `copy_within`, `slice`, `copy`, `resize`, and `fill` are
+single native bulk operations.
 
 The scans run natively. `find` and `find_in` with a set of at most four bytes
 examine eight bytes per step. `find_in` with a larger set and `find_not_in`

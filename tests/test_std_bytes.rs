@@ -483,6 +483,33 @@ print(str.repr(buffer.fill(3, 2, 0u8))?)?
 }
 
 #[test]
+fn copy_within_moves_overlapping_ranges_in_place() {
+    native(
+        r#"
+mut buffer = std.bytes.from_text("abcdef")?
+buffer.copy_within(2, 6, 0)?
+print(buffer.to_text()?)?
+buffer.copy_within(0, 4, 2)?
+print(buffer.to_text()?)?
+buffer.copy_within(6, 6, 6)?
+buffer.copy_within(1, 1, 0)?
+buffer.copy_within(0, 6, 0)?
+print(buffer.to_text()?, buffer.len(), buffer.capacity())?
+print(str.repr(buffer.copy_within(0, 2, 5))?)?
+print(str.repr(buffer.copy_within(0, 2, -1))?)?
+print(str.repr(buffer.copy_within(4, 7, 0))?)?
+print(str.repr(buffer.copy_within(3, 2, 0))?)?
+print(str.repr(buffer.copy_within(0, 0, 7))?)?
+print(buffer.to_text()?)?
+"#,
+        &format!(
+            "cdefef\ncdcdef\ncdcdef 6 6\n{}\ncdcdef",
+            vec![format!("Result[(), {OUT_OF_RANGE}"); 5].join("\n")
+        ),
+    );
+}
+
+#[test]
 fn transport_still_uses_list_u8_through_explicit_conversions() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("payload.bin");

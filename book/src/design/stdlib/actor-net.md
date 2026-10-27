@@ -280,6 +280,8 @@ heap.
 | `Connection.write(source, start, stop, context)` | `Result[i64, NetError \| TimerError]`: bytes accepted; `Stream(StreamError.Io(IoError.Closed))` after `shutdown_write` or `close`, and `InvalidInput` for a range outside `source` |
 | `Connection.forward(count, context)` | `Result[i64, NetError \| TimerError]`: bytes moved from input to output |
 | `Connection.pending()`, `space()` | Unsent output bytes; bytes `write` would accept now |
+| `Connection.reserve(wanted)`, `output()`, `output_stop()`, `commit(count, context)` | Produce output in place: `reserve` compacts and returns `Result[i64, NetError]`, the room up to `wanted`; write into `output()` from `output_stop()`; `commit` sends the `count` bytes written. For layers such as [`std.actor.tls`](actor-tls.md) |
+| `Connection.acknowledge_now()` | Acknowledge received data at once (`TCP_QUICKACK`), as `TcpStream.acknowledge_now` in [`std.net`](net.md); best effort |
 | `Connection.read_within(&span, context)`, `clear_read_deadline()` | Set or clear the read deadline |
 | `Connection.shutdown_write(context)`, `close(context)` | End output after pending bytes; close at once |
 | `Connection.reading()`, `closed()`, `stream()` | Whether input may still arrive; whether closed; the stream |
@@ -297,12 +299,8 @@ heap.
 
 ## Limits
 
-- TCP only. No TLS: [`std.tls`](tls.md) wraps blocking streams, and a
-  nonblocking TLS connection needs a handshake and record state machine of
-  its own.
+- TCP only; [`std.actor.tls`](actor-tls.md) adds TLS.
 - The input and output buffers have fixed sizes. Input is read in place, so a
   message must fit in `Limits.input` to be handled whole.
 - A trap closes the actor's sockets without a graceful shutdown; the peer
   sees a reset or end of input.
-- Compacting a buffer copies its unconsumed bytes one at a time, since
-  `Bytes` has no overlapping copy.

@@ -1,0 +1,204 @@
+# TLS clients on std.actor.tls whose settings the tests replace. The root
+# starts `clients` actors that each dial `port`, send `payload` bytes in
+# writes of at most `chunk`, check the echo and close. In `mode` 1 the
+# first client's payload starts with `X`, which makes the fixture server
+# trap; in mode 2 every client closes the socket after the first echo and
+# never sends close_notify. It prints one line per
+# outcome and the heap counters. FIXTURES is the certificate directory.
+from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_used, heaps_live, stage
+from std.actor.net import Dialing, Limits, connection, dial
+from std.actor.tls import TlsConnection, over
+from std.bytes import Bytes, BytesError
+import std.bytes
+from std.net import NetError, loopback_v4
+from std.ready import WaitError
+from std.sync import CancellationToken
+from std.time import deadline_after, milliseconds, monotonic_now, seconds
+from std.tls import ClientConfig, Session, TlsError, client_config, client_session, roots_from_pem
+
+const port: u16 = 0u16
+const clients: i64 = 2
+const payload: i64 = 65536
+const chunk: i64 = 1000
+const input_size: i64 = 1024
+const output_size: i64 = 1024
+const plain_size: i64 = 1024
+const mode: i64 = 0
+const roots: str = "ca.pem"
+const server_name: str = "localhost"
+
+type Fault = NetError | BytesError | TimerError | TlsError
+
+pub enum Note:
+    # Bytes echoed, and whether they matched.
+    Done(i64, bool)
+
+def pattern(index: i64) -> u8:
+    u8((index * 7 + 3) % 251)
+
+pub class Root:
+    pub config: ClientConfig
+    # Set by `started`; in the spawn hook `context.address()` is the child's.
+    pub me: Option[Address]
+    pub ended: i64
+    pub matched: i64
+    pub mismatched: i64
+    pub truncated: i64
+    pub untrusted: i64
+    pub wrong_host: i64
+    pub cut: i64
+    pub other: i64
+    pub used: i64
+
+    def report(self: &Root) -> ():
+        print("matched", self.matched).unwrap()
+        print("mismatched", self.mismatched).unwrap()
+        print("truncated", self.truncated).unwrap()
+        print("untrusted", self.untrusted).unwrap()
+        print("wrong_host", self.wrong_host).unwrap()
+        print("cut", self.cut).unwrap()
+        print("other", self.other).unwrap()
+
+pub class Client:
+    pub parent: Address
+    pub session: Option[Session]
+    pub dialing: Option[Dialing]
+    pub tls: Option[TlsConnection]
+    pub data: Bytes
+    pub sent: i64
+    pub received: i64
+    pub matched: bool
+
+    def begin(self: &mut Client, context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        self.dialing = Some(dial(&loopback_v4(port), &seconds(10), context)?)
+        Ok(())
+
+    def step(self: &mut Client, mail: &Mail[Note, Fault], context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        match &mut self.dialing:
+            case Some(attempt):
+                match attempt.handle(mail, context)?:
+                    case Some(stream):
+                        limits = Limits(input_size, output_size, milliseconds(0u32), milliseconds(0u32))
+                        session = replace(self.session, Nothing).unwrap()
+                        mut tls = over(connection(stream, &limits)?, session, plain_size)?
+                        tls.start(context)?
+                        self.tls = Some(tls)
+                        self.dialing = Nothing
+                    case Nothing:
+                        pass
+                return Ok(())
+            case Nothing:
+                pass
+        match &mut self.tls:
+            case Some(tls):
+                tls.handle(mail, context)?
+                while self.sent < payload and tls.established():
+                    mut stop = self.sent + chunk
+                    if stop > payload:
+                        stop = payload
+                    count = tls.write(&self.data, self.sent, stop, context)?
+                    if count == 0:
+                        break
+                    self.sent += count
+                    if self.sent == payload and mode != 2:
+                        tls.shutdown_write(context)?
+                # Consuming frees input room, so more may be decrypted at once.
+                while tls.available() > 0:
+                    available = tls.available()
+                    start = tls.input_start()
+                    for index in range(available):
+                        if tls.input()[start + index] != self.data[self.received + index]:
+                            self.matched = False
+                    self.received += available
+                    tls.consume(available, context)?
+                    if mode == 2:
+                        tls.close(context)?
+                        drop(context.send(self.parent, Note.Done(self.received, self.matched)))
+                        context.stop()
+                        return Ok(())
+                if not tls.reading():
+                    drop(context.send(self.parent, Note.Done(self.received, self.matched and self.received == payload)))
+                    context.stop()
+            case Nothing:
+                pass
+        Ok(())
+
+pub enum Node:
+    Starting(Root)
+    Running(Client)
+
+    pub def started(self: &mut Node, context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Starting(root):
+                root.me = Some(context.address())
+                # The tag numbers the clients.
+                for index in range(clients):
+                    context.spawn(index, 262144).unwrap()
+            case Node.Running(client):
+                client.begin(context)?
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[Note, Fault], context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Starting(root):
+                match mail:
+                    case Mail.Message(Note.Done(_, ok)):
+                        if ok:
+                            root.matched += 1
+                        else:
+                            root.mismatched += 1
+                    case Mail.Down(_, _, exit):
+                        root.ended += 1
+                        match exit:
+                            case Exit.Failed(error):
+                                match error:
+                                    case tls: TlsError:
+                                        match tls:
+                                            case TlsError.Truncated:
+                                                root.truncated += 1
+                                            case TlsError.UntrustedCertificate:
+                                                root.untrusted += 1
+                                            case TlsError.WrongHost:
+                                                root.wrong_host += 1
+                                            case TlsError.Net(_):
+                                                root.cut += 1
+                                            case _:
+                                                root.other += 1
+                                    case _:
+                                        root.other += 1
+                            case Exit.Trapped(_):
+                                root.other += 1
+                            case _:
+                                pass
+                        if root.ended == clients:
+                            root.report()
+                            context.stop()
+                    case _:
+                        pass
+            case Node.Running(client):
+                client.step(&mail, context)?
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Note, Fault]) -> Result[Option[Node], Fault]:
+        match self:
+            case Node.Starting(root):
+                session = client_session(&root.config, server_name)?
+                mut data = std.bytes.with_capacity(payload)?
+                data.resize(payload, 0u8)?
+                for index in range(payload):
+                    data[index] = pattern(index)
+                if mode == 1 and tag == 0:
+                    data[0] = 88u8
+                Ok(Some(Node.Running(Client(root.me.unwrap(), Some(session), Nothing, Nothing, data, 0, 0, True))))
+            case Node.Running(_):
+                Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | WaitError | TlsError]:
+    config = client_config(&roots_from_pem(&read_text(&("FIXTURES/" + roots)?)?)?)?
+    mut actors = stage[Node, Note, Fault](clients + 8, 8, 64)?
+    actors.add_timers(clients + 8)?
+    root = Root(config, Nothing, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    actors.start(Node.Starting(root), 65536).unwrap()
+    actors.run(&deadline_after(&monotonic_now(), &seconds(60)).unwrap(), &CancellationToken()?)?
+    print(actors.stats(), heaps_live(), heap_bytes_used())?
+    Ok(())

@@ -40,6 +40,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         "std.actor.net",
         include_str!("../../stdlib/std/actor/net.plenty"),
     ),
+    (
+        "std.actor.tls",
+        include_str!("../../stdlib/std/actor/tls.plenty"),
+    ),
     ("std.simd", include_str!("../../stdlib/std/simd.plenty")),
     ("std.fs", include_str!("../../stdlib/std/fs.plenty")),
     (
