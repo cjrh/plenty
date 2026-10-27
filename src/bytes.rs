@@ -38,6 +38,8 @@ pub enum BytesOp {
     ValueItem,
     // A copy of a `bytes` literal, which shares the text layout.
     FromStatic,
+    // A memmove inside one buffer: `copy_within(start, stop, to)`.
+    CopyWithin,
     // The operations above whose `source` operand is a `bytes` literal. The
     // runtime tells a literal from a buffer by its header.
     AppendLiteral,
@@ -77,6 +79,7 @@ impl BytesOp {
             "__bytes_item" => Self::Item,
             "__bytes_set_item" => Self::SetItem,
             "__bytes_from_static" => Self::FromStatic,
+            "__bytes_copy_within" => Self::CopyWithin,
             _ => return None,
         })
     }
@@ -133,6 +136,7 @@ impl BytesOp {
             Self::ValueItem => return (vec![storage(), Ty::I64], Ty::U8),
             Self::SetItem => return (vec![storage_ref(true), Ty::I64, Ty::U8], Ty::Unit),
             Self::Fill => return (vec![storage(), Ty::I64, Ty::I64, Ty::U8], Ty::Unit),
+            Self::CopyWithin => return (vec![storage(), Ty::I64, Ty::I64, Ty::I64], Ty::Unit),
             Self::WriteFloat => return (vec![storage(), Ty::F64], Ty::I64),
             Self::WriteFloatSpec => {
                 return (vec![storage(), Ty::F64, Ty::I64, Ty::I64, Ty::I64], Ty::I64);
@@ -195,6 +199,7 @@ impl BytesOp {
             Self::Set
                 | Self::SetItem
                 | Self::Fill
+                | Self::CopyWithin
                 | Self::Reserve
                 | Self::Resize
                 | Self::Push
@@ -220,6 +225,7 @@ impl BytesOp {
         match self {
             Self::WriteFloat => 280,
             Self::WriteFloatSpec => 281,
+            Self::CopyWithin => 282,
             Self::FromStatic => Self::FromText.opcode(),
             Self::Fill => 237,
             Self::Item | Self::ValueItem => 238,

@@ -402,10 +402,10 @@ pub class Connection:
         self._due = 0u64
 
 # Moves buffer[start:stop] to the front. Only unconsumed bytes move, once per
-# trip through the buffer.
+# trip through the buffer. Callers keep 0 <= start <= stop <= len, so the copy
+# cannot fail.
 def shift(buffer: &mut Bytes, start: i64, stop: i64) -> ():
-    for index in range(stop - start):
-        buffer[index] = buffer[start + index]
+    drop(buffer.copy_within(start, stop, 0))
 
 def invalid() -> NetError:
     NetError.Stream(StreamError.Io(IoError.InvalidInput))

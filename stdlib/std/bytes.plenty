@@ -104,6 +104,17 @@ pub class Bytes:
         __bytes_overwrite(self._owner, offset, source, start, stop)
         Ok(())
 
+    # Copies self[start:stop] to `to` in the same buffer, as memmove does: the
+    # ranges may overlap. `overwrite` cannot read the buffer it writes, since
+    # that needs shared and exclusive loans at once.
+    pub def copy_within(self: &mut Bytes, start: i64, stop: i64, to: i64) -> Result[(), BytesError]:
+        count = __bytes_len(self._owner)
+        checked(start, stop, count)?
+        if to < 0 or to > count - (stop - start):
+            return Err(BytesError.OutOfRange)
+        __bytes_copy_within(self._owner, start, stop, to)
+        Ok(())
+
     pub def slice(self, start: i64, stop: i64) -> Result[Bytes, BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
         mut owner = allocated(__bytes_new(stop - start))?
