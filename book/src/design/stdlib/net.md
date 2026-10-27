@@ -72,7 +72,8 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 
 | Variant | Cause |
 |---|---|
-| `TimedOut` | The deadline passed, or the kernel gave up on a connection (`ETIMEDOUT`) |
+| `TimedOut` | The caller's deadline passed |
+| `ConnectionTimedOut` | The kernel gave up on the connection (`ETIMEDOUT`) |
 | `Cancelled` | The token was cancelled |
 | `Refused` | Nothing listens at the address (`ECONNREFUSED`) |
 | `Reset` | The peer reset or closed the connection while data was moving (`ECONNRESET`, `EPIPE`) |
@@ -84,6 +85,12 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 | `HandleLimit` | The process or system has no free descriptors (`EMFILE`, `ENFILE`) |
 | `InvalidAddress` | Address text outside the grammar, or an empty or NUL-containing host name |
 | `Stream(StreamError)` | Any other failure, with its native code in `StreamError.Io(IoError.System(code))`, or allocation failure |
+
+`TimedOut` ends the current wait; it does not mark an established connection
+as failed, so the caller may retry with another deadline. `ConnectionTimedOut`
+is a connection failure: close that stream rather than retrying a wait on it.
+Both distinctions survive the network-error wrappers in
+[`std.tls`](tls.md#errors) and the [HTTP client](http-client.md#errors).
 
 ## TCP
 

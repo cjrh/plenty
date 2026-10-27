@@ -368,6 +368,11 @@ TLS failures map to `ClientError`:
 
 ## Errors
 
+`Net(TimedOut)` means a caller or configured phase deadline passed.
+`Net(ConnectionTimedOut)` means the kernel gave up on the connection; it is
+propagated as a connection failure, including through HTTPS, rather than
+treated as the end of the `100 Continue` waiting period.
+
 `ClientError` is `Net(NetError)` for connection failures, timeouts and
 cancellation; `Http(HttpError)` for malformed or oversized responses, with
 `Truncated` for a connection that closed early; `Url(UrlError)`;
