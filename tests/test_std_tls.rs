@@ -854,3 +854,73 @@ with spawn(nonblocking_echo, &listener, &server, &deadline, &cancel)? as worker:
         "True\n60000",
     );
 }
+
+/// Moves ciphertext between two sessions through a buffer of `size` bytes,
+/// as a caller-owned socket buffer would, until neither has more to send.
+const SHUTTLE: &str = r#"
+def shuttle(source: &mut std.tls.Session, target: &mut std.tls.Session, size: i64) -> Result[i64, TlsError]:
+    mut buffer = std.bytes.with_capacity(size).unwrap()
+    buffer.resize(size, 0u8).unwrap()
+    mut moved = 0
+    while source.wants_write():
+        count = source.take(&mut buffer, 0, size)?
+        mut at = 0
+        while at < count:
+            at += target.feed(&buffer, at, count)?
+        moved += count
+    Ok(moved)
+
+def settle(client: &mut std.tls.Session, server: &mut std.tls.Session) -> Result[(), TlsError]:
+    mut moving = True
+    while moving:
+        moving = shuttle(client, server, 7)? + shuttle(server, client, 7)? > 0
+    Ok(())
+"#;
+
+#[test]
+fn sessions_handshake_and_exchange_records_through_caller_buffers() {
+    native(
+        SHUTTLE,
+        r#"
+mut server = std.tls.server_session(&server_for("leaf.pem")?).unwrap()
+mut client = std.tls.client_session(&client_for("ca.pem")?, "localhost").unwrap()
+mut reply = std.bytes.with_capacity(16)?
+reply.resize(16, 0u8)?
+# Nothing has arrived: the read would block.
+print(server.read(&mut reply, 0, 16).unwrap())?
+settle(&mut client, &mut server).unwrap()
+print(client.handshaking(), server.handshaking(), server.server_name().unwrap())?
+print(client.write(b"hello", 0, 5).unwrap())?
+settle(&mut client, &mut server).unwrap()
+count = server.read(&mut reply, 0, 16).unwrap().unwrap()
+print(reply.slice(0, count)?.to_text()?)?
+client.close()
+print(str.repr(client.write(b"late", 0, 4))?)?
+settle(&mut client, &mut server).unwrap()
+print(server.read(&mut reply, 0, 16).unwrap())?
+"#,
+        "Option[i64].Nothing\nFalse False Option[str].Some(\"localhost\")\n5\nhello\nResult[i64, TlsError].Err(TlsError.Closed)\nOption[i64].Some(0)",
+    );
+}
+
+#[test]
+fn a_session_reports_truncation_and_verification_failures() {
+    native(
+        SHUTTLE,
+        r#"
+config = server_for("leaf.pem")?
+mut server = std.tls.server_session(&config).unwrap()
+mut client = std.tls.client_session(&client_for("ca.pem")?, "localhost").unwrap()
+settle(&mut client, &mut server).unwrap()
+mut reply = std.bytes.with_capacity(16)?
+reply.resize(16, 0u8)?
+# The stream ended without close_notify.
+drop(server.feed_end())
+print(str.repr(server.read(&mut reply, 0, 16))?)?
+mut other = std.tls.server_session(&config).unwrap()
+mut wrong = std.tls.client_session(&client_for("ca.pem")?, "example.com").unwrap()
+print(str.repr(settle(&mut wrong, &mut other))?)?
+"#,
+        "Result[Option[i64], TlsError].Err(TlsError.Truncated)\nResult[(), TlsError].Err(TlsError.WrongHost)",
+    );
+}

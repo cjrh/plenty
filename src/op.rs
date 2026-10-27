@@ -282,8 +282,10 @@ impl Ty {
     /// values that such a borrow cannot alias into, or change from, another
     /// heap. A `str` copy shares its storage; shared owners, atomics (and so
     /// `Mutex`), channels, tokens, closures and native handles share or
-    /// change state through `&`. `std.bytes.Bytes` is the one native owner
-    /// allowed: it has no such method. See book/src/design/stdlib/actor.md.
+    /// change state through `&`. `std.bytes.Bytes` has no such method, and
+    /// `std.tls` configurations are immutable and allocated outside every
+    /// heap. A `std.tls.Session` changes only through `&mut` and only reads
+    /// its own state through `&`. See book/src/design/stdlib/actor.md.
     pub fn actor_barrier(&self) -> Option<(Ty, Option<Ty>)> {
         let mut work: Vec<(Ty, Option<Ty>)> = vec![(self.clone(), None)];
         let mut seen = crate::hash::HashSet::default();
@@ -298,7 +300,14 @@ impl Ty {
                     work.push(((**k).clone(), holder.clone()));
                     work.push(((**v).clone(), holder));
                 }
-                Self::Class(t) if &*t.name == "std.bytes.Bytes" => {}
+                Self::Class(t)
+                    if matches!(
+                        &*t.name,
+                        "std.bytes.Bytes"
+                            | "std.tls.ClientConfig"
+                            | "std.tls.ServerConfig"
+                            | "std.tls.Session"
+                    ) => {}
                 Self::Class(t) => {
                     if seen.insert(t.name.clone()) {
                         let fields = t

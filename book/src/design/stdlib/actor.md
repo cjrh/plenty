@@ -136,6 +136,7 @@ and the child's apart:
   it cannot move a value out of the parent's node into the child.
 - The node type holds only values that a shared borrow neither aliases nor
   changes: numbers, `bool`, `bytes`, `Bytes`, files and sockets, functions,
+  [`std.tls`](tls.md) configurations and sessions,
   and lists, dicts, sets, boxes, classes and enums of these. A `str` copy
   shares its storage and `Mutex.lock` gives `&mut` through a shared borrow,
   so the compiler rejects a node holding `str`, `Shared`, a lock, an atomic,
