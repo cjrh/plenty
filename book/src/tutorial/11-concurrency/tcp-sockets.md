@@ -95,22 +95,38 @@ def main() -> Result[(), AllocError | IoError | SocketOperationError]:
     quiet = connect(&address, &deadline, &cancel)?
     mut chatty = connect(&address, &deadline, &cancel)?
     first = listener.accept(&deadline, &cancel)?
-    second = listener.accept(&deadline, &cancel)?
+    mut second = listener.accept(&deadline, &cancel)?
     mut chosen = selector(8)?
     first.watch(&mut chosen, 1u64, Interest.Read)?
     second.watch(&mut chosen, 2u64, Interest.Read)?
-    message = std.bytes.from_text("hi")?
-    chatty.write_all_before(&message, 0, 2, &deadline, &cancel)?
-    count = chosen.wait(&deadline, &cancel)?
-    print(count, chosen.event(0)?.key)?
+    chatty.write_all_before(&b"x", 0, 1, &deadline, &cancel)?
+    mut buffer = std.bytes.with_capacity(16)?
+    buffer.resize(16, 0u8)?
+    while True:
+        count = chosen.wait(&deadline, &cancel)?
+        match second.read_now(&mut buffer, 0, 16):
+            case Ok(received):
+                print(count, chosen.event(0)?.key)?
+                print(buffer.to_text_range(0, received)?)?
+                break
+            case Err(std.net.NetError.WouldBlock):
+                continue
+            case Err(error):
+                return Err(error)
     Ok(())
 ```
 
 ```output
 1 2
+x
 ```
 
 Only the second connection has input, so the wait reports one event, key 2.
-The server would now call `read_before` on that stream, which returns at once.
+`read_now` makes a single nonblocking read without another readiness wait.
+If readiness has become stale, `WouldBlock` sends the loop back to the selector.
+This example has only one possible sender and one byte of input. A server
+dispatches each event by its key, handles zero from a nonempty read as EOF,
+and keeps any unsent suffix after a partial `write_now`. `accept_now` similarly
+accepts one queued connection or returns `WouldBlock` without waiting.
 Name lookup, UDP datagrams and IPv6 addresses are in the
 [reference](../../design/stdlib/net.md).

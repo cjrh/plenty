@@ -42,6 +42,7 @@ pub enum NetError:
     TimedOut
     # The kernel gave up on the connection (ETIMEDOUT).
     ConnectionTimedOut
+    WouldBlock
     Cancelled
     Refused
     Reset
@@ -138,6 +139,8 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, NetError]:
 def named(error: IoError) -> NetError:
     match error:
         case IoError.System(code):
+            if code == would_block:
+                return NetError.WouldBlock
             if code == refused:
                 return NetError.Refused
             if code == reset or code == broken_pipe:
@@ -634,6 +637,23 @@ pub class TcpStream:
     pub def close(self: &mut TcpStream) -> Result[(), StreamError]:
         self._stream.close()
 
+    # One nonblocking attempt, without a readiness wait or interruption retry.
+    # WouldBlock means no input is available; zero from a nonempty range is EOF.
+    pub def read_now(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, NetError]:
+        match self._stream.read(buffer, start, stop):
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(streamed(error))
+
+    # Offers the entire range once; keep the unsent suffix after a short write.
+    pub def write_now[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, NetError]:
+        match self._stream.write(source, start, stop):
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(streamed(error))
+
     # Waits for input, then makes one read. Zero is the end of the peer's
     # output.
     pub def read_before(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
@@ -716,6 +736,11 @@ pub class TcpListener:
 
     pub def unwatch(self, selector: &mut Selector) -> Result[(), NetError]:
         selected(selector.unwatch(&self._file))
+
+    # One accept attempt; an empty queue is WouldBlock. Interruption and
+    # aborted connections are returned to the caller instead of retried.
+    pub def accept_now(self) -> Result[TcpStream, NetError]:
+        Ok(TcpStream(FileStream(opened(__net_accept(self._file))?)))
 
     # Waits for a connection. Several workers may accept from one shared
     # listener; each connection goes to one of them. At the descriptor limit

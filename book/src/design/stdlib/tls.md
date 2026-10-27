@@ -253,6 +253,10 @@ These methods never wait, so one thread can drive many streams from a
 | `unwatch(selector: &mut Selector)` | `Result[(), TlsError]` | Remove it |
 
 A `try_` result of `Nothing` or `false` means the stream needs the socket.
+These methods use TCP's [immediate operations](net.md#waiting-on-many-sockets),
+without polling with an expired deadline. `WouldBlock` or interruption leaves
+the TLS progress buffered and returns `Nothing` or `false`; other network
+errors, including `ConnectionTimedOut`, propagate.
 Do all the work available without waiting, then register `interest()`
 again and wait: rustls may hold decrypted bytes the socket no longer
 signals, and a write may leave ciphertext that only a writable socket can
