@@ -72,7 +72,10 @@ compute: `//` floors, `%` takes the divisor's sign, `/` divides floats only,
 operands must share a type. Unsuffixed literals take the type the context
 expects. Where run time would trap, evaluation is a compile error instead:
 overflow, division by zero, a shift count outside `0..width`, and an out-of-range
-float-to-integer cast. Both branches of `x if c else y` are evaluated. A cycle
+float-to-integer cast. As at run time, `x if c else y` evaluates only the
+selected branch, and `and` and `or` evaluate their right operand only when it
+decides the result; the other operand is still type-checked, so
+`1 if D == 0 else 100 // D` is valid when `D` is zero. A cycle
 is reported with its path, for example `constant A depends on itself: A -> B -> A`.
 
 ### Static assertions

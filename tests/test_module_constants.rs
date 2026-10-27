@@ -215,6 +215,56 @@ fn constant_evaluation_errors_are_compile_time_errors() {
     }
 }
 
+/// As at run time, `x if c else y` evaluates only the selected branch and
+/// `and`/`or` short-circuit, so a trap in the other operand is no error. The
+/// other operand is still type-checked.
+#[test]
+fn unselected_operands_are_checked_but_not_evaluated() {
+    let output = run("\
+const DIVISOR: i64 = 0
+const SAFE: i64 = 1 if DIVISOR == 0 else 100 // DIVISOR
+const LARGE: u8 = u8(300) if False else 255u8
+const NESTED: i64 = 0 if True else (1 if False else i64.MAX + 1)
+const GUARDED: bool = DIVISOR != 0 and 100 // DIVISOR > 1
+const EITHER: bool = DIVISOR == 0 or 1 << 64 == 0
+const CAST: i64 = 7 if True else i64(f64.NAN)
+
+def main() -> Result[(), IoError]:
+    print(SAFE)?
+    print(LARGE)?
+    print(NESTED)?
+    print(GUARDED)?
+    print(EITHER)?
+    print(CAST)?
+    Ok(())
+");
+    assert_eq!(output, "1\n255\n0\nFalse\nTrue\n7\n");
+    for (source, message) in [
+        ("const A: i64 = 1 if True else 1 // 0\n", ""),
+        ("const A: i64 = 1 // 0 if True else 1\n", "division by zero"),
+        (
+            "const A: i64 = 1 if True else 2.0\n",
+            "conditional branches differ",
+        ),
+        ("const A: i64 = 1 if True else 1 + 2u8\n", "cannot combine"),
+        (
+            "const A: i64 = 1 if True else missing\n",
+            "not a constant expression",
+        ),
+        ("const A: bool = False and 1\n", "expected bool, got i64"),
+        ("const A: bool = True or 1 == 2.0\n", "cannot compare"),
+    ] {
+        let source = format!("{source}def main() -> ():\n    pass\n");
+        let result = plenty::check_source(&source);
+        if message.is_empty() {
+            result.unwrap();
+        } else {
+            let error = result.unwrap_err().to_string();
+            assert!(error.contains(message), "{source}: {error}");
+        }
+    }
+}
+
 #[test]
 fn static_assertions_are_checked_at_compile_time() {
     let source = "const WIDTH: i64 = 64\nassert WIDTH % 8 == 0\nassert WIDTH > 8, \"too narrow\"\ndef main() -> ():\n    pass\n";

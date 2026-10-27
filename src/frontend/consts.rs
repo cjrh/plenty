@@ -46,6 +46,11 @@ struct Folder<'a> {
     getters: HashMap<&'a str, &'a Function>,
     values: HashMap<String, Value>,
     active: Vec<String>,
+    /// Depth of branches that run time would not take: the unselected arm of
+    /// `x if c else y` and the right operand of a short-circuited `and` or
+    /// `or`. They are type-checked, but a value that would trap there becomes
+    /// zero of its type instead of an error.
+    unselected: u32,
 }
 
 /// Evaluates every constant and static assertion in `functions`, replacing
@@ -62,6 +67,7 @@ pub(super) fn fold(functions: &mut Vec<Function>) -> Result<()> {
                 .collect(),
             values: HashMap::default(),
             active: vec![],
+            unselected: 0,
         };
         for (i, f) in functions.iter().enumerate() {
             let result = if f.name.starts_with(GETTER) {
@@ -231,6 +237,14 @@ impl Folder<'_> {
         }))
     }
 
+    /// `typed`, or only checked when run time would not evaluate `e`.
+    fn branch_typed(&mut self, e: &Expr, ty: &Ty, taken: bool) -> Result<Value> {
+        self.unselected += u32::from(!taken);
+        let value = self.typed(e, ty);
+        self.unselected -= u32::from(!taken);
+        value
+    }
+
     /// Evaluates `e`, which must have type `ty`.
     fn typed(&mut self, e: &Expr, ty: &Ty) -> Result<Value> {
         let value = self.eval(e, Some(ty))?;
@@ -326,9 +340,10 @@ impl Folder<'_> {
                 let expected = expected
                     .cloned()
                     .or_else(|| self.natural(yes).or_else(|| self.natural(no)));
-                // Both branches must be constant expressions of one type.
-                let yes = self.eval(yes, expected.as_ref())?;
-                let no = self.eval(no, expected.as_ref())?;
+                // As at run time, only the selected branch is evaluated; both
+                // must be constant expressions of one type.
+                let yes = self.branch(yes, expected.as_ref(), holds)?;
+                let no = self.branch(no, expected.as_ref(), !holds)?;
                 if yes.ty() != no.ty() {
                     return Err(e.at.error(format!(
                         "conditional branches differ: {} and {}",
@@ -342,27 +357,43 @@ impl Folder<'_> {
         }
     }
 
+    /// Evaluates `e`, or only checks it when run time would not evaluate it.
+    fn branch(&mut self, e: &Expr, expected: Option<&Ty>, taken: bool) -> Result<Value> {
+        if taken {
+            return self.eval(e, expected);
+        }
+        self.unselected += 1;
+        let value = self.eval(e, expected);
+        self.unselected -= 1;
+        value
+    }
+
+    fn spare(&self) -> bool {
+        self.unselected > 0
+    }
+
     fn cast(&mut self, operand: &Expr, target: &Ty) -> Result<Value> {
         let source = self.natural(operand);
         let value = self.eval(operand, source.as_ref())?;
         let at = &operand.at;
         match value {
             Value::Int(n, _) if target.is_int() => {
-                int(n, target, at, "integer cast out of range for")
+                int(n, target, at, "integer cast out of range for", self.spare())
             }
             Value::Int(n, _) if *target == Ty::F32 => {
                 Ok(Value::Float(f64::from(n as f32), Ty::F32))
             }
             Value::Int(n, _) => Ok(Value::Float(n as f64, Ty::F64)),
             Value::Float(x, _) if target.is_int() => {
-                if x.is_nan() || x.is_infinite() {
+                if (x.is_nan() || x.is_infinite()) && !self.spare() {
                     return Err(at.error(format!("integer cast out of range for {target}: {x}")));
                 }
                 int(
-                    x.trunc() as i128,
+                    if x.is_finite() { x.trunc() as i128 } else { 0 },
                     target,
                     at,
                     "integer cast out of range for",
+                    self.spare(),
                 )
             }
             Value::Float(x, _) if *target == Ty::F32 => {
@@ -388,7 +419,13 @@ impl Folder<'_> {
                 if !matches!(ty, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64) {
                     return Err(e.at.error(format!("cannot negate unsigned {ty}")));
                 }
-                int(-n, &ty, &e.at, "constant arithmetic overflows")
+                int(
+                    -n,
+                    &ty,
+                    &e.at,
+                    "constant arithmetic overflows",
+                    self.spare(),
+                )
             }
             ("-", Value::Float(x, ty)) => Ok(Value::Float(-x, ty)),
             ("~", Value::Int(n, ty)) => {
@@ -416,7 +453,8 @@ impl Folder<'_> {
                 let Value::Bool(left) = self.typed(a, &Ty::Bool)? else {
                     unreachable!()
                 };
-                let Value::Bool(right) = self.typed(b, &Ty::Bool)? else {
+                let taken = left == (op == "and");
+                let Value::Bool(right) = self.branch_typed(b, &Ty::Bool, taken)? else {
                     unreachable!()
                 };
                 return Ok(Value::Bool(if op == "and" {
@@ -454,7 +492,7 @@ impl Folder<'_> {
             )));
         }
         match (left, right) {
-            (Value::Int(x, ty), Value::Int(y, _)) => integer_op(op, x, y, &ty, at),
+            (Value::Int(x, ty), Value::Int(y, _)) => integer_op(op, x, y, &ty, at, self.spare()),
             (Value::Float(x, ty), Value::Float(y, _)) => {
                 let f32 = ty == Ty::F32;
                 let z = match op {
@@ -488,16 +526,21 @@ impl Folder<'_> {
     }
 }
 
-fn integer_op(op: &str, x: i128, y: i128, ty: &Ty, at: &Token) -> Result<Value> {
+/// Integer arithmetic with run-time semantics. Where run time would trap,
+/// returns an error, or zero when `spare` (see `Folder::unselected`).
+fn integer_op(op: &str, x: i128, y: i128, ty: &Ty, at: &Token, spare: bool) -> Result<Value> {
     let (min, end) = ty.int_range().unwrap();
     let width = (end - min).trailing_zeros() as i128;
     let overflow = "constant arithmetic overflows";
     let z = match op {
         "+" => x + y,
         "-" => x - y,
-        "*" => x
-            .checked_mul(y)
-            .ok_or_else(|| at.error(format!("{overflow} {ty}")))?,
+        "*" => match x.checked_mul(y) {
+            Some(z) => z,
+            None if spare => 0,
+            None => return Err(at.error(format!("{overflow} {ty}"))),
+        },
+        "//" | "%" if y == 0 && spare => 0,
         "//" | "%" if y == 0 => return Err(at.error("division by zero in a constant")),
         "//" => {
             let q = x / y;
@@ -519,6 +562,9 @@ fn integer_op(op: &str, x: i128, y: i128, ty: &Ty, at: &Token) -> Result<Value> 
         "|" => x | y,
         "^" => x ^ y,
         "<<" | ">>" => {
+            if (y < 0 || y >= width) && spare {
+                return Ok(Value::Int(0, ty.clone()));
+            }
             if y < 0 || y >= width {
                 return Err(at.error(format!("shift count {y} is outside 0..{width} for {ty}")));
             }
@@ -541,11 +587,14 @@ fn integer_op(op: &str, x: i128, y: i128, ty: &Ty, at: &Token) -> Result<Value> 
         }
         _ => return Err(at.error(format!("operator `{op}` does not apply to {ty}"))),
     };
-    int(z, ty, at, overflow)
+    int(z, ty, at, overflow, spare)
 }
 
-fn int(n: i128, ty: &Ty, at: &Token, message: &str) -> Result<Value> {
+fn int(n: i128, ty: &Ty, at: &Token, message: &str, spare: bool) -> Result<Value> {
     let (min, end) = ty.int_range().unwrap();
+    if (n < min || n >= end) && spare {
+        return Ok(Value::Int(0, ty.clone()));
+    }
     if n < min || n >= end {
         return Err(at.error(format!("{message} {ty}: {n}")));
     }
