@@ -760,6 +760,7 @@ impl Lower<'_> {
         }
         let index = field_index(&class, name, &e.at)?;
         modules::check_member(self.access, &class.name, name, &e.at)?;
+        self.aliases.data.note_field(&class.name, name);
         let ty = class.get().fields[index].1.clone();
         ops.push(Op::Class(ClassOp::Field(class, index)));
         Ok((ty, loans))
@@ -894,6 +895,7 @@ impl Lower<'_> {
         let Ty::Class(t) = unbox(owner) else {
             return None;
         };
+        self.aliases.data.note_field(&t.name, name);
         t.get()
             .fields
             .iter()
