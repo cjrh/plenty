@@ -68,7 +68,7 @@ pub enum Node:
             case Node.Accepting(acceptor):
                 acceptor.listener.handle(&mail, context)?
                 match mail:
-                    case Mail.Down(_, exit):
+                    case Mail.Down(_, _, exit):
                         acceptor.ended += 1
                         match exit:
                             case Exit.Trapped(_):

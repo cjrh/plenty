@@ -1,0 +1,84 @@
+# One actor watches two sockets with `Context.watch`. Both peers have sent a
+# byte before the stage runs, so both are ready in the same wait. Each
+# `Mail.Ready` names its socket, and level-triggered readiness of one socket
+# is queued once: after reading both, the actor sends itself a message, and
+# a duplicate `Ready` queued ahead of it would print `stale`.
+from std.actor import Address, Context, Mail, heaps_live, stage
+import std.bytes
+from std.bytes import BytesError
+from std.net import NetError, TcpStream, connect, listen, loopback_v4
+from std.ready import Interest, WaitError
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+type Fault = NetError | BytesError | WaitError | IoError
+
+pub class Pair:
+    pub first: TcpStream
+    pub second: TcpStream
+    pub one: u64
+    pub two: u64
+    pub read: i64
+
+    pub def started(self: &mut Pair, context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        one = context.watch(&self.first, Interest.Write)?
+        # Watching again changes the interest and keeps the key.
+        again = context.watch(&self.first, Interest.Read)?
+        two = context.watch(&self.second, Interest.Read)?
+        print("same", one.key() == again.key(), one.key() == two.key())?
+        self.one = again.key()
+        self.two = two.key()
+        Ok(())
+
+    pub def receive(self: &mut Pair, mail: Mail[i64, Fault], context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        match mail:
+            case Mail.Ready(watch, _):
+                mut name = "neither"
+                mut buffer = std.bytes.with_capacity(8)?
+                buffer.resize(8, 0u8)?
+                mut outcome: Result[i64, NetError] = Ok(0)
+                if watch.key() == self.one:
+                    name = "first"
+                    outcome = self.first.read_now(&mut buffer, 0, 8)
+                elif watch.key() == self.two:
+                    name = "second"
+                    outcome = self.second.read_now(&mut buffer, 0, 8)
+                match outcome:
+                    case Ok(count):
+                        print("ready", name, count)?
+                        self.read += 1
+                        if self.read == 2:
+                            context.unwatch(&self.first)?
+                            context.unwatch(&self.second)?
+                            context.send(context.address(), 0).unwrap()
+                    case Err(NetError.WouldBlock):
+                        print("stale", name)?
+                    case Err(error):
+                        return Err(error)
+            case Mail.Message(_):
+                print("done")?
+                context.stop()
+            case _:
+                pass
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Pair], Fault]:
+        Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | WaitError | NetError]:
+    deadline = deadline_after(&monotonic_now(), &seconds(10)).unwrap()
+    cancel = CancellationToken()?
+    socket = listen(&loopback_v4(0u16), 4)?
+    address = socket.local_address()?
+    first = connect(&address, &deadline, &cancel)?
+    mut first_peer = socket.accept(&deadline, &cancel)?
+    second = connect(&address, &deadline, &cancel)?
+    mut second_peer = socket.accept(&deadline, &cancel)?
+    first_peer.write_all_before(b"a", 0, 1, &deadline, &cancel)?
+    second_peer.write_all_before(b"b", 0, 1, &deadline, &cancel)?
+    mut actors = stage[Pair, i64, Fault](1, 4, 8)?
+    actors.start(Pair(first, second, 0u64, 0u64, 0), 65536).unwrap()
+    actors.run(&deadline, &cancel)?
+    stats = actors.stats()
+    print(stats.delivered, stats.failed, heaps_live())?
+    Ok(())

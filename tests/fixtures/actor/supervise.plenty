@@ -17,9 +17,9 @@ pub class Node:
 
     pub def started(self: &mut Node, context: &mut Context[Note, AllocError]) -> Result[(), AllocError]:
         if self.tag == 0:
-            grower = context.spawn(1, small_heap).unwrap()
-            replier = context.spawn(2, small_heap).unwrap()
-            trapper = context.spawn(3, small_heap).unwrap()
+            grower = context.spawn(11, small_heap).unwrap()
+            replier = context.spawn(12, small_heap).unwrap()
+            trapper = context.spawn(13, small_heap).unwrap()
             context.send(grower, Note.Grow(100000)).unwrap()
             context.send(replier, Note.Reply(context.address())).unwrap()
             context.send(trapper, Note.Boom).unwrap()
@@ -41,8 +41,8 @@ pub class Node:
             case Mail.Message(Note.Boom):
                 missing: Option[i64] = Nothing
                 missing.unwrap()
-            case Mail.Down(child, exit):
-                print("down", child.key() & 4294967295u64, exit).unwrap()
+            case Mail.Down(child, tag, exit):
+                print("down", child.key() & 4294967295u64, tag, exit).unwrap()
                 self.downs += 1
                 if self.downs == 3:
                     context.stop()

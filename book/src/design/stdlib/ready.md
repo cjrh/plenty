@@ -50,6 +50,7 @@ def main() -> Result[(), AllocError | IoError | RangeError | WaitError | std.byt
 | `WaitError` | `TimedOut`, `Cancelled`, or `Stream(StreamError)` |
 | `Selector` | An owned set of registered handles; see [Selectors](#selectors) |
 | `Event` | Public fields `key: u64` and `readiness: Readiness` |
+| `Watchable` | Protocol: `descriptor(self) -> &File`, the handle a selector waits on |
 
 `hangup` and `error` are reported whatever the interest. On Linux a pipe whose
 writer has closed reports `hangup` without `readable`; a read then returns end
@@ -120,6 +121,10 @@ bytes per event; it starts no thread.
   read, written or closed by its owner.
 - [`std.net`](net.md) streams, listeners and UDP sockets have `watch` and
   `unwatch` methods that report `NetError`.
+- `Watchable` names a handle by the `File` it waits on. `std.net`'s
+  `TcpStream`, `TcpListener`, `UdpSocket`, `Connecting` and `Lookup`
+  implement it, and [`std.actor`'s `Context.watch`](actor.md#watching-handles)
+  takes any `Watchable`.
 
 For TCP, follow an event with [`accept_now`, `read_now` or
 `write_now`](net.md#waiting-on-many-sockets). They make one nonblocking attempt

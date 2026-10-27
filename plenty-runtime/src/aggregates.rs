@@ -1660,7 +1660,7 @@ operation_entries! {
 }
 // `std.ready`.
 operation_entries! {
-    419 420 421 422
+    419 420 421 422 423
 }
 // `std.tls`.
 operation_entries! {
@@ -1746,7 +1746,7 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
             out.write(byte_storage::call(op, operands, descriptor, site));
             return;
         }
-        if (419..423).contains(&op) {
+        if (419..424).contains(&op) {
             let operands = read_operands::<5>(op, args);
             out.write(readiness::call(op, operands, descriptor));
             return;
