@@ -221,6 +221,147 @@ p = gg.ggplot(a, gg.aes("x", "y", colour="c"), [gg.geom_point(), gg.geom_point(d
 }
 
 #[test]
+fn long_labels_wrap_within_the_page_and_expand_margins() {
+    let svg = render(
+        r#"
+data = gg.table([("category", Column.Text(["Northern coastal district", "Southern mountain district"]?)), ("value", Column.Num([2.0, 4.0]?)), ("group", Column.Text(["Observations from primary survey", "Observations from follow-up survey"]?))]?)?
+p = gg.ggplot(data, gg.aes("category", "value", fill="group"), [gg.geom_col(), gg.labs(title="A comparison of regional survey totals with deliberately long descriptive labels", x="Survey region", y="Recorded observations", fill="Survey collection method"), gg.theme_minimal()]?)?
+"#,
+    );
+    assert!(svg.contains(">Northern</text>") || svg.contains(">Northern coastal</text>"));
+    assert!(!svg.contains(">Northern coastal district</text>"));
+    // SVG textLength is the layout contract, including with fallback fonts.
+    // Check every unrotated text box against the physical canvas bounds.
+    let mut rotated = false;
+    for line in svg.lines() {
+        if line.contains("rotate(-90)") {
+            rotated = true;
+        } else if line == "</g>" {
+            rotated = false;
+        } else if line.starts_with("<text ") && !rotated {
+            let attr = |name: &str| -> f64 {
+                line.split(&format!("{name}=\""))
+                    .nth(1)
+                    .unwrap()
+                    .split('"')
+                    .next()
+                    .unwrap()
+                    .parse()
+                    .unwrap()
+            };
+            let x = attr("x");
+            let width = attr("textLength");
+            let start = if line.contains("text-anchor=\"middle\"") {
+                x - width / 2.0
+            } else if line.contains("text-anchor=\"end\"") {
+                x - width
+            } else {
+                x
+            };
+            assert!(start >= -0.02 && start + width <= 432.02, "{line}");
+            assert!(attr("y") >= 0.0 && attr("y") <= 288.0, "{line}");
+        }
+    }
+    snapshot("wrapped-labels", &svg);
+}
+
+#[test]
+fn layout_failure_precedes_stream_output_and_larger_dimensions_recover() {
+    let output = support::run_file_stdout(&program(
+        r#"
+data = gg.table([("x", Column.Text(["North", "South"]?)), ("y", Column.Num([2.0, 4.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y", colour="x"), [gg.geom_point(), gg.labs(title="A detailed description that needs more room"), gg.theme_minimal(base_size=20)]?)?
+mut small = std.io.cursor(std.bytes.empty()?)
+match p.write_svg(&mut small, width=2.0, height=2.0):
+    case Err(PlotError.InvalidSetting(_)):
+        print("layout", small.data.len())?
+    case _:
+        print("wrong")?
+mut large = std.io.cursor(std.bytes.empty()?)
+print(p.write_svg(&mut large, width=10.0, height=6.0)?)?
+"#,
+    ));
+    assert_eq!(output, "layout 0\n[]");
+}
+
+#[test]
+fn flipped_multiline_labels_and_explicit_line_breaks() {
+    let svg = render(
+        r#"
+data = gg.table([("x", Column.Text(["First region with a long name", "Second region with a long name"]?)), ("y", Column.Num([2.0, 4.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y"), [gg.geom_col(), gg.coord_flip(), gg.labs(title="Regional results\nSecond title line"), gg.theme_classic()]?)?
+"#,
+    );
+    assert!(svg.contains(">Regional results</text>"));
+    assert!(svg.contains(">Second title line</text>"));
+    snapshot("flipped-wrapped-labels", &svg);
+}
+
+#[test]
+fn categorical_positions_are_shared_across_independent_tables() {
+    let svg = render(
+        r#"
+a = gg.table([("x", Column.Text(["B"]?)), ("y", Column.Num([1.0]?))]?)?
+b = gg.table([("x", Column.Text(["A", "B"]?)), ("y", Column.Num([2.0, 3.0]?))]?)?
+p = gg.ggplot(a, gg.aes("x", "y"), [gg.geom_point(), gg.geom_point(data=b)]?)?
+"#,
+    );
+    let xs: Vec<_> = svg
+        .lines()
+        .filter(|line| line.contains("<circle "))
+        .map(|line| {
+            line.split("cx=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .parse::<f64>()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(xs[0], xs[2]);
+    assert!(xs[1] < xs[0]);
+}
+
+#[test]
+fn log_histogram_omits_invalid_domain_values_before_binning() {
+    let output = support::run_file_stdout(&program(
+        r#"
+data = gg.table([("x", Column.Num([0.0, 1.0, 10.0, 100.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x"), [gg.geom_histogram(bins=2), gg.scale_x_log10()]?)?
+mut output = std.io.cursor(std.bytes.empty()?)
+print(p.write_svg(&mut output)?)?
+print(output.data.to_text()?)?
+"#,
+    ));
+    assert!(output.contains("Removed 1 rows"));
+    let geometry = output
+        .split("data-geom=\"histogram\"")
+        .nth(1)
+        .unwrap()
+        .split("</g>")
+        .next()
+        .unwrap();
+    let heights: Vec<_> = geometry
+        .lines()
+        .filter(|line| line.contains("<rect "))
+        .map(|line| {
+            line.split("height=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .parse::<f64>()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(heights.len(), 2);
+    assert!((heights[1] - 2.0 * heights[0]).abs() < 0.02);
+}
+
+#[test]
 fn scatter_line_and_escaping_snapshot() {
     let svg = render(
         r##"

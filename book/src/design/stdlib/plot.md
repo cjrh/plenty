@@ -145,12 +145,21 @@ including on transformed axes. See [position scales](plot-scales.md) for
 transforms, category order, breaks, labels, and the distinction between scale
 limits and coordinate zoom.
 
-Layout currently reserves fixed margins and a right-hand legend area. SVG text
-names `Liberation Sans, Arial, Helvetica, sans-serif`; no fonts or metrics ship.
-Long labels can overlap or extend outside the page. Increase dimensions, shorten
-labels, or hide the legend. A legend with too many rows for the height returns
-`InvalidSetting` instead of silently omitting entries. Bundled font measurement,
-text shaping, and sophisticated guide layout are not implemented.
+Layout plans text boxes before writing any SVG. Margins adapt to axis labels,
+titles and a right-hand legend. Titles, tick labels and legend labels wrap at
+word boundaries; an overlong word splits between Unicode scalars. Explicit
+newlines start new lines, and other whitespace is normalised. Tick boxes must
+not overlap. A chart that cannot fit returns `InvalidSetting` before writing
+to the supplied writer; increase dimensions, shorten labels, use fewer breaks,
+or hide the legend. No ticks or legend entries are silently removed.
+
+SVG text names `Liberation Sans, Arial, Helvetica, sans-serif`; no fonts or
+font metrics ship. Deterministic character advances define each text box, and
+SVG `textLength` with `lengthAdjust="spacingAndGlyphs"` constrains the displayed
+width to that box. This may stretch/compress glyphs with a fallback font.
+The guarantee concerns the planned boxes in conforming SVG viewers, not
+identical glyph outlines across fonts. Complex-script shaping, font-specific
+vertical metrics, rotated ticks, and multi-column legends remain unsupported.
 
 ## Output and failures
 
@@ -167,7 +176,8 @@ SVG unless the caller selects a memory cursor. Output uses two-decimal coordinat
 identifiers, and no timestamps or machine-specific font discovery. Identical
 inputs with the same toolchain produce identical bytes.
 
-`save` truncates an existing destination. A rendering, allocation, or I/O failure
+`save` truncates an existing destination, including before layout preflight.
+A rendering, allocation, or I/O failure
 can leave partial output; it is not an atomic file replacement. For transactional
 publication, write a temporary file and rename it after success. A stream failure
 is `PlotError.Write(completed, cause)`, where `completed` counts bytes in the

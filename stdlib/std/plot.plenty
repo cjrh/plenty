@@ -1289,7 +1289,182 @@ def escaped(value: str) -> Result[str, PlotError]:
 
 def label[W: Writer](writer: &mut W, x: f64, y: f64, text: str, size: f64, anchor: str = "middle") -> Result[(), PlotError]:
     safe = escaped(text)?
-    emit(writer, formatted(f"<text x=\"{x:.2f}\" y=\"{y:.2f}\" font-size=\"{size:.2f}\" text-anchor=\"{anchor}\">{safe}</text>\n")?)
+    if text == "":
+        return Ok(())
+    length = text_width(text, size)
+    emit(writer, formatted(f"<text x=\"{x:.2f}\" y=\"{y:.2f}\" font-size=\"{size:.2f}\" text-anchor=\"{anchor}\" textLength=\"{length:.2f}\" lengthAdjust=\"spacingAndGlyphs\">{safe}</text>\n")?)
+
+# These advances define our SVG text boxes, not measurements of a host font.
+# textLength makes the renderer use that width, so fallback fonts cannot push
+# a label into another box. Glyph appearance still depends on the SVG viewer.
+def text_width(text: str, size: f64) -> f64:
+    mut width = 0.0
+    for ch in &text:
+        if *ch in " ilI.,:;!'|":
+            width += size * 0.32
+        elif *ch in "MW@%":
+            width += size * 0.95
+        elif ord(*ch).unwrap() > 127u32:
+            width += size
+        else:
+            width += size * 0.62
+    width
+
+class TextBlock:
+    lines: list[str]
+    size: f64
+    width: f64
+    height: f64
+
+def text_block(text: str, size: f64, limit: f64) -> Result[TextBlock, PlotError]:
+    mut lines = allocated(list[str]())?
+    if text == "":
+        return Ok(TextBlock(lines, size, 0.0, 0.0))
+    drop(escaped(text)?)
+    if limit < size:
+        return Err(PlotError.InvalidSetting("text has too little horizontal space; increase dimensions or use fewer breaks"))
+    for paragraph in allocated(text.split("\n"))?:
+        mut current = ""
+        for word in allocated(paragraph.split())?:
+            candidate = word if current == "" else formatted(f"{current} {word}")?
+            if text_width(candidate, size) <= limit:
+                current = candidate
+                continue
+            if current != "":
+                allocated(lines.append(current))?
+                current = ""
+            for ch in &word:
+                fragment = allocated(current + *ch)?
+                if text_width(fragment, size) > limit and current != "":
+                    allocated(lines.append(current))?
+                    current = *ch
+                else:
+                    current = fragment
+        allocated(lines.append(current))?
+    mut width = 0.0
+    for line in &lines:
+        width = std.math.max(width, text_width(*line, size))
+    height = f64(len(lines)) * size * 1.4
+    Ok(TextBlock(lines, size, width, height))
+
+def draw_text[W: Writer](writer: &mut W, block: &TextBlock, x: f64, top: f64, anchor: str = "middle") -> Result[(), PlotError]:
+    for index, text in enumerate(&block.lines):
+        label(writer, x, top + block.size + f64(index) * block.size * 1.4, *text, block.size, anchor)?
+    Ok(())
+
+class TickBox:
+    value: f64
+    text: TextBlock
+
+def tick_boxes(ticks: &list[(f64, str)], size: f64, limit: f64) -> Result[list[TickBox], PlotError]:
+    mut boxes = allocated(list[TickBox]())?
+    for tick in ticks:
+        allocated(boxes.append(TickBox(tick[0], text_block(tick[1], size, limit)?)))?
+    Ok(boxes)
+
+def tick_extent(boxes: &list[TickBox], height: bool) -> f64:
+    mut extent = 0.0
+    for tick in boxes:
+        extent = std.math.max(extent, tick.text.height if height else tick.text.width)
+    extent
+
+def tick_room(ticks: &list[(f64, str)], low: f64, high: f64, span: f64) -> f64:
+    mut room = std.math.min(140.0, span)
+    mut previous: Option[f64] = Nothing
+    for tick in ticks:
+        if tick[1] == "":
+            continue
+        match previous:
+            case Some(value):
+                room = std.math.min(room, (tick[0] - value) / (high - low) * span - 6.0)
+            case Nothing:
+                pass
+        previous = Some(tick[0])
+    room
+
+def check_tick_boxes(boxes: &list[TickBox], low: f64, high: f64, span: f64, vertical: bool) -> Result[(), PlotError]:
+    mut previous: Option[f64] = Nothing
+    for tick in boxes:
+        if tick.text.height == 0.0:
+            continue
+        at = (tick.value - low) / (high - low) * span
+        half = (tick.text.height if vertical else tick.text.width) / 2.0
+        match previous:
+            case Some(edge):
+                if at - half < edge + 3.0:
+                    return Err(PlotError.InvalidSetting("axis labels overlap; increase dimensions or use fewer breaks"))
+            case Nothing:
+                pass
+        previous = Some(at + half)
+    Ok(())
+
+class LegendKey:
+    colour: str
+    text: TextBlock
+
+class LegendBox:
+    title: TextBlock
+    keys: list[LegendKey]
+    width: f64
+    height: f64
+
+def legend_box(scale: &Axis, title: str, size: f64, width: f64) -> Result[LegendBox, PlotError]:
+    heading = text_block(title, size, width)?
+    mut keys = allocated(list[LegendKey]())?
+    mut height = heading.height + 4.0
+    mut used_width = heading.width
+    count = len(scale.levels) if scale.discrete else (1 if scale.low == scale.high else 5)
+    for index in range(count):
+        t = 0.5 if count == 1 else f64(index) / f64(count - 1)
+        name = scale.levels[index] if scale.discrete else number_label(scale.low + (scale.high - scale.low) * t, (scale.high - scale.low) / 4.0)?
+        text = text_block(name, size * 0.8, width - size - 6.0)?
+        used_width = std.math.max(used_width, text.width + size + 6.0)
+        height += std.math.max(size, text.height) + 4.0
+        allocated(keys.append(LegendKey(scale_colour(scale, index, t)?, text)))?
+    Ok(LegendBox(heading, keys, used_width, height))
+
+class Layout:
+    left: f64
+    top: f64
+    width: f64
+    height: f64
+    title: TextBlock
+    x_title: TextBlock
+    y_title: TextBlock
+    x_ticks: list[TickBox]
+    y_ticks: list[TickBox]
+    legends: list[LegendBox]
+
+def layout(w: f64, h: f64, labels: &Labels, theme: &Theme, xticks: &list[(f64, str)], yticks: &list[(f64, str)], xlo: f64, xhi: f64, ylo: f64, yhi: f64, legends: list[LegendBox]) -> Result[Layout, PlotError]:
+    size = theme._size
+    title = text_block(labels._title, size * 1.2, w - 24.0)?
+    ytitle = text_block(labels._y, size, h * 0.5)?
+    yt = tick_boxes(yticks, size * 0.8, std.math.min(140.0, w * 0.25))?
+    left = std.math.max(30.0, 12.0 + ytitle.height + tick_extent(&yt, False) + 10.0)
+    mut legend_width = 0.0
+    mut legend_height = 0.0
+    for legend in &legends:
+        legend_width = std.math.max(legend_width, legend.width + 16.0)
+        legend_height += legend.height + 12.0
+    # Reserve half a tick box at both ends before wrapping. Explicit limits can
+    # put tick centres directly on panel edges.
+    edge = std.math.min(70.0, (w - left - legend_width) * 0.15)
+    panel_left = std.math.max(left, 12.0 + edge)
+    pw = w - panel_left - 12.0 - edge - legend_width
+    if pw < 40.0:
+        return Err(PlotError.InvalidSetting("plot too narrow for axes and legend; increase width or hide the legend"))
+    xt = tick_boxes(xticks, size * 0.8, std.math.min(edge * 2.0, tick_room(xticks, xlo, xhi, pw)))?
+    xtitle = text_block(labels._x, size, pw)?
+    top = 12.0 + title.height + (8.0 if title.height > 0.0 else 0.0) + tick_extent(&yt, True) / 2.0
+    bottom = 12.0 + xtitle.height + tick_extent(&xt, True) + tick_extent(&yt, True) / 2.0 + 12.0
+    ph = h - top - bottom
+    if ph < 40.0 or ytitle.width > ph:
+        return Err(PlotError.InvalidSetting("plot too short for axes and title; increase height or shorten labels"))
+    if legend_height > h - top - 12.0:
+        return Err(PlotError.InvalidSetting("legend does not fit; increase height, shorten labels, or hide it"))
+    check_tick_boxes(&xt, xlo, xhi, pw, False)?
+    check_tick_boxes(&yt, ylo, yhi, ph, True)?
+    Ok(Layout(panel_left, top, pw, ph, title, xtitle, ytitle, xt, yt, legends))
 
 def line[W: Writer](writer: &mut W, x1: f64, y1: f64, x2: f64, y2: f64, colour: str, width: f64 = 0.5) -> Result[(), PlotError]:
     emit(writer, formatted(f"<line x1=\"{x1:.2f}\" y1=\"{y1:.2f}\" x2=\"{x2:.2f}\" y2=\"{y2:.2f}\" stroke=\"{colour}\" stroke-width=\"{width:.2f}\"/>\n")?)
@@ -1405,40 +1580,49 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
     for ratio in allocated([(xmin - xlo) / (xhi - xlo), (xmax - xlo) / (xhi - xlo), (ymin - ylo) / (yhi - ylo), (ymax - ylo) / (yhi - ylo)])?:
         if not finite(ratio) or std.math.abs(ratio) > 1.0e9:
             return Err(PlotError.InvalidSetting("coordinate magnification is too large"))
-    mut legend_width = 0.0
+    mut legends = allocated(list[LegendBox]())?
     if theme._legend != Legend.Hidden and (uses_colour or uses_fill):
-        legend_width = 100.0
-    left = 55.0
-    top = 35.0
-    pw = w - left - 20.0 - legend_width
-    ph = h - top - 50.0
-    if pw < 40.0 or ph < 40.0:
-        return Err(PlotError.InvalidSetting("plot too small for axes and legend"))
+        legend_width = std.math.min(140.0, w * 0.28)
+        if uses_colour:
+            allocated(legends.append(legend_box(colour, labels._colour, theme._size, legend_width)?))?
+        if uses_fill and (not uses_colour or labels._fill != labels._colour or colour.paint != fill.paint or colour.levels != fill.levels or colour.low != fill.low or colour.high != fill.high):
+            allocated(legends.append(legend_box(fill, labels._fill, theme._size, legend_width)?))?
+    xticks = axis_ticks(x, &resolved.xs, xlo, xhi)?
+    yticks = axis_ticks(y, &resolved.ys, ylo, yhi)?
+    display_labels = Labels(labels._title, labels._y if flip else labels._x, labels._x if flip else labels._y, labels._colour, labels._fill)
+    plan = match flip:
+        case True:
+            layout(w, h, &display_labels, &theme, &yticks, &xticks, ylo, yhi, xlo, xhi, legends)?
+        case False:
+            layout(w, h, &display_labels, &theme, &xticks, &yticks, xlo, xhi, ylo, yhi, legends)?
+    left = plan.left
+    top = plan.top
+    pw = plan.width
+    ph = plan.height
+    tick_top = top + ph + tick_extent(&plan.y_ticks, True) / 2.0 + 6.0
     emit(writer, formatted(f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w:.2f}pt\" height=\"{h:.2f}pt\" viewBox=\"0 0 {w:.2f} {h:.2f}\">\n")?)?
     emit(writer, "<g font-family=\"Liberation Sans,Arial,Helvetica,sans-serif\" fill=\"#333333\">\n")?
     rectangle(writer, 0.0, 0.0, w, h, "white")?
     rectangle(writer, left, top, pw, ph, "#EBEBEB" if theme._kind == 0 else "white")?
-    label(writer, left, 22.0, labels._title, theme._size * 1.2, "start")?
+    draw_text(writer, &plan.title, 12.0, 12.0, "start")?
     if flip:
-        draw_axis(writer, y, &resolved.ys, ylo, yhi, left, top, pw, ph, False, &theme)?
-        draw_axis(writer, x, &resolved.xs, xlo, xhi, left, top, pw, ph, True, &theme)?
+        draw_axis(writer, &plan.x_ticks, ylo, yhi, left, top, pw, ph, False, tick_top, &theme)?
+        draw_axis(writer, &plan.y_ticks, xlo, xhi, left, top, pw, ph, True, tick_top, &theme)?
     else:
-        draw_axis(writer, x, &resolved.xs, xlo, xhi, left, top, pw, ph, False, &theme)?
-        draw_axis(writer, y, &resolved.ys, ylo, yhi, left, top, pw, ph, True, &theme)?
-    label(writer, left + pw / 2.0, h - 8.0, labels._y if flip else labels._x, theme._size)?
-    emit(writer, formatted(f"<g transform=\"translate(14.00,{top + ph / 2.0:.2f}) rotate(-90)\">\n")?)?
-    label(writer, 0.0, 0.0, labels._x if flip else labels._y, theme._size)?
+        draw_axis(writer, &plan.x_ticks, xlo, xhi, left, top, pw, ph, False, tick_top, &theme)?
+        draw_axis(writer, &plan.y_ticks, ylo, yhi, left, top, pw, ph, True, tick_top, &theme)?
+    draw_text(writer, &plan.x_title, left + pw / 2.0, tick_top + tick_extent(&plan.x_ticks, True) + 6.0)?
+    emit(writer, formatted(f"<g transform=\"translate({12.0 + plan.y_title.height / 2.0:.2f},{top + ph / 2.0:.2f}) rotate(-90)\">\n")?)?
+    draw_text(writer, &plan.y_title, 0.0, -plan.y_title.height / 2.0)?
     emit(writer, "</g>\n")?
     emit(writer, formatted(f"<defs><clipPath id=\"panel\"><rect x=\"{left:.2f}\" y=\"{top:.2f}\" width=\"{pw:.2f}\" height=\"{ph:.2f}\"/></clipPath></defs>\n<g clip-path=\"url(#panel)\">\n")?)?
     for layer in &layers:
         draw_layer(writer, layer, xlo, xhi, ylo, yhi, left, top, pw, ph, flip)?
     emit(writer, "</g>\n")?
-    if legend_width > 0.0:
-        mut legend_y = top + theme._size
-        if uses_colour:
-            legend_y = draw_legend(writer, colour, labels._colour, left + pw + 12.0, legend_y, h - 15.0, theme._size)?
-        if uses_fill and (not uses_colour or labels._fill != labels._colour or colour.paint != fill.paint or colour.levels != fill.levels or colour.low != fill.low or colour.high != fill.high):
-            drop(draw_legend(writer, fill, labels._fill, left + pw + 12.0, legend_y + 12.0, h - 15.0, theme._size)?)
+    mut legend_y = top
+    for legend in &plan.legends:
+        draw_legend(writer, legend, w - 12.0 - legend.width, legend_y, theme._size)?
+        legend_y += legend.height + 12.0
     emit(writer, "</g>\n</svg>\n")?
     streamed(writer.flush())?
     Ok(notes)
@@ -1498,18 +1682,19 @@ def axis_ticks(scale: &Axis, setting: &PositionScale, low: f64, high: f64) -> Re
         allocated(ticks.append((value, name)))?
     Ok(ticks)
 
-def draw_axis[W: Writer](writer: &mut W, scale: &Axis, setting: &PositionScale, low: f64, high: f64, left: f64, top: f64, width: f64, height: f64, vertical: bool, theme: &Theme) -> Result[(), PlotError]:
-    for value, name in axis_ticks(scale, setting, low, high)?:
+def draw_axis[W: Writer](writer: &mut W, ticks: &list[TickBox], low: f64, high: f64, left: f64, top: f64, width: f64, height: f64, vertical: bool, tick_top: f64, theme: &Theme) -> Result[(), PlotError]:
+    for tick in ticks:
+        value = tick.value
         if vertical:
             at = coordinate(value, low, high, top + height, -height)
             if theme._kind != 2:
                 line(writer, left, at, left + width, at, "white" if theme._kind == 0 else "#DDDDDD")?
-            label(writer, left - 5.0, at + theme._size * 0.3, name, theme._size * 0.8, "end")?
+            draw_text(writer, &tick.text, left - 6.0, at - tick.text.height / 2.0, "end")?
         else:
             at = coordinate(value, low, high, left, width)
             if theme._kind != 2:
                 line(writer, at, top, at, top + height, "white" if theme._kind == 0 else "#DDDDDD")?
-            label(writer, at, top + height + theme._size * 1.2, name, theme._size * 0.8)?
+            draw_text(writer, &tick.text, at, tick_top)?
     if theme._kind == 2:
         line(writer, left, top + height, left + width, top + height, "black")?
         line(writer, left, top, left, top + height, "black")?
@@ -1572,24 +1757,11 @@ def draw_layer[W: Writer](writer: &mut W, layer: &LayerRows, xlo: f64, xhi: f64,
                 rectangle(writer, x1, std.math.min(y1, y2), x2 - x1, std.math.abs(y2 - y1), row.fill, row.colour)?
     emit(writer, "</g>\n")
 
-def draw_legend[W: Writer](writer: &mut W, scale: &Axis, title: str, x: f64, y: f64, bottom: f64, size: f64) -> Result[f64, PlotError]:
-    label(writer, x, y, title, size, "start")?
-    count = len(scale.levels) if scale.discrete else (1 if scale.low == scale.high else 5)
-    mut at = y + size * 1.5
-    for index in range(count):
-        if at > bottom:
-            return Err(PlotError.InvalidSetting("legend does not fit; increase height or hide it"))
-        mut colour = ""
-        mut name = ""
-        if scale.discrete:
-            name = scale.levels[index]
-            colour = scale_colour(scale, index, 0.0)?
-        else:
-            t = 0.5 if count == 1 else f64(index) / 4.0
-            colour = scale_colour(scale, 0, t)?
-            value = scale.low + (scale.high - scale.low) * t
-            name = number_label(value, (scale.high - scale.low) / 4.0)?
-        rectangle(writer, x, at - size * 0.8, size, size, colour)?
-        label(writer, x + size + 4.0, at, name, size * 0.8, "start")?
-        at += size * 1.5
-    Ok(at)
+def draw_legend[W: Writer](writer: &mut W, legend: &LegendBox, x: f64, y: f64, size: f64) -> Result[(), PlotError]:
+    draw_text(writer, &legend.title, x, y, "start")?
+    mut at = y + legend.title.height + 4.0
+    for key in &legend.keys:
+        rectangle(writer, x, at, size, size, key.colour)?
+        draw_text(writer, &key.text, x + size + 6.0, at, "start")?
+        at += std.math.max(size, key.text.height) + 4.0
+    Ok(())

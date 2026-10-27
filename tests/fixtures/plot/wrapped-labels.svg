@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="432.00pt" height="288.00pt" viewBox="0 0 432.00 288.00">
+<g font-family="Liberation Sans,Arial,Helvetica,sans-serif" fill="#333333">
+<rect x="0.00" y="0.00" width="432.00" height="288.00" fill="white" stroke="none"/>
+<rect x="52.30" y="63.12" width="206.93" height="142.36" fill="white" stroke="none"/>
+<text x="12.00" y="25.20" font-size="13.20" text-anchor="start" textLength="398.90" lengthAdjust="spacingAndGlyphs">A comparison of regional survey totals with deliberately</text>
+<text x="12.00" y="43.68" font-size="13.20" text-anchor="start" textLength="160.51" lengthAdjust="spacingAndGlyphs">long descriptive labels</text>
+<line x1="122.39" y1="63.12" x2="122.39" y2="205.48" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="122.39" y="226.44" font-size="8.80" text-anchor="middle" textLength="43.65" lengthAdjust="spacingAndGlyphs">Northern</text>
+<text x="122.39" y="238.76" font-size="8.80" text-anchor="middle" textLength="35.55" lengthAdjust="spacingAndGlyphs">coastal</text>
+<text x="122.39" y="251.08" font-size="8.80" text-anchor="middle" textLength="38.37" lengthAdjust="spacingAndGlyphs">district</text>
+<line x1="189.14" y1="63.12" x2="189.14" y2="205.48" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="189.14" y="226.44" font-size="8.80" text-anchor="middle" textLength="43.65" lengthAdjust="spacingAndGlyphs">Southern</text>
+<text x="189.14" y="238.76" font-size="8.80" text-anchor="middle" textLength="41.01" lengthAdjust="spacingAndGlyphs">mountain</text>
+<text x="189.14" y="251.08" font-size="8.80" text-anchor="middle" textLength="38.37" lengthAdjust="spacingAndGlyphs">district</text>
+<line x1="52.30" y1="199.01" x2="259.23" y2="199.01" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="46.30" y="201.65" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">0</text>
+<line x1="52.30" y1="134.30" x2="259.23" y2="134.30" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="46.30" y="136.94" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">2</text>
+<line x1="52.30" y1="69.59" x2="259.23" y2="69.59" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="46.30" y="72.23" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">4</text>
+<text x="155.76" y="271.60" font-size="11.00" text-anchor="middle" textLength="82.06" lengthAdjust="spacingAndGlyphs">Survey region</text>
+<g transform="translate(19.70,134.30) rotate(-90)">
+<text x="0.00" y="3.30" font-size="11.00" text-anchor="middle" textLength="136.62" lengthAdjust="spacingAndGlyphs">Recorded observations</text>
+</g>
+<defs><clipPath id="panel"><rect x="52.30" y="63.12" width="206.93" height="142.36"/></clipPath></defs>
+<g clip-path="url(#panel)">
+<g data-geom="col" opacity="1.00">
+<rect x="92.35" y="134.30" width="60.08" height="64.71" fill="#00BFC4" stroke="transparent"/>
+<rect x="159.10" y="69.59" width="60.08" height="129.42" fill="#F8766D" stroke="transparent"/>
+</g>
+</g>
+<text x="315.53" y="74.12" font-size="11.00" text-anchor="start" textLength="102.74" lengthAdjust="spacingAndGlyphs">Survey collection</text>
+<text x="315.53" y="89.52" font-size="11.00" text-anchor="start" textLength="40.92" lengthAdjust="spacingAndGlyphs">method</text>
+<rect x="315.53" y="97.92" width="11.00" height="11.00" fill="#F8766D" stroke="none"/>
+<text x="332.53" y="106.72" font-size="8.80" text-anchor="start" textLength="87.47" lengthAdjust="spacingAndGlyphs">Observations from</text>
+<text x="332.53" y="119.04" font-size="8.80" text-anchor="start" textLength="79.38" lengthAdjust="spacingAndGlyphs">follow-up survey</text>
+<rect x="315.53" y="126.56" width="11.00" height="11.00" fill="#00BFC4" stroke="none"/>
+<text x="332.53" y="135.36" font-size="8.80" text-anchor="start" textLength="87.47" lengthAdjust="spacingAndGlyphs">Observations from</text>
+<text x="332.53" y="147.68" font-size="8.80" text-anchor="start" textLength="71.10" lengthAdjust="spacingAndGlyphs">primary survey</text>
+</g>
+</svg>

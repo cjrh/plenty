@@ -5,7 +5,7 @@
 tables and record accessors, layer-specific data and inherited mappings, six
 geoms, grouped counts/binning and bar positions, continuous/discrete position
 scales with transforms and explicit breaks/labels, named manual palettes and
-RGB gradients, basic themes/legends, and
+RGB gradients, basic themes/legends, wrapped text boxes with layout preflight, and
 streaming SVG. This does not complete milestone 1: the remaining scales,
 facets, smoothing, measured layout and the full example
 gallery remain future work, tracked under B80 in the [backlog](../backlog.md).

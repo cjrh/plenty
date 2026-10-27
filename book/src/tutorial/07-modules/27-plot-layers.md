@@ -59,6 +59,13 @@ can change histogram counts. Values outside a transformation's domain are
 also omitted and reported in the renderer's notes. Check these notes when
 working with real input.
 
+Long titles and labels wrap automatically. The renderer reserves space for
+their text boxes and checks for overlapping ticks before writing SVG. If it
+reports that the chart cannot fit, increase `width` or `height`, shorten the
+labels, or provide fewer breaks. For example, a presentation chart can use
+`chart.write_svg(&mut output, width=10.0, height=6.0)?`. Labels are never
+silently dropped to make the chart fit.
+
 See [position scales](../../design/stdlib/plot-scales.md) for the full contracts,
 including square-root and reversed axes, and [draw a chart](26-plotting.md)
 for file output and record accessors.
