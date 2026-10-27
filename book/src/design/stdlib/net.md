@@ -14,16 +14,18 @@ Addresses, waits, retries and error naming are checked Plenty in
 
 ```plenty
 import std.bytes
+from std.io import StreamError
 from std.net import NetError, TcpListener, connect, listen, loopback_v4
 from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 
-def greet(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError | std.bytes.BytesError]:
+def greet(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError | StreamError | std.bytes.BytesError]:
     mut stream = listener.accept(deadline, cancel)?
     reply = std.bytes.from_text("hello from the server")?
-    stream.write_all_before(&reply, 0, reply.len(), deadline, cancel)
+    stream.write_all_before(&reply, 0, reply.len(), deadline, cancel)?
+    stream.close()
 
-def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | NetError | std.bytes.BytesError]:
+def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | NetError | StreamError | std.bytes.BytesError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     listener = listen(&loopback_v4(0u16), 8)?
@@ -107,7 +109,8 @@ Both distinctions survive the network-error wrappers in
 | `stream.read_before(buffer, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one read; 0 is end of input |
 | `stream.write_before(source, start, stop, deadline, cancel)` | `Result[i64, NetError]`: offer the whole range in one write and return the count accepted; `source` is any [`ByteSource`](bytes.md#byte-sources) |
 | `stream.write_all_before(source, start, stop, deadline, cancel)` | `Result[(), NetError]` |
-| `stream.read`, `write`, `flush`, `close` | The [`std.io`](io.md) `Reader` and `Writer` methods; `read` and `write` block without a bound |
+| `stream.read`, `write`, `flush` | The [`std.io`](io.md) `Reader` and `Writer` methods, returning `StreamError` on failure; `read` and `write` block without a bound |
+| `stream.close()` | `Result[(), StreamError]`, as required by [`std.io.Closer`](io.md#stream-contracts) |
 | `stream.shutdown(direction: Shutdown)` | `Result[(), NetError]`; `Shutdown.Read`, `Write` or `Both` |
 | `stream.set_no_delay(enabled: bool)` | `Result[(), NetError]`: send small writes immediately |
 | `stream.acknowledge_now()` | `Result[(), NetError]`: acknowledge data already received at once, not after the kernel's delay (Linux `TCP_QUICKACK`); later data is acknowledged as usual |
@@ -146,6 +149,21 @@ Both distinctions survive the network-error wrappers in
 - Writing to a connection the peer has closed is `Reset`, never `SIGPIPE`.
 - On `TimedOut` or `Cancelled` the socket and the caller's buffer are
   unchanged, apart from what earlier steps of `write_all_before` sent.
+
+### Closing a stream
+
+`TcpStream.close` deliberately returns `StreamError`: its signature satisfies
+the [`std.io.Closer`](io.md#stream-contracts) protocol. Together with `Reader` and
+`Writer`, this lets a TCP stream work with generic I/O helpers, including
+[`close_buffered`](io.md#bounded-buffering), which flushes a `BufWriter[TcpStream]`
+and closes its underlying stream. Changing `close` to return `NetError` would
+break that protocol contract. Listeners and UDP sockets do not implement
+`Closer`; their `close` methods return `NetError`.
+
+A function that uses deadline operations and explicitly closes a TCP stream
+can propagate both error types with `NetError | StreamError`, as `greet` does
+above. Keeping both types preserves the original close failure. Dropping a
+stream also releases its descriptor, but cannot report a close error.
 
 ## Waiting on many sockets
 
