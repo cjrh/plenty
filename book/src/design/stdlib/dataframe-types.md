@@ -109,8 +109,7 @@ Binary columns round-trip
 through Parquet, but are not supported by the CSV interface.
 
 Transfers pack bytes, offsets, and validity into whole-column native calls.
-The current foreign interface stages payload bytes in `list[u8]`, whose
-elements occupy general collection slots rather than one byte each. Extraction
+The current foreign interface stages payload bytes in packed `list[u8]` buffers. Extraction
 also copies through a packed `Bytes` before allocating each result buffer.
 These are copying APIs with temporary memory overhead, not zero-copy views;
 select/filter in Polars before extracting large payloads.

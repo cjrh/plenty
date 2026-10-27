@@ -68,7 +68,15 @@ unsafe fn write_key(state: &mut SipHasher24, value: u128, ty: &Type) {
         state.write_usize(bytes.len());
         state.write(bytes);
     } else {
-        state.write_u64(value as u64);
+        // Scalar writes through references update the declared width only;
+        // padding in a record or projected sum slot is not part of its value.
+        let value = match ty.kind {
+            b'1' | b'5' | b'b' => value as u8 as u64,
+            b'2' | b'6' => value as u16 as u64,
+            b'3' | b'7' => value as u32 as u64,
+            _ => value as u64,
+        };
+        state.write_u64(value);
     }
 }
 

@@ -935,7 +935,6 @@ struct Runtime {
     /// `plenty_list_row_bytes(list) -> row size`, for borrowed iteration.
     list_rows: FuncId,
     list_row_bytes: FuncId,
-    list_canonicalize_signed: FuncId,
     /// `plenty_list_row(list, index, site) -> row address`, for explicit
     /// element references (`&xs[i]`, `&mut xs[i]`).
     list_row: FuncId,
@@ -1165,12 +1164,6 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_list_row_bytes", Linkage::Import, &sig)?
-        },
-        list_canonicalize_signed: {
-            let mut sig = module.make_signature();
-            sig.call_conv = CallConv::SystemV;
-            sig.params.push(AbiParam::new(PTR_TY));
-            module.declare_function("plenty_list_canonicalize_signed", Linkage::Import, &sig)?
         },
         list_scalar_get: {
             let mut sig = module.make_signature();
@@ -2336,7 +2329,7 @@ impl Lowerer<'_, '_> {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 // A scalar is entirely in its slot's first word.
                 let packed = if ty.is_numeric() || *ty == Ty::Bool {
-                    self.reference_word(reference)
+                    self.scalar_reference_word(reference, ty)
                 } else {
                     self.read_reference(reference)
                 };
@@ -2367,7 +2360,11 @@ impl Lowerer<'_, '_> {
             Op::ReplaceRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 let (value, _) = self.pop_typed(ty.clone())?;
-                let old = self.read_reference(reference);
+                let old = if ty.is_numeric() || *ty == Ty::Bool {
+                    self.scalar_reference_word(reference, ty)
+                } else {
+                    self.read_reference(reference)
+                };
                 let old = self.unpack(old, ty);
                 // Inline field storage is overwritten below; relocate the old
                 // owner without retaining it or running its destructor.

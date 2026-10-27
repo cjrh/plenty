@@ -29,6 +29,24 @@ code addresses without capture environments. Returned-reference analysis caches
 precise field-origin summaries when available and otherwise uses conservative
 owner projections.
 
+Scalar references read and write only the scalar's declared bytes, whether they
+address a packed list element, a local slot, or a projected enum payload. Slot
+padding is not part of the scalar value; runtime equality, hashing and formatting
+ignore it. Projected writes leave ancestor tags unchanged.
+
+## Lists
+
+Dense lists pack primitive numeric and boolean elements into 1-, 2-, 4- or
+8-byte rows with natural alignment. Other rows contain a 16-byte value slot
+and its inline payload, with no unused dictionary value slot. The runtime
+keeps a 16-byte-aligned buffer, rounding allocation sizes up to whole words;
+its exposed length counts initialized bytes. Borrowed scalar indexing uses
+the concrete element width to calculate row counts and addresses. General
+borrowed iteration obtains the runtime row stride. Native `strided` FFI views
+use that same stride, and signed reads extend their declared bytes without a
+post-call repair pass. [List storage costs](../../facilities/01-builtins/lists.md#storage-costs)
+describe the remaining space used by sum and record elements.
+
 ## Strings
 
 A `str` is one 64-bit word. Heap and literal pointers address a 32-byte prefix:

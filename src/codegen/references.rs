@@ -39,6 +39,29 @@ impl Lowerer<'_, '_> {
             .load(types::I64, MemFlagsData::trusted(), address, 0)
     }
 
+    /// Scalar references can address packed list storage as well as ordinary
+    /// slots. Read only the declared width; the high slot word is not present
+    /// in a packed list and is irrelevant to a scalar payload projection.
+    pub(super) fn scalar_word(&mut self, address: NativeValue, ty: &Ty) -> NativeValue {
+        let width = types::Type::int(clif_type(ty.clone()).bits() as u16).unwrap();
+        let bits = self
+            .bcx
+            .ins()
+            .load(width, MemFlagsData::trusted(), address, 0);
+        if width == types::I64 {
+            bits
+        } else if is_signed(ty.clone()) {
+            self.bcx.ins().sextend(types::I64, bits)
+        } else {
+            self.bcx.ins().uextend(types::I64, bits)
+        }
+    }
+
+    pub(super) fn scalar_reference_word(&mut self, reference: NativeValue, ty: &Ty) -> NativeValue {
+        let (address, _) = self.reference_parts(reference);
+        self.scalar_word(address, ty)
+    }
+
     pub(super) fn read_reference(&mut self, reference: NativeValue) -> NativeValue {
         let (address, shift) = self.reference_parts(reference);
         let packed = self
@@ -63,6 +86,14 @@ impl Lowerer<'_, '_> {
 
     pub(super) fn write_reference(&mut self, reference: NativeValue, value: NativeValue, ty: &Ty) {
         let (address, shift) = self.reference_parts(reference);
+        if ty.is_numeric() || *ty == Ty::Bool {
+            // A projected scalar keeps its ancestor tags untouched. Locals and
+            // record fields likewise need only their declared payload bytes.
+            self.bcx
+                .ins()
+                .store(MemFlagsData::trusted(), value, address, 0);
+            return;
+        }
         let old = shift.map(|_| {
             self.bcx
                 .ins()

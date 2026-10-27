@@ -29,6 +29,152 @@ static NESTED: Type = Type {
     ..INTEGER
 };
 
+static SCALARS: [Type; 11] = [
+    Type {
+        kind: b'1',
+        ..INTEGER
+    },
+    Type {
+        kind: b'2',
+        ..INTEGER
+    },
+    Type {
+        kind: b'3',
+        ..INTEGER
+    },
+    Type {
+        kind: b'4',
+        ..INTEGER
+    },
+    Type {
+        kind: b'5',
+        ..INTEGER
+    },
+    Type {
+        kind: b'6',
+        ..INTEGER
+    },
+    Type {
+        kind: b'7',
+        ..INTEGER
+    },
+    Type {
+        kind: b'8',
+        ..INTEGER
+    },
+    Type {
+        kind: b'f',
+        ..INTEGER
+    },
+    Type {
+        kind: b'd',
+        ..INTEGER
+    },
+    Type {
+        kind: b'b',
+        ..INTEGER
+    },
+];
+
+#[test]
+fn scalar_rows_use_native_width_and_preserve_neighbors() {
+    for (ty, width) in SCALARS.iter().zip([1, 2, 4, 8, 1, 2, 4, 8, 4, 8, 1]) {
+        let mut entries = filled(ty, 128);
+        assert_eq!(entries.row_bytes(), width);
+        assert_eq!(entries.data.len(), 128 * width);
+        assert_eq!(entries.data.capacity(), 128 * width);
+        // SAFETY: each row is live. Exercise direct element-reference writes
+        // followed by canonical runtime reads, including the final row.
+        unsafe {
+            for index in 0..128 {
+                let slot = entries.slot(index, false).cast::<u8>();
+                assert_eq!(slot as usize % width, 0);
+                write_scalar(slot, u64::MAX as u128, ty);
+            }
+            entries.set(63, false, 5);
+        }
+        let bits = u64::MAX;
+        let expected = unsafe { read_scalar((&bits as *const u64).cast(), ty) };
+        for index in 0..128 {
+            assert_eq!(
+                entries.get(index).key,
+                if index == 63 { 5 } else { expected }
+            );
+        }
+        entries.reverse();
+        assert_eq!(entries.get(64).key, 5);
+        entries.swap(64, 127);
+        assert_eq!(unsafe { entries.remove(127) }.key, 5);
+        entries.try_reserve(1).unwrap();
+        unsafe { entries.push(Entry { key: 9, value: 0 }) };
+        assert_eq!(entries.get(127).key, 9);
+        entries.retain(|entry| entry.key == 9);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries.drain().next().unwrap().key, 9);
+        assert!(entries.is_empty());
+    }
+}
+
+#[test]
+fn list_rows_omit_dictionary_value_storage() {
+    for ty in [&RANGE, &NESTED] {
+        let list = filled(ty, 4);
+        assert_eq!(list.row_bytes(), ty.slot_words() * 16);
+        let dict = Entries::ordered(ty, Some(&INTEGER));
+        assert_eq!(dict.row_bytes(), (ty.slot_words() + 1) * 16);
+    }
+    let set = Entries::ordered(&SCALARS[4], None);
+    assert_eq!(set.row_bytes(), 32);
+}
+
+#[test]
+fn packed_scalar_growth_sort_and_extraction_keep_every_value() {
+    for ty in &SCALARS[..10] {
+        let mut entries = Entries::new(ty, None);
+        for n in (0..120).rev() {
+            entries.try_reserve(1).unwrap();
+            unsafe { entries.push(Entry { key: n, value: 0 }) };
+        }
+        entries.sort_unstable_by(|a, b| a.cmp(&b));
+        for n in 0..120 {
+            assert_eq!(entries.get(n).key, n as u128);
+        }
+        assert_eq!(unsafe { entries.remove(37) }.key, 37);
+        assert_eq!(entries.get(37).key, 38);
+        let values: Vec<_> = entries.drain().map(|entry| entry.key).collect();
+        assert_eq!(values, (0..120).filter(|n| *n != 37).collect::<Vec<_>>());
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn packed_reserve_failure_preserves_contents_and_reuses_remaining_capacity() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    let mut entries = filled(&SCALARS[4], 7);
+    let base = entries.rows();
+    let capacity = entries.capacity();
+    let restore = Restore;
+    crate::accounting::fail_after(Some(0));
+    assert!(entries.try_reserve(1000).is_err());
+    assert!(entries.try_reserve(usize::MAX).is_err());
+    assert_eq!(entries.len(), 7);
+    assert_eq!(entries.rows(), base);
+    assert_eq!(entries.capacity(), capacity);
+    for n in 0..7 {
+        assert_eq!(entries.get(n).key, n as u128);
+    }
+    // A failed growth must not consume spare capacity or alter the byte length.
+    entries.try_reserve(1).unwrap();
+    unsafe { entries.push(Entry { key: 7, value: 0 }) };
+    assert_eq!(entries.get(7).key, 7);
+    drop(restore);
+}
+
 fn push(entries: &mut Entries, number: u128) {
     let range = Range::new(number as u64, number as u64 + 3, 1, false);
     let mut record = [0; 3];
@@ -74,7 +220,11 @@ fn assert_addresses(entries: &Entries, index: usize, entry: Entry) {
     // SAFETY: both live rows and initialized extraction scratch have a complete
     // inline payload. Reading their addresses does not mutate the collection.
     unsafe {
-        let slot = entries.data.as_ptr().add(index * entries.stride);
+        let slot = entries
+            .data
+            .as_ptr()
+            .add(index * entries.stride)
+            .cast::<u128>();
         assert_eq!(entry.key, slot.add(1) as u128);
         if entries.key.kind == b'C' {
             assert_eq!(*(entry.key as *const u128), slot.add(2) as u128);
