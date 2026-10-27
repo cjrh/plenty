@@ -1,0 +1,676 @@
+# Bounded XML 1.0 events over std.io, implemented directly in Plenty.
+# Grammar and normalization follow the W3C XML 1.0 Fifth Edition.
+# The event-reader API is modelled on quick-xml; no third-party code ships.
+import std.bytes
+import std.io
+from std.bytes import Bytes, BytesError
+from std.io import StreamError
+
+pub enum Fault:
+    Syntax
+    UnexpectedEnd
+    InvalidName
+    InvalidCharacter
+    InvalidUtf8
+    InvalidReference
+    UnknownEntity
+    DuplicateAttribute
+    MismatchedEnd
+    DoctypeForbidden
+    UnsupportedDeclaration
+    DepthExceeded
+    InputTooLarge
+    OutputTooLarge
+    TokenTooLarge
+    TooManyAttributes
+    InvalidLimits
+    InvalidState
+    Stopped
+    Allocation(AllocError)
+    Stream(StreamError)
+
+pub class XmlError:
+    pub fault: Fault
+    pub offset: i64
+
+pub class Limits:
+    pub max_depth: i64
+    pub max_input: i64
+    pub max_output: i64
+    pub max_token: i64
+    pub max_attributes: i64
+
+pub def limits() -> Limits:
+    Limits(64, 67108864, 67108864, 1048576, 4096)
+
+pub class Attribute:
+    pub name: str
+    pub value: str
+
+pub enum Event:
+    Declaration(Option[bool])
+    Start(str, list[Attribute])
+    Empty(str, list[Attribute])
+    End(str)
+    Text(str)
+    CData(str)
+    Comment(str)
+    ProcessingInstruction(str, str)
+    Eof
+
+def valid_limits(bounds: &Limits) -> bool:
+    bounds.max_depth >= 0 and bounds.max_depth <= 1024 and bounds.max_input >= 0 and bounds.max_output >= 0 and bounds.max_token >= 1 and bounds.max_attributes >= 0
+
+def allocated[T](value: Result[T, AllocError]) -> Result[T, Fault]:
+    match value:
+        case Ok(result):
+            Ok(result)
+        case Err(error):
+            Err(Fault.Allocation(error))
+
+def bytes_result[T](value: Result[T, BytesError]) -> Result[T, Fault]:
+    match value:
+        case Ok(result):
+            Ok(result)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(Fault.Allocation(cause))
+                case BytesError.InvalidUtf8:
+                    Err(Fault.InvalidUtf8)
+                case BytesError.OutOfRange:
+                    Err(Fault.Syntax)
+
+def placed[T](value: Result[T, Fault], offset: i64) -> Result[T, XmlError]:
+    match value:
+        case Ok(result):
+            Ok(result)
+        case Err(error):
+            Err(XmlError(error, offset))
+
+def space(byte: u8) -> bool:
+    byte == 32u8 or byte == 9u8 or byte == 10u8 or byte == 13u8
+
+def xml_char(code: u32) -> bool:
+    code == 9u32 or code == 10u32 or code == 13u32 or (code >= 32u32 and code <= 55295u32) or (code >= 57344u32 and code <= 65533u32) or (code >= 65536u32 and code <= 1114111u32)
+
+def name_start(c: u32) -> bool:
+    (
+        c == 58u32 or
+        c == 95u32 or
+        (c >= 65u32 and c <= 90u32) or
+        (c >= 97u32 and c <= 122u32) or
+        (c >= 192u32 and c <= 214u32) or
+        (c >= 216u32 and c <= 246u32) or
+        (c >= 248u32 and c <= 767u32) or
+        (c >= 880u32 and c <= 893u32) or
+        (c >= 895u32 and c <= 8191u32) or
+        (c >= 8204u32 and c <= 8205u32) or
+        (c >= 8304u32 and c <= 8591u32) or
+        (c >= 11264u32 and c <= 12271u32) or
+        (c >= 12289u32 and c <= 55295u32) or
+        (c >= 63744u32 and c <= 64975u32) or
+        (c >= 65008u32 and c <= 65533u32) or
+        (c >= 65536u32 and c <= 983039u32)
+    )
+
+def check_name(name: str) -> Result[(), Fault]:
+    if name == "":
+        return Err(Fault.InvalidName)
+    for index, ch in enumerate(&name):
+        c = ord(*ch).unwrap()
+        if not name_start(c):
+            if index == 0 or not (c == 45u32 or c == 46u32 or (c >= 48u32 and c <= 57u32) or c == 183u32 or (c >= 768u32 and c <= 879u32) or (c >= 8255u32 and c <= 8256u32)):
+                return Err(Fault.InvalidName)
+    Ok(())
+
+def check_text(text: str) -> Result[(), Fault]:
+    for ch in &text:
+        if not xml_char(ord(*ch).unwrap()):
+            return Err(Fault.InvalidCharacter)
+    Ok(())
+
+def only_space(text: str) -> bool:
+    for ch in &text:
+        if *ch != " " and *ch != "\t" and *ch != "\n" and *ch != "\r":
+            return False
+    True
+
+def reference(value: str) -> Result[str, Fault]:
+    match value:
+        case "amp":
+            return Ok("&")
+        case "lt":
+            return Ok("<")
+        case "gt":
+            return Ok(">")
+        case "apos":
+            return Ok("'")
+        case "quot":
+            return Ok("\"")
+        case _:
+            pass
+    if not value.startswith("#"):
+        return Err(Fault.UnknownEntity)
+    hex = value.startswith("#x")
+    start = 2 if hex else 1
+    if len(value) == start:
+        return Err(Fault.InvalidReference)
+    mut number = 0u32
+    base = 16u32 if hex else 10u32
+    for index, ch in enumerate(&value):
+        if index < start:
+            continue
+        digit = "0123456789abcdef".find(*ch).unwrap_or("0123456789ABCDEF".find(*ch).unwrap_or(99))
+        if digit >= i64(base) or number > (1114111u32 - u32(digit)) // base:
+            return Err(Fault.InvalidReference)
+        number = number * base + u32(digit)
+    if not xml_char(number):
+        return Err(Fault.InvalidReference)
+    match chr(number):
+        case Ok(text):
+            Ok(text)
+        case Err(_):
+            Err(Fault.InvalidReference)
+
+def unescape(text: str, attribute: bool) -> Result[str, Fault]:
+    check_text(text)?
+    if not attribute and "]]>" in text:
+        return Err(Fault.Syntax)
+    mut parts = allocated(list[str]())?
+    mut entity = allocated(list[str]())?
+    mut inside = False
+    for ch in &text:
+        if inside:
+            if *ch == ";":
+                allocated(parts.append(reference(allocated("".join(&entity))?)?))?
+                entity.clear()
+                inside = False
+            else:
+                allocated(entity.append(*ch))?
+        elif *ch == "&":
+            inside = True
+        elif attribute and *ch == "<":
+            return Err(Fault.Syntax)
+        else:
+            value = " " if attribute and (*ch == "\n" or *ch == "\r" or *ch == "\t") else *ch
+            allocated(parts.append(value))?
+    if inside:
+        return Err(Fault.InvalidReference)
+    allocated("".join(&parts))
+
+# Byte indexes keep scanning linear even when names contain multibyte UTF-8.
+class Token:
+    data: Bytes
+    pos: i64
+
+    def peek(self) -> Option[u8]:
+        if self.pos == self.data.len():
+            Nothing
+        else:
+            Some(self.data.get(self.pos).unwrap())
+
+    def whitespace(self: &mut Token) -> bool:
+        start = self.pos
+        while self.pos < self.data.len() and space(self.data.get(self.pos).unwrap()):
+            self.pos += 1
+        self.pos > start
+
+    def name(self: &mut Token) -> Result[str, Fault]:
+        start = self.pos
+        while self.pos < self.data.len():
+            c = self.data.get(self.pos).unwrap()
+            if space(c) or c == 61u8 or c == 47u8:
+                break
+            self.pos += 1
+        name = bytes_result(bytes_result(self.data.slice(start, self.pos))?.to_text())?
+        check_name(name)?
+        Ok(name)
+
+    def attributes(self: &mut Token, maximum: i64) -> Result[list[Attribute], Fault]:
+        mut attributes = allocated(list[Attribute]())?
+        mut names = allocated(set[str]())?
+        while self.pos < self.data.len():
+            separated = self.whitespace()
+            if self.peek().is_none() or self.peek() == Some(47u8):
+                break
+            if not separated:
+                return Err(Fault.Syntax)
+            if len(attributes) == maximum:
+                return Err(Fault.TooManyAttributes)
+            name = self.name()?
+            if name in names:
+                return Err(Fault.DuplicateAttribute)
+            allocated(names.add(name))?
+            drop(self.whitespace())
+            if self.peek() != Some(61u8):
+                return Err(Fault.Syntax)
+            self.pos += 1
+            drop(self.whitespace())
+            quote = self.peek().ok_or(Fault.UnexpectedEnd)?
+            if quote != 34u8 and quote != 39u8:
+                return Err(Fault.Syntax)
+            self.pos += 1
+            start = self.pos
+            while self.peek().is_some() and self.peek() != Some(quote):
+                self.pos += 1
+            if self.peek().is_none():
+                return Err(Fault.UnexpectedEnd)
+            raw = bytes_result(bytes_result(self.data.slice(start, self.pos))?.to_text())?
+            value = unescape(raw, True)?
+            self.pos += 1
+            allocated(attributes.append(Attribute(name, value)))?
+        Ok(attributes)
+
+def declaration(attrs: &list[Attribute]) -> Result[Option[bool], Fault]:
+    if len(attrs) < 1 or len(attrs) > 3:
+        return Err(Fault.UnsupportedDeclaration)
+    if attrs[0].name != "version" or attrs[0].value != "1.0":
+        return Err(Fault.UnsupportedDeclaration)
+    mut at = 1
+    if at < len(attrs) and attrs[at].name == "encoding":
+        if allocated(attrs[at].value.lower())? != "utf-8":
+            return Err(Fault.UnsupportedDeclaration)
+        at += 1
+    mut standalone: Option[bool] = Nothing
+    if at < len(attrs) and attrs[at].name == "standalone":
+        if attrs[at].value != "yes" and attrs[at].value != "no":
+            return Err(Fault.UnsupportedDeclaration)
+        standalone = Some(attrs[at].value == "yes")
+        at += 1
+    if at != len(attrs):
+        return Err(Fault.UnsupportedDeclaration)
+    Ok(standalone)
+
+pub class Reader[R]:
+    pub inner: R
+    _limits: Limits
+    _buffer: Bytes
+    _pos: i64
+    _end: i64
+    _offset: i64
+    _token_start: i64
+    _stack: list[str]
+    _root: bool
+    _first: bool
+    _declaration: bool
+    _eof: bool
+    _stopped: bool
+
+    pub def offset(self) -> i64:
+        self._offset
+
+    def peek(self: &mut Reader[R]) -> Result[Option[u8], Fault]:
+        while self._pos == self._end:
+            if self._eof:
+                return Ok(Nothing)
+            capacity = self._buffer.len()
+            match self.inner.read(&mut self._buffer, 0, capacity):
+                case Ok(count):
+                    if count < 0 or count > self._buffer.len():
+                        return Err(Fault.Stream(StreamError.InvalidProgress))
+                    self._pos = 0
+                    self._end = count
+                    if count == 0:
+                        self._eof = True
+                case Err(error):
+                    match error:
+                        case StreamError.Interrupted:
+                            continue
+                        case _:
+                            return Err(Fault.Stream(error))
+        Ok(Some(self._buffer.get(self._pos).unwrap()))
+
+    def raw(self: &mut Reader[R]) -> Result[Option[u8], Fault]:
+        value = self.peek()?
+        if value.is_some():
+            if self._offset == self._limits.max_input:
+                return Err(Fault.InputTooLarge)
+            if self._offset - self._token_start == self._limits.max_token:
+                return Err(Fault.TokenTooLarge)
+            self._pos += 1
+            self._offset += 1
+        Ok(value)
+
+    def take(self: &mut Reader[R]) -> Result[u8, Fault]:
+        value = self.raw()?.ok_or(Fault.UnexpectedEnd)?
+        if value == 13u8:
+            if self.peek()? == Some(10u8):
+                drop(self.raw()?)
+            return Ok(10u8)
+        Ok(value)
+
+    def expect(self: &mut Reader[R], text: str) -> Result[(), Fault]:
+        for ch in &text:
+            if self.take()? != u8(ord(*ch).unwrap()):
+                return Err(Fault.Syntax)
+        Ok(())
+
+    def until(self: &mut Reader[R], ending: &Bytes) -> Result[Bytes, Fault]:
+        mut out = bytes_result(std.bytes.empty())?
+        while True:
+            byte = self.take()?
+            bytes_result(out.push(byte))?
+            if out.len() >= ending.len():
+                mut matches = True
+                for index in range(ending.len()):
+                    if out.get(out.len() - ending.len() + index).unwrap() != ending.get(index).unwrap():
+                        matches = False
+                if matches:
+                    return bytes_result(out.slice(0, out.len() - ending.len()))
+
+        Err(Fault.UnexpectedEnd)
+
+    def event(self: &mut Reader[R]) -> Result[Event, Fault]:
+        self._token_start = self._offset
+        if self._first:
+            self._first = False
+            if self.peek()? == Some(239u8):
+                drop(self.take()?)
+                if self.take()? != 187u8 or self.take()? != 191u8:
+                    return Err(Fault.InvalidUtf8)
+                self._token_start = self._offset
+        if self.peek()?.is_none():
+            if not self._root or len(self._stack) != 0:
+                return Err(Fault.UnexpectedEnd)
+            return Ok(Event.Eof)
+        allowed_declaration = self._declaration
+        self._declaration = False
+        if self.peek()? != Some(60u8):
+            mut bytes = bytes_result(std.bytes.empty())?
+            while self.peek()?.is_some() and self.peek()? != Some(60u8):
+                bytes_result(bytes.push(self.take()?))?
+            raw = bytes_result(bytes.to_text())?
+            if len(self._stack) == 0 and not only_space(raw):
+                return Err(Fault.Syntax)
+            return Ok(Event.Text(unescape(raw, False)?))
+        drop(self.take()?)
+        first = self.take()?
+        if first == 33u8:
+            marker = self.take()?
+            if marker == 45u8:
+                self.expect("-")?
+                data = self.until(&bytes_result(std.bytes.from_text("-->"))?)?
+                value = bytes_result(data.to_text())?
+                check_text(value)?
+                if "--" in value or value.endswith("-"):
+                    return Err(Fault.Syntax)
+                return Ok(Event.Comment(value))
+            if marker == 91u8:
+                self.expect("CDATA[")?
+                data = self.until(&bytes_result(std.bytes.from_text("]]>"))?)?
+                value = bytes_result(data.to_text())?
+                check_text(value)?
+                if len(self._stack) == 0:
+                    return Err(Fault.Syntax)
+                return Ok(Event.CData(value))
+            return Err(Fault.DoctypeForbidden)
+        if first == 63u8:
+            data = self.until(&bytes_result(std.bytes.from_text("?>"))?)?
+            mut token = Token(data, 0)
+            target = token.name()?
+            if allocated(target.lower())? == "xml":
+                if target != "xml" or not allowed_declaration:
+                    return Err(Fault.UnsupportedDeclaration)
+                raw = bytes_result(token.data.to_text())?
+                if "&" in raw:
+                    return Err(Fault.UnsupportedDeclaration)
+                attrs = token.attributes(3)?
+                if token.pos != token.data.len():
+                    return Err(Fault.UnsupportedDeclaration)
+                return Ok(Event.Declaration(declaration(&attrs)?))
+            separated = token.whitespace()
+            if token.pos < token.data.len() and not separated:
+                return Err(Fault.Syntax)
+            value = bytes_result(bytes_result(token.data.slice(token.pos, token.data.len()))?.to_text())?
+            check_text(value)?
+            return Ok(Event.ProcessingInstruction(target, value))
+        mut data = bytes_result(std.bytes.empty())?
+        if first != 47u8:
+            bytes_result(data.push(first))?
+        mut quote = 0u8
+        while True:
+            c = self.take()?
+            if c == 62u8 and quote == 0u8:
+                break
+            if c == 34u8 or c == 39u8:
+                if quote == c:
+                    quote = 0u8
+                elif quote == 0u8:
+                    quote = c
+            bytes_result(data.push(c))?
+        mut token = Token(data, 0)
+        name = token.name()?
+        if first == 47u8:
+            drop(token.whitespace())
+            if token.pos != token.data.len():
+                return Err(Fault.Syntax)
+            if len(self._stack) == 0 or self._stack[-1] != name:
+                return Err(Fault.MismatchedEnd)
+            drop(self._stack.pop())
+            return Ok(Event.End(name))
+        attrs = token.attributes(self._limits.max_attributes)?
+        empty = token.peek() == Some(47u8)
+        if empty:
+            token.pos += 1
+        if token.pos != token.data.len():
+            return Err(Fault.Syntax)
+        if len(self._stack) == 0 and self._root:
+            return Err(Fault.Syntax)
+        if len(self._stack) >= self._limits.max_depth:
+            return Err(Fault.DepthExceeded)
+        self._root = True
+        if empty:
+            return Ok(Event.Empty(name, attrs))
+        allocated(self._stack.append(name))?
+        Ok(Event.Start(name, attrs))
+
+    pub def next(self: &mut Reader[R]) -> Result[Event, XmlError]:
+        if self._stopped:
+            return Err(XmlError(Fault.Stopped, self._offset))
+        match self.event():
+            case Ok(event):
+                Ok(event)
+            case Err(error):
+                self._stopped = True
+                Err(XmlError(error, self._offset))
+
+pub def reader[R](inner: R, bounds: &Limits) -> Result[Reader[R], XmlError]:
+    if not valid_limits(bounds):
+        return Err(XmlError(Fault.InvalidLimits, 0))
+    mut buffer = placed(bytes_result(std.bytes.empty()), 0)?
+    placed(bytes_result(buffer.resize(4096, 0u8)), 0)?
+    stack = placed(allocated(list[str]()), 0)?
+    copied = Limits(bounds.max_depth, bounds.max_input, bounds.max_output, bounds.max_token, bounds.max_attributes)
+    Ok(Reader(inner, copied, buffer, 0, 0, 0, 0, stack, False, True, True, False, False))
+
+# The builder checks the encoded byte budget before every append.
+class Output:
+    data: Bytes
+    maximum: i64
+
+    def add(self: &mut Output, text: str) -> Result[(), Fault]:
+        if text.byte_len() > self.maximum - self.data.len():
+            return Err(Fault.TokenTooLarge)
+        fragment = bytes_result(std.bytes.from_text(&text))?
+        bytes_result(self.data.extend(&fragment))
+
+    def escaped(self: &mut Output, text: str, attribute: bool) -> Result[(), Fault]:
+        check_text(text)?
+        for ch in &text:
+            match *ch:
+                case "&":
+                    self.add("&amp;")?
+                case "<":
+                    self.add("&lt;")?
+                case ">":
+                    self.add("&gt;")?
+                case "\"":
+                    self.add("&quot;" if attribute else "\"")?
+                case "\r":
+                    self.add("&#13;")?
+                case "\n":
+                    self.add("&#10;" if attribute else "\n")?
+                case "\t":
+                    self.add("&#9;" if attribute else "\t")?
+                case _:
+                    self.add(*ch)?
+        Ok(())
+
+    def tag(self: &mut Output, name: str, attrs: &list[Attribute], maximum: i64) -> Result[(), Fault]:
+        check_name(name)?
+        if len(attrs) > maximum:
+            return Err(Fault.TooManyAttributes)
+        mut names = allocated(set[str]())?
+        self.add("<")?
+        self.add(name)?
+        for attr in attrs:
+            check_name(attr.name)?
+            if attr.name in names:
+                return Err(Fault.DuplicateAttribute)
+            allocated(names.add(attr.name))?
+            self.add(" ")?
+            self.add(attr.name)?
+            self.add("=\"")?
+            self.escaped(attr.value, True)?
+            self.add("\"")?
+        Ok(())
+
+pub class Writer[W]:
+    pub inner: W
+    _limits: Limits
+    _stack: list[str]
+    _root: bool
+    _first: bool
+    _offset: i64
+    _stopped: bool
+    _finished: bool
+
+    pub def offset(self) -> i64:
+        self._offset
+
+    def encode(self: &mut Writer[W], event: &Event) -> Result[Bytes, Fault]:
+        mut out = Output(bytes_result(std.bytes.empty())?, self._limits.max_token)
+        match event:
+            case Event.Declaration(standalone):
+                if not self._first:
+                    return Err(Fault.InvalidState)
+                out.add("<?xml version=\"1.0\" encoding=\"UTF-8\"")?
+                match standalone:
+                    case Some(value):
+                        out.add(" standalone=\"yes\"" if *value else " standalone=\"no\"")?
+                    case Nothing:
+                        pass
+                out.add("?>")?
+            case Event.Start(name, attrs):
+                if len(self._stack) == 0 and self._root:
+                    return Err(Fault.InvalidState)
+                if len(self._stack) >= self._limits.max_depth:
+                    return Err(Fault.DepthExceeded)
+                out.tag(*name, attrs, self._limits.max_attributes)?
+                out.add(">")?
+                allocated(self._stack.append(*name))?
+                self._root = True
+            case Event.Empty(name, attrs):
+                if len(self._stack) == 0 and self._root:
+                    return Err(Fault.InvalidState)
+                if len(self._stack) >= self._limits.max_depth:
+                    return Err(Fault.DepthExceeded)
+                out.tag(*name, attrs, self._limits.max_attributes)?
+                out.add("/>")?
+                self._root = True
+            case Event.End(name):
+                if len(self._stack) == 0 or self._stack[-1] != *name:
+                    return Err(Fault.MismatchedEnd)
+                out.add("</")?
+                out.add(*name)?
+                out.add(">")?
+                drop(self._stack.pop())
+            case Event.Text(value):
+                if len(self._stack) == 0 and not only_space(*value):
+                    return Err(Fault.InvalidState)
+                if len(self._stack) == 0:
+                    out.add(*value)?
+                else:
+                    out.escaped(*value, False)?
+            case Event.CData(value):
+                if len(self._stack) == 0 or "]]>" in *value:
+                    return Err(Fault.InvalidState)
+                check_text(*value)?
+                out.add("<![CDATA[")?
+                out.add(*value)?
+                out.add("]]>")?
+            case Event.Comment(value):
+                if "--" in *value or (*value).endswith("-"):
+                    return Err(Fault.Syntax)
+                check_text(*value)?
+                out.add("<!--")?
+                out.add(*value)?
+                out.add("-->")?
+            case Event.ProcessingInstruction(target, value):
+                check_name(*target)?
+                check_text(*value)?
+                if allocated((*target).lower())? == "xml" or "?>" in *value:
+                    return Err(Fault.Syntax)
+                out.add("<?")?
+                out.add(*target)?
+                if *value != "":
+                    out.add(" ")?
+                    out.add(*value)?
+                out.add("?>")?
+            case Event.Eof:
+                return Err(Fault.InvalidState)
+        self._first = False
+        Ok(replace(out.data, bytes_result(std.bytes.empty())?))
+
+    def emit(self: &mut Writer[W], event: &Event) -> Result[(), Fault]:
+        bytes = self.encode(event)?
+        if bytes.len() > self._limits.max_output - self._offset:
+            return Err(Fault.OutputTooLarge)
+        match std.io.write_all(&mut self.inner, &bytes, 0, bytes.len()):
+            case Ok(count):
+                self._offset += bytes.len()
+                Ok(())
+            case Err(error):
+                self._offset += error.completed
+                Err(Fault.Stream(error.cause))
+
+    pub def write(self: &mut Writer[W], event: &Event) -> Result[(), XmlError]:
+        if self._stopped:
+            return Err(XmlError(Fault.Stopped, self._offset))
+        if self._finished:
+            return Err(XmlError(Fault.InvalidState, self._offset))
+        match event:
+            case Event.Eof:
+                return self.finish()
+            case _:
+                pass
+        match self.emit(event):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                self._stopped = True
+                Err(XmlError(error, self._offset))
+
+    pub def finish(self: &mut Writer[W]) -> Result[(), XmlError]:
+        if self._stopped:
+            return Err(XmlError(Fault.Stopped, self._offset))
+        if self._finished:
+            return Ok(())
+        if not self._root or len(self._stack) != 0:
+            self._stopped = True
+            return Err(XmlError(Fault.UnexpectedEnd, self._offset))
+        match self.inner.flush():
+            case Ok(_):
+                self._finished = True
+                Ok(())
+            case Err(error):
+                self._stopped = True
+                Err(XmlError(Fault.Stream(error), self._offset))
+
+pub def writer[W](inner: W, bounds: &Limits) -> Result[Writer[W], XmlError]:
+    if not valid_limits(bounds):
+        return Err(XmlError(Fault.InvalidLimits, 0))
+    stack = placed(allocated(list[str]()), 0)?
+    copied = Limits(bounds.max_depth, bounds.max_input, bounds.max_output, bounds.max_token, bounds.max_attributes)
+    Ok(Writer(inner, copied, stack, False, True, 0, False, False))
