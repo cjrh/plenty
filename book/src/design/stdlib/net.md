@@ -93,7 +93,7 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 | `listener.close()` | `Result[(), NetError]` |
 | `connect(address: &SocketAddress, deadline, cancel)` | `Result[TcpStream, NetError]` |
 | `stream.read_before(buffer, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one read; 0 is end of input |
-| `stream.write_before(source, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one write of at most 4096 bytes; `source` is any [`ByteSource`](bytes.md#byte-sources) |
+| `stream.write_before(source, start, stop, deadline, cancel)` | `Result[i64, NetError]`: offer the whole range in one write and return the count accepted; `source` is any [`ByteSource`](bytes.md#byte-sources) |
 | `stream.write_all_before(source, start, stop, deadline, cancel)` | `Result[(), NetError]` |
 | `stream.read`, `write`, `flush`, `close` | The [`std.io`](io.md) `Reader` and `Writer` methods; `read` and `write` block without a bound |
 | `stream.shutdown(direction: Shutdown)` | `Result[(), NetError]`; `Shutdown.Read`, `Write` or `Both` |
@@ -126,6 +126,11 @@ addresses in dotted form (`::ffff:192.0.2.1`).
   blocking `std.io` contract by waiting without a deadline when the socket
   would block. A read may return fewer bytes than were sent, and a write may
   accept fewer than offered: loop, or use `write_all_before`.
+- `write_before` offers all of `source[start:stop]` without a chunk-size cap.
+  The nonblocking write accepts only what currently fits in the kernel's send
+  buffer; a successful count is progress, not a guarantee that the whole range
+  was sent. The full range must satisfy `0 <= start <= stop <= source.len()`;
+  it is never clipped to make an invalid range valid.
 - Writing to a connection the peer has closed is `Reset`, never `SIGPIPE`.
 - On `TimedOut` or `Cancelled` the socket and the caller's buffer are
   unchanged, apart from what earlier steps of `write_all_before` sent.

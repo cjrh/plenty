@@ -1,0 +1,48 @@
+# Transfer 64 one-MiB responses over one loopback TCP connection. Compile with
+# `cargo run --locked --bin plenty -- --compile examples/net_write_bench.plenty -o /tmp/net-write-bench`.
+# Run the executable repeatedly and compare the median elapsed nanoseconds;
+# source allocation and connection setup are outside the timed region. The write-call
+# count also exposes artificial chunk limits without depending on timing.
+import std.bytes
+from std.bytes import BytesError
+from std.net import NetError, Shutdown, TcpListener, connect, listen, loopback_v4
+from std.sync import CancellationToken
+from std.time import Deadline, deadline_after, monotonic_now, seconds
+
+const response_size: i64 = 1048576
+const responses: i64 = 64
+
+def drain(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError | BytesError]:
+    mut stream = listener.accept(deadline, cancel)?
+    mut buffer = std.bytes.with_capacity(65536)?
+    buffer.resize(65536, 0u8)?
+    mut received = 0
+    while True:
+        count = stream.read_before(&mut buffer, 0, 65536, deadline, cancel)?
+        if count == 0:
+            break
+        received += count
+    Ok(received)
+
+def main() -> Result[(), AllocError | BytesError | NetError | RangeError | ThreadError | IoError]:
+    mut data = std.bytes.with_capacity(response_size)?
+    data.resize(response_size, 120u8)?
+    cancel = CancellationToken()?
+    deadline = deadline_after(&monotonic_now(), &seconds(30u32))?
+    listener = listen(&loopback_v4(0u16), 1)?
+    mut stream = connect(&listener.local_address()?, &deadline, &cancel)?
+    with spawn(drain, &listener, &deadline, &cancel)? as task:
+        mut calls = 0
+        start = monotonic_now()
+        for _ in range(responses):
+            mut sent = 0
+            while sent < response_size:
+                sent += stream.write_before(&data, sent, response_size, &deadline, &cancel)?
+                calls += 1
+        stream.shutdown(Shutdown.Write)?
+        received = task.join()?
+        elapsed = monotonic_now().saturating_duration_since(&start)
+        if received != response_size * responses:
+            return Err(IoError.InvalidInput)
+        print(received, calls, elapsed.as_nanoseconds())?
+    Ok(())
