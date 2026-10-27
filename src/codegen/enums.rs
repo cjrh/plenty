@@ -54,9 +54,9 @@ impl Lowerer<'_, '_> {
         high_word(self.bcx, value)
     }
 
-    /// Byte offset of a field slot inside its owner's inline record storage.
+    /// Byte offset of a field inside a multi-field variant's record.
     pub(super) fn record_offset<'t>(fields: impl Iterator<Item = &'t Ty>) -> i64 {
-        fields.map(|t| t.slot_bytes() as i64).sum()
+        fields.map(|t| t.field_bytes() as i64).sum()
     }
 
     /// Fresh stack storage for a record. Zeroed slots own nothing, so a
@@ -70,8 +70,10 @@ impl Lowerer<'_, '_> {
         storage
     }
 
-    /// Load field `index` of a record value, copying its own inline storage
-    /// out of the record so it survives the record's release.
+    /// Load the field at `offset` of a class or multi-field variant record,
+    /// copying its own inline storage out of the record so it survives the
+    /// record's release. Also returns the field's place, its slot or, for a
+    /// flat field, its record, whose address is the field's value.
     pub(super) fn record_field(
         &mut self,
         record: cranelift_codegen::ir::Value,
@@ -79,15 +81,36 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
     ) -> (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value) {
         let storage = self.raw_word(record);
-        let slot = self.bcx.ins().iadd_imm_s(storage, offset);
-        let value = self.bcx.ins().load(
-            types::I128,
+        let place = self.bcx.ins().iadd_imm_s(storage, offset);
+        let value = if ty.flat_field() {
+            self.bcx.ins().uextend(types::I128, place)
+        } else {
+            self.bcx.ins().load(
+                types::I128,
+                cranelift_codegen::ir::MemFlagsData::trusted(),
+                place,
+                0,
+            )
+        };
+        let value = self.unpack(value, ty);
+        (self.snapshot_inline(value, ty), place)
+    }
+
+    /// Leave the field `record_field` returned the place of empty: a zero
+    /// slot word, or a flat record of zero bytes, which owns nothing.
+    fn clear_field(&mut self, place: cranelift_codegen::ir::Value, ty: &Ty) {
+        if ty.flat_field() {
+            self.zero_bytes(place, ty.inline_bytes() as u64);
+            return;
+        }
+        let zero = self.bcx.ins().iconst(types::I64, 0);
+        let zero = self.bcx.ins().uextend(types::I128, zero);
+        self.bcx.ins().store(
             cranelift_codegen::ir::MemFlagsData::trusted(),
-            slot,
+            zero,
+            place,
             0,
         );
-        let value = self.unpack(value, ty);
-        (self.snapshot_inline(value, ty), slot)
     }
 
     /// The record of the class instance a reference addresses. A record
@@ -109,14 +132,7 @@ impl Lowerer<'_, '_> {
         offset: i64,
         ty: &Ty,
     ) -> cranelift_codegen::ir::Value {
-        if !ty.flat_field() {
-            return self.record_field(owner, offset, ty).0;
-        }
-        let storage = self.raw_word(owner);
-        let record = self.bcx.ins().iadd_imm_s(storage, offset);
-        let value = self.bcx.ins().uextend(types::I128, record);
-        let value = self.unpack(value, ty);
-        self.snapshot_inline(value, ty)
+        self.record_field(owner, offset, ty).0
     }
 
     pub(super) fn lower_class(&mut self, op: &crate::record::ClassOp) -> Result<()> {
@@ -210,7 +226,7 @@ impl Lowerer<'_, '_> {
         let mut offset = 0;
         for field in fields {
             let (value, _) = self.record_field(payload, offset, &field);
-            offset += field.slot_bytes() as i64;
+            offset += field.field_bytes() as i64;
             self.stack.push((value, field));
         }
         Ok(())
@@ -270,7 +286,12 @@ impl Lowerer<'_, '_> {
                             address,
                             0,
                         );
-                        let offset = Self::record_offset(fields[..*field].iter());
+                        let mut offset = Self::record_offset(fields[..*field].iter());
+                        // A flat field has no slot: its reference addresses
+                        // the virtual slot just before its record.
+                        if fields[*field].flat_field() {
+                            offset -= 16;
+                        }
                         let slot = self.bcx.ins().iadd_imm_s(storage, offset);
                         self.bcx.ins().uextend(types::I128, slot)
                     }
@@ -322,13 +343,17 @@ impl Lowerer<'_, '_> {
                             values.push(value);
                         }
                         values.reverse();
-                        let bytes = fields.iter().map(Ty::slot_bytes).sum();
+                        let bytes = Self::record_offset(fields.iter()) as usize;
                         let storage = self.inline_storage(bytes);
                         let mut offset = 0;
                         for (value, ty) in values.into_iter().zip(fields) {
-                            let slot = self.bcx.ins().iadd_imm_s(storage, offset);
-                            self.store_slot(slot, value, ty);
-                            offset += ty.slot_bytes() as i64;
+                            let place = self.bcx.ins().iadd_imm_s(storage, offset);
+                            if ty.flat_field() {
+                                self.write_record(value, ty, place);
+                            } else {
+                                self.store_slot(place, value, ty);
+                            }
+                            offset += ty.field_bytes() as i64;
                         }
                         self.bcx.ins().uextend(types::I128, storage)
                     }
@@ -355,16 +380,9 @@ impl Lowerer<'_, '_> {
                 } else {
                     let payload = self.tagged_payload(value, t.tag_bits());
                     let offset = Self::record_offset(fields[..*field].iter());
-                    let (field_value, slot) = self.record_field(payload, offset, &output);
+                    let (field_value, place) = self.record_field(payload, offset, &output);
                     if matches!(op, EnumOp::Take(..)) {
-                        let zero = self.bcx.ins().iconst(types::I64, 0);
-                        let zero = self.bcx.ins().uextend(types::I128, zero);
-                        self.bcx.ins().store(
-                            cranelift_codegen::ir::MemFlagsData::trusted(),
-                            zero,
-                            slot,
-                            0,
-                        );
+                        self.clear_field(place, &output);
                     } else {
                         self.retain(field_value, &output);
                     }

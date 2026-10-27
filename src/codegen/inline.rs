@@ -205,21 +205,14 @@ impl Lowerer<'_, '_> {
         };
         let mut offset = t.get().state_bytes() as i32;
         for (_, field) in &t.get().fields {
-            if field.flat_field() {
-                // A flat field has no address of its own; only its payloads move.
-                if !field.flat_record() {
-                    let record = self.bcx.ins().iadd_imm_s(base, offset as i64);
-                    self.fix_record(&field.newtype_base(), record);
-                }
-            } else {
-                self.fix_slot(field, base, offset);
-            }
+            self.fix_field(field, base, offset);
             offset += field.field_bytes() as i32;
         }
     }
 
     /// `fix_record` for the payload of a sum variant just copied to `base`.
-    /// A single field is the payload itself; several form a record of slots.
+    /// A single field is the payload itself; several form a record laid out
+    /// as a class's.
     fn fix_variant(&mut self, fields: &[Ty], base: NativeValue) {
         match fields {
             [] => {}
@@ -232,10 +225,23 @@ impl Lowerer<'_, '_> {
             fields => {
                 let mut offset = 0;
                 for field in fields {
-                    self.fix_slot(field, base, offset);
-                    offset += field.slot_bytes() as i32;
+                    self.fix_field(field, base, offset);
+                    offset += field.field_bytes() as i32;
                 }
             }
+        }
+    }
+
+    /// Fix the field at `base + offset` of a record just copied to `base`.
+    fn fix_field(&mut self, field: &Ty, base: NativeValue, offset: i32) {
+        if field.flat_field() {
+            // A flat field has no address of its own; only its payloads move.
+            if !field.flat_record() {
+                let record = self.bcx.ins().iadd_imm_s(base, offset as i64);
+                self.fix_record(&field.newtype_base(), record);
+            }
+        } else {
+            self.fix_slot(field, base, offset);
         }
     }
 
@@ -465,16 +471,22 @@ fn record_fixes(ty: &Ty) -> Option<usize> {
     if t.get().newtype_field().is_some() {
         return None;
     }
-    let fixes = t.get().fields.iter().try_fold(0, |n, (_, field)| {
-        // A flat field adds only the fixes inside its record.
-        let fixes = if field.flat_field() {
-            record_fixes(&field.newtype_base())?
-        } else {
-            slot_fixes(field)?
-        };
-        Some(n + fixes)
-    })?;
+    let fixes = t
+        .get()
+        .fields
+        .iter()
+        .try_fold(0, |n, (_, field)| Some(n + field_fixes(field)?))?;
     (fixes <= RECORD_FIX_LIMIT).then_some(fixes)
+}
+
+/// The address fixes for a field of a class or multi-field variant record.
+/// A flat field adds only the fixes inside its record.
+fn field_fixes(field: &Ty) -> Option<usize> {
+    if field.flat_field() {
+        record_fixes(&field.newtype_base())
+    } else {
+        slot_fixes(field)
+    }
 }
 
 /// The address fixes for a slot holding `ty`, including those inside its payload.
@@ -507,7 +519,7 @@ fn variant_fixes(fields: &[Ty]) -> Option<usize> {
             base @ Ty::Class(_) => record_fixes(base),
             base => slot_fixes(base).map(|n| n - 1),
         },
-        fields => fields.iter().try_fold(0, |n, f| Some(n + slot_fixes(f)?)),
+        fields => fields.iter().try_fold(0, |n, f| Some(n + field_fixes(f)?)),
     }
 }
 
@@ -542,7 +554,7 @@ fn variant_storage(fields: &[Ty]) -> bool {
 /// For a sum, each variant with inline storage and the bytes its payload keeps,
 /// when every such payload copies without the runtime: a single field with
 /// [`plain_bytes`] or a class [`record_fixes`] accepts, or several fields
-/// whose nested payloads [`slot_fixes`] accepts. A `Result[Bytes, E]` then
+/// whose nested payloads [`field_fixes`] accepts. A `Result[Bytes, E]` then
 /// copies without a runtime call (issue #384), as does a `Result` of a class
 /// holding a class (issue #544).
 fn plain_variants(ty: &crate::nominal::Nominal<crate::sum::EnumType>) -> Option<Vec<(usize, u64)>> {
@@ -559,7 +571,9 @@ fn plain_variants(ty: &crate::nominal::Nominal<crate::sum::EnumType>) -> Option<
                 base => variants.push((tag, plain_bytes(base)?)),
             },
             fields => {
-                let fixes = fields.iter().try_fold(0, |n, f| Some(n + slot_fixes(f)?))?;
+                let fixes = fields
+                    .iter()
+                    .try_fold(0, |n, f| Some(n + field_fixes(f)?))?;
                 if fixes > RECORD_FIX_LIMIT {
                     return None;
                 }
