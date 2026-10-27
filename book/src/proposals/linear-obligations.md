@@ -122,10 +122,13 @@ open; this proposal does not invent a general unsafe language or let arbitrary
 safe libraries mint terminal witnesses. Ordinary libraries can compose existing
 certified obligations without new authority.
 
-Field extraction is a real dependency for ergonomic wrappers. Do not assume
-current class partial moves exist. The smallest candidate is consuming,
-all-fields deconstruction within the declaring module, preserving any nominal
-seal and allowed only when no custom destructor must still observe the whole.
+Field extraction is a real dependency for ergonomic wrappers. Moving a field
+out of an owned binding is now implemented (issue #534; see
+[moving fields](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields)),
+except for classes with a custom destructor and through references. All-fields
+deconstruction is not implemented; the smallest candidate remains consuming
+deconstruction within the declaring module, preserving any nominal seal and
+allowed only when no custom destructor must still observe the whole.
 General partial initialization, partial moves through borrows, and destructors
 on half-moved objects are outside this proposal. Whole-tuple moves and consuming
 enum matching can support early experiments without that extension.

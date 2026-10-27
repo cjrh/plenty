@@ -255,6 +255,7 @@ fn relocate(
             Op::BorrowLocal(i, mutable) => Op::BorrowLocal(slot(i)?, *mutable),
             Op::Next(i) => Op::Next(slot(i)?),
             Op::Access(i, mutable, loan) => Op::Access(slot(i)?, *mutable, *loan),
+            Op::FieldMove(fact) => Op::FieldMove(fact.with_root(slot(&fact.root())?)),
             Op::Loan(loan) => {
                 let mut loan = loan.clone();
                 loan.root = slot(&loan.root)?;

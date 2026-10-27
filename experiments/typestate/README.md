@@ -23,7 +23,8 @@ cleanup advice. The wire simulates counts only; it does not encode or transmit
 bytes, implement deadlines, or model real socket failures.
 
 `check.py` builds and runs a native program, then checks 12 rejected programs
-across the module boundary, including the retained B72 field-extraction limit.
+across the module boundary, including whole use of an owner after a field has
+moved out of it.
 Temporary files are removed
 after each run; compiler/linker failures and timeouts fail the runner.
 
