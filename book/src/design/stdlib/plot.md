@@ -59,10 +59,37 @@ arguments. Supported constant colours are black, white, red, green, blue, grey,
 gray, orange, purple, yellow, pink, brown, navy, transparent, and `#RRGGBB` or
 `#RRGGBBAA`. More R colour names are not yet supported.
 
-Discrete colour/fill mappings use a fixed eight-colour palette, repeated for
-additional levels. Continuous mappings interpolate RGB from `#132B43` to
-`#56B1F7`. Legends are automatic. This is not yet ggplot2's variable-size HCL
+Discrete colour/fill mappings default to an eight-colour palette, repeated for
+additional levels. Continuous mappings default to an RGB gradient from `#132B43`
+to `#56B1F7`. Legends are automatic. This is not yet ggplot2's variable-size HCL
 palette or its continuous colour-bar guide.
+
+### Manual palettes and gradients
+
+`scale_colour_manual(values)` and `scale_fill_manual(values)` consume a
+`dict[str, str]` mapping level labels to colours. For example,
+`gg.scale_fill_manual({"North": "navy", "South": "#D55E00"}?)` keeps each
+region's colour stable when rows are reordered or a region is absent.
+Dictionary order does not change the sorted legend order. Every observed level
+must have an entry; extra entries are allowed. Numeric categories need `factor`
+and keys matching their displayed labels. Invalid colours, missing entries, and
+continuous mappings return errors from `ggplot` or `plus`.
+
+`scale_colour_gradient(low="#132B43", high="#56B1F7")` and
+`scale_fill_gradient(...)` set continuous endpoints. Both endpoints must be
+six-digit `#RRGGBB` colours, with either hex letter case. Interpolation is in
+encoded RGB channels, truncating to integer channels; it is **not** ggplot2's
+Lab interpolation. The finite data minimum and maximum map to the endpoints;
+a constant column maps to the midpoint. Legend swatches use the same mapping.
+Discrete data with a gradient returns `WrongKind`.
+
+The `scale_color_manual` and `scale_color_gradient` spellings are aliases.
+The last scale component for each aesthetic wins, regardless of its position
+relative to geoms. `plus` can replace a scale without changing the original
+plot. Colour and fill are independent; different palettes get separate legends
+even when they map the same column. Constant geom colours override mappings.
+Missing values are still omitted, rather than given a palette colour. Scale
+limits, custom breaks, `na_value`, and palette functions are not yet exposed.
 
 Default groups follow the interaction of discrete mappings; an explicit `group`
 replaces this rule. Bar positions use colour/fill groups independently of x.
@@ -100,7 +127,7 @@ These are compact styles, not the proposal's complete theme-element tree.
 ylim=(low, high))` clips and zooms **after** counting and stacking, preserving
 statistics. Omit either pair to use its automatic range. Only one coordinate
 component is allowed. Position scales are linear; ticks use 1/2/5 steps, and
-automatic ranges have padding. Custom scales and transforms are not yet exposed.
+automatic ranges have padding. Custom position scales and transforms are not yet exposed.
 
 Layout currently reserves fixed margins and a right-hand legend area. SVG text
 names `Liberation Sans, Arial, Helvetica, sans-serif`; no fonts or metrics ship.
@@ -140,7 +167,7 @@ failure is always returned; no infallible native plotting allocator is involved.
 ## Current scope
 
 Not yet implemented: layer-specific mappings/data, `after_stat`, statistical
-smoothing, facets, scale constructors, manual palettes, full themes and font
+smoothing, facets, position scales and other colour scales, full themes and font
 metrics, PNG/PDF, dataframe input, or record reflection. These remain part of
 the accepted proposal; priorities are tracked in [B80](../../backlog.md).
 

@@ -286,6 +286,30 @@ pub enum Component:
     Theme(Theme)
     Cartesian(Option[(f64, f64)], Option[(f64, f64)])
     Flip
+    ColourScale(bool, ColourScale)
+
+pub enum ColourScale:
+    Default
+    Manual(dict[str, str])
+    Gradient(str, str)
+
+pub def scale_colour_manual(values: dict[str, str]) -> Component:
+    Component.ColourScale(False, ColourScale.Manual(values))
+
+pub def scale_color_manual(values: dict[str, str]) -> Component:
+    scale_colour_manual(values)
+
+pub def scale_fill_manual(values: dict[str, str]) -> Component:
+    Component.ColourScale(True, ColourScale.Manual(values))
+
+pub def scale_colour_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component:
+    Component.ColourScale(False, ColourScale.Gradient(low, high))
+
+pub def scale_color_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component:
+    scale_colour_gradient(low, high)
+
+pub def scale_fill_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component:
+    Component.ColourScale(True, ColourScale.Gradient(low, high))
 
 pub enum Unset:
     Unset
@@ -459,6 +483,10 @@ pub class Plot:
 
 pub def ggplot(data: Table, mapping: Mapping, components: list[Component]) -> Result[Plot, PlotError]:
     validate(&*data._data, &mapping, &components)?
+    # Validate the final scale for each aesthetic, including level coverage.
+    # A later component replaces an earlier scale, including through plus().
+    drop(colour_axis(&*data._data, mapping._colour, mapping._cfactor, &components, False)?)
+    drop(colour_axis(&*data._data, mapping._fill, mapping._ffactor, &components, True)?)
     Ok(Plot(data, mapping, components))
 
 class Axis:
@@ -467,12 +495,13 @@ class Axis:
     discrete: bool
     low: f64
     high: f64
+    paint: ColourScale
 
 def axis(data: &TableData, name: str, factor: bool) -> Result[Axis, PlotError]:
     mut values = allocated(list[Option[f64]]())?
     mut levels = allocated(list[str]())?
     if name == "":
-        return Ok(Axis(values, levels, False, 0.0, 1.0))
+        return Ok(Axis(values, levels, False, 0.0, 1.0, ColourScale.Default))
     index = column_index(data, name)?
     column = &data.columns[index][1]
     discrete = factor or column.discrete()
@@ -551,7 +580,60 @@ def axis(data: &TableData, name: str, factor: bool) -> Result[Axis, PlotError]:
                     high = std.math.max(high, *number)
             case Nothing:
                 pass
-    Ok(Axis(values, levels, discrete, low, high))
+    Ok(Axis(values, levels, discrete, low, high, ColourScale.Default))
+
+def colour_axis(data: &TableData, name: str, factor: bool, components: &list[Component], fill: bool) -> Result[Axis, PlotError]:
+    mut result = axis(data, name, factor)?
+    for component in components:
+        match component:
+            case Component.ColourScale(is_fill, paint):
+                if *is_fill == fill:
+                    result.paint = allocated(copy(paint))?
+            case _:
+                pass
+    match &result.paint:
+        case ColourScale.Manual(values):
+            if name != "" and not result.discrete:
+                return Err(PlotError.WrongKind("manual colour scales require discrete data; use factor"))
+            for value in values.values():
+                if *value == "" or not valid_colour(*value):
+                    return Err(PlotError.InvalidSetting("manual palette contains an invalid colour"))
+            for level in &result.levels:
+                if *level not in values:
+                    return Err(PlotError.InvalidSetting("manual palette must name every mapped level"))
+        case ColourScale.Gradient(low, high):
+            if name != "" and result.discrete:
+                return Err(PlotError.WrongKind("gradient colour scales require continuous data"))
+            if len(*low) != 7 or len(*high) != 7 or not low.startswith("#") or not high.startswith("#") or not valid_colour(*low) or not valid_colour(*high):
+                return Err(PlotError.InvalidSetting("gradient endpoints must be #RRGGBB"))
+        case ColourScale.Default:
+            pass
+    Ok(result)
+
+def hex_channel(value: str, offset: i64) -> f64:
+    mut result = 0
+    for index in range(offset, offset + 2):
+        digit = "0123456789abcdef".find(value[index]).unwrap_or(-1)
+        upper = "0123456789ABCDEF".find(value[index]).unwrap_or(0)
+        result = result * 16 + (digit if digit >= 0 else upper)
+    f64(result)
+
+def gradient_colour(low: str, high: str, t: f64) -> Result[str, PlotError]:
+    r = i64(hex_channel(low, 1) * (1.0 - t) + hex_channel(high, 1) * t)
+    g = i64(hex_channel(low, 3) * (1.0 - t) + hex_channel(high, 3) * t)
+    b = i64(hex_channel(low, 5) * (1.0 - t) + hex_channel(high, 5) * t)
+    formatted(f"#{r:02x}{g:02x}{b:02x}")
+
+def scale_colour(scale: &Axis, index: i64, t: f64) -> Result[str, PlotError]:
+    match &scale.paint:
+        case ColourScale.Manual(values):
+            Ok(values[scale.levels[index]])
+        case ColourScale.Gradient(low, high):
+            gradient_colour(*low, *high, t)
+        case ColourScale.Default:
+            if scale.discrete:
+                return Ok(palette(index))
+            gradient_colour("#132B43", "#56B1F7", t)
 
 def palette(index: i64) -> str:
     match index % 8:
@@ -582,12 +664,9 @@ def colour_at(scale: &Axis, row: i64, setting: str, fallback: str) -> Result[Opt
             Ok(Nothing)
         case Some(value):
             if scale.discrete:
-                return Ok(Some(palette(i64(value))))
+                return Ok(Some(scale_colour(scale, i64(value), 0.0)?))
             t = (value - scale.low) / (scale.high - scale.low) if scale.high > scale.low else 0.5
-            r = i64(19.0 + 67.0 * t)
-            g = i64(43.0 + 134.0 * t)
-            b = i64(67.0 + 180.0 * t)
-            Ok(Some(formatted(f"#{r:02x}{g:02x}{b:02x}")?))
+            Ok(Some(scale_colour(scale, 0, t)?))
 
 class Row:
     x: f64
@@ -813,8 +892,8 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
     mapping = &plot._mapping
     x = axis(data, mapping._x, mapping._xfactor)?
     y = axis(data, mapping._y, mapping._yfactor)?
-    colour = axis(data, mapping._colour, mapping._cfactor)?
-    fill = axis(data, mapping._fill, mapping._ffactor)?
+    colour = colour_axis(data, mapping._colour, mapping._cfactor, &plot._components, False)?
+    fill = colour_axis(data, mapping._fill, mapping._ffactor, &plot._components, True)?
     groups = axis(data, mapping._group, True)?
     mut notes = allocated(list[str]())?
     mut layers = allocated(list[LayerRows]())?
@@ -872,6 +951,8 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
             case Component.Cartesian(x, y):
                 xlimits = *x
                 ylimits = *y
+            case Component.ColourScale(_, _):
+                pass
     xlo, xhi = xlimits.unwrap_or(expand(xmin, xmax, x.discrete))
     ylo, yhi = ylimits.unwrap_or(expand(ymin, ymax, y.discrete))
     for ratio in allocated([(xmin - xlo) / (xhi - xlo), (xmax - xlo) / (xhi - xlo), (ymin - ylo) / (yhi - ylo), (ymax - ylo) / (yhi - ylo)])?:
@@ -909,7 +990,7 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
         mut legend_y = top + theme._size
         if uses_colour:
             legend_y = draw_legend(writer, &colour, labels._colour, left + pw + 12.0, legend_y, h - 15.0, theme._size)?
-        if uses_fill and (not uses_colour or mapping._fill != mapping._colour or labels._fill != labels._colour):
+        if uses_fill and (not uses_colour or mapping._fill != mapping._colour or labels._fill != labels._colour or colour.paint != fill.paint):
             drop(draw_legend(writer, &fill, labels._fill, left + pw + 12.0, legend_y + 12.0, h - 15.0, theme._size)?)
     emit(writer, "</g>\n</svg>\n")?
     streamed(writer.flush())?
@@ -1008,16 +1089,14 @@ def draw_legend[W: Writer](writer: &mut W, scale: &Axis, title: str, x: f64, y: 
     for index in range(count):
         if at > bottom:
             return Err(PlotError.InvalidSetting("legend does not fit; increase height or hide it"))
-        mut colour = palette(index)
+        mut colour = ""
         mut name = ""
         if scale.discrete:
             name = scale.levels[index]
+            colour = scale_colour(scale, index, 0.0)?
         else:
             t = 0.5 if count == 1 else f64(index) / 4.0
-            r = i64(19.0 + 67.0 * t)
-            g = i64(43.0 + 134.0 * t)
-            b = i64(67.0 + 180.0 * t)
-            colour = formatted(f"#{r:02x}{g:02x}{b:02x}")?
+            colour = scale_colour(scale, 0, t)?
             value = scale.low + (scale.high - scale.low) * t
             name = number_label(value, (scale.high - scale.low) / 4.0)?
         rectangle(writer, x, at - size * 0.8, size, size, colour)?

@@ -3,8 +3,9 @@
 **Status: Partially implemented. Design accepted.** The
 [core/SVG reference](../design/stdlib/plot.md) describes the implemented subset:
 tables and record accessors, mappings, six geoms, grouped counts/binning and bar
-positions, basic themes/legends, and streaming SVG. This does not complete
-milestone 1: scales, facets, smoothing, measured layout and the full example
+positions, named manual palettes and RGB gradients, basic themes/legends, and
+streaming SVG. This does not complete milestone 1: the remaining scales,
+facets, smoothing, measured layout and the full example
 gallery remain future work, tracked under B80 in the [backlog](../backlog.md).
 The [decisions](#decisions) remain the target design. Code fences here show
 proposed API and are not compiled; use the reference and tutorial for current API.

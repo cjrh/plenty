@@ -44,6 +44,112 @@ p = gg.ggplot(data, gg.aes("x", "y"), [gg.geom_line(color="#123456"), gg.geom_po
 }
 
 #[test]
+fn manual_palettes_follow_names_and_keep_independent_legends() {
+    let svg = render(
+        r##"
+data = gg.table([("x", Column.Text(["B", "A"]?)), ("y", Column.Num([2.0, 3.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y", colour="x", fill="x"), [gg.scale_color_manual({"B": "#112233", "A": "#445566"}?), gg.geom_col(position=gg.position_identity()), gg.scale_fill_manual({"A": "#abcdef", "B": "#fedcba"}?)]?)?
+"##,
+    );
+    assert!(svg.contains("fill=\"#fedcba\" stroke=\"#112233\""));
+    assert!(svg.contains("fill=\"#abcdef\" stroke=\"#445566\""));
+    // Separate scales on the same column must both appear in the guides.
+    for colour in ["#112233", "#445566", "#abcdef", "#fedcba"] {
+        assert!(svg.contains(&format!("fill=\"{colour}\" stroke=\"none\"")));
+    }
+    snapshot("manual-palettes", &svg);
+}
+
+#[test]
+fn gradients_map_endpoints_midpoint_and_constant_values() {
+    let svg = render(
+        r##"
+data = gg.table([("x", Column.Num([0.0, 1.0, 2.0]?)), ("y", Column.Num([1.0, 1.0, 1.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y", colour="x"), [gg.geom_point(), gg.scale_color_gradient(low="#000000", high="#FE8040")]?)?
+"##,
+    );
+    let circles: Vec<_> = svg
+        .lines()
+        .filter(|line| line.contains("<circle "))
+        .collect();
+    for (circle, colour) in circles.iter().zip(["#000000", "#7f4020", "#fe8040"]) {
+        assert!(circle.contains(colour), "{circle}");
+        assert!(svg.contains(&format!("fill=\"{colour}\" stroke=\"none\"")));
+    }
+    assert_eq!(circles.len(), 3);
+    snapshot("custom-gradient", &svg);
+    let constant = render(
+        r##"
+data = gg.table([("x", Column.Num([0.0]?)), ("y", Column.Num([1.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y", fill="y"), [gg.geom_col(), gg.scale_fill_gradient(low="#000000", high="#FE8040")]?)?
+"##,
+    );
+    assert_eq!(constant.matches("fill=\"#7f4020\"").count(), 2);
+}
+
+#[test]
+fn scale_replacement_is_immutable_and_constants_override_mappings() {
+    let output = support::run_file_stdout(&program(
+        r##"
+data = gg.table([("x", Column.Text(["A"]?)), ("y", Column.Num([1.0]?))]?)?
+base = gg.ggplot(data, gg.aes("x", "y", colour="x"), [gg.geom_point(), gg.scale_colour_manual({"A": "red"}?)]?)?
+changed = base.plus([gg.scale_colour_manual({"A": "blue"}?)]?)?
+mut first = std.io.cursor(std.bytes.empty()?)
+mut second = std.io.cursor(std.bytes.empty()?)
+drop(base.write_svg(&mut first)?)
+drop(changed.write_svg(&mut second)?)
+print("fill=\"red\"" in first.data.to_text()?, "fill=\"blue\"" in second.data.to_text()?)?
+"##,
+    ));
+    assert_eq!(output.trim(), "True True");
+    let svg = render(
+        r##"
+data = gg.table([("x", Column.Text(["A"]?)), ("y", Column.Num([1.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y", colour="x"), [gg.scale_colour_manual({"A": "red"}?), gg.geom_point(colour="navy")]?)?
+"##,
+    );
+    assert!(svg.contains("fill=\"navy\""));
+    assert!(!svg.contains("fill=\"red\""));
+}
+
+#[test]
+fn invalid_scales_fail_at_construction() {
+    for (mapping, scale, expected) in [
+        (
+            "colour=\"x\"",
+            "gg.scale_colour_manual({\"B\": \"red\"}?)",
+            "InvalidSetting",
+        ),
+        (
+            "colour=\"y\"",
+            "gg.scale_colour_manual({\"1\": \"red\"}?)",
+            "WrongKind",
+        ),
+        ("fill=\"x\"", "gg.scale_fill_gradient()", "WrongKind"),
+        (
+            "colour=\"x\"",
+            "gg.scale_colour_manual({\"A\": \"\"}?)",
+            "InvalidSetting",
+        ),
+        (
+            "colour=\"y\"",
+            "gg.scale_colour_gradient(low=\"#12zz00\")",
+            "InvalidSetting",
+        ),
+        (
+            "fill=\"y\"",
+            "gg.scale_fill_gradient(high=\"#ffffff80\")",
+            "InvalidSetting",
+        ),
+    ] {
+        let source = program(&format!(
+            "data = gg.table([(\"x\", Column.Text([\"A\"]?)), (\"y\", Column.Num([1.0]?))]?)?\nmatch gg.ggplot(data, gg.aes(\"x\", \"y\", {mapping}), [gg.geom_point(), {scale}]?):\n    case Err(error):\n        print(error)?\n    case Ok(_):\n        print(\"unexpected success\")?"
+        ));
+        assert!(support::run_file_stdout(&source).contains(expected));
+    }
+}
+
+#[test]
 fn stacked_signed_bars_and_flipped_counts_snapshots() {
     let data = r#"data = gg.table([("category", Column.Text(["B", "A", "A", "B", "B"]?)), ("value", Column.Num([3.0, 2.0, 4.0, -2.0, -1.0]?)), ("group", Column.Text(["first", "first", "second", "first", "second"]?))]?)?"#;
     let svg = render(&format!(
@@ -377,8 +483,8 @@ drop(p.save({:?})?)
 fn allocation_failure_preserves_the_plot_for_retry() {
     let mut body = String::from(
         r#"
-t = gg.table([("x", Column.Num([0.0, 1.0, 2.0]?)), ("y", Column.Num([1.0, 2.0, 3.0]?))]?)?
-p = gg.ggplot(t, gg.aes("x", "y"), [gg.geom_line(), gg.geom_point()]?)?
+t = gg.table([("x", Column.Num([0.0, 1.0, 2.0]?)), ("y", Column.Num([1.0, 2.0, 3.0]?)), ("group", Column.Text(["A", "A", "A"]?))]?)?
+p = gg.ggplot(t, gg.aes("x", "y", colour="group", fill="y"), [gg.geom_line(), gg.geom_point(), gg.scale_colour_manual({"A": "navy"}?), gg.scale_fill_gradient()]?)?
 "#,
     );
     let mut helpers = String::new();

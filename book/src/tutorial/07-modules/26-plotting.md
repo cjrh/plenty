@@ -70,6 +70,7 @@ def main() -> Result[(), AllocError | IoError | PlotError | BytesError]:
     ]?)?
     base = gg.ggplot(data, gg.aes("region", "amount", fill="region"), [
         gg.geom_col(),
+        gg.scale_fill_manual({"North": "navy", "South": "#D55E00"}?),
         gg.theme_minimal(),
     ]?)?
     labelled = base.plus([gg.labs(title="Sales by region", y="Sales")]?)?
@@ -86,6 +87,13 @@ def main() -> Result[(), AllocError | IoError | PlotError | BytesError]:
 `geom_bar` with no y mapping to count rows instead, or `geom_histogram(bins=20)`
 with a continuous x mapping to count numeric intervals. For grouped bars,
 `position=gg.position_dodge()` places groups side by side.
+
+The named palette keeps each region's colour stable even if the input order
+changes. Include every observed region; extra names are allowed. For a numeric
+colour mapping, use `gg.scale_colour_gradient(low="#132B43", high="#56B1F7")`
+to choose endpoints instead. The legend follows the chosen colours. See
+[manual palettes and gradients](../../design/stdlib/plot.md#manual-palettes-and-gradients)
+for interpolation and validation rules.
 
 `plus` leaves the original plot unchanged and shares its immutable data. `rows`
 copies selected values, so the original records also remain usable. For columns

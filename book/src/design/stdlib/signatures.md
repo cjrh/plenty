@@ -2602,7 +2602,15 @@ class Layer
 class Labels
 class Theme
 enum Component
-    Layer(Layer) | Labels(Labels) | Theme(Theme) | Cartesian(Option[(f64, f64)], Option[(f64, f64)]) | Flip
+    Layer(Layer) | Labels(Labels) | Theme(Theme) | Cartesian(Option[(f64, f64)], Option[(f64, f64)]) | Flip | ColourScale(bool, ColourScale)
+enum ColourScale
+    Default | Manual(dict[str, str]) | Gradient(str, str)
+def scale_colour_manual(values: dict[str, str]) -> Component
+def scale_color_manual(values: dict[str, str]) -> Component
+def scale_fill_manual(values: dict[str, str]) -> Component
+def scale_colour_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component
+def scale_color_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component
+def scale_fill_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component
 enum Unset
     Unset
 def geom_point(colour: str = "", color: str = "", size: f64 | i64 = 1.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component
