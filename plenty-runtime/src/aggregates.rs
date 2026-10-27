@@ -1143,8 +1143,7 @@ unsafe fn try_list_slice(
 unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
     unsafe {
         if !ty.affine {
-            retain(*value, ty);
-            return Ok(());
+            return try_copy_shared(value, ty);
         }
         if let Some(record) = ty.record(*value) {
             if record.state().is_some() {
@@ -1180,10 +1179,7 @@ unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
             },
             b'L' | b'S' | b'D' => try_copy_collection(*value, ty),
             b'O' => try_copy_box(*value as *const Boxed, ty),
-            _ => {
-                retain(*value, ty);
-                return Ok(());
-            }
+            _ => return try_copy_shared(value, ty),
         };
         match copied {
             Ok(copy) => {
@@ -1195,6 +1191,62 @@ unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
                 Err(error)
             }
         }
+    }
+}
+
+/// Copy a value whose storage may be shared, such as text. Sharing is
+/// replaced by duplication when the storage belongs to another std.actor heap
+/// than the current one, so a message copied into an actor never points into
+/// a heap that is discarded separately.
+unsafe fn try_copy_shared(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
+    unsafe {
+        if let Some(record) = ty.record(*value)
+            && record.state().is_none()
+        {
+            for (i, (slot, ty)) in record.slots().enumerate() {
+                let mut field = slot.read();
+                if let Err(error) = try_copy_shared(&mut field, ty) {
+                    // The prefix owns copies; the rest still names the source.
+                    let mut prefix = slot;
+                    for j in (0..i).rev() {
+                        let ty = record.ty(j);
+                        prefix = prefix.sub(ty.slot_words());
+                        release(prefix.read(), ty);
+                    }
+                    for (slot, _) in record.slots() {
+                        slot.write(0);
+                    }
+                    *value = 0;
+                    return Err(error);
+                }
+                slot.write(field);
+            }
+            return Ok(());
+        }
+        if ty.kind == b'B' {
+            if let Some(t) = ty.payload(*value) {
+                let mut inner = ty.unpack(*value);
+                try_copy_shared(&mut inner, t)?;
+                *value = ty.pack(inner, ty.tag(*value));
+            }
+            return Ok(());
+        }
+        let object = *value as usize as *mut Header;
+        let owned = ty.managed()
+            && ty.kind != b'C'
+            && !object.is_null()
+            && object as usize & 1 == 0
+            && crate::actor_heap::foreign(object.cast())
+            && (*object).refs.load(std::sync::atomic::Ordering::Relaxed) != u64::MAX;
+        if !owned {
+            retain(*value, ty);
+            return Ok(());
+        }
+        if ty.kind != b's' {
+            crate::fail("std.actor: this value cannot be copied into another actor heap");
+        }
+        *value = strings::try_duplicate(object as *const Text)? as u128;
+        Ok(())
     }
 }
 

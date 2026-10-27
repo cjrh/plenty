@@ -2695,6 +2695,9 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "__min_replaces"
                 | "__max_replaces"
                 | "__test_fault"
+                | "__actor_heap"
+                | "__actor_run"
+                | "__actor_forget"
                 | "__report_write"
                 | "__io_is_terminal"
                 | "flush_stdout"
@@ -4029,6 +4032,26 @@ impl Lower<'_> {
                 if name == "spawn" {
                     return Err(e.at.error("spawn is a scoped operation; use with spawn(worker, arguments...)? as task:"));
                 }
+                if matches!(name.as_str(), "__actor_run" | "__actor_forget")
+                    && !self.names.contains_key(name)
+                    && !self.sigs.contains_key(name)
+                {
+                    // Raw heap entry and release; std.actor wraps them.
+                    let standard =
+                        e.at.source()
+                            .as_ref()
+                            .is_some_and(|source| self.generics.source_facts(source).1);
+                    if !standard {
+                        return Err(e
+                            .at
+                            .error(format!("`{name}` is reserved for the standard library")));
+                    }
+                    return if name == "__actor_run" {
+                        self.actor_run(args, &e.at, ops)
+                    } else {
+                        self.actor_forget(args, &e.at, ops)
+                    };
+                }
                 if self.names.contains_key(name) {
                     let callee = Expr {
                         at: e.at.clone(),
@@ -4262,6 +4285,7 @@ impl Lower<'_> {
                 if let Some(operation) = match name.as_str() {
                     "__caller_location" => Some(CollectionOp::CallerLocation),
                     "__test_fault" => Some(CollectionOp::TestFault),
+                    "__actor_heap" => Some(CollectionOp::ActorHeap),
                     "__report_write" => Some(CollectionOp::ReportWrite),
                     "__io_is_terminal" => Some(CollectionOp::IsTerminal),
                     _ => None,

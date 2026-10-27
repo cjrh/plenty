@@ -509,6 +509,17 @@ impl Lowerer<'_, '_> {
             self.stack.push((written, Ty::Bool));
             return Ok(());
         }
+        if let CollectionOp::ActorHeap = operation {
+            let (argument, _) = self.pop_typed(Ty::I64)?;
+            let (op, _) = self.pop_typed(Ty::I64)?;
+            let function = self
+                .module
+                .declare_func_in_func(self.runtime.actor_heap, self.bcx.func);
+            let call = self.bcx.ins().call(function, &[op, argument]);
+            let result = self.bcx.inst_results(call)[0];
+            self.stack.push((result, Ty::I64));
+            return Ok(());
+        }
         if let CollectionOp::TestFault = operation {
             let (code, _) = self.pop_typed(Ty::I32)?;
             let (count, _) = self.pop_typed(Ty::I64)?;

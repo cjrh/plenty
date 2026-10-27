@@ -1,0 +1,38 @@
+import std.test
+from std.actor import Address, Context, Mail, StartError, heaps_live, stage
+
+pub class Node:
+    pub tag: i64
+
+    pub def started(self: &mut Node, context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
+        print("started", self.tag).unwrap()
+        context.stop()
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[i64, AllocError], context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
+        Ok(())
+
+    pub def spawn(self: &mut Node, tag: i64, child: Address, context: &mut Context[i64, AllocError]) -> Result[Option[Node], AllocError]:
+        Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | std.test.TestError]:
+    mut actors = stage[Node, i64, AllocError](4, 8, 4).unwrap()
+    std.test.fail_allocations_after(0u32)?
+    refused = actors.start(Node(1), 65536)
+    std.test.restore_allocations()?
+    match refused:
+        case Err(StartError.Mailbox):
+            print("refused", heaps_live(), actors.live())?
+        case _:
+            print("admitted")?
+    match actors.start(Node(2), 65536):
+        case Ok(_):
+            print("then admitted", heaps_live(), actors.live())?
+        case Err(error):
+            print(error)?
+    match actors.start(Node(3), 0):
+        case Err(error):
+            print(error)?
+        case Ok(_):
+            pass
+    Ok(())

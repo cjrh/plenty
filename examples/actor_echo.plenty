@@ -1,0 +1,137 @@
+# An echo server on std.actor: one acceptor actor, and one actor per
+# connection, each with its own heap. A connection whose first byte is `X`
+# trips a handler bug; the trap ends that actor alone, its heap is discarded
+# and its socket closes, while the other connections carry on.
+#
+# The server prints its port, serves `connections` connections, then prints
+# the stage statistics and the heap counters, which return to zero.
+#
+#     cargo run --bin plenty -- examples/actor_echo.plenty
+#
+# tests/test_std_actor.rs drives it with many concurrent clients.
+import std.bytes
+from std.actor import Address, Context, Exit, Mail, heap_bytes_committed, heap_bytes_used, heaps_live, stage
+from std.bytes import Bytes, BytesError
+from std.net import NetError, TcpListener, TcpStream, listen, loopback_v4
+from std.ready import Interest, WaitError
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+const connections: i64 = 3
+const connection_heap: i64 = 1048576
+
+pub enum Note:
+    Hello
+
+pub class Acceptor:
+    pub listener: TcpListener
+    pub expected: i64
+    pub ended: i64
+    pub trapped: i64
+
+pub class Connection:
+    pub stream: TcpStream
+    pub buffer: Bytes
+    pub start: i64
+    pub stop: i64
+    pub first: bool
+
+    # Reads what is available and echoes it; waits for writability when the
+    # peer is slow. A first byte of `X` is the deliberate handler bug.
+    pub def serve(self: &mut Connection, context: &mut Context[Note, NetError | BytesError]) -> Result[(), NetError | BytesError]:
+        if self.start == self.stop:
+            size = self.buffer.len()
+            match self.stream.read_now(&mut self.buffer, 0, size):
+                case Ok(0):
+                    context.stop()
+                    return Ok(())
+                case Ok(count):
+                    self.start = 0
+                    self.stop = count
+                case Err(NetError.WouldBlock):
+                    return Ok(())
+                case Err(error):
+                    return Err(error)
+            if self.first and self.buffer[0] == 88u8:
+                missing: Option[i64] = Nothing
+                missing.unwrap()
+            self.first = False
+        while self.start < self.stop:
+            match self.stream.write_now(&self.buffer, self.start, self.stop):
+                case Ok(count):
+                    self.start += count
+                case Err(NetError.WouldBlock):
+                    context.watch_stream(&self.stream, Interest.Write)?
+                    return Ok(())
+                case Err(error):
+                    return Err(error)
+        context.watch_stream(&self.stream, Interest.Read)?
+        Ok(())
+
+pub enum Node:
+    Accepting(Acceptor)
+    Serving(Connection)
+
+    pub def started(self: &mut Node, context: &mut Context[Note, NetError | BytesError]) -> Result[(), NetError | BytesError]:
+        match self:
+            case Node.Accepting(acceptor):
+                context.watch_listener(&acceptor.listener)?
+            case Node.Serving(connection):
+                context.watch_stream(&connection.stream, Interest.Read)?
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[Note, NetError | BytesError], context: &mut Context[Note, NetError | BytesError]) -> Result[(), NetError | BytesError]:
+        match self:
+            case Node.Accepting(acceptor):
+                match mail:
+                    case Mail.Ready(_):
+                        # A refused spawn leaves the connection queued; the
+                        # listener reports readiness again.
+                        match context.spawn(0, connection_heap):
+                            case _:
+                                pass
+                    case Mail.Down(_, exit):
+                        acceptor.ended += 1
+                        match exit:
+                            case Exit.Trapped:
+                                acceptor.trapped += 1
+                            case _:
+                                pass
+                        if acceptor.ended == acceptor.expected:
+                            context.stop()
+                    case _:
+                        pass
+            case Node.Serving(connection):
+                match mail:
+                    case Mail.Ready(_):
+                        connection.serve(context)?
+                    case _:
+                        pass
+        Ok(())
+
+    # Runs with the child's heap current, so the accepted stream and its
+    # buffer belong to the connection actor.
+    pub def spawn(self: &mut Node, tag: i64, child: Address, context: &mut Context[Note, NetError | BytesError]) -> Result[Option[Node], NetError | BytesError]:
+        match self:
+            case Node.Accepting(acceptor):
+                match acceptor.listener.accept_now():
+                    case Ok(stream):
+                        mut buffer = std.bytes.with_capacity(4096)?
+                        buffer.resize(4096, 0u8)?
+                        Ok(Some(Node.Serving(Connection(stream, buffer, 0, 0, True))))
+                    case Err(NetError.WouldBlock):
+                        Ok(Nothing)
+                    case Err(error):
+                        Err(error)
+            case Node.Serving(_):
+                Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | WaitError | NetError]:
+    listener = listen(&loopback_v4(0u16), 128)?
+    port = listener.local_address()?.port
+    print(port)?
+    mut actors = stage[Node, Note, NetError | BytesError](256, 4, 64)?
+    actors.start(Node.Accepting(Acceptor(listener, connections, 0, 0)), 65536).unwrap()
+    actors.run(&deadline_after(&monotonic_now(), &seconds(60)).unwrap(), &CancellationToken()?)?
+    print(actors.stats(), heaps_live(), heap_bytes_used(), heap_bytes_committed())?
+    Ok(())

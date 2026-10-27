@@ -13,7 +13,9 @@ pub(super) fn declare_adapters(
     // An adapter's name identifies its task, so any one start of it will do.
     let tasks: std::collections::BTreeMap<_, _> =
         crate::threading::find(ops, workers, |op| match op {
-            Op::Thread(ThreadOp::Start(task, _)) => Some((task.adapter.clone(), task.clone())),
+            Op::Thread(ThreadOp::Start(task, _) | ThreadOp::Run(task)) => {
+                Some((task.adapter.clone(), task.clone()))
+            }
             _ => None,
         })
         .into_iter()
@@ -225,7 +227,98 @@ impl Lowerer<'_, '_> {
                 let zero = self.bcx.ins().iconst(PTR_TY, 0);
                 self.write_local(*slot, zero);
             }
+            ThreadOp::Run(task) => self.lower_run_in(task)?,
+            ThreadOp::Forget(ty) => {
+                self.pop_typed(ty.clone())?;
+            }
         }
+        Ok(())
+    }
+
+    /// std's `__actor_run`: calls the worker through its adapter under
+    /// `plenty_actor_run`, with the actor heap current. On a trap the runtime
+    /// returns nonzero and the result slot was never written, so only the
+    /// success path reads it.
+    fn lower_run_in(&mut self, task: &Task) -> Result<()> {
+        let split = self
+            .stack
+            .len()
+            .checked_sub(task.inputs.len())
+            .ok_or("__actor_run argument underflow")?;
+        let arguments: Vec<_> = self.stack.drain(split..).collect();
+        let (heap, _) = self.pop_typed(Ty::I64)?;
+        let memory = self.bcx.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            task.bytes() as u32,
+            4,
+        ));
+        let storage = self.bcx.ins().stack_addr(PTR_TY, memory, 0);
+        for (i, (value, ty)) in arguments.iter().enumerate() {
+            let dest = self
+                .bcx
+                .ins()
+                .iadd_imm_s(storage, task.argument_offset(i) as i64);
+            self.store_slot(dest, *value, ty);
+        }
+        let id = self.runtime.thread_adapters[&task.adapter];
+        let callback = self.module.declare_func_in_func(id, self.bcx.func);
+        let callback = self.bcx.ins().func_addr(PTR_TY, callback);
+        let mut signature = self.module.make_signature();
+        signature.call_conv = CallConv::SystemV;
+        signature.params.extend([
+            AbiParam::new(types::I64),
+            AbiParam::new(PTR_TY),
+            AbiParam::new(PTR_TY),
+        ]);
+        signature.returns.push(AbiParam::new(types::I64));
+        let run = self
+            .module
+            .declare_function("plenty_actor_run", Linkage::Import, &signature)?;
+        let run = self.module.declare_func_in_func(run, self.bcx.func);
+        let call = self.bcx.ins().call(run, &[heap, storage, callback]);
+        let status = self.bcx.inst_results(call)[0];
+        let ok = self.bcx.create_block();
+        let trapped = self.bcx.create_block();
+        let done = self.bcx.create_block();
+        self.bcx.append_block_param(done, types::I128);
+        self.bcx.ins().brif(status, trapped, &[], ok, &[]);
+        let result = task.run_result();
+        let Ty::Enum(result_enum) = &result else {
+            unreachable!()
+        };
+
+        self.bcx.switch_to_block(ok);
+        self.bcx.seal_block(ok);
+        if task.output == Ty::Unit {
+            let unit = self.bcx.ins().iconst(types::I64, 0);
+            self.stack.push((unit, Ty::Unit));
+        } else {
+            let packed = self
+                .bcx
+                .ins()
+                .load(types::I128, MemFlagsData::trusted(), storage, 16);
+            let value = self.unpack(packed, &task.output);
+            let value = self.snapshot_inline(value, &task.output);
+            self.stack.push((value, task.output.clone()));
+        }
+        self.lower_enum(&crate::sum::EnumOp::New(result_enum.clone(), 0))?;
+        let (value, _) = self.stack.pop().ok_or("missing __actor_run result")?;
+        self.bcx.ins().jump(done, &[value.into()]);
+
+        self.bcx.switch_to_block(trapped);
+        self.bcx.seal_block(trapped);
+        let Ty::Enum(error) = result_enum.get().variants[1].fields[0].clone() else {
+            unreachable!()
+        };
+        self.lower_enum(&crate::sum::EnumOp::New(error, 0))?;
+        self.lower_enum(&crate::sum::EnumOp::New(result_enum.clone(), 1))?;
+        let (value, _) = self.stack.pop().ok_or("missing __actor_run error")?;
+        self.bcx.ins().jump(done, &[value.into()]);
+
+        self.bcx.switch_to_block(done);
+        self.bcx.seal_block(done);
+        let value = self.bcx.block_params(done)[0];
+        self.stack.push((value, result));
         Ok(())
     }
 

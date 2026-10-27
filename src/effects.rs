@@ -157,6 +157,8 @@ impl CollectionOp {
             }
             // The injection state belongs to the calling thread.
             TestFault => Effect::Compute,
+            // Heap bookkeeping for std.actor; memory only.
+            ActorHeap => Effect::Compute,
             EncodeUtf8
             | DecodeUtf8
             | ParseNumber(_)

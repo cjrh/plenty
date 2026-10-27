@@ -196,6 +196,17 @@ fn try_build(
     }
     Ok(out)
 }
+/// A new owner holding the same text, for a copy that must not share storage
+/// with another actor heap.
+pub(crate) unsafe fn try_duplicate(text: *const Text) -> Result<*mut Text, AllocError> {
+    // SAFETY: the caller supplies a live heap Text.
+    unsafe {
+        let source = bytes(&text);
+        try_build(byte_len(text), scalar_len(text), |out| {
+            out.copy_from_slice(source)
+        })
+    }
+}
 unsafe extern "C" fn destroy(header: *mut Header) {
     // SAFETY: callback installed only on dynamically allocated Text objects.
     unsafe {

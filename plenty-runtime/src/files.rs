@@ -87,6 +87,7 @@ pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Er
                     pipe: false,
                 });
             }
+            crate::actor_heap::track_file(pointer);
             Ok(pointer as u128)
         }
         Err(error) => {
@@ -161,6 +162,7 @@ pub(crate) fn prepare(
             pipe: !readable,
         });
     }
+    crate::actor_heap::track_file(pointer);
     Ok(pointer as u128)
 }
 
@@ -251,6 +253,7 @@ pub(crate) unsafe fn wait_ready(_: *const File, _: u8, _: u64) -> Result<u128, E
 pub(crate) unsafe fn close(pointer: *mut File) -> Result<u128, Error> {
     // SAFETY: the compiler holds exclusive access and supplies a live owner.
     // Taking first makes repeated close and destruction safe, even after error.
+    crate::actor_heap::untrack_file(pointer);
     if let Some(file) = unsafe { (*pointer).file.take() } {
         text_io::close(file)?;
     }
@@ -446,8 +449,21 @@ pub(crate) unsafe fn truncate(pointer: *mut File, size: Option<i64>) -> Result<u
     Ok(size as u128)
 }
 
+/// Closes the descriptor of an owner whose actor heap is being discarded. No
+/// destructor runs and the storage is not freed: the heap's pages are
+/// released as a whole. Returns whether a descriptor was open.
+///
+/// # Safety
+/// `pointer` is a tracked owner in a live heap that no handler is using.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) unsafe fn abandon(pointer: *mut File) -> bool {
+    // SAFETY: as the caller guarantees.
+    unsafe { (*pointer).file.take() }.is_some()
+}
+
 unsafe extern "C" fn destroy(pointer: *mut Header) {
     let file = pointer.cast::<File>();
+    crate::actor_heap::untrack_file(file);
     // SAFETY: the reference count reached zero. Rust's sole descriptor owner
     // closes on drop; drop cannot report close errors. Storage is freed once.
     unsafe {

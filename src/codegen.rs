@@ -1036,6 +1036,8 @@ struct Runtime {
     /// object that `plenty test` links; absent from every other build, where
     /// std's `__test_fault` is the constant false.
     test_fault: Option<FuncId>,
+    /// `plenty_actor_heap(op, argument) -> i64`, behind std's `__actor_heap`.
+    actor_heap: FuncId,
     /// `plenty_println(*const u8) -> ()` — write the string raw to
     /// stdout, followed by a single `\n`. The bare-text output
     /// primitive; `plenty_print_str` (the `.` path) escapes and
@@ -1373,6 +1375,13 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         } else {
             None
         },
+        actor_heap: two_args_one_return(
+            module,
+            "plenty_actor_heap",
+            types::I64,
+            types::I64,
+            types::I64,
+        )?,
     })
 }
 

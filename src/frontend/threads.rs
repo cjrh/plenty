@@ -374,3 +374,81 @@ impl Lower<'_> {
         Ok((task.output != Ty::Unit).then(|| task.output.clone()))
     }
 }
+
+/// std.actor's raw entries: `__actor_run(heap, function, args...)` calls a
+/// named function with an actor heap current and returns
+/// `Result[output, Trapped]`; `__actor_forget(value)` consumes an owned value
+/// without releasing it, for values whose heap is discarded as a whole.
+impl Lower<'_> {
+    pub(super) fn actor_run(
+        &mut self,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let [heap, worker, args @ ..] = args else {
+            return Err(at.error("use __actor_run(heap, function, arguments...)"));
+        };
+        let actual = self.expr_expected(heap, Some(Ty::I64), ops)?;
+        self.same(actual, Some(Ty::I64), &heap.at)?;
+        let Expression::Name(function) = &ungroup(worker).kind else {
+            return Err(worker.at.error("__actor_run requires a named function"));
+        };
+        if self.names.contains_key(function) {
+            return Err(worker.at.error("__actor_run requires a named function"));
+        }
+        let begin = ops.len();
+        let output = self
+            .call_named(function, args, &worker.at, ops)?
+            .unwrap_or(Ty::Unit);
+        let (index, symbol) = take_call(ops, begin)
+            .ok_or_else(|| at.error("__actor_run requires a statically selected function"))?;
+        if !output.heap_storable() {
+            return Err(at.error(
+                "__actor_run results cannot contain references, generators, borrowed/unresolved closures, or scoped tasks",
+            ));
+        }
+        let inputs = self.sigs[&symbol]
+            .inputs
+            .iter()
+            .map(|(_, t)| t.clone())
+            .collect();
+        let task = Arc::new(Task {
+            adapter: format!(
+                "__plenty_actor_run_{}_{}_{}",
+                self.function_name, at.line, at.column
+            ),
+            worker: symbol,
+            closure: None,
+            inputs,
+            output,
+        });
+        if task.bytes() > i32::MAX as usize {
+            return Err(at.error("__actor_run task exceeds native stack-layout limit"));
+        }
+        // Loan uses that followed the call now follow the run.
+        let trailing: Vec<_> = ops.drain(index..).collect();
+        ops.push(Op::Thread(ThreadOp::Run(task.clone())));
+        ops.extend(trailing);
+        Ok(Some(task.run_result()))
+    }
+
+    pub(super) fn actor_forget(
+        &mut self,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let [value] = args else {
+            return Err(at.error("__actor_forget takes one owned value"));
+        };
+        let ty = self.value(value, ops)?;
+        if !ty.heap_storable() {
+            return Err(value
+                .at
+                .error("__actor_forget requires a wholly owned value"));
+        }
+        ops.push(Op::Thread(ThreadOp::Forget(ty)));
+        Ok(None)
+    }
+}

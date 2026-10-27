@@ -46,6 +46,20 @@ pub enum ThreadOp {
     Start(Arc<Task>, u8),
     Join(Arc<Task>),
     Finish(Arc<Task>, u8),
+    /// std.actor: call the task's worker on this thread with an actor heap
+    /// current. Pops the heap id below the inputs and pushes
+    /// `Result[output, Trapped]`.
+    Run(Arc<Task>),
+    /// std.actor: pop an owned value without releasing it; its actor heap is
+    /// discarded as a whole.
+    Forget(Ty),
+}
+
+impl Task {
+    /// The result of `__actor_run`.
+    pub fn run_result(&self) -> Ty {
+        crate::sum::result(self.output.clone(), crate::sum::trapped())
+    }
 }
 
 /// Inspect each reachable body and stored type once. Cycles through recursive
@@ -573,7 +587,7 @@ pub fn function_references(op: &Op, require: &mut impl FnMut(&str)) {
         | Op::FunctionAddress(name, _)
         | Op::BoxedCallableNew(_, name, _) => require(name),
         Op::ClosureNew(t) | Op::ClosureCall(t) => require(&t.name),
-        Op::Thread(ThreadOp::Start(task, _)) => {
+        Op::Thread(ThreadOp::Start(task, _) | ThreadOp::Run(task)) => {
             require(&task.worker);
             if let Some(closure) = &task.closure {
                 require(&closure.name);

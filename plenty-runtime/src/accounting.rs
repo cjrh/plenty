@@ -1,5 +1,10 @@
 //! Opt-in test instrumentation; absent from normal compiler/runtime builds.
-use std::alloc::{GlobalAlloc, Layout, System};
+use std::alloc::{GlobalAlloc, Layout};
+// Programs route through actor heaps; accounting still counts every call.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use crate::actor_heap::Router as System;
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+use std::alloc::System;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
@@ -37,6 +42,19 @@ fn injected_failure() -> bool {
     })
 }
 
+// Actor heaps keep their own totals and are released whole, without frees,
+// so only System blocks count as live runtime memory.
+fn live_add(p: *mut u8, size: usize) {
+    if !crate::actor_heap::in_heap(p) {
+        LIVE.fetch_add(size, Relaxed);
+    }
+}
+fn live_sub(p: *mut u8, size: usize) {
+    if !crate::actor_heap::in_heap(p) {
+        LIVE.fetch_sub(size, Relaxed);
+    }
+}
+
 // SAFETY: layouts/pointers are forwarded unchanged to System. Counters neither
 // allocate nor hold locks, and realloc changes accounting only on success.
 unsafe impl GlobalAlloc for Accounting {
@@ -47,7 +65,7 @@ unsafe impl GlobalAlloc for Accounting {
         let p = unsafe { System.alloc(layout) };
         if !p.is_null() {
             record_allocation();
-            LIVE.fetch_add(layout.size(), Relaxed);
+            live_add(p, layout.size());
         }
         p
     }
@@ -58,12 +76,12 @@ unsafe impl GlobalAlloc for Accounting {
         let p = unsafe { System.alloc_zeroed(layout) };
         if !p.is_null() {
             record_allocation();
-            LIVE.fetch_add(layout.size(), Relaxed);
+            live_add(p, layout.size());
         }
         p
     }
     unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
-        LIVE.fetch_sub(layout.size(), Relaxed);
+        live_sub(p, layout.size());
         unsafe {
             System.dealloc(p, layout);
         }
@@ -72,13 +90,14 @@ unsafe impl GlobalAlloc for Accounting {
         if injected_failure() {
             return std::ptr::null_mut();
         }
-        let p = unsafe { System.realloc(p, old, size) };
-        if !p.is_null() {
+        let q = unsafe { System.realloc(p, old, size) };
+        if !q.is_null() {
             record_allocation();
-            LIVE.fetch_add(size, Relaxed);
-            LIVE.fetch_sub(old.size(), Relaxed);
+            // Reallocation keeps a block in its heap or in System.
+            live_add(q, size);
+            live_sub(q, old.size());
         }
-        p
+        q
     }
 }
 pub(crate) fn begin_no_allocations() {
