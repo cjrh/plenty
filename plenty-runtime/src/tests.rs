@@ -1963,7 +1963,9 @@ unsafe fn guard(id: u128) -> u128 {
 }
 unsafe extern "C" fn hook(owner: *mut u128) {
     unsafe {
-        let id = *((*owner) as u64 as *const u128).add(1);
+        // The receiver names the slot before the record, whose word compiled
+        // code never reads: a flat field has none.
+        let id = *owner.wrapping_add(2);
         TRACE.with(|trace| trace.borrow_mut().push(id));
         if id == 9 {
             plenty_release(guard(77) as *mut Header);
@@ -2485,7 +2487,7 @@ thread_local! {
 }
 unsafe extern "C" fn mixed_tail_drop(owner: *mut u128) {
     unsafe {
-        let fields = (*owner as *const u128).add(1);
+        let fields = owner.wrapping_add(2);
         MIXED_TAIL_DROPS.with(|count| {
             assert_eq!(*fields as usize, count.get());
             count.set(count.get() + 1);
@@ -2500,9 +2502,10 @@ fn recursive_heap_children_finish_before_inline_siblings_on_a_small_stack() {
         wrapper: None,
         ..GUARD_CLASS
     };
+    // The tail is a flat field: its state word and id follow the option.
     static NODE: Type = Type {
         affine: true,
-        inline_bytes: 64,
+        inline_bytes: 48,
         variants: &[
             Variant {
                 name: "next",
@@ -2538,14 +2541,11 @@ fn recursive_heap_children_finish_before_inline_siblings_on_a_small_stack() {
     let mut child = 0;
     unsafe {
         for id in 0..DEPTH {
-            let mut tail = [INITIALIZED, id as u128];
             let mut fields = [
                 crate::aggregates::wrap(child, u64::from(child != 0)),
-                0,
-                0,
-                0,
+                INITIALIZED,
+                id as u128,
             ];
-            crate::ranges::store(fields.as_mut_ptr().add(1), tail.as_mut_ptr() as u128, &TAIL);
             let result = collection(119, fields.as_mut_ptr() as u128, 0, 0, &BOX);
             assert_eq!(result >> 64, 0);
             child = result as u64 as u128;

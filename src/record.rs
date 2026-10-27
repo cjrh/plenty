@@ -29,6 +29,15 @@ impl ClassType {
     /// field access and moving the field out emit no code. A destructor needs
     /// the state word, so such a class keeps a record. See
     /// book/src/proposals/flat-class-layout.md.
+    /// Byte offset of field `index` in the record: after the state word and
+    /// the earlier fields, flat class fields taking only their record bytes.
+    pub fn field_offset(&self, index: usize) -> usize {
+        self.state_bytes()
+            + self.fields[..index]
+                .iter()
+                .map(|(_, t)| t.field_bytes())
+                .sum::<usize>()
+    }
     pub fn newtype_field(&self) -> Option<&Ty> {
         match self.fields.as_slice() {
             [(_, field)] if self.destructor.is_none() => Some(field),

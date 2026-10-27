@@ -114,8 +114,9 @@ fn record_slots_cover_variable_widths_and_class_state() {
             for ((slot, ty), (offset, expected)) in
                 record.slots().zip([0, 1, 6, 9].into_iter().zip(FIELDS))
             {
+                assert!(!slot.flat);
                 assert_eq!(
-                    slot,
+                    slot.at,
                     storage
                         .as_mut_ptr()
                         .wrapping_add(offset + usize::from(state))
@@ -124,7 +125,7 @@ fn record_slots_cover_variable_widths_and_class_state() {
             }
             assert_eq!(record.slots().count(), 4);
             assert_eq!(
-                record.slots().nth(2).unwrap().0,
+                record.slots().nth(2).unwrap().0.at,
                 storage.as_mut_ptr().wrapping_add(6 + usize::from(state))
             );
         }

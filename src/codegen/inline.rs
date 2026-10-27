@@ -162,8 +162,16 @@ impl Lowerer<'_, '_> {
         };
         let mut offset = t.get().state_bytes() as i32;
         for (_, field) in &t.get().fields {
-            self.fix_slot(field, base, offset);
-            offset += field.slot_bytes() as i32;
+            if field.flat_field() {
+                // A flat field has no address of its own; only its payloads move.
+                if !field.flat_record() {
+                    let record = self.bcx.ins().iadd_imm_s(base, offset as i64);
+                    self.fix_record(&field.newtype_base(), record);
+                }
+            } else {
+                self.fix_slot(field, base, offset);
+            }
+            offset += field.field_bytes() as i32;
         }
     }
 
@@ -250,13 +258,17 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().brif(base, release, &[], done, &[]);
         self.bcx.switch_to_block(release);
         self.bcx.seal_block(release);
-        let mut offset = 0;
+        let mut offset = t.get().state_bytes() as i32;
         for (_, field) in &t.get().fields {
             if field.managed() {
-                let packed =
+                let packed = if field.flat_field() {
+                    let record = self.bcx.ins().iadd_imm_s(base, offset as i64);
+                    self.bcx.ins().uextend(types::I128, record)
+                } else {
                     self.bcx
                         .ins()
-                        .load(types::I128, MemFlagsData::trusted(), base, offset);
+                        .load(types::I128, MemFlagsData::trusted(), base, offset)
+                };
                 let field_value = self.unpack(packed, field);
                 if field.wide() || matches!(field, Ty::Generator(_) | Ty::Closure(_)) {
                     // These test for an empty slot themselves.
@@ -275,7 +287,7 @@ impl Lowerer<'_, '_> {
                     self.bcx.seal_block(next);
                 }
             }
-            offset += field.slot_bytes() as i32;
+            offset += field.field_bytes() as i32;
         }
         self.bcx.ins().jump(done, &[]);
         self.bcx.switch_to_block(done);
@@ -403,11 +415,15 @@ fn record_fixes(ty: &Ty) -> Option<usize> {
     if t.get().newtype_field().is_some() {
         return None;
     }
-    let fixes = t
-        .get()
-        .fields
-        .iter()
-        .try_fold(0, |n, (_, field)| Some(n + slot_fixes(field)?))?;
+    let fixes = t.get().fields.iter().try_fold(0, |n, (_, field)| {
+        // A flat field adds only the fixes inside its record.
+        let fixes = if field.flat_field() {
+            record_fixes(&field.newtype_base())?
+        } else {
+            slot_fixes(field)?
+        };
+        Some(n + fixes)
+    })?;
     (fixes <= RECORD_FIX_LIMIT).then_some(fixes)
 }
 

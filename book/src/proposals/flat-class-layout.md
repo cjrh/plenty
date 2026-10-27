@@ -1,7 +1,7 @@
 # Flat class layout
 
-> **Status: Stage 1 (one-field classes as newtypes) implemented; stage 2
-> (flat nested records) assessed, not adopted.** Issue #547 asked why a class
+> **Status: Stage 1 (one-field classes as newtypes) and stage 2 (flat nested
+> class records) implemented.** Issue #547 asked why a class
 > value is an address into its own storage, and whether classes could instead
 > be laid out flat inside their owner. [Values](../design/toolchain/02-architecture/values.md)
 > and [memory](../design/toolchain/02-architecture/memory.md) own the shipped
@@ -32,7 +32,7 @@ plus a *fix* of each nested class, range, closure, or inline-sum address
 (`inline.rs::fix_record`, the runtime's `Payload::relocate`); issue #544
 measured that as the remaining overhead of nested wrappers.
 
-### What depends on the address today
+### What depended on the address before stage 2
 
 | Dependent | How it uses the word |
 | --- | --- |
@@ -146,10 +146,88 @@ What it does not remove: the top-level word stays an address, because runtime
 operations and sum payloads still receive one `u128`. Flattening below the top
 level removes fixes but not copies; a move still copies the inline bytes.
 
-**Decision.** Not adopted now. After stage 1, the nested-wrapper case that
-motivated #544 and #547 has no record at all, and the remaining per-move cost
-of a nested record is one fix per nested class, bounded by `RECORD_FIX_LIMIT`.
-Stage 2 would save one load, test and store per nested class per move in the
-nested-record fixture above; that share was not isolated, and a bound this
-small does not justify a second record layout in the compiler and runtime. Revisit under B19 if a workload shows
-record moves dominated by fixes rather than by bytes copied.
+**First assessment.** Stage 2 was first deferred: after stage 1 the remaining
+per-move cost of a nested record looked bounded by `RECORD_FIX_LIMIT`. Measuring
+it showed otherwise: in a loop that moves a three-level record through a
+function, the slot fixes were about 90 of the 146 instructions the callee
+compiled per call (6 fixes of 5 instructions per record copy, 3 copies), and
+the nested words added 96 of the 272 bytes copied per record.
+
+**Decision.** Adopted. A field of a class record whose type is a class with a
+record is stored flat. The cases that keep a word followed by a record are:
+
+- top-level class values, whose word is the uniform 128-bit value runtime
+  operations and sum payloads receive;
+- class payloads of enum variants and tuple components: only class records
+  flatten their fields, so variant payload packing and tuple layout are
+  unchanged;
+- field-less classes without `__del__`, which have no bytes to place.
+
+### Contract
+
+- **Presence.** An all-zero flat record is an empty field. Moving a field out
+  or releasing it zeroes its bytes; a class with `__del__` has a nonzero state
+  word once constructed, and every other record with a record has at least one
+  nonzero word, so empty and live never coincide.
+- **References.** A reference to a class value names the 16 bytes before its
+  record. Readers use `address + 16` without loading the word there; writers
+  copy the record bytes, and writing an empty value zeroes them. Top-level
+  values keep a real word at that address, flat fields do not, and no reader
+  depends on which. Sort-key adapters, which receive runtime slots holding a
+  row's record address, convert to that form before calling compiled code.
+- **Destructors.** The runtime passes `record - 16` to the `__del__` hook,
+  which must not read the word.
+- **Newtype construction.** A one-field class wrapping a class with a record
+  is filled through a reference to the record, so `New` allocates the record's
+  storage as the wrapped class would.
+
+### Compiler and runtime
+
+- `Ty::flat_field` names the rule; `Ty::field_bytes` and
+  `ClassType::field_offset` give a field's width and offset.
+- `lower_class` projects flat fields by offset (`class_field`,
+  `referenced_record`); `read_typed_reference` and `write_record` implement the
+  reference contract.
+- `fix_record`, `release_record` and `record_fixes` (`src/codegen/inline.rs`)
+  walk flat fields in place and emit no fix for them.
+- The runtime `Field { at, flat }` iterator (`Record::slots`) reads, writes and
+  clears a field by kind. Copy, relocate, release, hashing, equality, ordering
+  and formatting go through it. The resumable release walk clears a finished
+  flat record, and `Field::is_clear` lets a resumed pass skip it.
+  `abandon_copy` releases the copied prefix without allocating.
+
+### FFI
+
+No change. A handle is still a `Box` holding one top-level slot, whose word
+addresses the record; borrowed and owned arguments use the same descriptor
+paths. Generated headers and `.plentyi` interfaces are byte-identical for a
+library exporting nested classes.
+
+### Measurements
+
+Retired instructions (`perf stat -e instructions:u`, `--release`, mean of 5)
+against main at 5e6e98a4:
+
+| Program | Before | After |
+|---|---|---|
+| Three-level `Point`/`Segment`/`Path` workload (moves, list rows, borrows) | 5,033,105,519 | 3,886,508,416 (−22.8%) |
+| Its move loop alone, per iteration | 1,840 | 1,302 (−29%) |
+| Its list rows alone | 1,325,304,782 | 1,282,707,905 (−3.2%) |
+| Nested copies, 200× scaled fixture | 5,612,022,727 | 5,848,707,786 (+4.2%) |
+| Shelves of nested records appended and destroyed | 3,387,022,996 | 3,623,707,735 (+7.0%) |
+| Nested two-field records copied through a loop | 282,905 | 283,067 |
+| Constructor fixture (wrapped file) | 331,431 | 331,429 |
+| 200 loopback `connect`/`accept`/`close` pairs through `std.net` | 1,864,882 | 1,864,158 |
+
+Code size for the three-level workload fell from 130,321 to 121,521 bytes of
+`.text`. `compile_bench` (`aot`, 1000 × 10, pinned to 8 cores) showed no
+difference beyond noise.
+
+The two regressions are runtime walks. A resumable release restarts at the
+first field after each heap child; it now scans each finished flat record's
+words to skip it and re-enters an unfinished one, where the address layout
+tested one zero word. Relocation and copying also test each field's kind.
+Together these cost about 590 instructions per released `Shelf` (callgrind).
+Moving those walks into compiled code for known record types would remove
+most of it. Compiled moves no longer fix flat fields, but still copy
+their bytes, so the per-move saving is the fixes, not the copy.

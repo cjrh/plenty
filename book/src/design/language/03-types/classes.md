@@ -60,6 +60,12 @@ the class keeps its name, methods, equality, and printing
 record because its cleanup state needs storage. See
 [value representations](../../toolchain/02-architecture/values.md).
 
+A field whose type is another class stores that class's fields inside the
+owner, at a fixed position. Reading `path.start.x` costs the same as reading a
+field of `path` itself, and moving or returning `path` copies its bytes once,
+with no per-field address work. This is not visible in source: nested fields
+still move, borrow, and run `__del__` as other fields do.
+
 ## Copy classes
 
 `@copy` on the line before `class` declares a copy class. Its instances copy on

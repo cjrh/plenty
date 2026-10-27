@@ -2371,11 +2371,7 @@ impl Lowerer<'_, '_> {
             Op::ReadRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 // A scalar is entirely in its slot's first word.
-                let packed = if ty.is_numeric() || *ty == Ty::Bool {
-                    self.scalar_reference_word(reference, ty)
-                } else {
-                    self.read_reference(reference)
-                };
+                let packed = self.read_typed_reference(reference, ty);
                 let value = self.unpack(packed, ty);
                 let value = if ty.can_copy() {
                     self.snapshot_inline(value, ty)
@@ -2396,7 +2392,7 @@ impl Lowerer<'_, '_> {
                 // An unmanaged old value owns nothing to release, and filled
                 // storage holds none.
                 if ty.managed() && matches!(op, Op::WriteRef(_)) {
-                    let old = self.read_reference(reference);
+                    let old = self.read_typed_reference(reference, ty);
                     self.release(old, ty);
                 }
                 self.write_reference(reference, value, ty);
@@ -2404,11 +2400,7 @@ impl Lowerer<'_, '_> {
             Op::ReplaceRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 let (value, _) = self.pop_typed(ty.clone())?;
-                let old = if ty.is_numeric() || *ty == Ty::Bool {
-                    self.scalar_reference_word(reference, ty)
-                } else {
-                    self.read_reference(reference)
-                };
+                let old = self.read_typed_reference(reference, ty);
                 let old = self.unpack(old, ty);
                 // Inline field storage is overwritten below; relocate the old
                 // owner without retaining it or running its destructor.
