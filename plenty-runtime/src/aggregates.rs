@@ -210,8 +210,8 @@ pub(crate) enum Fields<'a> {
     Variant(&'a [&'static Type]),
 }
 /// Typed field slots inside their owner's storage. Each slot reserves its
-/// type's complete inline payload. A class field whose class has a record is
-/// flat instead: its record's bytes sit at the field's offset, with no value
+/// type's complete inline payload. A field of a class, tuple or multi-field
+/// variant whose type is a class with a record is flat instead: its record's bytes sit at the field's offset, with no value
 /// word (see [`Type::flat_field`]). A class with `__del__` keeps one state
 /// word before its fields: bit 0 marks a completed initializer, and the
 /// remaining bits count observers, which borrow the instance through a
@@ -243,10 +243,10 @@ impl Record<'_> {
                 .map(|i| self.width(self.ty(i)))
                 .sum::<usize>()
     }
-    /// Only class records store class fields flat; tuples and multi-field
-    /// variants keep a slot per field.
+    /// Class records, tuples and multi-field variants all store class fields
+    /// with records flat.
     fn flat(&self, ty: &Type) -> bool {
-        matches!(self.fields, Fields::Class(_)) && ty.flat_field()
+        ty.flat_field()
     }
     fn width(&self, ty: &Type) -> usize {
         if self.flat(ty) {

@@ -14,10 +14,10 @@ and return owned managed results, including retained projections and builder ali
 Buffers have explicit owners; type metadata is immutable program data.
 
 A class instance owns its fields in a record inside its owner's slot; the slot's
-value word is the record's address, which moves relocate. A class field of
-class type is stored flat inside its owner's record, so moving the owner copies
-bytes without relocating that field; an all-zero flat record marks a moved-out
-or released field. A one-field class
+value word is the record's address, which moves relocate. A class field, tuple
+component or multi-field variant field of class type is stored flat inside its
+owner's record, so moving the owner copies bytes without relocating that field;
+an all-zero flat record marks a moved-out or released field. A one-field class
 without `__del__` has no record: the instance is its field, so moving it or
 moving the field out copies the field's bits and releases nothing. See
 [value representations](values.md).

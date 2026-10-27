@@ -275,9 +275,10 @@ impl Ty {
                     .all(|(_, t)| !t.has_inline_storage() || t.flat_field() && t.flat_record()),
             },
             Self::Enum(t) => match t.get().variants.as_slice() {
-                [variant] if variant.fields.len() > 1 => {
-                    variant.fields.iter().all(|t| !t.has_inline_storage())
-                }
+                [variant] if variant.fields.len() > 1 => variant
+                    .fields
+                    .iter()
+                    .all(|t| !t.has_inline_storage() || t.flat_field() && t.flat_record()),
                 _ => false,
             },
             _ => false,
@@ -312,8 +313,9 @@ impl Ty {
     }
 }
 
-/// A single field is the variant's payload; several fields form a record of
-/// typed slots in the owner's storage.
+/// A single field is the variant's payload; several fields form a record in
+/// the owner's storage, laid out as a class's: a slot per field, except that
+/// a flat class field keeps only its record's bytes.
 fn variant_bytes<E>(
     fields: &[Ty],
     mut inline: impl FnMut(&Ty) -> Result<usize, E>,
@@ -321,7 +323,10 @@ fn variant_bytes<E>(
     match fields {
         [] => Ok(0),
         [field] => inline(field),
-        _ => fields.iter().try_fold(0, |n, t| Ok(n + 16 + inline(t)?)),
+        _ => fields.iter().try_fold(0, |n, t| {
+            let word = if t.flat_field() { 0 } else { 16 };
+            Ok(n + word + inline(t)?)
+        }),
     }
 }
 

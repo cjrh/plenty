@@ -201,17 +201,17 @@ pub(crate) unsafe fn store(slot: *mut u128, value: u128, ty: &Type) {
 }
 
 /// Whether `ty` is a class or multi-field tuple whose fields keep no inline
-/// storage, so moving its slot only changes the address in its value word.
+/// storage apart from flat records of the same kind, so moving its slot only
+/// changes the address in its value word. Mirrors `Ty::flat_record`.
 pub(crate) fn flat_record(ty: &Type) -> bool {
+    let plain =
+        |field: &Type| field.payload_bytes() == 0 || field.flat_field() && flat_record(field);
     match ty.kind {
-        b'C' => ty.variants.iter().all(|v| {
-            let field = v.fields[0];
-            field.payload_bytes() == 0 || field.flat_field() && flat_record(field)
-        }),
+        b'C' => ty.variants.iter().all(|v| plain(v.fields[0])),
         b'B' => {
             ty.variants.len() == 1
                 && ty.variants[0].fields.len() >= 2
-                && ty.variants[0].fields.iter().all(|f| f.payload_bytes() == 0)
+                && ty.variants[0].fields.iter().all(|f| plain(f))
         }
         _ => false,
     }

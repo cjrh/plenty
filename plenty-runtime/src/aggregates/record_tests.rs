@@ -142,6 +142,37 @@ fn record_slots_cover_variable_widths_and_class_state() {
     }
 }
 
+#[test]
+fn variant_records_store_class_records_flat() {
+    // A class with a two-word record, such as `Point(x: i64, y: i64)`.
+    static POINT: Type = Type {
+        kind: b'C',
+        inline_bytes: 32,
+        ..INTEGER
+    };
+    static FIELDS: &[&Type] = &[&POINT, &INTEGER, &POINT];
+    let mut storage = [0u128; 5];
+    let record = Record {
+        fields: Fields::Variant(FIELDS),
+        base: storage.as_mut_ptr(),
+        state: false,
+    };
+    assert_eq!(record.words(), 5);
+    let slots: Vec<_> = record
+        .slots()
+        .map(|(field, _)| (field.at, field.flat))
+        .collect();
+    let base = storage.as_mut_ptr();
+    assert_eq!(
+        slots,
+        [
+            (base, true),
+            (base.wrapping_add(2), false),
+            (base.wrapping_add(3), true)
+        ]
+    );
+}
+
 fn tuple_type(width: usize) -> Type {
     let fields = Box::leak(vec![&INTEGER; width].into_boxed_slice());
     Type {

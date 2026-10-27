@@ -210,6 +210,8 @@ mod test_file_streams;
 mod test_filesystem;
 #[path = "test_flat_classes.rs"]
 mod test_flat_classes;
+#[path = "test_flat_payloads.rs"]
+mod test_flat_payloads;
 #[path = "test_float_constants.rs"]
 mod test_float_constants;
 #[path = "test_float_left_constants.rs"]

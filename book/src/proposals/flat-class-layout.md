@@ -1,7 +1,8 @@
 # Flat class layout
 
-> **Status: Stage 1 (one-field classes as newtypes) and stage 2 (flat nested
-> class records) implemented.** Issue #547 asked why a class
+> **Status: Stage 1 (one-field classes as newtypes), stage 2 (flat nested
+> class records), stage 3 (fewer runtime walks) and stage 4 (flat tuple and
+> variant payloads) implemented.** Issue #547 asked why a class
 > value is an address into its own storage, and whether classes could instead
 > be laid out flat inside their owner. [Values](../design/toolchain/02-architecture/values.md)
 > and [memory](../design/toolchain/02-architecture/memory.md) own the shipped
@@ -160,7 +161,8 @@ record is stored flat. The cases that keep a word followed by a record are:
   operations and sum payloads receive;
 - class payloads of enum variants and tuple components: only class records
   flatten their fields, so variant payload packing and tuple layout are
-  unchanged;
+  unchanged ([stage 4](#stage-4-flat-tuple-and-variant-payloads-issue-551)
+  later flattened tuples and multi-field variants);
 - field-less classes without `__del__`, which have no bytes to place.
 
 ### Contract
@@ -318,3 +320,61 @@ payload addresses depend on the active variant, so it is neither string-only
 nor free of internal addresses. Per shelf, relocation still costs about 930
 instructions and the 272-byte record copy still calls `memcpy`. A plan entry
 per internal address, tested against the sum's tag, would cover relocation.
+
+## Stage 4: flat tuple and variant payloads (issue #551)
+
+Stages 2 and 3 flattened class fields of class records only. A tuple or enum
+variant with a class component still stored that component as a slot word
+followed by its record, so every move rewrote the word: copying a
+`(Point, Point)` through a function copied 96 bytes and then ran two address
+fixes, and a three-field variant carried one fix per class field.
+
+**Decision.** A tuple component or a field of a variant with two or more
+fields is laid out as a class field is: a class with a record is stored flat
+at a fixed offset, with no word. Matching, unpacking, `&mut t[0]`, field
+moves and constructors use the offsets class records use, and an all-zero
+flat record marks a moved-out component. A tuple or variant whose components
+are all flat records without internal addresses copies as plain bytes, so
+`(Point, Point)` is a 64-byte copy.
+
+**Kept: single-field variants.** The payload of a one-field variant, such as
+`Some(point)`, `Ok(point)` or `Err(point)`, keeps the slot word followed by
+the record. Its 128-bit value is the variant's payload, and sum tags stack in
+its high word, so the payload must be a full value as top-level values are;
+dropping the word would change the `Option`/`Result` contract that runtime
+operations, generic code and C headers use. Moving such a sum costs one
+address fix, the same as moving a bare class value. A workload of 2M
+`Option[Segment]` and `Result[Segment, Problem]` returns, matches and `?`
+propagations retired the same instructions
+under callgrind before and after this stage (2,041,257,371 and
+2,041,261,463), so flattening there has no measured gain to set against the
+contract change.
+
+**Runtime.** `Record::slots` marks a variant or tuple field flat by the same
+`flat_field` rule as a class field, so release, retain, copy, relocate,
+hashing, equality, ordering and formatting walk tuples and variants without
+change. `ranges::flat_record` treats a multi-field tuple of flat records
+without internal addresses as plain bytes, as the compiler does.
+
+### Measurements
+
+Retired instructions (`perf stat -e instructions:u`, `--release`, mean of 5,
+pinned to 8 cores). *Main* is d2078d82.
+
+| Program | Main | Stage 4 |
+|---|---|---|
+| 2M swaps and moves of `(Point, Point)`, 300k tuple rows | 1,758,757,596 | 1,374,894,550 (−21.8%) |
+| 2M moves and matches of a `Shape` with `Seg(Segment)`, `Pair(Point, Point)` and `Tagged(Segment, i64)`, 300k rows | 1,820,986,482 | 1,667,438,878 (−8.4%) |
+| 2M `Option[Segment]`/`Result[Segment, Problem]` returns and matches, 300k rows | 2,112,425,588 | 2,114,518,618 |
+| Three-level `Point`/`Segment`/`Path` workload | 4,327,731,012 | 4,325,030,979 |
+| 2M moves of a `Path` through `keep` | 3,572,239,283 | 3,572,239,260 |
+| 300k `Path` rows appended and destroyed | 755,730,005 | 753,030,049 |
+| Copies fixture, scaled | 2,756,512,628 | 2,715,363,538 (−1.5%) |
+| 300k shelves of nested records appended and destroyed | 2,257,209,573 | 2,218,460,498 (−1.7%) |
+| Constructor fixture, scaled | 505,241,977 | 505,241,981 |
+| 200 loopback `connect`/`accept`/`close` pairs through `std.net` | 2,010,559 | 2,010,513 |
+
+The `Option` workload's 0.1% difference is not in its code: its assembly is
+unchanged and callgrind counts match. Compiled per call, the tuple `keep`
+fell from 103 to 53 instructions and `swap` from 296 to 224; the variant
+`keep` from 218 to 155 and its consuming match from 687 to 542.

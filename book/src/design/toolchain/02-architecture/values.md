@@ -26,19 +26,23 @@ classes with two or more fields. The
 [flat class layout proposal](../../../proposals/flat-class-layout.md) records
 why the record holds an address and the layout contract C interop depends on.
 
-A field of a class record whose type is a class with a record (after looking
-through one-field wrappers) is stored *flat*: its record bytes sit at a fixed
-offset in the owner's record, with no slot word of its own. Reading, borrowing
-or writing `owner.inner.x` adds constant offsets to the owner's record address;
-moving the owner copies its bytes with no address fixes for flat fields. An
+A field whose type is a class with a record (after looking through one-field
+wrappers) is stored *flat* when its owner is a class record, a tuple, or an
+enum variant with two or more fields: its record bytes sit at a fixed offset
+in the owner's record, with no slot word of its own. Reading, borrowing,
+matching or writing `owner.inner.x` adds constant offsets to the owner's record
+address; moving the owner copies its bytes with no address fixes for flat
+fields, so a tuple or variant of such classes moves as plain bytes. An
 all-zero flat record is an empty field, so moving a field out zeroes its bytes
 and releasing an empty field does nothing. The rule has these exceptions, which
 keep the slot word followed by the record:
 
 - top-level class values (locals, list elements, boxes, captures), because
   runtime operations and sum payloads receive one 128-bit value;
-- class payloads of enum variants and tuple components, whose records are not
-  class records;
+- the payload of a single-field variant, such as `Some(point)` or
+  `Ok(point)`, which is that one 128-bit value with the sum's tags stacked in
+  its high word: the record follows it, and moving the sum fixes only that
+  one address, as moving a bare class value does;
 - field-less classes without `__del__`, which have no record bytes to place.
 
 A reference to a class value names the 16 bytes before its record whether or
