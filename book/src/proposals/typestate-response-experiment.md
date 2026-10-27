@@ -4,7 +4,8 @@
 in `experiments/typestate/`. The original model used consuming free functions
 against baseline `344dfdbd`; it now exercises explicit owned receivers. This
 refreshes the [typestate assessment](typestate-and-owned-transitions.md).
-The HTTP server is unchanged and individual field moves remain out of scope.
+The HTTP server is unchanged. Individual [field moves](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields) out of owned bindings were
+implemented later (issue #534), and the model now uses them.
 Scheduling remains in [B72](../backlog.md).
 
 ## What the experiment establishes
@@ -35,17 +36,18 @@ reported `(1, 3)` and destroyed the connection before returning the error.
 Twelve compile-fail probes cover writing/finishing before begin, repeated
 begin/finish, writing after finish, reusing the owner after a fallible write,
 forging either state, reading private storage, copying a resource-bearing state,
-consuming a borrowed writer, and the continuing restriction on field extraction.
+consuming a borrowed writer, and using an owner as a whole after moving a field
+out of it.
 Compiler integration tests separately exercise owned receiver lowering, generics,
 protocols, generators and cleanup. These are reproducible assertions, not only
 a successful smoke check.
 
 The cost is visible in the API: two public states and three error enums,
 new writer bindings after successful writes, and explicit matching to recover
-retry owners. One `Option` field in `Unanswered` and one `replace(..., Nothing)`
-at `begin` avoid direct field extraction; `Writer` holds the resource directly.
-That replacement needs no allocation
-or dummy connection. Constructor privacy maintains the invariant that a live
+retry owners. `begin` moves the wire field out of the consumed `Unanswered`
+owner into a new `Writer`. Before field moves, `Unanswered` held an
+`Option[Wire]` and `begin` used `replace(..., Nothing)`; neither version needs
+an allocation or a dummy connection. Constructor privacy maintains the invariant that a live
 public state contains a resource. No throughput, code-size, or allocation-count
 benchmark was performed; the cleanup trace is not a performance measurement.
 
@@ -104,15 +106,12 @@ reuse and retry. `std.text.join` and `wrap` now finish their builders explicitly
 Both finalization paths still copy output bytes; no zero-copy improvement is
 claimed. SQLite and HTTP lifecycle contracts are not converted.
 
-## Individual field moves remain deferred
+## Individual field moves
 
-Moving `self` as a whole does not permit returning `self.resource`. Today a
-class's destructor runs with initialized fields, followed by automatic field
-cleanup. General partial moves would need field-level availability and cleanup
-rules across branches, loops, reassignment and early returns, plus a rule for
-custom destructors that might inspect an extracted field. Initialization
-tracking alone does not settle those later lifetime rules.
-
-The tested `Option`/`replace` pattern remains sufficient for this experiment.
-Neither partial field moves nor whole-object destructuring is included in the
-consuming-method change.
+**Implemented (issue #534).** This section originally deferred field moves:
+they needed field-level availability and cleanup rules across branches, loops,
+reassignment and early returns, plus a rule for custom destructors that might
+inspect an extracted field. The implemented rules track each moved field like a
+binding, reject whole use of the owner until the field is assigned again, clean
+up only initialized fields, and reject moves out of a class with `__del__`. See
+[field moves](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields). Whole-object destructuring is still not included.

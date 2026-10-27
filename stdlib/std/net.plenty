@@ -1,8 +1,8 @@
 # TCP and UDP sockets over IPv4 and IPv6, address parsing and formatting,
 # and name lookup. Each native step is one socket call; waiting, deadlines,
 # cancellation, retries and error naming are the checked policy here, built
-# on std.ready. Listening, connecting and datagram sockets never block; a
-# connected stream blocks only in its plain `read` and `write`.
+# on std.ready. All socket descriptors stay nonblocking; plain `read` and
+# `write` wait for readiness without a deadline.
 # See book/src/design/stdlib/net.md.
 import std.bytes
 import std.ready
@@ -38,7 +38,11 @@ const v4_size: i64 = 7
 const v6_size: i64 = 23
 
 pub enum NetError:
+    # The caller's deadline passed; the connection may still be usable.
     TimedOut
+    # The kernel gave up on the connection (ETIMEDOUT).
+    ConnectionTimedOut
+    WouldBlock
     Cancelled
     Refused
     Reset
@@ -135,6 +139,8 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, NetError]:
 def named(error: IoError) -> NetError:
     match error:
         case IoError.System(code):
+            if code == would_block:
+                return NetError.WouldBlock
             if code == refused:
                 return NetError.Refused
             if code == reset or code == broken_pipe:
@@ -146,7 +152,7 @@ def named(error: IoError) -> NetError:
             if code == net_unreachable or code == host_unreachable:
                 return NetError.Unreachable
             if code == timed_out:
-                return NetError.TimedOut
+                return NetError.ConnectionTimedOut
             if code == process_handles or code == system_handles:
                 return NetError.HandleLimit
             NetError.Stream(classify(IoError.System(code)))
@@ -212,6 +218,36 @@ def transient(error: IoError) -> bool:
             code == would_block or code == interrupted
         case _:
             False
+
+def blocked(error: StreamError) -> bool:
+    match error:
+        case StreamError.Io(IoError.System(code)):
+            code == would_block
+        case _:
+            False
+
+# Plain Reader/Writer calls retain their unbounded blocking contract without
+# changing the descriptor mode used by the deadline methods.
+def transfer_wait(file: &File, interest: u8) -> Result[(), StreamError]:
+    while True:
+        match __io_wait(file, interest, u64.MAX):
+            case Ok(bits):
+                if bits != 0:
+                    return Ok(())
+            case Err(error):
+                return Err(classify(error))
+    Ok(())
+
+# A ready descriptor can still return EAGAIN. Recheck the original budget
+# before waiting again, including when the readiness report stays stale.
+def retry_transfer(error: StreamError, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]:
+    if not blocked(error) and error != StreamError.Interrupted:
+        return Err(streamed(error))
+    if cancel.is_cancelled():
+        return Err(NetError.Cancelled)
+    if deadline.expired(&monotonic_now()):
+        return Err(NetError.TimedOut)
+    Ok(())
 
 # Address encoding shared with the runtime: family, port, address bytes and,
 # for IPv6, the scope id, all in network order.
@@ -568,15 +604,32 @@ pub enum Shutdown:
     Both
 
 # A connected TCP stream. `read`, `write`, `flush` and `close` make it a
-# std.io Reader and Writer; `read` and `write` block until the peer acts.
+# std.io Reader, Writer and Closer; their StreamError results preserve generic
+# I/O compatibility. `read` and `write` block until the peer acts.
 pub class TcpStream:
     _stream: FileStream
 
     pub def read(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        self._stream.read(buffer, start, stop)
+        while True:
+            match self._stream.read(buffer, start, stop):
+                case Ok(count):
+                    return Ok(count)
+                case Err(error):
+                    if not blocked(error):
+                        return Err(error)
+                    transfer_wait(&self._stream.file, 1u8)?
+        Ok(0)
 
     pub def write[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        self._stream.write(source, start, stop)
+        while True:
+            match self._stream.write(source, start, stop):
+                case Ok(count):
+                    return Ok(count)
+                case Err(error):
+                    if not blocked(error):
+                        return Err(error)
+                    transfer_wait(&self._stream.file, 2u8)?
+        Ok(0)
 
     # Writes are not buffered.
     pub def flush(self: &mut TcpStream) -> Result[(), StreamError]:
@@ -585,14 +638,46 @@ pub class TcpStream:
     pub def close(self: &mut TcpStream) -> Result[(), StreamError]:
         self._stream.close()
 
+    # One nonblocking attempt, without a readiness wait or interruption retry.
+    # WouldBlock means no input is available; zero from a nonempty range is EOF.
+    pub def read_now(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, NetError]:
+        match self._stream.read(buffer, start, stop):
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(streamed(error))
+
+    # Offers the entire range once; keep the unsent suffix after a short write.
+    pub def write_now[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, NetError]:
+        match self._stream.write(source, start, stop):
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(streamed(error))
+
     # Waits for input, then makes one read. Zero is the end of the peer's
     # output.
     pub def read_before(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
-        counted(std.ready.read_before(&mut self._stream, buffer, start, stop, deadline, cancel))
+        while True:
+            ready_for(&self._stream.file, Interest.Read, deadline, cancel)?
+            match self._stream.read(buffer, start, stop):
+                case Ok(count):
+                    return Ok(count)
+                case Err(error):
+                    retry_transfer(error, deadline, cancel)?
+        Err(NetError.TimedOut)
 
-    # Waits for space, then makes one write of at most 4096 bytes.
+    # Waits for space, then offers the whole range in one nonblocking write.
+    # The returned count can be smaller than stop - start.
     pub def write_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
-        counted(std.ready.write_before(&mut self._stream, source, start, stop, deadline, cancel))
+        while True:
+            ready_for(&self._stream.file, Interest.Write, deadline, cancel)?
+            match self._stream.write(source, start, stop):
+                case Ok(count):
+                    return Ok(count)
+                case Err(error):
+                    retry_transfer(error, deadline, cancel)?
+        Err(NetError.TimedOut)
 
     # Writes all of source[start:stop]. On failure, an unknown prefix has
     # been sent.
@@ -652,6 +737,11 @@ pub class TcpListener:
 
     pub def unwatch(self, selector: &mut Selector) -> Result[(), NetError]:
         selected(selector.unwatch(&self._file))
+
+    # One accept attempt; an empty queue is WouldBlock. Interruption and
+    # aborted connections are returned to the caller instead of retried.
+    pub def accept_now(self) -> Result[TcpStream, NetError]:
+        Ok(TcpStream(FileStream(opened(__net_accept(self._file))?)))
 
     # Waits for a connection. Several workers may accept from one shared
     # listener; each connection goes to one of them. At the descriptor limit

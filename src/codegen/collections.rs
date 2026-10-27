@@ -46,17 +46,21 @@ impl Lowerer<'_, '_> {
     }
 
     /// The row count of the live scalar list `owner`, read through
-    /// `list_layout` (issue #509): a scalar row is two words, and a popped
+    /// `list_layout`: a scalar row uses its declared width, and a popped
     /// row stays stored until the next mutation.
     fn scalar_list_len(
         &mut self,
         owner: cranelift_codegen::ir::Value,
+        element: &Ty,
     ) -> cranelift_codegen::ir::Value {
-        use crate::list_layout::{REMOVED, WORDS};
+        use crate::list_layout::{BYTES, REMOVED};
         let flags = cranelift_codegen::ir::MemFlagsData::trusted();
-        let words = self.bcx.ins().load(types::I64, flags, owner, WORDS);
+        let bytes = self.bcx.ins().load(types::I64, flags, owner, BYTES);
         let removed = self.bcx.ins().uload8(types::I64, flags, owner, REMOVED);
-        let stored = self.bcx.ins().ushr_imm_u(words, 1);
+        let stored = self
+            .bcx
+            .ins()
+            .ushr_imm_u(bytes, clif_type(element.clone()).bytes().ilog2() as i64);
         self.bcx.ins().isub(stored, removed)
     }
 
@@ -67,16 +71,17 @@ impl Lowerer<'_, '_> {
         &mut self,
         owner: cranelift_codegen::ir::Value,
         index: cranelift_codegen::ir::Value,
+        element: &Ty,
     ) -> Result<cranelift_codegen::ir::Value> {
-        use crate::list_layout::{ROWS, SCALAR_ROW_SHIFT};
+        use crate::list_layout::ROWS;
         let flags = cranelift_codegen::ir::MemFlagsData::trusted();
         let rows = self.bcx.ins().load(PTR_TY, flags, owner, ROWS);
-        let length = self.scalar_list_len(owner);
+        let length = self.scalar_list_len(owner, element);
         let normalized = self.list_index(index, length)?;
-        let offset = self
-            .bcx
-            .ins()
-            .ishl_imm_u(normalized, i64::from(SCALAR_ROW_SHIFT));
+        let offset = self.bcx.ins().ishl_imm_u(
+            normalized,
+            clif_type(element.clone()).bytes().ilog2() as i64,
+        );
         Ok(self.bcx.ins().iadd(rows, offset))
     }
 
@@ -526,7 +531,7 @@ impl Lowerer<'_, '_> {
         {
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
             let owner = self.reference_word(receiver);
-            let length = self.scalar_list_len(owner);
+            let length = self.scalar_list_len(owner, &ty.element().unwrap());
             self.stack.push((length, Ty::I64));
             return Ok(());
         }
@@ -534,14 +539,9 @@ impl Lowerer<'_, '_> {
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
             let owner = self.reference_word(receiver);
-            let address = self.scalar_row(owner, index)?;
-            let bits = self.bcx.ins().load(
-                types::I64,
-                cranelift_codegen::ir::MemFlagsData::trusted(),
-                address,
-                0,
-            );
             let element = ty.element().unwrap();
+            let address = self.scalar_row(owner, index, &element)?;
+            let bits = self.scalar_word(address, &element);
             let result = self.unpack(bits, &element);
             self.stack.push((result, element));
             return Ok(());
@@ -556,13 +556,8 @@ impl Lowerer<'_, '_> {
             let normalized = self.list_index(index, length)?;
             let offset = self.bcx.ins().imul(normalized, stride);
             let address = self.bcx.ins().iadd(rows, offset);
-            let bits = self.bcx.ins().load(
-                types::I64,
-                cranelift_codegen::ir::MemFlagsData::trusted(),
-                address,
-                0,
-            );
             let element = ty.element().unwrap();
+            let bits = self.scalar_word(address, &element);
             let result = self.unpack(bits, &element);
             self.stack.push((result, element));
             return Ok(());
@@ -573,15 +568,9 @@ impl Lowerer<'_, '_> {
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), true))?;
             let owner = self.reference_word(receiver);
-            let packed = self.pack(value, &element);
-            let bits = self.raw_word(packed);
-            // The payload bits, zero-extended to the row's slot word, as a write
-            // through an element reference stores them.
-            let address = self.scalar_row(owner, index)?;
+            let address = self.scalar_row(owner, index, &element)?;
             let flags = cranelift_codegen::ir::MemFlagsData::trusted();
-            let zero = self.bcx.ins().iconst(types::I64, 0);
-            self.bcx.ins().store(flags, bits, address, 0);
-            self.bcx.ins().store(flags, zero, address, 8);
+            self.bcx.ins().store(flags, value, address, 0);
             let unit = self.bcx.ins().iconst(types::I64, 0);
             let unit = self.unpack(unit, &Ty::Unit);
             self.stack.push((unit, Ty::Unit));

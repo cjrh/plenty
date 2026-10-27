@@ -53,7 +53,8 @@ through a mutable loan. It must preserve padding and runtime metadata,
 cannot resize the list, and cannot retain or return the pointer. Use
 `memcpy` or unaligned scalar accesses if the native type requires alignment.
 No booleans, strings, objects, nested lists or nullable elements are admitted.
-Exclusive borrowing rules still apply. Narrow signed mutable elements are
-normalized back into Plenty slots after the call; i64/f64 require no such pass.
+Exclusive borrowing rules still apply. Current numeric lists store naturally
+sized elements; generated and runtime reads sign-extend narrow signed values
+directly, so mutable views need no post-call normalization pass.
 The optional [dataframe engine](../../stdlib/dataframe.md) uses this adapter
 for bulk transfer.

@@ -188,6 +188,8 @@ mod test_fallible_text;
 mod test_ffi;
 #[path = "test_field_indexing.rs"]
 mod test_field_indexing;
+#[path = "test_field_moves.rs"]
+mod test_field_moves;
 #[path = "test_field_replacement.rs"]
 mod test_field_replacement;
 #[path = "test_file_io.rs"]

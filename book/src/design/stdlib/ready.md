@@ -76,19 +76,21 @@ of input. `error` means a read or write will report the pending error.
 - A closed `File` is `Stream(StreamError.Io(IoError.Closed))`. An invalid
   descriptor is reported the same way.
 - `read_before` waits for input and then makes one
-  [`FileStream.read`](io.md); zero is end of input. With a single reader of a
-  pipe, socket or terminal, that read does not block.
+  [`FileStream.read`](io.md); zero is end of input.
 - `write_before` waits for space and then makes one write of at most 4096
-  bytes, which a writable pipe or socket accepts without blocking. It returns
-  the bytes written; loop to write more.
+  bytes. This cap bounds pipe writes; it does not guarantee space in a
+  blocking socket's send buffer. It returns the bytes written; loop to write more.
 - A wait borrows the handle and allocates nothing. On `TimedOut` or
   `Cancelled`, the handle, the stream position and the caller's buffer are
   unchanged.
 
 Regular files are always ready; readiness is useful for pipes, terminals and
-[sockets](net.md). A blocking `read` on a handle another thread also reads can
-still block after a readiness report. The loan rules prevent that within one
-program unless the descriptor is shared with a child process.
+[sockets](net.md). These generic `FileStream` transfer helpers neither change
+descriptor mode nor retry a transfer after stale readiness. A blocking
+descriptor can still block after a readiness report, for example when another
+reader consumed the input. Use [`std.net`](net.md#tcp)'s transfer methods for
+TCP: its descriptors stay nonblocking and its deadline methods retry against
+the original budget.
 
 ## Selectors
 
@@ -118,6 +120,13 @@ bytes per event; it starts no thread.
   read, written or closed by its owner.
 - [`std.net`](net.md) streams, listeners and UDP sockets have `watch` and
   `unwatch` methods that report `NetError`.
+
+For TCP, follow an event with [`accept_now`, `read_now` or
+`write_now`](net.md#waiting-on-many-sockets). They make one nonblocking attempt
+without a second `ppoll`. If the event is stale, `NetError.WouldBlock` returns
+control to the selector loop instead of blocking other connections. Keep an
+offset after a partial write, and stop watching for write readiness when the
+output is drained. EOF is zero from a nonempty read range, not `WouldBlock`.
 
 `examples/net_wait_bench.plenty` measures one worker serving N idle loopback
 connections, one ready at a time, with a selector against a loop that polls

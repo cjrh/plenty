@@ -2111,7 +2111,7 @@ TCP listeners and streams, UDP sockets, IP addresses and name lookup, with deadl
 
 ```text
 enum NetError
-    TimedOut | Cancelled | Refused | Reset | AddressInUse | AddressUnavailable | Unreachable | NameNotFound | TryAgain | InvalidAddress | HandleLimit | Stream(StreamError)
+    TimedOut | ConnectionTimedOut | WouldBlock | Cancelled | Refused | Reset | AddressInUse | AddressUnavailable | Unreachable | NameNotFound | TryAgain | InvalidAddress | HandleLimit | Stream(StreamError)
 enum IpAddress
     V4(u32) | V6(u64, u64)
 class SocketAddress
@@ -2136,6 +2136,8 @@ class TcpStream
     def write[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
     def flush(self: &mut TcpStream) -> Result[(), StreamError]
     def close(self: &mut TcpStream) -> Result[(), StreamError]
+    def read_now(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, NetError]
+    def write_now[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, NetError]
     def read_before(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
     def write_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
     def write_all_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]
@@ -2150,6 +2152,7 @@ class TcpListener
     def local_address(self) -> Result[SocketAddress, NetError]
     def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]
     def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
+    def accept_now(self) -> Result[TcpStream, NetError]
     def accept(self, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, NetError]
     def close(self: &mut TcpListener) -> Result[(), NetError]
 def listen(address: &SocketAddress, backlog: i64) -> Result[TcpListener, NetError]

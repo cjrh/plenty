@@ -68,6 +68,7 @@ be copied or compared; environments cannot be dictionary keys or set elements.
 
 A stored one-shot callback must first be extracted as an owner, using `pop`,
 consuming iteration or matching, or tuple unpacking. Calls through references
-or indexed places cannot consume it. A class field can own such a callback,
-but partial moves out of classes remain unsupported. Invocation, extraction,
+or indexed places cannot consume it. A class field can own such a callback;
+[move the field](../05-ownership/01-bindings-moves-and-copies.md#moving-fields)
+out of an owned binding to call it. Invocation, extraction,
 and cleanup add no allocation; growing its collection can allocate.

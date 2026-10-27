@@ -142,9 +142,9 @@ pub(crate) unsafe fn run(
                     let value = (*(source as *const Range)).at(index, element.kind <= b'4');
                     ranges::store(destination, value, element);
                 } else {
-                    let slot = (*(source as *mut Collection)).entries.slot(index, false);
-                    ranges::store(destination, slot.read(), element);
-                    slot.write(0);
+                    let entries = &mut (*(source as *mut Collection)).entries;
+                    ranges::store(destination, entries.get(index).key, element);
+                    entries.forget_key(index);
                 }
             };
             // Empty and singleton inputs need no scheduler or scratch allocation.

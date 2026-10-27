@@ -174,7 +174,10 @@ print(c.left).unwrap()
 
 #[test]
 fn recursive_field_diagnostic_offers_supported_operations() {
-    let source = format!("{NODE}\nmut n = Node(1, Nothing)\ntail = n.next");
+    // An owned binding may move the field out (issue #534); a reference may not.
+    let source = format!(
+        "{NODE}\ndef detach(n: &mut Node) -> Option[Box[Node]]:\n    n.next\nmut n = Node(1, Nothing)\ntail = detach(&mut n)"
+    );
     let dir = tempfile::tempdir().unwrap();
     let error = support::compile_source_to_executable(&source, &dir.path().join("program"))
         .unwrap_err()

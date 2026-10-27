@@ -158,11 +158,11 @@ struct Collection {
     drop_entry: Option<usize>,
 }
 const _: () = {
-    use crate::list_layout::{REMOVED, ROWS, WORDS};
+    use crate::list_layout::{BYTES, REMOVED, ROWS};
     assert!(std::mem::offset_of!(Collection, ty) == 16);
     // `Entries` checks its own field offsets; these add the owner header.
     assert!(std::mem::offset_of!(Collection, entries) == ROWS as usize);
-    assert!(ROWS + 8 == WORDS && ROWS + 24 == REMOVED);
+    assert!(ROWS + 8 == BYTES && ROWS + 24 == REMOVED);
 };
 
 #[derive(Clone, Copy)]
@@ -753,6 +753,10 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             return true;
         }
         match ty.kind {
+            b'1' | b'5' | b'b' => a as u8 == b as u8,
+            b'2' | b'6' => a as u16 == b as u16,
+            b'3' | b'7' => a as u32 == b as u32,
+            b'4' | b'8' => a as u64 == b as u64,
             b'B' | b'C' => {
                 if ty.kind == b'B' && ty.tag(a) != ty.tag(b) {
                     return false;
@@ -1225,6 +1229,9 @@ unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError
             // Insert byte copies that still name the source, then replace them
             // in place, so inline payloads are copied into the final buffer.
             (*result).try_store(entry.key, entry.value)?;
+            if ty.kind == b'L' && ty.key().owns_nothing() {
+                continue;
+            }
             let row = (*result).entries.len() - 1;
             let key = (*result).entries.slot(row, false);
             let mut copy = key.read();
@@ -1322,13 +1329,24 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                 // A reference carried by an Option or Result: the low word
                 // addresses the referenced slot and the high word is the tag
                 // shift of the projected payload inside it.
+                if crate::entries::scalar_bytes(ty.key()).is_some() {
+                    let scalar = crate::entries::read_scalar(value as u64 as *const u8, ty.key());
+                    render(scalar, ty.key(), out);
+                    return;
+                }
                 let slot = (value as u64 as *const u128).read();
                 let shift = (value >> 64) as u32;
                 let tags = (slot >> 64).checked_shr(shift).unwrap_or(0);
                 render((slot & u64::MAX as u128) | (tags << 64), ty.key(), out);
             }
-            b'1'..=b'4' => write!(out, "{}", value as i64).unwrap(),
-            b'5'..=b'8' => write!(out, "{value}").unwrap(),
+            b'1' => write!(out, "{}", value as i8).unwrap(),
+            b'2' => write!(out, "{}", value as i16).unwrap(),
+            b'3' => write!(out, "{}", value as i32).unwrap(),
+            b'4' => write!(out, "{}", value as i64).unwrap(),
+            b'5' => write!(out, "{}", value as u8).unwrap(),
+            b'6' => write!(out, "{}", value as u16).unwrap(),
+            b'7' => write!(out, "{}", value as u32).unwrap(),
+            b'8' => write!(out, "{}", value as u64).unwrap(),
             b'f' => write!(out, "{:?}", f32::from_bits(value as u32)).unwrap(),
             b'd' => write!(out, "{:?}", f64::from_bits(value as u64)).unwrap(),
             b'v' => out.extend_from_slice(b"()"),
@@ -1340,7 +1358,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'P' => out.extend_from_slice(b"<executor>"),
             b'Z' => out.extend_from_slice(b"<future>"),
             b'K' => out.extend_from_slice(b"<cancellation token>"),
-            b'b' => out.extend_from_slice(if value == 0 { b"False" } else { b"True" }),
+            b'b' => out.extend_from_slice(if value as u8 == 0 { b"False" } else { b"True" }),
             b'A' => out.extend_from_slice(b"ReadDir"),
             b'I' => out.extend_from_slice(b"DirEntry"),
             b'M' => out.extend_from_slice(b"Metadata"),
@@ -1408,28 +1426,6 @@ pub(crate) unsafe extern "C" fn plenty_list_len(owner: *const u8) -> u64 {
 pub(crate) unsafe extern "C" fn plenty_list_rows(owner: *mut u8) -> *mut u128 {
     // SAFETY: the compiler keeps the list's owner alive through the call.
     unsafe { (*(owner.cast::<Collection>())).entries.rows() }
-}
-
-/// C writes only each declared scalar's bytes. Restore the sign extension used
-/// by generic list operations after mutable narrow-signed strided views return.
-#[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_list_canonicalize_signed(owner: *mut u8) {
-    // SAFETY: the compiler keeps an exclusive numeric-list loan through this
-    // call. Only the payload word changes; slot tags and ownership are intact.
-    unsafe {
-        let list = &mut *owner.cast::<Collection>();
-        let kind = (*list.ty).key().kind;
-        for index in 0..list.entries.len() {
-            let slot = list.entries.slot(index, false).cast::<u64>();
-            let value = slot.read();
-            slot.write(match kind {
-                b'1' => value as i8 as i64 as u64,
-                b'2' => value as i16 as i64 as u64,
-                b'3' => value as i32 as i64 as u64,
-                _ => unreachable!("checked narrow signed strided list"),
-            });
-        }
-    }
 }
 
 /// Narrow ABI: the distance in bytes between a live list's rows.
@@ -1503,10 +1499,6 @@ pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
     // negative indices use the same normalization as the generic dispatcher.
     unsafe {
         let collection = &*owner.cast::<Collection>();
-        debug_assert_eq!(
-            collection.entries.row_bytes(),
-            1 << crate::list_layout::SCALAR_ROW_SHIFT
-        );
         let i = index(i, collection.entries.len(), site);
         collection.entries.get(i).key as u64
     }
@@ -1524,6 +1516,8 @@ extern "C" fn plenty_trap_list_index(index: i64, len: u64, site: *const crate::S
 /// generic element reference (opcode 112) names. Bounds and negative indices
 /// use the same normalization, site, and message as the generic dispatcher.
 /// The compiler holds the list's loan while it uses the address.
+/// Scalar rows require a load/store of the declared width; the returned address
+/// need not have u128 alignment or space for a canonical slot.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_list_row(
     owner: *mut u8,

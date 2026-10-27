@@ -154,10 +154,7 @@ pub(crate) unsafe fn run(
                     if input.kind == b'L' {
                         // submit relocated the owner before publication. Clear
                         // the old tag without dereferencing its moved payload.
-                        (*(source as *mut Collection))
-                            .entries
-                            .slot(next, false)
-                            .write(0);
+                        (*(source as *mut Collection)).entries.forget_key(next);
                     }
                     pending.push(job);
                     next += 1;

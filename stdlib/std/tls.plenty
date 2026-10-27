@@ -10,7 +10,7 @@ from std.io import StreamError
 from std.net import NetError, Shutdown, TcpStream
 from std.ready import Interest, Selector
 from std.sync import CancellationToken
-from std.time import Deadline, deadline_at, instant_at
+from std.time import Deadline
 
 pub enum TlsError:
     Net(NetError)
@@ -430,9 +430,6 @@ pub class TlsStream:
     # A server acknowledges the client's last handshake flight at once (see
     # `feed_pending`).
     _acknowledge_handshake: bool
-    # Never cancelled: the `try_` methods' TCP calls have an expired
-    # deadline instead.
-    _idle: CancellationToken
 
     # Ciphertext waiting in the outgoing buffer, refilled from the session
     # once the last batch is sent.
@@ -524,12 +521,11 @@ pub class TlsStream:
             return Ok(True)
         if self._eof:
             return Err(TlsError.Truncated)
-        expired = deadline_at(&instant_at(0u64))
-        match self._tcp.read_before(&mut self._incoming, 0, buffer_size, &expired, &self._idle):
+        match self._tcp.read_now(&mut self._incoming, 0, buffer_size):
             case Ok(count):
                 self.received(count)?
                 Ok(True)
-            case Err(NetError.TimedOut):
+            case Err(NetError.WouldBlock) | Err(NetError.Stream(StreamError.Interrupted)):
                 Ok(False)
             case Err(error):
                 Err(TlsError.Net(error))
@@ -577,14 +573,13 @@ pub class TlsStream:
 
     # Sends buffered ciphertext without waiting; true once none is left.
     pub def try_flush(self: &mut TlsStream) -> Result[bool, TlsError]:
-        expired = deadline_at(&instant_at(0u64))
         while True:
             if self.outgoing()? == 0:
                 return Ok(True)
-            match self._tcp.write_before(&self._outgoing, self._out_start, self._out_stop, &expired, &self._idle):
+            match self._tcp.write_now(&self._outgoing, self._out_start, self._out_stop):
                 case Ok(count):
                     self._out_start += count
-                case Err(NetError.TimedOut):
+                case Err(NetError.WouldBlock) | Err(NetError.Stream(StreamError.Interrupted)):
                     return Ok(False)
                 case Err(error):
                     return Err(TlsError.Net(error))
@@ -779,11 +774,7 @@ def started(tcp: TcpStream, session: ByteStorage, server: bool) -> Result[TlsStr
     stored(incoming.resize(buffer_size, 0u8))?
     mut outgoing = stored(std.bytes.with_capacity(buffer_size))?
     stored(outgoing.resize(buffer_size, 0u8))?
-    match CancellationToken():
-        case Ok(idle):
-            Ok(TlsStream(tcp, session, incoming, 0, 0, outgoing, 0, 0, False, False, server, idle))
-        case Err(cause):
-            Err(TlsError.Allocation(cause))
+    Ok(TlsStream(tcp, session, incoming, 0, 0, outgoing, 0, 0, False, False, server))
 
 # Starts a client session on a connected stream without waiting; the
 # handshake runs in the stream's first reads and writes, or `try_handshake`.
