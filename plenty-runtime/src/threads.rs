@@ -43,6 +43,10 @@ unsafe extern "C" fn run(storage: *mut c_void) -> *mut c_void {
 /// owned by the runtime: the thread id, then the entry for [`run`].
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_thread_start(storage: *mut usize, entry: Entry) -> i32 {
+    // A worker could outlive the actor heap holding its task storage.
+    if crate::actor_heap::running() {
+        crate::fail("std.actor: a handler cannot start a thread");
+    }
     #[cfg(any(test, feature = "allocation-checks"))]
     if STARTS_LEFT.with(|left| match left.get() {
         Some(0) => true,

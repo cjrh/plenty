@@ -10,6 +10,7 @@
 
 #[cfg(feature = "allocation-checks")]
 mod accounting;
+mod actor_heap;
 mod aggregates;
 mod channels;
 mod clist_layout;
@@ -53,6 +54,7 @@ pub(crate) use unicode::vendor::{lookups, perfect_hash, quick_check, tables};
 fn fail(message: &str) -> ! {
     io::flush();
     eprintln!("error: {message}");
+    actor_heap::recover();
     std::process::exit(1)
 }
 
@@ -180,6 +182,7 @@ fn fail_at(site: *const Site, message: std::fmt::Arguments) -> ! {
     {
         eprintln!("note: called from {caller}");
     }
+    actor_heap::recover();
     std::process::exit(1)
 }
 

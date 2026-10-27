@@ -85,6 +85,20 @@ struct Queue {
 }
 thread_local! { static QUEUE: Cell<Queue> = const { Cell::new(Queue { pending: ptr::null_mut(), dropping: false }) }; }
 
+/// The drop queue as it was before an actor handler ran.
+#[derive(Clone, Copy)]
+pub(crate) struct SavedQueue(Queue);
+
+/// After a contained trap, `std.actor` restores the queue, abandoning any
+/// entries the handler queued: they belong to the heap being discarded.
+pub(crate) fn save_queue() -> SavedQueue {
+    SavedQueue(QUEUE.with(Cell::get))
+}
+
+pub(crate) fn restore_queue(saved: SavedQueue) {
+    QUEUE.with(|q| q.set(saved.0));
+}
+
 pub(crate) fn dropping() -> bool {
     QUEUE.with(|q| q.get().dropping)
 }

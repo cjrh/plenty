@@ -167,7 +167,8 @@ mod native {
             child.stderr.as_ref().map_or(-1, AsRawFd::as_raw_fd),
         ];
         let handle = (id as u128) << 32 | child.id() as u128;
-        table.push(Entry { id, child, pipes });
+        // The table outlives every actor heap, so it grows in System.
+        crate::actor_heap::outside(|| table.push(Entry { id, child, pipes }));
         Ok(handle)
     }
 
