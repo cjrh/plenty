@@ -273,7 +273,10 @@ Classes have typed fields and a generated positional constructor; there is no
 inheritance. Bare `self` is a shared borrow; mutating methods declare
 `self: &mut Class`. Explicit `self: Class` transfers an owned receiver into the
 method, just like a by-value function parameter; the caller cannot reuse an
-affine receiver. It does not allow moving individual fields. Variants are always qualified (`Shape.Dot`), and matching a
+affine receiver. A field can move out of an owned binding or receiver, after
+which the object cannot be used as a whole until that field is assigned again;
+see [moving fields](../language/05-ownership/01-bindings-moves-and-copies.md#moving-fields).
+Variants are always qualified (`Shape.Dot`), and matching a
 borrowed enum binds references, so payloads are dereferenced with `*`. See
 [classes](../language/03-types/classes.md), [enums](../language/03-types/enums.md),
 and [borrowed matching](../language/05-ownership/06-borrowed-matching.md).

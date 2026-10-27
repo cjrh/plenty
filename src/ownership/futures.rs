@@ -27,6 +27,7 @@ fn transparent(op: &Op) -> bool {
             | Op::UseLoan(_) | Op::EndLoan(_)
             | Op::Access(..)
             | Op::Loan(_)
+            | Op::FieldMove(_)
             // Scope cleanup after an extraction, such as `drop_job()`'s
             // moved source, leaves the extracted value on the stack.
             | Op::DropLocal(_)
