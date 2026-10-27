@@ -400,6 +400,8 @@ mod test_std_cache_lru;
 mod test_std_cli_progress;
 #[path = "test_std_collections.rs"]
 mod test_std_collections;
+#[path = "test_std_complex.rs"]
+mod test_std_complex;
 #[path = "test_std_compress.rs"]
 mod test_std_compress;
 #[path = "test_std_crypto.rs"]
