@@ -161,6 +161,7 @@ def from_list(values: &list[u8]) -> Result[Bytes, BytesError]
 def from_text(text: &str) -> Result[Bytes, BytesError]
 def from_bytes(value: bytes) -> Result[Bytes, BytesError]
 def crypto_state(kind: u8) -> Result[Bytes, BytesError]
+def crypto_derive_state(context: &str) -> Result[Bytes, BytesError]
 def crypto_keyed_state(kind: u8, key: &Bytes, start: i64, stop: i64) -> Result[Bytes, BytesError]
 def compress_state(kind: u8, level: i64, capacity: i64) -> Result[Bytes, BytesError]
 def sqlite_column(statement: &ByteStorage, column: i64) -> Result[Bytes, BytesError]
@@ -323,13 +324,13 @@ Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `
 
 ## `std.crypto`
 
-SHA-256, SHA-512, and HMAC over `std.bytes`, incremental or one-shot, and constant-time comparison. Errors: `CryptoError`. [Reference](crypto.md).
+SHA-1/SHA-256/SHA-512, HMAC, BLAKE3 hashing/key derivation over `std.bytes`, incremental or one-shot, and constant-time comparison. Errors: `CryptoError`. [Reference](crypto.md).
 
 ```text
 enum CryptoError
-    OutOfRange | Finished | Allocation(AllocError)
+    OutOfRange | Finished | InvalidKeyLength | UnsupportedAlgorithm | Allocation(AllocError)
 enum Algorithm
-    Sha256 | Sha512 | Sha1
+    Sha256 | Sha512 | Sha1 | Blake3
 def output_size(algorithm: Algorithm) -> i64
 class Digest
     def size(self) -> i64
@@ -348,6 +349,11 @@ def digest(algorithm: Algorithm) -> Result[Digest, CryptoError]
 def hmac(algorithm: Algorithm, key: &Bytes) -> Result[Mac, CryptoError]
 def sha256(data: &Bytes) -> Result[Bytes, CryptoError]
 def sha512(data: &Bytes) -> Result[Bytes, CryptoError]
+def blake3(data: &Bytes) -> Result[Bytes, CryptoError]
+def blake3_keyed_hasher(key: &Bytes) -> Result[Mac, CryptoError]
+def blake3_keyed(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
+def blake3_derive_hasher(context: &str) -> Result[Digest, CryptoError]
+def blake3_derive_key(context: &str, key_material: &Bytes) -> Result[Bytes, CryptoError]
 def sha1(data: &Bytes) -> Result[Bytes, CryptoError]
 def hmac_sha256(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]

@@ -1,5 +1,6 @@
 # Curated digests, HMAC and constant-time comparison over std.bytes buffers.
-# Every primitive is RustCrypto code in the runtime (sha2, sha1, hmac, subtle); this
+# Primitives use RustCrypto (sha2, sha1, hmac, subtle) and the BLAKE3 team's
+# blake3 crate (CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception); this
 # module validates arguments and reports errors. See
 # book/src/design/stdlib/crypto.md.
 import std.bytes
@@ -8,6 +9,8 @@ from std.bytes import Bytes, BytesError
 pub enum CryptoError:
     OutOfRange
     Finished
+    InvalidKeyLength
+    UnsupportedAlgorithm
     Allocation(AllocError)
 
 # Sha1 is broken for collision resistance and exists only for protocols
@@ -16,8 +19,9 @@ pub enum Algorithm:
     Sha256
     Sha512
     Sha1
+    Blake3
 
-# Output bytes: 32 for SHA-256 and HMAC-SHA-256, 64 for the SHA-512 pair,
+# Output bytes: 32 for BLAKE3, SHA-256 and HMAC-SHA-256, 64 for the SHA-512 pair,
 # 20 for the SHA-1 pair.
 pub def output_size(algorithm: Algorithm) -> i64:
     match algorithm:
@@ -27,8 +31,11 @@ pub def output_size(algorithm: Algorithm) -> i64:
             64
         case Algorithm.Sha1:
             20
+        case Algorithm.Blake3:
+            32
 
-# Runtime tags: 1, 2 and 5 are digests; 3, 4 and 6 the HMACs over them.
+# Runtime tags: 1, 2 and 5 are SHA digests; 3, 4 and 6 the HMACs over them;
+# 7 is BLAKE3 and 8 its keyed mode (constructed separately).
 def kind(algorithm: Algorithm, keyed: bool) -> u8:
     match algorithm:
         case Algorithm.Sha256:
@@ -43,6 +50,8 @@ def kind(algorithm: Algorithm, keyed: bool) -> u8:
             if keyed:
                 return 6u8
             5u8
+        case Algorithm.Blake3:
+            7u8
 
 def reported[T](result: Result[T, BytesError]) -> Result[T, CryptoError]:
     match result:
@@ -92,7 +101,7 @@ pub class Digest:
     pub def finish_into(self: &mut Digest, target: &mut Bytes, offset: i64) -> Result[(), CryptoError]:
         absorbed(self._state.crypto_finish(target, offset, self._size))
 
-# An incremental HMAC. Its state holds key material; finishing or dropping it
+# An incremental HMAC or keyed BLAKE3. Its state holds key material; finishing or dropping it
 # overwrites that state.
 pub class Mac:
     _state: Bytes
@@ -130,8 +139,10 @@ pub def digest(algorithm: Algorithm) -> Result[Digest, CryptoError]:
     state = reported(std.bytes.crypto_state(kind(algorithm, False)))?
     Ok(Digest(state, output_size(algorithm)))
 
-# Any key length is accepted; RFC 2104 hashes keys longer than a block.
+# SHA algorithms accept any key length; RFC 2104 hashes keys longer than a block.
 pub def hmac(algorithm: Algorithm, key: &Bytes) -> Result[Mac, CryptoError]:
+    if algorithm == Algorithm.Blake3:
+        return Err(CryptoError.UnsupportedAlgorithm)
     state = reported(std.bytes.crypto_keyed_state(kind(algorithm, True), key, 0, key.len()))?
     Ok(Mac(state, output_size(algorithm)))
 
@@ -150,6 +161,32 @@ pub def sha256(data: &Bytes) -> Result[Bytes, CryptoError]:
 
 pub def sha512(data: &Bytes) -> Result[Bytes, CryptoError]:
     hashed(Algorithm.Sha512, data)
+
+pub def blake3(data: &Bytes) -> Result[Bytes, CryptoError]:
+    hashed(Algorithm.Blake3, data)
+
+# Native keyed BLAKE3, with exactly 32 key bytes (not HMAC).
+pub def blake3_keyed_hasher(key: &Bytes) -> Result[Mac, CryptoError]:
+    if key.len() != 32:
+        return Err(CryptoError.InvalidKeyLength)
+    state = reported(std.bytes.crypto_keyed_state(8u8, key, 0, key.len()))?
+    Ok(Mac(state, 32))
+
+pub def blake3_keyed(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
+    mut mac = blake3_keyed_hasher(key)?
+    mac.update(data, 0, data.len())?
+    mac.finish()
+
+# Context is a fixed, globally unique application/purpose string. This is a
+# KDF for high-entropy key material, not password hashing.
+pub def blake3_derive_hasher(context: &str) -> Result[Digest, CryptoError]:
+    state = reported(std.bytes.crypto_derive_state(context))?
+    Ok(Digest(state, 32))
+
+pub def blake3_derive_key(context: &str, key_material: &Bytes) -> Result[Bytes, CryptoError]:
+    mut hasher = blake3_derive_hasher(context)?
+    hasher.update(key_material, 0, key_material.len())?
+    hasher.finish()
 
 # Legacy: only for protocols that require SHA-1. Never use it for security.
 pub def sha1(data: &Bytes) -> Result[Bytes, CryptoError]:

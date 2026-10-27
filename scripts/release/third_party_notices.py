@@ -26,6 +26,8 @@ from pathlib import Path
 
 TARGET = "x86_64-unknown-linux-gnu"
 ROOTS = ("plenty", "plenty-runtime")
+# BLAKE3 1.8.7 and its arrayvec, constant_time_eq and cpufeatures dependencies
+# are covered by Cargo metadata, including their unmodified vendored copies.
 LICENSE_PREFIXES = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "COPYRIGHT", "UNLICENSE")
 REPO = Path(__file__).resolve().parents[2]
 LICENSE_DIR = Path(__file__).resolve().parent / "licenses"

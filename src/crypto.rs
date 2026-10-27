@@ -1,4 +1,4 @@
-//! Native primitives behind `std.crypto`: RustCrypto SHA-2 digests, HMAC and
+//! Native primitives behind `std.crypto`: RustCrypto digests, HMAC, BLAKE3 and
 //! constant-time comparison in the runtime. The public API, range validation
 //! and error policy live in `std.crypto` and `std.bytes`.
 use crate::{op::Ty, sum};
@@ -12,6 +12,7 @@ pub enum CryptoOp {
     Finish,
     Verify,
     Equal,
+    NewDeriveKey,
 }
 
 impl CryptoOp {
@@ -24,6 +25,7 @@ impl CryptoOp {
             "__crypto_finish" => Self::Finish,
             "__crypto_verify" => Self::Verify,
             "__crypto_equal" => Self::Equal,
+            "__crypto_new_derive_key" => Self::NewDeriveKey,
             _ => return None,
         })
     }
@@ -42,6 +44,7 @@ impl CryptoOp {
             // 1 for a match, 0 for a mismatch, -1 once finished.
             Self::Verify => (range(), Ty::I64),
             Self::Equal => (vec![storage(), storage()], Ty::Bool),
+            Self::NewDeriveKey => (vec![Ty::Str], state()),
         }
     }
 
@@ -49,7 +52,7 @@ impl CryptoOp {
     /// output buffer of `Finish`.
     pub fn exclusive(self, operand: usize) -> bool {
         match self {
-            Self::New | Self::NewKeyed | Self::Equal => false,
+            Self::New | Self::NewKeyed | Self::Equal | Self::NewDeriveKey => false,
             Self::Finish => operand <= 1,
             Self::Update | Self::UpdateText | Self::Verify => operand == 0,
         }

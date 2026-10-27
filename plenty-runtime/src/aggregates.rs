@@ -1590,7 +1590,7 @@ operation_entries! {
 }
 // `std.crypto`.
 operation_entries! {
-    300 301 302 303 304 305 306
+    300 301 302 303 304 305 306 307
 }
 // `std.compress`.
 operation_entries! {
@@ -1636,7 +1636,13 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
         if matches!(op, 300..340 | 440..500) {
             // Three inputs, the output slot, then the fourth operand in the
             // first scratch word.
-            let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
+            // Crypto constructors, text updates, finishing and comparison
+            // have fewer than four inputs; their scratch word is uninitialized.
+            let fourth = match op {
+                300 | 303 | 304 | 306 | 307 => 0,
+                _ => *args.add(4),
+            };
+            let operands = [*args, *args.add(1), *args.add(2), fourth];
             out.write(match op {
                 300..320 => crypto::call(op, operands),
                 320..340 => compress::call(op, operands),

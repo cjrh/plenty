@@ -371,6 +371,7 @@
             - [Brotli streams](design/stdlib/compress-brotli.md)
         - [`std.concurrent`](design/stdlib/concurrent.md)
         - [`std.crypto`](design/stdlib/crypto.md)
+            - [BLAKE3 hashing and key derivation](design/stdlib/crypto-blake3.md)
         - [`std.csv`](design/stdlib/csv.md)
         - [`std.dataframe`](design/stdlib/dataframe.md)
             - [Column types and schemas](design/stdlib/dataframe-types.md)
