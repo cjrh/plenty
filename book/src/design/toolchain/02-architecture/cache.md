@@ -106,7 +106,9 @@ would cost about as much as the warm build it saves.
 The name does not cover the imported modules, which a build finds only by
 parsing. The entry records them instead: each source file read, with a
 SHA-256 of its text, the package whose root it resolves against, and where
-each of its imports resolved. A lookup uses the entry only if every recorded
+each of its imports resolved. A file read by
+[`include_str` or `include_bytes`](../../language/02-source/modules.md#included-files)
+is recorded the same way, with no imports. A lookup uses the entry only if every recorded
 file still has that text and every recorded import still resolves to the same
 file or standard module. Resolving an import again repeats every existence
 check the loader made, so a new file that would make an import ambiguous, or

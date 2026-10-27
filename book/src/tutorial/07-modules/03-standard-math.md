@@ -80,9 +80,13 @@ value, as the example does with `pi`. The type constants `f64.PI`, `f64.E`,
 `x.sqrt()` follow IEEE arithmetic and may return NaN; the imported functions
 provide recoverable domain errors.
 
-Declare your own immutable numeric constants with `const name: T = value`, as
-with `half_turn`. Initializers accept numeric literals or numeric type constants.
-Use `pub const` to export one from a module.
+Declare your own immutable constants with `const name: T = value`, as with
+`half_turn`. The compiler evaluates the initializer, which can combine literals,
+type constants, and other constants with operators, as in
+`const full_turn: f64 = 2.0 * half_turn`. Use `pub const` to export one from a
+module. See [constants](../../design/language/02-source/modules.md#constants)
+for the accepted expressions, static assertions, and file contents included as
+constants.
 
 See the [math reference](../../design/stdlib/math.md) for available functions
 and their fixed-width and numerical limits. The

@@ -23,7 +23,7 @@ hello 42
 ```
 
 Executable statements live in functions; module scope holds only declarations,
-imports, and numeric `const` values. `main` returns `()`, `i32`,
+imports, `const` values, and compile-time `assert` checks. `main` returns `()`, `i32`,
 `Result[(), E]`, or `Result[i32, E]`. A `Result` cannot be silently discarded:
 use `?`, `match`, or `drop(result)`. See [entrypoint](../language/02-source/entrypoint.md),
 [source files](../language/02-source/index.md), and [branches](../language/04-expressions/branches.md).
@@ -446,7 +446,7 @@ def main() -> Result[(), IoError]:
 | `d[k] = v` for a new key | `d.insert(k, v)?` |
 | `case x if x > 0:` | Test inside the arm |
 | `class B(A):` | Composition or a [protocol](../language/07-generics/protocols.md) |
-| Global variables | Pass values as parameters; `const` holds numbers only |
+| Global variables | Pass values as parameters; `const` holds a number, `bool`, `str`, or `bytes` computed at compile time |
 | `y = xs`, then using `xs` | `y = copy(xs)?`, or borrow with `&xs` |
 
 Three of the most common rejections:
