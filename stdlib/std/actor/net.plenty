@@ -183,6 +183,48 @@ pub class Connection:
         self.refresh(context)?
         Ok(count)
 
+    # In-place output, for producers such as std.actor.tls that encrypt
+    # into the buffer: moves pending output to the front if that makes room
+    # for `wanted` bytes and returns the room at
+    # `output()[output_stop():]`, at most `wanted`. Write there, then
+    # `commit`. Fails after `shutdown_write` or `close`.
+    pub def reserve(self: &mut Connection, wanted: i64) -> Result[i64, NetError]:
+        if wanted < 0:
+            return Err(invalid())
+        if self._closed or self._shutdown or not self._writing:
+            return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+        if self._output_start == self._output_stop:
+            self._output_start = 0
+            self._output_stop = 0
+            self._progress = now()
+        elif self._output_stop + wanted > self._output.len() and self._output_start > 0:
+            shift(&mut self._output, self._output_start, self._output_stop)
+            self._output_stop -= self._output_start
+            self._output_start = 0
+        room = self._output.len() - self._output_stop
+        if wanted < room:
+            return Ok(wanted)
+        Ok(room)
+
+    pub def output(self: &mut Connection) -> &mut Bytes:
+        &mut self._output
+
+    pub def output_stop(self) -> i64:
+        self._output_stop
+
+    # Adds `count` bytes written at `output_stop()` to the pending output and
+    # sends what the socket takes at once, as `write` does.
+    pub def commit[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]:
+        if count < 0 or count > self._output.len() - self._output_stop:
+            return Err(invalid())
+        if self._closed or self._shutdown or not self._writing:
+            return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+        self._output_stop += count
+        mut events = no_events()
+        self.flush(&mut events, now())?
+        self.refresh(context)?
+        Ok(())
+
     # Moves up to `count` received bytes to the output, consuming them, and
     # returns how many moved: `write` from the input buffer, for echoing and
     # relaying.
@@ -243,6 +285,12 @@ pub class Connection:
                 Ok(())
             case Err(error):
                 Err(NetError.Stream(error))
+
+    # Acknowledges received data at once rather than after the kernel's
+    # delay (TCP_QUICKACK); std.actor.tls uses it when a server handshake
+    # completes, as std.tls does. Best effort.
+    pub def acknowledge_now(self: &mut Connection) -> ():
+        drop(self._stream.acknowledge_now())
 
     # The peer has not finished sending.
     pub def reading(self) -> bool:

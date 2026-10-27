@@ -1,0 +1,354 @@
+# TLS for std.actor: a std.tls session over a std.actor.net connection.
+# Ciphertext stays in the connection's buffers; decrypted input waits in a
+# bounded plaintext buffer that the handler reads in place. Nothing waits,
+# and handling mail allocates nothing beyond what rustls holds per session.
+# See book/src/design/stdlib/actor-tls.md.
+import std.bytes
+from std.actor import Context, Mail, TimerError
+from std.actor.net import Connection, Events
+from std.bytes import ByteSource, Bytes, BytesError
+from std.io import StreamError
+from std.net import NetError
+from std.time import Duration
+from std.tls import ClientConfig, ServerConfig, Session, TlsError, client_session, server_session
+
+# Ciphertext added to each record: header, content type, nonce and tag. A
+# write accepts only plaintext whose records fit the connection's output.
+const record_overhead: i64 = 32
+const record_size: i64 = 16384
+
+# One TLS connection, owned by one actor. It applies mail like
+# `std.actor.net.Connection` and reports the same `Events`, counted in
+# plaintext: `received` is decrypted bytes, `ended` is the peer's
+# close_notify, and `writable` also marks the end of the handshake.
+pub class TlsConnection:
+    _net: Connection
+    _session: Session
+    # Decrypted input; [_input_start, _input_stop) is not yet consumed.
+    _input: Bytes
+    _input_start: i64
+    _input_stop: i64
+    # The session has been told that the peer's stream ended.
+    _fed_end: bool
+    # The peer sent close_notify.
+    _ended: bool
+    # close_notify is queued; the TCP write side ends once it is sent.
+    _closing: bool
+    _refused: bool
+    _handshaking: bool
+
+    # Watches the socket, starts the deadlines and, on a client, queues the
+    # first handshake flight. Call it from the actor's `started`, or once a
+    # dialed connection is made.
+    pub def start[M, E](self: &mut TlsConnection, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]:
+        lifted(self._net.start(context))?
+        mut events = idle()
+        self.pump(&mut events, context)?
+        Ok(())
+
+    # Applies one mail: reads and writes ciphertext, advances the handshake
+    # and decrypts into the input buffer. Other mail returns `Events` with
+    # `mine` False. A TLS failure sends the alert that rustls queued if the
+    # socket takes it at once, then returns the error; the connection is
+    # then unusable. A peer that ends its stream without close_notify is
+    # Truncated, as in std.tls.
+    pub def handle[M, E](self: &mut TlsConnection, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Events, TlsError | TimerError]:
+        net = lifted(self._net.handle(mail, context))?
+        if not net.mine:
+            return Ok(net)
+        mut events = Events(True, 0, False, False, net.drained, net.expired)
+        if self._net.closed():
+            return Ok(events)
+        self.pump(&mut events, context)?
+        if self._refused and self.space() > 0:
+            self._refused = False
+            events.writable = True
+        Ok(events)
+
+    # The decrypted input buffer. Received bytes are
+    # `input()[input_start():input_stop()]`.
+    pub def input(self) -> &Bytes:
+        &self._input
+
+    pub def input_start(self) -> i64:
+        self._input_start
+
+    pub def input_stop(self) -> i64:
+        self._input_stop
+
+    # Decrypted bytes not yet consumed.
+    pub def available(self) -> i64:
+        self._input_stop - self._input_start
+
+    # Releases the first `count` decrypted bytes and decrypts what waited
+    # for the room, so `available` may grow.
+    pub def consume[M, E](self: &mut TlsConnection, count: i64, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]:
+        if count < 0 or count > self.available():
+            return Err(TlsError.Net(invalid()))
+        self._input_start += count
+        if self._input_start == self._input_stop:
+            self._input_start = 0
+            self._input_stop = 0
+        mut events = idle()
+        self.pump(&mut events, context)?
+        Ok(())
+
+    # Ciphertext not yet sent.
+    pub def pending(self) -> i64:
+        self._net.pending()
+
+    # Plaintext `write` would accept now: none during the handshake or while
+    # earlier ciphertext waits in the session, otherwise what fits in the
+    # connection's free output after record overhead.
+    pub def space(self) -> i64:
+        if self._handshaking or self._closing or self._session.wants_write():
+            return 0
+        free = self._net.space()
+        records = (free + record_size - 1) // record_size
+        room = free - records * record_overhead
+        if room < 0:
+            return 0
+        room
+
+    # Encrypts as much of source[start:stop] as `space` allows into the
+    # output, sends what the socket takes at once, and returns how many
+    # plaintext bytes were accepted. A short count, including 0 during the
+    # handshake, is back-pressure: `Events.writable` reports when space
+    # frees. Fails after `shutdown_write` or `close`.
+    pub def write[S: ByteSource, M, E](self: &mut TlsConnection, source: &S, start: i64, stop: i64, context: &mut Context[M, E]) -> Result[i64, TlsError | TimerError]:
+        if start < 0 or stop < start or stop > source.len():
+            return Err(TlsError.Net(invalid()))
+        if self._closing or self._net.closed():
+            return Err(TlsError.Closed)
+        mut at = start
+        while at < stop:
+            room = self.space()
+            if room == 0:
+                break
+            mut end = stop
+            if end - at > room:
+                end = at + room
+            taken = self._session.write(source, at, end)?
+            if taken == 0:
+                break
+            at += taken
+            self.send(context)?
+        if at < stop:
+            self._refused = True
+        Ok(at - start)
+
+    # Encrypts up to `count` decrypted input bytes back out, consuming them,
+    # and returns how many moved: `write` from the input buffer, for echoing
+    # and relaying.
+    pub def forward[M, E](self: &mut TlsConnection, count: i64, context: &mut Context[M, E]) -> Result[i64, TlsError | TimerError]:
+        if count < 0 or count > self.available():
+            return Err(TlsError.Net(invalid()))
+        if self._closing or self._net.closed():
+            return Err(TlsError.Closed)
+        stop = self._input_start + count
+        mut moved = 0
+        while self._input_start < stop:
+            room = self.space()
+            if room == 0:
+                break
+            mut end = stop
+            if end - self._input_start > room:
+                end = self._input_start + room
+            taken = self._session.write(&self._input, self._input_start, end)?
+            if taken == 0:
+                break
+            self._input_start += taken
+            moved += taken
+            self.send(context)?
+        if self._input_start < stop:
+            self._refused = True
+        if self._input_start == self._input_stop:
+            self._input_start = 0
+            self._input_stop = 0
+        mut events = idle()
+        self.pump(&mut events, context)?
+        Ok(moved)
+
+    # Sets a deadline for input, as `Connection.read_within`. Set one in
+    # `started` to bound the handshake and the first request; clear it once
+    # `established`.
+    pub def read_within[M, E](self: &mut TlsConnection, span: &Duration, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]:
+        lifted(self._net.read_within(span, context))
+
+    pub def clear_read_deadline(self: &mut TlsConnection) -> ():
+        self._net.clear_read_deadline()
+
+    # Queues close_notify and ends the TCP write side once it is sent.
+    # Reading continues until the peer's close_notify.
+    pub def shutdown_write[M, E](self: &mut TlsConnection, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]:
+        if self._closing or self._net.closed():
+            return Ok(())
+        self._closing = True
+        self._session.close()
+        self.send(context)
+
+    # Closes the socket at once, discarding unsent output, without
+    # close_notify.
+    pub def close[M, E](self: &mut TlsConnection, context: &mut Context[M, E]) -> Result[(), TlsError]:
+        match self._net.close(context):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                Err(TlsError.Net(error))
+
+    # The handshake has completed.
+    pub def established(self) -> bool:
+        not self._handshaking
+
+    # Neither close_notify nor the end of the peer's stream has arrived.
+    pub def reading(self) -> bool:
+        not self._ended and not self._fed_end
+
+    pub def closed(self) -> bool:
+        self._net.closed()
+
+    # The session, for its negotiated details.
+    pub def session(self) -> &Session:
+        &self._session
+
+    pub def connection(self) -> &Connection:
+        &self._net
+
+    # Decrypts and feeds until neither moves, then sends what the session
+    # produced.
+    def pump[M, E](self: &mut TlsConnection, events: &mut Events, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]:
+        mut moving = True
+        while moving:
+            moving = self.decrypt(events, context)?
+            if self._net.available() > 0:
+                fed = self._session.feed(self._net.input(), self._net.input_start(), self._net.input_stop())
+                used = self.alerted(fed, context)?
+                if used > 0:
+                    lifted(self._net.consume(used, context))?
+                    moving = True
+            elif not self._net.reading() and not self._fed_end:
+                self._fed_end = True
+                ended = self._session.feed_end()
+                self.alerted(ended, context)?
+                moving = True
+        self.send(context)?
+        if self._handshaking and not self._session.handshaking():
+            self._handshaking = False
+            events.writable = True
+            # As in std.tls: a TLS 1.3 server sends nothing after the
+            # client's Finished, so acknowledge it at once (issue #148).
+            if not self._session.wants_write() and self._net.available() == 0:
+                self._net.acknowledge_now()
+        Ok(())
+
+    # Reads decrypted bytes into the free end of the input buffer; true if
+    # any arrived.
+    def decrypt[M, E](self: &mut TlsConnection, events: &mut Events, context: &mut Context[M, E]) -> Result[bool, TlsError | TimerError]:
+        if self._ended:
+            return Ok(False)
+        size = self._input.len()
+        if self._input_stop == size and self._input_start > 0:
+            shift(&mut self._input, self._input_start, self._input_stop)
+            self._input_stop -= self._input_start
+            self._input_start = 0
+        if self._input_stop == size:
+            return Ok(False)
+        read = self._session.read(&mut self._input, self._input_stop, size)
+        match self.alerted(read, context)?:
+            case Some(0):
+                self._ended = True
+                events.ended = True
+                Ok(False)
+            case Some(count):
+                self._input_stop += count
+                events.received += count
+                Ok(True)
+            case Nothing:
+                Ok(False)
+
+    # Moves the session's ciphertext into the connection's output, then ends
+    # the TCP write side if close_notify has gone out.
+    def send[M, E](self: &mut TlsConnection, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]:
+        if self._net.closed():
+            return Ok(())
+        while self._session.wants_write():
+            room = net_only(self._net.reserve(self._net.space()))?
+            if room == 0:
+                break
+            stop = self._net.output_stop()
+            target = self._net.output()
+            count = self._session.take(target, stop, stop + room)?
+            if count == 0:
+                break
+            lifted(self._net.commit(count, context))?
+        if self._closing and not self._session.wants_write():
+            lifted(self._net.shutdown_write(context))?
+        Ok(())
+
+    # A session failure, after queueing the alert it produced.
+    def alerted[T, M, E](self: &mut TlsConnection, result: Result[T, TlsError], context: &mut Context[M, E]) -> Result[T, TlsError | TimerError]:
+        match result:
+            case Ok(value):
+                Ok(value)
+            case Err(error):
+                drop(self.send(context))
+                Err(error)
+
+def idle() -> Events:
+    Events(True, 0, False, False, False, Nothing)
+
+# A TLS connection running `session` over `net`, with `input` bytes for
+# decrypted input. Open the session where the actor's heap is current, such
+# as in the spawn hook or a handler, so the heap holds and bounds it.
+pub def over(net: Connection, session: Session, input: i64) -> Result[TlsConnection, TlsError]:
+    if input <= 0:
+        return Err(TlsError.Net(invalid()))
+    mut buffer = stored(std.bytes.with_capacity(input))?
+    stored(buffer.resize(input, 0u8))?
+    Ok(TlsConnection(net, session, buffer, 0, 0, False, False, False, False, True))
+
+# A server session over `net`, with `input` bytes for decrypted input.
+# Typically called from a spawn hook with the connection that
+# `Listener.accept` returned; the session is then allocated in the new
+# actor's heap.
+pub def server(net: Connection, config: &ServerConfig, input: i64) -> Result[TlsConnection, TlsError]:
+    over(net, server_session(config)?, input)
+
+# A client session over `net` that verifies the server against `config`
+# and `server_name`.
+pub def client(net: Connection, config: &ClientConfig, server_name: &str, input: i64) -> Result[TlsConnection, TlsError]:
+    over(net, client_session(config, server_name)?, input)
+
+def shift(buffer: &mut Bytes, start: i64, stop: i64) -> ():
+    for index in range(stop - start):
+        buffer[index] = buffer[start + index]
+
+def invalid() -> NetError:
+    NetError.Stream(StreamError.Io(IoError.InvalidInput))
+
+def stored[T](result: Result[T, BytesError]) -> Result[T, TlsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(cause)):
+            Err(TlsError.Allocation(cause))
+        case Err(_):
+            Err(TlsError.Net(invalid()))
+
+def net_only[T](result: Result[T, NetError]) -> Result[T, TlsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(TlsError.Net(error))
+
+def lifted[T](result: Result[T, NetError | TimerError]) -> Result[T, TlsError | TimerError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case net: NetError:
+                    Err(TlsError.Net(net))
+                case timer: TimerError:
+                    Err(timer)

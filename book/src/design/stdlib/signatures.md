@@ -119,11 +119,16 @@ class Connection
     def pending(self) -> i64
     def space(self) -> i64
     def write[S: ByteSource, M, E](self: &mut Connection, source: &S, start: i64, stop: i64, context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]
+    def reserve(self: &mut Connection, wanted: i64) -> Result[i64, NetError]
+    def output(self: &mut Connection) -> &mut Bytes
+    def output_stop(self) -> i64
+    def commit[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]
     def forward[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]
     def read_within[M, E](self: &mut Connection, span: &Duration, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]
     def clear_read_deadline(self: &mut Connection) -> ()
     def shutdown_write[M, E](self: &mut Connection, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]
     def close[M, E](self: &mut Connection, context: &mut Context[M, E]) -> Result[(), NetError]
+    def acknowledge_now(self: &mut Connection) -> ()
     def reading(self) -> bool
     def closed(self) -> bool
     def stream(self) -> &TcpStream
@@ -147,6 +152,37 @@ class Resolving
     def handle[M, E](self: &mut Resolving, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Option[list[SocketAddress]], NetError]
     def abandon[M, E](self: &mut Resolving, context: &mut Context[M, E]) -> Result[(), NetError]
 def lookup[M, E](host: &str, port: u16, timeout: &Duration, context: &mut Context[M, E]) -> Result[Resolving, NetError | TimerError]
+```
+
+## `std.actor.tls`
+
+TLS for actor connections: a std.tls session over a `std.actor.net` connection, with plaintext back-pressure and the session in the connection actor's heap. Errors: `TlsError`, `TimerError`. [Reference](actor-tls.md).
+
+```text
+class TlsConnection
+    def start[M, E](self: &mut TlsConnection, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]
+    def handle[M, E](self: &mut TlsConnection, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Events, TlsError | TimerError]
+    def input(self) -> &Bytes
+    def input_start(self) -> i64
+    def input_stop(self) -> i64
+    def available(self) -> i64
+    def consume[M, E](self: &mut TlsConnection, count: i64, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]
+    def pending(self) -> i64
+    def space(self) -> i64
+    def write[S: ByteSource, M, E](self: &mut TlsConnection, source: &S, start: i64, stop: i64, context: &mut Context[M, E]) -> Result[i64, TlsError | TimerError]
+    def forward[M, E](self: &mut TlsConnection, count: i64, context: &mut Context[M, E]) -> Result[i64, TlsError | TimerError]
+    def read_within[M, E](self: &mut TlsConnection, span: &Duration, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]
+    def clear_read_deadline(self: &mut TlsConnection) -> ()
+    def shutdown_write[M, E](self: &mut TlsConnection, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]
+    def close[M, E](self: &mut TlsConnection, context: &mut Context[M, E]) -> Result[(), TlsError]
+    def established(self) -> bool
+    def reading(self) -> bool
+    def closed(self) -> bool
+    def session(self) -> &Session
+    def connection(self) -> &Connection
+def over(net: Connection, session: Session, input: i64) -> Result[TlsConnection, TlsError]
+def server(net: Connection, config: &ServerConfig, input: i64) -> Result[TlsConnection, TlsError]
+def client(net: Connection, config: &ClientConfig, server_name: &str, input: i64) -> Result[TlsConnection, TlsError]
 ```
 
 ## `std.archive`
@@ -3209,6 +3245,23 @@ def start_connect(tcp: TcpStream, config: &ClientConfig, server_name: &str) -> R
 def start_accept(tcp: TcpStream, config: &ServerConfig) -> Result[TlsStream, TlsError]
 def connect(tcp: TcpStream, config: &ClientConfig, server_name: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]
 def accept(tcp: TcpStream, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]
+class Session
+    def feed(self: &mut Session, source: &Bytes, start: i64, stop: i64) -> Result[i64, TlsError]
+    def feed_end(self: &mut Session) -> Result[(), TlsError]
+    def take(self: &mut Session, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, TlsError]
+    def read(self: &mut Session, target: &mut Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]
+    def write[S: ByteSource](self: &mut Session, source: &S, start: i64, stop: i64) -> Result[i64, TlsError]
+    def close(self: &mut Session) -> ()
+    def handshaking(self) -> bool
+    def wants_write(self) -> bool
+    def wants_read(self) -> bool
+    def application_protocol(self) -> Result[Option[str], TlsError]
+    def server_name(self) -> Result[Option[str], TlsError]
+    def peer_certificate(self) -> Result[Option[Bytes], TlsError]
+    def version(self) -> Option[TlsVersion]
+    def cipher_suite(self) -> Option[CipherSuite]
+def client_session(config: &ClientConfig, server_name: &str) -> Result[Session, TlsError]
+def server_session(config: &ServerConfig) -> Result[Session, TlsError]
 ```
 
 ## `std.toml`

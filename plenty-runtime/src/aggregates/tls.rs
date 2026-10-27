@@ -590,14 +590,21 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
         };
         // Text operands stay in their words, which inline texts' views borrow.
         let (text_a, text_b, text_c) = (a as *const Text, b as *const Text, c as *const Text);
+        // Sessions belong to the heap of the actor that opens or drives them.
+        // Trust roots, builders and configurations live outside every actor
+        // heap: sessions in other heaps hold `Arc`s into them, and a trap
+        // discards a heap without dropping what it holds.
+        use crate::actor_heap::outside;
         match op {
-            470 => opened(roots(strings::bytes(&text_a))),
-            471 => roots_of(a).store.len() as u128,
-            472 => opened(client_config(roots_of(a))),
-            473 => opened(server_config(
-                strings::bytes(&text_a),
-                strings::bytes(&text_b),
-            )),
+            470 => outside(|| opened(roots(strings::bytes(&text_a)))),
+            471 => outside(|| roots_of(a).store.len() as u128),
+            472 => outside(|| opened(client_config(roots_of(a)))),
+            473 => outside(|| {
+                opened(server_config(
+                    strings::bytes(&text_a),
+                    strings::bytes(&text_b),
+                ))
+            }),
             474 => opened(client(config_of(a), strings::bytes(&text_b))),
             475 => opened(server(config_of(a))),
             476 => feed(&mut connection(a), view(b, c, d)) as u128,
@@ -609,22 +616,24 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                 connection(a).send_close_notify();
                 0
             }
-            482 => opened(builder(a != 0)),
-            483 => {
+            482 => outside(|| opened(builder(a != 0))),
+            483 => outside(|| {
                 let mut plan = plan(a);
                 plan.roots = Some(roots_of(b).store.clone());
                 plan.clients_required = c != 0;
                 0
-            }
-            484 => plan(a).certificate(strings::bytes(&text_b), strings::bytes(&text_c)) as u128,
-            485 => plan(a).protocol(strings::bytes(&text_b)) as u128,
-            486 => {
+            }),
+            484 => outside(|| {
+                plan(a).certificate(strings::bytes(&text_b), strings::bytes(&text_c)) as u128
+            }),
+            485 => outside(|| plan(a).protocol(strings::bytes(&text_b)) as u128),
+            486 => outside(|| {
                 plan(a).tls13_only = b as i64 == 13;
                 0
-            }
-            487 => plan(a).suite(b as u64 as i64) as u128,
-            488 => plan(a).revocations(strings::bytes(&text_b)) as u128,
-            489 => opened(plan(a).build()),
+            }),
+            487 => outside(|| plan(a).suite(b as u64 as i64) as u128),
+            488 => outside(|| plan(a).revocations(strings::bytes(&text_b)) as u128),
+            489 => outside(|| opened(plan(a).build())),
             490 => detail(connection(a).alpn_protocol(), view_mut(b, c, d)) as u128,
             491 => detail(server_name(&connection(a)), view_mut(b, c, d)) as u128,
             492 => {
