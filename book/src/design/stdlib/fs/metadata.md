@@ -7,6 +7,31 @@ targets preserve their OS error. `DirEntry.metadata()` follows the latter rule.
 No primitive converts an error to False. Broken links remain enumerable and
 inspectable with non-following operations.
 
+```plenty
+import std.fs as fs
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError]:
+    write_text("notes.txt", "hello")?
+    notes = path.from_text("notes.txt")?
+    info = fs.metadata(&notes)?
+    print(info.is_file(), info.is_dir(), info.size())?
+    current = path.from_text(".")?
+    print(fs.metadata(&current)?.file_type())?
+    missing = path.from_text("missing.txt")?
+    match fs.metadata(&missing):
+        case Ok(_):
+            print("found")?
+        case Err(error):
+            print(error)?
+    Ok(())
+```
+```output
+True False 5
+std.fs.FileType.Directory
+IoError.System(2)
+```
+
 Metadata is an affine, detached observation, not an open file or a promise about
 a later operation. No metadata cache is kept on an entry. Request another
 path-level observation to refresh it; replacing or changing a file can make

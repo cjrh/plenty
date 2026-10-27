@@ -4,6 +4,26 @@ Owned temporary files and directories, with automatic cleanup and explicit
 fallible cleanup methods. Prefer this module for scratch storage; use
 [`std.fs`](fs/temporary.md) for descriptor-rooted staging and atomic publication.
 
+```plenty
+import std.fs
+import std.path as path
+import std.tempfile as tempfile
+
+def main() -> Result[(), AllocError | IoError | std.fs.FsError]:
+    parent = path.from_text(".")?
+    with tempfile.directory(&parent, prefix="build-")? as scratch:
+        note = scratch.path().join(&path.from_text("note.txt")?)?
+        write_text(&note.to_text()?, "draft")?
+        print(read_text(&note.to_text()?)?)?
+        scratch.cleanup()?
+        print(std.fs.metadata(scratch.path()).is_err())?
+    Ok(())
+```
+```output
+draft
+True
+```
+
 ## Constructors
 
 | Function | Result | Defaults |
