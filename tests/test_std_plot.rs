@@ -31,6 +31,196 @@ fn snapshot(name: &str, actual: &str) {
 }
 
 #[test]
+fn layer_data_and_mapping_train_shared_scales() {
+    let svg = render(
+        r#"
+data = gg.table([("x", Column.Num([1.0, 2.0]?)), ("y", Column.Num([2.0, 3.0]?)), ("g", Column.Text(["B", "A"]?))]?)?
+summary = gg.table([("at", Column.Num([1.0, 3.0]?)), ("mean", Column.Num([2.5, 4.0]?)), ("series", Column.Text(["A", "C"]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y", colour="g"), [gg.geom_point(), gg.geom_point(data=summary, mapping=gg.aes("at", "mean", colour="series"), inherit_aes=False)]?)?
+"#,
+    );
+    let circles: Vec<_> = svg
+        .lines()
+        .filter(|line| line.contains("<circle "))
+        .collect();
+    assert_eq!(circles.len(), 4);
+    for (circle, colour) in circles
+        .iter()
+        .zip(["#00BFC4", "#F8766D", "#F8766D", "#7CAE00"])
+    {
+        assert!(circle.contains(colour), "{circle}");
+    }
+    snapshot("layer-data", &svg);
+}
+
+#[test]
+fn layers_override_individual_aesthetics_and_can_disable_inheritance() {
+    let svg = render(
+        r#"
+data = gg.table([("x", Column.Num([1.0, 2.0]?)), ("y", Column.Num([2.0, 3.0]?)), ("other", Column.Num([4.0, 5.0]?))]?)?
+counts = gg.table([("category", Column.Text(["a", "a", "b"]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y"), [gg.geom_point(), gg.geom_line(mapping=gg.aes(y="other")), gg.scale_y_continuous(breaks=Some([2.0, 5.0]?), labels=Some(["low", "high"]?))]?)?
+"#,
+    );
+    assert_eq!(svg.matches("<circle ").count(), 2);
+    assert!(svg.contains(">low</text>"));
+    assert!(svg.contains(">high</text>"));
+    let svg = render(
+        r#"
+data = gg.table([("unused", Column.Num([1.0]?))]?)?
+counts = gg.table([("category", Column.Text(["a", "a", "b"]?))]?)?
+p = gg.ggplot(data, gg.aes("missing", "also_missing"), [gg.geom_bar(data=counts, mapping=gg.aes("category"), inherit_aes=False)]?)?
+"#,
+    );
+    assert!(svg.contains("data-geom=\"bar\""));
+}
+
+#[test]
+fn continuous_scales_transform_positions_and_label_original_units() {
+    let svg = render(
+        r#"
+data = gg.table([("x", Column.Num([1.0, 10.0, 100.0]?)), ("y", Column.Num([1.0, 4.0, 9.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y"), [gg.geom_point(), gg.scale_x_log10(breaks=Some([1.0, 10.0, 100.0]?), labels=Some(["one", "ten", "hundred"]?)), gg.scale_y_continuous(transform=gg.Transform.Sqrt, breaks=Some([1.0, 4.0, 9.0]?))]?)?
+"#,
+    );
+    let circles: Vec<_> = svg
+        .lines()
+        .filter(|line| line.contains("<circle "))
+        .collect();
+    assert_eq!(circles.len(), 3);
+    let coords: Vec<_> = circles
+        .iter()
+        .map(|line| {
+            line.split("cx=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .parse::<f64>()
+                .unwrap()
+        })
+        .collect();
+    assert!(((coords[1] - coords[0]) - (coords[2] - coords[1])).abs() < 0.02);
+    assert!(svg.contains(">hundred</text>"));
+    snapshot("transformed-axes", &svg);
+}
+
+#[test]
+fn discrete_limits_order_filter_and_label_categories_across_layers() {
+    let svg = render(
+        r#"
+data = gg.table([("x", Column.Text(["a", "b", "c"]?)), ("y", Column.Num([1.0, 2.0, 3.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x", "y"), [gg.geom_point(), gg.scale_x_discrete(limits=Some(["c", "a", "unused"]?), labels=Some(["Third", "First", "Empty"]?))]?)?
+"#,
+    );
+    let circles: Vec<_> = svg
+        .lines()
+        .filter(|line| line.contains("<circle "))
+        .collect();
+    assert_eq!(circles.len(), 2);
+    assert!(svg.contains(">Third</text>") && svg.contains(">Empty</text>"));
+    snapshot("ordered-axis", &svg);
+}
+
+#[test]
+fn scale_limits_filter_histograms_but_coordinate_limits_only_zoom() {
+    let data = r#"data = gg.table([("x", Column.Num([0.0, 1.0, 2.0, 3.0, 4.0]?))]?)?"#;
+    for (component, removed) in [
+        ("gg.scale_x_continuous(limits=(1.0, 3.0))", true),
+        ("gg.coord_cartesian(xlim=(1.0, 3.0))", false),
+    ] {
+        let output = support::run_file_stdout(&program(&format!(
+            "{data}\np = gg.ggplot(data, gg.aes(\"x\"), [gg.geom_histogram(bins=2), {component}]?)?\nmut output = std.io.cursor(std.bytes.empty()?)\nprint(p.write_svg(&mut output)?)?"
+        )));
+        assert_eq!(output.contains("Removed 2 rows"), removed, "{output}");
+    }
+}
+
+#[test]
+fn layer_and_position_scale_errors_are_eager() {
+    for (components, expected) in [
+        (
+            "gg.geom_point(mapping=gg.aes(y=\"missing\"))",
+            "UnknownColumn",
+        ),
+        ("gg.geom_point(inherit_aes=False)", "MissingAesthetic"),
+        (
+            "gg.geom_point(), gg.scale_x_log10(limits=(0.0, 10.0))",
+            "InvalidSetting",
+        ),
+        (
+            "gg.geom_point(), gg.scale_x_continuous(breaks=Some([1.0, 1.0]?))",
+            "InvalidSetting",
+        ),
+        (
+            "gg.geom_point(), gg.scale_x_continuous(labels=Some([\"a\"]?))",
+            "InvalidSetting",
+        ),
+        (
+            "gg.geom_point(), gg.scale_x_continuous(breaks=Some([1.0]?), labels=Some([]?))",
+            "ShapeMismatch",
+        ),
+        ("gg.geom_point(), gg.scale_x_discrete()", "WrongKind"),
+        (
+            "gg.geom_point(), gg.geom_point(mapping=gg.aes(x=\"category\"))",
+            "WrongKind",
+        ),
+    ] {
+        let output = support::run_file_stdout(&program(&format!(
+            "data = gg.table([(\"x\", Column.Num([1.0]?)), (\"y\", Column.Num([2.0]?)), (\"category\", Column.Text([\"A\"]?))]?)?\nmatch gg.ggplot(data, gg.aes(\"x\", \"y\"), [{components}]?):\n    case Err(error):\n        print(error)?\n    case Ok(_):\n        print(\"unexpected success\")?"
+        )));
+        assert!(output.contains(expected), "{output}");
+    }
+}
+
+#[test]
+fn plus_preserves_layer_tables_and_replaces_axis_scales() {
+    let output = support::run_file_stdout(&program(
+        r#"
+empty = gg.table([]?)?
+data = gg.table([("x", Column.Num([1.0, 10.0]?)), ("y", Column.Num([1.0, 2.0]?))]?)?
+base = gg.ggplot(empty, gg.aes(), [gg.geom_point(data=data, mapping=gg.aes("x", "y"))]?)?
+changed = base.plus([gg.scale_x_log10(breaks=Some([1.0, 10.0]?), labels=Some(["First", "Last"]?))]?)?
+mut first = std.io.cursor(std.bytes.empty()?)
+mut second = std.io.cursor(std.bytes.empty()?)
+drop(base.write_svg(&mut first)?)
+drop(changed.write_svg(&mut second)?)
+print("First" in first.data.to_text()?, "First" in second.data.to_text()?)?
+"#,
+    ));
+    assert_eq!(output, "False True");
+}
+
+#[test]
+fn shared_continuous_colour_range_and_reversed_axis() {
+    let svg = render(
+        r##"
+a = gg.table([("x", Column.Num([1.0]?)), ("y", Column.Num([1.0]?)), ("c", Column.Num([0.0]?))]?)?
+b = gg.table([("x", Column.Num([2.0]?)), ("y", Column.Num([2.0]?)), ("c", Column.Num([10.0]?))]?)?
+p = gg.ggplot(a, gg.aes("x", "y", colour="c"), [gg.geom_point(), gg.geom_point(data=b), gg.scale_colour_gradient(low="#000000", high="#ffffff"), gg.scale_x_reverse()]?)?
+"##,
+    );
+    let circles: Vec<_> = svg
+        .lines()
+        .filter(|line| line.contains("<circle "))
+        .collect();
+    assert!(circles[0].contains("#000000"));
+    assert!(circles[1].contains("#ffffff"));
+    let x = |s: &str| {
+        s.split("cx=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .parse::<f64>()
+            .unwrap()
+    };
+    assert!(x(circles[0]) > x(circles[1]));
+}
+
+#[test]
 fn scatter_line_and_escaping_snapshot() {
     let svg = render(
         r##"
@@ -398,8 +588,7 @@ missing = gg.table([("x", Column.Num([1.0]?)), ("y", Column.MaybeNum([Nothing]?)
 quiet = gg.ggplot(missing, gg.aes("x", "y"), [gg.geom_point(na_rm=True)]?)?
 print(quiet.write_svg(&mut out)?)?
 huge = gg.table([("x", Column.Num([1.0e200]?)), ("y", Column.Num([1.0]?))]?)?
-bad = gg.ggplot(huge, gg.aes("x", "y"), [gg.geom_point()]?)?
-match bad.write_svg(&mut out):
+match gg.ggplot(huge, gg.aes("x", "y"), [gg.geom_point()]?):
     case Err(PlotError.InvalidSetting(_)):
         print("magnitude")?
     case _:

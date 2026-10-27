@@ -40,9 +40,23 @@ Numeric factors sort by numeric value; other levels sort by their string value.
 limit; factor labels preserve exact integers.
 
 `ggplot(table, mapping, components)` eagerly checks names, required aesthetics,
-column kinds, and component settings. A mapping is shared by every layer in this
-version. Constants belong in a geom, such as `geom_point(colour="red")`; a colour
+column kinds, and component settings. Constants belong in a geom, such as
+`geom_point(colour="red")`; a colour
 name inside `aes` would instead be looked up as a column.
+
+Every geom accepts `data=`, `mapping=`, and `inherit_aes=True`. Omitted data
+uses the plot table; supplied data is an owned table and can have different
+columns and a different row count. A layer mapping overrides only its nonempty
+aesthetics; other aesthetics inherit the plot mapping. Use
+`inherit_aes=False` to start with an empty mapping. Empty names do not clear
+individual inherited aesthetics. Inherited names are looked up in the layer's
+table, so a summary table without the plot's grouping column normally needs
+`inherit_aes=False`. Only effective layer mappings are validated.
+
+Position and colour scales train across all layers, so a category has the same
+position and colour wherever it appears. Mixing discrete and continuous
+mappings on one scale is an error. `plus` preserves the original specification
+and shares the immutable plot and layer tables.
 
 | Constructor | Behavior |
 | --- | --- |
@@ -111,7 +125,7 @@ instead of selecting one arbitrarily.
 
 Rows with missing or non-finite mapped values are omitted and counted in returned
 notes; `na_rm=True` suppresses the note. A missing y interrupts a line/path
-within its group. Numeric data magnitudes above `1e100` are rejected at rendering.
+within its group. Numeric data magnitudes above `1e100` are rejected during construction.
 
 ## Labels, coordinates, and themes
 
@@ -126,8 +140,10 @@ These are compact styles, not the proposal's complete theme-element tree.
 `coord_flip()` exchanges the displayed axes. `coord_cartesian(xlim=(low, high),
 ylim=(low, high))` clips and zooms **after** counting and stacking, preserving
 statistics. Omit either pair to use its automatic range. Only one coordinate
-component is allowed. Position scales are linear; ticks use 1/2/5 steps, and
-automatic ranges have padding. Custom position scales and transforms are not yet exposed.
+component is allowed. Coordinate limits are expressed in original data units,
+including on transformed axes. See [position scales](plot-scales.md) for
+transforms, category order, breaks, labels, and the distinction between scale
+limits and coordinate zoom.
 
 Layout currently reserves fixed margins and a right-hand legend area. SVG text
 names `Liberation Sans, Arial, Helvetica, sans-serif`; no fonts or metrics ship.
@@ -166,8 +182,8 @@ failure is always returned; no infallible native plotting allocator is involved.
 
 ## Current scope
 
-Not yet implemented: layer-specific mappings/data, `after_stat`, statistical
-smoothing, facets, position scales and other colour scales, full themes and font
+Not yet implemented: `after_stat`, statistical
+smoothing, facets, date scales and other colour scales, full themes and font
 metrics, PNG/PDF, dataframe input, or record reflection. These remain part of
 the accepted proposal; priorities are tracked in [B80](../../backlog.md).
 

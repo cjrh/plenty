@@ -267,6 +267,9 @@ pub class Layer:
     _position: Position
     _na_rm: bool
     _conflict: bool
+    _data: Option[Table]
+    _mapping: Option[Mapping]
+    _inherit_aes: bool
 
 pub class Labels:
     _title: str
@@ -287,6 +290,7 @@ pub enum Component:
     Cartesian(Option[(f64, f64)], Option[(f64, f64)])
     Flip
     ColourScale(bool, ColourScale)
+    PositionScale(bool, PositionScale)
 
 pub enum ColourScale:
     Default
@@ -314,6 +318,134 @@ pub def scale_fill_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Comp
 pub enum Unset:
     Unset
 
+pub enum Transform:
+    Identity
+    Log10
+    Sqrt
+    Reverse
+
+pub class PositionScale:
+    _kind: i64
+    _transform: Transform
+    _limits: Option[(f64, f64)]
+    _breaks: Option[list[f64]]
+    _labels: Option[list[str]]
+    _levels: Option[list[str]]
+    _name: str
+
+pub def scale_x_continuous(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset, transform: Transform = Transform.Identity) -> Component:
+    Component.PositionScale(False, PositionScale(1, transform, limits_option(&limits), breaks, labels, Nothing, name))
+
+pub def scale_y_continuous(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset, transform: Transform = Transform.Identity) -> Component:
+    Component.PositionScale(True, PositionScale(1, transform, limits_option(&limits), breaks, labels, Nothing, name))
+
+pub def scale_x_discrete(name: str = "", limits: Option[list[str]] = Nothing, labels: Option[list[str]] = Nothing) -> Component:
+    Component.PositionScale(False, PositionScale(2, Transform.Identity, Nothing, Nothing, labels, limits, name))
+
+pub def scale_y_discrete(name: str = "", limits: Option[list[str]] = Nothing, labels: Option[list[str]] = Nothing) -> Component:
+    Component.PositionScale(True, PositionScale(2, Transform.Identity, Nothing, Nothing, labels, limits, name))
+
+pub def scale_x_log10(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component:
+    scale_x_continuous(name, breaks, labels, limits, Transform.Log10)
+
+pub def scale_y_log10(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component:
+    scale_y_continuous(name, breaks, labels, limits, Transform.Log10)
+
+pub def scale_x_sqrt(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component:
+    scale_x_continuous(name, breaks, labels, limits, Transform.Sqrt)
+
+pub def scale_x_reverse(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component:
+    scale_x_continuous(name, breaks, labels, limits, Transform.Reverse)
+
+pub def scale_y_sqrt(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component:
+    scale_y_continuous(name, breaks, labels, limits, Transform.Sqrt)
+
+pub def scale_y_reverse(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component:
+    scale_y_continuous(name, breaks, labels, limits, Transform.Reverse)
+
+def position_scale(components: &list[Component], vertical: bool) -> Result[PositionScale, PlotError]:
+    mut result = PositionScale(0, Transform.Identity, Nothing, Nothing, Nothing, Nothing, "")
+    for component in components:
+        match component:
+            case Component.PositionScale(y, scale):
+                if *y == vertical:
+                    result = allocated(copy(scale))?
+            case _:
+                pass
+    check_limits(result._limits)?
+    match result._limits:
+        case Some(pair):
+            if transformed(pair[0], result._transform).is_none() or transformed(pair[1], result._transform).is_none():
+                return Err(PlotError.InvalidSetting("limits outside transform domain"))
+        case Nothing:
+            pass
+    match &result._breaks:
+        case Some(values):
+            mut seen = allocated(list[f64]())?
+            for value in values:
+                if transformed(*value, result._transform).is_none() or std.math.abs(*value) > 1.0e100 or *value in seen:
+                    return Err(PlotError.InvalidSetting("breaks must be distinct finite values in the transform domain"))
+                allocated(seen.append(*value))?
+            match &result._labels:
+                case Some(labels):
+                    if len(labels) != len(values):
+                        return Err(PlotError.ShapeMismatch("labels and breaks must have equal lengths"))
+                case _:
+                    pass
+        case _:
+            match &result._labels:
+                case Some(labels):
+                    if result._kind != 2:
+                        return Err(PlotError.InvalidSetting("continuous labels require explicit breaks"))
+                case _:
+                    pass
+    match &result._levels:
+        case Some(levels):
+            mut seen = allocated(set[str]())?
+            for level in levels:
+                if *level in seen:
+                    return Err(PlotError.InvalidSetting("discrete limits must be distinct"))
+                allocated(seen.add(*level))?
+        case _:
+            pass
+    Ok(result)
+
+def transformed(value: f64, transform: Transform) -> Option[f64]:
+    if not finite(value):
+        return Nothing
+    match transform:
+        case Transform.Identity:
+            Some(value)
+        case Transform.Reverse:
+            Some(-value)
+        case Transform.Log10:
+            match std.math.log10(value):
+                case Ok(number):
+                    Some(number)
+                case Err(_):
+                    Nothing
+        case Transform.Sqrt:
+            match std.math.sqrt(value):
+                case Ok(number):
+                    Some(number)
+                case Err(_):
+                    Nothing
+
+def inverse(value: f64, transform: Transform) -> Result[f64, PlotError]:
+    match transform:
+        case Transform.Identity:
+            Ok(value)
+        case Transform.Reverse:
+            Ok(-value)
+        case Transform.Sqrt:
+            Ok(value * value)
+        case Transform.Log10:
+            match std.math.pow(10.0, value):
+                case Ok(number):
+                    Ok(number)
+                case Err(_):
+                    Err(PlotError.InvalidSetting("axis tick outside numeric range"))
+
 def numeric(value: &(f64 | i64)) -> f64:
     match value:
         case n: f64:
@@ -321,26 +453,36 @@ def numeric(value: &(f64 | i64)) -> f64:
         case n: i64:
             f64(*n)
 
-def layer(kind: i64, colour: str, color: str, fill: str, size: f64 | i64, alpha: f64 | i64, width: f64 | i64, bins: i64, position: Position, na_rm: bool) -> Component:
-    Component.Layer(Layer(kind, color if color != "" else colour, fill, numeric(&size), numeric(&alpha), numeric(&width), bins, position, na_rm, colour != "" and color != ""))
+def layer(kind: i64, colour: str, color: str, fill: str, size: f64 | i64, alpha: f64 | i64, width: f64 | i64, bins: i64, position: Position, na_rm: bool, data: Table | Unset, mapping: Mapping | Unset, inherit_aes: bool) -> Component:
+    source: Option[Table] = match data:
+        case value: Table:
+            Some(value)
+        case _:
+            Nothing
+    aesthetics: Option[Mapping] = match mapping:
+        case value: Mapping:
+            Some(value)
+        case _:
+            Nothing
+    Component.Layer(Layer(kind, color if color != "" else colour, fill, numeric(&size), numeric(&alpha), numeric(&width), bins, position, na_rm, colour != "" and color != "", source, aesthetics, inherit_aes))
 
-pub def geom_point(colour: str = "", color: str = "", size: f64 | i64 = 1.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component:
-    layer(0, colour, color, "", size, alpha, 0.9, 30, Position.Identity, na_rm)
+pub def geom_point(colour: str = "", color: str = "", size: f64 | i64 = 1.5, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component:
+    layer(0, colour, color, "", size, alpha, 0.9, 30, Position.Identity, na_rm, data, mapping, inherit_aes)
 
-pub def geom_line(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component:
-    layer(1, colour, color, "", linewidth, alpha, 0.9, 30, Position.Identity, na_rm)
+pub def geom_line(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component:
+    layer(1, colour, color, "", linewidth, alpha, 0.9, 30, Position.Identity, na_rm, data, mapping, inherit_aes)
 
-pub def geom_path(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component:
-    layer(2, colour, color, "", linewidth, alpha, 0.9, 30, Position.Identity, na_rm)
+pub def geom_path(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component:
+    layer(2, colour, color, "", linewidth, alpha, 0.9, 30, Position.Identity, na_rm, data, mapping, inherit_aes)
 
-pub def geom_col(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component:
-    layer(3, colour, color, fill, 0.5, alpha, width, 30, position, na_rm)
+pub def geom_col(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component:
+    layer(3, colour, color, fill, 0.5, alpha, width, 30, position, na_rm, data, mapping, inherit_aes)
 
-pub def geom_bar(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component:
-    layer(4, colour, color, fill, 0.5, alpha, width, 30, position, na_rm)
+pub def geom_bar(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component:
+    layer(4, colour, color, fill, 0.5, alpha, width, 30, position, na_rm, data, mapping, inherit_aes)
 
-pub def geom_histogram(colour: str = "", color: str = "", fill: str = "", bins: i64 = 30, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component:
-    layer(5, colour, color, fill, 0.5, alpha, 1.0, bins, position, na_rm)
+pub def geom_histogram(colour: str = "", color: str = "", fill: str = "", bins: i64 = 30, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component:
+    layer(5, colour, color, fill, 0.5, alpha, 1.0, bins, position, na_rm, data, mapping, inherit_aes)
 
 pub def labs(title: str = "", x: str = "", y: str = "", colour: str = "", fill: str = "") -> Component:
     Component.Labels(Labels(title, x, y, colour, fill))
@@ -357,7 +499,7 @@ pub def theme_classic(base_size: f64 | i64 = 11, legend_position: Legend = Legen
 pub def coord_flip() -> Component:
     Component.Flip
 
-def limits(value: &((f64, f64) | Unset)) -> Option[(f64, f64)]:
+def limits_option(value: &((f64, f64) | Unset)) -> Option[(f64, f64)]:
     match value:
         case pair: (f64, f64):
             Some(*pair)
@@ -365,7 +507,7 @@ def limits(value: &((f64, f64) | Unset)) -> Option[(f64, f64)]:
             Nothing
 
 pub def coord_cartesian(xlim: (f64, f64) | Unset = Unset.Unset, ylim: (f64, f64) | Unset = Unset.Unset) -> Component:
-    Component.Cartesian(limits(&xlim), limits(&ylim))
+    Component.Cartesian(limits_option(&xlim), limits_option(&ylim))
 
 def check_limits(limits: Option[(f64, f64)]) -> Result[(), PlotError]:
     match limits:
@@ -463,7 +605,9 @@ pub class Plot:
     _components: list[Component]
 
     pub def plus(self, components: list[Component]) -> Result[Plot, PlotError]:
-        mut all = allocated(copy(self._components))?
+        mut all = allocated(list[Component]())?
+        for component in &self._components:
+            allocated(all.append(copy_component(component)?))?
         for component in components:
             allocated(all.append(component))?
         ggplot(self._data.share(), allocated(copy(self._mapping))?, all)
@@ -482,12 +626,161 @@ pub class Plot:
         Ok(notes)
 
 pub def ggplot(data: Table, mapping: Mapping, components: list[Component]) -> Result[Plot, PlotError]:
-    validate(&*data._data, &mapping, &components)?
-    # Validate the final scale for each aesthetic, including level coverage.
-    # A later component replaces an earlier scale, including through plus().
-    drop(colour_axis(&*data._data, mapping._colour, mapping._cfactor, &components, False)?)
-    drop(colour_axis(&*data._data, mapping._fill, mapping._ffactor, &components, True)?)
-    Ok(Plot(data, mapping, components))
+    plot = Plot(data, mapping, components)
+    drop(resolve(&plot)?)
+    Ok(plot)
+
+def layer_mapping(base: &Mapping, layer: &Layer) -> Result[Mapping, PlotError]:
+    mut result = allocated(copy(base))? if layer._inherit_aes else aes()
+    match &layer._mapping:
+        case Some(value):
+            if value._x != "":
+                result._x = value._x
+                result._xfactor = value._xfactor
+            if value._y != "":
+                result._y = value._y
+                result._yfactor = value._yfactor
+            if value._colour != "":
+                result._colour = value._colour
+                result._cfactor = value._cfactor
+            if value._fill != "":
+                result._fill = value._fill
+                result._ffactor = value._ffactor
+            if value._group != "":
+                result._group = value._group
+            result._conflict = result._conflict or value._conflict
+        case Nothing:
+            pass
+    Ok(result)
+
+def copy_layer(layer: &Layer) -> Result[Layer, PlotError]:
+    data: Option[Table] = match &layer._data:
+        case Some(value):
+            Some(value.share())
+        case Nothing:
+            Nothing
+    mapping = allocated(copy(layer._mapping))?
+    Ok(Layer(layer._kind, layer._colour, layer._fill, layer._size, layer._alpha, layer._width, layer._bins, layer._position, layer._na_rm, layer._conflict, data, mapping, layer._inherit_aes))
+
+def copy_component(component: &Component) -> Result[Component, PlotError]:
+    match component:
+        case Component.Layer(value):
+            Ok(Component.Layer(copy_layer(value)?))
+        case Component.Labels(value):
+            Ok(Component.Labels(allocated(copy(value))?))
+        case Component.Theme(value):
+            Ok(Component.Theme(allocated(copy(value))?))
+        case Component.Cartesian(x, y):
+            Ok(Component.Cartesian(*x, *y))
+        case Component.Flip:
+            Ok(Component.Flip)
+        case Component.ColourScale(fill, value):
+            Ok(Component.ColourScale(*fill, allocated(copy(value))?))
+        case Component.PositionScale(y, value):
+            Ok(Component.PositionScale(*y, allocated(copy(value))?))
+
+class ResolvedLayer:
+    data: Table
+    mapping: Mapping
+    geom: Layer
+    x: Axis
+    y: Axis
+    colour: Axis
+    fill: Axis
+    groups: Axis
+
+class ResolvedPlot:
+    layers: list[ResolvedLayer]
+    x: Axis
+    y: Axis
+    colour: Axis
+    fill: Axis
+    xs: PositionScale
+    ys: PositionScale
+    labels: Labels
+
+# Resolve and validate the complete specification before opening an output
+# stream. Training is shared, but each layer retains its own row indexes.
+def resolve(plot: &Plot) -> Result[ResolvedPlot, PlotError]:
+    mut layers = allocated(list[ResolvedLayer]())?
+    mut globals = allocated(list[Component]())?
+    mut tx: Option[Axis] = Nothing
+    mut ty: Option[Axis] = Nothing
+    mut tc: Option[Axis] = Nothing
+    mut tf: Option[Axis] = Nothing
+    xs = position_scale(&plot._components, False)?
+    ys = position_scale(&plot._components, True)?
+    mut labels = Labels("", "", "", "", "")
+    for component in &plot._components:
+        match component:
+            case Component.Layer(geom):
+                data = match &geom._data:
+                    case Some(value):
+                        value.share()
+                    case Nothing:
+                        plot._data.share()
+                mapping = layer_mapping(&plot._mapping, geom)?
+                validate(&*data._data, &mapping, &allocated([copy_component(component)?])?)?
+                mut x = axis(&*data._data, mapping._x, mapping._xfactor)?
+                mut y = axis(&*data._data, mapping._y, mapping._yfactor)?
+                apply_position(&mut x, &xs, mapping._x != "")?
+                apply_position(&mut y, &ys, mapping._y != "")?
+                colour = colour_axis(&*data._data, mapping._colour, mapping._cfactor, &plot._components, False)?
+                fill = colour_axis(&*data._data, mapping._fill, mapping._ffactor, &plot._components, True)?
+                groups = axis(&*data._data, mapping._group, True)?
+                train_axis(&mut tx, &x, mapping._x != "")?
+                train_axis(&mut ty, &y, mapping._y != "")?
+                train_axis(&mut tc, &colour, mapping._colour != "" and geom._colour == "")?
+                train_axis(&mut tf, &fill, mapping._fill != "" and geom._fill == "")?
+                if labels._x == "":
+                    labels._x = mapping._x
+                if labels._y == "":
+                    labels._y = mapping._y
+                if labels._colour == "" and geom._colour == "":
+                    labels._colour = mapping._colour
+                if labels._fill == "" and geom._fill == "":
+                    labels._fill = mapping._fill
+                allocated(layers.append(ResolvedLayer(data, mapping, copy_layer(geom)?, x, y, colour, fill, groups)))?
+            case _:
+                allocated(globals.append(copy_component(component)?))?
+    validate(&*plot._data._data, &aes(), &globals)?
+    empty = &*plot._data._data
+    mut x = match tx:
+        case Some(value):
+            value
+        case Nothing:
+            axis(empty, "", False)?
+    mut y = match ty:
+        case Some(value):
+            value
+        case Nothing:
+            axis(empty, "", False)?
+    colour = match tc:
+        case Some(value):
+            value
+        case Nothing:
+            colour_axis(empty, "", False, &plot._components, False)?
+    fill = match tf:
+        case Some(value):
+            value
+        case Nothing:
+            colour_axis(empty, "", False, &plot._components, True)?
+    order_levels(&mut x, &xs)?
+    order_levels(&mut y, &ys)?
+    for item in &mut layers:
+        align_axis(&mut item.x, &x)?
+        align_axis(&mut item.y, &y)?
+        if item.geom._colour == "":
+            align_axis(&mut item.colour, &colour)?
+        if item.geom._fill == "":
+            align_axis(&mut item.fill, &fill)?
+        if item.geom._kind >= 4 and (y.discrete or ys._kind == 2):
+            return Err(PlotError.WrongKind("computed counts cannot share a discrete y axis"))
+    if xs._name != "":
+        labels._x = xs._name
+    if ys._name != "":
+        labels._y = ys._name
+    Ok(ResolvedPlot(layers, x, y, colour, fill, xs, ys, labels))
 
 class Axis:
     values: list[Option[f64]]
@@ -496,12 +789,13 @@ class Axis:
     low: f64
     high: f64
     paint: ColourScale
+    ordering: i64
 
 def axis(data: &TableData, name: str, factor: bool) -> Result[Axis, PlotError]:
     mut values = allocated(list[Option[f64]]())?
     mut levels = allocated(list[str]())?
     if name == "":
-        return Ok(Axis(values, levels, False, 0.0, 1.0, ColourScale.Default))
+        return Ok(Axis(values, levels, False, 0.0, 1.0, ColourScale.Default, 0))
     index = column_index(data, name)?
     column = &data.columns[index][1]
     discrete = factor or column.discrete()
@@ -580,7 +874,140 @@ def axis(data: &TableData, name: str, factor: bool) -> Result[Axis, PlotError]:
                     high = std.math.max(high, *number)
             case Nothing:
                 pass
-    Ok(Axis(values, levels, discrete, low, high, ColourScale.Default))
+    ordering = match column:
+        case Column.Int(_):
+            2
+        case _:
+            0 if column.discrete() else 1
+    Ok(Axis(values, levels, discrete, low, high, ColourScale.Default, ordering))
+
+def axis_range(scale: &mut Axis) -> ():
+    mut first = True
+    scale.low = 0.0
+    scale.high = 1.0
+    for value in &scale.values:
+        match value:
+            case Some(number):
+                if first:
+                    scale.low = *number
+                    scale.high = *number
+                    first = False
+                else:
+                    scale.low = std.math.min(scale.low, *number)
+                    scale.high = std.math.max(scale.high, *number)
+            case Nothing:
+                pass
+
+def apply_position(scale: &mut Axis, setting: &PositionScale, present: bool) -> Result[(), PlotError]:
+    if not present:
+        return Ok(())
+    if (setting._kind == 1 and scale.discrete) or (setting._kind == 2 and not scale.discrete):
+        return Err(PlotError.WrongKind("position scale does not match mapped data"))
+    if not scale.discrete:
+        for value in &mut scale.values:
+            match *value:
+                case Some(number):
+                    mut keep = True
+                    match setting._limits:
+                        case Some(pair):
+                            keep = number >= pair[0] and number <= pair[1]
+                        case Nothing:
+                            pass
+                    *value = transformed(number, setting._transform) if keep else Nothing
+                case Nothing:
+                    pass
+        axis_range(scale)
+    Ok(())
+
+def sort_levels(scale: &mut Axis) -> Result[(), PlotError]:
+    if scale.ordering == 2:
+        mut ordered = allocated(list[(i64, str)]())?
+        for level in &scale.levels:
+            match i64.parse(*level):
+                case Ok(number):
+                    allocated(ordered.append((number, *level)))?
+                case Err(_):
+                    return Err(PlotError.WrongKind("incompatible discrete position types"))
+        ordered.sort()
+        scale.levels = allocated(list[str]())?
+        for item in &ordered:
+            allocated(scale.levels.append(item[1]))?
+    elif scale.ordering == 1:
+        mut ordered = allocated(list[(f64, str)]())?
+        for level in &scale.levels:
+            match f64.parse(*level):
+                case Ok(number):
+                    allocated(ordered.append((number, *level)))?
+                case Err(_):
+                    return Err(PlotError.WrongKind("incompatible discrete position types"))
+        ordered.sort()
+        scale.levels = allocated(list[str]())?
+        for item in &ordered:
+            allocated(scale.levels.append(item[1]))?
+    else:
+        scale.levels.sort()
+    Ok(())
+
+def train_axis(target: &mut Option[Axis], source: &Axis, present: bool) -> Result[(), PlotError]:
+    if not present:
+        return Ok(())
+    match target:
+        case Some(scale):
+            if scale.discrete != source.discrete:
+                return Err(PlotError.WrongKind("layers cannot mix discrete and continuous mappings on one scale"))
+            if scale.discrete:
+                if scale.ordering != source.ordering:
+                    scale.ordering = 0
+                for level in &source.levels:
+                    if *level not in scale.levels:
+                        allocated(scale.levels.append(*level))?
+                sort_levels(scale)?
+                scale.low = 0.0
+                scale.high = f64(std.math.max(0, len(scale.levels) - 1))
+            else:
+                for value in &source.values:
+                    allocated(scale.values.append(*value))?
+                axis_range(scale)
+        case Nothing:
+            *target = Some(allocated(copy(source))?)
+    Ok(())
+
+def order_levels(scale: &mut Axis, setting: &PositionScale) -> Result[(), PlotError]:
+    if scale.discrete:
+        match &setting._levels:
+            case Some(levels):
+                scale.levels = allocated(copy(levels))?
+            case _:
+                pass
+        scale.low = 0.0
+        scale.high = f64(std.math.max(0, len(scale.levels) - 1))
+        match &setting._labels:
+            case Some(labels):
+                if len(labels) != len(scale.levels):
+                    return Err(PlotError.ShapeMismatch("discrete labels must match the ordered levels"))
+            case _:
+                pass
+    Ok(())
+
+def align_axis(local: &mut Axis, trained: &Axis) -> Result[(), PlotError]:
+    if local.discrete:
+        mut lookup = allocated(dict[str, i64]())?
+        for index, level in enumerate(&trained.levels):
+            allocated(lookup.insert(*level, index))?
+        for value in &mut local.values:
+            match *value:
+                case Some(index):
+                    match lookup.get(local.levels[i64(index)]):
+                        case Some(position):
+                            *value = Some(f64(position))
+                        case Nothing:
+                            *value = Nothing
+                case Nothing:
+                    pass
+        local.levels = allocated(copy(trained.levels))?
+    local.low = trained.low
+    local.high = trained.high
+    Ok(())
 
 def colour_axis(data: &TableData, name: str, factor: bool, components: &list[Component], fill: bool) -> Result[Axis, PlotError]:
     mut result = axis(data, name, factor)?
@@ -692,7 +1119,7 @@ def group_value(scale: &Axis, row: i64) -> i64:
         case Nothing:
             -1
 
-def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axis, colour: &Axis, fill: &Axis, groups: &Axis, notes: &mut list[str]) -> Result[LayerRows, PlotError]:
+def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axis, colour: &Axis, fill: &Axis, groups: &Axis, ys: &PositionScale, notes: &mut list[str]) -> Result[LayerRows, PlotError]:
     mut result = allocated(list[Row]())?
     mut identities = allocated(dict[(i64, i64, i64, i64, i64), i64]())?
     mut dropped = 0
@@ -726,7 +1153,7 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
     for row in &mut result:
         row.group = remap[row.group]
     if dropped > 0 and not geom._na_rm:
-        allocated(notes.append(formatted(f"Removed {dropped} rows with missing or non-finite mapped values.")?))?
+        allocated(notes.append(formatted(f"Removed {dropped} rows with missing, non-finite, or scale-excluded mapped values.")?))?
     if geom._kind == 4 or geom._kind == 5:
         mut counts = allocated(list[Row]())?
         mut by_key = allocated(dict[(i64, str), i64]())?
@@ -755,7 +1182,25 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
                 case Nothing:
                     allocated(by_key.insert(key, len(counts)))?
                     allocated(counts.append(Row(position, 1.0, 0.0, width, row.colour, row.fill, row.group, row.source, True)))?
-        result = counts
+        result = allocated(list[Row]())?
+        mut removed = 0
+        for row in counts:
+            mut keep = True
+            match ys._limits:
+                case Some(pair):
+                    keep = row.y >= pair[0] and row.y <= pair[1]
+                case Nothing:
+                    pass
+            if keep:
+                match transformed(row.y, ys._transform):
+                    case Some(value):
+                        allocated(result.append(Row(row.x, value, 0.0, row.width, row.colour, row.fill, row.group, row.source, row.valid)))?
+                    case Nothing:
+                        removed += 1
+            else:
+                removed += 1
+        if removed > 0 and not geom._na_rm:
+            allocated(notes.append(formatted(f"Removed {removed} computed rows outside scale limits or transform domain.")?))?
     if geom._kind >= 3:
         if geom._position == Position.Stack or geom._position == Position.Fill:
             mut totals = allocated(dict[(str, bool), f64]())?
@@ -786,7 +1231,7 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
                 span = row.width
                 row.width /= f64(group_count)
                 row.x += -span / 2.0 + (f64(row.group) + 0.5) * row.width
-    Ok(LayerRows(result, allocated(copy(geom))?))
+    Ok(LayerRows(result, copy_layer(geom)?))
 
 def dimensions(width: f64, height: f64, units: Units, dpi: f64) -> Result[(f64, f64), PlotError]:
     if not finite(width) or not finite(height) or not finite(dpi) or dpi <= 0.0:
@@ -888,16 +1333,14 @@ def number_label(value: f64, step: f64) -> Result[str, PlotError]:
 
 def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units: Units, dpi: f64) -> Result[list[str], PlotError]:
     w, h = dimensions(width, height, units, dpi)?
-    data = &*plot._data._data
-    mapping = &plot._mapping
-    x = axis(data, mapping._x, mapping._xfactor)?
-    y = axis(data, mapping._y, mapping._yfactor)?
-    colour = colour_axis(data, mapping._colour, mapping._cfactor, &plot._components, False)?
-    fill = colour_axis(data, mapping._fill, mapping._ffactor, &plot._components, True)?
-    groups = axis(data, mapping._group, True)?
+    resolved = resolve(plot)?
+    x = &resolved.x
+    y = &resolved.y
+    colour = &resolved.colour
+    fill = &resolved.fill
     mut notes = allocated(list[str]())?
     mut layers = allocated(list[LayerRows]())?
-    mut labels = Labels("", mapping._x, mapping._y, mapping._colour, mapping._fill)
+    mut labels = allocated(copy(resolved.labels))?
     mut theme = Theme(0, 11.0, Legend.Right)
     mut flip = False
     mut xlimits: Option[(f64, f64)] = Nothing
@@ -909,30 +1352,34 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
     mut ytrained = y.discrete
     mut uses_colour = False
     mut uses_fill = False
+    for item in &resolved.layers:
+        geom = &item.geom
+        mapping = &item.mapping
+        uses_colour = uses_colour or (geom._colour == "" and mapping._colour != "")
+        uses_fill = uses_fill or (geom._kind >= 3 and geom._fill == "" and mapping._fill != "")
+        prepared = prepare(&*item.data._data, mapping, geom, &item.x, &item.y, &item.colour, &item.fill, &item.groups, &resolved.ys, &mut notes)?
+        for row in &prepared.rows:
+            if not row.valid:
+                continue
+            half = row.width / 2.0 if geom._kind >= 3 else 0.0
+            xmin = std.math.min(xmin, row.x - half)
+            xmax = std.math.max(xmax, row.x + half)
+            if not ytrained:
+                ymin = row.y
+                ymax = row.y
+                ytrained = True
+            ymin = std.math.min(ymin, row.y)
+            ymax = std.math.max(ymax, row.y)
+            if geom._kind >= 3:
+                ymin = std.math.min(ymin, row.bottom)
+                ymax = std.math.max(ymax, row.bottom)
+            if geom._kind >= 4 and labels._y == "":
+                labels._y = "count"
+        allocated(layers.append(prepared))?
     for component in &plot._components:
         match component:
-            case Component.Layer(geom):
-                uses_colour = uses_colour or (geom._colour == "" and mapping._colour != "")
-                uses_fill = uses_fill or (geom._kind >= 3 and geom._fill == "" and mapping._fill != "")
-                prepared = prepare(data, mapping, geom, &x, &y, &colour, &fill, &groups, &mut notes)?
-                for row in &prepared.rows:
-                    if not row.valid:
-                        continue
-                    half = row.width / 2.0 if geom._kind >= 3 else 0.0
-                    xmin = std.math.min(xmin, row.x - half)
-                    xmax = std.math.max(xmax, row.x + half)
-                    if not ytrained:
-                        ymin = row.y
-                        ymax = row.y
-                        ytrained = True
-                    ymin = std.math.min(ymin, row.y)
-                    ymax = std.math.max(ymax, row.y)
-                    if geom._kind >= 3:
-                        ymin = std.math.min(ymin, row.bottom)
-                        ymax = std.math.max(ymax, row.bottom)
-                    if geom._kind >= 4 and labels._y == "":
-                        labels._y = "count"
-                allocated(layers.append(prepared))?
+            case Component.Layer(_):
+                pass
             case Component.Labels(value):
                 if value._title != "":
                     labels._title = value._title
@@ -951,10 +1398,10 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
             case Component.Cartesian(x, y):
                 xlimits = *x
                 ylimits = *y
-            case Component.ColourScale(_, _):
+            case Component.ColourScale(_, _) | Component.PositionScale(_, _):
                 pass
-    xlo, xhi = xlimits.unwrap_or(expand(xmin, xmax, x.discrete))
-    ylo, yhi = ylimits.unwrap_or(expand(ymin, ymax, y.discrete))
+    xlo, xhi = display_range(xlimits, &resolved.xs, xmin, xmax, x.discrete)?
+    ylo, yhi = display_range(ylimits, &resolved.ys, ymin, ymax, y.discrete)?
     for ratio in allocated([(xmin - xlo) / (xhi - xlo), (xmax - xlo) / (xhi - xlo), (ymin - ylo) / (yhi - ylo), (ymax - ylo) / (yhi - ylo)])?:
         if not finite(ratio) or std.math.abs(ratio) > 1.0e9:
             return Err(PlotError.InvalidSetting("coordinate magnification is too large"))
@@ -973,11 +1420,11 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
     rectangle(writer, left, top, pw, ph, "#EBEBEB" if theme._kind == 0 else "white")?
     label(writer, left, 22.0, labels._title, theme._size * 1.2, "start")?
     if flip:
-        draw_axis(writer, &y, ylo, yhi, left, top, pw, ph, False, &theme)?
-        draw_axis(writer, &x, xlo, xhi, left, top, pw, ph, True, &theme)?
+        draw_axis(writer, y, &resolved.ys, ylo, yhi, left, top, pw, ph, False, &theme)?
+        draw_axis(writer, x, &resolved.xs, xlo, xhi, left, top, pw, ph, True, &theme)?
     else:
-        draw_axis(writer, &x, xlo, xhi, left, top, pw, ph, False, &theme)?
-        draw_axis(writer, &y, ylo, yhi, left, top, pw, ph, True, &theme)?
+        draw_axis(writer, x, &resolved.xs, xlo, xhi, left, top, pw, ph, False, &theme)?
+        draw_axis(writer, y, &resolved.ys, ylo, yhi, left, top, pw, ph, True, &theme)?
     label(writer, left + pw / 2.0, h - 8.0, labels._y if flip else labels._x, theme._size)?
     emit(writer, formatted(f"<g transform=\"translate(14.00,{top + ph / 2.0:.2f}) rotate(-90)\">\n")?)?
     label(writer, 0.0, 0.0, labels._x if flip else labels._y, theme._size)?
@@ -989,14 +1436,50 @@ def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units:
     if legend_width > 0.0:
         mut legend_y = top + theme._size
         if uses_colour:
-            legend_y = draw_legend(writer, &colour, labels._colour, left + pw + 12.0, legend_y, h - 15.0, theme._size)?
-        if uses_fill and (not uses_colour or mapping._fill != mapping._colour or labels._fill != labels._colour or colour.paint != fill.paint):
-            drop(draw_legend(writer, &fill, labels._fill, left + pw + 12.0, legend_y + 12.0, h - 15.0, theme._size)?)
+            legend_y = draw_legend(writer, colour, labels._colour, left + pw + 12.0, legend_y, h - 15.0, theme._size)?
+        if uses_fill and (not uses_colour or labels._fill != labels._colour or colour.paint != fill.paint or colour.levels != fill.levels or colour.low != fill.low or colour.high != fill.high):
+            drop(draw_legend(writer, fill, labels._fill, left + pw + 12.0, legend_y + 12.0, h - 15.0, theme._size)?)
     emit(writer, "</g>\n</svg>\n")?
     streamed(writer.flush())?
     Ok(notes)
 
-def draw_axis[W: Writer](writer: &mut W, scale: &Axis, low: f64, high: f64, left: f64, top: f64, width: f64, height: f64, vertical: bool, theme: &Theme) -> Result[(), PlotError]:
+def display_range(zoom: Option[(f64, f64)], setting: &PositionScale, low: f64, high: f64, discrete: bool) -> Result[(f64, f64), PlotError]:
+    chosen = zoom if zoom.is_some() else setting._limits
+    match chosen:
+        case Some(pair):
+            a = transformed(pair[0], setting._transform).ok_or(PlotError.InvalidSetting("coordinate limits outside transform domain"))?
+            b = transformed(pair[1], setting._transform).ok_or(PlotError.InvalidSetting("coordinate limits outside transform domain"))?
+            Ok((std.math.min(a, b), std.math.max(a, b)))
+        case Nothing:
+            Ok(expand(low, high, discrete))
+
+def axis_ticks(scale: &Axis, setting: &PositionScale, low: f64, high: f64) -> Result[list[(f64, str)], PlotError]:
+    mut ticks = allocated(list[(f64, str)]())?
+    if scale.discrete:
+        for index, level in enumerate(&scale.levels):
+            name = match &setting._labels:
+                case Some(labels):
+                    labels[index]
+                case _:
+                    *level
+            if f64(index) >= low and f64(index) <= high:
+                allocated(ticks.append((f64(index), name)))?
+        return Ok(ticks)
+    match &setting._breaks:
+        case Some(breaks):
+            for index, value in enumerate(breaks):
+                at = transformed(*value, setting._transform).unwrap()
+                name = match &setting._labels:
+                    case Some(labels):
+                        labels[index]
+                    case _:
+                        number_label(*value, 0.0)?
+                if at >= low and at <= high:
+                    allocated(ticks.append((at, name)))?
+            ticks.sort()
+            return Ok(ticks)
+        case _:
+            pass
     step = tick_step(low, high)
     first = match std.math.ceil(low / step):
         case Ok(value):
@@ -1004,12 +1487,19 @@ def draw_axis[W: Writer](writer: &mut W, scale: &Axis, low: f64, high: f64, left
         case Err(_):
             return Err(PlotError.InvalidSetting("axis range is too narrow to label"))
     start = f64(first) * step
-    count = len(scale.levels) if scale.discrete else 6
-    for tick in range(count):
-        value = f64(tick) if scale.discrete else start + f64(tick) * step
+    for tick in range(6):
+        value = start + f64(tick) * step
         if value < low or value > high:
             continue
-        name = scale.levels[tick] if scale.discrete else number_label(value, step)?
+        if setting._transform == Transform.Sqrt and value < 0.0:
+            continue
+        number = inverse(value, setting._transform)?
+        name = number_label(number, step if setting._transform == Transform.Identity or setting._transform == Transform.Reverse else 0.0)?
+        allocated(ticks.append((value, name)))?
+    Ok(ticks)
+
+def draw_axis[W: Writer](writer: &mut W, scale: &Axis, setting: &PositionScale, low: f64, high: f64, left: f64, top: f64, width: f64, height: f64, vertical: bool, theme: &Theme) -> Result[(), PlotError]:
+    for value, name in axis_ticks(scale, setting, low, high)?:
         if vertical:
             at = coordinate(value, low, high, top + height, -height)
             if theme._kind != 2:
