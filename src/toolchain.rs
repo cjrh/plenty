@@ -110,6 +110,9 @@ pub struct CompileOptions {
     pub program_cache: bool,
     /// Print the cache's hit and miss counts after compiling.
     pub cache_stats: bool,
+    /// Link the std.test failure-injection hooks into an ordinary executable.
+    /// Disabled by default; `plenty test` enables them independently.
+    pub test_hooks: bool,
     /// Build a libFuzzer target linked with this libFuzzer archive (clang's
     /// `libclang_rt.fuzzer_no_main.a`): count every block's runs and enter
     /// through the fuzz driver. See book/src/design/toolchain/01-building/fuzzing.md.
@@ -117,7 +120,7 @@ pub struct CompileOptions {
     /// Link executables and shared libraries with `-Wl,--strip-all`, dropping
     /// the symbol table and the debug sections the Rust runtime brings. No
     /// run-time path reads them; `.dynsym` and trap tables stay. `plenty test`
-    /// and `--fuzz` builds keep them regardless. See
+    /// and `--fuzz` / `--test-hooks` builds keep them regardless. See
     /// book/src/design/toolchain/01-building/linking.md.
     pub strip: bool,
 }
@@ -136,6 +139,7 @@ impl Default for CompileOptions {
             cache: crate::cache::CacheMode::Environment,
             program_cache: true,
             cache_stats: false,
+            test_hooks: false,
             fuzz: None,
             strip: true,
         }
