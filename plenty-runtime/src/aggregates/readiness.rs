@@ -245,6 +245,7 @@ mod native {
                     let out = &mut (*(a as *mut Storage)).bytes;
                     select(out, selector, c as u64, d)
                 }
+                423 => Ok(file(a)? as u128),
                 _ => crate::fail("invalid readiness operation"),
             }
         }

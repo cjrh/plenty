@@ -269,6 +269,32 @@ also done all the work available, so a stream may be watched after one.
 [`std.http.server`](http-server.md#idle-connections) parks HTTPS
 connections this way, between handshake messages and while idle.
 
+## Sessions
+
+A `Session` is a TLS session without a socket: the caller moves ciphertext
+through its own buffers. It never waits and owns no descriptor, so it suits
+event loops that already own the socket.
+[`std.actor.tls`](actor-tls.md) runs one over an actor connection.
+`client_session(&config, server_name)` and `server_session(&config)` make
+one with the same verification as `connect` and `accept`.
+
+| Method | Result | Contract |
+|---|---|---|
+| `feed(source: &Bytes, start: i64, stop: i64)` | `Result[i64, TlsError]` | Process received ciphertext; the count used, short while decrypted bytes wait for `read` |
+| `feed_end()` | `Result[(), TlsError]` | The peer's stream ended; without `close_notify`, `read` then fails with `Truncated` |
+| `take(target: &mut Bytes, start: i64, stop: i64)` | `Result[i64, TlsError]` | Ciphertext to send; 0 when none waits |
+| `read(target: &mut Bytes, start: i64, stop: i64)` | `Result[Option[i64], TlsError]` | Decrypted bytes; `Nothing` while none is ready, `Some(0)` for `close_notify` |
+| `write(source: &S, start: i64, stop: i64)` | `Result[i64, TlsError]` | Encrypt at most 16 KiB; short once 64 KiB of ciphertext waits for `take`; `Closed` after `close` |
+| `close()` | `()` | Queue `close_notify` for `take` |
+| `handshaking()`, `wants_write()`, `wants_read()` | `bool` | Handshake incomplete; ciphertext waits for `take`; more ciphertext is useful |
+
+`application_protocol`, `server_name`, `peer_certificate`, `version` and
+`cipher_suite` are as for `TlsStream`. While the handshake runs, `write`
+holds plaintext in the session; check `handshaking()` first to bound it. On
+a TLS failure the session has queued an alert: send what `take` returns
+before closing the socket. A session is allocated where it is made; in an
+actor handler that is the actor's heap.
+
 ## Errors
 
 ```text
@@ -326,9 +352,11 @@ recover.
 
 ## Ownership and threads
 
-`TrustRoots`, `ClientConfig`, `ServerConfig`, and `TlsStream` each own one
+`TrustRoots`, `ClientConfig`, `ServerConfig`, `TlsStream`, and `Session` each own one
 runtime object; dropping it releases the object, and dropping a stream closes
-its socket without `close_notify`. A stream may move to a worker. Starting a
+its socket without `close_notify`. A stream may move to a worker. Trust roots,
+builders and configurations are allocated outside every
+[actor heap](actor.md), since sessions in other heaps share them. Starting a
 session draws randomness and verifying a certificate reads the clock; both are
 allowed in workers.
 
@@ -341,6 +369,7 @@ builtin `__tls_write`, which `std.tls` calls on any `ByteSource`.
 | Item | Memory |
 |---|---|
 | `TlsStream` | Two 16 KiB ciphertext buffers, plus rustls's session state and its buffer for the incoming record (up to about 17 KiB) |
+| `Session` | rustls's session state and its record buffers; see [`std.actor.tls`](actor-tls.md#memory) for measurements |
 | Configuration | The parsed certificates and key, shared by every session |
 | `TrustRoots` | The parsed anchors; a full system bundle holds about 120 |
 

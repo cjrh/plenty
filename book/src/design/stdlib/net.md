@@ -108,6 +108,7 @@ Both distinctions survive the network-error wrappers in
 | `connecting.watch(&mut selector, key)`, `unwatch(&mut selector)` | `Result[(), NetError]`: the attempt is ready when it can be finished |
 | `connecting.finish_now()` | `Result[(), NetError]`: `WouldBlock` while the attempt continues, then success or why it failed |
 | `connecting.stream()` | `TcpStream`: consumes a finished attempt |
+| `descriptor()` on `TcpStream`, `TcpListener`, `UdpSocket`, `Connecting`, `Lookup` | `&File`: the handle a selector waits on, for [`std.ready.Watchable`](ready.md#selectors) |
 | `stream.read_now(buffer, start, stop)` | `Result[i64, NetError]`: one nonblocking read attempt into `&mut Bytes` |
 | `stream.write_now(source, start, stop)` | `Result[i64, NetError]`: one nonblocking write attempt from any [`ByteSource`](bytes.md#byte-sources) |
 | `stream.read_before(buffer, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one read; 0 is end of input |

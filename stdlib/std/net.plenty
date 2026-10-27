@@ -611,6 +611,10 @@ pub class Lookup:
     _data: Bytes
     _port: u16
 
+    # The reply pipe, readable once the lookup has replied.
+    pub def descriptor(self) -> &File:
+        &self._reply.file
+
     pub def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]:
         selected(selector.watch(&self._reply.file, key, Interest.Read))
 
@@ -754,6 +758,10 @@ pub class TcpStream:
                 pass
         done(__net_shutdown(self._stream.file, how))
 
+    # The socket's handle, for `std.ready.Watchable`.
+    pub def descriptor(self) -> &File:
+        &self._stream.file
+
     # Registers the stream with a selector under `key`.
     pub def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), NetError]:
         selected(selector.watch(&self._stream.file, key, interest))
@@ -779,6 +787,10 @@ pub class TcpListener:
 
     pub def local_address(self) -> Result[SocketAddress, NetError]:
         address_of(&self._file, 0u8)
+
+    # The socket, readable while a connection waits to be accepted.
+    pub def descriptor(self) -> &File:
+        &self._file
 
     # Registers the listener with a selector under `key`; it is readable
     # while a connection waits to be accepted.
@@ -848,6 +860,10 @@ pub def connect(address: &SocketAddress, deadline: &Deadline, cancel: &Cancellat
 pub class Connecting:
     _file: File
 
+    # The socket, writable once the attempt has finished.
+    pub def descriptor(self) -> &File:
+        &self._file
+
     # Registers the attempt under `key`; it becomes writable when the
     # connection is established or has failed.
     pub def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]:
@@ -892,6 +908,9 @@ pub class UdpSocket:
 
     pub def local_address(self) -> Result[SocketAddress, NetError]:
         address_of(&self._file, 0u8)
+
+    pub def descriptor(self) -> &File:
+        &self._file
 
     pub def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), NetError]:
         selected(selector.watch(&self._file, key, interest))
