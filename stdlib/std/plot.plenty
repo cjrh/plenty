@@ -1,0 +1,1105 @@
+# A layered grammar of graphics, with API names modelled on ggplot2.
+# Follows Wickham's data/mapping/layer/scale/coordinate separation.
+# Independently implemented in Plenty; no R code or ggplot2 data is shipped.
+import std.io
+import std.math
+import std.bytes
+from std.bytes import BytesError
+from std.io import Writer, StreamError
+from std.fmt import FormatError
+
+pub enum PlotError:
+    Allocation(AllocError)
+    Format(FormatError)
+    Bytes(BytesError)
+    Write(i64, StreamError)
+    Io(StreamError)
+    UnknownColumn(str)
+    DuplicateColumn(str)
+    ShapeMismatch(str)
+    MissingAesthetic(str)
+    WrongKind(str)
+    Conflict(str)
+    InvalidSetting(str)
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, PlotError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(PlotError.Allocation(error))
+
+def formatted(result: Result[str, FormatError]) -> Result[str, PlotError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(PlotError.Format(error))
+
+def streamed[T](result: Result[T, StreamError]) -> Result[T, PlotError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(PlotError.Io(error))
+
+def finite(value: f64) -> bool:
+    value == value and value != f64.INF and value != -f64.INF
+
+pub enum Column:
+    Num(list[f64])
+    Int(list[i64])
+    Text(list[str])
+    Bool(list[bool])
+    MaybeNum(list[Option[f64]])
+    MaybeText(list[Option[str]])
+
+    def length(self) -> i64:
+        match self:
+            case Column.Num(xs):
+                len(xs)
+            case Column.Int(xs):
+                len(xs)
+            case Column.Text(xs):
+                len(xs)
+            case Column.Bool(xs):
+                len(xs)
+            case Column.MaybeNum(xs):
+                len(xs)
+            case Column.MaybeText(xs):
+                len(xs)
+
+    def discrete(self) -> bool:
+        match self:
+            case Column.Text(_) | Column.Bool(_) | Column.MaybeText(_):
+                True
+            case _:
+                False
+
+    def number(self, row: i64) -> Option[f64]:
+        match self:
+            case Column.Num(xs):
+                Some(xs[row])
+            case Column.Int(xs):
+                Some(f64(xs[row]))
+            case Column.MaybeNum(xs):
+                xs[row]
+            case _:
+                Nothing
+
+    def label(self, row: i64) -> Result[Option[str], PlotError]:
+        match self:
+            case Column.Text(xs):
+                Ok(Some(xs[row]))
+            case Column.Bool(xs):
+                Ok(Some("TRUE" if xs[row] else "FALSE"))
+            case Column.MaybeText(xs):
+                Ok(xs[row])
+            case Column.Int(xs):
+                Ok(Some(allocated(str.from(xs[row]))?))
+            case _:
+                match self.number(row):
+                    case Some(value):
+                        if finite(value):
+                            return Ok(Some(allocated(str.from(value if value != 0.0 else 0.0))?))
+                        Ok(Nothing)
+                    case Nothing:
+                        Ok(Nothing)
+
+class TableData:
+    columns: list[(str, Column)]
+    height: i64
+
+pub class Table:
+    _data: Shared[TableData]
+
+    pub def share(self) -> Table:
+        Table(self._data.share())
+
+    pub def height(self) -> i64:
+        self._data.height
+
+    pub def names(self) -> Result[list[str], PlotError]:
+        mut names = allocated(list[str]())?
+        for entry in &self._data.columns:
+            allocated(names.append(entry[0]))?
+        Ok(names)
+
+pub def table(values: list[(str, Column)]) -> Result[Table, PlotError]:
+    mut height = 0
+    mut names: set[str] = allocated(set[str]())?
+    for entry in &values:
+        name = entry[0]
+        column = &entry[1]
+        if name == "":
+            return Err(PlotError.InvalidSetting("column names must not be empty"))
+        if name in names:
+            return Err(PlotError.DuplicateColumn(name))
+        if len(names) == 0:
+            height = column.length()
+        elif column.length() != height:
+            return Err(PlotError.ShapeMismatch(name))
+        allocated(names.add(name))?
+    Ok(Table(allocated(Shared(TableData(values, height)))?))
+
+pub def columns(values: &dict[str, list[f64]]) -> Result[Table, PlotError]:
+    mut result = allocated(list[(str, Column)]())?
+    for name, column in values.items():
+        allocated(result.append((*name, Column.Num(allocated(copy(column))?))))?
+    table(result)
+
+pub enum Field[T]:
+    Num(str, BoxedCallable[[&T], f64])
+    Int(str, BoxedCallable[[&T], i64])
+    Text(str, BoxedCallable[[&T], str])
+    Bool(str, BoxedCallable[[&T], bool])
+
+pub def num[T, F: Callable[[&T], f64]](name: str, read: F) -> Result[Field[T], PlotError]:
+    Ok(Field[T].Num(name, allocated(BoxedCallable(read))?))
+
+pub def integer[T, F: Callable[[&T], i64]](name: str, read: F) -> Result[Field[T], PlotError]:
+    Ok(Field[T].Int(name, allocated(BoxedCallable(read))?))
+
+pub def text[T, F: Callable[[&T], str]](name: str, read: F) -> Result[Field[T], PlotError]:
+    Ok(Field[T].Text(name, allocated(BoxedCallable(read))?))
+
+pub def flag[T, F: Callable[[&T], bool]](name: str, read: F) -> Result[Field[T], PlotError]:
+    Ok(Field[T].Bool(name, allocated(BoxedCallable(read))?))
+
+pub def rows[T](values: &list[T], fields: list[Field[T]]) -> Result[Table, PlotError]:
+    mut result = allocated(list[(str, Column)]())?
+    for field in &fields:
+        match field:
+            case Field.Num(name, read):
+                mut xs = allocated(list[f64]())?
+                for value in values:
+                    allocated(xs.append(read(value)))?
+                allocated(result.append((*name, Column.Num(xs))))?
+            case Field.Int(name, read):
+                mut xs = allocated(list[i64]())?
+                for value in values:
+                    allocated(xs.append(read(value)))?
+                allocated(result.append((*name, Column.Int(xs))))?
+            case Field.Text(name, read):
+                mut xs = allocated(list[str]())?
+                for value in values:
+                    allocated(xs.append(read(value)))?
+                allocated(result.append((*name, Column.Text(xs))))?
+            case Field.Bool(name, read):
+                mut xs = allocated(list[bool]())?
+                for value in values:
+                    allocated(xs.append(read(value)))?
+                allocated(result.append((*name, Column.Bool(xs))))?
+    table(result)
+
+pub class Factor:
+    _name: str
+
+pub def factor(name: str) -> Factor:
+    Factor(name)
+
+pub class Mapping:
+    _x: str
+    _y: str
+    _colour: str
+    _fill: str
+    _group: str
+    _xfactor: bool
+    _yfactor: bool
+    _cfactor: bool
+    _ffactor: bool
+    _conflict: bool
+
+def mapped(value: &(str | Factor)) -> str:
+    match value:
+        case name: str:
+            *name
+        case value: Factor:
+            value._name
+
+def factored(value: &(str | Factor)) -> bool:
+    match value:
+        case ignored: Factor:
+            True
+        case _:
+            False
+
+pub def aes(x: str | Factor = "", y: str | Factor = "", colour: str | Factor = "", color: str | Factor = "", fill: str | Factor = "", group: str = "") -> Mapping:
+    use_color = mapped(&color) != ""
+    Mapping(mapped(&x), mapped(&y), mapped(&color) if use_color else mapped(&colour), mapped(&fill), group, factored(&x), factored(&y), factored(&color) if use_color else factored(&colour), factored(&fill), use_color and mapped(&colour) != "")
+
+pub enum Position:
+    Identity
+    Stack
+    Dodge
+    Fill
+
+pub def position_identity() -> Position:
+    Position.Identity
+
+pub def position_stack() -> Position:
+    Position.Stack
+
+pub def position_dodge() -> Position:
+    Position.Dodge
+
+pub def position_fill() -> Position:
+    Position.Fill
+
+pub enum Units:
+    In
+    Cm
+    Mm
+    Px
+
+pub enum Legend:
+    Right
+    Hidden
+
+pub class Layer:
+    _kind: i64
+    _colour: str
+    _fill: str
+    _size: f64
+    _alpha: f64
+    _width: f64
+    _bins: i64
+    _position: Position
+    _na_rm: bool
+    _conflict: bool
+
+pub class Labels:
+    _title: str
+    _x: str
+    _y: str
+    _colour: str
+    _fill: str
+
+pub class Theme:
+    _kind: i64
+    _size: f64
+    _legend: Legend
+
+pub enum Component:
+    Layer(Layer)
+    Labels(Labels)
+    Theme(Theme)
+    Cartesian(Option[(f64, f64)], Option[(f64, f64)])
+    Flip
+    ColourScale(bool, ColourScale)
+
+pub enum ColourScale:
+    Default
+    Manual(dict[str, str])
+    Gradient(str, str)
+
+pub def scale_colour_manual(values: dict[str, str]) -> Component:
+    Component.ColourScale(False, ColourScale.Manual(values))
+
+pub def scale_color_manual(values: dict[str, str]) -> Component:
+    scale_colour_manual(values)
+
+pub def scale_fill_manual(values: dict[str, str]) -> Component:
+    Component.ColourScale(True, ColourScale.Manual(values))
+
+pub def scale_colour_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component:
+    Component.ColourScale(False, ColourScale.Gradient(low, high))
+
+pub def scale_color_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component:
+    scale_colour_gradient(low, high)
+
+pub def scale_fill_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component:
+    Component.ColourScale(True, ColourScale.Gradient(low, high))
+
+pub enum Unset:
+    Unset
+
+def numeric(value: &(f64 | i64)) -> f64:
+    match value:
+        case n: f64:
+            *n
+        case n: i64:
+            f64(*n)
+
+def layer(kind: i64, colour: str, color: str, fill: str, size: f64 | i64, alpha: f64 | i64, width: f64 | i64, bins: i64, position: Position, na_rm: bool) -> Component:
+    Component.Layer(Layer(kind, color if color != "" else colour, fill, numeric(&size), numeric(&alpha), numeric(&width), bins, position, na_rm, colour != "" and color != ""))
+
+pub def geom_point(colour: str = "", color: str = "", size: f64 | i64 = 1.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component:
+    layer(0, colour, color, "", size, alpha, 0.9, 30, Position.Identity, na_rm)
+
+pub def geom_line(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component:
+    layer(1, colour, color, "", linewidth, alpha, 0.9, 30, Position.Identity, na_rm)
+
+pub def geom_path(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component:
+    layer(2, colour, color, "", linewidth, alpha, 0.9, 30, Position.Identity, na_rm)
+
+pub def geom_col(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component:
+    layer(3, colour, color, fill, 0.5, alpha, width, 30, position, na_rm)
+
+pub def geom_bar(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component:
+    layer(4, colour, color, fill, 0.5, alpha, width, 30, position, na_rm)
+
+pub def geom_histogram(colour: str = "", color: str = "", fill: str = "", bins: i64 = 30, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component:
+    layer(5, colour, color, fill, 0.5, alpha, 1.0, bins, position, na_rm)
+
+pub def labs(title: str = "", x: str = "", y: str = "", colour: str = "", fill: str = "") -> Component:
+    Component.Labels(Labels(title, x, y, colour, fill))
+
+pub def theme_grey(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component:
+    Component.Theme(Theme(0, numeric(&base_size), legend_position))
+
+pub def theme_minimal(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component:
+    Component.Theme(Theme(1, numeric(&base_size), legend_position))
+
+pub def theme_classic(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component:
+    Component.Theme(Theme(2, numeric(&base_size), legend_position))
+
+pub def coord_flip() -> Component:
+    Component.Flip
+
+def limits(value: &((f64, f64) | Unset)) -> Option[(f64, f64)]:
+    match value:
+        case pair: (f64, f64):
+            Some(*pair)
+        case _:
+            Nothing
+
+pub def coord_cartesian(xlim: (f64, f64) | Unset = Unset.Unset, ylim: (f64, f64) | Unset = Unset.Unset) -> Component:
+    Component.Cartesian(limits(&xlim), limits(&ylim))
+
+def check_limits(limits: Option[(f64, f64)]) -> Result[(), PlotError]:
+    match limits:
+        case Some(pair):
+            low, high = pair
+            if not finite(low) or not finite(high) or low >= high or std.math.abs(low) > 1.0e100 or std.math.abs(high) > 1.0e100:
+                return Err(PlotError.InvalidSetting("limits must be finite, increasing, and within +/-1e100"))
+        case Nothing:
+            pass
+    Ok(())
+
+def column_index(data: &TableData, name: str) -> Result[i64, PlotError]:
+    for index, entry in enumerate(&data.columns):
+        if entry[0] == name:
+            return Ok(index)
+    Err(PlotError.UnknownColumn(name))
+
+def valid_colour(value: str) -> bool:
+    match value:
+        case "" | "black" | "white" | "red" | "green" | "blue" | "grey" | "gray" | "orange" | "purple" | "yellow" | "pink" | "brown" | "navy" | "transparent":
+            return True
+        case _:
+            pass
+    if len(value) != 7 and len(value) != 9:
+        return False
+    if value[0] != "#":
+        return False
+    for index, ch in enumerate(&value):
+        if index > 0 and *ch not in "0123456789abcdefABCDEF":
+            return False
+    True
+
+def validate(data: &TableData, mapping: &Mapping, components: &list[Component]) -> Result[(), PlotError]:
+    if mapping._conflict:
+        return Err(PlotError.Conflict("aes: colour and color"))
+    for name in allocated([mapping._x, mapping._y, mapping._colour, mapping._fill, mapping._group])?:
+        if name != "":
+            drop(column_index(data, name)?)
+    mut coordinates = 0
+    for component in components:
+        match component:
+            case Component.Layer(geom):
+                if mapping._x == "":
+                    return Err(PlotError.MissingAesthetic("x"))
+                if geom._kind < 4 and mapping._y == "":
+                    return Err(PlotError.MissingAesthetic("y"))
+                if geom._kind >= 4 and mapping._y != "":
+                    return Err(PlotError.Conflict("count/bin layers compute y; omit the y mapping"))
+                if geom._kind >= 4:
+                    if mapping._colour != "" and geom._colour == "" and not mapping._cfactor:
+                        colour = column_index(data, mapping._colour)?
+                        if not data.columns[colour][1].discrete():
+                            return Err(PlotError.WrongKind("count/bin colour must be discrete; use factor"))
+                    if mapping._fill != "" and geom._fill == "" and not mapping._ffactor:
+                        fill = column_index(data, mapping._fill)?
+                        if not data.columns[fill][1].discrete():
+                            return Err(PlotError.WrongKind("count/bin fill must be discrete; use factor"))
+                x = column_index(data, mapping._x)?
+                if geom._kind == 5 and (mapping._xfactor or data.columns[x][1].discrete()):
+                    return Err(PlotError.WrongKind("histogram requires continuous x"))
+                if geom._kind == 3:
+                    y = column_index(data, mapping._y)?
+                    if mapping._yfactor or data.columns[y][1].discrete():
+                        return Err(PlotError.WrongKind("geom_col requires continuous y"))
+                if geom._conflict:
+                    return Err(PlotError.Conflict("layer: colour and color"))
+                if not valid_colour(geom._colour) or not valid_colour(geom._fill):
+                    return Err(PlotError.InvalidSetting("colour: use a supported name or #RRGGBB/#RRGGBBAA"))
+                if not finite(geom._size) or geom._size <= 0.0 or geom._size > 100.0:
+                    return Err(PlotError.InvalidSetting("size/linewidth must be in (0, 100] mm"))
+                if not finite(geom._alpha) or geom._alpha < 0.0 or geom._alpha > 1.0:
+                    return Err(PlotError.InvalidSetting("alpha must be in [0, 1]"))
+                if not finite(geom._width) or geom._width <= 0.0 or geom._width > 1.0:
+                    return Err(PlotError.InvalidSetting("width must be in (0, 1]"))
+                if geom._bins <= 0 or geom._bins > 10000:
+                    return Err(PlotError.InvalidSetting("bins must be in [1, 10000]"))
+            case Component.Theme(theme):
+                if not finite(theme._size) or theme._size < 1.0 or theme._size > 100.0:
+                    return Err(PlotError.InvalidSetting("base_size must be in [1, 100] points"))
+            case Component.Cartesian(x, y):
+                check_limits(*x)?
+                check_limits(*y)?
+                coordinates += 1
+            case Component.Flip:
+                coordinates += 1
+            case _:
+                pass
+    if coordinates > 1:
+        return Err(PlotError.Conflict("only one coordinate component is allowed"))
+    Ok(())
+
+pub class Plot:
+    _data: Table
+    _mapping: Mapping
+    _components: list[Component]
+
+    pub def plus(self, components: list[Component]) -> Result[Plot, PlotError]:
+        mut all = allocated(copy(self._components))?
+        for component in components:
+            allocated(all.append(component))?
+        ggplot(self._data.share(), allocated(copy(self._mapping))?, all)
+
+    pub def write_svg[W: Writer](self, writer: &mut W, width: f64 = 6.0, height: f64 = 4.0, units: Units = Units.In, dpi: f64 = 300.0) -> Result[list[str], PlotError]:
+        draw(self, writer, width, height, units, dpi)
+
+    pub def save(self, path: &str, width: f64 = 6.0, height: f64 = 4.0, units: Units = Units.In, dpi: f64 = 300.0) -> Result[list[str], PlotError]:
+        if not path.endswith(".svg"):
+            return Err(PlotError.InvalidSetting("save supports .svg only"))
+        drop(dimensions(width, height, units, dpi)?)
+        file = streamed(std.io.open_file(path, "w"))?
+        mut output = streamed(std.io.buffered_writer(file, 16384))?
+        notes = self.write_svg(&mut output, width, height, units, dpi)?
+        streamed(output.inner.close())?
+        Ok(notes)
+
+pub def ggplot(data: Table, mapping: Mapping, components: list[Component]) -> Result[Plot, PlotError]:
+    validate(&*data._data, &mapping, &components)?
+    # Validate the final scale for each aesthetic, including level coverage.
+    # A later component replaces an earlier scale, including through plus().
+    drop(colour_axis(&*data._data, mapping._colour, mapping._cfactor, &components, False)?)
+    drop(colour_axis(&*data._data, mapping._fill, mapping._ffactor, &components, True)?)
+    Ok(Plot(data, mapping, components))
+
+class Axis:
+    values: list[Option[f64]]
+    levels: list[str]
+    discrete: bool
+    low: f64
+    high: f64
+    paint: ColourScale
+
+def axis(data: &TableData, name: str, factor: bool) -> Result[Axis, PlotError]:
+    mut values = allocated(list[Option[f64]]())?
+    mut levels = allocated(list[str]())?
+    if name == "":
+        return Ok(Axis(values, levels, False, 0.0, 1.0, ColourScale.Default))
+    index = column_index(data, name)?
+    column = &data.columns[index][1]
+    discrete = factor or column.discrete()
+    if discrete:
+        mut seen: set[str] = allocated(set[str]())?
+        for row in range(data.height):
+            match column.label(row)?:
+                case Some(value):
+                    if value not in seen:
+                        allocated(seen.add(value))?
+                        allocated(levels.append(value))?
+                case Nothing:
+                    pass
+        levels.sort()
+        if not column.discrete():
+            levels = allocated(list[str]())?
+            match column:
+                case Column.Int(numbers):
+                    ordered = allocated(copy(numbers))?
+                    mut sorted_values = ordered
+                    sorted_values.sort()
+                    mut previous: Option[i64] = Nothing
+                    for value in &sorted_values:
+                        if previous != Some(*value):
+                            allocated(levels.append(allocated(str.from(*value))?))?
+                        previous = Some(*value)
+                case _:
+                    mut ordered = allocated(list[f64]())?
+                    for row in range(data.height):
+                        match column.number(row):
+                            case Some(value):
+                                if finite(value):
+                                    allocated(ordered.append(value if value != 0.0 else 0.0))?
+                            case Nothing:
+                                pass
+                    ordered.sort()
+                    mut previous: Option[f64] = Nothing
+                    for value in &ordered:
+                        if previous != Some(*value):
+                            allocated(levels.append(allocated(str.from(*value))?))?
+                        previous = Some(*value)
+        mut lookup = allocated(dict[str, i64]())?
+        for position, label in enumerate(&levels):
+            allocated(lookup.insert(*label, position))?
+        for row in range(data.height):
+            match column.label(row)?:
+                case Some(value):
+                    allocated(values.append(Some(f64(lookup[value]))))?
+                case Nothing:
+                    allocated(values.append(Nothing))?
+    else:
+        for row in range(data.height):
+            value = column.number(row)
+            match value:
+                case Some(number):
+                    if finite(number):
+                        if std.math.abs(number) > 1.0e100:
+                            return Err(PlotError.InvalidSetting("numeric data magnitude exceeds 1e100"))
+                        allocated(values.append(Some(number)))?
+                    else:
+                        allocated(values.append(Nothing))?
+                case Nothing:
+                    allocated(values.append(Nothing))?
+    mut low = 0.0
+    mut high = 1.0
+    mut first = True
+    for value in &values:
+        match value:
+            case Some(number):
+                if first:
+                    low = *number
+                    high = *number
+                    first = False
+                else:
+                    low = std.math.min(low, *number)
+                    high = std.math.max(high, *number)
+            case Nothing:
+                pass
+    Ok(Axis(values, levels, discrete, low, high, ColourScale.Default))
+
+def colour_axis(data: &TableData, name: str, factor: bool, components: &list[Component], fill: bool) -> Result[Axis, PlotError]:
+    mut result = axis(data, name, factor)?
+    for component in components:
+        match component:
+            case Component.ColourScale(is_fill, paint):
+                if *is_fill == fill:
+                    result.paint = allocated(copy(paint))?
+            case _:
+                pass
+    match &result.paint:
+        case ColourScale.Manual(values):
+            if name != "" and not result.discrete:
+                return Err(PlotError.WrongKind("manual colour scales require discrete data; use factor"))
+            for value in values.values():
+                if *value == "" or not valid_colour(*value):
+                    return Err(PlotError.InvalidSetting("manual palette contains an invalid colour"))
+            for level in &result.levels:
+                if *level not in values:
+                    return Err(PlotError.InvalidSetting("manual palette must name every mapped level"))
+        case ColourScale.Gradient(low, high):
+            if name != "" and result.discrete:
+                return Err(PlotError.WrongKind("gradient colour scales require continuous data"))
+            if len(*low) != 7 or len(*high) != 7 or not low.startswith("#") or not high.startswith("#") or not valid_colour(*low) or not valid_colour(*high):
+                return Err(PlotError.InvalidSetting("gradient endpoints must be #RRGGBB"))
+        case ColourScale.Default:
+            pass
+    Ok(result)
+
+def hex_channel(value: str, offset: i64) -> f64:
+    mut result = 0
+    for index in range(offset, offset + 2):
+        digit = "0123456789abcdef".find(value[index]).unwrap_or(-1)
+        upper = "0123456789ABCDEF".find(value[index]).unwrap_or(0)
+        result = result * 16 + (digit if digit >= 0 else upper)
+    f64(result)
+
+def gradient_colour(low: str, high: str, t: f64) -> Result[str, PlotError]:
+    r = i64(hex_channel(low, 1) * (1.0 - t) + hex_channel(high, 1) * t)
+    g = i64(hex_channel(low, 3) * (1.0 - t) + hex_channel(high, 3) * t)
+    b = i64(hex_channel(low, 5) * (1.0 - t) + hex_channel(high, 5) * t)
+    formatted(f"#{r:02x}{g:02x}{b:02x}")
+
+def scale_colour(scale: &Axis, index: i64, t: f64) -> Result[str, PlotError]:
+    match &scale.paint:
+        case ColourScale.Manual(values):
+            Ok(values[scale.levels[index]])
+        case ColourScale.Gradient(low, high):
+            gradient_colour(*low, *high, t)
+        case ColourScale.Default:
+            if scale.discrete:
+                return Ok(palette(index))
+            gradient_colour("#132B43", "#56B1F7", t)
+
+def palette(index: i64) -> str:
+    match index % 8:
+        case 0:
+            "#F8766D"
+        case 1:
+            "#00BFC4"
+        case 2:
+            "#7CAE00"
+        case 3:
+            "#C77CFF"
+        case 4:
+            "#E69F00"
+        case 5:
+            "#0072B2"
+        case 6:
+            "#CC79A7"
+        case _:
+            "#009E73"
+
+def colour_at(scale: &Axis, row: i64, setting: str, fallback: str) -> Result[Option[str], PlotError]:
+    if setting != "":
+        return Ok(Some(setting))
+    if len(scale.values) == 0:
+        return Ok(Some(fallback))
+    match scale.values[row]:
+        case Nothing:
+            Ok(Nothing)
+        case Some(value):
+            if scale.discrete:
+                return Ok(Some(scale_colour(scale, i64(value), 0.0)?))
+            t = (value - scale.low) / (scale.high - scale.low) if scale.high > scale.low else 0.5
+            Ok(Some(scale_colour(scale, 0, t)?))
+
+class Row:
+    x: f64
+    y: f64
+    bottom: f64
+    width: f64
+    colour: str
+    fill: str
+    group: i64
+    source: i64
+    valid: bool
+
+class LayerRows:
+    rows: list[Row]
+    layer: Layer
+
+def group_value(scale: &Axis, row: i64) -> i64:
+    if not scale.discrete or len(scale.values) == 0:
+        return -1
+    match scale.values[row]:
+        case Some(value):
+            i64(value)
+        case Nothing:
+            -1
+
+def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axis, colour: &Axis, fill: &Axis, groups: &Axis, notes: &mut list[str]) -> Result[LayerRows, PlotError]:
+    mut result = allocated(list[Row]())?
+    mut identities = allocated(dict[(i64, i64, i64, i64, i64), i64]())?
+    mut dropped = 0
+    for row in range(data.height):
+        xv = x.values[row]
+        yv = y.values[row] if geom._kind < 4 else Some(1.0)
+        cv = colour_at(colour, row, geom._colour, "black" if geom._kind < 3 else "transparent")?
+        fv = colour_at(fill, row, geom._fill, "#595959")?
+        valid = xv.is_some() and yv.is_some() and cv.is_some() and fv.is_some()
+        if not valid:
+            dropped += 1
+            if geom._kind != 1 and geom._kind != 2:
+                continue
+        if len(groups.values) > 0 and groups.values[row].is_none():
+            dropped += 1
+            continue
+        explicit = len(groups.values) > 0
+        # Discrete aesthetics define default groups; an explicit group replaces
+        # that interaction, as in the layered grammar.
+        identity = (group_value(groups, row), -1 if explicit or geom._kind >= 3 else group_value(x, row), -1 if explicit or geom._kind >= 3 else group_value(y, row), -1 if explicit else group_value(colour, row), -1 if explicit else group_value(fill, row))
+        if identity not in identities:
+            allocated(identities.insert(identity, len(identities)))?
+        allocated(result.append(Row(xv.unwrap_or(0.0), yv.unwrap_or(0.0), 0.0, geom._width, cv.unwrap_or("black"), fv.unwrap_or("#595959"), identities[identity], row, valid)))?
+    mut ordered_groups = allocated(list[(i64, i64, i64, i64, i64)]())?
+    for key in identities.keys():
+        allocated(ordered_groups.append(*key))?
+    ordered_groups.sort()
+    mut remap = allocated(dict[i64, i64]())?
+    for index, key in enumerate(&ordered_groups):
+        allocated(remap.insert(identities[*key], index))?
+    for row in &mut result:
+        row.group = remap[row.group]
+    if dropped > 0 and not geom._na_rm:
+        allocated(notes.append(formatted(f"Removed {dropped} rows with missing or non-finite mapped values.")?))?
+    if geom._kind == 4 or geom._kind == 5:
+        mut counts = allocated(list[Row]())?
+        mut by_key = allocated(dict[(i64, str), i64]())?
+        mut binwidth = 1.0
+        mut origin = x.low - 0.5
+        if geom._kind == 5:
+            if x.high > x.low:
+                binwidth = (x.high - x.low) / f64(geom._bins)
+                origin = x.low
+            if binwidth == 0.0:
+                return Err(PlotError.InvalidSetting("histogram range is too small"))
+            allocated(notes.append(formatted(f"Histogram uses {geom._bins} equal-width bins over the finite x range.")?))?
+        for row in &result:
+            mut position = row.x
+            mut width = geom._width
+            if geom._kind == 5:
+                bin = std.math.min(geom._bins - 1, i64((row.x - origin) / binwidth))
+                position = origin + (f64(bin) + 0.5) * binwidth
+                width = binwidth
+            key = (row.group, allocated(str.from(position if position != 0.0 else 0.0))?)
+            match by_key.get(key):
+                case Some(index):
+                    if counts[index].colour != row.colour or counts[index].fill != row.fill:
+                        return Err(PlotError.Conflict("count/bin group contains multiple colours; include them in grouping"))
+                    counts[index].y += 1.0
+                case Nothing:
+                    allocated(by_key.insert(key, len(counts)))?
+                    allocated(counts.append(Row(position, 1.0, 0.0, width, row.colour, row.fill, row.group, row.source, True)))?
+        result = counts
+    if geom._kind >= 3:
+        if geom._position == Position.Stack or geom._position == Position.Fill:
+            mut totals = allocated(dict[(str, bool), f64]())?
+            for row in &result:
+                key = (allocated(str.from(row.x if row.x != 0.0 else 0.0))?, row.y >= 0.0)
+                allocated(totals.insert(key, totals.get(key, 0.0) + row.y))?
+            mut previous = allocated(dict[(str, bool), f64]())?
+            mut stack_order = allocated(list[(i64, i64)]())?
+            for index, row in enumerate(&result):
+                allocated(stack_order.append((-row.group, index)))?
+            stack_order.sort()
+            for entry in &stack_order:
+                row = &mut result[entry[1]]
+                key = (allocated(str.from(row.x if row.x != 0.0 else 0.0))?, row.y >= 0.0)
+                bottom = previous.get(key, 0.0)
+                top = bottom + row.y
+                row.bottom = bottom
+                row.y = top
+                allocated(previous.insert(key, top))?
+                if geom._position == Position.Fill:
+                    total = std.math.abs(totals[key])
+                    if total > 0.0:
+                        row.bottom /= total
+                        row.y /= total
+        elif geom._position == Position.Dodge:
+            group_count = std.math.max(1, len(identities))
+            for row in &mut result:
+                span = row.width
+                row.width /= f64(group_count)
+                row.x += -span / 2.0 + (f64(row.group) + 0.5) * row.width
+    Ok(LayerRows(result, allocated(copy(geom))?))
+
+def dimensions(width: f64, height: f64, units: Units, dpi: f64) -> Result[(f64, f64), PlotError]:
+    if not finite(width) or not finite(height) or not finite(dpi) or dpi <= 0.0:
+        return Err(PlotError.InvalidSetting("dimensions and dpi must be finite and positive"))
+    scale = match units:
+        case Units.In:
+            72.0
+        case Units.Cm:
+            72.0 / 2.54
+        case Units.Mm:
+            72.0 / 25.4
+        case Units.Px:
+            72.0 / dpi
+    w = width * scale
+    h = height * scale
+    if not finite(w) or not finite(h) or w < 144.0 or h < 144.0 or w > 7200.0 or h > 7200.0:
+        return Err(PlotError.InvalidSetting("SVG dimensions must be between 2 and 100 inches"))
+    Ok((w, h))
+
+# Each fragment is written immediately. A failing stream may already contain a
+# prefix; Write.completed counts bytes in the failing fragment, not the plot.
+def emit[W: Writer](writer: &mut W, value: str) -> Result[(), PlotError]:
+    data = match std.bytes.from_text(&value):
+        case Ok(bytes):
+            bytes
+        case Err(error):
+            return Err(PlotError.Bytes(error))
+    match std.io.write_all(writer, &data, 0, data.len()):
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            Err(PlotError.Write(error.completed, error.cause))
+
+def escaped(value: str) -> Result[str, PlotError]:
+    mut pieces = allocated(list[str]())?
+    for ch in &value:
+        code = ord(*ch).unwrap()
+        if (code < 32u32 and code != 9u32 and code != 10u32 and code != 13u32) or code == 65534u32 or code == 65535u32:
+            return Err(PlotError.InvalidSetting("text contains a character forbidden in XML 1.0"))
+        piece = match *ch:
+            case "&":
+                "&amp;"
+            case "<":
+                "&lt;"
+            case ">":
+                "&gt;"
+            case "\"":
+                "&quot;"
+            case "'":
+                "&apos;"
+            case _:
+                *ch
+        allocated(pieces.append(piece))?
+    allocated("".join(&pieces))
+
+def label[W: Writer](writer: &mut W, x: f64, y: f64, text: str, size: f64, anchor: str = "middle") -> Result[(), PlotError]:
+    safe = escaped(text)?
+    emit(writer, formatted(f"<text x=\"{x:.2f}\" y=\"{y:.2f}\" font-size=\"{size:.2f}\" text-anchor=\"{anchor}\">{safe}</text>\n")?)
+
+def line[W: Writer](writer: &mut W, x1: f64, y1: f64, x2: f64, y2: f64, colour: str, width: f64 = 0.5) -> Result[(), PlotError]:
+    emit(writer, formatted(f"<line x1=\"{x1:.2f}\" y1=\"{y1:.2f}\" x2=\"{x2:.2f}\" y2=\"{y2:.2f}\" stroke=\"{colour}\" stroke-width=\"{width:.2f}\"/>\n")?)
+
+def rectangle[W: Writer](writer: &mut W, x: f64, y: f64, width: f64, height: f64, fill: str, stroke: str = "none") -> Result[(), PlotError]:
+    emit(writer, formatted(f"<rect x=\"{x:.2f}\" y=\"{y:.2f}\" width=\"{width:.2f}\" height=\"{height:.2f}\" fill=\"{fill}\" stroke=\"{stroke}\"/>\n")?)
+
+def expand(low: f64, high: f64, discrete: bool) -> (f64, f64):
+    span = high - low
+    padding = 0.6 if discrete else (span * 0.05 if span > 0.0 else std.math.max(0.5, std.math.abs(low) * 0.05))
+    (low - padding, high + padding)
+
+def coordinate(value: f64, low: f64, high: f64, start: f64, length: f64) -> f64:
+    start + (value - low) / (high - low) * length
+
+def tick_step(low: f64, high: f64) -> f64:
+    target = (high - low) / 4.0
+    mut power = 1.0
+    while power > target and power > 1.0e-300:
+        power /= 10.0
+    while power * 10.0 <= target:
+        power *= 10.0
+    if target <= power:
+        power
+    elif target <= power * 2.0:
+        power * 2.0
+    elif target <= power * 5.0:
+        power * 5.0
+    else:
+        power * 10.0
+
+def number_label(value: f64, step: f64) -> Result[str, PlotError]:
+    rounded = 0.0 if std.math.abs(value) < step * 1.0e-9 else value
+    short = formatted(f"{rounded:.6g}")?
+    if step <= 0.0 or short != formatted(f"{rounded + step:.6g}")?:
+        return Ok(short)
+    medium = formatted(f"{rounded:.12g}")?
+    if medium != formatted(f"{rounded + step:.12g}")?:
+        return Ok(medium)
+    formatted(f"{rounded:.17g}")
+
+def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units: Units, dpi: f64) -> Result[list[str], PlotError]:
+    w, h = dimensions(width, height, units, dpi)?
+    data = &*plot._data._data
+    mapping = &plot._mapping
+    x = axis(data, mapping._x, mapping._xfactor)?
+    y = axis(data, mapping._y, mapping._yfactor)?
+    colour = colour_axis(data, mapping._colour, mapping._cfactor, &plot._components, False)?
+    fill = colour_axis(data, mapping._fill, mapping._ffactor, &plot._components, True)?
+    groups = axis(data, mapping._group, True)?
+    mut notes = allocated(list[str]())?
+    mut layers = allocated(list[LayerRows]())?
+    mut labels = Labels("", mapping._x, mapping._y, mapping._colour, mapping._fill)
+    mut theme = Theme(0, 11.0, Legend.Right)
+    mut flip = False
+    mut xlimits: Option[(f64, f64)] = Nothing
+    mut ylimits: Option[(f64, f64)] = Nothing
+    mut xmin = x.low
+    mut xmax = x.high
+    mut ymin = y.low
+    mut ymax = y.high
+    mut ytrained = y.discrete
+    mut uses_colour = False
+    mut uses_fill = False
+    for component in &plot._components:
+        match component:
+            case Component.Layer(geom):
+                uses_colour = uses_colour or (geom._colour == "" and mapping._colour != "")
+                uses_fill = uses_fill or (geom._kind >= 3 and geom._fill == "" and mapping._fill != "")
+                prepared = prepare(data, mapping, geom, &x, &y, &colour, &fill, &groups, &mut notes)?
+                for row in &prepared.rows:
+                    if not row.valid:
+                        continue
+                    half = row.width / 2.0 if geom._kind >= 3 else 0.0
+                    xmin = std.math.min(xmin, row.x - half)
+                    xmax = std.math.max(xmax, row.x + half)
+                    if not ytrained:
+                        ymin = row.y
+                        ymax = row.y
+                        ytrained = True
+                    ymin = std.math.min(ymin, row.y)
+                    ymax = std.math.max(ymax, row.y)
+                    if geom._kind >= 3:
+                        ymin = std.math.min(ymin, row.bottom)
+                        ymax = std.math.max(ymax, row.bottom)
+                    if geom._kind >= 4 and labels._y == "":
+                        labels._y = "count"
+                allocated(layers.append(prepared))?
+            case Component.Labels(value):
+                if value._title != "":
+                    labels._title = value._title
+                if value._x != "":
+                    labels._x = value._x
+                if value._y != "":
+                    labels._y = value._y
+                if value._colour != "":
+                    labels._colour = value._colour
+                if value._fill != "":
+                    labels._fill = value._fill
+            case Component.Theme(value):
+                theme = allocated(copy(value))?
+            case Component.Flip:
+                flip = True
+            case Component.Cartesian(x, y):
+                xlimits = *x
+                ylimits = *y
+            case Component.ColourScale(_, _):
+                pass
+    xlo, xhi = xlimits.unwrap_or(expand(xmin, xmax, x.discrete))
+    ylo, yhi = ylimits.unwrap_or(expand(ymin, ymax, y.discrete))
+    for ratio in allocated([(xmin - xlo) / (xhi - xlo), (xmax - xlo) / (xhi - xlo), (ymin - ylo) / (yhi - ylo), (ymax - ylo) / (yhi - ylo)])?:
+        if not finite(ratio) or std.math.abs(ratio) > 1.0e9:
+            return Err(PlotError.InvalidSetting("coordinate magnification is too large"))
+    mut legend_width = 0.0
+    if theme._legend != Legend.Hidden and (uses_colour or uses_fill):
+        legend_width = 100.0
+    left = 55.0
+    top = 35.0
+    pw = w - left - 20.0 - legend_width
+    ph = h - top - 50.0
+    if pw < 40.0 or ph < 40.0:
+        return Err(PlotError.InvalidSetting("plot too small for axes and legend"))
+    emit(writer, formatted(f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w:.2f}pt\" height=\"{h:.2f}pt\" viewBox=\"0 0 {w:.2f} {h:.2f}\">\n")?)?
+    emit(writer, "<g font-family=\"Liberation Sans,Arial,Helvetica,sans-serif\" fill=\"#333333\">\n")?
+    rectangle(writer, 0.0, 0.0, w, h, "white")?
+    rectangle(writer, left, top, pw, ph, "#EBEBEB" if theme._kind == 0 else "white")?
+    label(writer, left, 22.0, labels._title, theme._size * 1.2, "start")?
+    if flip:
+        draw_axis(writer, &y, ylo, yhi, left, top, pw, ph, False, &theme)?
+        draw_axis(writer, &x, xlo, xhi, left, top, pw, ph, True, &theme)?
+    else:
+        draw_axis(writer, &x, xlo, xhi, left, top, pw, ph, False, &theme)?
+        draw_axis(writer, &y, ylo, yhi, left, top, pw, ph, True, &theme)?
+    label(writer, left + pw / 2.0, h - 8.0, labels._y if flip else labels._x, theme._size)?
+    emit(writer, formatted(f"<g transform=\"translate(14.00,{top + ph / 2.0:.2f}) rotate(-90)\">\n")?)?
+    label(writer, 0.0, 0.0, labels._x if flip else labels._y, theme._size)?
+    emit(writer, "</g>\n")?
+    emit(writer, formatted(f"<defs><clipPath id=\"panel\"><rect x=\"{left:.2f}\" y=\"{top:.2f}\" width=\"{pw:.2f}\" height=\"{ph:.2f}\"/></clipPath></defs>\n<g clip-path=\"url(#panel)\">\n")?)?
+    for layer in &layers:
+        draw_layer(writer, layer, xlo, xhi, ylo, yhi, left, top, pw, ph, flip)?
+    emit(writer, "</g>\n")?
+    if legend_width > 0.0:
+        mut legend_y = top + theme._size
+        if uses_colour:
+            legend_y = draw_legend(writer, &colour, labels._colour, left + pw + 12.0, legend_y, h - 15.0, theme._size)?
+        if uses_fill and (not uses_colour or mapping._fill != mapping._colour or labels._fill != labels._colour or colour.paint != fill.paint):
+            drop(draw_legend(writer, &fill, labels._fill, left + pw + 12.0, legend_y + 12.0, h - 15.0, theme._size)?)
+    emit(writer, "</g>\n</svg>\n")?
+    streamed(writer.flush())?
+    Ok(notes)
+
+def draw_axis[W: Writer](writer: &mut W, scale: &Axis, low: f64, high: f64, left: f64, top: f64, width: f64, height: f64, vertical: bool, theme: &Theme) -> Result[(), PlotError]:
+    step = tick_step(low, high)
+    first = match std.math.ceil(low / step):
+        case Ok(value):
+            value
+        case Err(_):
+            return Err(PlotError.InvalidSetting("axis range is too narrow to label"))
+    start = f64(first) * step
+    count = len(scale.levels) if scale.discrete else 6
+    for tick in range(count):
+        value = f64(tick) if scale.discrete else start + f64(tick) * step
+        if value < low or value > high:
+            continue
+        name = scale.levels[tick] if scale.discrete else number_label(value, step)?
+        if vertical:
+            at = coordinate(value, low, high, top + height, -height)
+            if theme._kind != 2:
+                line(writer, left, at, left + width, at, "white" if theme._kind == 0 else "#DDDDDD")?
+            label(writer, left - 5.0, at + theme._size * 0.3, name, theme._size * 0.8, "end")?
+        else:
+            at = coordinate(value, low, high, left, width)
+            if theme._kind != 2:
+                line(writer, at, top, at, top + height, "white" if theme._kind == 0 else "#DDDDDD")?
+            label(writer, at, top + height + theme._size * 1.2, name, theme._size * 0.8)?
+    if theme._kind == 2:
+        line(writer, left, top + height, left + width, top + height, "black")?
+        line(writer, left, top, left, top + height, "black")?
+    Ok(())
+
+def draw_layer[W: Writer](writer: &mut W, layer: &LayerRows, xlo: f64, xhi: f64, ylo: f64, yhi: f64, left: f64, top: f64, width: f64, height: f64, flip: bool) -> Result[(), PlotError]:
+    geom = &layer.layer
+    mut order = allocated(list[(i64, f64, i64)]())?
+    for index, row in enumerate(&layer.rows):
+        allocated(order.append((row.group, row.x if geom._kind == 1 else f64(index), index)))?
+    if geom._kind == 1 or geom._kind == 2:
+        order.sort()
+    mut last_group = -1
+    mut last_x = 0.0
+    mut last_y = 0.0
+    mut last_colour = "black"
+    name = match geom._kind:
+        case 0:
+            "point"
+        case 1:
+            "line"
+        case 2:
+            "path"
+        case 3:
+            "col"
+        case 4:
+            "bar"
+        case _:
+            "histogram"
+    emit(writer, formatted(f"<g data-geom=\"{name}\" opacity=\"{geom._alpha:.2f}\">\n")?)?
+    for item in &order:
+        row = &layer.rows[item[2]]
+        if not row.valid:
+            last_group = -1
+            continue
+        px = coordinate(row.y, ylo, yhi, left, width) if flip else coordinate(row.x, xlo, xhi, left, width)
+        py = coordinate(row.x, xlo, xhi, top + height, -height) if flip else coordinate(row.y, ylo, yhi, top + height, -height)
+        if geom._kind == 0:
+            radius = geom._size * 72.0 / 25.4 / 2.0
+            emit(writer, formatted(f"<circle cx=\"{px:.2f}\" cy=\"{py:.2f}\" r=\"{radius:.2f}\" fill=\"{row.colour}\"/>\n")?)?
+        elif geom._kind <= 2:
+            if row.group == last_group:
+                line(writer, last_x, last_y, px, py, last_colour, geom._size * 72.0 / 25.4)?
+            last_group = row.group
+            last_x = px
+            last_y = py
+            last_colour = row.colour
+        else:
+            x1 = coordinate(row.x - row.width / 2.0, xlo, xhi, left, width)
+            x2 = coordinate(row.x + row.width / 2.0, xlo, xhi, left, width)
+            y1 = coordinate(row.y, ylo, yhi, top + height, -height)
+            y2 = coordinate(row.bottom, ylo, yhi, top + height, -height)
+            if flip:
+                fx1 = coordinate(row.y, ylo, yhi, left, width)
+                fx2 = coordinate(row.bottom, ylo, yhi, left, width)
+                fy1 = coordinate(row.x - row.width / 2.0, xlo, xhi, top + height, -height)
+                fy2 = coordinate(row.x + row.width / 2.0, xlo, xhi, top + height, -height)
+                rectangle(writer, std.math.min(fx1, fx2), std.math.min(fy1, fy2), std.math.abs(fx2 - fx1), std.math.abs(fy2 - fy1), row.fill, row.colour)?
+            else:
+                rectangle(writer, x1, std.math.min(y1, y2), x2 - x1, std.math.abs(y2 - y1), row.fill, row.colour)?
+    emit(writer, "</g>\n")
+
+def draw_legend[W: Writer](writer: &mut W, scale: &Axis, title: str, x: f64, y: f64, bottom: f64, size: f64) -> Result[f64, PlotError]:
+    label(writer, x, y, title, size, "start")?
+    count = len(scale.levels) if scale.discrete else (1 if scale.low == scale.high else 5)
+    mut at = y + size * 1.5
+    for index in range(count):
+        if at > bottom:
+            return Err(PlotError.InvalidSetting("legend does not fit; increase height or hide it"))
+        mut colour = ""
+        mut name = ""
+        if scale.discrete:
+            name = scale.levels[index]
+            colour = scale_colour(scale, index, 0.0)?
+        else:
+            t = 0.5 if count == 1 else f64(index) / 4.0
+            colour = scale_colour(scale, 0, t)?
+            value = scale.low + (scale.high - scale.low) * t
+            name = number_label(value, (scale.high - scale.low) / 4.0)?
+        rectangle(writer, x, at - size * 0.8, size, size, colour)?
+        label(writer, x + size + 4.0, at, name, size * 0.8, "start")?
+        at += size * 1.5
+    Ok(at)

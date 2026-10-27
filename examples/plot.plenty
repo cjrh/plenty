@@ -1,0 +1,10 @@
+import std.plot as gg
+from std.plot import Column, PlotError
+
+def main() -> Result[(), AllocError | IoError | PlotError]:
+    data = gg.table([("x", Column.Num([1.0, 2.0, 3.0]?)), ("y", Column.Num([2.0, 1.0, 4.0]?))]?)?
+    plot = gg.ggplot(data, gg.aes("x", "y"), [gg.geom_line(), gg.geom_point(size=3), gg.labs(title="A first plot"), gg.theme_minimal()]?)?
+    notes = plot.save("plot.svg")?
+    for note in &notes:
+        print(note)?
+    Ok(())
