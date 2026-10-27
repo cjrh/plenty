@@ -397,6 +397,13 @@ impl Lowerer<'_, '_> {
         ty: Option<&Ty>,
         site: Option<cranelift_codegen::ir::Value>,
     ) -> Result<cranelift_codegen::ir::Value> {
+        // Reject an ABI disagreement while compiling, before a runtime entry
+        // could read an uninitialized scratch word or lose an extra operand.
+        assert_eq!(
+            values.len().saturating_sub(3),
+            crate::collection_opcodes::scratch_operand_count(opcode),
+            "runtime opcode {opcode} scratch-operand count disagrees with codegen",
+        );
         let zero = self.bcx.ins().iconst(types::I64, 0);
         let descriptor = if let Some(ty) = ty {
             let id = self.module.metadata(ty);

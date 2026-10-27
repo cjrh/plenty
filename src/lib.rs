@@ -57,6 +57,8 @@ mod codegen;
 mod collection;
 #[path = "../plenty-runtime/src/collection_opcodes.rs"]
 mod collection_opcodes;
+#[cfg(test)]
+mod collection_operand_tests;
 mod compress;
 mod control;
 mod crypto;

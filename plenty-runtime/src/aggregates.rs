@@ -23,6 +23,8 @@ mod filesystem;
 mod hash_tests;
 mod hashing;
 pub(crate) mod net;
+#[cfg(test)]
+mod operand_tests;
 mod process;
 mod readiness;
 #[cfg(test)]
@@ -1629,6 +1631,30 @@ operation_entries! {
     460 461 462 463 464 465 466 467 468 469
 }
 
+/// Read only the words the compiler initializes for this opcode. The fixed
+/// inputs are always initialized (unused ones are zero); scratch operands
+/// after the result are initialized only when the shared ABI declares them.
+#[inline(always)]
+unsafe fn read_operands<const N: usize>(op: i64, args: *const u128) -> [u128; N] {
+    let extra = scratch_operand_count(op);
+    assert!(
+        N >= 3 + extra && N <= 5,
+        "runtime operand array is too small"
+    );
+    let mut operands = [0; N];
+    // SAFETY: the caller supplies the three fixed words and every declared
+    // scratch input. Never form a reference to any uninitialized spare word.
+    unsafe {
+        for (index, operand) in operands[..3].iter_mut().enumerate() {
+            *operand = *args.add(index);
+        }
+        for index in 0..extra {
+            operands[3 + index] = *args.add(4 + index);
+        }
+    }
+    operands
+}
+
 /// Runs operation `op`. Only the `plenty_op_<N>` entries call it, each with
 /// its own constant `op`.
 #[inline(always)]
@@ -1639,15 +1665,7 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
     unsafe {
         let out = args.add(3).cast_mut();
         if matches!(op, 300..340 | 440..500) {
-            // Three inputs, the output slot, then the fourth operand in the
-            // first scratch word.
-            // Crypto operations with fewer than four inputs must not read
-            // their uninitialized fourth scratch word.
-            let fourth = match op {
-                300 | 303 | 304 | 306 | 307 | 312..=314 | 316..=318 => 0,
-                _ => *args.add(4),
-            };
-            let operands = [*args, *args.add(1), *args.add(2), fourth];
+            let operands = read_operands::<4>(op, args);
             out.write(match op {
                 300..308 => crypto::call(op, operands),
                 308..320 => crypto_advanced::call(op, operands),
@@ -1672,45 +1690,22 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
             return;
         }
         if (521..=531).contains(&op) {
-            // Only Set carries a fourth operand. Other calls do not initialize
-            // the scratch word beyond the fixed three arguments and result.
-            let field = if op == 527 { *args.add(4) } else { 0 };
-            let operands = [*args, *args.add(1), *args.add(2), field];
+            let operands = read_operands::<4>(op, args);
             out.write(clist::call(op, operands, &*descriptor, site));
             return;
         }
         if matches!(op, 170..=183 | 188..=191 | 230..=239 | 248 | 280 | 281) {
-            // Read every operand first: the fourth and fifth share the
-            // scratch words that follow the result slot.
-            let operands = [
-                *args,
-                *args.add(1),
-                *args.add(2),
-                *args.add(4),
-                *args.add(5),
-            ];
+            let operands = read_operands::<5>(op, args);
             out.write(byte_storage::call(op, operands, descriptor, site));
             return;
         }
         if (419..423).contains(&op) {
-            let operands = [
-                *args,
-                *args.add(1),
-                *args.add(2),
-                *args.add(4),
-                *args.add(5),
-            ];
+            let operands = read_operands::<5>(op, args);
             out.write(readiness::call(op, operands, descriptor));
             return;
         }
         if (410..440).contains(&op) {
-            let operands = [
-                *args,
-                *args.add(1),
-                *args.add(2),
-                *args.add(4),
-                *args.add(5),
-            ];
+            let operands = read_operands::<5>(op, args);
             out.write(net::call(op, operands, descriptor));
             return;
         }

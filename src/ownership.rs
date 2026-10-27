@@ -1208,6 +1208,24 @@ impl Checker<'_, '_> {
         error
     }
 
+    fn unused_local_name(&self, base: &str) -> String {
+        let mut candidate = base.to_owned();
+        let mut suffix = 2;
+        // Include parameters and names from every scope, including bindings
+        // inside the task block that the suggested guard would surround.
+        while self
+            .origins
+            .names
+            .iter()
+            .flatten()
+            .any(|name| name.as_ref() == candidate.as_str())
+        {
+            candidate = format!("{base}_{suffix}");
+            suffix += 1;
+        }
+        candidate
+    }
+
     /// Reject a join while this function retains the opposite channel endpoint.
     fn join(&self, task: &Task, state: &State, site: Option<Site>, automatic: bool) -> Result<()> {
         let blocked = |worker_sends| {
@@ -1220,10 +1238,13 @@ impl Checker<'_, '_> {
             let guard = if worker_sends { "inbox" } else { "outbox" };
             let advice = |place: Option<&str>| match place {
                 _ if !automatic => "drop it, or end its `with` block, before joining".to_owned(),
-                Some(place) => format!(
-                    "drop it before leaving the block, or guard it directly after the task: \
-                 `with spawn(...)?, {place} as {guard}:`"
-                ),
+                Some(place) => {
+                    let guard = self.unused_local_name(guard);
+                    format!(
+                        "drop it before leaving the block, or guard it directly after the task: \
+                     `with spawn(...)?, {place} as {guard}:`"
+                    )
+                }
                 None => "end its scope before leaving the block".into(),
             };
             self.blocked_endpoints(&messages, worker_sends, state, site, kind, advice)
