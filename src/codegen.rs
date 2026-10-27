@@ -3143,6 +3143,9 @@ impl Lowerer<'_, '_> {
         if from == to {
             return v;
         }
+        if let Some(constant) = self.constant_cast(v, &from, &to) {
+            return constant;
+        }
         let target = clif_type(to.clone());
         if from.is_float() && to.is_float() {
             return if to == Ty::F64 {
