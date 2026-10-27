@@ -79,6 +79,11 @@ in [avoid waits that hang](../../../tutorial/11-concurrency/wait-habits.md).
        ...
    ```
 
+   Use a new name for the guard binding: `with outbox as outbox:` is a
+   duplicate binding. The blocked-join diagnostic suggests an unused name,
+   adding a numeric suffix when `inbox` or `outbox` is already bound. Use that
+   guard binding for endpoint operations inside the block.
+
 3. **To join explicitly, end the endpoint's guard first.** Open the guard before
    any statement that can leave the block:
 
