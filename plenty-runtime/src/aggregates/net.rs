@@ -596,7 +596,11 @@ mod native {
                 }
                 418 => {
                     let text = a as *const crate::strings::Text;
-                    let reader = start_lookup(crate::strings::utf8(&text), lookup)?;
+                    // The helper thread reads the name and frees the job,
+                    // possibly after an actor's heap was discarded by a
+                    // trap, so both come from System.
+                    let host = crate::strings::utf8(&text);
+                    let reader = crate::actor_heap::outside(|| start_lookup(host, lookup))?;
                     crate::files::adopt_socket(std::fs::File::from(reader), output)
                 }
                 _ => crate::fail("invalid network operation"),

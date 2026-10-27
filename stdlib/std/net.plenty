@@ -10,7 +10,7 @@ from std.bytes import ByteSource, Bytes, BytesError
 from std.io import FileStream, StreamError, classify
 from std.ready import Interest, Selector, WaitError, wait
 from std.sync import CancellationToken
-from std.time import Deadline, monotonic_now
+from std.time import Deadline, deadline_at, monotonic_now
 
 const would_block: i32 = 11
 const interrupted: i32 = 4
@@ -529,6 +529,7 @@ const try_again: u8 = 2u8
 const no_memory: u8 = 3u8
 const system_failure: u8 = 4u8
 const reply_header: i64 = 5
+const lookup_chunk: i64 = 256
 
 def started(result: Result[File, IoError]) -> Result[File, NetError]:
     match result:
@@ -575,6 +576,10 @@ pub def resolve(host: &str, port: u16, deadline: &Deadline, cancel: &Cancellatio
     if deadline.expired(&monotonic_now()):
         return Err(NetError.TimedOut)
     data = reply_of(started(__net_resolve(host))?, deadline, cancel)?
+    addresses_in(&data, port)
+
+# The addresses in a complete lookup reply, with `port` set.
+def addresses_in(data: &list[u8], port: u16) -> Result[list[SocketAddress], NetError]:
     if len(data) < reply_header:
         return Err(NetError.Stream(StreamError.Io(IoError.Other)))
     status = data[0]
@@ -585,18 +590,63 @@ pub def resolve(host: &str, port: u16, deadline: &Deadline, cancel: &Cancellatio
     if status == no_memory:
         return Err(NetError.Stream(StreamError.Allocation(AllocError.OutOfMemory)))
     if status == system_failure:
-        return Err(named(IoError.System(i32(number(&data, 1, 4)))))
+        return Err(named(IoError.System(i32(number(data, 1, 4)))))
     if status != resolved:
         return Err(NetError.Stream(StreamError.Io(IoError.Other)))
     mut addresses = allocated(list[SocketAddress].with_capacity(len(data) // v4_size))?
     mut at = reply_header
     while at < len(data):
-        (address, next) = decoded(&data, at)?
+        (address, next) = decoded(data, at)?
         allocated(addresses.append(SocketAddress(address.ip, port, address.scope)))?
         at = next
     if len(addresses) == 0:
         return Err(NetError.NameNotFound)
     Ok(addresses)
+
+# A name lookup in progress on a helper thread, for an event loop that must
+# not block: watch it for readability, then call `finish_now`. Dropping it
+# abandons the lookup. `resolve` is the blocking form.
+pub class Lookup:
+    _reply: FileStream
+    _data: Bytes
+    _port: u16
+
+    pub def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]:
+        selected(selector.watch(&self._reply.file, key, Interest.Read))
+
+    pub def unwatch(self, selector: &mut Selector) -> Result[(), NetError]:
+        selected(selector.unwatch(&self._reply.file))
+
+    # Reads what the helper has sent, without waiting. WouldBlock until the
+    # reply is complete; then its addresses, or why there are none.
+    pub def finish_now(self: &mut Lookup) -> Result[list[SocketAddress], NetError]:
+        while True:
+            match std.ready.wait_until(&self._reply.file, Interest.Read, &deadline_at(&monotonic_now())):
+                case Ok(_):
+                    pass
+                case Err(WaitError.TimedOut):
+                    return Err(NetError.WouldBlock)
+                case Err(error):
+                    return Err(waited(error))
+            at = self._data.len()
+            lifted(self._data.resize(at + lookup_chunk, 0u8))?
+            # Readable, so this read returns at once even though the reply
+            # end blocks.
+            match self._reply.read(&mut self._data, at, at + lookup_chunk):
+                case Ok(count):
+                    lifted(self._data.truncate(at + count))?
+                    if count == 0:
+                        return addresses_in(&lifted(self._data.to_list())?, self._port)
+                case Err(error):
+                    lifted(self._data.truncate(at))?
+                    return Err(streamed(error))
+        Err(NetError.WouldBlock)
+
+# Starts looking up `host` and returns at once. An IP literal needs no
+# lookup; `parse_ip` it first, as `resolve` does.
+pub def start_lookup(host: &str, port: u16) -> Result[Lookup, NetError]:
+    data = lifted(std.bytes.with_capacity(256))?
+    Ok(Lookup(FileStream(started(__net_resolve(host))?), data, port))
 
 pub enum Shutdown:
     Read
@@ -776,19 +826,54 @@ pub def listen(address: &SocketAddress, backlog: i64) -> Result[TcpListener, Net
 # Connects within the deadline. A refused or unreachable peer is an error
 # value; a stream that connects blocks in its plain reads and writes.
 pub def connect(address: &SocketAddress, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, NetError]:
-    data = encoded(address)?
     if cancel.is_cancelled():
         return Err(NetError.Cancelled)
-    mut file = opened(__net_open(data, connect_kind, 0))?
+    mut pending = start_connect(address)?
     while True:
-        ready_for(&file, Interest.Write, deadline, cancel)?
-        match __net_finish_connect(file):
+        ready_for(&pending._file, Interest.Write, deadline, cancel)?
+        match pending.finish_now():
             case Ok(_):
-                return Ok(TcpStream(FileStream(file)))
+                return Ok(pending.stream())
+            case Err(NetError.WouldBlock):
+                pass
             case Err(error):
-                if not transient(error):
-                    return Err(named(error))
+                return Err(error)
     Err(NetError.TimedOut)
+
+# A TCP connection still being established, for an event loop that must not
+# block: watch it, then call `finish_now` when it is writable. Dropping it
+# abandons the attempt.
+pub class Connecting:
+    _file: File
+
+    # Registers the attempt under `key`; it becomes writable when the
+    # connection is established or has failed.
+    pub def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]:
+        selected(selector.watch(&self._file, key, Interest.Write))
+
+    pub def unwatch(self, selector: &mut Selector) -> Result[(), NetError]:
+        selected(selector.unwatch(&self._file))
+
+    # Ok once connected, WouldBlock while still in progress, or why the
+    # attempt failed, such as Refused.
+    pub def finish_now(self: &mut Connecting) -> Result[(), NetError]:
+        match __net_finish_connect(self._file):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                if transient(error):
+                    Err(NetError.WouldBlock)
+                else:
+                    Err(named(error))
+
+    # The connected stream, after `finish_now` returned Ok.
+    pub def stream(self: Connecting) -> TcpStream:
+        TcpStream(FileStream(self._file))
+
+# Starts connecting to `address` and returns at once.
+pub def start_connect(address: &SocketAddress) -> Result[Connecting, NetError]:
+    data = encoded(address)?
+    Ok(Connecting(opened(__net_open(data, connect_kind, 0))?))
 
 # `size` is the datagram's full length and `stored` how much of it the buffer
 # received; the rest was discarded.
