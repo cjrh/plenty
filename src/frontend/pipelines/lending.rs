@@ -93,6 +93,9 @@ fn slots(ops: &[Op], out: &mut BTreeSet<u8>) {
             Op::Loan(loan) => {
                 out.insert(loan.root);
             }
+            Op::FieldMove(fact) => {
+                out.insert(fact.root());
+            }
             Op::Loop { condition, body } => {
                 slots(condition, out);
                 slots(body, out);
@@ -216,6 +219,7 @@ impl Relocation<'_> {
                 Op::DropLocal(i) => Op::DropLocal(self.written(*i)?),
                 Op::EmptyLocal(i) => Op::EmptyLocal(self.written(*i)?),
                 Op::Next(i) => Op::Next(self.written(*i)?),
+                Op::FieldMove(fact) => Op::FieldMove(fact.with_root(self.written(fact.root())?)),
                 Op::Access(i, _, _) if self.foreign.contains(i) => continue,
                 Op::Access(i, write, via) => Op::Access(
                     self.slot(*i)?,

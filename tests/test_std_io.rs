@@ -898,5 +898,8 @@ taken = reader.inner
 print(reader.buffered())?
 "#,
     );
-    assert!(error.contains("cannot move out of a field"), "{error}");
+    assert!(
+        error.contains("use of partly moved binding `reader`"),
+        "{error}"
+    );
 }

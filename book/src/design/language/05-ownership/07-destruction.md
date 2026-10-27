@@ -22,7 +22,10 @@ cleanup; later operands do not run.
 A class may declare `def __del__(self) -> ()` (an exclusive receiver) for
 additional cleanup. The hook runs before automatic field cleanup. It cannot
 return a recoverable error, yield, allow references to the dying value to
-escape, or be called as an ordinary method. Fields clean up automatically:
+escape, or be called as an ordinary method. Because the hook receives every
+field, fields of such a class cannot
+[move out](01-bindings-moves-and-copies.md#moving-fields). Fields clean up
+automatically, skipping any field that has moved out:
 
 | Owner | Cleanup order |
 | --- | --- |

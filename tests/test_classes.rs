@@ -334,8 +334,10 @@ fn owned_fields_and_copy_restrictions() {
         "cannot be copied",
     );
     reject(
-        &format!("{RESOURCE}\nclass Crate:\n    r: Resource\nb = Crate(Resource('x'))\nx = b.r"),
-        "cannot move out of a field",
+        &format!(
+            "{RESOURCE}\nclass Crate:\n    r: Resource\nb = Crate(Resource('x'))\nx = b.r\ny = b"
+        ),
+        "use of partly moved binding `b`",
     );
 }
 

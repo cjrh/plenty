@@ -2031,6 +2031,7 @@ fn keeps_slot_copies(op: &Op) -> bool {
             | Op::Site(_)
             | Op::CallerSite(_)
             | Op::Leaving
+            | Op::FieldMove(_)
             | Op::Access(..)
             | Op::Loan(_)
             | Op::UseLoan(_)
@@ -2306,7 +2307,8 @@ impl Lowerer<'_, '_> {
             | Op::Building(_)
             | Op::Passes(_)
             | Op::Forwards(_)
-            | Op::Tokens(_) => {}
+            | Op::Tokens(_)
+            | Op::FieldMove(_) => {}
             Op::Leaving => self.start_leaving(),
             // Consumed by `tail_abi::prepare`, which decides whether the call
             // after it keeps this frame.

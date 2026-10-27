@@ -10,15 +10,13 @@ class Wire:
         print("close", self.id, self.sent).unwrap()
 
 pub class Unanswered:
-    wire: Option[Wire]
+    wire: Wire
 
     pub def begin(self: Unanswered, length: i64) -> Result[Writer, StartError]:
         if length < 0:
             return Err(StartError.InvalidLength(self))
-        mut owned = self
-        # Keep the old wrapper initialized without allocating a dummy connection.
-        wire = replace(owned.wire, Nothing).unwrap()
-        Ok(Writer(wire, length))
+        # Moving the field out ends the wrapper; only `wire` needed cleanup.
+        Ok(Writer(self.wire, length))
 
 pub class Writer:
     wire: Wire
@@ -62,4 +60,4 @@ pub enum FinishError:
 
 # This creates a fresh model connection, never a writer in an arbitrary state.
 pub def unanswered(id: i64, fail_after: i64 = -1) -> Unanswered:
-    Unanswered(Some(Wire(id, fail_after, 0)))
+    Unanswered(Wire(id, fail_after, 0))

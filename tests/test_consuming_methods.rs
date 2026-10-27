@@ -251,16 +251,29 @@ def main() -> Result[(), IoError]:
 }
 
 #[test]
-fn consuming_methods_do_not_enable_field_moves_or_change_special_hooks() {
+fn owned_receivers_move_fields_out() {
+    runs(
+        &format!(
+            r#"{STATE}
+class Holder:
+    state: State
+    def take(self: Holder) -> State:
+        self.state
+h = Holder(State(1))
+drop(h.take())
+g = Holder(State(2))
+print(g.state.finish()).unwrap()
+print("end").unwrap()
+"#
+        ),
+        // `finish` consumes the moved field, so it drops before its result prints.
+        "drop 1\ndrop 2\n2\nend\n",
+    );
+}
+
+#[test]
+fn consuming_methods_do_not_change_special_hooks() {
     for (source, expected) in [
-        (
-            "class Holder:\n    state: State\n    def take(self: Holder) -> State:\n        self.state\nh = Holder(State(1))\ndrop(h.take())",
-            "cannot move out of a field",
-        ),
-        (
-            "class Holder:\n    state: State\nh = Holder(State(1))\ndrop(h.state.finish())",
-            "cannot move out of a field",
-        ),
         (
             "class Bad:\n    def __del__(self: Bad) -> ():\n        pass",
             "lifecycle methods require",
