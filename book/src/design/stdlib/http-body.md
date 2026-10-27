@@ -9,6 +9,35 @@ that maps to a response status. The module is checked Plenty in
 [Read forms, cookies and forwarded clients](../../tutorial/11-concurrency/http-forms.md)
 uses it.
 
+```plenty
+import std.http.body
+from std.http.body import BodyError
+
+def main() -> Result[(), BodyError | IoError]:
+    limits = std.http.body.form_limits()
+    pairs = std.http.body.parse_form_text("name=Ada+Lovelace&lang=en&lang=fr", &limits)?
+    for pair in &pairs:
+        print(pair.key, pair.value)?
+    match std.http.body.find(&pairs, "name"):
+        case Some(index):
+            print(pairs[index].value)?
+        case Nothing:
+            print("no name")?
+    match std.http.body.parse_form_text("bad=%zz", &limits):
+        case Err(error):
+            print(error, std.http.body.status(&error))?
+        case Ok(_):
+            print("accepted")?
+    Ok(())
+```
+```output
+name Ada Lovelace
+lang en
+lang fr
+Ada Lovelace
+std.http.body.BodyError.Malformed 400
+```
+
 ## Errors
 
 | Variant | Meaning | `status` |

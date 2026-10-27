@@ -12,6 +12,28 @@ owner and returns `Result[Option[DirEntry], IoError]`: `Some` is one entry,
 after opening. Any advancement error, including allocation failure, terminates
 and closes the stream. Exhaustion also closes it before returning EOF.
 
+```plenty
+import std.fs as fs
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError]:
+    write_text("a.txt", "alpha")?
+    write_text("b.txt", "beta")?
+    root = path.from_text(".")?
+    mut names: list[str] = []?
+    for result in fs.entries(fs.read_dir(&root)?):
+        entry = result?
+        name = entry.file_name()?.to_text()?
+        if name.endswith(".txt"):
+            names.append(name)?
+    names.sort()
+    print(names)?
+    Ok(())
+```
+```output
+["a.txt", "b.txt"]
+```
+
 `close() -> Result[(), IoError]` explicitly relinquishes the stream; repeated
 close is harmless, including after a close error. `closed() -> bool` observes
 the state. Drop closes any remaining stream without allocating or reporting a

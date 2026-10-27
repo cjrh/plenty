@@ -19,6 +19,25 @@ other native plan errors can fail during schema resolution or collection.
 | `Semi` | Each left row with at least one right match | Left side only |
 | `Anti` | Each left row with no right match | Left side only |
 
+```plenty dataframe
+import std.dataframe as df
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
+    orders = df.frame([df.column_i64("product", [3, 1, 2, 1]?)?, df.column_i64("units", [5, 2, 1, 3]?)?]?)?
+    prices = df.frame([df.column_i64("product", [1, 2]?)?, df.column_f64("price", [10.0, 25.0]?)?]?)?
+    keys = [df.col("product")?]?
+    order = [df.SortKey(df.col("product")?), df.SortKey(df.col("units")?)]?
+    priced = orders.lazy()?.join(prices.lazy()?, keys, keys)?.sort(order)?.collect()?
+    print(priced.values_i64("product")?, priced.values_f64("price")?)?
+    unpriced = orders.lazy()?.join(prices.lazy()?, keys, keys, how=df.JoinKind.Anti)?.collect()?
+    print(unpriced.values_i64("product")?)?
+    Ok(())
+```
+```output
+[1, 1, 2] [10.0, 10.0, 25.0]
+[3]
+```
+
 ## Multiplicity and validation
 
 Inner, left and full joins are many-to-many. Two equal left keys and three

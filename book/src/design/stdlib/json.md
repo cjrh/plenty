@@ -11,6 +11,42 @@ The module is checked Plenty code with no native primitives of its own. It
 reads and writes [`std.bytes`](bytes.md) buffers and [`std.io`](io.md) streams,
 and is available on the supported x86-64 Linux GNU target.
 
+```plenty
+import std.bytes
+import std.json
+from std.json import Json
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.json.JsonError]:
+    bounds = std.json.limits()
+    value = std.json.parse_text("{\"name\": \"Ada\", \"langs\": [\"en\", \"fr\"]}", &bounds)?
+    match &value:
+        case Json.Object(members):
+            for member in members:
+                match &member.value:
+                    case Json.Text(text):
+                        print(member.key, "is", text)?
+                    case Json.Array(items):
+                        print(member.key, "has", len(items), "items")?
+                    case _:
+                        print(member.key, "is another type")?
+        case _:
+            print("not an object")?
+    mut out = std.json.encoder(&bounds)?
+    out.start_object()?
+    out.key("id")?
+    out.integer(7)?
+    out.key("person")?
+    out.value(&value)?
+    out.end_object()?
+    print(out.take()?.to_text()?)?
+    Ok(())
+```
+```output
+name is Ada
+langs has 2 items
+{"id":7,"person":{"name":"Ada","langs":["en","fr"]}}
+```
+
 ## Accepted text
 
 The decoder accepts exactly RFC 8259 and one document per input.

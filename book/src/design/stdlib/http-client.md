@@ -15,6 +15,57 @@ URLs through [`std.tls`](tls.md). Both modules are checked Plenty in
 and [Send HTTPS requests](../../tutorial/11-concurrency/https-client.md) show
 complete programs.
 
+```plenty
+import std.bytes
+import std.http
+import std.http.client
+import std.http.server
+import std.net
+import std.time
+from std.fmt import FormatError
+from std.http.client import ClientError
+from std.http.server import Exchange
+from std.net import TcpStream
+from std.sync import CancellationToken
+
+pub enum Route:
+    Echo
+
+pub class Echoer:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError | std.bytes.BytesError]:
+        mut body = std.bytes.empty()?
+        exchange.read_all(&mut body)?
+        exchange.send(200, "text/plain", &body)
+
+type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | ClientError | RangeError
+
+def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
+    with stop.cancel_on_exit():
+        never = CancellationToken()?
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
+        client = std.http.client.client(std.http.client.config()?)?
+        mut post = std.http.client.request("POST", &f"http://127.0.0.1:{port}/echo"?)?
+        post.add("Content-Type", "text/plain")?
+        post.body = std.bytes.from_text("ping")?
+        reply = client.fetch(post, &deadline, &never)?
+        print(reply.status, reply.body.to_text()?)?
+    Ok(())
+
+def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | VisitError]:
+    mut routes = std.http.server.router[Route]()?
+    routes.add("POST", "/echo", Route.Echo)?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    with spawn(visit, port, stop.share())? as task:
+        drop(std.http.server.serve(listener, &routes, &Echoer(), &std.http.server.config(), &stop)?)
+        task.join()?
+    Ok(())
+```
+```output
+200 ping
+```
+
 ## Clients
 
 | Item | Meaning |

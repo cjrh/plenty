@@ -8,6 +8,32 @@ The module is ordinary Plenty over [`std.bytes`](bytes.md),
 [`std.compress`](compress.md) (DEFLATE and CRC-32) and `std.fs`; it adds no
 runtime code. It is available on the supported x86-64 Linux GNU target.
 
+```plenty
+import std.archive
+import std.bytes
+import std.io
+import std.path as path
+
+def main() -> Result[(), IoError | std.archive.ArchiveError | std.bytes.BytesError]:
+    mut writer = std.archive.tar_writer(std.io.cursor(std.bytes.empty()?))?
+    writer.add_dir(&path.from_text("docs")?, 493, 1700000000)?
+    readme = std.bytes.from_text("read me first")?
+    writer.add_file(&path.from_text("docs/README")?, &readme, 420, 1700000000)?
+    writer.finish()?
+    mut reader = std.archive.tar_reader(std.io.cursor(writer.inner.data.copy()?))?
+    while True:
+        match reader.next()?:
+            case Some(entry):
+                print(entry.name.display()?, entry.kind, entry.size)?
+            case Nothing:
+                break
+    Ok(())
+```
+```output
+docs/ std.archive.EntryKind.Directory 0
+docs/README std.archive.EntryKind.File 13
+```
+
 ## Functions
 
 | Function | Result | Contract |

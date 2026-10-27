@@ -1,6 +1,7 @@
 //! Native back end of `std.crypto`: SHA-256, SHA-512, legacy SHA-1 and HMAC
-//! from the RustCrypto `sha2`, `sha1` and `hmac` crates, and constant-time comparison from
-//! `subtle`. Nothing here implements a primitive.
+//! from the RustCrypto `sha2`, `sha1` and `hmac` crates, BLAKE3 from the
+//! BLAKE3 team's `blake3` crate, and constant-time comparison from `subtle`.
+//! Nothing here implements a primitive.
 //!
 //! A hasher lives in a runtime object whose prefix is byte storage, so
 //! `std.crypto` holds it as an ordinary `Bytes` that every byte operation sees
@@ -24,6 +25,77 @@ const HMAC_SHA256: u128 = 3;
 const HMAC_SHA512: u128 = 4;
 const SHA1: u128 = 5;
 const HMAC_SHA1: u128 = 6;
+const BLAKE3: u128 = 7;
+const BLAKE3_KEYED: u128 = 8;
+
+// BLAKE3's fixed-capacity tree stack is substantially larger than SHA's
+// state. A separate allocation layout keeps existing digest objects small.
+#[repr(C)]
+struct Blake3State {
+    storage: Storage,
+    hasher: Option<blake3::Hasher>,
+}
+
+unsafe extern "C" fn destroy_blake3(pointer: *mut Header) {
+    // SAFETY: this destructor belongs only to create_blake3 allocations and
+    // runs after their last owner is released.
+    unsafe {
+        let state = pointer.cast::<Blake3State>();
+        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage.bytes));
+        scrub_blake3(ptr::addr_of_mut!((*state).hasher));
+        memory::free::<Blake3State, u8>(state, 0);
+    }
+}
+
+unsafe fn scrub_blake3(slot: *mut Option<blake3::Hasher>) {
+    // SAFETY: the slot is exclusively writable. blake3 1.8.7's Hasher owns
+    // only inline values, including an ArrayVec of bytes, and no resources
+    // requiring destruction. Volatile writes erase the entire stored state;
+    // they cannot erase copies the upstream implementation made on the stack.
+    unsafe {
+        for offset in 0..size_of::<Option<blake3::Hasher>>() {
+            ptr::write_volatile(slot.cast::<u8>().add(offset), 0);
+        }
+        ptr::write(slot, None);
+    }
+}
+
+fn create_blake3(hasher: blake3::Hasher) -> Result<u128, AllocError> {
+    let owner = memory::try_allocate::<Blake3State, u8>(0)?;
+    // SAFETY: fresh allocation with the matching layout and exclusive owner.
+    unsafe {
+        owner.write(Blake3State {
+            storage: Storage {
+                header: Header::new(destroy_blake3),
+                bytes: Vec::new(),
+            },
+            hasher: Some(hasher),
+        });
+    }
+    Ok(owner as u128)
+}
+
+unsafe fn blake3_slot(value: u128) -> Option<*mut Option<blake3::Hasher>> {
+    let state = value as *mut Blake3State;
+    // SAFETY: all byte-storage operands start with a live Header. Only this
+    // destructor identifies the larger Blake3State layout.
+    unsafe {
+        let owner = (*state.cast::<Header>()).destroy;
+        let ours: unsafe extern "C" fn(*mut Header) = destroy_blake3;
+        (owner.map(|f| f as usize) == Some(ours as usize))
+            .then(|| ptr::addr_of_mut!((*state).hasher))
+    }
+}
+
+unsafe fn finish_blake3(slot: *mut Option<blake3::Hasher>) -> Option<blake3::Hash> {
+    // SAFETY: validated, exclusively owned state. Finalization allocates
+    // nothing, and the stored key/tree state is erased even on a mismatch.
+    unsafe {
+        let output = (*slot).as_ref().map(blake3::Hasher::finalize);
+        scrub_blake3(slot);
+        output
+    }
+}
 
 // None of these variants owns heap memory or has drop glue, so scrubbing may
 // overwrite a live value without dropping it.
@@ -121,6 +193,17 @@ unsafe fn hasher(value: u128) -> *mut Hasher {
 
 /// Absorbs input; false once finished.
 unsafe fn update(state: u128, data: &[u8]) -> bool {
+    // SAFETY: the destructor check validates the optional BLAKE3 layout.
+    if let Some(slot) = unsafe { blake3_slot(state) } {
+        // SAFETY: the caller exclusively borrows the state for this operation.
+        return match unsafe { &mut *slot } {
+            Some(hasher) => {
+                hasher.update(data);
+                true
+            }
+            None => false,
+        };
+    }
     // SAFETY: `hasher` validated the object; `data` lies in a separate buffer.
     match unsafe { &mut *hasher(state) } {
         Hasher::Finished => return false,
@@ -155,6 +238,16 @@ unsafe fn finish(state: u128, target: &mut [u8], offset: usize) -> bool {
         Some(place) => place.copy_from_slice(output),
         None => crate::fail("byte range out of bounds"),
     };
+    // SAFETY: forwarded from the caller; the slot is validated before access.
+    if let Some(slot) = unsafe { blake3_slot(state) } {
+        return match unsafe { finish_blake3(slot) } {
+            Some(output) => {
+                write(output.as_bytes());
+                true
+            }
+            None => false,
+        };
+    }
     // SAFETY: forwarded from the caller.
     match unsafe { take(state) } {
         Hasher::Finished => return false,
@@ -171,6 +264,13 @@ unsafe fn finish(state: u128, target: &mut [u8], offset: usize) -> bool {
 /// 1 when the output equals `expected`, 0 when not, -1 once finished. The
 /// comparison's time depends only on the lengths.
 unsafe fn verify(state: u128, expected: &[u8]) -> i64 {
+    // SAFETY: forwarded from the caller; the slot is validated before access.
+    if let Some(slot) = unsafe { blake3_slot(state) } {
+        return match unsafe { finish_blake3(slot) } {
+            Some(output) => i64::from(bool::from(output.as_bytes().ct_eq(expected))),
+            None => -1,
+        };
+    }
     // SAFETY: forwarded from the caller.
     let equal = match unsafe { take(state) } {
         Hasher::Finished => return -1,
@@ -199,7 +299,14 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             &bytes[range(start, stop, bytes.len())]
         };
         match op {
+            300 if a == BLAKE3 => result(create_blake3(blake3::Hasher::new())),
             300 => result(create(start(a))),
+            301 if a == BLAKE3_KEYED => {
+                let key = slice(b, c, d)
+                    .try_into()
+                    .unwrap_or_else(|_| crate::fail("BLAKE3 key must contain 32 bytes"));
+                result(create_blake3(blake3::Hasher::new_keyed(key)))
+            }
             301 => result(create(keyed(a, slice(b, c, d)))),
             302 => update(a, slice(b, c, d)) as u128,
             303 => {
@@ -212,6 +319,12 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             }
             305 => verify(a, slice(b, c, d)) as u128,
             306 => bool::from(view(a).ct_eq(view(b))) as u128,
+            307 => {
+                let text = a as *const strings::Text;
+                // Plenty strings always contain valid UTF-8.
+                let context = std::str::from_utf8_unchecked(strings::bytes(&text));
+                result(create_blake3(blake3::Hasher::new_derive_key(context)))
+            }
             _ => crate::fail("unknown crypto operation"),
         }
     }
@@ -244,6 +357,33 @@ mod tests {
             assert!(!finish(state, &mut out, 0));
             assert_eq!(verify(state, &out), -1);
             destroy(state as *mut Header);
+        }
+    }
+
+    #[test]
+    fn blake3_finishes_once_and_validates_both_state_layouts() {
+        let state = create_blake3(blake3::Hasher::new_keyed(
+            b"whats the Elvish word for friend",
+        ))
+        .unwrap();
+        let sha = create(start(SHA256)).unwrap();
+        // SAFETY: both objects were allocated above; the matching destructor
+        // releases each once after all test borrows have ended.
+        unsafe {
+            assert!(blake3_slot(sha).is_none());
+            let slot = blake3_slot(state).unwrap();
+            let mut output = [0; 32];
+            assert!(finish(state, &mut output, 0));
+            assert_eq!(
+                hex(&output),
+                "92b2b75604ed3c761f9d6f62392c8a9227ad0ea3f09573e783f1498a4ed60d26"
+            );
+            assert!((*slot).is_none());
+            assert!(!update(state, b"more"));
+            assert!(!finish(state, &mut output, 0));
+            assert_eq!(verify(state, &output), -1);
+            destroy_blake3(state as *mut Header);
+            destroy(sha as *mut Header);
         }
     }
 

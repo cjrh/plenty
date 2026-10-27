@@ -161,6 +161,7 @@ def from_list(values: &list[u8]) -> Result[Bytes, BytesError]
 def from_text(text: &str) -> Result[Bytes, BytesError]
 def from_bytes(value: bytes) -> Result[Bytes, BytesError]
 def crypto_state(kind: u8) -> Result[Bytes, BytesError]
+def crypto_derive_state(context: &str) -> Result[Bytes, BytesError]
 def crypto_keyed_state(kind: u8, key: &Bytes, start: i64, stop: i64) -> Result[Bytes, BytesError]
 def compress_state(kind: u8, level: i64, capacity: i64) -> Result[Bytes, BytesError]
 def sqlite_column(statement: &ByteStorage, column: i64) -> Result[Bytes, BytesError]
@@ -334,13 +335,13 @@ Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `
 
 ## `std.crypto`
 
-Digests, HMAC, constant-time comparison, AEAD encryption, Ed25519, X25519, and HKDF over `std.bytes`. Errors: `CryptoError`, `AdvancedError`. [Reference](crypto.md).
+Digests, HMAC, BLAKE3 hashing/key derivation, constant-time comparison, AEAD encryption, Ed25519, X25519, and HKDF over `std.bytes`. Errors: `CryptoError`, `AdvancedError`. [Reference](crypto.md).
 
 ```text
 enum CryptoError
-    OutOfRange | Finished | Allocation(AllocError)
+    OutOfRange | Finished | InvalidKeyLength | UnsupportedAlgorithm | Allocation(AllocError)
 enum Algorithm
-    Sha256 | Sha512 | Sha1
+    Sha256 | Sha512 | Sha1 | Blake3
 def output_size(algorithm: Algorithm) -> i64
 class Digest
     def size(self) -> i64
@@ -359,6 +360,11 @@ def digest(algorithm: Algorithm) -> Result[Digest, CryptoError]
 def hmac(algorithm: Algorithm, key: &Bytes) -> Result[Mac, CryptoError]
 def sha256(data: &Bytes) -> Result[Bytes, CryptoError]
 def sha512(data: &Bytes) -> Result[Bytes, CryptoError]
+def blake3(data: &Bytes) -> Result[Bytes, CryptoError]
+def blake3_keyed_hasher(key: &Bytes) -> Result[Mac, CryptoError]
+def blake3_keyed(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
+def blake3_derive_hasher(context: &str) -> Result[Digest, CryptoError]
+def blake3_derive_key(context: &str, key_material: &Bytes) -> Result[Bytes, CryptoError]
 def sha1(data: &Bytes) -> Result[Bytes, CryptoError]
 def hmac_sha256(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
@@ -2627,7 +2633,7 @@ def rows[T](values: &list[T], fields: list[Field[T]]) -> Result[Table, PlotError
 class Factor
 def factor(name: str) -> Factor
 class Mapping
-def aes(x: str | Factor = "", y: str | Factor = "", colour: str | Factor = "", color: str | Factor = "", fill: str | Factor = "", group: str = "") -> Mapping
+def aes(x: str | Factor = "", y: str | Factor = "", colour: str | Factor = "", color: str | Factor = "", fill: str | Factor = "", group: str = "", ymin: str = "", ymax: str = "") -> Mapping
 enum Position
     Identity | Stack | Dodge | Fill
 def position_identity() -> Position
@@ -2642,7 +2648,12 @@ class Layer
 class Labels
 class Theme
 enum Component
-    Layer(Layer) | Labels(Labels) | Theme(Theme) | Cartesian(Option[(f64, f64)], Option[(f64, f64)]) | Flip | ColourScale(bool, ColourScale) | PositionScale(bool, PositionScale)
+    Layer(Layer) | Labels(Labels) | Theme(Theme) | Cartesian(Option[(f64, f64)], Option[(f64, f64)]) | Flip | ColourScale(bool, ColourScale) | PositionScale(bool, PositionScale) | Facet(Facet)
+enum Scales
+    Fixed | Free | FreeX | FreeY
+class Facet
+def facet_wrap(facets: str, nrow: i64 = 0, ncol: i64 = 0, scales: Scales = Scales.Fixed) -> Component
+def facet_grid(rows: str = "", cols: str = "", scales: Scales = Scales.Fixed) -> Component
 enum ColourScale
     Default | Manual(dict[str, str]) | Gradient(str, str)
 def scale_colour_manual(values: dict[str, str]) -> Component
@@ -2672,6 +2683,9 @@ def geom_path(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alp
 def geom_col(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
 def geom_bar(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
 def geom_histogram(colour: str = "", color: str = "", fill: str = "", bins: i64 = 30, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_errorbar(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, width: f64 | i64 = 0.2, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_linerange(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_ribbon(colour: str = "", color: str = "", fill: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 0.3, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
 def labs(title: str = "", x: str = "", y: str = "", colour: str = "", fill: str = "") -> Component
 def theme_grey(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component
 def theme_minimal(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component

@@ -690,6 +690,22 @@ impl Lower<'_> {
                     Expression::Collection { kind, .. } if kind != "generator" => Some(sum.get().variants.iter().map(|v| &v.fields[0])
                         .filter(|ty| matches!(ty, Ty::Enum(t) if t.is_result() && kind_matches(kind, &t.get().variants[0].fields[0])))
                         .cloned().collect()),
+                    // `[..]?` and `list()?` produce the collection itself, so
+                    // select the collection member before checking elements.
+                    Expression::Try(inner) => match &ungroup(inner).kind {
+                        Expression::Collection { kind, .. } if kind != "generator" => Some(sum.get().variants.iter().map(|v| &v.fields[0])
+                            .filter(|ty| kind_matches(kind, ty)).cloned().collect()),
+                        Expression::Call(name, args)
+                            if matches!(name.as_str(), "list" | "dict" | "set")
+                                && args.is_empty()
+                                && !self.names.contains_key(name) =>
+                        {
+                            Some(sum.get().variants.iter().map(|v| &v.fields[0])
+                                .filter(|ty| kind_matches(name, ty)).cloned().collect())
+                        }
+                        _ => None,
+                    }
+                    .filter(|candidates: &Vec<Ty>| !candidates.is_empty()),
                     _ => None,
                 };
             if let Some(mut candidates) = candidates {

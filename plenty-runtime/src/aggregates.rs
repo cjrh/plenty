@@ -1591,7 +1591,7 @@ operation_entries! {
 }
 // `std.crypto`.
 operation_entries! {
-    300 301 302 303 304 305 306
+    300 301 302 303 304 305 306 307
 }
 // Advanced `std.crypto` primitives.
 operation_entries! {
@@ -1641,10 +1641,10 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
         if matches!(op, 300..340 | 440..500) {
             // Three inputs, the output slot, then the fourth operand in the
             // first scratch word.
-            // Advanced crypto entries with fewer than four operands must
-            // not read the uninitialized fourth scratch word.
+            // Crypto operations with fewer than four inputs must not read
+            // their uninitialized fourth scratch word.
             let fourth = match op {
-                312..=314 | 316..=318 => 0,
+                300 | 303 | 304 | 306 | 307 | 312..=314 | 316..=318 => 0,
                 _ => *args.add(4),
             };
             let operands = [*args, *args.add(1), *args.add(2), fourth];

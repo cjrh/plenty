@@ -29,7 +29,10 @@ A cast whose operand is a numeric literal is checked at compile time, so
 `u8(300)` and `u8(300.7)` are compile-time errors. A cast between integer types
 where the target represents every source value, such as `i64(small_u8)`, emits
 no check. A failing check calls the runtime; a passing one does not, and no cast
-allocates.
+allocates. A cast whose operand compiles to a constant, such as `i64(u16.MAX)`
+or `u8(i64(200))` in a function body, emits the converted constant with no
+conversion or check, as the literal `65535` would. Such an operand outside the
+target's range, as in `u8(i64(300))`, is still the runtime error.
 
 Casts to a float type never fail. Integer-to-float and narrowing float casts may
 round, and an `f64` beyond `f32`'s range becomes an infinity. Widening `f32` to

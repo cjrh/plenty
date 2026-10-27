@@ -177,7 +177,7 @@ A learner-visible language change updates, in the same change:
 - the tutorial lessons that teach the feature,
 - the backlog entry, if its scope changed or it completed.
 
-Tutorial and `design/examples/` code fences are executable tests, so stale
+Tutorial, `design/examples/` and `design/stdlib/` code fences are executable tests, so stale
 lessons fail the suite. Proposal fences are not executed; use `text` for
 illustrative syntax and verify claims about implemented behavior separately.
 Before handing off changes to book content, navigation, assets, configuration,

@@ -361,6 +361,9 @@ pub def from_bytes(value: bytes) -> Result[Bytes, BytesError]:
 pub def crypto_state(kind: u8) -> Result[Bytes, BytesError]:
     Ok(Bytes(allocated(__crypto_new(kind))?))
 
+pub def crypto_derive_state(context: &str) -> Result[Bytes, BytesError]:
+    Ok(Bytes(allocated(__crypto_new_derive_key(context))?))
+
 pub def crypto_keyed_state(kind: u8, key: &Bytes, start: i64, stop: i64) -> Result[Bytes, BytesError]:
     checked(start, stop, __bytes_len(key._owner))?
     Ok(Bytes(allocated(__crypto_new_keyed(kind, key._owner, start, stop))?))

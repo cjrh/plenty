@@ -42,6 +42,31 @@ typed cause, at any nesting depth. `?` in a function returning
 `Result[T, Failure]`, the last-resort erased error, discards a `Context` like any
 other error; list `Context[E]` in the sum to keep it.
 
+```plenty
+from std.error import Context, path_context
+from std.path import Path, from_text
+
+def read_settings(path: &Path) -> Result[list[u8], Context[IoError]]:
+    path_context(read_bytes(path.as_bytes()), "read settings", path)
+
+def main() -> Result[(), AllocError | IoError]:
+    path = from_text("settings.toml")?
+    match read_settings(&path):
+        case Ok(bytes):
+            print(len(bytes), "bytes of settings")?
+        case Err(error):
+            # A missing settings file is expected: report it and use defaults.
+            print(error.describe()?)?
+            print(error.cause == IoError.System(2i32))?
+            print("using default settings")?
+    Ok(())
+```
+```output
+read settings "settings.toml": IoError.System(2)
+True
+using default settings
+```
+
 ## Explicit error mapping
 
 `map_error[T, E, G, F: OnceCallable[[E], G]](result: Result[T, E], mapper: F)`

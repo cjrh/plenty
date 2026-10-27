@@ -6,6 +6,30 @@ value can add an attribute or a header field. The module is checked Plenty
 in `stdlib/std/http/cookie.plenty` and adds no runtime primitives; signing
 uses [`std.crypto`](crypto.md).
 
+```plenty
+import std.http.cookie
+from std.http import Header
+from std.http.cookie import CookieError
+
+def main() -> Result[(), CookieError | AllocError | IoError]:
+    headers = [Header("Cookie", "theme=dark; bad value; lang=\"en\"")]?
+    received = std.http.cookie.cookies(&headers, 16)?
+    for cookie in &received:
+        print(cookie.name, cookie.value)?
+
+    mut reply = std.http.cookie.set_cookie("theme", "light")?
+    reply.max_age = Some(3600)
+    print(reply.format()?)?
+    print(std.http.cookie.removal("lang")?.format()?)?
+    Ok(())
+```
+```output
+theme dark
+lang en
+theme=light; Path=/; Max-Age=3600; Secure; HttpOnly; SameSite=Lax
+lang=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax
+```
+
 ## Reading
 
 | Item | Meaning |
@@ -31,7 +55,7 @@ it, or [sign](#signing) it, before trusting it.
 | Item | Meaning |
 |---|---|
 | `set_cookie(name, value)` | `Result[SetCookie, CookieError]`: a cookie with the defaults below |
-| `removal(name)` | A cookie that deletes `name`: empty value, `Max-Age=0` |
+| `removal(name)` | `Result` with a cookie that deletes `name`: empty value, `Max-Age=0`; `CookieError` for an invalid name |
 | `SetCookie` | Public fields `name`, `value`, `path`, `domain`, `max_age: Option[i64]`, `secure`, `http_only`, `same_site: SameSite` |
 | `cookie.format()` | `Result[str, CookieError]`: the field value, after checking every part |
 | `add(&mut head, &cookie)` | Append a `Set-Cookie` field to a `ResponseHead` |

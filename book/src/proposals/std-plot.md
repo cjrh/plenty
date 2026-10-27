@@ -2,12 +2,13 @@
 
 **Status: Partially implemented. Design accepted.** The
 [core/SVG reference](../design/stdlib/plot.md) describes the implemented subset:
-tables and record accessors, layer-specific data and inherited mappings, six
+tables and record accessors, layer-specific data and inherited mappings, nine
 geoms, grouped counts/binning and bar positions, continuous/discrete position
 scales with transforms and explicit breaks/labels, named manual palettes and
-RGB gradients, basic themes/legends, wrapped text boxes with layout preflight, and
+RGB gradients, fixed/free wrapped and grid facets, supplied interval/ribbon
+geoms, basic themes/legends, wrapped text boxes with layout preflight, and
 streaming SVG. This does not complete milestone 1: the remaining scales,
-facets, smoothing, measured layout and the full example
+smoothing, measured layout and the full example
 gallery remain future work, tracked under B80 in the [backlog](../backlog.md).
 The [decisions](#decisions) remain the target design. Code fences here show
 proposed API and are not compiled; use the reference and tutorial for current API.

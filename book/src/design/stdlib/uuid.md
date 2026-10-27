@@ -7,6 +7,26 @@ No extra native library is linked. Start with the
 [tutorial](../../tutorial/07-modules/20-standard-uuid.md); the
 [signature index](signatures.md#stduuid) lists the complete API.
 
+```plenty
+import std.bytes
+import std.secrets
+import std.uuid
+
+def main() -> Result[(), AllocError | IoError | ParseError | std.bytes.BytesError | std.secrets.SecretsError]:
+    id = std.uuid.parse("6BA7B810-9DAD-11D1-80B4-00C04FD430C8")?
+    print(id.to_string()?, id.version(), id.is_rfc_variant())?
+    same = std.uuid.from_bytes(&id.to_bytes()?)?
+    print(same == id)?
+    fresh = std.uuid.v4()?
+    print(len(fresh.to_string()?), fresh.version(), fresh == id)?
+    Ok(())
+```
+```output
+6ba7b810-9dad-11d1-80b4-00c04fd430c8 Option[u8].Some(1) True
+True
+36 Option[u8].Some(4) False
+```
+
 ## Values and conversion
 
 `Uuid` owns two private `u64` fields in network order: most significant half

@@ -4,6 +4,24 @@ These operations use the [optional Polars engine](dataframe-engine.md).
 They return `Result[..., DataFrameError]`, retain native error messages,
 and leave query/frame owners usable after each call.
 
+```plenty dataframe
+import std.dataframe as df
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
+    data = df.frame([
+        df.column_str("city", ["Oslo", "Lima", "Pune"]?)?,
+        df.column_i64("population", [709, 10883, 7764]?)?
+    ]?)?
+    data.write_csv("cities.csv")?
+    query = df.scan_csv("cities.csv", schema_overrides=Some(data.schema()?))?
+    large = query.filter(df.col("population")?.gt(df.lit_i64(1000)?)?)?.collect()?
+    print(large.values_str("city")?)?
+    Ok(())
+```
+```output
+["Lima", "Pune"]
+```
+
 ## Scan a local CSV file
 
 `scan_csv(path, has_header=True, separator=",", infer_rows=100,

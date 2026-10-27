@@ -1,4 +1,4 @@
-//! Native primitives behind `std.crypto`: RustCrypto digests/HMAC and ring
+//! Native primitives behind `std.crypto`: RustCrypto digests/HMAC, BLAKE3, and ring
 //! authenticated encryption, signatures, key exchange and derivation. The public API, range validation
 //! and error policy live in `std.crypto` and `std.bytes`.
 use crate::{op::Ty, sum};
@@ -12,6 +12,7 @@ pub enum CryptoOp {
     Finish,
     Verify,
     Equal,
+    NewDeriveKey = 7,
     AesSeal = 8,
     AesOpen = 9,
     ChaChaSeal = 10,
@@ -46,6 +47,7 @@ impl CryptoOp {
             "__crypto_x_new" => Self::XNew,
             "__crypto_x_public" => Self::XPublic,
             "__crypto_x_agree" => Self::XAgree,
+            "__crypto_new_derive_key" => Self::NewDeriveKey,
             _ => return None,
         })
     }
@@ -56,6 +58,7 @@ impl CryptoOp {
         let state = || sum::result(storage(), sum::alloc_error());
         match self {
             Self::New => (vec![Ty::U8], state()),
+            Self::NewDeriveKey => (vec![Ty::Str], state()),
             Self::NewKeyed => (vec![Ty::U8, storage(), Ty::I64, Ty::I64], state()),
             // False once the state has finished.
             Self::Update => (range(), Ty::Bool),
@@ -78,7 +81,12 @@ impl CryptoOp {
     /// Operands the primitive writes through: mutable state and output buffers.
     pub fn exclusive(self, operand: usize) -> bool {
         match self {
-            Self::New | Self::NewKeyed | Self::Equal | Self::EdVerify | Self::XNew => false,
+            Self::New
+            | Self::NewKeyed
+            | Self::Equal
+            | Self::EdVerify
+            | Self::XNew
+            | Self::NewDeriveKey => false,
             Self::AesSeal | Self::AesOpen | Self::ChaChaSeal | Self::ChaChaOpen | Self::Hkdf => {
                 operand == 3
             }

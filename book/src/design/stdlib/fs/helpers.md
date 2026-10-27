@@ -7,6 +7,32 @@ including a path with trailing slashes. Ancestor components of the initial
 root path are resolved normally: selecting that root is the caller's trust
 decision, not a sandbox or a canonicalization operation.
 
+```plenty
+import std.fs as fs
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError]:
+    current = path.from_text(".")?
+    root = fs.root(&current)?
+    drafts = path.from_text("drafts")?
+    final = path.from_text("final")?
+    root.create_dir(&drafts)?
+    root.move(&drafts, &final)?
+    reports = root.open_dir(&final)?
+    reports.create_dir(&path.from_text("2024")?)?
+    mut names = reports.names()?
+    while True:
+        match names.next()?:
+            case Some(name):
+                print(name.display()?)?
+            case Nothing:
+                break
+    Ok(())
+```
+```output
+2024
+```
+
 Every child name is a lossless `Path` containing one nonempty component.
 Slash, NUL, `.` and `..` are rejected. Child directory/file opens use
 `O_NOFOLLOW`; symlinks and symlink cycles cannot escape through these opens.

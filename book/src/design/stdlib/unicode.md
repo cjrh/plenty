@@ -13,6 +13,24 @@ string `"17.0.0"`.
 | `combining_class(scalar: &str)` | `Option[u32]`: canonical combining class of exactly one scalar |
 | `is_mark(scalar: &str)` | `Option[bool]`: General_Category is Mark for exactly one scalar |
 
+```plenty
+import std.unicode
+from std.text import TextError
+
+def main() -> Result[(), AllocError | IoError | TextError]:
+    decomposed = std.unicode.nfd("café", 64)?
+    print(len("café"), len(decomposed), std.unicode.nfc(&decomposed, 64)? == "café")?
+    accent = decomposed[4]
+    print(std.unicode.is_mark(&accent), std.unicode.combining_class(&accent))?
+    print(std.unicode.nfkc("ﬁle ①", 64)?)?
+    Ok(())
+```
+```output
+4 5 True
+Option[bool].Some(True) Option[u32].Some(230)
+file 1
+```
+
 Normalization returns `Result[str, std.text.TextError]`. It borrows input and
 returns independent text. The explicit scalar limit bounds the input, fully
 decomposed intermediate, and result. Exceeding any gives `LimitExceeded`; a

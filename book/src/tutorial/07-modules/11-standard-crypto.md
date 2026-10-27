@@ -1,6 +1,6 @@
 # Hash and sign bytes
 
-`std.crypto` computes SHA-256 and SHA-512 digests and HMAC tags over
+`std.crypto` computes BLAKE3, SHA-256 and SHA-512 digests and keyed tags over
 [`std.bytes`](../../design/stdlib/bytes.md) buffers, and compares secrets in
 constant time. For AEAD encryption and public-key signatures, see
 [Encrypt and authenticate bytes](11a-standard-encryption.md).
@@ -43,7 +43,37 @@ new hash; make a new `Digest` instead. `update(data, start, stop)` takes a
 range of a buffer, so a large input can be hashed while it is read, without
 first collecting it in memory.
 
+## BLAKE3
+
+For BLAKE3, choose `Algorithm.Blake3` or the one-shot `blake3` function:
+
+```plenty
+import std.bytes
+import std.crypto
+from std.crypto import Algorithm
+
+def main() -> Result[(), IoError | std.bytes.BytesError | std.crypto.CryptoError]:
+    data = std.bytes.from_text("hello world")?
+    expected = std.crypto.blake3(&data)?
+    mut hasher = std.crypto.digest(Algorithm.Blake3)?
+    hasher.update_text("hello ")?
+    hasher.update_text("world")?
+    print(expected.len(), std.crypto.equal(&hasher.finish()?, &expected))?
+    Ok(())
+```
+```output
+32 True
+```
+
+BLAKE3 also has a native keyed hash with exactly 32 key bytes and a key
+derivation mode. Use `blake3_keyed_hasher(key)` for a `Mac` with the same
+`update` and `verify` methods used for HMAC below. It is a distinct algorithm:
+`hmac(Algorithm.Blake3, key)` reports `UnsupportedAlgorithm`. See the
+[BLAKE3 reference](../../design/stdlib/crypto-blake3.md) for key derivation
+contexts, allocation costs and limits.
+
 ## Signing with HMAC
+
 
 A digest proves nothing about who made it: anyone can hash a message. An HMAC
 tag mixes in a secret key, so only a holder of the key can produce a tag that
@@ -91,7 +121,7 @@ forged tag was right. `verify` and `std.crypto.equal` take the same time
 wherever the bytes differ.
 
 A real key should be secret and random: make one with
-`std.secrets.token_bytes(32)` from the [previous lessons](09-random-and-secrets.md)
+`std.secrets.token_bytes(32)` from [Randomness and secrets](09-random-and-secrets.md)
 rather than from text.
 
 See the [crypto reference](../../design/stdlib/crypto.md) for the guarantees,
