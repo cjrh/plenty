@@ -12,8 +12,8 @@ from std.time import Deadline, monotonic_now
 # Bytes per event record that the runtime writes, and records per wait.
 const event_size: i64 = 16
 const most_events: i64 = 64
-# A pipe or socket that polls writable has room for this many bytes, so a
-# write of at most this size cannot block.
+# Bound writes for pipes; readiness alone is not a guarantee that a blocking
+# socket can accept this many bytes. std.net keeps its sockets nonblocking.
 const pipe_page: i64 = 4096
 
 pub enum Interest:
@@ -101,8 +101,8 @@ def moved(result: Result[i64, StreamError]) -> Result[i64, WaitError]:
             Err(WaitError.Stream(cause))
 
 # Waits for input, then makes one read into buffer[start:stop]. Zero is end of
-# input. With a single reader of a pipe, terminal or socket the read does not
-# block; a regular file is always ready.
+# input. Readiness can become stale; this helper does not change descriptor
+# mode or retry a transfer that would block. A regular file is always ready.
 pub def read_before(stream: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]:
     wait(&stream.file, Interest.Read, deadline, cancel)?
     moved(stream.read(buffer, start, stop))

@@ -1,9 +1,8 @@
 //! Sockets and name resolution for `std.net`. Each call is one request to the
-//! kernel or, for resolution, one `getaddrinfo`. Listening, datagram and
-//! connecting sockets are non-blocking, so `std.net` bounds every wait with
-//! `std.ready`; a connected or accepted stream blocks, and `std.net` waits for
-//! readiness before each transfer. Every descriptor is close-on-exec and is
-//! owned by a `File`, so dropping the owner closes it.
+//! kernel or, for resolution, one `getaddrinfo`. All network sockets stay
+//! nonblocking, including connected and accepted streams. `std.net` owns
+//! readiness waits and retries when readiness becomes stale. Every descriptor
+//! is close-on-exec and owned by a `File`, so dropping the owner closes it.
 //!
 //! An address crosses the ABI as bytes: the family (4 or 6), the port in
 //! network order, the address and, for IPv6, the scope id in network order.
@@ -40,9 +39,6 @@ mod native {
     const IPPROTO_IPV6: i32 = 41;
     const IPV6_V6ONLY: i32 = 26;
     const EINPROGRESS: i32 = 115;
-    const F_GETFL: i32 = 3;
-    const F_SETFL: i32 = 4;
-    const O_NONBLOCK: i32 = 0o4000;
     const MSG_TRUNC: i32 = 0x20;
     const MSG_NOSIGNAL: i32 = 0x4000;
     const EAI_NONAME: i32 = -2;
@@ -83,7 +79,6 @@ mod native {
         fn getsockopt(fd: i32, level: i32, name: i32, value: *mut i32, length: *mut u32) -> i32;
         fn setsockopt(fd: i32, level: i32, name: i32, value: *const i32, length: u32) -> i32;
         fn shutdown(fd: i32, how: i32) -> i32;
-        fn fcntl(fd: i32, command: i32, ...) -> i32;
         fn sendto(
             fd: i32,
             data: *const u8,
@@ -242,18 +237,23 @@ mod native {
         crate::files::adopt_socket(std::fs::File::from(owned), ty)
     }
 
-    /// The accepted socket blocks; `std.net` waits for readiness first. An
-    /// empty queue is the error EAGAIN.
+    /// Keep accepted streams nonblocking even if readiness becomes stale.
+    /// An empty queue is the error EAGAIN.
     fn accept(fd: i32, ty: &'static Type) -> Result<u128, Error> {
         // SAFETY: a listening descriptor; the peer address is not requested.
         let accepted = checked(unsafe {
-            accept4(fd, std::ptr::null_mut(), std::ptr::null_mut(), SOCK_CLOEXEC)
+            accept4(
+                fd,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                SOCK_NONBLOCK | SOCK_CLOEXEC,
+            )
         })?;
         adopted(accepted, ty)
     }
 
-    /// Reports a failed connection attempt, or makes the connected socket
-    /// blocking. A connection still in progress is EAGAIN.
+    /// Reports a failed connection attempt without changing descriptor mode.
+    /// A connection still in progress is EAGAIN.
     fn finish_connect(fd: i32) -> Result<u128, Error> {
         let (mut error, mut length) = (0i32, 4u32);
         // SAFETY: a four-byte integer option.
@@ -267,9 +267,6 @@ mod native {
         if unsafe { getpeername(fd, &mut peer, &mut length) } < 0 {
             return Err(std::io::Error::from_raw_os_error(EAGAIN).into());
         }
-        // SAFETY: integer commands on a live descriptor.
-        let flags = checked(unsafe { fcntl(fd, F_GETFL) })?;
-        checked(unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) })?;
         Ok(0)
     }
 
@@ -604,6 +601,124 @@ mod native {
                 }
                 _ => crate::fail("invalid network operation"),
             }
+        }
+    }
+    #[cfg(test)]
+    mod socket_tests {
+        use super::*;
+        use crate::{files, memory};
+
+        static FILE: Type = Type {
+            inline_range: false,
+            inline_bytes: 0,
+            kind: b'F',
+            affine: true,
+            reflexive: true,
+            key: None,
+            value: None,
+            name: "",
+            variants: &[],
+            drop: None,
+        };
+
+        struct Owner(u128);
+
+        impl Owner {
+            fn pointer(&mut self) -> *mut files::File {
+                self.0 as *mut files::File
+            }
+
+            fn fd(&self) -> i32 {
+                // SAFETY: this test owns the initialized File until Drop.
+                unsafe { files::descriptor(self.0 as *const files::File) }.unwrap()
+            }
+        }
+
+        impl Drop for Owner {
+            fn drop(&mut self) {
+                // SAFETY: release this test's sole ownership exactly once.
+                unsafe { memory::plenty_release(self.0 as *mut memory::Header) };
+            }
+        }
+
+        fn pair() -> (Owner, Owner) {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port().to_be_bytes();
+            let mut client =
+                Owner(open(&[4, port[0], port[1], 127, 0, 0, 1], CONNECT, 0, &FILE).unwrap());
+            // SAFETY: the test owns this live File; bound setup to five seconds.
+            let ready = unsafe { files::wait_ready(client.pointer(), 2, 5_000_000_000) }.unwrap();
+            assert_ne!(ready, 0);
+            finish_connect(client.fd()).unwrap();
+            let server = Owner(accept(listener.as_raw_fd(), &FILE).unwrap());
+            (client, server)
+        }
+
+        fn assert_nonblocking(fd: i32) {
+            unsafe extern "C" {
+                fn fcntl(fd: i32, command: i32, ...) -> i32;
+            }
+            // SAFETY: integer get commands on a live descriptor.
+            let status = unsafe { fcntl(fd, 3) };
+            assert!(status >= 0);
+            assert_ne!(
+                status & SOCK_NONBLOCK,
+                0,
+                "TCP descriptor must stay nonblocking"
+            );
+            // SAFETY: F_GETFD takes no trailing argument.
+            assert_eq!(
+                unsafe { fcntl(fd, 1) } & 1,
+                1,
+                "TCP descriptor must be close-on-exec"
+            );
+        }
+
+        fn is_again(error: Error) -> bool {
+            matches!(error, Error::System(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        }
+
+        #[test]
+        fn connected_and_accepted_streams_never_block_after_stale_readiness() {
+            let (mut client, mut server) = pair();
+            for owner in [&mut client, &mut server] {
+                assert_nonblocking(owner.fd());
+                // SAFETY: exclusive owners and a valid one-byte destination.
+                assert!(
+                    unsafe { files::read_bytes(owner.pointer(), &mut [0]) }.is_err_and(is_again)
+                );
+            }
+            // SAFETY: live exclusive owners and valid byte buffers. Drain the
+            // byte after a readiness report, then model a second stale attempt.
+            unsafe {
+                assert_eq!(files::write_bytes(client.pointer(), b"x").unwrap(), 1);
+                assert_ne!(
+                    files::wait_ready(server.pointer(), 1, 5_000_000_000).unwrap(),
+                    0
+                );
+                assert_eq!(files::read_bytes(server.pointer(), &mut [0]).unwrap(), 1);
+                assert!(files::read_bytes(server.pointer(), &mut [0]).is_err_and(is_again));
+            }
+        }
+
+        #[test]
+        fn a_small_full_send_buffer_reports_would_block() {
+            let (mut client, server) = pair();
+            assert_nonblocking(client.fd());
+            option(client.fd(), SOL_SOCKET, 7, 4096).unwrap(); // SO_SNDBUF
+            option(server.fd(), SOL_SOCKET, 8, 4096).unwrap(); // SO_RCVBUF
+            let block = [0; 4096];
+            for _ in 0..4096 {
+                // SAFETY: this test owns the live socket and source buffer.
+                match unsafe { files::write_bytes(client.pointer(), &block) } {
+                    Ok(count) => assert!(count > 0 && count <= block.len() as u128),
+                    Err(error) => {
+                        assert!(is_again(error));
+                        return;
+                    }
+                }
+            }
+            panic!("an idle peer must exhaust the bounded send buffer");
         }
     }
 }
