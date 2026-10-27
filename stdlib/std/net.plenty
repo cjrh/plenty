@@ -644,14 +644,12 @@ pub class TcpStream:
                     retry_transfer(error, deadline, cancel)?
         Err(NetError.TimedOut)
 
-    # Waits for space, then makes one write of at most 4096 bytes.
+    # Waits for space, then offers the whole range in one nonblocking write.
+    # The returned count can be smaller than stop - start.
     pub def write_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
-        mut end = stop
-        if start >= 0 and stop - start > 4096:
-            end = start + 4096
         while True:
             ready_for(&self._stream.file, Interest.Write, deadline, cancel)?
-            match self._stream.write(source, start, end):
+            match self._stream.write(source, start, stop):
                 case Ok(count):
                     return Ok(count)
                 case Err(error):
