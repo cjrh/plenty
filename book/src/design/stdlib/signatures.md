@@ -2612,7 +2612,7 @@ class Layer
 class Labels
 class Theme
 enum Component
-    Layer(Layer) | Labels(Labels) | Theme(Theme) | Cartesian(Option[(f64, f64)], Option[(f64, f64)]) | Flip | ColourScale(bool, ColourScale)
+    Layer(Layer) | Labels(Labels) | Theme(Theme) | Cartesian(Option[(f64, f64)], Option[(f64, f64)]) | Flip | ColourScale(bool, ColourScale) | PositionScale(bool, PositionScale)
 enum ColourScale
     Default | Manual(dict[str, str]) | Gradient(str, str)
 def scale_colour_manual(values: dict[str, str]) -> Component
@@ -2623,12 +2623,25 @@ def scale_color_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Compone
 def scale_fill_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component
 enum Unset
     Unset
-def geom_point(colour: str = "", color: str = "", size: f64 | i64 = 1.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component
-def geom_line(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component
-def geom_path(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False) -> Component
-def geom_col(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component
-def geom_bar(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component
-def geom_histogram(colour: str = "", color: str = "", fill: str = "", bins: i64 = 30, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False) -> Component
+enum Transform
+    Identity | Log10 | Sqrt | Reverse
+class PositionScale
+def scale_x_continuous(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset, transform: Transform = Transform.Identity) -> Component
+def scale_y_continuous(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset, transform: Transform = Transform.Identity) -> Component
+def scale_x_discrete(name: str = "", limits: Option[list[str]] = Nothing, labels: Option[list[str]] = Nothing) -> Component
+def scale_y_discrete(name: str = "", limits: Option[list[str]] = Nothing, labels: Option[list[str]] = Nothing) -> Component
+def scale_x_log10(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component
+def scale_y_log10(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component
+def scale_x_sqrt(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component
+def scale_x_reverse(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component
+def scale_y_sqrt(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component
+def scale_y_reverse(name: str = "", breaks: Option[list[f64]] = Nothing, labels: Option[list[str]] = Nothing, limits: (f64, f64) | Unset = Unset.Unset) -> Component
+def geom_point(colour: str = "", color: str = "", size: f64 | i64 = 1.5, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_line(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_path(colour: str = "", color: str = "", linewidth: f64 | i64 = 0.5, alpha: f64 | i64 = 1.0, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_col(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_bar(colour: str = "", color: str = "", fill: str = "", width: f64 | i64 = 0.9, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
+def geom_histogram(colour: str = "", color: str = "", fill: str = "", bins: i64 = 30, alpha: f64 | i64 = 1.0, position: Position = Position.Stack, na_rm: bool = False, data: Table | Unset = Unset.Unset, mapping: Mapping | Unset = Unset.Unset, inherit_aes: bool = True) -> Component
 def labs(title: str = "", x: str = "", y: str = "", colour: str = "", fill: str = "") -> Component
 def theme_grey(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component
 def theme_minimal(base_size: f64 | i64 = 11, legend_position: Legend = Legend.Right) -> Component

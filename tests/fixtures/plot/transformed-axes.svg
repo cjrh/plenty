@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="432.00pt" height="288.00pt" viewBox="0 0 432.00 288.00">
+<g font-family="Liberation Sans,Arial,Helvetica,sans-serif" fill="#333333">
+<rect x="0.00" y="0.00" width="432.00" height="288.00" fill="white" stroke="none"/>
+<rect x="70.37" y="18.16" width="291.26" height="211.96" fill="#EBEBEB" stroke="none"/>
+<line x1="83.61" y1="18.16" x2="83.61" y2="230.12" stroke="white" stroke-width="0.50"/>
+<text x="83.61" y="251.08" font-size="8.80" text-anchor="middle" textLength="16.37" lengthAdjust="spacingAndGlyphs">one</text>
+<line x1="216.00" y1="18.16" x2="216.00" y2="230.12" stroke="white" stroke-width="0.50"/>
+<text x="216.00" y="251.08" font-size="8.80" text-anchor="middle" textLength="16.37" lengthAdjust="spacingAndGlyphs">ten</text>
+<line x1="348.39" y1="18.16" x2="348.39" y2="230.12" stroke="white" stroke-width="0.50"/>
+<text x="348.39" y="251.08" font-size="8.80" text-anchor="middle" textLength="38.19" lengthAdjust="spacingAndGlyphs">hundred</text>
+<line x1="70.37" y1="220.49" x2="361.63" y2="220.49" stroke="white" stroke-width="0.50"/>
+<text x="64.37" y="223.13" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">1</text>
+<line x1="70.37" y1="124.14" x2="361.63" y2="124.14" stroke="white" stroke-width="0.50"/>
+<text x="64.37" y="126.78" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">4</text>
+<line x1="70.37" y1="27.79" x2="361.63" y2="27.79" stroke="white" stroke-width="0.50"/>
+<text x="64.37" y="30.43" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">9</text>
+<text x="216.00" y="271.60" font-size="11.00" text-anchor="middle" textLength="6.82" lengthAdjust="spacingAndGlyphs">x</text>
+<g transform="translate(19.70,124.14) rotate(-90)">
+<text x="0.00" y="3.30" font-size="11.00" text-anchor="middle" textLength="6.82" lengthAdjust="spacingAndGlyphs">y</text>
+</g>
+<defs><clipPath id="panel"><rect x="70.37" y="18.16" width="291.26" height="211.96"/></clipPath></defs>
+<g clip-path="url(#panel)">
+<g data-geom="point" opacity="1.00">
+<circle cx="83.61" cy="220.49" r="2.13" fill="black"/>
+<circle cx="216.00" cy="124.14" r="2.13" fill="black"/>
+<circle cx="348.39" cy="27.79" r="2.13" fill="black"/>
+</g>
+</g>
+</g>
+</svg>

@@ -1,35 +1,34 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="432.00pt" height="288.00pt" viewBox="0 0 432.00 288.00">
 <g font-family="Liberation Sans,Arial,Helvetica,sans-serif" fill="#333333">
 <rect x="0.00" y="0.00" width="432.00" height="288.00" fill="white" stroke="none"/>
-<rect x="55.00" y="35.00" width="257.00" height="203.00" fill="white" stroke="none"/>
-<text x="55.00" y="22.00" font-size="13.20" text-anchor="start"></text>
-<line x1="142.05" y1="35.00" x2="142.05" y2="238.00" stroke="#DDDDDD" stroke-width="0.50"/>
-<text x="142.05" y="251.20" font-size="8.80" text-anchor="middle">A</text>
-<line x1="224.95" y1="35.00" x2="224.95" y2="238.00" stroke="#DDDDDD" stroke-width="0.50"/>
-<text x="224.95" y="251.20" font-size="8.80" text-anchor="middle">B</text>
-<line x1="55.00" y1="228.77" x2="312.00" y2="228.77" stroke="#DDDDDD" stroke-width="0.50"/>
-<text x="50.00" y="232.07" font-size="8.80" text-anchor="end">0</text>
-<line x1="55.00" y1="136.50" x2="312.00" y2="136.50" stroke="#DDDDDD" stroke-width="0.50"/>
-<text x="50.00" y="139.80" font-size="8.80" text-anchor="end">0.5</text>
-<line x1="55.00" y1="44.23" x2="312.00" y2="44.23" stroke="#DDDDDD" stroke-width="0.50"/>
-<text x="50.00" y="47.53" font-size="8.80" text-anchor="end">1</text>
-<text x="183.50" y="280.00" font-size="11.00" text-anchor="middle">x</text>
-<g transform="translate(14.00,136.50) rotate(-90)">
-<text x="0.00" y="0.00" font-size="11.00" text-anchor="middle">y</text>
+<rect x="59.27" y="18.16" width="247.72" height="211.96" fill="white" stroke="none"/>
+<line x1="143.18" y1="18.16" x2="143.18" y2="230.12" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="143.18" y="251.08" font-size="8.80" text-anchor="middle" textLength="5.46" lengthAdjust="spacingAndGlyphs">A</text>
+<line x1="223.09" y1="18.16" x2="223.09" y2="230.12" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="223.09" y="251.08" font-size="8.80" text-anchor="middle" textLength="5.46" lengthAdjust="spacingAndGlyphs">B</text>
+<line x1="59.27" y1="220.49" x2="306.99" y2="220.49" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="53.27" y="223.13" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">0</text>
+<line x1="59.27" y1="124.14" x2="306.99" y2="124.14" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="53.27" y="126.78" font-size="8.80" text-anchor="end" textLength="13.73" lengthAdjust="spacingAndGlyphs">0.5</text>
+<line x1="59.27" y1="27.79" x2="306.99" y2="27.79" stroke="#DDDDDD" stroke-width="0.50"/>
+<text x="53.27" y="30.43" font-size="8.80" text-anchor="end" textLength="5.46" lengthAdjust="spacingAndGlyphs">1</text>
+<text x="183.13" y="271.60" font-size="11.00" text-anchor="middle" textLength="6.82" lengthAdjust="spacingAndGlyphs">x</text>
+<g transform="translate(19.70,124.14) rotate(-90)">
+<text x="0.00" y="3.30" font-size="11.00" text-anchor="middle" textLength="6.82" lengthAdjust="spacingAndGlyphs">y</text>
 </g>
-<defs><clipPath id="panel"><rect x="55.00" y="35.00" width="257.00" height="203.00"/></clipPath></defs>
+<defs><clipPath id="panel"><rect x="59.27" y="18.16" width="247.72" height="211.96"/></clipPath></defs>
 <g clip-path="url(#panel)">
 <g data-geom="col" opacity="1.00">
-<rect x="187.65" y="44.23" width="74.61" height="138.41" fill="#F8766D" stroke="transparent"/>
-<rect x="104.74" y="44.23" width="74.61" height="61.52" fill="#F8766D" stroke="transparent"/>
-<rect x="104.74" y="105.74" width="74.61" height="123.03" fill="#00BFC4" stroke="transparent"/>
-<rect x="187.65" y="182.64" width="74.61" height="46.14" fill="#00BFC4" stroke="transparent"/>
+<rect x="187.13" y="27.79" width="71.92" height="144.52" fill="#F8766D" stroke="transparent"/>
+<rect x="107.22" y="27.79" width="71.92" height="64.23" fill="#F8766D" stroke="transparent"/>
+<rect x="107.22" y="92.02" width="71.92" height="128.46" fill="#00BFC4" stroke="transparent"/>
+<rect x="187.13" y="172.31" width="71.92" height="48.17" fill="#00BFC4" stroke="transparent"/>
 </g>
 </g>
-<text x="324.00" y="58.00" font-size="11.00" text-anchor="start">g</text>
-<rect x="324.00" y="65.70" width="11.00" height="11.00" fill="#F8766D" stroke="none"/>
-<text x="339.00" y="74.50" font-size="8.80" text-anchor="start">first</text>
-<rect x="324.00" y="82.20" width="11.00" height="11.00" fill="#00BFC4" stroke="none"/>
-<text x="339.00" y="91.00" font-size="8.80" text-anchor="start">second</text>
+<text x="370.26" y="29.16" font-size="11.00" text-anchor="start" textLength="6.82" lengthAdjust="spacingAndGlyphs">g</text>
+<rect x="370.26" y="37.56" width="11.00" height="11.00" fill="#F8766D" stroke="none"/>
+<text x="387.26" y="46.36" font-size="8.80" text-anchor="start" textLength="24.64" lengthAdjust="spacingAndGlyphs">first</text>
+<rect x="370.26" y="53.88" width="11.00" height="11.00" fill="#00BFC4" stroke="none"/>
+<text x="387.26" y="62.68" font-size="8.80" text-anchor="start" textLength="32.74" lengthAdjust="spacingAndGlyphs">second</text>
 </g>
 </svg>
