@@ -73,6 +73,10 @@ class Context[M, E]
     def unwatch_stream(self: &mut Context[M, E], stream: &TcpStream) -> Result[(), NetError]
     def watch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]
     def unwatch_listener(self: &mut Context[M, E], listener: &TcpListener) -> Result[(), NetError]
+    def watch_connecting(self: &mut Context[M, E], attempt: &Connecting) -> Result[(), NetError]
+    def unwatch_connecting(self: &mut Context[M, E], attempt: &Connecting) -> Result[(), NetError]
+    def watch_lookup(self: &mut Context[M, E], lookup: &Lookup) -> Result[(), NetError]
+    def unwatch_lookup(self: &mut Context[M, E], lookup: &Lookup) -> Result[(), NetError]
 class Stage[N, M, E]
     def start(self: &mut Stage[N, M, E], node: N, limit: i64) -> Result[Address, StartError]
     def send(self: &mut Stage[N, M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
@@ -83,6 +87,66 @@ class Stage[N, M, E]
     def heap_used(self, actor: Address) -> Option[i64]
     def run(self: &mut Stage[N, M, E], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
 def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], AllocError | WaitError]
+```
+
+## `std.actor.net`
+
+TCP for actors: a listener that starts one actor per connection with admission limits, connections with bounded buffers, back-pressure and deadlines, and nonblocking connect and lookup. Errors: `NetError`, `TimerError`, `BytesError`. [Reference](actor-net.md).
+
+```text
+class Limits
+    input: i64
+    output: i64
+    idle: Duration
+    stall: Duration
+enum Expired
+    Idle | Read | Write
+class Events
+    mine: bool
+    received: i64
+    ended: bool
+    writable: bool
+    drained: bool
+    expired: Option[Expired]
+class Connection
+    def start[M, E](self: &mut Connection, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]
+    def handle[M, E](self: &mut Connection, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Events, NetError | TimerError]
+    def input(self) -> &Bytes
+    def input_start(self) -> i64
+    def input_stop(self) -> i64
+    def available(self) -> i64
+    def consume[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]
+    def pending(self) -> i64
+    def space(self) -> i64
+    def write[S: ByteSource, M, E](self: &mut Connection, source: &S, start: i64, stop: i64, context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]
+    def forward[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]
+    def read_within[M, E](self: &mut Connection, span: &Duration, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]
+    def clear_read_deadline(self: &mut Connection) -> ()
+    def shutdown_write[M, E](self: &mut Connection, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]
+    def close[M, E](self: &mut Connection, context: &mut Context[M, E]) -> Result[(), NetError]
+    def reading(self) -> bool
+    def closed(self) -> bool
+    def stream(self) -> &TcpStream
+def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, BytesError]
+enum Admission
+    Pause | Refuse
+class Listener
+    def start[M, E](self: &mut Listener, context: &mut Context[M, E]) -> Result[(), NetError]
+    def handle[M, E](self: &mut Listener, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[bool, NetError]
+    def accept(self) -> Result[Option[Connection], NetError | BytesError]
+    def live(self) -> i64
+    def refused(self) -> i64
+    def tag(self) -> i64
+    def local_address(self) -> Result[SocketAddress, NetError]
+def listener(socket: TcpListener, limits: Limits, capacity: i64, heap: i64, tag: i64, admission: Admission) -> Result[Listener, NetError]
+class Dialing
+    def handle[M, E](self: &mut Dialing, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Option[TcpStream], NetError]
+    def abandon[M, E](self: &mut Dialing, context: &mut Context[M, E]) -> Result[(), NetError]
+def dial[M, E](address: &SocketAddress, timeout: &Duration, context: &mut Context[M, E]) -> Result[Dialing, NetError | TimerError]
+class Resolving
+    def handle[M, E](self: &mut Resolving, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Option[list[SocketAddress]], NetError]
+    def abandon[M, E](self: &mut Resolving, context: &mut Context[M, E]) -> Result[(), NetError]
+def lookup[M, E](host: &str, port: u16, timeout: &Duration, context: &mut Context[M, E]) -> Result[Resolving, NetError | TimerError]
 ```
 
 ## `std.archive`
@@ -2202,6 +2266,11 @@ def format_ip(ip: IpAddress) -> Result[str, NetError]
 def parse_ip(text: &str) -> Result[IpAddress, NetError]
 def parse_address(text: &str) -> Result[SocketAddress, NetError]
 def resolve(host: &str, port: u16, deadline: &Deadline, cancel: &CancellationToken) -> Result[list[SocketAddress], NetError]
+class Lookup
+    def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]
+    def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
+    def finish_now(self: &mut Lookup) -> Result[list[SocketAddress], NetError]
+def start_lookup(host: &str, port: u16) -> Result[Lookup, NetError]
 enum Shutdown
     Read | Write | Both
 class TcpStream
@@ -2230,6 +2299,12 @@ class TcpListener
     def close(self: &mut TcpListener) -> Result[(), NetError]
 def listen(address: &SocketAddress, backlog: i64) -> Result[TcpListener, NetError]
 def connect(address: &SocketAddress, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, NetError]
+class Connecting
+    def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]
+    def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
+    def finish_now(self: &mut Connecting) -> Result[(), NetError]
+    def stream(self: Connecting) -> TcpStream
+def start_connect(address: &SocketAddress) -> Result[Connecting, NetError]
 class Datagram
     size: i64
     stored: i64

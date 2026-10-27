@@ -1,0 +1,153 @@
+# An echo server on std.actor.net whose limits the tests replace. It prints
+# its port, serves until `connections` connection actors have ended, then
+# prints one line per counter and the heap counters.
+from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_used, heaps_live, stage
+from std.actor.net import Admission, Connection, Expired, Limits, Listener, listener
+from std.bytes import BytesError
+from std.net import NetError, listen, loopback_v4
+from std.ready import WaitError
+from std.sync import CancellationToken
+from std.time import deadline_after, milliseconds, monotonic_now, seconds
+
+const connections: i64 = 3
+const capacity: i64 = 64
+const refuse: bool = False
+const input_size: i64 = 1024
+const output_size: i64 = 1024
+const idle_ms: u32 = 0u32
+const stall_ms: u32 = 0u32
+const read_ms: u32 = 0u32
+
+type Fault = NetError | BytesError | TimerError
+
+pub enum Note:
+    # A connection's heap use once its buffers are allocated.
+    Used(i64)
+    Expired(i64)
+
+pub class Acceptor:
+    pub listener: Listener
+    # Set by `started`; in the spawn hook `context.address()` is the child's.
+    pub me: Option[Address]
+    pub ended: i64
+    pub trapped: i64
+    pub used: i64
+    pub idle: i64
+    pub read: i64
+    pub stalled: i64
+
+pub class Echo:
+    pub connection: Connection
+    pub parent: Address
+    pub first: bool
+
+    pub def serve(self: &mut Echo, mail: &Mail[Note, Fault], context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        events = self.connection.handle(mail, context)?
+        match events.expired:
+            case Some(kind):
+                mut code = 0
+                match kind:
+                    case Expired.Idle:
+                        code = 0
+                    case Expired.Read:
+                        code = 1
+                    case Expired.Write:
+                        code = 2
+                drop(context.send(self.parent, Note.Expired(code)))
+                self.connection.close(context)?
+                context.stop()
+                return Ok(())
+            case Nothing:
+                pass
+        if self.first and self.connection.available() > 0:
+            self.first = False
+            # A request that starts with `X` is a handler bug.
+            if self.connection.input()[self.connection.input_start()] == 88u8:
+                missing: Option[i64] = Nothing
+                missing.unwrap()
+            self.connection.clear_read_deadline()
+        if self.connection.available() > 0:
+            self.connection.forward(self.connection.available(), context)?
+        if events.ended and self.connection.available() == 0:
+            self.connection.shutdown_write(context)?
+        if not self.connection.reading() and self.connection.pending() == 0:
+            context.stop()
+        Ok(())
+
+pub enum Node:
+    Accepting(Acceptor)
+    Serving(Echo)
+
+    pub def started(self: &mut Node, context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Accepting(acceptor):
+                acceptor.me = Some(context.address())
+                acceptor.listener.start(context)?
+            case Node.Serving(echo):
+                echo.connection.start(context)?
+                if read_ms > 0u32:
+                    echo.connection.read_within(&milliseconds(read_ms), context)?
+                drop(context.send(echo.parent, Note.Used(context.heap_used())))
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[Note, Fault], context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Accepting(acceptor):
+                acceptor.listener.handle(&mail, context)?
+                match mail:
+                    case Mail.Message(Note.Used(bytes)):
+                        if bytes > acceptor.used:
+                            acceptor.used = bytes
+                    case Mail.Message(Note.Expired(code)):
+                        if code == 0:
+                            acceptor.idle += 1
+                        elif code == 1:
+                            acceptor.read += 1
+                        else:
+                            acceptor.stalled += 1
+                    case Mail.Down(_, exit):
+                        acceptor.ended += 1
+                        match exit:
+                            case Exit.Trapped(_):
+                                acceptor.trapped += 1
+                            case _:
+                                pass
+                        if acceptor.ended == connections:
+                            print("refused", acceptor.listener.refused()).unwrap()
+                            print("idle", acceptor.idle).unwrap()
+                            print("read", acceptor.read).unwrap()
+                            print("stalled", acceptor.stalled).unwrap()
+                            print("trapped", acceptor.trapped).unwrap()
+                            print("used", acceptor.used).unwrap()
+                            context.stop()
+                    case _:
+                        pass
+            case Node.Serving(echo):
+                echo.serve(&mail, context)?
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Note, Fault]) -> Result[Option[Node], Fault]:
+        match self:
+            case Node.Accepting(acceptor):
+                match acceptor.listener.accept()?:
+                    case Some(connection):
+                        Ok(Some(Node.Serving(Echo(connection, acceptor.me.unwrap(), True))))
+                    case Nothing:
+                        Ok(Nothing)
+            case Node.Serving(_):
+                Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | WaitError | NetError | TimerError]:
+    socket = listen(&loopback_v4(0u16), 128)?
+    print(socket.local_address()?.port)?
+    limits = Limits(input_size, output_size, milliseconds(idle_ms), milliseconds(stall_ms))
+    mut admission = Admission.Pause
+    if refuse:
+        admission = Admission.Refuse
+    mut actors = stage[Node, Note, Fault](capacity + 8, 8, 64)?
+    actors.add_timers(capacity + 8)?
+    acceptor = Acceptor(listener(socket, limits, capacity, 65536, 0, admission)?, Nothing, 0, 0, 0, 0, 0, 0)
+    actors.start(Node.Accepting(acceptor), 65536).unwrap()
+    actors.run(&deadline_after(&monotonic_now(), &seconds(60)).unwrap(), &CancellationToken()?)?
+    print(actors.stats(), heaps_live(), heap_bytes_used())?
+    Ok(())

@@ -396,6 +396,8 @@ mod test_small_conveniences;
 mod test_stack_overflow;
 #[path = "test_std_actor.rs"]
 mod test_std_actor;
+#[path = "test_std_actor_net.rs"]
+mod test_std_actor_net;
 #[path = "test_std_archive.rs"]
 mod test_std_archive;
 #[path = "test_std_atomic.rs"]

@@ -1,0 +1,81 @@
+# Outbound std.actor.net: a lookup, a connect to a closed port, then a
+# connect to `open_port`, where it sends a request and prints the reply.
+# The tests replace both ports.
+from std.actor import Address, Context, Mail, TimerError, heaps_live, stage
+from std.actor.net import Connection, Dialing, Limits, Resolving, connection, dial, lookup
+from std.bytes import BytesError
+from std.net import NetError, loopback_v4
+from std.ready import WaitError
+from std.sync import CancellationToken
+from std.time import deadline_after, milliseconds, monotonic_now, seconds
+
+const closed_port: u16 = 1u16
+const open_port: u16 = 1u16
+
+type Fault = NetError | BytesError | TimerError | IoError
+
+pub enum Step:
+    Looking(Resolving)
+    Refusing(Dialing)
+    Dialing(Dialing)
+    Talking(Connection)
+    Done
+
+pub class Client:
+    pub step: Step
+
+    pub def started(self: &mut Client, context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        self.step = Step.Looking(lookup("localhost", 80u16, &seconds(10), context)?)
+        Ok(())
+
+    pub def receive(self: &mut Client, mail: Mail[i64, Fault], context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        match &mut self.step:
+            case Step.Looking(resolving):
+                match resolving.handle(&mail, context)?:
+                    case Some(addresses):
+                        print("resolved", len(addresses) > 0, addresses[0].port)?
+                        self.step = Step.Refusing(dial(&loopback_v4(closed_port), &seconds(10), context)?)
+                    case Nothing:
+                        pass
+            case Step.Refusing(attempt):
+                match attempt.handle(&mail, context):
+                    case Ok(Some(_)):
+                        print("connected to a closed port")?
+                        context.stop()
+                    case Ok(Nothing):
+                        pass
+                    case Err(error):
+                        print("closed port", error)?
+                        self.step = Step.Dialing(dial(&loopback_v4(open_port), &seconds(10), context)?)
+            case Step.Dialing(attempt):
+                match attempt.handle(&mail, context)?:
+                    case Some(stream):
+                        mut talk = connection(stream, &Limits(64, 64, milliseconds(0u32), milliseconds(0u32)))?
+                        talk.start(context)?
+                        talk.write(b"hello", 0, 5, context)?
+                        talk.shutdown_write(context)?
+                        self.step = Step.Talking(talk)
+                    case Nothing:
+                        pass
+            case Step.Talking(talk):
+                events = talk.handle(&mail, context)?
+                if talk.available() > 0:
+                    print("reply", talk.input().to_text_range(talk.input_start(), talk.input_stop())?)?
+                    talk.consume(talk.available(), context)?
+                if events.ended:
+                    talk.close(context)?
+                    context.stop()
+            case Step.Done:
+                pass
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Client], Fault]:
+        Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | WaitError]:
+    mut actors = stage[Client, i64, Fault](4, 4, 8)?
+    actors.add_timers(4)?
+    actors.start(Client(Step.Done), 65536).unwrap()
+    actors.run(&deadline_after(&monotonic_now(), &seconds(30)).unwrap(), &CancellationToken()?)?
+    print(actors.stats(), heaps_live())?
+    Ok(())

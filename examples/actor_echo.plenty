@@ -1,4 +1,4 @@
-# An echo server on std.actor: one acceptor actor, and one actor per
+# An echo server on std.actor.net: one listener actor, and one actor per
 # connection, each with its own heap. A connection whose first byte is `X`
 # trips a handler bug; the trap ends that actor alone, its heap is discarded
 # and its socket closes, while the other connections carry on.
@@ -9,87 +9,65 @@
 #     cargo run --bin plenty -- examples/actor_echo.plenty
 #
 # tests/test_std_actor.rs drives it with many concurrent clients.
-import std.bytes
-from std.actor import Address, Context, Exit, Mail, heap_bytes_committed, heap_bytes_used, heaps_live, stage
-from std.bytes import Bytes, BytesError
-from std.net import NetError, TcpListener, TcpStream, listen, loopback_v4
-from std.ready import Interest, WaitError
+from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_committed, heap_bytes_used, heaps_live, stage
+from std.actor.net import Admission, Connection, Limits, Listener, listener
+from std.bytes import BytesError
+from std.net import NetError, listen, loopback_v4
+from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
 const connections: i64 = 3
-const connection_heap: i64 = 1048576
+const connection_heap: i64 = 65536
 
 pub enum Note:
     Hello
 
+type Fault = NetError | BytesError | TimerError
+
 pub class Acceptor:
-    pub listener: TcpListener
-    pub expected: i64
+    pub listener: Listener
     pub ended: i64
     pub trapped: i64
 
-pub class Connection:
-    pub stream: TcpStream
-    pub buffer: Bytes
-    pub start: i64
-    pub stop: i64
+pub class Echo:
+    pub connection: Connection
     pub first: bool
 
-    # Reads what is available and echoes it; waits for writability when the
-    # peer is slow. A first byte of `X` is the deliberate handler bug.
-    pub def serve(self: &mut Connection, context: &mut Context[Note, NetError | BytesError]) -> Result[(), NetError | BytesError]:
-        if self.start == self.stop:
-            size = self.buffer.len()
-            match self.stream.read_now(&mut self.buffer, 0, size):
-                case Ok(0):
-                    context.stop()
-                    return Ok(())
-                case Ok(count):
-                    self.start = 0
-                    self.stop = count
-                case Err(NetError.WouldBlock):
-                    return Ok(())
-                case Err(error):
-                    return Err(error)
-            if self.first and self.buffer[0] == 88u8:
+    # Moves received bytes to the output. A full output buffer leaves them
+    # in the input, which stops reading until the peer catches up.
+    pub def serve(self: &mut Echo, mail: &Mail[Note, Fault], context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        events = self.connection.handle(mail, context)?
+        if self.first and self.connection.available() > 0:
+            self.first = False
+            if self.connection.input()[self.connection.input_start()] == 88u8:
                 missing: Option[i64] = Nothing
                 missing.unwrap()
-            self.first = False
-        while self.start < self.stop:
-            match self.stream.write_now(&self.buffer, self.start, self.stop):
-                case Ok(count):
-                    self.start += count
-                case Err(NetError.WouldBlock):
-                    context.watch_stream(&self.stream, Interest.Write)?
-                    return Ok(())
-                case Err(error):
-                    return Err(error)
-        context.watch_stream(&self.stream, Interest.Read)?
+        if self.connection.available() > 0:
+            self.connection.forward(self.connection.available(), context)?
+        if events.ended and self.connection.available() == 0:
+            self.connection.shutdown_write(context)?
+        if not self.connection.reading() and self.connection.pending() == 0:
+            context.stop()
         Ok(())
 
 pub enum Node:
     Accepting(Acceptor)
-    Serving(Connection)
+    Serving(Echo)
 
-    pub def started(self: &mut Node, context: &mut Context[Note, NetError | BytesError]) -> Result[(), NetError | BytesError]:
+    pub def started(self: &mut Node, context: &mut Context[Note, Fault]) -> Result[(), Fault]:
         match self:
             case Node.Accepting(acceptor):
-                context.watch_listener(&acceptor.listener)?
-            case Node.Serving(connection):
-                context.watch_stream(&connection.stream, Interest.Read)?
+                acceptor.listener.start(context)?
+            case Node.Serving(echo):
+                echo.connection.start(context)?
         Ok(())
 
-    pub def receive(self: &mut Node, mail: Mail[Note, NetError | BytesError], context: &mut Context[Note, NetError | BytesError]) -> Result[(), NetError | BytesError]:
+    pub def receive(self: &mut Node, mail: Mail[Note, Fault], context: &mut Context[Note, Fault]) -> Result[(), Fault]:
         match self:
             case Node.Accepting(acceptor):
+                acceptor.listener.handle(&mail, context)?
                 match mail:
-                    case Mail.Ready(_):
-                        # A refused spawn leaves the connection queued; the
-                        # listener reports readiness again.
-                        match context.spawn(0, connection_heap):
-                            case _:
-                                pass
                     case Mail.Down(_, exit):
                         acceptor.ended += 1
                         match exit:
@@ -97,41 +75,35 @@ pub enum Node:
                                 acceptor.trapped += 1
                             case _:
                                 pass
-                        if acceptor.ended == acceptor.expected:
+                        if acceptor.ended == connections:
                             context.stop()
                     case _:
                         pass
-            case Node.Serving(connection):
-                match mail:
-                    case Mail.Ready(_):
-                        connection.serve(context)?
-                    case _:
-                        pass
+            case Node.Serving(echo):
+                echo.serve(&mail, context)?
         Ok(())
 
     # Runs with the child's heap current, so the accepted stream and its
-    # buffer belong to the connection actor.
-    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Note, NetError | BytesError]) -> Result[Option[Node], NetError | BytesError]:
+    # buffers belong to the connection actor.
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Note, Fault]) -> Result[Option[Node], Fault]:
         match self:
             case Node.Accepting(acceptor):
-                match acceptor.listener.accept_now():
-                    case Ok(stream):
-                        mut buffer = std.bytes.with_capacity(4096)?
-                        buffer.resize(4096, 0u8)?
-                        Ok(Some(Node.Serving(Connection(stream, buffer, 0, 0, True))))
-                    case Err(NetError.WouldBlock):
+                match acceptor.listener.accept()?:
+                    case Some(connection):
+                        Ok(Some(Node.Serving(Echo(connection, True))))
+                    case Nothing:
                         Ok(Nothing)
-                    case Err(error):
-                        Err(error)
             case Node.Serving(_):
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError | NetError]:
-    listener = listen(&loopback_v4(0u16), 128)?
-    port = listener.local_address()?.port
-    print(port)?
-    mut actors = stage[Node, Note, NetError | BytesError](256, 4, 64)?
-    actors.start(Node.Accepting(Acceptor(listener, connections, 0, 0)), 65536).unwrap()
+def main() -> Result[(), AllocError | IoError | WaitError | NetError | TimerError]:
+    socket = listen(&loopback_v4(0u16), 128)?
+    print(socket.local_address()?.port)?
+    limits = Limits(4096, 4096, seconds(30), seconds(30))
+    mut actors = stage[Node, Note, Fault](256, 4, 64)?
+    actors.add_timers(256)?
+    acceptor = Acceptor(listener(socket, limits, 200, connection_heap, 0, Admission.Pause)?, 0, 0)
+    actors.start(Node.Accepting(acceptor), 65536).unwrap()
     actors.run(&deadline_after(&monotonic_now(), &seconds(60)).unwrap(), &CancellationToken()?)?
     print(actors.stats(), heaps_live(), heap_bytes_used(), heap_bytes_committed())?
     Ok(())
