@@ -94,7 +94,7 @@ fn main_drops_resources_before_the_native_wrapper_returns() {
 
 #[test]
 fn invalid_entrypoints_are_rejected_before_execution_or_artifact_creation() {
-    const MISSING_MAIN: &str = "binary application requires a module-level main taking no parameters and returning (), i32, Result[(), E], or Result[i32, E]";
+    const MISSING_MAIN: &str = "binary application requires a module-level main taking no parameters and returning (), i32, Result[(), E], or Result[i32, E]; a module without main is a library: import it from a program, or check it with `plenty --check-module FILE`";
     const INVALID_MAIN: &str = "main must take no parameters and return (), i32, Result[(), E], or Result[i32, E]; it cannot be a generator";
     for (source, diagnostic) in [
         ("", MISSING_MAIN),
