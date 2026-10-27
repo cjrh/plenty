@@ -1,0 +1,155 @@
+# A TLS echo server on std.actor.tls whose limits the tests replace. It
+# prints its port, serves until `connections` connection actors have ended,
+# then prints one line per counter and the heap counters. FIXTURES is the
+# certificate directory.
+from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_used, heaps_live, stage
+from std.actor.net import Admission, Limits, Listener, listener
+from std.actor.tls import TlsConnection, server
+from std.bytes import BytesError
+from std.net import NetError, listen, loopback_v4
+from std.ready import WaitError
+from std.sync import CancellationToken
+from std.time import deadline_after, milliseconds, monotonic_now, seconds
+from std.tls import ServerConfig, TlsError, server_config
+
+const connections: i64 = 3
+const capacity: i64 = 64
+const input_size: i64 = 1024
+const output_size: i64 = 1024
+const plain_size: i64 = 1024
+const heap: i64 = 262144
+const read_ms: u32 = 0u32
+
+type Fault = NetError | BytesError | TimerError | TlsError
+
+pub enum Note:
+    # A connection's heap use once its handshake completed.
+    Used(i64)
+
+pub class Acceptor:
+    pub listener: Listener
+    pub config: ServerConfig
+    pub me: Option[Address]
+    pub ended: i64
+    pub trapped: i64
+    pub truncated: i64
+    pub refused: i64
+    pub failed: i64
+    pub used: i64
+
+pub class Echo:
+    pub tls: TlsConnection
+    pub parent: Address
+    pub first: bool
+    pub reported: bool
+
+    pub def serve(self: &mut Echo, mail: &Mail[Note, Fault], context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        events = self.tls.handle(mail, context)?
+        if not events.mine:
+            return Ok(())
+        match events.expired:
+            case Some(_):
+                self.tls.close(context)?
+                context.stop()
+                return Ok(())
+            case Nothing:
+                pass
+        if self.tls.established() and not self.reported:
+            self.reported = True
+            self.tls.clear_read_deadline()
+            drop(context.send(self.parent, Note.Used(context.heap_used())))
+        if self.first and self.tls.available() > 0:
+            self.first = False
+            # A request that starts with `X` is a handler bug.
+            if self.tls.input()[self.tls.input_start()] == 88u8:
+                missing: Option[i64] = Nothing
+                missing.unwrap()
+        # Forwarding frees input room, so more may be decrypted at once.
+        while self.tls.available() > 0:
+            if self.tls.forward(self.tls.available(), context)? == 0:
+                break
+        if not self.tls.reading() and self.tls.available() == 0:
+            self.tls.shutdown_write(context)?
+            if self.tls.pending() == 0:
+                context.stop()
+        Ok(())
+
+pub enum Node:
+    Accepting(Acceptor)
+    Serving(Echo)
+
+    pub def started(self: &mut Node, context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Accepting(acceptor):
+                acceptor.me = Some(context.address())
+                acceptor.listener.start(context)?
+            case Node.Serving(echo):
+                echo.tls.start(context)?
+                if read_ms > 0u32:
+                    echo.tls.read_within(&milliseconds(read_ms), context)?
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[Note, Fault], context: &mut Context[Note, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Accepting(acceptor):
+                acceptor.listener.handle(&mail, context)?
+                match mail:
+                    case Mail.Message(Note.Used(bytes)):
+                        if bytes > acceptor.used:
+                            acceptor.used = bytes
+                    case Mail.Down(_, exit):
+                        acceptor.ended += 1
+                        match exit:
+                            case Exit.Trapped(_):
+                                acceptor.trapped += 1
+                            case Exit.Failed(error):
+                                match error:
+                                    case tls: TlsError:
+                                        match tls:
+                                            case TlsError.Truncated:
+                                                acceptor.truncated += 1
+                                            case TlsError.Rejected:
+                                                acceptor.refused += 1
+                                            case _:
+                                                acceptor.failed += 1
+                                    case _:
+                                        acceptor.failed += 1
+                            case _:
+                                pass
+                        if acceptor.ended == connections:
+                            print("trapped", acceptor.trapped).unwrap()
+                            print("truncated", acceptor.truncated).unwrap()
+                            print("rejected", acceptor.refused).unwrap()
+                            print("failed", acceptor.failed).unwrap()
+                            print("used", acceptor.used).unwrap()
+                            context.stop()
+                    case _:
+                        pass
+            case Node.Serving(echo):
+                echo.serve(&mail, context)?
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Note, Fault]) -> Result[Option[Node], Fault]:
+        match self:
+            case Node.Accepting(acceptor):
+                match acceptor.listener.accept()?:
+                    case Some(connection):
+                        tls = server(connection, &acceptor.config, plain_size)?
+                        Ok(Some(Node.Serving(Echo(tls, acceptor.me.unwrap(), True, False))))
+                    case Nothing:
+                        Ok(Nothing)
+            case Node.Serving(_):
+                Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | WaitError | NetError | TimerError | TlsError]:
+    config = server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?
+    socket = listen(&loopback_v4(0u16), 128)?
+    print(socket.local_address()?.port)?
+    limits = Limits(input_size, output_size, milliseconds(0u32), milliseconds(0u32))
+    mut actors = stage[Node, Note, Fault](capacity + 8, 8, 64)?
+    actors.add_timers(capacity + 8)?
+    acceptor = Acceptor(listener(socket, limits, capacity, heap, 0, Admission.Pause)?, config, Nothing, 0, 0, 0, 0, 0, 0)
+    actors.start(Node.Accepting(acceptor), 65536).unwrap()
+    actors.run(&deadline_after(&monotonic_now(), &seconds(60)).unwrap(), &CancellationToken()?)?
+    print(actors.stats(), heaps_live(), heap_bytes_used())?
+    Ok(())
