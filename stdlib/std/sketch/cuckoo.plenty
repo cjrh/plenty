@@ -4,6 +4,13 @@ import std.bytes
 from std.bytes import Bytes, BytesError, ByteSource
 from std.sketch import SketchError, hash_u64
 
+const initial_limit: i64 = 1 << 20
+const bucket_limit: i64 = 1 << 24
+# Layer sizes double from at least one bucket and their total stays within
+# bucket_limit, so the reserved layer list never grows.
+const layer_limit: i64 = 25
+assert (1 << layer_limit) - 1 > bucket_limit, "layer_limit layers must exceed bucket_limit"
+
 class Layer:
     slots: Bytes
     buckets: i64
@@ -153,11 +160,11 @@ def place(current: &mut Layer, hash: u64, print: u16, path: &mut list[i64], old:
     False
 
 pub def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]:
-    if initial_buckets < 1 or initial_buckets > 1048576 or initial_buckets & (initial_buckets - 1) != 0:
+    if initial_buckets < 1 or initial_buckets > initial_limit or initial_buckets & (initial_buckets - 1) != 0:
         return Err(SketchError.InvalidArgument)
-    if max_buckets < initial_buckets or max_buckets > 16777216:
+    if max_buckets < initial_buckets or max_buckets > bucket_limit:
         return Err(SketchError.InvalidArgument)
-    mut layers = list[Layer].with_capacity(25)?
+    mut layers = list[Layer].with_capacity(layer_limit)?
     layers.append(layer(initial_buckets)?)?
     mut path = list[i64].with_capacity(256)?
     mut old = list[u16].with_capacity(256)?
@@ -178,7 +185,7 @@ def read_word[S: ByteSource](data: &S, offset: i64) -> u64:
     result
 
 pub def from_bytes[S: ByteSource](data: &S, max_buckets: i64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]:
-    if max_buckets < 1 or max_buckets > 16777216:
+    if max_buckets < 1 or max_buckets > bucket_limit:
         return Err(SketchError.InvalidArgument)
     if data.len() < 44:
         return Err(SketchError.InvalidData)
@@ -188,9 +195,9 @@ pub def from_bytes[S: ByteSource](data: &S, max_buckets: i64) -> Result[CuckooFi
     initial = read_word(data, 20)
     layers = read_word(data, 28)
     count = read_word(data, 36)
-    if initial < 1u64 or initial > 1048576u64 or initial & (initial - 1u64) != 0u64 or layers < 1u64 or layers > 25u64:
+    if initial < 1u64 or initial > u64(initial_limit) or initial & (initial - 1u64) != 0u64 or layers < 1u64 or layers > u64(layer_limit):
         return Err(SketchError.InvalidData)
-    if limit < initial or limit > 16777216u64:
+    if limit < initial or limit > u64(bucket_limit):
         return Err(SketchError.InvalidData)
     used = initial * ((1u64 << layers) - 1u64)
     if used > limit or data.len() != 44 + i64(used) * 8:

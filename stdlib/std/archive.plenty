@@ -74,24 +74,24 @@ pub class Summary:
     pub skipped: i64
 
 const block_size: i64 = 512
-# 2^62: no real archive member is larger.
-const max_size: i64 = 4611686018427387904
+# No real archive member is larger.
+const max_size: i64 = 1 << 62
 const chunk: i64 = 16384
 # Bound on a pax extended header or a GNU long name or link.
 const max_metadata: i64 = 65536
-const u16_max: i64 = 65535
-const u32_max: i64 = 4294967295
+const u16_max: i64 = i64(u16.MAX)
+const u32_max: i64 = i64(u32.MAX)
 # Entries this small are exempt from the expansion ratio.
-const ratio_floor: i64 = 1048576
+const ratio_floor: i64 = 1 << 20
 const local_signature: i64 = 67324752
 const central_signature: i64 = 33639248
 const end_signature: i64 = 101010256
 const end64_signature: i64 = 101075792
 const locator_signature: i64 = 117853008
 # 3 (Unix) in the high byte, specification 3.0 in the low byte.
-const made_by: i64 = 798
-# DOS dates start in 1980.
-const dos_epoch: i64 = 315532800
+const made_by: i64 = (3 << 8) | 30
+# DOS dates start in 1980: ten years after the Unix epoch, two of them leap.
+const dos_epoch: i64 = (10 * 365 + 2) * 86400
 const type_mask: i64 = 61440
 const regular_bits: i64 = 32768
 const directory_bits: i64 = 16384

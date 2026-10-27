@@ -89,7 +89,7 @@ pub enum Event:
     Rule
     Done
 
-const default_size: i64 = 67108864
+const default_size: i64 = 64 * 1024 * 1024
 const flush_size: i64 = 65536
 
 const k_document: i64 = 0

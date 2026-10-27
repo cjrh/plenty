@@ -39,7 +39,10 @@ def buffered[T](result: Result[T, BytesError]) -> Result[T, WatchError]:
         case Err(_):
             Err(WatchError.OutOfRange)
 
-# inotify_event's four 32-bit fields, on the current little-endian target.
+if const target.endian != "little":
+    assert False, "std.fs.watch decodes inotify_event fields as little-endian"
+
+# One of inotify_event's four native-endian 32-bit fields.
 def word(buffer: &Bytes, at: i64) -> u32:
     mut value = 0u32
     for offset in range(4):

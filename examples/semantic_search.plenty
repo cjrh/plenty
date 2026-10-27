@@ -23,6 +23,10 @@ enum SearchError:
     Corpus(str)
     Stale
 
+# Bounds on captured child output and on one SQLite text or blob value.
+const max_output_bytes: i64 = 16 * 1024 * 1024
+const max_value_bytes: i64 = 16 * 1024 * 1024
+
 type SearchFailure = SearchError | DbError | JsonError | AllocError | IoError | ParseError | CryptoError | EncodingError | FormatError | BytesError | StreamError
 
 class Chunk:
@@ -156,7 +160,7 @@ def infer(texts: &list[str], model: &str, kind: &str, python: &str, script: &str
     command.stdout(Stdio.Piped)
     command.stderr(Stdio.Piped)
     mut child = command.spawn()?
-    output = child.communicate(&input.take()?, 16777216)?
+    output = child.communicate(&input.take()?, max_output_bytes)?
     if not output.status.success():
         return Err(SearchError.Inference(output.stderr.to_text()?))
     mut vectors: list[str] = []?
@@ -199,7 +203,7 @@ def git_output(root: &str, arguments: &list[str]) -> Result[str, SearchFailure]:
     command.stdout(Stdio.Piped)
     command.stderr(Stdio.Piped)
     mut child = command.spawn()?
-    output = child.output(16777216)?
+    output = child.output(max_output_bytes)?
     if not output.status.success():
         return Err(SearchError.Corpus(output.stderr.to_text()?))
     Ok(output.stdout.to_text()?)
@@ -387,7 +391,7 @@ def corpus(root: &str, issues: &str) -> Result[list[Document], SearchFailure]:
         if markdown or text != "":
             kind = "doc" if markdown else "source"
             documents.append(Document(f"repo:{kind}:{filename}"?, filename, text))?
-    mut register = sqlite.connect(issues, Mode.ReadOnly, 16777216)?
+    mut register = sqlite.connect(issues, Mode.ReadOnly, max_value_bytes)?
     register.set_busy_timeout(5000)?
     mut snapshot = register.begin(Begin.Deferred)?
     mut records = register.prepare("SELECT 'issue', number, title, details FROM issues UNION ALL SELECT 'pr', number, title, details FROM pull_requests ORDER BY 1, 2")?
@@ -522,7 +526,7 @@ def main() -> Result[(), SearchFailure]:
         return Err(SearchError.Usage)
     command = arguments[4]
     mode = Mode.Create if command == "init" else Mode.ReadOnly if command == "check" else Mode.ReadWrite
-    mut db = sqlite.connect(arguments[2], mode, 16777216)?
+    mut db = sqlite.connect(arguments[2], mode, max_value_bytes)?
     db.load_extension(arguments[1], "sqlite3_vec_init")?
     db.set_busy_timeout(5000)?
     db.execute("PRAGMA foreign_keys=ON")?
