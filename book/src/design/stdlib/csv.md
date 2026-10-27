@@ -9,6 +9,33 @@ The module is checked Plenty over [`std.bytes`](bytes.md) and `std.io`, with no
 native calls of its own. It is available on the supported x86-64 Linux GNU
 target.
 
+```plenty
+import std.bytes
+import std.csv
+import std.io
+from std.csv import Newline
+
+def main() -> Result[(), AllocError | IoError | ParseError | std.bytes.BytesError | std.csv.CsvError]:
+    text = "item,price\r\npen,3\r\n\"book, large\",12\r\n"
+    mut input = std.csv.reader(std.io.cursor(std.bytes.from_text(text)?), &std.csv.rfc4180(), 4096)?
+    mut record = std.csv.record()?
+    input.read(&mut record)?
+    mut total = 0
+    while input.read(&mut record)?:
+        total += i64.parse(&record.text(1)?)?
+    mut dialect = std.csv.rfc4180()
+    dialect.newline = Newline.Lf
+    mut output = std.csv.writer(std.io.stdout(), &dialect)?
+    output.texts(&["rows", "total"]?)?
+    output.texts(&[str.from(input.records() - 1)?, str.from(total)?]?)?
+    output.flush()?
+    Ok(())
+```
+```output
+rows,total
+2,15
+```
+
 ## Format
 
 The grammar is RFC 4180 with a configurable delimiter and quote byte. There

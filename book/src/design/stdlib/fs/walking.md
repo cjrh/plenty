@@ -7,6 +7,28 @@ and allocates its pending stack, but opens no directory until advancement.
 True. False means exhaustion or explicit close. `walker.close()` clears pending
 work and current entry lists without allocation and is repeatable.
 
+```plenty
+import std.fs as fs
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError | fs.WalkError]:
+    current = path.from_text(".")?
+    root = fs.root(&current)?
+    root.create_dir(&path.from_text("site")?)?
+    root.open_dir(&path.from_text("site")?)?.create_dir(&path.from_text("posts")?)?
+    write_text("site/index.html", "home")?
+    write_text("site/posts/first.html", "hello")?
+    top = path.from_text("site")?
+    mut walker = fs.walk(&top, False)?
+    while walker.next()?:
+        print(walker.current.path.display()?, len(walker.current.files))?
+    Ok(())
+```
+```output
+site/posts 1
+site 1
+```
+
 `current` is a `WalkDir` with `path: Path`, `directories: list[Path]`, and
 `files: list[DirEntry]`. Directories contains only non-followed directory paths;
 files contains every other native type, including directory links, dangling

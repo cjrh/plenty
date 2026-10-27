@@ -9,6 +9,27 @@ the destination, threshold, and clock. The module is checked Plenty over
 native code of its own. It is available on the supported x86-64 Linux GNU
 target.
 
+```plenty
+import std.io
+import std.log
+from std.log import Clock, Level, LogError
+
+def main() -> Result[(), AllocError | IoError | LogError]:
+    # Programs usually log to std.io.stderr() with Clock.Wall timestamps.
+    sink = std.log.text_sink(std.io.stdout(), 4096)?
+    mut log = std.log.logger(sink, Level.Info, Clock.Off)
+    log.info("listening", [std.log.integer("port", 8080), std.log.text("host", "db")]?)?
+    log.debug("below the threshold", []?)?
+    log.warn("slow request", [std.log.floating("seconds", 2.5)]?)?
+    print(log.emitted(), log.filtered())?
+    Ok(())
+```
+```output
+level=info msg="listening" port=8080 host="db"
+level=warn msg="slow request" seconds=2.5e0
+2 1
+```
+
 ## Events
 
 | Type | Contents |

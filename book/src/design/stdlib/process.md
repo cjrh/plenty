@@ -15,6 +15,25 @@ checked Plenty. Five native primitives spawn, hand over a pipe end, wait,
 signal, and poll. The module is available on the supported x86-64 Linux GNU
 target; elsewhere `spawn` reports `IoError.Unsupported`.
 
+```plenty
+import std.process
+from std.bytes import BytesError
+from std.io import StreamError
+from std.process import Stdio
+
+def main() -> Result[(), AllocError | IoError | StreamError | BytesError]:
+    mut echo = std.process.command("echo")?
+    echo.arg("hello from a child")?
+    echo.stdout(Stdio.Piped)
+    mut child = echo.spawn()?
+    output = child.output(4096)?
+    print(output.status.success(), output.stdout.to_text()?.strip()?)?
+    Ok(())
+```
+```output
+True hello from a child
+```
+
 ## Building a command
 
 | Function | Result | Contract |

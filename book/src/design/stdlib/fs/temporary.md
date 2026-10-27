@@ -14,6 +14,26 @@ stream open; `close()` reports close errors, and ordinary drop closes it.
 Closing/dropping before publication releases the unnamed inode without an
 unlink-by-name race. After publication the name persists.
 
+```plenty
+import std.fs as fs
+import std.io
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError | std.io.StreamError | std.io.Partial]:
+    current = path.from_text(".")?
+    root = fs.root(&current)?
+    mut staged = fs.temporary_file(&root)?
+    std.io.write_all(&mut staged.stream, &b"complete contents", 0, 17)?
+    staged.stream.sync()?
+    staged.publish(&path.from_text("config.txt")?)?
+    staged.close()?
+    print(read_text("config.txt")?)?
+    Ok(())
+```
+```output
+complete contents
+```
+
 `remove_published(&name) -> Result[(), FsError]` explicitly removes a published
 name after comparing it with the still-open stream's device and inode. A missing
 name succeeds; a different regular file returns `FsError.Replaced`, and symlinks

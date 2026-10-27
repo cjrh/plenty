@@ -23,6 +23,26 @@ equal elements. Reverse the test for a greatest-first queue. The comparator is
 inferred from its signature, as in `HeapBy(urgent)?`. A closure with borrowed
 captures cannot be stored.
 
+```plenty
+from std.collections import Heap, drain
+
+def main() -> Result[(), AllocError | IoError]:
+    mut tasks = Heap[(i64, str)]()?
+    tasks.push((3, "write docs"))?
+    tasks.push((1, "fix crash"))?
+    tasks.push((2, "review"))?
+    print(tasks.peek())?
+    for priority, name in drain(tasks):
+        print(priority, name)?
+    Ok(())
+```
+```output
+Option[tuple[i64, str]].Some((1, "fix crash"))
+1 fix crash
+2 review
+3 write docs
+```
+
 ## Operations
 
 Both types share one interface. `heap` is `Heap[T]` or `HeapBy[T, F]`.

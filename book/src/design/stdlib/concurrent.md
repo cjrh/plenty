@@ -8,6 +8,23 @@ Exports: `ThreadPoolExecutor`, `Future[T]`, `PoolError`, `SubmitError[F]`,
 `FutureError`, `PoolMapError`, and `ParallelError[E]`. Imports preserve prelude
 identity and add no allocation or wrapper. Supported target: x86_64 Linux GNU.
 
+```plenty
+from std.concurrent import ThreadPoolExecutor, PoolError, FutureError, SubmitError
+
+def square(n: i64) -> i64:
+    n * n
+
+def main() -> Result[(), AllocError | IoError | PoolError | FutureError | SubmitError[()]]:
+    with ThreadPoolExecutor(2, 4)? as pool:
+        first = pool.submit(square, 7).drop_job()?
+        second = pool.submit(square, 8).drop_job()?
+        print(first.result()?, second.result()?)?
+    Ok(())
+```
+```output
+49 64
+```
+
 `ThreadPoolExecutor(workers: u64, queue_capacity: u64)` returns
 `Result[ThreadPoolExecutor, PoolError]`; both arguments must be positive.
 `PoolError` has `InvalidSize`, `Allocation(AllocError)`, and `Thread(ThreadError)`.

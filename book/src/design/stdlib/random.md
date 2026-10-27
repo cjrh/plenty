@@ -14,6 +14,28 @@ not use it for keys, tokens, passwords, or anything an adversary must not
 guess; use [`std.secrets`](secrets.md). Collection hashing is unrelated to both
 modules.
 
+```plenty
+import std.random
+from std.random import RandomError
+
+def main() -> Result[(), AllocError | IoError | RandomError]:
+    mut rng = std.random.seeded(2026u64)
+    print(rng.between(1, 7)?, rng.between(1, 7)?, rng.next_bool())?
+    mut deck = ["A", "B", "C", "D", "E"]?
+    rng.shuffle(&mut deck)
+    print(deck)?
+    print(rng.sample_indices(10, 3)?)?
+    mut replay = std.random.seeded(2026u64)
+    print(replay.between(1, 7)?)?
+    Ok(())
+```
+```output
+6 5 True
+["D", "A", "E", "C", "B"]
+[9, 7, 1]
+6
+```
+
 ## Generators
 
 | Function | Result | Contract |

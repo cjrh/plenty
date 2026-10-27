@@ -20,6 +20,34 @@ is upgraded. `Mark` uses the independently pinned Unicode 17.0.0 tables in
 data versions need not match; ASCII classes and byte-offset rules are unchanged
 by Unicode table upgrades.
 
+```plenty
+import std.regex
+from std.regex import RegexError
+
+def main() -> Result[(), AllocError | IoError | RegexError]:
+    date = std.regex.compile("(?P<year>\\d{4})-(?P<month>\\d{2})-(?P<day>\\d{2})", &std.regex.limits())?
+    text = "Released 2024-03-15, patched 2024-04-02."
+    print(date.is_match(text)?)?
+    match date.captures(text)?:
+        case Some(groups):
+            match groups.name("year"):
+                case Some(year):
+                    print("year", year.text(text)?)?
+                case Nothing:
+                    print("no year")?
+        case Nothing:
+            print("no date")?
+    print(len(date.find_all(text, 10)?))?
+    print(date.replace_all(text, "${day}/${month}/${year}", 1000)?)?
+    Ok(())
+```
+```output
+True
+year 2024
+2
+Released 15/03/2024, patched 02/04/2024.
+```
+
 ## Functions and types
 
 | Item | Result | Contract |

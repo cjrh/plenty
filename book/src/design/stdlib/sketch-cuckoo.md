@@ -17,6 +17,26 @@ new one. Allocation failure or `SketchError.Limit` preserves the filter and its
 membership. Construction allocates bounded eviction scratch; insertions into
 existing layers and membership/deletion queries allocate nothing.
 
+Keep the layer index that `insert` returns; `remove` needs it:
+
+```plenty
+from std.bytes import BytesError
+from std.sketch import SketchError
+from std.sketch.cuckoo import cuckoo
+
+def main() -> Result[(), SketchError | AllocError | BytesError | IoError]:
+    mut seen = cuckoo()?
+    receipt = seen.insert(42u64)?
+    seen.insert(7u64)?
+    print(seen.len(), seen.contains(42u64))?
+    print(seen.remove(42u64, receipt)?, seen.len(), seen.contains(7u64))?
+    Ok(())
+```
+```output
+2 True
+True 1 True
+```
+
 ## Deletion requires the insertion receipt
 
 Keep the index returned by insertion alongside the authoritative record.

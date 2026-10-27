@@ -11,6 +11,35 @@ Selectors and cancellable waits come from `std.ready` (opcodes 419–422).
 Addresses, waits, retries and error naming are checked Plenty in
 `stdlib/std/net.plenty`.
 
+```plenty
+import std.bytes
+from std.net import NetError, TcpListener, connect, listen, loopback_v4
+from std.sync import CancellationToken
+from std.time import Deadline, deadline_after, milliseconds, monotonic_now
+
+def greet(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError | std.bytes.BytesError]:
+    mut stream = listener.accept(deadline, cancel)?
+    reply = std.bytes.from_text("hello from the server")?
+    stream.write_all_before(&reply, 0, reply.len(), deadline, cancel)
+
+def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | NetError | std.bytes.BytesError]:
+    cancel = CancellationToken()?
+    deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
+    listener = listen(&loopback_v4(0u16), 8)?
+    address = listener.local_address()?
+    with spawn(greet, &listener, &deadline, &cancel)? as server:
+        mut stream = connect(&address, &deadline, &cancel)?
+        mut buffer = std.bytes.with_capacity(64)?
+        buffer.resize(64, 0u8)?
+        count = stream.read_before(&mut buffer, 0, 64, &deadline, &cancel)?
+        print(buffer.to_text_range(0, count)?)?
+        server.join()?
+    Ok(())
+```
+```output
+hello from the server
+```
+
 ## Addresses
 
 | Item | Meaning |
