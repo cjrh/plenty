@@ -8,6 +8,31 @@ This is the core/SVG portion of the [plotting proposal](../../proposals/std-plot
 not the complete first milestone or a drop-in replacement for ggplot2. See the
 [plotting tutorial](../../tutorial/07-modules/26-plotting.md) for runnable examples.
 
+```plenty
+import std.plot as gg
+from std.plot import Column, PlotError
+
+def main() -> Result[(), AllocError | IoError | PlotError]:
+    data = gg.table([
+        ("day", Column.Num([1.0, 2.0, 3.0, 4.0]?)),
+        ("visits", Column.Num([120.0, 150.0, 90.0, 180.0]?)),
+    ]?)?
+    chart = gg.ggplot(data, gg.aes("day", "visits"), [
+        gg.geom_line(),
+        gg.geom_point(),
+        gg.labs(title="Daily visits"),
+    ]?)?
+    notes = chart.save("visits.svg", width=6.0, height=4.0)?
+    print(notes)?
+    svg = read_text("visits.svg")?
+    print(svg.startswith("<svg"), "Daily visits" in svg)?
+    Ok(())
+```
+```output
+[]
+True True
+```
+
 ## Data and ownership
 
 `table(list[(str, Column)])` consumes named columns without copying their lists.

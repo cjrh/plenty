@@ -4,6 +4,29 @@
 normal, uniform and exponential distributions. It is checked Plenty code;
 there is no native statistics dependency or global random state.
 
+```plenty
+import std.random
+import std.stat
+from std.stat import StatError
+
+def main() -> Result[(), AllocError | IoError | StatError]:
+    values = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]?
+    print(std.stat.mean(&values)?, std.stat.median(&values)?, std.stat.pstdev(&values)?)?
+    print(std.stat.quantiles(&values)?)?
+    scores = std.stat.normal(100.0, 15.0)?
+    print(scores.cdf(100.0)?, scores.inverse_cdf(0.5)?)?
+    mut rng = std.random.seeded(42u64)
+    draw = scores.sample(&mut rng)?
+    print(draw > 0.0 and draw < 200.0)?
+    Ok(())
+```
+```output
+5.0 4.5 2.0
+[4.0, 4.5, 5.5]
+0.5 100.0
+True
+```
+
 ## Observations
 
 All observations must be finite. Empty data returns `StatError.Empty`, and

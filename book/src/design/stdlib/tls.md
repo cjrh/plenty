@@ -12,6 +12,46 @@ with its ring provider, compiled into the runtime. A rustls session never
 touches a socket: `std.tls` moves ciphertext between the session and the TCP
 stream in checked Plenty, so every wait is a `std.net` wait.
 
+```plenty
+import std.bytes
+import std.tls
+from std.net import NetError, TcpListener, connect, listen, loopback_v4
+from std.sync import CancellationToken
+from std.time import Deadline, deadline_after, milliseconds, monotonic_now
+from std.tls import ServerConfig, TlsError
+
+# Test-only CA and a localhost leaf it signed; never reuse a published key.
+const CA_PEM: str = "-----BEGIN CERTIFICATE-----\nMIIBmjCCAT+gAwIBAgIULOQ2Qxr8CVZY2bG0uRYKKEdMD3swCgYIKoZIzj0EAwIw\nGTEXMBUGA1UEAwwOUGxlbnR5IFRlc3QgQ0EwIBcNMjQwMTAxMDAwMDAwWhgPMjEy\nNDAxMDEwMDAwMDBaMBkxFzAVBgNVBAMMDlBsZW50eSBUZXN0IENBMFkwEwYHKoZI\nzj0CAQYIKoZIzj0DAQcDQgAEkiB3Ogehrrt6YbQghwDPv6tkhE+z9zTCVih8fvtR\nZ1/691Nfh7/J9IgaNgNSTMJjGTolzGnjaCUDqoARlFyM+6NjMGEwHQYDVR0OBBYE\nFOTFBDgWXHj/qmVJDMlAHYCEZFX5MB8GA1UdIwQYMBaAFOTFBDgWXHj/qmVJDMlA\nHYCEZFX5MA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgIEMAoGCCqGSM49\nBAMCA0kAMEYCIQD41ATQnIjKkKMLQAb9AyoyOFmljYZyz348XJEIbqMgKwIhAL3m\nmWd8On5gvkfytspatH5mDWOcSyW+au7vuIC2gHhO\n-----END CERTIFICATE-----\n"
+const LEAF_PEM: str = "-----BEGIN CERTIFICATE-----\nMIIBnDCCAUKgAwIBAgIBATAKBggqhkjOPQQDAjAZMRcwFQYDVQQDDA5QbGVudHkg\nVGVzdCBDQTAgFw0yNDAxMDEwMDAwMDBaGA8yMTI0MDEwMTAwMDAwMFowFDESMBAG\nA1UEAwwJbG9jYWxob3N0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8THNQeTi\nJ6Eq0tSxtHW5Q4TCsbIqB3MOtM98ERyKgl6kHeHCeDZYKx8B+VRGT2jkWuTeN24Q\nljwUfh7uh7Iaz6N+MHwwGgYDVR0RBBMwEYIJbG9jYWxob3N0hwR/AAABMAkGA1Ud\nEwQCMAAwEwYDVR0lBAwwCgYIKwYBBQUHAwEwHQYDVR0OBBYEFEIFC2Fyd4cfAKTx\nMiNCMdDkqDNbMB8GA1UdIwQYMBaAFOTFBDgWXHj/qmVJDMlAHYCEZFX5MAoGCCqG\nSM49BAMCA0gAMEUCIAUF3HH43lnirgSN1Vr4twZrFmXKBxlbYNQni/h4ZaxhAiEA\n5rD/yE1B4IsbEGCMlyAeX507leXfGY9+wrHaxikU/w0=\n-----END CERTIFICATE-----\n"
+const LEAF_KEY: str = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQglvSEE3H7v+mInxSF\nAyWFDKYpzpXr20wH8mfFY3bCaB2hRANCAATxMc1B5OInoSrS1LG0dblDhMKxsioH\ncw60z3wRHIqCXqQd4cJ4NlgrHwH5VEZPaORa5N43bhCWPBR+Hu6HshrP\n-----END PRIVATE KEY-----\n"
+
+def serve(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError | NetError | std.bytes.BytesError]:
+    mut stream = std.tls.accept(listener.accept(deadline, cancel)?, config, deadline, cancel)?
+    reply = std.bytes.from_text("hello over TLS")?
+    stream.write_all_before(&reply, 0, reply.len(), deadline, cancel)?
+    stream.close_before(deadline, cancel)
+
+def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | TlsError | NetError | std.bytes.BytesError]:
+    cancel = CancellationToken()?
+    deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
+    client = std.tls.client_config(&std.tls.roots_from_pem(&CA_PEM)?)?
+    server = std.tls.server_config(&LEAF_PEM, &LEAF_KEY)?
+    listener = listen(&loopback_v4(0u16), 8)?
+    address = listener.local_address()?
+    with spawn(serve, &listener, &server, &deadline, &cancel)? as worker:
+        tcp = connect(&address, &deadline, &cancel)?
+        mut stream = std.tls.connect(tcp, &client, "localhost", &deadline, &cancel)?
+        mut buffer = std.bytes.with_capacity(64)?
+        buffer.resize(64, 0u8)?
+        count = stream.read_before(&mut buffer, 0, 64, &deadline, &cancel)?
+        print(buffer.to_text_range(0, count)?)?
+        worker.join()?
+    Ok(())
+```
+```output
+hello over TLS
+```
+
 ## Trust roots and configuration
 
 | Function | Result | Contract |

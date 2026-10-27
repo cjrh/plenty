@@ -10,6 +10,26 @@ The Plenty module owns buffering, the output limit, and the policy for input
 that follows a stream. The module is available on the supported x86-64 Linux
 GNU target.
 
+```plenty
+import std.bytes
+import std.compress
+from std.compress import Format
+
+def main() -> Result[(), IoError | std.bytes.BytesError | std.compress.CompressError]:
+    mut log = std.bytes.empty()?
+    for _ in range(50):
+        log.extend(&std.bytes.from_text("GET /index.html 200\n")?)?
+    packed = std.compress.compress(Format.Gzip, &log, 6)?
+    print(log.len(), packed.len() < log.len())?
+    restored = std.compress.decompress(Format.Gzip, &packed, 4096)?
+    print(restored == log)?
+    Ok(())
+```
+```output
+1000 True
+True
+```
+
 ## Functions
 
 | Function | Result | Contract |

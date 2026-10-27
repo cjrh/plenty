@@ -5,6 +5,21 @@ seed=0)` accepts duplicates, sorts/deduplicates a fallible copy, and returns an
 `XorFilter`. The input is not mutated. `max_keys` bounds **input entries**, not
 just distinct keys, and must be between 0 and 16,777,216.
 
+```plenty
+from std.bytes import BytesError
+from std.sketch import SketchError
+import std.sketch.xor as xor
+
+def main() -> Result[(), SketchError | AllocError | BytesError | IoError]:
+    keys = [10u64, 20u64, 30u64, 20u64]?
+    filter = xor.build(&keys, 1000)?
+    print(filter.len(), filter.contains(20u64), filter.contains(25u64))?
+    Ok(())
+```
+```output
+3 True False
+```
+
 `contains(key)` allocates nothing and reads three fingerprint positions. Inserted
 keys have no false negatives for an intact filter. Absent keys may return true:
 approximately 1/256 with well-distributed hashes. This is not an exact set,

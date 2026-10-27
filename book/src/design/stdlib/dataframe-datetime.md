@@ -5,6 +5,29 @@ construction and extraction use explicit physical units at the Plenty boundary;
 native parsing and calendar expressions handle ordinary analytical workflows.
 All operations return `Result[..., DataFrameError]`.
 
+```plenty dataframe
+import std.dataframe as df
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
+    source = df.frame([df.column_str("text", ["2024-02-29", "1970-01-02"]?)?]?)?
+    day = df.col("day")?
+    result = source.lazy()?.select([
+        df.col("text")?.str_to_date()?.alias("day")?
+    ]?)?.with_columns([
+        day.dt_year()?.alias("year")?,
+        day.dt_format("%d/%m")?.alias("label")?
+    ]?)?.collect()?
+    print(result.values_date_days("day")?)?
+    print(result.values_i64("year")?)?
+    print(result.values_str("label")?)?
+    Ok(())
+```
+```output
+[19782, 1]
+[2024, 1970]
+["29/02", "02/01"]
+```
+
 ## Units, timezones and the boundary
 
 | Logical type | Construction | Extraction |

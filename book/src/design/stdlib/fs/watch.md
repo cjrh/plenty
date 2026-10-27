@@ -5,6 +5,32 @@ It owns one nonblocking, close-on-exec descriptor, starts no threads, and uses
 [`std.ready`](../ready.md) for deadlines, cancellation, and selector integration.
 For a runnable introduction, see [watch a directory](../../../tutorial/08-resources/filesystem-watch.md).
 
+```plenty
+import std.fs.watch as watch
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError | watch.WatchError]:
+    mut watcher = watch.watcher()?
+    current = path.from_text(".")?
+    watcher.add(&current)?
+    write_text("log.txt", "started")?
+    count = watcher.poll()?
+    for index in range(count):
+        event = watcher.event(index)?
+        if event.overflowed():
+            print("rescan")?
+        elif event.created():
+            print("created", event.name.display()?)?
+        elif event.closed_after_write():
+            print("written", event.name.display()?)?
+    watcher.close()?
+    Ok(())
+```
+```output
+created log.txt
+written log.txt
+```
+
 ## Batches and ownership
 
 `watcher(batch_bytes=4096) -> Result[Watcher, WatchError]` allocates a reusable

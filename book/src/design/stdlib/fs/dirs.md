@@ -31,10 +31,14 @@ def main() -> Result[(), IoError]:
     match std.fs.dirs.config_dir()?:
         case Some(config):
             settings = config.join(&from_text("myapp/settings.toml")?)?
-            print(settings.display()?)?
+            # For example /home/ada/.config/myapp/settings.toml
+            print(settings.is_absolute())?
         case Nothing:
             print("no configuration directory")?
     Ok(())
+```
+```output
+True
 ```
 
 Paths keep the variable's exact bytes, so a directory name that is not UTF-8

@@ -19,6 +19,9 @@ def main() -> Result[(), ThreadError | IoError]:
     print(hits.load(Ordering.Acquire))?
     Ok(())
 ```
+```output
+2000
+```
 
 ## `Atomic[T]`
 
