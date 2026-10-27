@@ -148,6 +148,43 @@ class Store[N, E]:
                     pass
         self.edge_mut(len(self.edges))
 
+    # Checked getters: a stale or out-of-range handle gives Nothing.
+    def get_node_ref(self, id: NodeId) -> Option[&N]:
+        if id < 0 or id >= len(self.nodes):
+            return Nothing
+        match &self.nodes[id].data:
+            case Some(value):
+                Some(value)
+            case Nothing:
+                Nothing
+
+    def get_node_mut(self: &mut Store[N, E], id: NodeId) -> Option[&mut N]:
+        if id < 0 or id >= len(self.nodes):
+            return Nothing
+        match &mut self.nodes[id].data:
+            case Some(value):
+                Some(value)
+            case Nothing:
+                Nothing
+
+    def get_edge_ref(self, id: EdgeId) -> Option[&E]:
+        if id < 0 or id >= len(self.edges):
+            return Nothing
+        match &self.edges[id].data:
+            case Some(value):
+                Some(value)
+            case Nothing:
+                Nothing
+
+    def get_edge_mut(self: &mut Store[N, E], id: EdgeId) -> Option[&mut E]:
+        if id < 0 or id >= len(self.edges):
+            return Nothing
+        match &mut self.edges[id].data:
+            case Some(value):
+                Some(value)
+            case Nothing:
+                Nothing
+
     def first(self, node: NodeId, chain: i64) -> i64:
         if chain == 0:
             self.nodes[node].out_first
@@ -678,6 +715,19 @@ pub class DiGraph[N, E]:
     pub def edge_mut(self: &mut DiGraph[N, E], edge: EdgeId) -> &mut E:
         self._store.edge_mut(edge)
 
+    # Like node/edge, but Nothing for a removed or out-of-range handle.
+    pub def get_node_ref(self, node: NodeId) -> Option[&N]:
+        self._store.get_node_ref(node)
+
+    pub def get_node_mut(self: &mut DiGraph[N, E], node: NodeId) -> Option[&mut N]:
+        self._store.get_node_mut(node)
+
+    pub def get_edge_ref(self, edge: EdgeId) -> Option[&E]:
+        self._store.get_edge_ref(edge)
+
+    pub def get_edge_mut(self: &mut DiGraph[N, E], edge: EdgeId) -> Option[&mut E]:
+        self._store.get_edge_mut(edge)
+
     pub def source(self, edge: EdgeId) -> NodeId:
         self._store.check_edge(edge)
         self._store.edges[edge].source
@@ -787,6 +837,19 @@ pub class UnGraph[N, E]:
 
     pub def edge_mut(self: &mut UnGraph[N, E], edge: EdgeId) -> &mut E:
         self._store.edge_mut(edge)
+
+    # Like node/edge, but Nothing for a removed or out-of-range handle.
+    pub def get_node_ref(self, node: NodeId) -> Option[&N]:
+        self._store.get_node_ref(node)
+
+    pub def get_node_mut(self: &mut UnGraph[N, E], node: NodeId) -> Option[&mut N]:
+        self._store.get_node_mut(node)
+
+    pub def get_edge_ref(self, edge: EdgeId) -> Option[&E]:
+        self._store.get_edge_ref(edge)
+
+    pub def get_edge_mut(self: &mut UnGraph[N, E], edge: EdgeId) -> Option[&mut E]:
+        self._store.get_edge_mut(edge)
 
     # The endpoints in the order given to `add_edge`.
     pub def endpoints(self, edge: EdgeId) -> (NodeId, NodeId):

@@ -453,7 +453,7 @@ def send_some[T: Transport, S: ByteSource](stream: &mut Option[T], source: &S, s
 # `502` instead of that answer when the connection resets under it, so the
 # byte budget covers common proxy body limits; the time limit bounds it.
 const linger_ns: u64 = 2000000000u64
-const linger_bytes: i64 = 16777216
+const linger_bytes: i64 = 16 * 1024 * 1024
 const discard_chunk: i64 = 4096
 
 def linger_span(config: &Config) -> u64:

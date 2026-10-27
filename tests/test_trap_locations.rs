@@ -292,13 +292,13 @@ fn each_trap_site_keeps_its_own_position() {
 }
 
 #[test]
-fn an_empty_standard_heap_names_the_actual_call_not_its_first_instantiation() {
+fn an_invalid_graph_handle_names_the_actual_call_not_its_first_instantiation() {
     let error = trap(&[(
         "main.plenty",
-        "from std.collections import Heap\ndef main() -> Result[(), AllocError | IoError]:\n    mut full = Heap[i64]()?\n    full.push(1)?\n    print(*full.peek())?\n    empty = Heap[i64]()?\n    print(*empty.peek())?\n    Ok(())\n",
+        "from std.graph import DiGraph\ndef main() -> Result[(), AllocError | IoError]:\n    mut full = DiGraph[i64, i64]()?\n    node = full.add_node(1)?\n    print(*full.node(node))?\n    empty = DiGraph[i64, i64]()?\n    print(*empty.node(node))?\n    Ok(())\n",
     )]);
     assert!(
-        error.starts_with("error: std/collections.plenty:20:10: index out of bounds"),
+        error.starts_with("error: std/graph.plenty:117:20: index out of bounds"),
         "{error}"
     );
     assert!(
@@ -467,7 +467,7 @@ fn caller_context_calls(source: &str) -> Vec<(String, usize)> {
 /// context calls; user calls into std still name their call site.
 #[test]
 fn standard_library_code_makes_no_caller_context_calls() {
-    let source = "from std.collections import Heap\nfrom std.fmt import FormatError\ndef main() -> Result[(), AllocError | IoError | FormatError]:\n    xs = [3, 4, 5]?\n    print(f\"{xs} {1.5}\"?)?\n    empty = Heap[i64]()?\n    print(*empty.peek())?\n    Ok(())\n";
+    let source = "from std.graph import DiGraph\nfrom std.fmt import FormatError\ndef main() -> Result[(), AllocError | IoError | FormatError]:\n    xs = [3, 4, 5]?\n    print(f\"{xs} {1.5}\"?)?\n    empty = DiGraph[i64, i64]()?\n    print(*empty.node(0))?\n    Ok(())\n";
     let calls = caller_context_calls(source);
     let standard: Vec<_> = calls
         .iter()
@@ -486,7 +486,7 @@ fn standard_library_code_makes_no_caller_context_calls() {
     );
     let error = trap(&[("main.plenty", source)]);
     assert!(
-        error.starts_with("error: std/collections.plenty:20:10: index out of bounds"),
+        error.starts_with("error: std/graph.plenty:117:20: index out of bounds"),
         "{error}"
     );
     assert!(

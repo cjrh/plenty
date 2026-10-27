@@ -82,7 +82,7 @@ pub enum Event:
 # itself is capped to keep that recursion within the native stack.
 const depth_ceiling: i64 = 1024
 const read_chunk: i64 = 4096
-const default_size: i64 = 67108864
+const default_size: i64 = 64 * 1024 * 1024
 
 const expect_value: i64 = 0
 const expect_first_item: i64 = 1

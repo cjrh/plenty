@@ -35,18 +35,20 @@ Both types share one interface. `heap` is `Heap[T]` or `HeapBy[T, F]`.
 | `heap.is_empty()` | `bool` | Observe whether the count is zero |
 | `heap.reserve(additional)` | `Result[(), AllocError]` | Make room for at least `additional: i64` more elements |
 | `heap.push(value)` | `Result[(), AllocError]` | Consume a value and insert it |
-| `heap.peek()` | `&T` | Borrow the first element; traps when empty |
+| `heap.peek()` | `Option[T]` | Copy the first element; copyable `T` only |
+| `heap.peek_ref()` | `Option[&T]` | Borrow the first element |
 | `heap.pop()` | `Option[T]` | Remove and transfer the first element |
 | `heap.clear()` | `()` | Destroy all elements, retaining capacity |
 | `drain(heap)` | `Generator[T]` | Consume a `Heap[T]`, yielding elements in removal order |
 | `drain_by(heap)` | `Generator[T]` | The same for a `HeapBy[T, F]` |
 
-Mutation requires a mutable owner or exclusive reference. An empty `pop`
-returns `Nothing`. `peek` on an empty heap traps with an index-out-of-bounds
-report, as indexing an empty list does; test `is_empty()` first. The report adds
-the nearest user caller position after the standard-library failure position.
-Its reference
-borrows the heap, so the heap cannot change while the reference is live.
+Mutation requires a mutable owner or exclusive reference. On an empty heap,
+`pop`, `peek` and `peek_ref` return `Nothing`. `peek` follows the
+[copying lookup rule](../facilities/01-builtins/collections.md#copying-and-borrowed-lookup):
+it type-checks only for a copyable `T`, and is checked where it is called, so a
+heap of class instances uses `peek_ref`. The reference from `peek_ref` borrows
+the heap, so the heap cannot change while it is live. There is no `peek_mut`:
+changing the first element in place could break the heap order.
 
 Elements that compare equal leave in an unspecified order. For first-in,
 first-out ties, store an increasing sequence number in the element and compare
@@ -75,7 +77,7 @@ operation, including `drain`, allocates nothing.
 
 | Operation | Time for `n` elements |
 |---|---|
-| `len`, `is_empty`, `peek` | Constant |
+| `len`, `is_empty`, `peek`, `peek_ref` | Constant |
 | `push` | At most `floor(log2 n)` comparisons; a growing push also moves the backing list |
 | `pop` | At most `2 * floor(log2 n)` comparisons |
 | `clear`, drop | Linear, plus element cleanup |

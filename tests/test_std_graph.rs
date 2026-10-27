@@ -172,6 +172,40 @@ fn removed_and_invalid_handles_trap() {
 }
 
 #[test]
+fn checked_getters_return_nothing_for_removed_and_invalid_handles() {
+    native(
+        r#"
+mut graph = nodes(3)?
+e = graph.add_edge(0, 1, 2.5)?
+match graph.get_node_mut(1):
+    case Some(value):
+        value += 10
+    case Nothing:
+        pass
+match graph.get_edge_mut(e):
+    case Some(weight):
+        weight *= 2.0
+    case Nothing:
+        pass
+print(graph.get_node_ref(1), graph.get_edge_ref(e))?
+print(graph.get_node_ref(-1), graph.get_node_ref(3), graph.get_edge_ref(1))?
+drop(graph.remove_node(1))
+print(graph.get_node_ref(1), graph.get_node_mut(1).is_some(), graph.get_edge_ref(e))?
+mut road = points(2)?
+r = road.add_edge(0, 1, 4.0)?
+drop(road.remove_edge(r))
+print(road.get_node_ref(0), road.get_edge_ref(r), road.get_edge_mut(r).is_some())?
+"#,
+        r#"
+Option[&i64].Some(11) Option[&f64].Some(5.0)
+Option[&i64].Nothing Option[&i64].Nothing Option[&f64].Nothing
+Option[&i64].Nothing False Option[&f64].Nothing
+Option[&i64].Some(0) Option[&f64].Nothing False
+"#,
+    );
+}
+
+#[test]
 fn breadth_and_depth_first_orders() {
     native(
         r#"
