@@ -4,7 +4,8 @@
 the [generics reference](../design/language/07-generics/index.md) is
 authoritative. No backlog entry exists yet; the closest rows are B13 (bounded
 and inline-capacity storage) and B23 (SIMD). Researched against local `main` at
-`1b5b96b1` on 2026-10-27.
+`1b5b96b1` on 2026-10-27. Per-instance assertions depend on the module-scope
+`assert` in local PR #628, which is not yet merged.
 
 ## Problem
 
@@ -109,7 +110,7 @@ Lessons:
 
 Adopt option C together with a built-in `array[T, N]`, in one change. Defer
 option D until code shows a need. Reject E. The [decisions](#decisions) record
-what is settled and what remains open.
+what is settled.
 
 ### Declaring
 
@@ -183,16 +184,57 @@ generic instances.
 At declaration, the checker verifies kinds: a type where a type parameter is
 expected, a value of the right type where a value parameter is expected. Value
 constraints such as `N > 0` are not part of the signature. A data type that
-needs one rejects bad values when its instance is first required; `array`
-rejects a negative length this way. A general per-instance assertion form
-should reuse whatever module-level static assertion the constant work adds,
-rather than invent a `where` clause.
+needs one states it with a [per-instance assertion](#per-instance-assertions);
+`array` rejects a negative length the same way, built in.
+
+### Per-instance assertions
+
+The module-scope `assert COND, "message"` from local PR #628 is also accepted
+in class bodies and generic function bodies:
+
+```text
+class Ring[T, const N: i64]:
+    assert N > 0, "Ring needs a positive capacity"
+    items: array[Option[T], N]
+    head: i64
+    count: i64
+
+def best_window[const N: i64, const W: i64](xs: &array[i64, N]) -> i64:
+    assert 0 < W and W <= N, "window must fit the array"
+    ...
+```
+
+- **Position.** Assertions come before any other item or statement in the
+  body. There `assert` begins the static form, as at module scope; elsewhere in
+  a function body it stays an ordinary name, as PR #628 leaves it.
+- **Operands.** The condition and message may use constants and the
+  declaration's value parameters only: no locals, fields, calls or type
+  parameters. The checker rejects anything else at declaration, once, not per
+  instance.
+- **When it runs.** Once per instance, after substitution, whenever the type or
+  function is instantiated. That includes a type named only in a field,
+  binding or signature with no method ever called. This matters because
+  methods are checked only when used; an assertion attached to a method would
+  never fire for an instance that only stores data.
+- **Failure.** Reported at the use that required the instance, with a note at
+  the assertion, like the [instance diagnostics](../design/language/07-generics/index.md#diagnostics-from-instances)
+  added for issue #518:
+
+```text
+main.plenty:9:11: cannot instantiate `Ring[i64, 0]`: static assertion failed: Ring needs a positive capacity
+  ring.plenty:2:5: note: in instantiation `Ring[i64, 0]`: assert N > 0
+```
+
+In a nongeneric class or function the assertion is accepted and runs once, like
+a module assertion; it is mainly useful in generic code.
 
 ### Inference
 
 Value parameters are inferred by the existing structural match: `array[T, N]`
-against `array[i64, 4]` learns `T = i64` and `N = 4`. Nothing else supplies
-evidence: not a list's length, not an ordinary argument's value. Output-only
+against `array[i64, 4]` learns `T = i64` and `N = 4`. A literal passed where
+the parameter type is an array also supplies `N` from its element count; see
+[literals at generic parameters](#literals-at-generic-parameters). Nothing else
+supplies evidence: not a list's length, not an ordinary argument's value. Output-only
 value parameters need the explicit list, as type parameters do:
 `filled[i64, 4](0)`. Partial explicit lists stay unsupported (B16).
 
@@ -242,14 +284,42 @@ The expected type comes from the places that already supply one:
 | --- | --- |
 | Annotated binding | `xs: array[i64, 3] = [1, 2, 3]` |
 | Concrete parameter type, including constructor fields and explicit generic argument lists | `checksum([1, 2, 3])` for `checksum(block: array[u8, 3])`; `sum_all[i64, 3]([1, 2, 3])` |
+| Generic parameter whose declared type is an array | `sum_all([1, 2, 3])` for `sum_all[T, const N: i64](xs: array[T, N])`; see below |
 | Declared return type | `return [0, 0]` in a function returning `array[i64, 2]` |
 
-Without one, `[...]` stays a list. A generic parameter position supplies no
-expected type, as today, so `sum_all([1, 2, 3])` for
-`sum_all[T, const N: i64](xs: array[T, N])` builds a list and fails to match;
-the explicit list fixes it. Comprehensions and empty `[]` are not array
+Without one, `[...]` stays a list. Comprehensions and empty `[]` are not array
 literals: a comprehension's length is not static, and `array[T, 0]` is built
 with `filled`.
+
+#### Literals at generic parameters
+
+A generic parameter still supplies no expected *type*, since `T` and `N` are
+unknown until inference finishes. It does supply an expected *shape*. Parameter
+types are known from the signature before any argument is typed, so the
+checker can see that `xs: array[T, N]` is an array before it knows `T` or `N`:
+
+1. For each argument, the checker reads the parameter's declared type after
+   resolving aliases. If it is an `array` instance, a `[...]` literal there is
+   an array literal. The shape is also visible through `&`, tuple components
+   and the element type of an enclosing array, so `[[1, 2], [3, 4]]` for
+   `array[array[T, N], M]` is two levels of array.
+2. The literal's element count is evidence for the length argument: `N = 3`.
+3. Elements are typed as any generic argument is today, without an expected
+   type: unsuffixed integers default to `i64`. Their common type is evidence
+   for `T`. `sum_all[u8, 3]([1, 2, 3])` or suffixed elements choose another
+   type.
+4. Evidence from all arguments is merged and must agree, as now. Arguments
+   still evaluate once, in source order.
+
+The shape stops at type parameters and other nominal types. A parameter typed
+as bare `T` gets a list from `[1, 2, 3]`, which needs `?` as usual; so does
+`Option[array[T, N]]`, whose argument is a constructor call, not a literal.
+
+One call can mix shapes. For
+`def pair[T, const N: i64](names: list[T], codes: array[T, N])`,
+`pair([1, 2]?, [3, 4, 5])` builds a list and a three-element array, and both
+give evidence for `T`. `pair([1u8]?, [3, 4])` fails as `add(1u8, 2)` does:
+`T` is `u8` from one argument and `i64` from the other.
 
 ### Instances, limits and compile cost
 
@@ -284,6 +354,15 @@ main.plenty:6:11: `array` expects a type for `T`, found the value `4`
 main.plenty:7:11: value argument for `N` must be `i64`, found `u8` constant `width`
 main.plenty:9:5: cannot infer `N` for `filled`; supply every argument: `filled[i64, 4](0)`
 main.plenty:12:9: `array[i64, -1]`: an array length cannot be negative
+main.plenty:14:12: conflicting evidence for `N` in `zip_add`: 4 from argument 1 (`array[i64, 4]`), 3 from the array literal in argument 2
+main.plenty:15:10: conflicting evidence for `T` in `pair`: `u8` from argument 1, `i64` from the array literal in argument 2
+  note: give the literal's elements a type, such as `3u8`, or supply every argument: `pair[u8, 2](...)`
+main.plenty:16:14: `?` needs a `Result`, found `array[i64, 3]`
+  note: a literal passed as `array[T, N]` is an array, which allocates nothing and cannot fail
+main.plenty:17:9: cannot infer `T` for `sum_all` from an empty literal; `[]` is not an array literal
+  note: build an empty array with `filled`, or supply every argument
+main.plenty:18:9: `sum_all` expects `array[T, N]` for `xs`, found `list[i64]`
+  note: only a literal becomes an array here; a list does not convert
 ```
 
 ## Rejected alternatives
@@ -313,11 +392,20 @@ main.plenty:12:9: `array[i64, -1]`: an array length cannot be negative
    `array[T, N + 1]` in signatures only with evidence from `BoundedList` or
    `std.simd` code.
 
-### Still open
-
-6. **Per-instance checks on `N`.** Reuse the constant work's static assertion
-   inside generic bodies, or rely on data types validating their own arguments,
-   as `array` does for negative lengths.
+6. **Per-instance checks: `assert` in class and generic function bodies.** The
+   module-scope `assert` from PR #628 runs once per instance, from constants
+   and value parameters, whenever the type or function is instantiated, with
+   failures reported at the instantiation site; see
+   [per-instance assertions](#per-instance-assertions). Rejected: each type
+   validating its own arguments, which only built-in types such as `array` can
+   do at compile time; a user type would have to check in its constructor and
+   fail at run time.
+7. **Array literals at generic parameters.** A literal where the parameter's
+   declared type is an array builds an array and supplies `N`, so
+   `sum_all([1, 2, 3])` needs no argument list; see
+   [literals at generic parameters](#literals-at-generic-parameters). Rejected:
+   requiring `sum_all[i64, 3](...)`, which makes the common call verbose for no
+   gain in clarity.
 
 ## Implementation sketch
 
@@ -329,12 +417,19 @@ main.plenty:12:9: `array[i64, -1]`: an array length cannot be negative
    bodies as a literal, extend instance names and structural inference. Tests:
    kinds, constants as arguments, identity across aliases and constants,
    inference, rejected expressions, phantom value tags.
-2. **`array[T, N]`.** Inline layout, descriptor, construction including
-   literals with an expected type, checked
+2. **Per-instance assertions.** After PR #628 merges: accept `assert` at the
+   start of class and function bodies, check at declaration that operands are
+   constants and value parameters, and evaluate after substitution whenever an
+   instance is created, including data-only instances whose methods are never
+   checked. Failures use the instance diagnostic chain. Tests: failing and
+   passing instances, a type used only as a field, rejected operands, `assert`
+   as an ordinary name later in a body.
+3. **`array[T, N]`.** Inline layout, descriptor, construction including
+   literals with an expected type or at array-typed generic parameters, checked
    indexing, borrowed iteration, equality, printing, drop of affine elements.
    Reference page, tutorial lesson in the generics chapter, cheat sheet entry.
-3. **Library use.** `BoundedList[T, N]` under B13. Measure an internal
+4. **Library use.** `BoundedList[T, N]` under B13. Measure an internal
    `std.simd` rewrite against the current code: native lowering must still
    recognize the shapes, and object code must not regress.
-4. **Deferred: derived sizes.** Only if stage 3 code shows a need: expressions
+5. **Deferred: derived sizes.** Only if stage 4 code shows a need: expressions
    in non-inferred output positions, evaluated after substitution.
