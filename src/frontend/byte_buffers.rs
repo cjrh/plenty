@@ -171,7 +171,7 @@ impl Lower<'_> {
         let actual = self.expr_expected(value, Some(Ty::U8), ops)?;
         self.same(actual, Some(Ty::U8), &value.at)?;
         self.mark_arithmetic(op, &Ty::U8, at, ops);
-        Self::numeric_operation(op, Ty::U8, at, ops)?;
+        self.numeric_operation(op, Ty::U8, at, ops)?;
         let result = self.slot(Ty::U8, at)?;
         ops.push(Op::StoreLocal(result));
         ops.push(Op::UseLoan(read));

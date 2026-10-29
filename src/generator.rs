@@ -542,6 +542,15 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
                 validate_ops(body)?;
                 Vec::new()
             }
+            Op::CheckedBlock { body, result } => {
+                validate_ops(body)?;
+                vec![result.clone()]
+            }
+            Op::CheckedArith { ty, cleanup, .. } => {
+                validate_ops(cleanup)?;
+                vec![ty.clone()]
+            }
+
             Op::If {
                 then,
                 elifs,

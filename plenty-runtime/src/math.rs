@@ -96,9 +96,90 @@ pub(crate) extern "C" fn plenty_int_pow(
     }
 }
 
+/// The two words `plenty_int_pow_checked` returns in `rax:rdx`.
+#[repr(C)]
+pub(crate) struct Power {
+    /// The power modulo 2**N, extended to 64 bits from the integer type.
+    wrapped: u64,
+    /// 1 when the exact power lies outside the integer type.
+    overflow: u64,
+}
+
+/// `plenty_int_pow` in a `checked:` block: reports overflow to the caller,
+/// which exits the block with an `OverflowError`. A negative exponent
+/// still traps, since `pow` has no integer result for it.
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn plenty_int_pow_checked(
+    base: u64,
+    exponent: u64,
+    kind: u64,
+    site: *const crate::Site,
+) -> Power {
+    let bits = (kind & !1) as u32;
+    let signed = kind & 1 == 1;
+    let (exact, min, max) = if signed {
+        if (exponent as i64) < 0 {
+            crate::fail_kind_at(
+                crate::actor_heap::TrapKind::Arithmetic,
+                site,
+                format_args!("negative integer exponent"),
+            )
+        }
+        let max = (1i128 << (bits - 1)) - 1;
+        (base as i64 as i128, -max - 1, max)
+    } else {
+        (base as i128, 0, (1i128 << bits) - 1)
+    };
+    let overflow = checked_pow(exact, exponent, min, max).is_none();
+    // Arithmetic modulo 2**64 agrees with arithmetic modulo 2**bits in the
+    // low bits; extend the result again from the integer type.
+    let wrapped = wrapping_pow(base, exponent);
+    let shift = 64 - bits;
+    let wrapped = if signed {
+        (((wrapped << shift) as i64) >> shift) as u64
+    } else if bits == 64 {
+        wrapped
+    } else {
+        wrapped & ((1 << bits) - 1)
+    };
+    Power {
+        wrapped,
+        overflow: u64::from(overflow),
+    }
+}
+
+/// `base ** exponent` modulo 2**64.
+fn wrapping_pow(mut base: u64, mut exponent: u64) -> u64 {
+    let mut result = 1u64;
+    while exponent != 0 {
+        if exponent & 1 == 1 {
+            result = result.wrapping_mul(base);
+        }
+        base = base.wrapping_mul(base);
+        exponent >>= 1;
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
-    use super::checked_pow;
+    use super::{checked_pow, wrapping_pow};
+
+    #[test]
+    fn wrapped_powers_agree_with_repeated_multiplication() {
+        assert_eq!(wrapping_pow(3, 5), 243);
+        assert_eq!(wrapping_pow(2, 64), 0);
+        assert_eq!(
+            wrapping_pow(3, 1 << 40),
+            3u64.wrapping_pow(1 << 20).wrapping_pow(1 << 20)
+        );
+        let powered = super::plenty_int_pow_checked(2, 7, 9, std::ptr::null());
+        assert_eq!((powered.wrapped as i64, powered.overflow), (-128, 1));
+        let powered = super::plenty_int_pow_checked(-2i64 as u64, 7, 9, std::ptr::null());
+        assert_eq!((powered.wrapped as i64, powered.overflow), (-128, 0));
+        let powered = super::plenty_int_pow_checked(16, 2, 8, std::ptr::null());
+        assert_eq!((powered.wrapped, powered.overflow), (0, 1));
+    }
 
     #[test]
     fn powers_stay_exact_at_the_edges_of_each_range() {

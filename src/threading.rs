@@ -531,7 +531,8 @@ pub fn walk<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
                         pending.extend([arm.condition.as_ref(), arm.body.as_ref()]);
                     }
                 }
-                Op::Try { cleanup, .. } => pending.push(cleanup),
+                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => pending.push(cleanup),
+                Op::CheckedBlock { body, .. } => pending.push(body),
                 _ => {}
             }
         }
@@ -572,7 +573,11 @@ pub fn walk_sited<'a>(
                         pending.extend([(arm.condition.as_ref(), site), (arm.body.as_ref(), site)]);
                     }
                 }
-                Op::Try { cleanup, .. } => pending.push((cleanup, site)),
+                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                    pending.push((cleanup, site))
+                }
+                Op::CheckedBlock { body, .. } => pending.push((body, site)),
+
                 _ => {}
             }
         }

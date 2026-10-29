@@ -239,7 +239,9 @@ pub(super) fn resolve_types(
     let mut names = HashMap::default();
     for (i, declaration) in declarations.iter().enumerate() {
         let name = declaration.name();
-        if builtin(name) {
+        // Module parsing already rejects source declarations of these
+        // names; the arithmetic errors themselves are declared as classes.
+        if builtin(name) && !matches!(name, "OverflowError" | "ZeroDivisionError") {
             return Err(declaration
                 .at()
                 .error(format!("cannot redefine builtin `{name}` as a type")));
@@ -553,8 +555,12 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        match self.match_cases(value, cases, &Tail::Value(expected), ops)? {
+        let outer = std::mem::replace(&mut self.checked_value_tail, false);
+        let result = self.match_cases(value, cases, &Tail::Value(expected), ops);
+        self.checked_value_tail = outer;
+        match result? {
             BlockResult::Continues(ty) => Ok(ty),
+
             BlockResult::Exits => Err(at.error(
                 "every case of this `match` exits, so it has no value; write it as a statement",
             )),

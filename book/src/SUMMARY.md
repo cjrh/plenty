@@ -642,6 +642,8 @@
         - [Bundled HTTP acceptance](proposals/completed/standard-http.md)
         - [Explicit applications, modules, and executable lessons](proposals/completed/entrypoints-modules-and-tutorials.md)
         - [Plenty's next language phase](proposals/completed/next-language-phase.md)
+        - [Checked arithmetic blocks](proposals/completed/checked-arithmetic.md)
+
 
 # Development
 

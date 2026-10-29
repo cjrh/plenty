@@ -617,6 +617,7 @@ impl Moves {
                         }
                     }
                     Op::Match(arms) => sequences.extend(arms.iter().map(|arm| arm.body.as_ref())),
+                    Op::CheckedBlock { body, .. } => sequences.push(body),
                     Op::Loop { condition, body } => {
                         sequences.extend([condition.as_ref(), body.as_ref()]);
                     }

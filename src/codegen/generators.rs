@@ -139,6 +139,7 @@ pub(super) fn build_generator(
             stack: Vec::new(),
             terminated: false,
             loop_targets: Vec::new(),
+            checked_targets: Vec::new(),
             local_frame: None,
             return_storage: None,
             return_types: &[],

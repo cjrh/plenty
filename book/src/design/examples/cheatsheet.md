@@ -62,7 +62,28 @@ def main() -> Result[(), IoError | ParseError]:
 - `//` floors, `%` is integer-only, overflow traps. No `**`: use `x.pow(n)`.
 - `abs`, `min`, `max`, `sum` come from [`std.math`](../stdlib/math.md).
 
-See [numbers](../language/03-types/numbers.md) and
+A `checked:` block turns integer overflow and division by zero inside it into
+`Err`; its last line is the `Ok` value:
+
+```plenty
+def scaled(n: i64, d: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    checked:
+        n * 1000 // d
+
+def main() -> Result[(), IoError]:
+    print(scaled(7, 2).unwrap(), scaled(7, 0).is_err(), scaled(i64.MAX, 1).is_err())?
+    Ok(())
+```
+```output
+3500 True True
+```
+
+- Only arithmetic written in the block is checked; calls keep trapping.
+- `?`, `return`, `break`, and `continue` inside it act on the function or loop.
+- Floats: `x.div_checked(y)` is `Result[F, ZeroDivisionError]`.
+
+See [numbers](../language/03-types/numbers.md#checked-blocks) and
+
 [assignment](../language/04-expressions/assignment.md).
 
 ## Text

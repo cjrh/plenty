@@ -92,10 +92,15 @@ struct Liveness {
     /// For each enclosing loop, innermost last: the slots live at its
     /// condition, where `continue` goes, and after it, where `break` goes.
     loops: Vec<(Slots, Slots)>,
+    /// For each enclosing `checked:` block, innermost last: the slots live
+    /// after it, where a failing `CheckedArith` goes once its cleanup runs.
+    escapes: Vec<Slots>,
     /// A loop's slots live at its condition and at its body's start, by the
     /// addresses of its condition and body and the slots live after it. The rewrite reuses
     /// what the analysis computed, so nested loops are not solved again.
-    solved: HashMap<(usize, usize, Slots), (Slots, Slots)>,
+    /// The key also holds the innermost `checked:` block's exit slots, which
+    /// a failure in the loop reaches.
+    solved: HashMap<(usize, usize, Slots, Slots), (Slots, Slots)>,
 }
 
 impl Liveness {
@@ -192,8 +197,34 @@ impl Liveness {
                     cleanup,
                 })
             }
+            // A failure runs `cleanup` and leaves the innermost block.
+            Op::CheckedArith {
+                operation,
+                ty,
+                cleanup,
+            } => {
+                let escape = self.escapes.last().copied().unwrap_or_default();
+                let (failing, cleanup) = self.nested(cleanup, escape, rewrite, &mut changed);
+                live = live.union(failing);
+                changed.then(|| Op::CheckedArith {
+                    operation: *operation,
+                    ty: ty.clone(),
+                    cleanup,
+                })
+            }
+            Op::CheckedBlock { body, result } => {
+                self.escapes.push(live);
+                let (before, body) = self.nested(body, live, rewrite, &mut changed);
+                self.escapes.pop();
+                live = before;
+                changed.then(|| Op::CheckedBlock {
+                    body,
+                    result: result.clone(),
+                })
+            }
             Op::Match(arms) => {
                 let after = live;
+
                 let arms: Arc<[MatchArm]> = arms
                     .iter()
                     .map(|arm| {
@@ -259,7 +290,13 @@ impl Liveness {
     /// the slots live after it. Liveness only grows with each pass, so
     /// iterating from the empty set reaches the least fixed point.
     fn solve(&mut self, condition: &Arc<[Op]>, body: &Arc<[Op]>, exit: Slots) -> (Slots, Slots) {
-        let key = (condition.as_ptr() as usize, body.as_ptr() as usize, exit);
+        let key = (
+            condition.as_ptr() as usize,
+            body.as_ptr() as usize,
+            exit,
+            self.escapes.last().copied().unwrap_or_default(),
+        );
+
         if let Some(&solved) = self.solved.get(&key) {
             return solved;
         }

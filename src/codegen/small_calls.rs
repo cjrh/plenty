@@ -321,6 +321,19 @@ impl<'a> Caller<'a> {
                 target: target.clone(),
                 cleanup: self.shared(cleanup, &mut changed),
             },
+            Op::CheckedBlock { body, result } => Op::CheckedBlock {
+                body: self.shared(body, &mut changed),
+                result: result.clone(),
+            },
+            Op::CheckedArith {
+                operation,
+                ty,
+                cleanup,
+            } => Op::CheckedArith {
+                operation: *operation,
+                ty: ty.clone(),
+                cleanup: self.shared(cleanup, &mut changed),
+            },
             Op::DefineFn(name, f) => {
                 return function(f, self.callees).map(|f| Op::DefineFn(name.clone(), f));
             }

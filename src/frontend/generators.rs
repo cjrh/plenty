@@ -18,10 +18,11 @@ pub(super) fn yields(body: &[Stmt]) -> bool {
         Statement::Match { cases, .. } => cases.iter().any(|case| yields(&case.body)),
         Statement::Assign { value, .. }
         | Statement::SetIndex { value, .. }
-        | Statement::Return(Some(value)) => {
-            matches!(&value.kind, Expression::Match(_, cases)
-                if cases.iter().any(|case| yields(&case.body)))
-        }
+        | Statement::Return(Some(value)) => match &value.kind {
+            Expression::Match(_, cases) => cases.iter().any(|case| yields(&case.body)),
+            Expression::Checked(body) => yields(body),
+            _ => false,
+        },
         _ => false,
     })
 }
@@ -577,7 +578,9 @@ fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String
             }
         }
         Expression::Ambiguous { .. } => unreachable!("module resolution precedes lowering"),
-        Expression::Match(..) => unreachable!("a match block is a statement's whole value"),
+        Expression::Match(..) | Expression::Checked(_) => {
+            unreachable!("a match or checked block is a statement's whole value")
+        }
         Expression::ClassNew(_)
         | Expression::Type(_)
         | Expression::Number(_)
