@@ -1,8 +1,9 @@
 //! Declaration annotations: compiler-known facts written alone on the lines
-//! above a declaration, such as `@copy`. The set is closed; there are no user
+//! above a declaration, such as `@copy` or `@newtype`. The set is closed; there are no user
 //! decorators. Names live after `@`, outside the value namespace, so `@copy`
 //! does not reserve the builtin `copy` function's name. See
-//! book/src/design/language/03-types/classes.md#copy-classes.
+//! book/src/design/language/03-types/classes.md#copy-classes and
+//! book/src/design/language/04-expressions/operators.md#newtype-forwarding.
 use super::*;
 
 /// One known annotation. Later annotations, such as the agreed `@final`,
@@ -10,18 +11,21 @@ use super::*;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Annotation {
     Copy,
+    Newtype,
 }
 
 impl Annotation {
     fn named(name: &str) -> Option<Self> {
         match name {
             "copy" => Some(Self::Copy),
+            "newtype" => Some(Self::Newtype),
             _ => None,
         }
     }
     pub(super) fn name(self) -> &'static str {
         match self {
             Self::Copy => "copy",
+            Self::Newtype => "newtype",
         }
     }
 }
@@ -39,7 +43,7 @@ impl Parser {
             };
             let Some(annotation) = Annotation::named(spelling) else {
                 return Err(name.error(format!(
-                    "unknown annotation `@{spelling}`; the only annotation is `@copy`"
+                    "unknown annotation `@{spelling}`; the annotations are `@copy` and `@newtype`"
                 )));
             };
             if self.peek().kind != Kind::Newline {

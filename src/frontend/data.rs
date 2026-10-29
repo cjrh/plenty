@@ -274,6 +274,13 @@ impl DataTypes {
     }
 }
 impl TypeAliases {
+    /// The `@newtype` annotation of class `name`, a concrete instance name
+    /// such as `Wrap[i64]` included.
+    pub(super) fn newtype_annotation(&self, name: &str) -> Option<Token> {
+        let base = name.split('[').next().unwrap_or(name);
+        self.data.classes.get(base)?.newtype.clone()
+    }
+
     pub(super) fn validate_data_bounds(&self) -> Result<()> {
         let mut declarations: Vec<_> = self
             .data

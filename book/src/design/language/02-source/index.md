@@ -25,7 +25,7 @@ Anonymous functions can appear in function bodies; see
 [functions](../06-functions/index.md).
 
 A line holding only `@name` annotates the declaration below it. The set of
-annotations is closed and compiler-known; `@copy` on a class is the only one.
+annotations is closed and compiler-known: `@copy` and `@newtype`, both on classes.
 See [annotations](../03-types/classes.md#annotations).
 
 Names follow [lexical scope and prelude rules](names.md). Modules use

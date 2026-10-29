@@ -370,6 +370,7 @@ mod tests {
             destructor: destructor.then(|| "__del__".into()),
             fallible_init: false,
             copy: false,
+            forwards_operators: false,
             bytes: OnceLock::new(),
             managed: OnceLock::new(),
         }

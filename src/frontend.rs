@@ -1361,6 +1361,11 @@ impl Parser {
                     depth += 1;
                 }
             }
+            // An annotation line belongs to the declaration below it, so
+            // stacked annotations do not use up the lookahead.
+            if !lexer.done && self.tokens.get(lexed).is_some_and(|t| t.is("@")) {
+                continue;
+            }
             self.items.push_back(self.released + self.tokens.len());
         }
         self.complete = lexer.done;
@@ -3904,8 +3909,9 @@ impl Lower<'_> {
                             &e.at,
                             e,
                             format!(
-                                "operator `{op}` does not accept {}",
-                                type_name(Some(a.clone()))
+                                "operator `{op}` does not accept {}{}",
+                                type_name(Some(a.clone())),
+                                operators::newtype_hint(&a)
                             ),
                             crate::ownership::Demand::Operator(op.clone(), a.clone()),
                             false,
