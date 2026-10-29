@@ -331,6 +331,11 @@ Issue #512 adds statically dispatched [arithmetic operator hooks](design/languag
 for classes and enums, including reflected and explicit mutable in-place methods.
 User-defined ordering remains B37; arithmetic hooks do not change structural equality.
 
+Issue #555 adds `@newtype` [operator forwarding](design/language/04-expressions/operators.md#newtype-forwarding):
+a one-field class forwards its field's operators between two values of the
+class, rewrapping field-typed and `Result` results; comparisons return `bool`.
+Typing stays nominal and explicit hooks override per operator.
+
 Issue #61's initial lossless Unix transport is implemented with owned `list[u8]`,
 explicit UTF-8 conversion, raw arguments, binary file helpers, and NUL stream
 records. The finder now exercises those contracts with `--null`. Compact byte
