@@ -3,7 +3,7 @@
 --   PLENTY_BIN=target/debug/plenty nvim --headless -u NONE -i NONE -n -l editors/nvim/tests/lsp.lua
 -- Drives the shipped configuration through Neovim's built-in LSP client:
 -- diagnostics, hover (K), go to definition (gd) into a `std` source,
--- completion, and re-checks after an edit (didChange) and a write (didSave).
+-- completion, inferred-type inlay hints, and re-checks after an edit (didChange) and a write (didSave).
 local root = vim.fn.getcwd()
 vim.opt.runtimepath:prepend(root .. '/editors/nvim')
 vim.cmd('filetype plugin on')
@@ -119,6 +119,23 @@ wait('diagnostics after the edit', function()
 end)
 assert(sent['textDocument/didChange'], vim.inspect(sent))
 
+-- The documented API requests hints and stores them for inline rendering.
+assert(client:supports_method('textDocument/inlayHint'), 'inlay hint capability')
+vim.lsp.inlay_hint.enable(true, { bufnr = buf })
+wait('inferred type hints', function()
+  return #vim.lsp.inlay_hint.get({ bufnr = buf }) == 3
+end)
+local hints = vim.lsp.inlay_hint.get({ bufnr = buf })
+local found = false
+for _, hint in ipairs(hints) do
+  local item = hint.inlay_hint
+  if item.position.line == 15 and item.position.character == 5 then
+    assert(item.label == ': i64' and item.kind == 1, vim.inspect(item))
+    found = true
+  end
+end
+assert(found, vim.inspect(hints))
+
 -- didSave: a new error written to disk is reported at its line.
 vim.api.nvim_buf_set_lines(buf, -1, -1, false, { '    k = p.double(1)' })
 vim.cmd('write')
@@ -130,5 +147,8 @@ diagnostics = vim.diagnostic.get(buf)
 assert(#diagnostics == 1, vim.inspect(diagnostics))
 assert(diagnostics[1].lnum == 17, vim.inspect(diagnostics))
 assert(diagnostics[1].message:find('expects 0 arguments'), diagnostics[1].message)
+wait('hints cleared after the failed check', function()
+  return #vim.lsp.inlay_hint.get({ bufnr = buf }) == 0
+end)
 print('ok')
 vim.cmd('qall!')
