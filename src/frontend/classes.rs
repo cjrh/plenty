@@ -12,6 +12,10 @@ pub(super) struct ClassDecl {
     pub(super) public_members: HashSet<String>,
     /// The `@copy` annotation, if the declaration has one.
     pub(super) copy: Option<Token>,
+    /// The `@newtype` annotation, if the declaration has one. Forwarded
+    /// operators are lowered as if written at this token, in the class's
+    /// own module; see `operators::Lower::forward_binary`.
+    pub(super) newtype: Option<Token>,
 }
 
 impl ClassDecl {
@@ -31,6 +35,7 @@ impl ClassDecl {
             methods: self.methods.iter().map(header).collect(),
             public_members: self.public_members.clone(),
             copy: self.copy.clone(),
+            newtype: self.newtype.clone(),
         }
     }
 }
@@ -126,6 +131,7 @@ impl Parser {
             methods,
             public_members,
             copy: None,
+            newtype: None,
         })
     }
 }
@@ -159,6 +165,7 @@ impl ClassDecl {
             fields,
             destructor,
             copy: self.copy.is_some(),
+            forwards_operators: self.newtype.is_some(),
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         })))

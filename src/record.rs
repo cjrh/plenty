@@ -13,6 +13,11 @@ pub struct ClassType {
     /// The declaration check guarantees every field copies and there is no
     /// `__del__`; see book/src/design/language/03-types/classes.md.
     pub copy: bool,
+    /// Declared `@newtype`: operators the single field supports are forwarded
+    /// to it when no hook is declared. Independent of `copy` and of the
+    /// one-field layout in `newtype_field`; see
+    /// book/src/design/language/04-expressions/operators.md#newtype-forwarding.
+    pub forwards_operators: bool,
     /// Inline field storage size; excluded from nominal equality.
     pub bytes: std::sync::OnceLock<usize>,
     /// Whether an instance needs cleanup; excluded from nominal equality.

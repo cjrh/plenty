@@ -1,5 +1,7 @@
 //! Operator syntax resolves to ordinary direct calls, before built-in arithmetic.
+//! A `@newtype` class without a selected hook forwards to its field's operator.
 use super::*;
+use crate::record::ClassType;
 
 fn binary(op: &str) -> Option<(&'static str, &'static str, &'static str)> {
     Some(match op {
@@ -16,6 +18,33 @@ fn binary(op: &str) -> Option<(&'static str, &'static str, &'static str)> {
         ">>" => ("__rshift__", "__rrshift__", "__irshift__"),
         _ => return None,
     })
+}
+
+/// Ordering comparisons have no hooks; only `@newtype` forwarding gives a
+/// class one.
+fn ordering(op: &str) -> bool {
+    matches!(op, "<" | "<=" | ">" | ">=")
+}
+
+fn unreferenced(ty: &Ty) -> &Ty {
+    match ty {
+        Ty::Ref(inner, _) => inner,
+        other => other,
+    }
+}
+
+/// Suggests `@newtype` for a one-field class that does not forward.
+pub(super) fn newtype_hint(ty: &Ty) -> &'static str {
+    match ty {
+        Ty::Class(class)
+            if class
+                .try_get()
+                .is_some_and(|c| c.fields.len() == 1 && !c.forwards_operators) =>
+        {
+            "; declare an operator hook, or annotate the one-field class `@newtype` to forward its field's operators"
+        }
+        _ => "",
+    }
 }
 
 fn unary(op: &str) -> Option<&'static str> {
@@ -278,31 +307,63 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Option<Type>> {
-        let Some((normal, reflected, _)) = binary(op) else {
+        let hooks = binary(op);
+        let ordering = ordering(op);
+        if hooks.is_none() && !ordering {
             return Ok(None);
-        };
+        }
         let a = self.operator_hint(left);
         let b = self.operator_hint(right);
-        let selected = match &a {
-            Some(ty) => self
-                .operator_symbol(ty, normal, at)?
-                .map(|name| (name, false)),
-            None => None,
-        };
-        let selected = if selected.is_none() && (a.is_some() || !self.may_be_operator_data(left)) {
-            match &b {
+        let mut selected = None;
+        if let Some((normal, reflected, _)) = hooks {
+            selected = match &a {
                 Some(ty) => self
-                    .operator_symbol(ty, reflected, at)?
-                    .map(|name| (name, true)),
+                    .operator_symbol(ty, normal, at)?
+                    .map(|name| (name, false)),
                 None => None,
+            };
+            if selected.is_none() && (a.is_some() || !self.may_be_operator_data(left)) {
+                selected = match &b {
+                    Some(ty) => self
+                        .operator_symbol(ty, reflected, at)?
+                        .map(|name| (name, true)),
+                    None => None,
+                };
             }
-        } else {
-            selected
-        };
+        }
         if let Some((name, reverse)) = selected {
             return self
                 .emit_operator_binary(name, reverse, left, right, at, ops)
                 .map(Some);
+        }
+        // Forwarding is the fallback after hook selection, and only between
+        // two operands of the same `@newtype` class: identity stays nominal.
+        if let (Some(a), Some(b)) = (&a, &b)
+            && unreferenced(a) == unreferenced(b)
+            && let Some((class, declared)) = self.forwarding(a)
+        {
+            return self
+                .forward_binary(op, &class, &declared, left, right, at, ops)
+                .map(Some);
+        }
+        if let (Some(a), Some(b)) = (&a, &b)
+            && let Some(class) = [a, b].into_iter().find(|ty| self.forwarding(ty).is_some())
+        {
+            let (a, b) = (unreferenced(a), unreferenced(b));
+            return Err(at.error(format!(
+                "`@newtype` class `{}` forwards `{op}` only between two `{}` values, not `{a}` and `{b}`; read the field, or declare an operator hook for these operands",
+                unreferenced(class),
+                unreferenced(class)
+            )));
+        }
+        if ordering {
+            // Built-in comparisons keep their lowering. An operand of unknown
+            // type beside a forwarding one is evaluated once and retried.
+            let forwards = |ty: &Type| ty.as_ref().is_some_and(|ty| self.forwarding(ty).is_some());
+            if !((a.is_none() && forwards(&b)) || (b.is_none() && forwards(&a))) {
+                return Ok(None);
+            }
+            return self.retry_binary(op, left, right, at, ops).map(Some);
         }
         // Unknown expressions include inferred generic calls and compound
         // results. Save both operands in source order before retrying dispatch.
@@ -342,22 +403,200 @@ impl Lower<'_> {
                 self.release_operator_operand(&held, loan, ops);
                 return Ok(Some(result));
             }
-            let (left, l) = self.hold_operator_operand(left, ops)?;
-            let (right, r) = self.hold_operator_operand(right, ops)?;
-            let expression = Expr {
-                at: at.clone(),
-                kind: Expression::Binary(
-                    op.into(),
-                    Box::new(left.clone()),
-                    Box::new(right.clone()),
-                ),
-            };
-            let result = self.expr(&expression, ops)?;
-            self.release_operator_operand(&right, r, ops);
-            self.release_operator_operand(&left, l, ops);
-            return Ok(Some(result));
+            return self.retry_binary(op, left, right, at, ops).map(Some);
         }
         Ok(None)
+    }
+
+    /// Evaluates both operands once, in source order, and lowers the operation
+    /// again with their types known.
+    fn retry_binary(
+        &mut self,
+        op: &str,
+        left: &Expr,
+        right: &Expr,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let (left, l) = self.hold_operator_operand(left, ops)?;
+        let (right, r) = self.hold_operator_operand(right, ops)?;
+        let expression = Expr {
+            at: at.clone(),
+            kind: Expression::Binary(op.into(), Box::new(left.clone()), Box::new(right.clone())),
+        };
+        let result = self.expr(&expression, ops)?;
+        self.release_operator_operand(&right, r, ops);
+        self.release_operator_operand(&left, l, ops);
+        Ok(result)
+    }
+
+    /// The class and its `@newtype` annotation when `ty` forwards operators.
+    fn forwarding(&self, ty: &Ty) -> Option<(crate::nominal::Nominal<ClassType>, Token)> {
+        let Ty::Class(class) = unreferenced(ty) else {
+            return None;
+        };
+        if !class.try_get()?.forwards_operators {
+            return None;
+        }
+        Some((class.clone(), self.aliases.newtype_annotation(&class.name)?))
+    }
+
+    /// `operand.field`, written in the class's module so that a private field
+    /// stays reachable for the forwarding the class declared.
+    fn forwarded_field(
+        class: &crate::nominal::Nominal<ClassType>,
+        declared: &Token,
+        operand: &Expr,
+    ) -> Expr {
+        Expr {
+            at: declared.clone(),
+            kind: Expression::Member(
+                Box::new(operand.clone()),
+                class.get().fields[0].0.clone(),
+                Pos::default(),
+            ),
+        }
+    }
+
+    /// Lowers `left OP right` for two values of one `@newtype` class as the
+    /// field type's own operation, through ordinary operator resolution, then
+    /// rewraps a result of the field's type. Ordering comparisons keep their
+    /// `bool`. See book/src/design/language/04-expressions/operators.md#newtype-forwarding.
+    #[allow(clippy::too_many_arguments)]
+    fn forward_binary(
+        &mut self,
+        op: &str,
+        class: &crate::nominal::Nominal<ClassType>,
+        declared: &Token,
+        left: &Expr,
+        right: &Expr,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let (held_left, l) = self.hold_operator_operand(left, ops)?;
+        let (held_right, r) = self.hold_operator_operand(right, ops)?;
+        let inner = Expr {
+            at: at.clone(),
+            kind: Expression::Binary(
+                op.into(),
+                Box::new(Self::forwarded_field(class, declared, &held_left)),
+                Box::new(Self::forwarded_field(class, declared, &held_right)),
+            ),
+        };
+        let result = self.expr(&inner, ops)?;
+        self.release_operator_operand(&held_right, r, ops);
+        self.release_operator_operand(&held_left, l, ops);
+        if ordering(op) {
+            return Ok(result);
+        }
+        self.rewrap(class, declared, result, ops)
+    }
+
+    /// A forwarded result of the field's type becomes the class; so does the
+    /// payload of `Result[field, E]`, giving `Result[Class, E]`. Any other
+    /// result is the wrapped operation's own and is returned unchanged.
+    fn rewrap(
+        &mut self,
+        class: &crate::nominal::Nominal<ClassType>,
+        declared: &Token,
+        result: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let Some(ty) = result else {
+            return Ok(None);
+        };
+        let field = class.get().fields[0].1.clone();
+        let wrapped = Ty::Class(class.clone());
+        let at = declared;
+        let error = match &ty {
+            _ if ty == field => None,
+            Ty::Enum(sum) if sum.is_result() && sum.get().variants[0].fields[0] == field => {
+                Some(sum.get().variants[1].fields[0].clone())
+            }
+            _ => return Ok(Some(ty)),
+        };
+        let slot = self.slot(ty.clone(), at)?;
+        ops.push(Op::StoreLocal(slot));
+        if ty.managed() {
+            self.expression_temps.push(slot);
+        }
+        let held = format!("$forwarded{slot}");
+        self.bind(
+            held.clone(),
+            Local {
+                slot,
+                ty: ty.clone(),
+                mutable: false,
+            },
+        );
+        let expression = |kind| Expr {
+            at: at.clone(),
+            kind,
+        };
+        let value = expression(Expression::Name(held.clone()));
+        let construct = |value: Expr| {
+            expression(Expression::Constructor(
+                Box::new(TypeRef {
+                    concrete: Some(Box::new(wrapped.clone())),
+                    parameter: false,
+                    at: at.clone(),
+                    name: None,
+                    args: vec![],
+                }),
+                vec![value],
+            ))
+        };
+        let out = match error {
+            None => self.expr(&construct(value), ops),
+            Some(error) => {
+                let (payload, failure) = ("$forwarded_ok", "$forwarded_err");
+                let case = |variant: &str, binding: &str, body: Expr| enums::Case {
+                    at: at.clone(),
+                    pattern: patterns::Pat {
+                        at: at.clone(),
+                        kind: patterns::PatKind::Variant(
+                            None,
+                            variant.into(),
+                            Some(vec![patterns::Pat {
+                                at: at.clone(),
+                                kind: patterns::PatKind::Binding(binding.into()),
+                            }]),
+                        ),
+                    },
+                    body: vec![Stmt {
+                        at: at.clone(),
+                        kind: Statement::Expr(body),
+                    }],
+                };
+                let cases = [
+                    case(
+                        "Ok",
+                        payload,
+                        expression(Expression::Call(
+                            "Ok".into(),
+                            vec![construct(expression(Expression::Name(payload.into())))],
+                        )),
+                    ),
+                    case(
+                        "Err",
+                        failure,
+                        expression(Expression::Call(
+                            "Err".into(),
+                            vec![expression(Expression::Name(failure.into()))],
+                        )),
+                    ),
+                ];
+                self.match_value(
+                    at,
+                    &value,
+                    &cases,
+                    Some(crate::sum::result(wrapped.clone(), error)),
+                    ops,
+                )
+            }
+        };
+        self.names.remove(&held);
+        out
     }
 
     fn emit_operator_binary(
@@ -435,7 +674,20 @@ impl Lower<'_> {
             return Ok(Some(result));
         };
         let Some(name) = self.operator_symbol(&ty, hook, &value.at)? else {
-            return Ok(None);
+            let Some((class, declared)) = self.forwarding(&ty) else {
+                return Ok(None);
+            };
+            let (held, loan) = self.hold_operator_operand(value, ops)?;
+            let inner = Expr {
+                at: value.at.clone(),
+                kind: Expression::Unary(
+                    op.into(),
+                    Box::new(Self::forwarded_field(&class, &declared, &held)),
+                ),
+            };
+            let result = self.expr(&inner, ops)?;
+            self.release_operator_operand(&held, loan, ops);
+            return self.rewrap(&class, &declared, result, ops).map(Some);
         };
         self.call_named(&name, std::slice::from_ref(value), &value.at, ops)
             .map(Some)
@@ -458,6 +710,25 @@ impl Lower<'_> {
             return Ok(false);
         };
         if self.operator_symbol(&ty, hook, &target.at)?.is_none() {
+            // A `@newtype` updates its field with the field type's own
+            // in-place operation, so the destination keeps its storage.
+            if let Some((class, declared)) = self.forwarding(&ty)
+                && self
+                    .operator_hint(value)
+                    .is_some_and(|other| unreferenced(&other) == unreferenced(&ty))
+            {
+                let target = Self::forwarded_field(&class, &declared, target);
+                let value = Self::forwarded_field(&class, &declared, value);
+                self.augment(&target, op, &value, ops)?;
+                return Ok(true);
+            }
+            if self.forwarding(&ty).is_some() {
+                return Err(target.at.error(format!(
+                    "`@newtype` class `{}` forwards `{op}=` only with another `{}` value; read the field, or declare `{hook}`",
+                    unreferenced(&ty),
+                    unreferenced(&ty)
+                )));
+            }
             return Err(target.at.error(format!("operator `{op}=` requires `{hook}`; use explicit assignment for a value-producing or fallible operation")));
         }
         self.class_method(target, owner, hook, None, std::slice::from_ref(value), ops)?;

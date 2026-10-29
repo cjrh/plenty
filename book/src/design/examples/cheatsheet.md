@@ -285,7 +285,7 @@ inheritance. Bare `self` is a shared borrow; mutating methods declare
 method, just like a by-value function parameter; the caller cannot reuse an
 affine receiver. `@copy` before `class` makes instances copy like integers; every
 field must copy, and the class cannot define `__del__` or take type parameters
-([copy classes](../language/03-types/classes.md#copy-classes)). A field can move out of an owned binding or receiver, after
+([copy classes](../language/03-types/classes.md#copy-classes)). `@newtype` on a one-field class forwards the field's operators between two values of that class ([newtype forwarding](../language/04-expressions/operators.md#newtype-forwarding)). A field can move out of an owned binding or receiver, after
 which the object cannot be used as a whole until that field is assigned again;
 see [moving fields](../language/05-ownership/01-bindings-moves-and-copies.md#moving-fields).
 Variants are always qualified (`Shape.Dot`), and matching a

@@ -108,10 +108,42 @@ including copy classes, are not yet dictionary keys or set elements; see the
 ### Annotations
 
 An annotation is `@name` alone on a line directly before a declaration. The
-set is closed and compiler-known; there are no user decorators. `@copy` is the
-only annotation and applies only to class declarations, including `pub class`.
-An unknown name, arguments, a repeated annotation, or an annotation before any
-other declaration, member, or statement is an error. Annotation names follow
+set is closed and compiler-known; there are no user decorators. The
+annotations are `@copy` and `@newtype`; both apply only to class declarations,
+including `pub class`. An unknown name, arguments, a repeated annotation, or an
+annotation before any other declaration, member, or statement is an error.
+
+`@newtype` makes a class forward its field's operators; see
+[newtype forwarding](../04-expressions/operators.md#newtype-forwarding). The
+class must declare exactly one field and cannot define `__init__`. It can
+have type parameters (`@newtype class Wrapper[T]: value: T`) and `__del__`.
+
+`@copy` and `@newtype` are independent. `@newtype` does not imply `@copy`: a
+`@newtype` class over `i64` still moves on assignment unless it is also
+`@copy`. Forwarded operators borrow their operands, so `a + a` and reusing `a`
+after `a + b` work either way. A class can carry both annotations, in either
+order, with the same meaning:
+
+```plenty
+@newtype
+@copy
+class Seconds:
+    value: f64
+
+def main() -> Result[(), IoError]:
+    a = Seconds(1.5)
+    b = a
+    print(a + b)?
+    Ok(())
+```
+```output
+Seconds(value=3.0)
+```
+
+Neither annotation changes layout or printing. Every class with one field and
+no `__del__` uses the [one-field representation](#one-field-classes), with or
+without `@newtype`, and a `@newtype` value prints as its class
+(`Seconds(value=3.0)`). Annotation names follow
 `@` and do not reserve words: `copy` remains an ordinary name, and the builtin
 `copy(value)` is unaffected.
 

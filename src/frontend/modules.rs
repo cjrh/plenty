@@ -747,6 +747,26 @@ impl Items<'_, '_> {
                         .error("a `@copy` class cannot define `__del__`: each copy would run it"));
                 }
             }
+            c.newtype = annotations
+                .iter()
+                .find(|(_, a)| *a == annotations::Annotation::Newtype)
+                .map(|(at, _)| at.clone());
+            if let Some(at) = &c.newtype {
+                if c.fields.len() != 1 {
+                    return Err(at.error(format!(
+                        "`@newtype` class `{}` must declare exactly one field, the wrapped value; it declares {}",
+                        c.name,
+                        c.fields.len()
+                    )));
+                }
+                // Forwarded results are rebuilt from the wrapped value, so a
+                // validating or fallible initializer would be bypassed.
+                if let Some(f) = c.methods.iter().find(|f| f.name == "__init__") {
+                    return Err(f.at.error(
+                        "a `@newtype` class cannot define `__init__`: forwarded operators rebuild results from the wrapped value without running it",
+                    ));
+                }
+            }
             let name = c.name.clone();
             module.classes.push(c);
             name
@@ -2639,6 +2659,17 @@ mod tests {
         let whole = outcome(source, usize::MAX).unwrap();
         assert_eq!(whole, Err("2:1: expected an indented block".into()));
         assert_eq!(outcome(source, LOOKAHEAD), Some(whole));
+    }
+
+    #[test]
+    fn stacked_annotations_stay_within_the_lookahead() {
+        for source in [
+            "@newtype\n@copy\nclass A:\n",
+            "@copy\n@newtype\nclass A:\n    x: i64\n@newtype\n@copy\nclass B:\n    x: i64\n",
+        ] {
+            let whole = outcome(source, usize::MAX).unwrap();
+            assert_eq!(outcome(source, LOOKAHEAD), Some(whole), "{source}");
+        }
     }
 
     #[test]

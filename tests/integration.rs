@@ -312,6 +312,8 @@ mod test_nested_indexing;
 mod test_nesting;
 #[path = "test_newtype_classes.rs"]
 mod test_newtype_classes;
+#[path = "test_newtype_operators.rs"]
+mod test_newtype_operators;
 #[path = "test_numeric_builtins.rs"]
 mod test_numeric_builtins;
 #[path = "test_numeric_casts.rs"]
