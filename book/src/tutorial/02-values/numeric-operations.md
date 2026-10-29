@@ -257,8 +257,8 @@ The error type lists what the block's operators can produce:
 Unsigned `//` cannot overflow, so it adds only `ZeroDivisionError`. `?` passes
 either error to the caller, as with `try_from`. An `OverflowError` holds the
 wrapped result in its `wrapped` field: `250 + 10` on a `u8` wraps to 4.
-[Recoverable errors](../03-absence/result.md) shows how to handle each case
-instead of passing it on.
+[Keep several error types](../03-absence/anonymous-sums.md) shows how to
+handle each error instead of passing it on.
 
 
 Only arithmetic written inside the block is checked. A function called from

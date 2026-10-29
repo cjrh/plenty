@@ -1,8 +1,8 @@
 # Pattern matching
 
 `match` evaluates its scrutinee once and selects a `case`. The scrutinee is an
-enum, an [anonymous sum](../03-types/anonymous-sums.md), an integer, a `str`,
-or a `bool`, or a reference to one:
+enum, an [anonymous sum](../03-types/anonymous-sums.md), a class, an integer, a
+`str`, or a `bool`, or a reference to one:
 
 ```python
 enum Reading:
@@ -27,6 +27,7 @@ A case holds one pattern. A pattern is one of:
 | `name: MemberType` | a whole member of an anonymous sum; see [member patterns](../03-types/anonymous-sums.md) |
 | `Enum.Variant` or `Enum.Variant(p, ...)` | that variant, with one pattern per payload position |
 | `Some(p)`, `Nothing`, `Ok(p)`, `Err(p)` | that standard variant |
+| `Class(p, ..., field=p, ...)` | a class value, with one pattern per field; see [class patterns](#class-patterns) |
 | `1`, `-1`, `0u8` | an integer equal to the literal |
 | `"text"` | a `str` equal to the literal |
 | `True`, `False` | that `bool` |
@@ -38,9 +39,9 @@ module path to it, or an alias of the matched type. `Some`, `Nothing`, `Ok`, and
 matched value supplies them: `case Choice.Value(v)` matches a `Choice[i64]` and
 a `Choice[str]` alike, and `case Choice[i64].Value(v)` is an error.
 
-A bare name binds only at a payload position; the case's own pattern is a
-variant, a literal, `_`, alternatives of those, `_ as name`, or a typed member
-pattern. A bare name as the case's own pattern is an error, and a payload name equal to a variant of
+A bare name binds only at a payload or field position; the case's own pattern
+is a variant, a class pattern, a literal, `_`, alternatives of those,
+`_ as name`, or a typed member pattern. A bare name as the case's own pattern is an error, and a payload name equal to a variant of
 that payload's enum is rejected, so a forgotten qualifier cannot silently bind
 everything. A variant pattern at a `Box[T]` payload matches the box's contents.
 Patterns nest to at most 64 levels.
@@ -63,6 +64,68 @@ A literal pattern matches an integer, `str`, or `bool` position: the scrutinee
 itself, a payload, or the contents of a `Box`. An unsuffixed integer literal
 takes the position's type and must fit it; a suffixed one must name that type
 exactly. Float literals are not patterns.
+
+## Class patterns
+
+A class pattern takes a class value apart, written as the class's generated
+constructor takes its fields: positional patterns in field-declaration order,
+then `field=pattern`. It matches a class position, the contents of a `Box`, or
+that class's member of an anonymous sum.
+
+```python
+class Point:
+    x: i64
+    y: i64
+
+def axis(p: Point) -> i64:
+    match p:
+        case Point(0, y):
+            y
+        case Point(x=x, y=0):
+            x
+        case Point(x, y):
+            x + y
+```
+
+The rules have no exceptions:
+
+- Every field appears exactly once; ignore one with `_` or `field=_`. A class
+  with no fields is written `Name()`.
+- Positional patterns precede named ones. An unknown, repeated, or missing
+  field, or one positional pattern too many, is an error.
+- The class is named as in an expression: by its name, a module path, or an
+  import. As for enums, the matched value supplies type arguments, so
+  `case Wrap(item)` matches a `Wrap[i64]` and `case Wrap[i64](item)` is an
+  error.
+- Each field must be [visible](../02-source/visibility.md) where the pattern
+  is written, so a class with a private field cannot be taken apart outside
+  its module.
+- A class pattern tests nothing itself: it is irrefutable when every
+  subpattern is, and a nested literal or variant makes it refutable.
+- A bare name that spells the class at its position, such as
+  `case Err(OverflowError):`, is rejected rather than bound, so the parentheses
+  cannot be forgotten silently.
+- Owned matching moves bound fields into their bindings and destroys the rest,
+  as for an enum payload. A class with `__del__` expects every field
+  initialized, so an owned match cannot bind its fields; match a reference such
+  as `&value` to borrow them, or bind it whole. Borrowed matching binds field
+  references, as for payloads.
+
+A `@newtype` class or any one-field class is matched the same way; its pattern
+costs no projection at run time. The error of a
+[`checked:` block](../03-types/numbers.md#checked-blocks) is the motivating
+case:
+
+```python
+def total(a: i64, b: i64) -> i64:
+    result = checked:
+        a + b
+    match result:
+        case Ok(sum):
+            sum
+        case Err(OverflowError(wrapped)):
+            wrapped
+```
 
 ```python
 def opcode(name: str) -> i64:
@@ -107,7 +170,7 @@ depth. Cases are tried in order and the first match runs. Bindings stay within
 the arm and may shadow outer names.
 
 Coverage must be exhaustive; the error lists missing values as patterns, such
-as `missing Ok(Some(Shape.Dot)), Ok(Nothing)`. A case, or a single alternative,
+as `missing Ok(Some(Shape.Dot)), Ok(Nothing)` or `missing Point(_, _)`. A case, or a single alternative,
 that earlier patterns already cover is an error. Incorrect payload arity and
 wrong enum identities are errors. A pattern expands to at most 256 combinations
 of its alternatives.

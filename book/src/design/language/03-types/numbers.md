@@ -133,6 +133,22 @@ since it has no integer result. Float `a.div_checked(b)` returns
 `Result[F, ZeroDivisionError]`, failing for either signed zero divisor; it
 behaves as a one-operation block and may appear anywhere.
 
+A [class pattern](../04-expressions/matching.md#class-patterns) names each
+error and binds the wrapped result:
+
+```plenty
+def halve_sum(a: i64, b: i64) -> i64:
+    result = checked:
+        (a + b) // 2
+    match result:
+        case Ok(half):
+            half
+        case Err(OverflowError(wrapped)):
+            wrapped // 2
+        case Err(ZeroDivisionError()):
+            0
+```
+
 The error type follows the operators, not their operand values. `n // 4`
 inside a block still adds `ZeroDivisionError` and `OverflowError[i64]`; the
 code generator omits the branches a constant divisor rules out. A declared

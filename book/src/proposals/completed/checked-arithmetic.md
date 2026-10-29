@@ -100,6 +100,7 @@ comparison is recorded in the PR for issue #557.
 
 ## Follow-up
 
-- Class-destructuring patterns for `OverflowError` (issue #558); use the
-  `wrapped` field meanwhile.
+- Class-destructuring patterns for `OverflowError` landed with issue #558:
+  `case Err(OverflowError(wrapped))`; see
+  [class patterns](../../design/language/04-expressions/matching.md#class-patterns).
 - Checked shifts and casts, if a use case needs them.

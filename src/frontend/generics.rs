@@ -1959,7 +1959,7 @@ fn substitute_match(
     substitute_expr(value, substitutions)?;
     for case in cases {
         case.pattern
-            .qualifiers_mut(&mut |t| substitute(t, substitutions))?;
+            .qualifiers_mut(false, &mut |t| substitute(t, substitutions))?;
         substitute_block(&mut case.body, substitutions)?;
     }
     Ok(())
