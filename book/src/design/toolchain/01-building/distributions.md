@@ -70,9 +70,22 @@ release artifacts or build and package from the same checkout. Ordinary
 
 ## Package a local engine
 
+For local development, use `just build` for the compiler and both engines, or
+`just engine linalg` / `just engine dataframe` for one engine. These recipes
+install the library and matching `NAME-notices/` in `target/release/`, ready for
+`--dist`. They record the engine's actual glibc requirements without claiming
+the portable release baseline; see the [local build workflow](../../../development/workflow.md#build-a-complete-local-installation).
+
 A bare library installed by `build_native_engine.py` is enough for ordinary
-compilation, but not distribution output. From the same checkout, package a
-baseline-compatible local build with the existing release packager (substitute
+compilation, but not distribution output. Add local notices to it with:
+
+```sh
+python3 -B scripts/release/package-engine.py linalg \
+  --engine target/release/libplenty_linalg_v1.so --out-dir target/release --local-install
+```
+
+For a **portable archive**, package a baseline-compatible build from the same
+checkout with the release packager (substitute
 `dataframe` and its library for the Polars engine):
 
 ```sh

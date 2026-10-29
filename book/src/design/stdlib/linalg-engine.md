@@ -14,6 +14,11 @@ without pulling in the Polars engine or faer code into the runtime archive.
 
 From a source checkout, build it once:
 
+For the library plus local `--dist` metadata/licenses, use `just engine linalg`.
+`just build` builds the compiler and both engines; see the
+[local build recipes](../../development/workflow.md#build-a-complete-local-installation).
+The lower-level command below installs only the library.
+
 ```sh
 python3 -B scripts/build_native_engine.py linalg --out target/release
 ```

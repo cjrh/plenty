@@ -36,6 +36,11 @@ library placement, notices and compatibility checks.
 
 ## Build from source
 
+For the library plus local `--dist` metadata/licenses, use `just engine dataframe`.
+`just build` builds the compiler and both engines; see the
+[local build recipes](../../development/workflow.md#build-a-complete-local-installation).
+The lower-level command below installs only the library.
+
 From a Plenty source checkout, with a stable Rust toolchain:
 
 ```sh
