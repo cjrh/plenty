@@ -340,8 +340,9 @@ Issue #557 adds [`checked:` blocks](design/language/03-types/numbers.md#checked-
 integer overflow and zero division written inside one return
 `Result[T, OverflowError[T] | ZeroDivisionError]`, while arithmetic outside
 blocks keeps plain types, traps, and compiles unchanged. Float `div_checked`
-and a non-trapping `MIN % -1` landed with it. Checked shifts and casts, and
-class patterns for `OverflowError` (issue #558), remain B14 candidates.
+and a non-trapping `MIN % -1` landed with it. Class patterns (issue #558)
+destructure `OverflowError` and other classes in `match`; checked shifts and
+casts remain B14 candidates.
 
 Issue #61's initial lossless Unix transport is implemented with owned `list[u8]`,
 explicit UTF-8 conversion, raw arguments, binary file helpers, and NUL stream
