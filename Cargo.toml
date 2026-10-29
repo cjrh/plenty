@@ -68,6 +68,8 @@ hotpath = { version = "=0.28.6", optional = true, default-features = false }
 # rather than the final encoding; its `disas` feature would build the C
 # Capstone library. Pure Rust, decoder and formatter only.
 iced-x86 = { version = "1.21.0", default-features = false, features = ["std", "decoder", "gas"] }
+# Atomic no-replace directory publication for --dist; already used by tempfile.
+rustix = { version = "1", features = ["fs"] }
 
 # Run the benchmark's argument-parsing tests with the workspace suite; Cargo
 # only builds examples by default.

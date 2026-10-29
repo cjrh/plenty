@@ -43,8 +43,9 @@ engine directory cannot contain a colon (`:`).
 
 The `v1` library name identifies the C ABI generation; it does **not** mean
 that every release exports the same operations. Upgrade the compiler and
-engine together. Packaging checks all of that release's facade symbols, but
-the compiler does not inspect `engine.json` or enforce an exact version match.
+engine together. Packaging checks all of that release's facade symbols, and
+`--dist` checks the manifest version, target, ABI, library name and checksum.
+Ordinary compilation does not inspect `engine.json`.
 
 ## Ship an application
 
@@ -63,31 +64,40 @@ my-app/
     licenses/rust/...
 ```
 
-For example, with the extracted engine directory named in `ENGINE`:
+Prefer explicit distribution output, with the extracted engine directory named
+in `ENGINE` (rather than the bare library copied beside the compiler):
 
 ```sh
 ENGINE="$PWD/plenty-dataframe-@VERSION@-@TARGET@"
-mkdir -p my-app/dataframe-notices
-cp analysis "$ENGINE/lib/libplenty_dataframe_v1.so" my-app/
-cp "$ENGINE/engine.json" "$ENGINE/LICENSE-MIT" "$ENGINE/LICENSE-APACHE" \
-   "$ENGINE/THIRD-PARTY-NOTICES.md" my-app/dataframe-notices/
-cp -R "$ENGINE/licenses" my-app/dataframe-notices/
+export PLENTY_DATAFRAME_ENGINE="$ENGINE/lib/libplenty_dataframe_v1.so"
+plenty --compile analysis.plenty --dist my-app
 ./my-app/analysis
 ```
 
-The executable's RUNPATH searches its own directory (`$ORIGIN`) first, then
-the engine's build-time directory. Moving the whole `my-app` directory works;
-moving only the executable does not bring its library with it. End users need
-the host C libraries, but **not Plenty, Rust, Cargo, or a C compiler** to run
-the application. An application linked on a newer distribution can require a
-newer glibc than the engine: build and test on the oldest system you support.
+`my-app` must not exist. Plenty stages and publishes the executable, only the
+engines its reachable operations need, and all their notices. It validates the
+packaged metadata and copied library checksum, then links that staged library.
+A bare installed library without notices is insufficient: use the extracted
+archive, or place `dataframe-notices/` beside the installed library as shown
+above. `--dist` excludes `-o`, `--legacy`, `--link-arg` and non-compile modes.
 
-Test the bundle in a clean environment without the original compiler/engine
-installation. Otherwise the build-time RUNPATH can hide a missing bundled
-library. `PLENTY_DATAFRAME_ENGINE` selects a library at **compile time**; it
-does not configure an already-built application's loader. `LD_LIBRARY_PATH`
-and `LD_PRELOAD` can override RUNPATH, so remove stale overrides. Do not put
-untrusted libraries beside your executable or in these paths.
+Distribution RUNPATH is only `$ORIGIN` (the executable's own directory), with
+no development-machine fallback. Move the whole directory, not just the
+executable. End users need compatible host C libraries, but **not Plenty, Rust,
+Cargo or a C compiler**. This is not a static or cross-platform build. Compile
+and test on the oldest system you support: an application linked on a newer
+system may require a newer glibc than the engine.
+
+For manual deployment, ordinary `--compile analysis.plenty -o analysis` still
+works: copy its executable, exact library and all notices into the layout above.
+Ordinary output searches `$ORIGIN` then the build-time engine directory, which
+can hide a missing bundled library; prefer `--dist` when shipping.
+
+Test relocation from another working directory and test a missing-library
+failure. `PLENTY_DATAFRAME_ENGINE` selects a library at **compile time** only.
+`LD_LIBRARY_PATH` and `LD_PRELOAD` still override runtime lookup; remove stale
+overrides and keep library search paths trusted. Matching metadata does not
+prove that a local engine and compiler were built from identical sources.
 
 ## Troubleshooting
 

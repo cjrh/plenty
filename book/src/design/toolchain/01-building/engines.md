@@ -54,10 +54,11 @@ the linker only when reached, was considered and rejected:
   executable. A shared engine adds only a `DT_NEEDED` entry and the imported
   symbols, and one copy serves every program on the host.
 - **Deployment.** The cost of a shared engine: the application ships the
-  library beside the executable ([dataframe example](../../stdlib/dataframe-deployment.md)).
+  library beside the executable ([distribution output](distributions.md) automates this).
 - **Reproducibility.** Under the [reproducibility contract](linking.md#reproducible-artifacts)
   an executable that reaches an engine also depends on the engine's directory,
-  which is in its `RUNPATH`, and on the facade's symbols, but not on the
+  which ordinary output records in `RUNPATH` (distribution output uses only
+  `$ORIGIN`), and on the facade's symbols, but not on the
   engine's bytes. A static engine would make every executable depend on the
   engine archive's bytes, which would then need the runtime's deterministic
   build too.
@@ -75,13 +76,13 @@ A second engine follows `std.dataframe` in each of these.
 | Symbols | Every export starts with a prefix unique to the engine and its ABI generation, such as `pldf_v1_`. The library exports nothing else. |
 | ABI generation | `libplenty_NAME_vN.so`, also its SONAME. Adding an operation adds symbols and keeps `N`. Changing or removing a symbol, a layout or an ownership rule starts `N+1`, with a new prefix and file name, so existing executables keep loading `vN`. |
 | Reachability | The compiler follows the object's relocations from its roots, as `--gc-sections` does. An unused import, unused helper or unused facade function needs no engine and adds no `DT_NEEDED`. |
-| Discovery at compile time | `CompileOptions` field, then `PLENTY_NAME_ENGINE`, then `libplenty_NAME_vN.so` beside the compiler executable. The directory must not contain `:`. Build fingerprints include the selected path, size and modification time. |
-| Discovery at run time | `RUNPATH` of `$ORIGIN`, then the engine's directory at link time. The loader's `LD_LIBRARY_PATH` and system configuration also apply. |
+| Discovery at compile time | `CompileOptions` field, then `PLENTY_NAME_ENGINE`, then `libplenty_NAME_vN.so` beside the compiler executable. Ordinary output rejects `:` in the engine directory (an ELF RUNPATH separator). Build fingerprints include the selected path, size and modification time. |
+| Discovery at run time | `RUNPATH` of `$ORIGIN`, then the engine's directory at link time for ordinary output; [distribution output](distributions.md) uses only `$ORIGIN`. The loader's `LD_LIBRARY_PATH` and system configuration also apply. |
 | Missing engine | Linking fails, naming the module, the path tried, how to build or install the engine, and the environment variable. Type-checking never needs the engine. |
 | Mismatched engine | An older engine lacking a symbol fails at link time (`undefined reference to PREFIX...`) or at load time (`symbol lookup error`). Release packaging rejects an engine whose exports do not cover the facade's declarations. A different `N` is a different file and is never substituted. |
 | Errors | Each call returns an error code; the engine catches panics at the C boundary and reports them as an error. Handles are freed by the engine that allocated them. Engine allocations are outside Plenty's allocation accounting; the module's reference page states whether allocation failure is recoverable. |
 | Build | A separate Cargo workspace, `plenty-NAME/`, with its own `Cargo.lock`, built by a script outside the compiler build, for the baseline x86-64 CPU and the release glibc. |
-| Release | A separate archive from the same release, `plenty-NAME-VERSION-TARGET.tar.gz` with a `.sha256`, containing `lib/libplenty_NAME_vN.so`, `engine.json` (Plenty version, source commit, target, ABI generation, library checksum, minimum glibc), `LICENSE-MIT`, `LICENSE-APACHE`, `THIRD-PARTY-NOTICES.md` for the engine's crates, the Rust standard library licences, and a README with the deployment recipe. `engine.json` is descriptive; the compiler does not read it. |
+| Release | A separate archive from the same release, `plenty-NAME-VERSION-TARGET.tar.gz` with a `.sha256`, containing `lib/libplenty_NAME_vN.so`, `engine.json` (Plenty version, source commit, target, ABI generation, library checksum, minimum glibc), `LICENSE-MIT`, `LICENSE-APACHE`, `THIRD-PARTY-NOTICES.md` for the engine's crates, the Rust standard library licences, and a README with the deployment recipe. `--dist` validates metadata and copied-library checksum and includes the notices; ordinary compilation does not read `engine.json`. |
 | Tests | The ordinary suite checks that unreached uses link no engine and that a reached use without one reports the missing engine. A separate CI job builds the engine and runs the real-engine tests, gated by `PLENTY_NAME_TESTS=1`. |
 
 ## Adding a second engine

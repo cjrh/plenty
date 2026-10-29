@@ -20,23 +20,34 @@ plenty --compile analysis.plenty -o analysis
 
 ## Ship an application
 
-Keep the exact engine used for compilation, notices, and application together:
+Use explicit distribution output with the extracted archive intact:
 
 ```sh
 ENGINE=/path/to/plenty-linalg-@VERSION@-@TARGET@
-mkdir -p my-app/linalg-notices
-cp analysis "$ENGINE/lib/libplenty_linalg_v1.so" my-app/
-cp "$ENGINE/engine.json" "$ENGINE/LICENSE-MIT" "$ENGINE/LICENSE-APACHE" \
-   "$ENGINE/THIRD-PARTY-NOTICES.md" my-app/linalg-notices/
-cp -R "$ENGINE/licenses" my-app/linalg-notices/
+export PLENTY_LINALG_ENGINE="$ENGINE/lib/libplenty_linalg_v1.so"
+plenty --compile analysis.plenty --dist my-app
 ./my-app/analysis
 ```
 
-Users need no Plenty, Rust, Cargo, Python or C compiler to run the bundle.
-The executable's RUNPATH searches its own directory first, then the build-time
-engine directory. Test relocation without the original installation, and remove
-`LD_LIBRARY_PATH`/`LD_PRELOAD` overrides. Those overrides can mask a missing or
-stale bundled engine. `PLENTY_LINALG_ENGINE` only affects compilation.
+`my-app` must not exist. Plenty stages and publishes the executable, only reached
+engines, and each engine's `engine.json`, `LICENSE-MIT`, `LICENSE-APACHE`,
+`THIRD-PARTY-NOTICES.md` and `licenses/` tree in `NAME-notices/`. It checks the
+manifest version, target, ABI, library name, checksum and library SONAME. A bare
+installed `.so` is insufficient: use the archive layout, or place
+`linalg-notices/` beside the installed library. `--dist` excludes `-o`,
+`--legacy`, `--link-arg` and other compilation modes.
+
+Users need compatible host C libraries, not Plenty, Rust, Cargo, Python or a C
+compiler. This is not a static or cross-platform build. Distribution RUNPATH
+searches only `$ORIGIN` (the executable's own directory), with no development
+fallback. Test relocation from another working directory, and remove
+`LD_LIBRARY_PATH`/`LD_PRELOAD` overrides. `PLENTY_LINALG_ENGINE` affects only
+compilation. Matching metadata is not proof of identical local-build sources.
+
+For manual deployment, ordinary `--compile FILE -o OUT` still searches `$ORIGIN`
+then the build-time engine directory; copy the exact selected library beside the
+executable and all engine notices into `linalg-notices/`. That fallback can mask
+a missing library on the build machine; prefer `--dist` when shipping.
 
 Build and test your application on your oldest supported distribution; linking
 on a newer machine can raise the application's glibc requirement. The engine

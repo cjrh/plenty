@@ -854,6 +854,7 @@ dependencies = [
  "regex",
  "rstest",
  "rustc-hash",
+ "rustix",
  "serde_json",
  "sha2",
  "target-lexicon",
