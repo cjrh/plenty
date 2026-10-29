@@ -24,6 +24,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.cache.lru`](cache-lru.md) | Fixed-capacity caches that evict the least recently used entry, with constant-time lookup, promotion and eviction | `AllocError` |
 | [`std.channel`](channel.md) | Bounded channels, endpoints and selection | Channel/send/receive/selection errors |
 | [`std.cli`](cli.md) | Explicit typed options/positionals, repeatable values, generated help and lossless path arguments | `CliError` |
+| [`std.cli.fileinput`](cli-fileinput.md) | Buffered fallible UTF-8 lines across native paths or command-line files, with stdin fallback | `FileInputError` |
 | [`std.cli.progress`](cli-progress.md) | Terminal-only stderr bars and spinners with counts, rates, ETA and throttled redraws | `ProgressError` |
 | [`std.collections`](collections.md) | Owned binary heaps ordered by `<` or by a stored comparator | `AllocError` |
 | [`std.complex`](complex.md) | `Complex` numbers over `f64` with arithmetic operators, polar form, `exp`, `log`, `sqrt`, `pow`, and `a+bi` display | None |

@@ -67,13 +67,17 @@ pub(crate) fn without_sigpipe<T>(write: impl FnOnce() -> std::io::Result<T>) -> 
 }
 
 pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Error> {
+    open_bytes(path.as_bytes(), mode, ty)
+}
+
+pub(crate) fn open_bytes(path: &[u8], mode: &str, ty: &'static Type) -> Result<u128, Error> {
     let writable = mode != "r";
     let readable = mode == "r" || mode.ends_with('+');
     let mode = OpenMode::parse(mode).ok_or(Kind::InvalidMode)?;
     // Reserve the owner before opening/truncating anything. Path allocation in
     // open_file is also fallible and precedes the native open call.
     let pointer = memory::try_allocate::<File, u8>(0)?;
-    match text_io::open_file(path, mode) {
+    match text_io::open_file_bytes(path, mode) {
         Ok(file) => {
             // SAFETY: fresh storage has the exact File layout and no prior value.
             unsafe {

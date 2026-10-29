@@ -71,6 +71,7 @@ impl FsOp {
     pub fn effect(self) -> Effect {
         match self {
             Self::Open
+            | Self::OpenFilePath
             | Self::EntryMetadata
             | Self::Metadata
             | Self::ReadLink

@@ -1,0 +1,100 @@
+# Original implementation modelled on Python's fileinput API:
+# https://docs.python.org/3/library/fileinput.html
+# Owned, fallible line iteration; no global state or newline translation.
+import std.bytes as buffers
+import std.io as io
+from std.bytes import Bytes, BytesError
+from std.io import StreamError
+from std.path import Path, from_bytes
+
+pub enum FileInputError:
+    Open(Option[Path], StreamError)
+    Read(Option[Path], StreamError)
+    Text(Option[Path], BytesError)
+    Close(Option[Path], StreamError)
+
+enum Source:
+    File(io.BufReader[io.FileStream])
+    Stdin(io.BufReader[io.Stdin])
+
+    def read_line(self: &mut Source, buffer: &mut Bytes) -> Result[i64, StreamError]:
+        match self:
+            case Source.File(stream):
+                stream.read_until(10u8, buffer, i64.MAX)
+            case Source.Stdin(stream):
+                stream.read_until(10u8, buffer, i64.MAX)
+
+    def close(self: &mut Source) -> Result[(), StreamError]:
+        match self:
+            case Source.File(stream):
+                stream.inner.close()
+            case Source.Stdin(_):
+                Ok(())
+
+def open_source(path: &Option[Path]) -> Result[Source, StreamError]:
+    match path:
+        case Some(name):
+            native = name.as_bytes()
+            if len(native) == 1 and native[0] == 45u8:
+                return Ok(Source.Stdin(io.buffered_reader(io.stdin(), 8192)?))
+            Ok(Source.File(io.buffered_reader(io.open_path(name, "r")?, 8192)?))
+        case Nothing:
+            Ok(Source.Stdin(io.buffered_reader(io.stdin(), 8192)?))
+
+# The iterator owns both the paths and its current file. Only completed lines
+# are decoded, so a UTF-8 scalar may safely cross a buffer boundary.
+pub def files(paths: list[Path]) -> Generator[Result[str, FileInputError]]:
+    mut remaining = (path for path in paths)
+    mut first = True
+    while True:
+        path = next(&mut remaining)
+        if path.is_none() and not first:
+            return
+        first = False
+        mut reader = match open_source(&path):
+            case Ok(value):
+                value
+            case Err(error):
+                yield Err(FileInputError.Open(path, error))
+                return
+        while True:
+            mut buffer = match buffers.empty():
+                case Ok(value):
+                    value
+                case Err(error):
+                    drop(reader)
+                    yield Err(FileInputError.Text(path, error))
+                    return
+            match reader.read_line(&mut buffer):
+                case Ok(count):
+                    if count == 0:
+                        break
+                case Err(error):
+                    drop(reader)
+                    yield Err(FileInputError.Read(path, error))
+                    return
+            match buffer.to_text():
+                case Ok(line):
+                    drop(buffer)
+                    yield Ok(line)
+                case Err(error):
+                    drop(reader)
+                    yield Err(FileInputError.Text(path, error))
+                    return
+        match reader.close():
+            case Ok(_):
+                pass
+            case Err(error):
+                yield Err(FileInputError.Close(path, error))
+                return
+
+# Raw argv[1:], not an option parser. Applications with flags use files().
+pub def lines() -> Result[Generator[Result[str, FileInputError]], IoError | AllocError]:
+    mut paths: list[Path] = []?
+    mut first = True
+    for native in args_bytes()?:
+        if first:
+            first = False
+        else:
+            paths.append(from_bytes(native))?
+    Ok(files(paths))

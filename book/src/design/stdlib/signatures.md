@@ -411,6 +411,17 @@ def describe(error: &CliError) -> Result[str, AllocError]
 def describe_for(error: &CliError, schema: &list[Spec]) -> Result[str, AllocError]
 ```
 
+## `std.cli.fileinput`
+
+Buffered fallible UTF-8 lines across native paths or command-line files, with stdin fallback. Errors: `FileInputError`. [Reference](cli-fileinput.md).
+
+```text
+enum FileInputError
+    Open(Option[Path], StreamError) | Read(Option[Path], StreamError) | Text(Option[Path], BytesError) | Close(Option[Path], StreamError)
+def files(paths: list[Path]) -> Generator[Result[str, FileInputError]]
+def lines() -> Result[Generator[Result[str, FileInputError]], IoError | AllocError]
+```
+
 ## `std.cli.progress`
 
 Terminal-only stderr bars and spinners with counts, rates, ETA and throttled redraws. Errors: `ProgressError`. [Reference](cli-progress.md).
@@ -1957,6 +1968,7 @@ class FileStream
     def seek(self: &mut FileStream, target: SeekFrom) -> Result[i64, StreamError]
     def close(self: &mut FileStream) -> Result[(), StreamError]
 def open_file(path: &str, mode: &str) -> Result[FileStream, StreamError]
+def open_path(path: &Path, mode: &str) -> Result[FileStream, StreamError]
 def from_file(file: File) -> FileStream
 class Stdin
     def is_terminal(self) -> bool

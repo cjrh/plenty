@@ -191,10 +191,19 @@ is no method returning the inner stream; exchange it with
 | Constructor | Stream | Protocols |
 |---|---|---|
 | `open_file(path: &str, mode: &str)` | `Result[FileStream, StreamError]` | `Reader`, `Writer`, `Seeker`, `Closer` |
+| `open_path(path: &Path, mode: &str)` | `Result[FileStream, StreamError]` | the same, preserving native path bytes |
 | `from_file(file: File)` | `FileStream` | the same |
 | `stdin()` | `Stdin` | `Reader` |
 | `stdout()`, `stderr()` | `Stdout`, `Stderr` | `Writer` |
 | `cursor(data: Bytes)` | `Cursor` | `Reader`, `Writer`, `Seeker` |
+
+`open_path` accepts a [`std.path.Path`](path.md) without decoding its bytes.
+It has the same modes, permissions, symlink behavior, and ownership as
+`open_file`. Embedded NUL is `StreamError.Io(IoError.InvalidInput)` rather than
+a truncated filename; an invalid mode is `StreamError.Io(IoError.InvalidMode)`.
+Owner and path allocations are fallible and occur before opening or truncating.
+Use [`std.cli.fileinput`](cli-fileinput.md) for buffered fallible text-line
+iteration across multiple native paths or stdin.
 
 `FileStream` owns a [`File`](../facilities/02-io/files.md), public as `file`.
 `read` and `write` each make one native call on the descriptor, with no

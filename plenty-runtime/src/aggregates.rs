@@ -1832,7 +1832,7 @@ operation_entries! {
 // `std.fs` paths and descriptors, file seeking and file readiness.
 operation_entries! {
     150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 192 260 261 262 263
-    264 265 266 267 268 269 270 271 272 273 390 512 513 514
+    264 265 266 267 268 269 270 271 272 273 390 512 513 514 515
 }
 // `std.time`.
 operation_entries! {
@@ -2168,6 +2168,13 @@ pub(crate) unsafe fn collection_at(
                     }
                 }
             }
+            515 => crate::text_io::result(filesystem::contiguous(a).and_then(|path| {
+                crate::files::open_bytes(
+                    &path,
+                    strings::utf8(&(b as *const Text)),
+                    (*descriptor).variants[0].fields[0],
+                )
+            })),
             89 => crate::text_io::result(crate::files::open(
                 strings::utf8(&(a as *const Text)),
                 strings::utf8(&(b as *const Text)),

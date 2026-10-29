@@ -133,3 +133,34 @@ reports which of the two went wrong.
 
 See [the module reference](../../design/stdlib/io.md) for every error, the
 copy helper, and the standard stream adapters.
+
+## A text filter over files or stdin
+
+For a command-line text filter, let
+[`std.cli.fileinput`](../../design/stdlib/cli-fileinput.md) handle the buffered
+reads, UTF-8 decoding, and owned files:
+
+```plenty
+import std.cli.fileinput as fileinput
+from std.cli.fileinput import FileInputError
+
+def main() -> Result[(), IoError | AllocError | FileInputError]:
+    for line in fileinput.lines()?:
+        write_stdout(line?)?
+    flush_stdout()?
+    Ok(())
+```
+```output
+```
+
+After compiling, pass filenames in order, or pipe text into the executable with
+no arguments. A filename `-` selects stdin. The outer `?` handles argument-list
+construction; `line?` propagates an error while opening, reading, or decoding.
+Use `write_stdout`, not `print`, because lines retain their endings. The final
+line of a file need not have a newline.
+
+For applications that parse flags, pass the chosen `list[Path]` to
+`fileinput.files(paths)` instead: `lines()` does not parse options. Both APIs
+use chunked buffering, not a system call for each character, and decode strict
+UTF-8. Breaking out closes owned files, never stdin; any bytes read ahead into
+the iterator's buffer are discarded, so do not interleave other stdin readers.

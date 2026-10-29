@@ -104,6 +104,19 @@ struct NativeModule {
 
 const NATIVE_MODULES: &[NativeModule] = &[
     NativeModule {
+        module: "std.io",
+        program: r#"import std.io as io
+import std.path as paths
+from std.io import StreamError
+
+def main() -> Result[(), IoError | StreamError]:
+    mut file = io.open_path(&paths.from_text("/dev/null")?, "r")?
+    file.close()?
+    Ok(())
+"#,
+        patterns: &[Pattern::Operations(515..516)],
+    },
+    NativeModule {
         module: "std.cli.progress",
         program: r#"import std.cli.progress as progress
 from std.cli.progress import ProgressError

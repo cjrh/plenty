@@ -79,8 +79,10 @@ Values and their total must fit `i64`; arithmetic overflow is a runtime trap.
 Checking the argument count directly keeps this two-path interface simple.
 For named options and typed argument values, use the
 [typed command-line parser](typed-arguments.md). The explicit `readline` loop
-is necessary because files do not yet support direct `for line in file`
-iteration.
+shows EOF handling for one file. For buffered
+line iteration across multiple files or stdin, use
+[`std.cli.fileinput`](../../design/stdlib/cli-fileinput.md); each loop item is a
+`Result` that you handle with `line?`.
 
 See the
 [text I/O reference](../../design/facilities/02-io/index.md)

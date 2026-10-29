@@ -4,6 +4,7 @@
 # attempt and reports the bytes it moved. The helpers below add retry, end of
 # input and failure-after-progress policy. See book/src/design/stdlib/io.md.
 from std.bytes import ByteSource, Bytes, BytesError, with_capacity
+from std.path import Path
 
 pub enum StreamError:
     Interrupted
@@ -500,6 +501,14 @@ pub class FileStream:
 
 pub def open_file(path: &str, mode: &str) -> Result[FileStream, StreamError]:
     match open(path, mode):
+        case Ok(file):
+            Ok(FileStream(file))
+        case Err(error):
+            Err(classify(error))
+
+# Ordinary file opening without decoding or changing native path bytes.
+pub def open_path(path: &Path, mode: &str) -> Result[FileStream, StreamError]:
+    match __fs_open_file_path(path.as_bytes(), mode):
         case Ok(file):
             Ok(FileStream(file))
         case Err(error):

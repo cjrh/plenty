@@ -65,6 +65,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.time", include_str!("../../stdlib/std/time.plenty")),
     ("std.cli", include_str!("../../stdlib/std/cli.plenty")),
     (
+        "std.cli.fileinput",
+        include_str!("../../stdlib/std/cli/fileinput.plenty"),
+    ),
+    (
         "std.cli.progress",
         include_str!("../../stdlib/std/cli/progress.plenty"),
     ),

@@ -371,6 +371,7 @@
         - [`std.cache.lru`](design/stdlib/cache-lru.md)
         - [`std.channel`](design/stdlib/channel.md)
         - [`std.cli`](design/stdlib/cli.md)
+        - [`std.cli.fileinput`](design/stdlib/cli-fileinput.md)
         - [`std.cli.progress`](design/stdlib/cli-progress.md)
         - [`std.collections`](design/stdlib/collections.md)
         - [`std.complex`](design/stdlib/complex.md)
