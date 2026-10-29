@@ -36,11 +36,13 @@ pub enum FsOp {
     WatchOpen,
     WatchAdd,
     WatchRemove,
+    OpenFilePath,
 }
 
 impl FsOp {
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
+            "__fs_open_file_path" => Self::OpenFilePath,
             "__fs_open" => Self::Open,
             "__fs_next" => Self::Next,
             "__fs_close" => Self::Close,
@@ -80,6 +82,7 @@ impl FsOp {
     pub fn signature(self) -> (Vec<Ty>, Ty) {
         let bytes = || Ty::List(Arc::new(Ty::U8));
         let (inputs, output) = match self {
+            Self::OpenFilePath => (vec![bytes(), Ty::Str], Ty::File),
             Self::Open => (vec![bytes()], Ty::FsReadDir),
             Self::Next => (vec![Ty::FsReadDir], sum::option(Ty::FsDirEntry)),
             Self::Close => (vec![Ty::FsReadDir], Ty::Unit),
