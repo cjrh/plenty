@@ -2481,6 +2481,7 @@ impl Lowerer<'_, '_> {
                 lowered?
             }
             Op::Split(t, tag) => self.lower_split(t, *tag)?,
+            Op::SplitClass(t) => self.lower_split_class(t)?,
             Op::Box(operation) => self.lower_box(operation)?,
             Op::Yield(ty) => self.lower_yield(ty)?,
             Op::Next(i) => self.lower_next(*i)?,

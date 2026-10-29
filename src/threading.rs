@@ -484,6 +484,10 @@ fn inspect(
             types.push(Ty::Enum(t.clone()));
             types.extend(t.get().variants[*tag].fields.iter().cloned());
         }
+        Op::SplitClass(t) => {
+            types.push(Ty::Class(t.clone()));
+            types.extend(t.get().fields.iter().map(|(_, ty)| ty.clone()));
+        }
         Op::ReadRef(ty) | Op::WriteRef(ty) | Op::FillRef(ty) | Op::ReplaceRef(ty) => {
             types.push(ty.clone())
         }

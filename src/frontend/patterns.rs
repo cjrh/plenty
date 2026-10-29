@@ -4,6 +4,7 @@
 use super::*;
 use crate::boxed::BoxOp;
 use crate::nominal::Nominal;
+use crate::record::{ClassOp, ClassType};
 use crate::sum::{EnumOp, EnumType};
 
 /// Recursion bound for the parser and for every later walk over a pattern.
@@ -31,6 +32,23 @@ pub(super) enum PatKind {
     Variant(Option<Box<TypeRef>>, String, Option<Vec<Pat>>),
     Or(Vec<Pat>),
     Literal(Literal),
+    /// A class and one pattern per field, as its generated constructor takes
+    /// them: positionally in declaration order, then by field name. When
+    /// module resolution cannot name the class, `unresolved` keeps its error
+    /// until the check, which can then explain a forgotten variant qualifier.
+    Class {
+        owner: Box<TypeRef>,
+        fields: Vec<FieldPat>,
+        unresolved: Option<String>,
+    },
+}
+
+#[derive(Clone)]
+pub(super) struct FieldPat {
+    pub(super) at: Token,
+    /// The field name of a `name=pattern` subpattern.
+    pub(super) name: Option<String>,
+    pub(super) pattern: Pat,
 }
 
 #[derive(Clone)]
@@ -62,6 +80,11 @@ impl Pat {
                         walk(pattern, names);
                     }
                 }
+                PatKind::Class { fields, .. } => {
+                    for field in fields {
+                        walk(&field.pattern, names);
+                    }
+                }
             }
         }
         let mut names = Vec::new();
@@ -69,10 +92,54 @@ impl Pat {
         names
     }
 
+    /// Resolves the type names a pattern writes. `paths` is set for module
+    /// resolution, the first visit: a qualified `a.B(...)` names a class when
+    /// the whole path is a type, and an enum variant otherwise.
     pub(super) fn qualifiers_mut(
         &mut self,
+        paths: bool,
         visit: &mut dyn FnMut(&mut TypeRef) -> Result<()>,
     ) -> Result<()> {
+        if paths && let PatKind::Variant(Some(qualifier), name, Some(payload)) = &mut self.kind {
+            let mut owner = TypeRef {
+                name: Some(format!(
+                    "{}.{name}",
+                    qualifier.name.as_deref().unwrap_or_default()
+                )),
+                ..(**qualifier).clone()
+            };
+            let resolved = match qualifier.concrete {
+                Some(_) => false,
+                None => match visit(&mut owner) {
+                    Ok(()) => true,
+                    // When neither the path nor its qualifier resolves, the
+                    // path's error explains more, such as a private class.
+                    Err(error) if visit(&mut (**qualifier).clone()).is_err() => return Err(error),
+                    Err(_) => false,
+                },
+            };
+            if resolved {
+                let fields = std::mem::take(payload)
+                    .into_iter()
+                    .map(|pattern| FieldPat {
+                        at: pattern.at.clone(),
+                        name: None,
+                        pattern,
+                    })
+                    .collect();
+                self.kind = PatKind::Class {
+                    owner: Box::new(owner),
+                    fields,
+                    unresolved: None,
+                };
+                if let PatKind::Class { fields, .. } = &mut self.kind {
+                    for field in fields {
+                        field.pattern.qualifiers_mut(paths, visit)?;
+                    }
+                }
+                return Ok(());
+            }
+        }
         match &mut self.kind {
             PatKind::Member(_, ty) => visit(ty),
             PatKind::Wildcard | PatKind::Binding(_) | PatKind::Literal(_) => Ok(()),
@@ -81,13 +148,33 @@ impl Pat {
                     visit(qualifier)?;
                 }
                 for pattern in payload.iter_mut().flatten() {
-                    pattern.qualifiers_mut(visit)?;
+                    pattern.qualifiers_mut(paths, visit)?;
                 }
                 Ok(())
             }
             PatKind::Or(alternatives) => {
                 for pattern in alternatives {
-                    pattern.qualifiers_mut(visit)?;
+                    pattern.qualifiers_mut(paths, visit)?;
+                }
+                Ok(())
+            }
+            PatKind::Class {
+                owner,
+                fields,
+                unresolved,
+            } => {
+                if let Err(error) = visit(owner) {
+                    if !paths {
+                        return Err(error);
+                    }
+                    *unresolved = Some(
+                        error
+                            .downcast_ref::<Located>()
+                            .map_or_else(|| error.to_string(), |e| e.message.clone()),
+                    );
+                }
+                for field in fields {
+                    field.pattern.qualifiers_mut(paths, visit)?;
                 }
                 Ok(())
             }
@@ -200,6 +287,12 @@ impl Parser {
         if self.peek().is("[") {
             return Err(self.type_arguments_in_pattern(&path.join(".")));
         }
+        if self.peek().is("(")
+            && ((path.len() == 1 && !enums::prelude_variant(&path[0]))
+                || (path.len() > 1 && self.named_field_follows()))
+        {
+            return self.class_pattern(at, path.join("."), depth);
+        }
         let name = path.pop().unwrap();
         let qualifier = (!path.is_empty()).then(|| {
             Box::new(TypeRef {
@@ -211,9 +304,6 @@ impl Parser {
             })
         });
         if qualifier.is_none() && !enums::prelude_variant(&name) {
-            if self.peek().is("(") {
-                return Err(at.error("qualify user-defined variants with their enum type"));
-            }
             if depth == 0 {
                 return Err(at.error(format!(
                     "a case cannot bind the whole value to the bare name `{name}`; bind it with `_ as {name}`, match any value with `_`, or qualify a variant with its enum type"
@@ -240,6 +330,72 @@ impl Parser {
         Ok(Pat {
             at,
             kind: PatKind::Variant(qualifier, name, payload),
+        })
+    }
+
+    /// Whether the parenthesized list ahead holds a `name=pattern` field.
+    fn named_field_follows(&self) -> bool {
+        let mut depth = 0usize;
+        let mut position = self.pos;
+        while let Some(token) = self.token(position) {
+            if token.is("(") || token.is("[") {
+                depth += 1;
+            } else if token.is(")") || token.is("]") {
+                depth -= 1;
+                if depth == 0 {
+                    return false;
+                }
+            } else if matches!(token.kind, Kind::Newline | Kind::Eof) {
+                return false;
+            } else if depth == 1
+                && matches!(token.kind, Kind::Word(_))
+                && self.token(position + 1).is_some_and(|t| t.is("="))
+            {
+                return true;
+            }
+            position += 1;
+        }
+        false
+    }
+
+    /// `Class(p, ..., field=p, ...)`, after the class name.
+    fn class_pattern(&mut self, at: Token, name: String, depth: usize) -> Result<Pat> {
+        self.expect("(")?;
+        let mut fields = Vec::new();
+        while !self.eat(")") {
+            let field_at = self.peek().clone();
+            let named = matches!(field_at.kind, Kind::Word(_))
+                && self.token(self.pos + 1).is_some_and(|t| t.is("="));
+            let name = if named {
+                let name = self.name()?;
+                self.expect("=")?;
+                Some(name)
+            } else {
+                None
+            };
+            fields.push(FieldPat {
+                at: field_at,
+                name,
+                pattern: self.pattern(depth + 1)?,
+            });
+            if self.eat(")") {
+                break;
+            }
+            self.expect(",")?;
+        }
+        Ok(Pat {
+            at: at.clone(),
+            kind: PatKind::Class {
+                owner: Box::new(TypeRef {
+                    concrete: None,
+                    parameter: false,
+                    at,
+                    name: Some(name),
+                    args: vec![],
+                }),
+                fields,
+                unresolved: None,
+            },
         })
     }
 
@@ -311,6 +467,9 @@ impl Parser {
         let advice = match variant {
             Some(name) if enums::prelude_variant(name) => format!("; write `{name}`"),
             Some(name) => format!("; write `{qualifier}.{name}`"),
+            None if self.token(end + 1).is_some_and(|t| t.is("(")) => {
+                format!("; write `{qualifier}(...)`")
+            }
             None => String::new(),
         };
         at.error(format!(
@@ -339,6 +498,14 @@ enum Checked {
         boxes: Vec<Ty>,
         ty: Ty,
         value: Constant,
+    },
+    /// One pattern per field, in declaration order. A class has one shape,
+    /// so only its subpatterns test anything.
+    Class {
+        at: Token,
+        boxes: Vec<Ty>,
+        t: Nominal<ClassType>,
+        fields: Vec<Checked>,
     },
 }
 
@@ -400,8 +567,27 @@ impl Checked {
         match self {
             Checked::Wildcard | Checked::Literal { .. } => false,
             Checked::Binding(_) => true,
-            Checked::Variant { fields, .. } => fields.iter().any(Checked::binds),
+            Checked::Variant { fields, .. } | Checked::Class { fields, .. } => {
+                fields.iter().any(Checked::binds)
+            }
             Checked::Or(alternatives) => alternatives.iter().any(|(_, p)| p.binds()),
+        }
+    }
+
+    /// A class pattern below this one that binds a field of a class with
+    /// `__del__`, which a consuming match cannot take apart.
+    fn destructed(&self) -> Option<(&Token, &Nominal<ClassType>)> {
+        match self {
+            Checked::Wildcard | Checked::Binding(_) | Checked::Literal { .. } => None,
+            Checked::Class { at, t, fields, .. }
+                if t.get().destructor.is_some() && fields.iter().any(Checked::binds) =>
+            {
+                Some((at, t))
+            }
+            Checked::Variant { fields, .. } | Checked::Class { fields, .. } => {
+                fields.iter().find_map(Checked::destructed)
+            }
+            Checked::Or(alternatives) => alternatives.iter().find_map(|(_, p)| p.destructed()),
         }
     }
 
@@ -481,6 +667,25 @@ impl Checked {
                     })
                     .collect()
             }
+            Checked::Class {
+                at,
+                boxes,
+                t,
+                fields,
+            } => combinations(fields, tokens)?
+                .into_iter()
+                .map(|(fields, chosen)| {
+                    (
+                        Checked::Class {
+                            at: at.clone(),
+                            boxes: boxes.clone(),
+                            t: t.clone(),
+                            fields,
+                        },
+                        chosen,
+                    )
+                })
+                .collect(),
         })
     }
 
@@ -504,14 +709,54 @@ impl Checked {
                 }
                 prefix.truncate(start);
             }
+            Checked::Class {
+                boxes, t, fields, ..
+            } => {
+                let start = prefix.len();
+                prefix.extend(boxes.iter().cloned().map(Step::Unbox));
+                for (field, pattern) in fields.iter().enumerate() {
+                    prefix.push(Step::ClassField(t.clone(), field));
+                    pattern.paths(prefix, out);
+                    prefix.pop();
+                }
+                prefix.truncate(start);
+            }
         }
     }
+}
+
+/// Every combination of the fields' `|` alternatives, in source order.
+fn combinations(
+    fields: &[Checked],
+    tokens: &mut Vec<Token>,
+) -> Option<Vec<(Vec<Checked>, Vec<usize>)>> {
+    let mut payloads: Vec<(Vec<Checked>, Vec<usize>)> = vec![(Vec::new(), Vec::new())];
+    for field in fields {
+        let options = field.alternatives(tokens)?;
+        if payloads.len() * options.len() > MAX_ALTERNATIVES {
+            return None;
+        }
+        payloads = payloads
+            .iter()
+            .flat_map(|(payload, chosen)| {
+                options.iter().map(move |(option, choice)| {
+                    let mut payload = payload.clone();
+                    payload.push(option.clone());
+                    let mut chosen = chosen.clone();
+                    chosen.extend(choice);
+                    (payload, chosen)
+                })
+            })
+            .collect();
+    }
+    Some(payloads)
 }
 
 /// One projection from a matched value toward a payload position.
 #[derive(Clone)]
 enum Step {
     Field(Nominal<EnumType>, usize, usize),
+    ClassField(Nominal<ClassType>, usize),
     Unbox(Ty),
 }
 
@@ -521,6 +766,7 @@ fn project(steps: &[Step], mutable: bool, ops: &mut Vec<Op>) {
             Step::Field(t, tag, field) => {
                 Op::Enum(EnumOp::FieldRef(t.clone(), *tag, *field, mutable))
             }
+            Step::ClassField(t, field) => Op::Class(ClassOp::FieldRef(t.clone(), *field, mutable)),
             Step::Unbox(content) => Op::Box(BoxOp::Ref(content.clone(), mutable)),
         });
     }
@@ -609,11 +855,12 @@ impl<'a> Compiler<'a> {
         let Some(first) = rows.first() else {
             return (Tree::Fail, vec![vec!["_".into(); occurrences.len()]]);
         };
-        let Some(column) = first
-            .patterns
-            .iter()
-            .position(|p| matches!(p, Checked::Variant { .. } | Checked::Literal { .. }))
-        else {
+        let Some(column) = first.patterns.iter().position(|p| {
+            matches!(
+                p,
+                Checked::Variant { .. } | Checked::Literal { .. } | Checked::Class { .. }
+            )
+        }) else {
             self.reached[first.index] = true;
             return (Tree::Leaf(first.index), vec![]);
         };
@@ -625,6 +872,9 @@ impl<'a> Compiler<'a> {
             Checked::Variant { boxes, t, .. } => (boxes, t),
             Checked::Literal { boxes, ty, .. } => {
                 return self.compare(rows, occurrences, column, boxes, ty);
+            }
+            Checked::Class { boxes, t, .. } => {
+                return self.expand(rows, occurrences, column, boxes, t);
             }
             _ => unreachable!(),
         };
@@ -737,6 +987,54 @@ impl<'a> Compiler<'a> {
 }
 
 impl<'a> Compiler<'a> {
+    /// A column of class patterns needs no test: every row's fields, or
+    /// wildcards for a row that names none, take the column's place.
+    fn expand(
+        &mut self,
+        rows: Vec<Row<'a>>,
+        occurrences: &[Vec<Step>],
+        column: usize,
+        boxes: &[Ty],
+        t: &Nominal<ClassType>,
+    ) -> (Tree, Vec<Vec<String>>) {
+        let arity = t.get().fields.len();
+        let wildcard = self.wildcard;
+        let rows = rows
+            .into_iter()
+            .map(|row| {
+                let mut patterns = row.patterns[..column].to_vec();
+                match row.patterns[column] {
+                    Checked::Class { fields, .. } => patterns.extend(fields),
+                    _ => patterns.extend(std::iter::repeat_n(wildcard, arity)),
+                }
+                patterns.extend(&row.patterns[column + 1..]);
+                Row {
+                    patterns,
+                    index: row.index,
+                }
+            })
+            .collect();
+        let mut steps = occurrences[column].clone();
+        steps.extend(boxes.iter().cloned().map(Step::Unbox));
+        let mut inner = occurrences[..column].to_vec();
+        inner.extend((0..arity).map(|field| {
+            let mut steps = steps.clone();
+            steps.push(Step::ClassField(t.clone(), field));
+            steps
+        }));
+        inner.extend_from_slice(&occurrences[column + 1..]);
+        let (tree, witnesses) = self.compile(rows, &inner);
+        let missing = witnesses
+            .into_iter()
+            .map(|mut witness| {
+                let fields: Vec<String> = witness.drain(column..column + arity).collect();
+                witness.insert(column, class_text(t, &fields));
+                witness
+            })
+            .collect();
+        (tree, missing)
+    }
+
     /// The test for a column of literals. A row naming no literal there joins
     /// every branch, in source order, so each constant is compared once.
     fn compare(
@@ -833,6 +1131,25 @@ fn variant_text(t: &Nominal<EnumType>, tag: usize, payload: &[String]) -> String
     } else {
         format!("{head}({})", payload.join(", "))
     }
+}
+
+/// Whether a bare pattern name spells the class at a position of type `ty`,
+/// or one of its sum members.
+fn named_class(ty: &Ty, name: &str) -> bool {
+    let spells = |ty: &Ty| {
+        matches!(ty, Ty::Class(t)
+            if t.display_name().split('[').next().unwrap_or_default().rsplit('.').next() == Some(name))
+    };
+    match ty {
+        Ty::Enum(sum) if sum.anonymous() => sum.get().variants.iter().any(|v| spells(&v.fields[0])),
+        ty => spells(ty),
+    }
+}
+
+/// A class as a pattern would spell it.
+fn class_text(t: &Nominal<ClassType>, fields: &[String]) -> String {
+    let owner = t.display_name().split('[').next().unwrap_or_default();
+    format!("{owner}({})", fields.join(", "))
 }
 
 /// How the matched value is held for the whole statement.
@@ -932,12 +1249,30 @@ impl Lower<'_> {
                             "`{name}` is a variant of `{owner}`, so it cannot name {role}; write `{owner}.{name}` to match the variant"
                         )));
                 }
+                if named_class(content, name) {
+                    return Err(pattern.at.error(format!(
+                        "`{name}` names a class, so it cannot name a binding; write `{name}(...)` to match it"
+                    )));
+                }
                 if bound.iter().any(|(other, _)| other == name) {
                     return Err(pattern.at.error("duplicate payload binding"));
                 }
                 bound.push((name.clone(), ty.clone()));
                 Ok(Checked::Binding(name.clone()))
             }
+            PatKind::Class {
+                owner,
+                fields,
+                unresolved,
+            } => self.check_class(
+                pattern,
+                owner,
+                fields,
+                unresolved.as_deref(),
+                ty,
+                root,
+                bound,
+            ),
             PatKind::Variant(qualifier, name, payload) => {
                 let t = match content {
                     Ty::Enum(t) if !t.tuple() => t,
@@ -1044,6 +1379,152 @@ impl Lower<'_> {
         }
     }
 
+    /// A class pattern. At an anonymous-sum position it selects the member
+    /// of that class; elsewhere the position must hold the class itself.
+    #[allow(clippy::too_many_arguments)]
+    fn check_class(
+        &self,
+        pattern: &Pat,
+        owner: &TypeRef,
+        written: &[FieldPat],
+        unresolved: Option<&str>,
+        ty: &Ty,
+        root: bool,
+        bound: &mut Vec<(String, Ty)>,
+    ) -> Result<Checked> {
+        let mut boxes = Vec::new();
+        let mut content = ty;
+        while let Ty::Box(inner) = content {
+            boxes.push((**inner).clone());
+            content = inner;
+        }
+        let name = owner.name.as_deref().unwrap_or_default();
+        let short = name.rsplit('.').next().unwrap_or_default();
+        if let Ty::Enum(t) = content
+            && !t.anonymous()
+            && t.get().tag(short).is_some()
+        {
+            let enum_name = t.display_name().split('[').next().unwrap_or_default();
+            return Err(pattern.at.error(if name.contains('.') || enums::prelude_variant(short) {
+                format!("unknown class `{name}`")
+            } else {
+                format!("qualify user-defined variants with their enum type; write `{enum_name}.{short}`")
+            }));
+        }
+        if let Some(error) = unresolved {
+            return Err(pattern.at.error(error));
+        }
+        let names = |t: &Nominal<ClassType>| self.names_class(name, t);
+        let (t, tag) = match content {
+            Ty::Class(t) if names(t)? => (t.clone(), None),
+            Ty::Enum(sum) if sum.anonymous() => {
+                let definition = sum.get();
+                let mut found = None;
+                for (tag, variant) in definition.variants.iter().enumerate() {
+                    if let Ty::Class(t) = &variant.fields[0]
+                        && names(t)?
+                    {
+                        found = Some((t.clone(), Some(tag)));
+                        break;
+                    }
+                }
+                found.ok_or_else(|| {
+                    pattern
+                        .at
+                        .error(format!("class `{name}` is absent from {ty}"))
+                })?
+            }
+            _ if root => {
+                return Err(pattern.at.error(format!(
+                    "a `{name}` pattern cannot match a value of type {ty}"
+                )));
+            }
+            _ => {
+                return Err(pattern.at.error(format!(
+                    "a `{name}` pattern cannot match a payload of type {ty}; bind it with a name or skip it with `_`"
+                )));
+            }
+        };
+        let definition = t.get();
+        let mut slots: Vec<Option<&FieldPat>> = vec![None; definition.fields.len()];
+        let mut named = false;
+        for (position, field) in written.iter().enumerate() {
+            let index = match &field.name {
+                Some(label) => {
+                    named = true;
+                    super::classes::field_index(&t, label, &field.at)?
+                }
+                None if named => {
+                    return Err(field
+                        .at
+                        .error("positional field patterns must precede named ones"));
+                }
+                None if position >= slots.len() => {
+                    return Err(field.at.error(format!(
+                        "`{short}` has {} fields, but this pattern names {}",
+                        slots.len(),
+                        written.len()
+                    )));
+                }
+                None => position,
+            };
+            let field_name = &definition.fields[index].0;
+            super::modules::check_member(self.access, &t.name, field_name, &field.at)?;
+            if slots[index].replace(field).is_some() {
+                return Err(field
+                    .at
+                    .error(format!("field `{field_name}` is matched more than once")));
+            }
+        }
+        if let Some(index) = slots.iter().position(Option::is_none) {
+            let field_name = &definition.fields[index].0;
+            return Err(pattern.at.error(format!(
+                "missing field `{field_name}` in `{short}` pattern; match it with `{field_name}=_` to ignore it"
+            )));
+        }
+        let fields = slots
+            .into_iter()
+            .zip(&definition.fields)
+            .map(|(field, (_, ty))| self.check_pattern(&field.unwrap().pattern, ty, false, bound))
+            .collect::<Result<Vec<_>>>()?;
+        let class = Checked::Class {
+            at: pattern.at.clone(),
+            boxes: if tag.is_some() {
+                Vec::new()
+            } else {
+                boxes.clone()
+            },
+            t: t.clone(),
+            fields,
+        };
+        Ok(match (tag, content) {
+            (Some(tag), Ty::Enum(sum)) => Checked::Variant {
+                boxes,
+                t: sum.clone(),
+                tag,
+                fields: vec![class],
+            },
+            _ => class,
+        })
+    }
+
+    /// Whether a class pattern's written name, which carries no type
+    /// arguments, names `t` or the generic class `t` instantiates.
+    fn names_class(&self, name: &str, t: &Nominal<ClassType>) -> Result<bool> {
+        if &*t.name == name {
+            return Ok(true);
+        }
+        let matched = Ty::Class(t.clone());
+        if self.aliases.data.contains(name) {
+            return Ok(self
+                .aliases
+                .data
+                .arguments(&matched)
+                .is_some_and(|(declaration, _)| declaration == name));
+        }
+        Ok(false)
+    }
+
     /// A qualifier names the enum and nothing else: the matched value supplies
     /// the type arguments, and the prelude variants are never qualified.
     fn pattern_owner(
@@ -1107,6 +1588,14 @@ impl Lower<'_> {
         for case in cases {
             let mut bound = Vec::new();
             let pattern = self.check_pattern(&case.pattern, matched, true, &mut bound)?;
+            if subject.borrowed.is_none()
+                && let Some((at, t)) = pattern.destructed()
+            {
+                let name = t.display_name().split('[').next().unwrap_or_default();
+                return Err(at.error(format!(
+                    "cannot move fields out of `{name}`: its `__del__` expects every field initialized; match a reference such as `&value` to borrow them"
+                )));
+            }
             checked.push((pattern, bound));
         }
         // One row per `|` combination; `arms[row]` is its case.
@@ -1307,6 +1796,8 @@ impl Lower<'_> {
             // cases.
             match matched {
                 Ty::Enum(t) => self.peek(&subject, &[], t, ops),
+                // A class has one shape, so its dispatch tests nothing.
+                Ty::Class(_) => ops.push(Op::PushInt(Value::I64(0))),
                 scalar => self.read(&subject, &[], scalar, ops),
             }
             ops.push(Op::Match(
@@ -1487,7 +1978,7 @@ impl Lower<'_> {
                 if self.loans[loan].precise {
                     let fields = |row: usize| {
                         path(row, name).iter().filter_map(|step| match step {
-                            Step::Field(_, _, field) => Some(*field),
+                            Step::Field(_, _, field) | Step::ClassField(_, field) => Some(*field),
                             Step::Unbox(_) => None,
                         })
                     };
@@ -1590,12 +2081,16 @@ fn owned_root(
         ops.extend([Op::MoveLocal(source), Op::StoreLocal(slots[name.as_str()])]);
         return;
     }
-    let Checked::Variant { fields, .. } = pattern else {
-        return;
-    };
-    if pattern.binds() || (single && fields.len() > 1) {
-        ops.push(Op::MoveLocal(source));
-        owned_variant(pattern, slots, ops);
+    match pattern {
+        Checked::Variant { fields, .. } if pattern.binds() || (single && fields.len() > 1) => {
+            ops.push(Op::MoveLocal(source));
+            owned_variant(pattern, slots, ops);
+        }
+        Checked::Class { .. } if pattern.binds() => {
+            ops.push(Op::MoveLocal(source));
+            owned_class(pattern, slots, ops);
+        }
+        _ => {}
     }
 }
 
@@ -1604,6 +2099,7 @@ fn owned(pattern: &Checked, slots: &HashMap<&str, u8>, ops: &mut Vec<Op>) {
     match pattern {
         Checked::Binding(name) => ops.push(Op::StoreLocal(slots[name.as_str()])),
         Checked::Variant { .. } if pattern.binds() => owned_variant(pattern, slots, ops),
+        Checked::Class { .. } if pattern.binds() => owned_class(pattern, slots, ops),
         _ => ops.push(Op::Drop),
     }
 }
@@ -1631,6 +2127,29 @@ fn owned_variant(pattern: &Checked, slots: &HashMap<&str, u8>, ops: &mut Vec<Op>
         owned(field, slots, ops);
     } else {
         ops.push(Op::Split(t.clone(), *tag));
+        for field in fields.iter().rev() {
+            owned(field, slots, ops);
+        }
+    }
+}
+
+/// Move a class's fields out; `match_patterns` rejects a consuming match that
+/// binds part of a class with `__del__`.
+fn owned_class(pattern: &Checked, slots: &HashMap<&str, u8>, ops: &mut Vec<Op>) {
+    let Checked::Class {
+        boxes, t, fields, ..
+    } = pattern
+    else {
+        unreachable!()
+    };
+    for content in boxes {
+        ops.push(Op::Box(BoxOp::Take(content.clone())));
+    }
+    if let [field] = fields.as_slice() {
+        ops.push(Op::Class(ClassOp::Field(t.clone(), 0)));
+        owned(field, slots, ops);
+    } else {
+        ops.push(Op::SplitClass(t.clone()));
         for field in fields.iter().rev() {
             owned(field, slots, ops);
         }

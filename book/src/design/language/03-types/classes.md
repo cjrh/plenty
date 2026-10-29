@@ -47,6 +47,10 @@ duplication follow [ownership](../05-ownership/index.md); receiver signatures
 follow [methods](../06-functions/index.md), and constructor access follows
 [visibility](../02-source/visibility.md).
 
+A [class pattern](../04-expressions/matching.md#class-patterns) such as
+`case Point(x, y=0):` takes a class apart in `match`, written like the
+generated constructor with every field named once.
+
 ## One-field classes
 
 A class with exactly one field and no `__del__` is represented as that field.

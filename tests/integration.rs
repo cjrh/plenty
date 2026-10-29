@@ -95,6 +95,8 @@ mod test_channels;
 mod test_checked_add_sub;
 #[path = "test_class_allocation.rs"]
 mod test_class_allocation;
+#[path = "test_class_patterns.rs"]
+mod test_class_patterns;
 #[path = "test_classes.rs"]
 mod test_classes;
 #[path = "test_cli.rs"]

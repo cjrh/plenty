@@ -203,8 +203,8 @@ even
 
 A suite's final expression is its value, so `return` is only needed for early
 exits. Conditions must be `bool`; there is no truthiness. Chained comparisons
-and loop `else` are rejected. `match` works on enums, integers, `str`, and
-`bool`, must be exhaustive, and has no guards or tuple patterns. See
+and loop `else` are rejected. `match` works on enums, classes, integers, `str`,
+and `bool`, must be exhaustive, and has no guards or tuple patterns. See
 [matching](../language/04-expressions/matching.md) and
 [loops](../language/04-expressions/loops.md).
 
@@ -282,6 +282,13 @@ enum Shape:
             case Shape.Rect(width, height):
                 *width * *height
 
+def unused(counter: &Counter) -> bool:
+    match counter:
+        case Counter(_, 0):
+            True
+        case Counter(name=_, hits=_):
+            False
+
 def main() -> Result[(), IoError]:
     mut counter = Counter("clicks", 0)
     counter.bump()
@@ -292,12 +299,14 @@ def main() -> Result[(), IoError]:
     mut shifted = origin
     shifted.x = 1.5
     print(origin, shifted)?
+    print(unused(&counter))?
     Ok(())
 ```
 ```output
 2 Counter(name="clicks", hits=2)
 6.0 Shape.Dot
 Point(x=0.0, y=0.0) Point(x=1.5, y=0.0)
+False
 ```
 
 Classes have typed fields and a generated positional constructor; there is no
@@ -310,7 +319,10 @@ field must copy, and the class cannot define `__del__` or take type parameters
 which the object cannot be used as a whole until that field is assigned again;
 see [moving fields](../language/05-ownership/01-bindings-moves-and-copies.md#moving-fields).
 Variants are always qualified (`Shape.Dot`), and matching a
-borrowed enum binds references, so payloads are dereferenced with `*`. See
+borrowed enum binds references, so payloads are dereferenced with `*`.
+`case Counter(name, hits=0)` takes a class apart, written like its constructor, with
+every field named once
+([class patterns](../language/04-expressions/matching.md#class-patterns)). See
 [classes](../language/03-types/classes.md), [enums](../language/03-types/enums.md),
 and [borrowed matching](../language/05-ownership/06-borrowed-matching.md).
 

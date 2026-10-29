@@ -986,6 +986,9 @@ pub enum Op {
     Box(crate::boxed::BoxOp),
     /// Move every field out of a multi-field variant or tuple, in field order.
     Split(crate::nominal::Nominal<crate::sum::EnumType>, usize),
+    /// Move every field out of a class without `__del__` and at least two
+    /// fields, in field order; a class pattern in a consuming `match`.
+    SplitClass(crate::nominal::Nominal<crate::record::ClassType>),
     /// Defensive trap after an exhaustive finite-domain match.
     Unreachable,
     Collection(crate::collection::CollectionOp),
@@ -2239,6 +2242,16 @@ fn step(
                 return Err("invalid split".into());
             }
             stack.extend(fields.iter().cloned());
+        }
+        Op::SplitClass(t) => {
+            let definition = t.get();
+            if definition.fields.len() < 2
+                || definition.destructor.is_some()
+                || stack.pop() != Some(Ty::Class(t.clone()))
+            {
+                return Err("invalid class split".into());
+            }
+            stack.extend(definition.fields.iter().map(|(_, ty)| ty.clone()));
         }
         Op::Unreachable => return Ok(Flow::Exits),
         Op::Yield(ty) => {

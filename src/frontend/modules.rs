@@ -1675,7 +1675,7 @@ impl Scope {
         self.expr(value, locals)?;
         for case in cases {
             let mut inner = locals.clone();
-            case.pattern.qualifiers_mut(&mut |ty| self.ty(ty))?;
+            case.pattern.qualifiers_mut(true, &mut |ty| self.ty(ty))?;
             let bindings = case.pattern.bindings();
             self.fresh_capture_binding(bindings.iter().copied(), at)?;
             let bindings: Vec<String> = bindings.into_iter().cloned().collect();

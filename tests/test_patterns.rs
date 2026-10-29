@@ -773,7 +773,7 @@ fn payload_positions_take_only_patterns() {
             "Option[Shape]",
             "case Some(Circle(r)):\n    0\ncase _:\n    1"
         ),
-        "13:19: qualify user-defined variants with their enum type"
+        "13:19: qualify user-defined variants with their enum type; write `Shape.Circle`"
     );
     assert_eq!(
         rejects("Shape", "case other:\n    0"),

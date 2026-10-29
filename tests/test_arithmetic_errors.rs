@@ -519,6 +519,14 @@ def main() -> ():
                         seen += 1
                     case overflow: OverflowError[i64]:
                         seen += overflow.wrapped
+    for b in range(-2, 3):
+        match step(i64.MAX, b):
+            case Ok(value):
+                seen -= value
+            case Err(ZeroDivisionError()):
+                seen -= 1
+            case Err(OverflowError(wrapped)):
+                seen -= wrapped
     match 1.0.div_checked(0.0):
         case Ok(_):
             pass
@@ -534,5 +542,5 @@ def main() -> ():
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout.lines().last(), Some("-9"), "{stdout}");
+    assert_eq!(stdout.lines().last(), Some("1"), "{stdout}");
 }

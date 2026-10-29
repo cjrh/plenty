@@ -232,6 +232,22 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// Move every field out of a class record. The record is inline storage
+    /// and the class has no `__del__`, so nothing is released.
+    pub(super) fn lower_split_class(
+        &mut self,
+        t: &crate::nominal::Nominal<crate::record::ClassType>,
+    ) -> Result<()> {
+        let (record, _) = self.pop_typed(Ty::Class(t.clone()))?;
+        let definition = t.get();
+        for (index, (_, field)) in definition.fields.iter().enumerate() {
+            let offset = definition.field_offset(index) as i64;
+            let (value, _) = self.record_field(record, offset, field);
+            self.stack.push((value, field.clone()));
+        }
+        Ok(())
+    }
+
     /// Whether `value` is the copy the previous op loaded from a local slot;
     /// if so, the instructions that counted it are removed, and the caller
     /// reads it in place and does not release it. A `match` reads its owned
