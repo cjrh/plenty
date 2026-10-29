@@ -134,7 +134,9 @@ automatically selected linker name. Different versions of the same tool still
 require a clean rebuild after changing the native toolchain. Determinism is
 checked with the locally selected toolchain; other linker implementations are
 separate inputs. A program that reaches a [native engine](engines.md) also
-depends on the engine's directory, which its `RUNPATH` records.
+depends on the engine's directory, which ordinary output records in `RUNPATH`.
+[Distribution output](distributions.md) instead uses only `$ORIGIN` and copies
+the selected engines and their notices.
 Rebuilding the compiler also depends on rustc and its precompiled standard
 library. Runtime compilation remaps project, output, and sysroot source paths;
 it cannot rewrite paths already compiled into the Rust standard library.

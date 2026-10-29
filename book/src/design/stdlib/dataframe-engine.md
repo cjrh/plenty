@@ -80,7 +80,10 @@ plenty --compile analysis.plenty -o analysis
 ```
 
 The resulting executable contains a versioned shared-library dependency,
-not a copy of the entire engine. Its RUNPATH searches its own directory
+not a copy of the entire engine. For shipping, prefer
+[distribution output](dataframe-deployment.md): `--compile analysis.plenty --dist my-app`
+copies the selected engine and its packaged notices, with only `$ORIGIN` lookup.
+The ordinary `-o` output above has RUNPATH searching its own directory
 and the engine's build-time directory. Deploy the executable beside the
 matching `libplenty_dataframe_v1.so`, or install that library in the
 loader's search path. Keep compiler bindings and engine from the same

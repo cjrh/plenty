@@ -18,6 +18,8 @@ embedded in the compiler. Program builds invoke neither Cargo nor rustc.
   runtime extraction, and supported platforms.
 - [Native engines](engines.md): when a large native library ships as a
   separate shared library, and the contract it follows.
+- [Application distributions](distributions.md): explicit relocatable executable,
+  engine and notices bundles with `--dist`.
 - [Library artifacts](artifacts.md): generated files, contract inspection, and
   publication guarantees.
 - [Fuzzing](fuzzing.md): coverage-instrumented libFuzzer builds with `--fuzz`.

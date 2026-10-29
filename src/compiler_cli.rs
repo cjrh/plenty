@@ -11,6 +11,7 @@ Usage: {0} FILE
        {0} --check FILE
        {0} --check-module FILE
        {0} --compile FILE -o OUT
+       {0} --compile FILE --dist DIR
        {0} --emit-object FILE -o OUT
        {0} --dump STAGES FILE -o DIR [--dump-std] [--dump-filter TEXT]
        {0} --fuzz FILE -o OUT [--libfuzzer PATH]
@@ -36,6 +37,9 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
   methods nothing calls. By default an instance's method is checked only
   where it is used.
 --compile: emit a native executable with Cranelift.
+--dist DIR: publish a new application directory containing FILE's stem executable,
+  reached native engines and their packaged notices. Uses only $ORIGIN RUNPATH.
+  Requires --compile; excludes -o, --legacy and --link-arg. Not a static build.
 --emit-object: emit an application object without linking (requires main).
 --dump: write each function's compiler output as text to DIR (`-o -` prints
   it): index.txt, then one file per stage. STAGES is `all` or a comma list of
@@ -115,6 +119,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     let mut library_name = None;
     let mut archiver = None;
     let mut libfuzzer = None;
+    let mut dist = None;
     let mut link_options = false;
     let mut index = 0;
     while index < args.len() {
@@ -126,12 +131,24 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                 | "--library-name"
                 | "--archiver"
                 | "--libfuzzer"
+                | "--dist"
         ) {
             let flag = args.remove(index);
             if index == args.len() {
                 return Err(format!("{flag} requires a value").into());
             }
             let value = args.remove(index);
+            if flag == "--dist" {
+                if value.is_empty()
+                    || value.starts_with('-')
+                    || dist.replace(std::path::PathBuf::from(value)).is_some()
+                {
+                    return Err(
+                        "--dist requires one nonempty directory, specified only once".into(),
+                    );
+                }
+                continue;
+            }
             if flag == "--library-name" {
                 if library_name.replace(value).is_some() {
                     return Err("--library-name may be specified only once".into());
@@ -317,6 +334,33 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             }))
     {
         return Err("linker options require compilation or execution".into());
+    }
+    if let Some(destination) = dist {
+        if legacy
+            || !matches!(args.as_slice(), [flag, source] if flag == "--compile" && !source.starts_with('-'))
+        {
+            return Err("--dist requires --compile FILE without -o/--output or --legacy".into());
+        }
+        if !options.link_args.is_empty() {
+            return Err(
+                "--dist excludes --link-arg; bundled executables must use only $ORIGIN RUNPATH"
+                    .into(),
+            );
+        }
+        let source = Path::new(&args[1]);
+        let stem = source
+            .file_stem()
+            .filter(|stem| !stem.is_empty())
+            .ok_or("--dist requires a source filename with a nonempty stem")?;
+        let output = destination.join(stem);
+        options.distribution = true;
+        if let Some(graph) = graph {
+            let graph = plenty::project::SourceGraph::read(&graph)?;
+            plenty::compile_package_to_executable(source, &graph, &output, &options)?;
+        } else {
+            compile(source, &output, false, root.as_deref(), &options)?;
+        }
+        return Ok(ExitCode::SUCCESS);
     }
     // Every mode checks at most one program and then exits, so the program
     // need not be freed (issue #321). Running FILE is the exception: the

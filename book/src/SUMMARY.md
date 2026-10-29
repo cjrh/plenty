@@ -473,6 +473,7 @@
             - [Application exit and error reports](design/toolchain/01-building/entry-report.md)
             - [Native linking and targets](design/toolchain/01-building/linking.md)
             - [Native engines](design/toolchain/01-building/engines.md)
+            - [Application distributions](design/toolchain/01-building/distributions.md)
             - [Library artifacts and publication](design/toolchain/01-building/artifacts.md)
             - [Fuzzing](design/toolchain/01-building/fuzzing.md)
         - [Compiler and runtime architecture](design/toolchain/02-architecture/index.md)

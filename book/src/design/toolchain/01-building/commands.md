@@ -8,7 +8,8 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 | `plenty FILE` | Compile in a private temporary directory, run, then remove it |
 | `plenty --check FILE` | Check an application without emitting or executing code |
 | `plenty --check-module FILE` | Check a module and imports without requiring `main` |
-| `plenty --compile FILE -o OUT` | Produce a standalone executable |
+| `plenty --compile FILE -o OUT` | Produce a native executable (dynamic dependencies remain) |
+| `plenty --compile FILE --dist DIR` | Publish a new [application distribution](distributions.md) with only reached engines and their notices |
 | `plenty --emit-object FILE -o OUT` | Emit one application object, including imported modules; requires `main` |
 | `plenty --dump STAGES FILE -o DIR` | Write each function's [IR and machine code as text](../02-architecture/dump.md); `--dump-std` and `--dump-filter TEXT` select functions |
 | `plenty --fuzz FILE -o OUT` | Produce a coverage-instrumented [libFuzzer executable](fuzzing.md) that runs `main` once per input; `--libfuzzer PATH` selects libFuzzer |

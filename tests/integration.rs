@@ -155,6 +155,8 @@ mod test_dictionary_removal;
 mod test_dictionary_snapshots;
 #[path = "test_dictionary_views.rs"]
 mod test_dictionary_views;
+#[path = "test_distribution.rs"]
+mod test_distribution;
 #[path = "test_dump.rs"]
 mod test_dump;
 #[path = "test_element_references.rs"]

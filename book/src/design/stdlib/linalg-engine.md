@@ -61,8 +61,18 @@ discarded on error, leaving caller inputs intact.
 
 ## Deployment
 
-Ship the compiled application, the exact library used to compile it, and all
-engine notices together:
+Prefer explicit [distribution output](../toolchain/01-building/distributions.md).
+Select the library in its extracted engine archive, preserving the notices:
+
+```sh
+export PLENTY_LINALG_ENGINE=/path/to/plenty-linalg-VERSION-TARGET/lib/libplenty_linalg_v1.so
+plenty --compile analysis.plenty --dist my-app
+./my-app/analysis
+```
+
+`my-app` must not exist. Plenty copies only reached engines, validates the
+packaged metadata and library checksum, and includes all engine notices:
+
 
 ```text
 my-app/
@@ -76,8 +86,10 @@ my-app/
     licenses/rust/...
 ```
 
-The loader searches `$ORIGIN` (the executable's directory), then the build-time
-engine directory. A sibling `lib/` directory is not searched automatically.
+Distribution output searches only `$ORIGIN` (the executable's directory),
+with no build-machine fallback. Ordinary `--compile FILE -o OUT` still searches
+`$ORIGIN` then the build-time engine directory; manual deployment requires copying
+the exact library and notices into the same layout. A sibling `lib/` directory is not searched automatically.
 `PLENTY_LINALG_ENGINE` affects compilation, not an already-built program.
 Check relocation without the original installation and without stale
 `LD_LIBRARY_PATH` or `LD_PRELOAD`. Users need the host C libraries, not Rust,

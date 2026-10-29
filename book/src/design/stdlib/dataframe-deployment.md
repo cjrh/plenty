@@ -8,23 +8,22 @@ Programs without reachable dataframe operations need no engine.
 
 ## Bundle the executable and engine
 
-After [installing the engine](dataframe-engine.md), compile your application:
-
-```sh
-plenty --compile analysis.plenty -o analysis
-```
-
-With `ENGINE` naming the extracted engine archive, create a bundle:
+After [installing the engine](dataframe-engine.md), keep its extracted archive
+intact and select its library explicitly:
 
 ```sh
 ENGINE=/path/to/plenty-dataframe-VERSION-x86_64-unknown-linux-gnu
-mkdir -p my-app/dataframe-notices
-cp analysis "$ENGINE/lib/libplenty_dataframe_v1.so" my-app/
-cp "$ENGINE/engine.json" "$ENGINE/LICENSE-MIT" "$ENGINE/LICENSE-APACHE" \
-   "$ENGINE/THIRD-PARTY-NOTICES.md" my-app/dataframe-notices/
-cp -R "$ENGINE/licenses" my-app/dataframe-notices/
+export PLENTY_DATAFRAME_ENGINE="$ENGINE/lib/libplenty_dataframe_v1.so"
+plenty --compile analysis.plenty --dist my-app
 ./my-app/analysis
 ```
+
+`my-app` must not exist. Plenty stages and publishes the executable, the exact
+engine used for linking, and its packaged notices together. No reachable engine
+calls means no engine files; reachable linear algebra calls also add the linalg
+engine and its notices. See [application distributions](../toolchain/01-building/distributions.md)
+for metadata checks, supported input layouts, local-build packaging and CLI
+restrictions. A bare installed `.so` without notices is not enough for `--dist`.
 
 The resulting directory can be archived, installed elsewhere and renamed:
 
@@ -42,7 +41,7 @@ my-app/
 
 Keep the engine notices with distributions of the library, alongside any
 notices your own application needs. The engine archive's README contains the
-same deployment recipe for users who have no source checkout.
+same distribution command for users who have no source checkout.
 
 ## Test on the oldest supported system
 
@@ -62,11 +61,16 @@ test distribution after removing the compiler and original engine location.
 ## How library lookup works
 
 This applies to every [native engine](../toolchain/01-building/engines.md).
-The compiler embeds an ELF `RUNPATH` that searches the executable's own
-directory (`$ORIGIN`), then the engine's build-time directory. This makes the
-bundle relocatable, but the second path can mask a missing bundled library
-on your development machine. A subdirectory named `lib/` beside the executable
-is **not** searched automatically by the current compiler.
+Distribution output embeds an ELF `RUNPATH` of only the executable's own
+directory (`$ORIGIN`), so a missing bundled library cannot fall back to the
+original engine directory. A sibling `lib/` is not searched automatically.
+
+For manual deployment with ordinary `--compile analysis.plenty -o analysis`,
+copy the exact selected library beside the executable and all the archive's
+notices into `dataframe-notices/`, as in the layout above. Ordinary output still
+searches `$ORIGIN` **then the build-time engine directory**; that fallback can
+mask a missing bundled library on the development machine. Prefer `--dist` for
+shipping applications.
 
 `PLENTY_DATAFRAME_ENGINE` chooses an engine at compile time; setting it when
 running an already-built application does not affect library lookup.
@@ -78,8 +82,9 @@ possible through the operating system's loader configuration.
 The `v1` filename denotes the C ABI generation, not a promise that every
 release exports every operation. New operations can add symbols without
 changing this name. Keep releases matched and do not substitute a differently
-built Polars library. `engine.json` records the engine's origin; the compiler
-does not automatically validate its version.
+built Polars library. `engine.json` records the engine's origin; `--dist` checks release/target/ABI
+metadata and the copied library checksum. Ordinary compilation does not validate
+its version; matching metadata is not proof of same-source identity for local builds.
 
 | Failure | What to check |
 |---|---|

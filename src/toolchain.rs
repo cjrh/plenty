@@ -3,6 +3,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod distribution;
+
 /// Target of the compiler and its embedded runtime. Native code generation
 /// currently supports x86_64-unknown-linux-gnu only.
 pub fn native_target() -> &'static str {
@@ -123,6 +125,10 @@ pub struct CompileOptions {
     /// and `--fuzz` / `--test-hooks` builds keep them regardless. See
     /// book/src/design/toolchain/01-building/linking.md.
     pub strip: bool,
+    /// Publish an executable and its reached engines as a new directory.
+    /// `output` names the executable inside that directory; the directory must
+    /// not exist. Requires packaged engine notices; excludes extra link args.
+    pub distribution: bool,
 }
 
 impl Default for CompileOptions {
@@ -142,6 +148,7 @@ impl Default for CompileOptions {
             test_hooks: false,
             fuzz: None,
             strip: true,
+            distribution: false,
         }
     }
 }
@@ -337,7 +344,17 @@ pub(crate) fn link(
     extra_args: &[OsString],
     trailing_args: &[OsString],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let engines = engine_link_args(object, options)?;
+    let bundle = if options.distribution {
+        if !options.link_args.is_empty() || options.fuzz.is_some() {
+            return Err("distribution output excludes extra link arguments and fuzz builds".into());
+        }
+        Some(distribution::Bundle::new(output)?)
+    } else {
+        None
+    };
+    let staged_output = bundle.as_ref().map(|bundle| bundle.executable(output));
+    let output = staged_output.as_deref().unwrap_or(output);
+    let engines = engine_link_args(object, options, bundle.as_ref().map(|b| b.path()))?;
     let mut command = Command::new(&options.linker);
     if let Some(linker) = options.automatic_linker() {
         command.arg(format!("-fuse-ld={linker}"));
@@ -386,6 +403,10 @@ pub(crate) fn link(
         )
         .into());
     }
+    if let Some(bundle) = bundle {
+        distribution::validate_executable(output)?;
+        bundle.publish()?;
+    }
     Ok(())
 }
 
@@ -397,6 +418,7 @@ pub(crate) struct Engine {
     pub(crate) module: &'static str,
     /// File name and SONAME: `libplenty_NAME_vN.so`, N the C ABI generation.
     library: &'static str,
+    notices: &'static str,
     /// Every facade symbol starts with this, and no other symbol does.
     symbol_prefix: &'static str,
     /// Compile-time override of the engine path.
@@ -412,6 +434,7 @@ pub(crate) const ENGINES: &[Engine] = &[
     Engine {
         module: "std.dataframe",
         library: "libplenty_dataframe_v1.so",
+        notices: "dataframe-notices",
         symbol_prefix: "pldf_v1_",
         environment: "PLENTY_DATAFRAME_ENGINE",
         option: |options| options.dataframe_engine.as_ref(),
@@ -421,6 +444,7 @@ pub(crate) const ENGINES: &[Engine] = &[
     Engine {
         module: "std.linalg",
         library: "libplenty_linalg_v1.so",
+        notices: "linalg-notices",
         symbol_prefix: "plla_v1_",
         environment: "PLENTY_LINALG_ENGINE",
         option: |options| options.linalg_engine.as_ref(),
@@ -512,10 +536,11 @@ fn reached_engines<'a>(
 }
 
 /// The reached engines' libraries, then a RUNPATH of the executable's own
-/// directory followed by each engine's directory.
+/// directory, followed by each engine's directory for ordinary output only.
 fn engine_link_args(
     object: &Path,
     options: &CompileOptions,
+    bundle: Option<&Path>,
 ) -> Result<Vec<OsString>, Box<dyn std::error::Error>> {
     let reached = reached_engines(&std::fs::read(object)?, ENGINES)?;
     if reached.is_empty() {
@@ -540,6 +565,11 @@ fn engine_link_args(
             return Err(
                 format!("{} engine is not a file: {}", engine.module, path.display()).into(),
             );
+        }
+        if let Some(bundle) = bundle {
+            let copied = distribution::copy_engine(engine, &path, bundle)?;
+            libraries.push(copied.into_os_string());
+            continue;
         }
         let directory = path.parent().unwrap().as_os_str().to_owned();
         // ELF RUNPATH is colon-separated even when passed as one driver argument.
@@ -714,6 +744,7 @@ mod tests {
         Engine {
             module,
             library: "libplenty_fake_v1.so",
+            notices: "fake-notices",
             symbol_prefix,
             environment: "PLENTY_FAKE_ENGINE",
             option: |_| None,
