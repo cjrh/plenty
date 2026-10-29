@@ -5181,6 +5181,9 @@ impl Lower<'_> {
                         }
                         self.locals.push(ty.clone());
                         ide::local_type(&stmt.at, &ty);
+                        if annotation.is_none() {
+                            ide::inferred_binding(&stmt.at, name, &ty);
+                        }
                         self.bind(
                             name.clone(),
                             Local {

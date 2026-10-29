@@ -12,6 +12,7 @@ is the supported editor; see [Neovim support](neovim.md) for its setup.
 | Diagnostics | The file's check errors, published when it is opened, saved, or edited (after a 150 ms pause) |
 | Hover | The declaration as written and its docstring, as Markdown |
 | Go to definition | The declaration's name, in the same file, another module, a dependency, or `std` |
+| Inlay hints | Inferred types after unannotated simple local binding names, when the current check succeeds |
 | Completion | Names in scope and keywords; fields, methods, enum variants, and module members after `.` |
 
 Hover and definition work on functions, methods, classes, enums, enum
@@ -27,6 +28,32 @@ A docstring is the string that begins a function body; see
 [signatures and calls](../../language/06-functions/01-signatures-and-calls.md).
 Classes, enums, and fields have no docstrings.
 
+## Inferred types on code lines
+
+Enable **inlay hints** in your editor to see, for example, `: i64` after the
+name in `count = 42`. These are editor-rendered annotations, not source edits;
+you can keep writing inferred bindings without inserting type annotations.
+Other language servers provide inferred type annotations through this same
+[LSP 3.17 inlay-hint request](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_inlayHint).
+The editor requests hints for a document range and decides how to display them.
+See [Neovim setup](neovim.md#inferred-type-hints) to enable them.
+
+Plenty supplies type hints for new simple local bindings, including `mut`,
+using the checker's type spelling as hover does. Explicit annotations,
+reassignments, parameters, tuple destructuring, loop and pattern bindings do
+not get hints. Compiler-internal and producer-specific types (such as local
+pipelines and capturing closures) are omitted. An uninstantiated generic body has no
+checked hints; when instantiations disagree on a binding's type, it is omitted.
+Hints are withheld while the current check has errors, rather than guessing
+or displaying types and positions from an older version of the source.
+
+The server advertises `inlayHintProvider` with no resolve support and returns
+complete string labels of kind `Type`, without text edits or extra padding.
+Hint positions are immediately after the binding name, within the requested
+half-open range, using the negotiated UTF-8, UTF-16 (default), or UTF-32
+position encoding. Hint requests reuse the document's analysis; a pending edit
+is checked first, just as for hover. No parameter-name hints are provided.
+
 ## How a file is checked
 
 The server checks the file being edited as the entry of a compilation, with
@@ -41,7 +68,7 @@ Checking recovers from an error in one function: the function keeps its
 signature, the other functions are still checked, and each error is
 published. Errors that stop a whole module, such as a syntax error, an
 unresolved import, or an invalid class declaration, are published alone;
-while one is present, queries use the names found by the file's last check
+while one is present, hover, definition, and completion use the names found by the file's last check
 that got further.
 
 Definitions in an embedded `std` module open as a read-only copy of its

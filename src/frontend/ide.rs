@@ -73,6 +73,13 @@ pub struct Reference {
     pub ty: Option<String>,
 }
 
+/// An unannotated simple binding with an unambiguous checked type.
+#[derive(Clone, Debug)]
+pub struct InferredBinding {
+    pub location: Location,
+    pub ty: String,
+}
+
 /// A compiler error at a position; `file` is None for one without a position.
 #[derive(Clone, Debug)]
 pub struct Diagnostic {
@@ -89,6 +96,7 @@ pub struct Analysis {
     pub diagnostics: Vec<Diagnostic>,
     pub symbols: Vec<Symbol>,
     pub references: Vec<Reference>,
+    pub inferred_bindings: Vec<InferredBinding>,
     pub sources: HashMap<File, Arc<str>>,
 }
 
@@ -176,6 +184,8 @@ struct Recorder {
     references: Vec<(Anchor, Find, String)>,
     /// Types of locals, by the anchor of their binding or of a read.
     types: HashMap<Anchor, String>,
+    /// None also remembers disagreement between generic instantiations.
+    inferred_bindings: HashMap<(Anchor, String), Option<String>>,
     /// Method names being lowered, innermost last.
     methods: Vec<(Pos, String)>,
     /// Functions whose bodies did not resolve: they keep their signatures,
@@ -305,6 +315,78 @@ pub(super) fn local_type(at: &Token, ty: &Ty) {
             r.types.insert(anchor, ty.to_string());
         }
     })
+}
+
+/// Only called for a new, unannotated simple binding, not a reassignment.
+pub(super) fn inferred_binding(at: &Token, name: &str, ty: &Ty) {
+    with(|r| {
+        let Some(anchor) = Anchor::of(at) else {
+            return;
+        };
+        // Lowering also creates synthetic assignments. Only the resolver's
+        // written local declarations are eligible for source annotations.
+        if !r.keys.contains_key(&local_key(at, Pos::of(at), name)) {
+            return;
+        }
+        let ty = hint_type(ty).then(|| ty.to_string());
+        r.inferred_bindings
+            .entry((anchor, name.to_owned()))
+            .and_modify(|previous| {
+                if *previous != ty {
+                    *previous = None;
+                }
+            })
+            .or_insert(ty);
+    });
+}
+
+/// Producer-specific and compiler-private types are not source annotations.
+fn hint_type(ty: &Ty) -> bool {
+    match ty {
+        Ty::Iter(..)
+        | Ty::KeyView(_)
+        | Ty::Task(_)
+        | Ty::Closure(_)
+        | Ty::Generator(_)
+        | Ty::FsReadDir
+        | Ty::FsDirEntry
+        | Ty::FsMetadata
+        | Ty::ByteStorage => false,
+        Ty::Ref(t, _)
+        | Ty::List(t)
+        | Ty::Clist(t)
+        | Ty::Set(t)
+        | Ty::Box(t)
+        | Ty::Shared(t)
+        | Ty::Range(t)
+        | Ty::Atomic(t)
+        | Ty::Future(t)
+        | Ty::Channel(t, _) => hint_type(t),
+        Ty::Dict(k, v) => hint_type(k) && hint_type(v),
+        Ty::Callable(sig) | Ty::BoxedCallable(sig) => {
+            sig.inputs.iter().chain(sig.output.iter()).all(hint_type)
+        }
+        Ty::Enum(t) if t.tuple() || t.is_option() || t.is_result() || t.anonymous() => t
+            .try_get()
+            .is_some_and(|t| t.variants.iter().flat_map(|v| &v.fields).all(hint_type)),
+        Ty::Enum(t) => t.try_get().is_some() && hint_nominal_name(t.display_name()),
+        Ty::Class(t) => t.try_get().is_some() && hint_nominal_name(t.display_name()),
+        _ => true,
+    }
+}
+
+fn hint_nominal_name(name: &str) -> bool {
+    ![
+        "$",
+        "__",
+        " defined at ",
+        " from `",
+        "Iter[",
+        "KeyView[",
+        "scoped task",
+    ]
+    .iter()
+    .any(|internal| name.contains(internal))
 }
 
 pub(super) fn enter_method(pos: Pos, name: &str) {
@@ -582,6 +664,7 @@ fn finish(recorder: Recorder) -> Analysis {
         declared,
         references,
         types,
+        inferred_bindings,
         diagnostics,
         ..
     } = recorder;
@@ -674,6 +757,20 @@ fn finish(recorder: Recorder) -> Analysis {
             ty: types.get(anchor).cloned(),
         });
     }
+    // Never publish annotations from a partial or failed check. Unlike names
+    // for completion, hints must describe exactly the current checked source.
+    let inferred_bindings = if diagnostics.is_empty() {
+        inferred_bindings
+            .into_iter()
+            .filter_map(|((anchor, name), ty)| {
+                let ty = ty?;
+                let (location, _) = locate(&anchor, &Find::After(name))?;
+                Some(InferredBinding { location, ty })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let diagnostics = diagnostics
         .iter()
         .map(|text| diagnostic(text, &texts))
@@ -682,6 +779,7 @@ fn finish(recorder: Recorder) -> Analysis {
         diagnostics,
         symbols,
         references: found,
+        inferred_bindings,
         sources: texts.into_values().collect(),
     }
 }

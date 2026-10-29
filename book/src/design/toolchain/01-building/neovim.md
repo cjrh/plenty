@@ -41,9 +41,10 @@ vim.lsp.enable('plenty')
 vim.api.nvim_create_autocmd('LspAttach', {
   callback = function(event)
     local client = vim.lsp.get_client_by_id(event.data.client_id)
-    if client.name ~= 'plenty' then
+    if not client or client.name ~= 'plenty' then
       return
     end
+    vim.lsp.inlay_hint.enable(true, { bufnr = event.buf })
     vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { buffer = event.buf })
     vim.lsp.completion.enable(true, client.id, event.buf, { autotrigger = true })
   end,
@@ -72,5 +73,26 @@ vim.api.nvim_create_autocmd('FileType', {
   end,
 })
 ```
+
+## Inferred type hints
+
+The `LspAttach` example enables inferred types inline for Plenty buffers.
+Neovim **0.10 or later** provides
+[`vim.lsp.inlay_hint.enable`](https://neovim.io/doc/user/lsp.html#vim.lsp.inlay_hint.enable()).
+With the 0.10 startup example, add the same `LspAttach` callback but omit the
+`vim.lsp.completion.enable` line (that completion API requires 0.11).
+To enable or disable hints in an already-attached buffer, run:
+
+```vim
+:lua vim.lsp.inlay_hint.enable(true, { bufnr = 0 })
+:lua vim.lsp.inlay_hint.enable(false, { bufnr = 0 })
+```
+
+A binding such as `count = 42` displays an inferred `: i64` after `count`.
+These labels do not change the file. An explicit `count: i64 = 42` has no
+redundant hint. If hints are missing, check `:checkhealth vim.lsp` for an attached
+Plenty server, ensure the server binary includes inlay-hint support, and resolve
+check errors. See the [hint coverage and limits](language-server.md#inferred-types-on-code-lines).
+No editor-wide setting is changed by the server.
 
 Formatting, automatic block indentation, and Tree-sitter are not provided.

@@ -17,6 +17,12 @@ def main() -> Result[(), IoError]:
 60
 ```
 
+To see inferred types without writing annotations, enable your editor's
+[inlay hints](../../design/toolchain/01-building/neovim.md#inferred-type-hints).
+For example, the Plenty language server can show `: i64` after `price`,
+`quantity`, and `total`. These labels are only displayed in the editor; they
+are not added to your source file. Hover also shows a binding's type.
+
 Bindings are immutable by default:
 
 ```plenty-error

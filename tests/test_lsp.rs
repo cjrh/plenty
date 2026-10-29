@@ -18,6 +18,10 @@ struct Client {
 
 impl Client {
     fn start(cache: &Path) -> Client {
+        Self::start_with_encodings(cache, json!([]))
+    }
+
+    fn start_with_encodings(cache: &Path, encodings: Value) -> Client {
         let mut child = Command::new(env!("CARGO_BIN_EXE_plenty"))
             .arg("lsp")
             .env("PLENTY_CACHE_DIR", cache)
@@ -34,7 +38,25 @@ impl Client {
             next: 0,
             diagnostics: vec![],
         };
-        let result = client.request("initialize", json!({"capabilities": {}}));
+        let result = client.request(
+            "initialize",
+            json!({"capabilities": {
+                "general": {"positionEncodings": encodings},
+                "textDocument": {"inlayHint": {"dynamicRegistration": false}},
+            }}),
+        );
+        assert_eq!(
+            result["capabilities"]["inlayHintProvider"],
+            json!({"resolveProvider": false})
+        );
+        assert_eq!(
+            result["capabilities"]["positionEncoding"],
+            encodings
+                .as_array()
+                .and_then(|e| e.first())
+                .cloned()
+                .unwrap_or(json!("utf-16"))
+        );
         assert_eq!(result["capabilities"]["hoverProvider"], true);
         client.notify("initialized", json!({}));
         client
@@ -407,4 +429,244 @@ fn neovim_uses_the_server() {
         .unwrap();
     let text = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success() && text.contains("ok"), "{text}");
+}
+
+fn hints(client: &mut Client, path: &Path, start: (u32, u32), end: (u32, u32)) -> Value {
+    client.request(
+        "textDocument/inlayHint",
+        json!({"textDocument": {"uri": uri(path)}, "range": {
+            "start": {"line": start.0, "character": start.1},
+            "end": {"line": end.0, "character": end.1},
+        }}),
+    )
+}
+
+fn type_hint(line: u32, character: u32, ty: &str) -> Value {
+    json!({"position": {"line": line, "character": character},
+        "label": format!(": {ty}"), "kind": 1, "paddingLeft": false, "paddingRight": false})
+}
+
+#[test]
+fn inlay_hints_use_checked_simple_bindings_and_imports() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.plenty");
+    write(&dir.path().join("shapes.plenty"), SHAPES);
+    write(
+        &main,
+        r#"from shapes import Point
+from std.math import gcd
+
+def main() -> Result[(), AllocError]:
+    count = 42
+    mut small = 7u8
+    small = 8u8
+    ratio = 1.5
+    ready = True
+    text = "hello"
+    data = b"hi"
+    pair = (1, True)
+    values = [1, 2]?
+    borrowed = &values
+    maybe = Some(3)
+    point = Point(1, 2)
+    divisor = gcd(6u64, 4u64)
+    explicit: i64 = 9
+    mut annotated: bool = False
+    multiline = (
+        1 + 2
+    )
+    Ok(())
+"#,
+    );
+    let mut client = Client::start(&dir.path().join("cache"));
+    assert_eq!(client.open(&main), json!([]));
+    let expected = json!([
+        type_hint(4, 9, "i64"),
+        type_hint(5, 13, "u8"),
+        type_hint(7, 9, "f64"),
+        type_hint(8, 9, "bool"),
+        type_hint(9, 8, "str"),
+        type_hint(10, 8, "bytes"),
+        type_hint(11, 8, "tuple[i64, bool]"),
+        type_hint(12, 10, "list[i64]"),
+        type_hint(13, 12, "&list[i64]"),
+        type_hint(14, 9, "Option[i64]"),
+        type_hint(15, 9, "shapes.Point"),
+        type_hint(16, 11, "u64"),
+        type_hint(19, 13, "i64"),
+    ]);
+    assert_eq!(hints(&mut client, &main, (0, 0), (30, 0)), expected);
+    // A second request reuses the check (and does not publish diagnostics).
+    let published = client.diagnostics.len();
+    assert_eq!(hints(&mut client, &main, (0, 0), (30, 0)), expected);
+    assert_eq!(client.diagnostics.len(), published);
+    assert!(client.hover(&main, 12, 4).contains("values: list[i64]"));
+    // Range starts are inclusive and ends exclusive, at the hint's position.
+    assert_eq!(
+        hints(&mut client, &main, (4, 9), (5, 13)),
+        json!([type_hint(4, 9, "i64")])
+    );
+    assert_eq!(hints(&mut client, &main, (4, 10), (5, 13)), json!([]));
+    assert_eq!(hints(&mut client, &main, (4, 9), (4, 9)), json!([]));
+    assert_eq!(hints(&mut client, &main, (9, 0), (4, 0)), json!([]));
+    assert_eq!(hints(&mut client, &main, (100, 0), (101, 0)), json!([]));
+    client.exit();
+}
+
+#[test]
+fn inlay_hints_refresh_after_edits_and_never_reuse_failed_check_spans() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.plenty");
+    write(&main, "def main() -> ():\n    value = 1\n");
+    let mut client = Client::start(&dir.path().join("cache"));
+    assert_eq!(client.open(&main), json!([]));
+    assert_eq!(
+        hints(&mut client, &main, (0, 0), (10, 0)),
+        json!([type_hint(1, 9, "i64")])
+    );
+    for (i, (text, expected)) in [
+        (
+            "def main() -> ():\n    # moved\n    renamed = True\n",
+            json!([type_hint(2, 11, "bool")]),
+        ),
+        ("def main() -> ():\n    value = (\n", json!([])),
+        ("def main() -> ():\n    value = missing\n", json!([])),
+        (
+            "def main() -> ():\n    known = 1\n    wrong: bool = 3\n",
+            json!([]),
+        ),
+        ("def main() -> ():\n    value: i64 = 2\n", json!([])),
+        ("def main() -> ():\n    pass\n", json!([])),
+        ("", json!([])),
+        (
+            "def main() -> ():\n    value = 2.0\n",
+            json!([type_hint(1, 9, "f64")]),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        client.notify("textDocument/didChange", json!({"textDocument": {"uri": uri(&main), "version": i + 2}, "contentChanges": [{"text": text}]}));
+        assert_eq!(
+            hints(&mut client, &main, (0, 0), (10, 0)),
+            expected,
+            "{text}"
+        );
+    }
+    client.exit();
+}
+
+#[test]
+fn inlay_hints_respect_negotiated_unicode_positions() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.plenty");
+    // Identifiers are ASCII, but preceding lines and multiline values can contain Unicode.
+    write(
+        &main,
+        "# 𐐀é\ndef main() -> ():\n    text = (\n        \"𐐀é\"\n    )\n",
+    );
+    for encoding in ["utf-8", "utf-16", "utf-32"] {
+        let end = 8;
+        let mut client = Client::start_with_encodings(&dir.path().join("cache"), json!([encoding]));
+        assert_eq!(client.open(&main), json!([]));
+        assert_eq!(
+            hints(&mut client, &main, (2, end), (3, 0)),
+            json!([type_hint(2, end, "str")])
+        );
+        assert_eq!(hints(&mut client, &main, (0, 0), (2, end)), json!([]));
+        assert_eq!(hints(&mut client, &main, (2, end + 1), (3, 0)), json!([]));
+        client.exit();
+    }
+}
+
+#[test]
+fn inlay_hints_omit_ambiguous_generics_and_internal_types() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.plenty");
+    write(
+        &main,
+        r#"def identity[T](value: T) -> T:
+    local = value
+    local
+
+def unused[T](value: T) -> T:
+    unresolved = value
+    unresolved
+
+def main() -> ():
+    integer = identity(1)
+    text = identity("hello")
+    pipeline = iter(range(3))
+    callback = (def [integer](x: i64) -> i64: x + integer)
+    left, right = (1, 2)
+    for i in range(2):
+        pass
+"#,
+    );
+    let mut client = Client::start(&dir.path().join("cache"));
+    assert_eq!(client.open(&main), json!([]));
+    assert_eq!(
+        hints(&mut client, &main, (0, 0), (30, 0)),
+        json!([type_hint(9, 11, "i64"), type_hint(10, 8, "str"),])
+    );
+    client.exit();
+}
+
+#[test]
+fn inlay_hints_handle_unopened_unknown_and_invalid_requests() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.plenty");
+    write(&main, "def main() -> ():\n    value = 1\n");
+    let mut client = Client::start(&dir.path().join("cache"));
+    assert_eq!(
+        hints(&mut client, &main, (0, 0), (10, 0)),
+        json!([type_hint(1, 9, "i64")])
+    );
+    for range in [
+        json!(null),
+        json!({"start": {"line": -1, "character": 0}, "end": {"line": 9, "character": 0}}),
+    ] {
+        assert_eq!(
+            client.request(
+                "textDocument/inlayHint",
+                json!({"textDocument": {"uri": uri(&main)}, "range": range})
+            ),
+            json!([])
+        );
+    }
+    for (uri, expected) in [
+        ("untitled:unknown".to_owned(), Value::Null),
+        (
+            format!("file://{}/missing.plenty", dir.path().display()),
+            json!([]),
+        ),
+    ] {
+        assert_eq!(client.request("textDocument/inlayHint", json!({"textDocument": {"uri": uri}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 9, "character": 0}}})), expected);
+    }
+    client.exit();
+}
+
+#[test]
+fn inlay_hints_do_not_locate_generated_bindings_in_source_strings() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.plenty");
+    write(
+        &main,
+        r#"class Point:
+    x: i64
+    def __init__(self, x: i64) -> ():
+        self.x = x
+
+def main() -> ():
+    marker = "__plenty_instance"
+    point = Point(1)
+"#,
+    );
+    let mut client = Client::start(&dir.path().join("cache"));
+    assert_eq!(client.open(&main), json!([]));
+    assert_eq!(
+        hints(&mut client, &main, (0, 0), (20, 0)),
+        json!([type_hint(6, 10, "str"), type_hint(7, 9, "Point"),])
+    );
+    client.exit();
 }

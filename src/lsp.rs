@@ -1,6 +1,7 @@
 //! `plenty lsp`: a language server over stdio (issue #155). It answers hover,
-//! go to definition, and completion from [`crate::ide::analyze`], which checks
-//! a file with the compiler's own front end, and publishes that check's errors.
+//! go to definition, completion, and inferred-type inlay hints from
+//! [`crate::ide::analyze`], which checks a file with the compiler's own front
+//! end, and publishes that check's errors.
 //!
 //! The protocol needs only JSON-RPC framing and a handful of messages, so they
 //! are written here over `serde_json` values rather than through an LSP crate.
@@ -199,6 +200,7 @@ impl Server {
                 self.dirty.remove(uri);
                 None
             }
+            "textDocument/inlayHint" => Some(self.inlay_hints(params, output)?),
             "textDocument/hover" => Some(self.query(params, output, Self::hover)?),
             "textDocument/definition" => Some(self.query(params, output, Self::definition)?),
             "textDocument/completion" => Some(self.query(params, output, Self::completion)?),
@@ -239,6 +241,7 @@ impl Server {
                 "positionEncoding": name,
                 "textDocumentSync": {"openClose": true, "change": 1, "save": true},
                 "hoverProvider": true,
+                "inlayHintProvider": {"resolveProvider": false},
                 "definitionProvider": true,
                 "completionProvider": {"triggerCharacters": ["."]},
             },
@@ -323,20 +326,15 @@ impl Server {
         Ok(())
     }
 
-    /// Answer a position query from the document's current analysis.
-    fn query(
-        &mut self,
-        params: &Value,
-        output: &mut impl Write,
-        answer: fn(&Self, &Analysis, &File, u32, u32, &str) -> Result<Value>,
-    ) -> Result<Value> {
+    /// Reuse the last check, unless the document has changed since then.
+    fn analysis_uri(&mut self, params: &Value, output: &mut impl Write) -> Result<Option<String>> {
         let uri = params["textDocument"]["uri"]
             .as_str()
             .unwrap_or_default()
             .to_owned();
         if !self.documents.contains_key(&uri) {
             let Some(path) = uri_path(&uri) else {
-                return Ok(Value::Null);
+                return Ok(None);
             };
             let text = std::fs::read_to_string(&path).unwrap_or_default();
             self.documents.insert(uri.clone(), Document { path, text });
@@ -344,6 +342,19 @@ impl Server {
         } else if self.dirty.remove(&uri) || !self.analyses.contains_key(&uri) {
             self.check(&uri, output)?;
         }
+        Ok(Some(uri))
+    }
+
+    /// Answer a position query from the document's current analysis.
+    fn query(
+        &mut self,
+        params: &Value,
+        output: &mut impl Write,
+        answer: fn(&Self, &Analysis, &File, u32, u32, &str) -> Result<Value>,
+    ) -> Result<Value> {
+        let Some(uri) = self.analysis_uri(params, output)? else {
+            return Ok(Value::Null);
+        };
         let document = &self.documents[&uri];
         let line = params["position"]["line"].as_u64().unwrap_or(0) as u32;
         let units = params["position"]["character"].as_u64().unwrap_or(0) as u32;
@@ -356,6 +367,77 @@ impl Server {
                 .unwrap_or(document.path.clone()),
         );
         answer(self, &self.analyses[&uri], &file, line + 1, column, text)
+    }
+
+    fn inlay_hints(&mut self, params: &Value, output: &mut impl Write) -> Result<Value> {
+        let position = |value: &Value| -> Option<(u32, u32)> {
+            Some((
+                value["line"].as_u64()?.try_into().ok()?,
+                value["character"].as_u64()?.try_into().ok()?,
+            ))
+        };
+        let (Some(start), Some(end)) = (
+            position(&params["range"]["start"]),
+            position(&params["range"]["end"]),
+        ) else {
+            return Ok(json!([]));
+        };
+        if start >= end {
+            return Ok(json!([]));
+        }
+        let Some(uri) = self.analysis_uri(params, output)? else {
+            return Ok(Value::Null);
+        };
+        let document = &self.documents[&uri];
+        let file = File::Path(
+            document
+                .path
+                .canonicalize()
+                .unwrap_or(document.path.clone()),
+        );
+        let analysis = &self.analyses[&uri];
+        let lines: Vec<&str> = document.text.lines().collect();
+        let clamp = |(line, character): (u32, u32)| {
+            let length = lines
+                .get(line as usize)
+                .map(|text| text.chars().map(|c| self.width(c)).sum())
+                .unwrap_or(0);
+            (line, character.min(length))
+        };
+        let (start, end) = (clamp(start), clamp(end));
+        let mut hints = Vec::new();
+        for binding in &analysis.inferred_bindings {
+            if binding.location.file != file {
+                continue;
+            }
+            let location = &binding.location;
+            let line = location.line - 1;
+            let Some(text) = lines.get(line as usize) else {
+                continue;
+            };
+            let character: u32 = text
+                .chars()
+                .take((location.column - 1 + location.length) as usize)
+                .map(|c| self.width(c))
+                .sum();
+            let point = (line, character);
+            if start <= point && point < end {
+                hints.push((
+                    point,
+                    json!({
+                        "position": {"line": line, "character": character},
+                        "label": format!(": {}", binding.ty),
+                        "kind": 1,
+                        "paddingLeft": false,
+                        "paddingRight": false,
+                    }),
+                ));
+            }
+        }
+        hints.sort_by_key(|(point, _)| *point);
+        Ok(Value::Array(
+            hints.into_iter().map(|(_, hint)| hint).collect(),
+        ))
     }
 
     fn hover(
@@ -787,4 +869,70 @@ fn path_uri(path: &Path) -> String {
         }
     }
     uri
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ide::InferredBinding;
+
+    #[test]
+    fn inlay_hint_positions_and_ranges_use_client_code_units() {
+        // The current language has ASCII binding names. Exercise the protocol
+        // conversion separately with non-ASCII text before a synthetic binding.
+        for (encoding, character) in [
+            (Encoding::Utf8, 6),
+            (Encoding::Utf16, 4),
+            (Encoding::Utf32, 3),
+        ] {
+            let mut server = Server {
+                encoding,
+                ..Server::default()
+            };
+            let uri = "file:///inlay-encoding.plenty".to_owned();
+            let path = uri_path(&uri).unwrap();
+            let text = "𐐀 x".to_owned();
+            server.documents.insert(
+                uri.clone(),
+                Document {
+                    path: path.clone(),
+                    text,
+                },
+            );
+            server.analyses.insert(
+                uri.clone(),
+                Analysis {
+                    inferred_bindings: vec![InferredBinding {
+                        location: Location {
+                            file: File::Path(path),
+                            line: 1,
+                            column: 3,
+                            length: 1,
+                        },
+                        ty: "i64".into(),
+                    }],
+                    ..Analysis::default()
+                },
+            );
+            let mut output = Vec::new();
+            let request = |start, end| {
+                json!({"textDocument": {"uri": uri}, "range": {
+                    "start": {"line": 0, "character": start}, "end": {"line": 1, "character": end}
+                }})
+            };
+            let hints = server
+                .inlay_hints(&request(character, 0), &mut output)
+                .unwrap();
+            assert_eq!(
+                hints[0]["position"],
+                json!({"line": 0, "character": character})
+            );
+            // Oversized character offsets clamp to end of line.
+            assert_eq!(
+                server.inlay_hints(&request(100, 0), &mut output).unwrap(),
+                hints
+            );
+            assert!(output.is_empty(), "cached queries must not recheck");
+        }
+    }
 }
