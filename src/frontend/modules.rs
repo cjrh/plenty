@@ -811,7 +811,7 @@ impl Items<'_, '_> {
         if !declared.insert(name.clone()) && (at.is("const") || module.constants.contains(&name)) {
             return Err(at.error(format!("duplicate declaration `{name}`")));
         }
-        if builtin(&name) {
+        if builtin(&name) && self.path != Some(Path::new(ARITHMETIC_ERRORS_PATH)) {
             return Err(at.error(format!("cannot redefine builtin `{name}` as a type")));
         }
         if public {
@@ -912,7 +912,7 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
         };
         entry.push(index);
     }
-    let standard_sources = loader
+    let standard_sources: Vec<Arc<str>> = loader
         .loaded
         .keys()
         .map(|source| source.path().to_string_lossy().into_owned().into())
@@ -922,7 +922,7 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
     modules.push(module);
     dependencies.push(entry);
     let mut result = resolve(modules, dependencies, at, true)?;
-    result.standard_sources = standard_sources;
+    result.standard_sources.extend(standard_sources);
     Ok(result)
 }
 
@@ -1306,14 +1306,12 @@ pub(super) fn load_graph_with(
     let inputs = inputs::Inputs::new(std::mem::take(&mut loader.inputs));
     let mut result = resolve(loader.modules, loader.dependencies, at, require_main)?;
     result.inputs = inputs;
-    result.standard_sources = loader
-        .loaded
-        .keys()
-        .filter_map(|source| match source {
+    result
+        .standard_sources
+        .extend(loader.loaded.keys().filter_map(|source| match source {
             ModuleSource::Standard(_) => Some(source.path().to_string_lossy().into_owned().into()),
             ModuleSource::File(_) => None,
-        })
-        .collect();
+        }));
     result.source_paths = loader
         .loaded
         .into_keys()
@@ -1942,6 +1940,8 @@ impl Scope {
                 let at = e.at.clone();
                 self.match_block(value, cases, &at, locals)?
             }
+            Expression::Checked(body) => self.block(body, &mut locals.clone())?,
+
             Expression::Type(t) => self.ty(t)?,
             Expression::Constructor(t, args) => {
                 self.ty(t)?;
@@ -2042,13 +2042,34 @@ fn canonical_facility_expression(e: &mut Expr) {
 const PARALLEL_FUNCTIONS: usize = 256;
 const PARALLEL_CLASSES: usize = 64;
 
+/// The errors a `checked:` block returns, declared as ordinary classes so
+/// construction, fields, printing and patterns follow the class rules. Every
+/// compilation shares these unqualified declarations; see
+/// book/src/design/language/03-types/numbers.md#checked-blocks.
+const ARITHMETIC_ERRORS_PATH: &str = "<builtin arithmetic errors>";
+const ARITHMETIC_ERRORS: &str = "\
+pub class ZeroDivisionError:
+    pass
+
+pub class OverflowError[T]:
+    pub wrapped: T
+";
+
 #[cfg_attr(feature = "profile", hotpath::measure)]
 fn resolve(
     mut modules: Vec<Module>,
-    dependencies: Vec<Vec<usize>>,
+    mut dependencies: Vec<Vec<usize>>,
     at: Token,
     require_main: bool,
 ) -> Result<Resolved> {
+    let (errors, _) = parse(
+        ARITHMETIC_ERRORS,
+        Some(Path::new(ARITHMETIC_ERRORS_PATH)),
+        String::new(),
+    )?;
+    modules.push(errors);
+    dependencies.push(vec![]);
+
     if let Some(embed) = modules.iter().flat_map(|m| &m.embeds).next() {
         return Err(embed.at.error(
             "`include_str` and `include_bytes` read a file relative to the source file, so they require compiling a file",
@@ -2081,7 +2102,10 @@ fn resolve(
         })
         .collect();
     let mut result = Resolved {
-        standard_sources: HashSet::default(),
+        // Like `std`, the arithmetic errors' constructors are emitted only
+        // when a program uses them.
+        standard_sources: HashSet::from_iter([ARITHMETIC_ERRORS_PATH.into()]),
+
         source_paths: vec![],
         source_root: None,
         protocols: vec![],

@@ -16,7 +16,7 @@ fn match_edges_preserve_arm_order_and_empty_arm_continuations() {
             .collect();
         let ops = [Op::Match(arms), Op::UseLoan(99)];
         let mut nodes = vec![Node::default()];
-        let entry = graph(&ops, None, 0, None, &mut nodes);
+        let entry = graph(&ops, None, 0, None, None, &mut nodes);
         let edges = nodes[entry].successors.as_slice();
         assert_eq!(edges.len(), arm_count);
         for (id, &edge) in edges.iter().enumerate() {
@@ -44,7 +44,7 @@ fn loop_edges_keep_condition_backedge_and_early_exit_targets() {
         Op::UseLoan(20),
     ];
     let mut nodes = vec![Node::default()];
-    let entry = graph(&ops, None, 0, None, &mut nodes);
+    let entry = graph(&ops, None, 0, None, None, &mut nodes);
     assert_eq!(entry, 2);
     let edges: Vec<_> = nodes
         .iter()

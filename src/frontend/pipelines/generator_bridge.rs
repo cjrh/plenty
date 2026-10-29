@@ -211,6 +211,9 @@ fn inspect(ops: &[Op], read: &mut BTreeSet<u8>, loans: &mut BTreeSet<usize>) {
                 inspect(condition, read, loans);
                 inspect(body, read, loans);
             }
+            Op::CheckedBlock { body, .. } | Op::CheckedArith { cleanup: body, .. } => {
+                inspect(body, read, loans);
+            }
             Op::Match(arms) => {
                 for arm in arms.iter() {
                     inspect(&arm.body, read, loans);
@@ -318,6 +321,20 @@ fn relocate(
                 target: target.clone(),
                 cleanup: relocate(cleanup, slots, loans, at)?.into(),
             },
+            Op::CheckedBlock { body, result } => Op::CheckedBlock {
+                body: relocate(body, slots, loans, at)?.into(),
+                result: result.clone(),
+            },
+            Op::CheckedArith {
+                operation,
+                ty,
+                cleanup,
+            } => Op::CheckedArith {
+                operation: *operation,
+                ty: ty.clone(),
+                cleanup: relocate(cleanup, slots, loans, at)?.into(),
+            },
+
             Op::Match(arms) => Op::Match(
                 arms.iter()
                     .map(|arm| {

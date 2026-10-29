@@ -346,13 +346,49 @@ impl Lowerer<'_, '_> {
         exponent: NativeValue,
         ty: &Ty,
     ) -> Result<NativeValue> {
-        let wide = if is_signed(ty.clone()) {
+        let call = self.call_int_pow("plenty_int_pow", 1, base, exponent, ty)?;
+        let result = self.bcx.inst_results(call)[0];
+        Ok(self.cast(result, Self::pow_width(ty), ty.clone()))
+    }
+
+    /// `pow` in a `checked:` block: the power modulo 2**N and its overflow
+    /// flag, from `plenty_int_pow_checked`. A negative exponent still traps.
+    pub(super) fn int_pow_checked(
+        &mut self,
+        base: NativeValue,
+        exponent: NativeValue,
+        ty: &Ty,
+    ) -> Result<(NativeValue, NativeValue)> {
+        let call = self.call_int_pow("plenty_int_pow_checked", 2, base, exponent, ty)?;
+        let (result, overflow) = (
+            self.bcx.inst_results(call)[0],
+            self.bcx.inst_results(call)[1],
+        );
+        let overflow = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, overflow, 0);
+        Ok((self.cast(result, Self::pow_width(ty), ty.clone()), overflow))
+    }
+
+    fn pow_width(ty: &Ty) -> Ty {
+        if is_signed(ty.clone()) {
             Ty::I64
         } else {
             Ty::U64
-        };
+        }
+    }
+
+    /// Call `name(base, exponent, kind, site)` with both operands extended
+    /// to 64 bits; it returns `returns` words.
+    fn call_int_pow(
+        &mut self,
+        name: &str,
+        returns: usize,
+        base: NativeValue,
+        exponent: NativeValue,
+        ty: &Ty,
+    ) -> Result<cranelift_codegen::ir::Inst> {
+        let wide = Self::pow_width(ty);
         let base = self.cast(base, ty.clone(), wide.clone());
-        let exponent = self.cast(exponent, ty.clone(), wide.clone());
+        let exponent = self.cast(exponent, ty.clone(), wide);
         let mut signature = self.module.make_signature();
         signature.call_conv = CallConv::SystemV;
         signature.params.extend([
@@ -361,18 +397,18 @@ impl Lowerer<'_, '_> {
             AbiParam::new(types::I64),
             AbiParam::new(PTR_TY),
         ]);
-        signature.returns.push(AbiParam::new(types::I64));
+        for _ in 0..returns {
+            signature.returns.push(AbiParam::new(types::I64));
+        }
         let helper = self
             .module
-            .declare_function("plenty_int_pow", Linkage::Import, &signature)?;
+            .declare_function(name, Linkage::Import, &signature)?;
         let helper = self.module.declare_func_in_func(helper, self.bcx.func);
         let kind = self
             .bcx
             .ins()
             .iconst(types::I64, crate::numeric::int_kind(ty));
         let site = self.trap_site()?;
-        let call = self.bcx.ins().call(helper, &[base, exponent, kind, site]);
-        let result = self.bcx.inst_results(call)[0];
-        Ok(self.cast(result, wide, ty.clone()))
+        Ok(self.bcx.ins().call(helper, &[base, exponent, kind, site]))
     }
 }

@@ -6,7 +6,7 @@ use super::*;
 use crate::numeric::{FloatOp, NumericOp};
 
 pub(super) fn method(name: &str) -> bool {
-    name == "pow" || float_method(name).is_some()
+    matches!(name, "pow" | "div_checked") || float_method(name).is_some()
 }
 
 fn float_method(name: &str) -> Option<NumericOp> {
@@ -209,6 +209,23 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         let (ty, mut loans) = receiver;
+        if name == "div_checked" {
+            if !ty.is_float() {
+                return Err(base.at.error(format!(
+                    "div_checked requires a float, got {ty}; for integers, write `//` inside a `checked:` block"
+                )));
+            }
+            let [other] = args else {
+                return Err(base
+                    .at
+                    .error("div_checked takes one argument of the receiver's type"));
+            };
+            let mut body = Vec::new();
+            loans.extend(self.same_numeric_operand(base, &ty, other, &mut body)?);
+            let result = self.float_div_checked(&ty, &base.at, body, ops)?;
+            Self::end_reads(loans, ops);
+            return Ok(result);
+        }
         let operation = float_method(name).unwrap_or(NumericOp::Pow);
         if operation != NumericOp::Pow && !ty.is_float() {
             return Err(base.at.error(format!(
@@ -230,7 +247,10 @@ impl Lower<'_> {
         if ty.is_int() {
             self.mark(&base.at, ops);
         }
-        ops.push(Op::Numeric(operation));
+        if !(ty.is_int() && self.checked_arith(crate::numeric::Checked::Pow, &ty, &base.at, ops)?) {
+            ops.push(Op::Numeric(operation));
+        }
+
         Self::end_reads(loans, ops);
         Ok(ty)
     }

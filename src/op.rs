@@ -990,6 +990,23 @@ pub enum Op {
     Unreachable,
     Collection(crate::collection::CollectionOp),
     Numeric(crate::numeric::NumericOp),
+    /// A `checked:` block. The body leaves its value `T` on top of the stack,
+    /// which becomes `Ok(T)` of `result`, a `Result[T, E]`. A `CheckedArith`
+    /// in the body that fails exits here instead, with `Err`.
+    CheckedBlock {
+        body: Arc<[Op]>,
+        result: Ty,
+    },
+    /// Pop `T T`; push the result of `operation`. On overflow or a zero
+    /// divisor, release the operands pending above the innermost
+    /// `CheckedBlock`, run `cleanup` (the block's locals) and exit that block
+    /// with `ZeroDivisionError` or `OverflowError[T]`, whose `wrapped` field
+    /// is the result modulo 2**N. Unary minus is `0 - x`.
+    CheckedArith {
+        operation: crate::numeric::Checked,
+        ty: Ty,
+        cleanup: Arc<[Op]>,
+    },
     /// The condition leaves bool; a continuing body preserves the operand stack.
     Loop {
         condition: Arc<[Op]>,
@@ -1948,6 +1965,7 @@ fn collect_sigs<'a>(ops: &'a [Op], out: &mut Sigs<'a>) {
                 collect_sigs(condition, out);
                 collect_sigs(body, out);
             }
+            Op::CheckedBlock { body, .. } => collect_sigs(body, out),
             Op::Match(arms) => {
                 for arm in arms.iter() {
                     collect_sigs(&arm.body, out);
@@ -2336,6 +2354,35 @@ fn step(
             stack.push(ty);
         }
         Op::Numeric(operation) => operation.check(stack)?,
+        Op::CheckedArith {
+            operation,
+            ty,
+            cleanup,
+        } => {
+            let mut empty = Vec::new();
+            check_sequence(
+                cleanup, &mut empty, locals, sigs, returns, loop_stack, yield_ty,
+            )?;
+            if !empty.is_empty() {
+                return Err("checked arithmetic cleanup must leave no value".into());
+            }
+            operation.check(ty, stack)?;
+        }
+        Op::CheckedBlock { body, result } => {
+            let Ty::Enum(sum) = result else {
+                return Err("a checked block must produce a Result".into());
+            };
+            if !sum.is_result() {
+                return Err("a checked block must produce a Result".into());
+            }
+            if check_sequence(body, stack, locals, sigs, returns, loop_stack, yield_ty)?
+                != Flow::Continues
+                || stack.pop().as_ref() != Some(&sum.get().variants[0].fields[0])
+            {
+                return Err("a checked block must leave its success value".into());
+            }
+            stack.push(result.clone());
+        }
         Op::Eq => {
             let (a, b) = pop2(stack, "=")?;
             if a != b {

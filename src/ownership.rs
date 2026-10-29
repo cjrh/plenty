@@ -676,6 +676,10 @@ struct Checker<'a, 'p> {
     /// site, and the length of that list where each open statement began.
     building: RefCell<Vec<(u8, Site)>>,
     statements: RefCell<Vec<usize>>,
+    /// For each enclosing `checked:` block, innermost last: the state on
+    /// each failing `CheckedArith`'s path, after its cleanup, which joins
+    /// the state after the block.
+    escapes: RefCell<Vec<Vec<State>>>,
     /// Each field path that moves out of an owned binding. Field `k` has slot
     /// `locals.len() + k` in a `State`, so joins and loops treat it like a
     /// binding of its own.
@@ -704,6 +708,7 @@ pub fn check(
         returning: RefCell::default(),
         building: RefCell::default(),
         statements: RefCell::default(),
+        escapes: RefCell::default(),
         places: if fields.is_empty() {
             HashMap::default()
         } else {
@@ -789,7 +794,8 @@ fn in_body(ops: &[Op], visit: &mut impl FnMut(&Op)) {
                 }
                 in_body(otherwise, visit);
             }
-            Op::Try { cleanup, .. } => in_body(cleanup, visit),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => in_body(cleanup, visit),
+            Op::CheckedBlock { body, .. } => in_body(body, visit),
             _ => {}
         }
     }
@@ -917,6 +923,9 @@ fn graph<'a>(
     inherited: Option<Site>,
     next: usize,
     targets: Option<(usize, usize)>,
+    // Where a failing `CheckedArith` goes after its cleanup: the node after
+    // the innermost `checked:` block.
+    escape: Option<usize>,
     nodes: &mut Vec<Node<'a>>,
 ) -> usize {
     // Nodes are built back to front, but a marker applies to what follows it.
@@ -937,7 +946,7 @@ fn graph<'a>(
                 continue;
             }
             Op::Try { cleanup, .. } => {
-                let failure = graph(cleanup, site, 0, None, nodes);
+                let failure = graph(cleanup, site, 0, None, None, nodes);
                 nodes.push(Node {
                     op: None,
                     successors: Successors::Two([next, failure]),
@@ -945,8 +954,9 @@ fn graph<'a>(
                 });
             }
             Op::Match(arms) => {
-                let mut entry =
-                    |arm: &'a crate::op::MatchArm| graph(&arm.body, site, next, targets, nodes);
+                let mut entry = |arm: &'a crate::op::MatchArm| {
+                    graph(&arm.body, site, next, targets, escape, nodes)
+                };
                 let successors = match arms.as_ref() {
                     [] => Successors::None,
                     [arm] => Successors::One([entry(arm)]),
@@ -974,17 +984,24 @@ fn graph<'a>(
                         (before, entering)
                     })
                     .collect();
-                let mut fall = graph(otherwise, entering, next, targets, nodes);
+                let mut fall = graph(otherwise, entering, next, targets, escape, nodes);
                 for (arm, (before, after)) in elifs.iter().zip(markers).rev() {
-                    let body = graph(&arm.body, after, next, targets, nodes);
+                    let body = graph(&arm.body, after, next, targets, escape, nodes);
                     nodes.push(Node {
                         op: None,
                         successors: Successors::Two([body, fall]),
                         site: after,
                     });
-                    fall = graph(&arm.condition, before, nodes.len() - 1, targets, nodes);
+                    fall = graph(
+                        &arm.condition,
+                        before,
+                        nodes.len() - 1,
+                        targets,
+                        escape,
+                        nodes,
+                    );
                 }
-                let then = graph(then, site, next, targets, nodes);
+                let then = graph(then, site, next, targets, escape, nodes);
                 nodes.push(Node {
                     op: None,
                     successors: Successors::Two([then, fall]),
@@ -994,16 +1011,29 @@ fn graph<'a>(
             Op::Loop { condition, body } => {
                 let header = nodes.len();
                 nodes.push(Node::default());
-                let body = graph(body, site, header, Some((header, next)), nodes);
+                let body = graph(body, site, header, Some((header, next)), escape, nodes);
                 let branch = nodes.len();
                 nodes.push(Node {
                     op: None,
                     successors: Successors::Two([body, next]),
                     site,
                 });
-                let test = graph(condition, site, branch, targets, nodes);
+                let test = graph(condition, site, branch, targets, escape, nodes);
                 nodes[header].successors = Successors::One([test]);
                 next = header;
+                continue;
+            }
+            Op::CheckedArith { cleanup, .. } => {
+                let escape = escape.expect("checked arithmetic outside a checked block");
+                let failure = graph(cleanup, site, escape, None, None, nodes);
+                nodes.push(Node {
+                    op: None,
+                    successors: Successors::Two([next, failure]),
+                    site,
+                });
+            }
+            Op::CheckedBlock { body, .. } => {
+                next = graph(body, site, next, targets, Some(next), nodes);
                 continue;
             }
             Op::Break => nodes.push(Node {
@@ -1201,7 +1231,7 @@ impl Checker<'_, '_> {
     /// Where a slot first receives its value. Computed only to render a note.
     fn bound(&self, slot: usize) -> Option<Site> {
         let mut nodes = vec![Node::default()];
-        graph(self.body, None, 0, None, &mut nodes);
+        graph(self.body, None, 0, None, None, &mut nodes);
         nodes
             .iter()
             .filter(|node| match &node.op {
@@ -1850,6 +1880,36 @@ impl Checker<'_, '_> {
                     checked.map_err(|error| leaving(error, site, Some("`?`")))?;
                     self.submit(accepted.drain(..));
                 }
+                Op::CheckedArith { cleanup, .. } => {
+                    let mut failed = state.clone();
+                    // As for `?`, the operands already evaluated are dropped,
+                    // so a value under construction is gone before cleanup.
+                    let returning = self.returning.take();
+                    let building = self.building.take();
+                    let statements = self.statements.take();
+                    let checked = self.sequence(cleanup, &mut failed, &mut Vec::new(), site);
+                    self.returning.replace(returning);
+                    self.building.replace(building);
+                    self.statements.replace(statements);
+                    checked.map_err(|error| leaving(error, site, Some("a `checked:` failure")))?;
+                    self.escapes
+                        .borrow_mut()
+                        .last_mut()
+                        .expect("checked arithmetic outside a checked block")
+                        .push(failed);
+                }
+                Op::CheckedBlock { body, .. } => {
+                    self.escapes.borrow_mut().push(Vec::new());
+                    let continues = self.sequence(body, state, loops, site);
+                    let mut continuing = self.escapes.borrow_mut().pop().unwrap_or_default();
+                    if continues? {
+                        continuing.push(state.clone());
+                    }
+                    if continuing.is_empty() {
+                        return Ok(false);
+                    }
+                    merge(&continuing, state);
+                }
                 Op::MoveLocal(i) | Op::Next(i) => {
                     if state.get(*i as usize) != Some(&Slot::Owned) {
                         return Err(self.unavailable(*i, state, site));
@@ -2039,7 +2099,9 @@ impl Checker<'_, '_> {
         }
         fn has_loans(ops: &[Op]) -> bool {
             ops.iter().any(|op| match op {
-                Op::Try { cleanup, .. } => has_loans(cleanup),
+                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => has_loans(cleanup),
+                Op::CheckedBlock { body, .. } => has_loans(body),
+
                 Op::Loan(_) => true,
                 Op::Match(arms) => arms.iter().any(|arm| has_loans(&arm.body)),
                 Op::Loop { condition, body } => has_loans(condition) || has_loans(body),
@@ -2062,7 +2124,7 @@ impl Checker<'_, '_> {
         }
         let (nodes, reachable, loans, created) = crate::profile_block!("ownership::loan_graph", {
             let mut nodes = vec![Node::default()];
-            let entry = graph(ops, None, 0, None, &mut nodes);
+            let entry = graph(ops, None, 0, None, None, &mut nodes);
             let mut seen = vec![false; nodes.len()];
             let mut todo = vec![entry];
             while let Some(n) = todo.pop() {

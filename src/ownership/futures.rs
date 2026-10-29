@@ -106,7 +106,9 @@ impl Futures {
         fn submits(ops: &[Op]) -> bool {
             ops.iter().any(|op| match op {
                 Op::Executor(ExecutorOp::Submit(..)) | Op::Forwards(Forward::Call(..)) => true,
-                Op::Try { cleanup, .. } => submits(cleanup),
+                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => submits(cleanup),
+                Op::CheckedBlock { body, .. } => submits(body),
+
                 Op::Match(arms) => arms.iter().any(|arm| submits(&arm.body)),
                 Op::If {
                     then,
@@ -128,7 +130,7 @@ impl Futures {
         }
         let mut jobs = vec![Jobs::new(); locals];
         let mut nodes = vec![Node::default()];
-        graph(body, None, 0, None, &mut nodes);
+        graph(body, None, 0, None, None, &mut nodes);
         if !nodes.iter().any(|node| match &node.op {
             Some(Op::Executor(ExecutorOp::Submit(job, _))) => {
                 Hazard::of(&job.input).next().is_some()

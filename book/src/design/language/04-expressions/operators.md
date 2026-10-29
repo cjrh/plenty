@@ -126,7 +126,12 @@ proposed `__cmp__` ordering contract are not implemented; only
 [newtype forwarding](#newtype-forwarding) provides ordering for a class. Nor are custom truthiness,
 indexing, membership, assignment, dereference, `**`, or `@` operators.
 `and`, `or`, and `not` keep their boolean and short-circuit rules. Numeric
-operators retain their existing overflow checks and division rules.
+operators retain their existing overflow checks and division rules. Inside a
+[`checked:` block](../03-types/numbers.md#checked-blocks), operators a newtype
+forwards to an integer field are checked like the field's own, and report
+`OverflowError` of the field type; a user-defined hook is an ordinary call and
+is not checked.
+
 
 See the [operator tutorial](../../../tutorial/06-data/operators.md),
 [assignment rules](assignment.md), and

@@ -45,6 +45,10 @@ or exclusive reference, including nested paths. The right side takes the
 destination's numeric type. Integer division uses `//=`, float division uses
 `/=`, and `%=` currently accepts integers. Strings and collections do not
 support augmented assignment; string concatenation remains fallible and explicit.
+Inside a [`checked:` block](../03-types/numbers.md#checked-blocks), an integer
+update that overflows or divides by zero exits the block with `Err` before
+writing back, so the destination keeps its previous value.
+
 
 Unlike ordinary assignment, augmented assignment evaluates its target before
 the right side:

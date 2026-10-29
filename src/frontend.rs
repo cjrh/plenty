@@ -24,6 +24,7 @@ mod callables;
 mod calls;
 mod casts;
 mod channels;
+mod checked;
 mod classes;
 mod clists;
 mod closures;
@@ -1215,6 +1216,10 @@ enum Expression {
     /// whole value of a binding, an assignment, or a `return`, where the
     /// statement can end with the block.
     Match(Box<Expr>, Vec<enums::Case>),
+    /// A `checked:` block, accepted where a `match` block is. Its value is
+    /// `Ok` of its final expression, or `Err` of the first arithmetic error
+    /// written inside it.
+    Checked(Vec<Stmt>),
 }
 
 /// Where a member name was written. Expressions carry only the position of
@@ -2114,6 +2119,13 @@ impl Parser {
         if self.peek().is("match") {
             return self.match_statement();
         }
+        if self.checked_block() {
+            let value = self.statement_value()?;
+            return Ok(Stmt {
+                at: value.at.clone(),
+                kind: Statement::Expr(value),
+            });
+        }
         if self.peek().is("type") {
             return Err(self
                 .peek()
@@ -2272,10 +2284,30 @@ impl Parser {
     }
     /// The value that ends a binding, an assignment, or a `return`: an
     /// expression, or a `match` block whose selected case supplies it.
+    /// `checked:` followed by a newline starts a `checked:` block; `checked`
+    /// is otherwise an ordinary name, so `checked: i64 = 0` still declares
+    /// one.
+    fn checked_block(&self) -> bool {
+        self.peek().is("checked")
+            && self.tokens.get(self.pos + 1).is_some_and(|t| t.is(":"))
+            && self
+                .tokens
+                .get(self.pos + 2)
+                .is_some_and(|t| t.kind == Kind::Newline)
+    }
     fn statement_value(&mut self) -> Result<Expr> {
+        if self.checked_block() {
+            let at = self.take();
+            let body = self.suite()?;
+            return Ok(Expr {
+                at,
+                kind: Expression::Checked(body),
+            });
+        }
         if !self.peek().is("match") {
             return self.expr(0);
         }
+
         let (at, value, cases) = self.match_block()?;
         Ok(Expr {
             at,
@@ -2726,6 +2758,8 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "KeyView"
                 | "clist"
                 | "AppendError"
+                | "OverflowError"
+                | "ZeroDivisionError"
                 | "set"
                 | "len"
                 | "sorted"
@@ -2948,6 +2982,11 @@ struct Lower<'a> {
     /// Code executed before continuing the innermost loop (for-loop increment).
     loop_steps: Vec<Vec<Op>>,
     loop_scopes: Vec<usize>,
+    /// The enclosing `checked:` blocks, innermost last.
+    checked: Vec<checked::Scope>,
+    /// The innermost block producing a value is a `checked:` block rather
+    /// than a `match`, which only changes how a rejected tail is described.
+    checked_value_tail: bool,
     indexed_lists: Vec<collections::IndexedLists>,
     yield_type: Type,
     /// Set while a terminal consumes a pipeline; see `consume_in_place`.
@@ -3115,7 +3154,7 @@ impl Lower<'_> {
         self.same(Some(b), Some(ty.clone()), &right.at)?;
         loans.extend(other_loans);
         self.mark_arithmetic(op, &ty, at, ops);
-        let output = Self::numeric_operation(op, ty, at, ops)?;
+        let output = self.numeric_operation(op, ty, at, ops)?;
         Self::end_reads(loans, ops);
         Ok(output)
     }
@@ -3127,7 +3166,7 @@ impl Lower<'_> {
             || (ty.is_float()
                 && matches!(&ungroup(e).kind, Expression::Number(n) if n.contains(['.', 'e', 'E'])))
     }
-    fn numeric_operation(op: &str, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
+    fn numeric_operation(&mut self, op: &str, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
         if let Some(kind) = IntegerOp::binary(op) {
             if !ty.is_int() {
                 return Err(at.error("bitwise operations require integers"));
@@ -3140,6 +3179,12 @@ impl Lower<'_> {
         }
         if matches!(op, "//" | "%") && ty.is_float() {
             return Err(at.error("floor division and modulo currently require integers"));
+        }
+        if ty.is_int()
+            && let Some(operation) = crate::numeric::Checked::named(op)
+            && self.checked_arith(operation, &ty, at, ops)?
+        {
+            return Ok(ty);
         }
         ops.push(match op {
             "+" => Op::Add,
@@ -3453,6 +3498,7 @@ impl Lower<'_> {
             }
             Expression::Try(value) => self.propagate(e, value, None, ops)?,
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, None, ops)?,
+            Expression::Checked(body) => self.checked_value(&e.at, body, None, ops)?,
             Expression::Type(_) => {
                 return Err(e.at.error("a type is not a value; select a variant"));
             }
@@ -3722,7 +3768,9 @@ impl Lower<'_> {
                     ops.extend(body);
                     if op == "-" {
                         self.mark(&e.at, ops);
-                        ops.push(Op::Sub);
+                        if !self.checked_arith(crate::numeric::Checked::Sub, &ty, &e.at, ops)? {
+                            ops.push(Op::Sub);
+                        }
                     }
                 }
                 Some(ty.clone())
@@ -3942,6 +3990,13 @@ impl Lower<'_> {
                         return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
                     }
                     self.mark_arithmetic(op, &a, &e.at, ops);
+                    if a.is_int()
+                        && let Some(operation) = crate::numeric::Checked::named(op)
+                        && self.checked_arith(operation, &a, &e.at, ops)?
+                    {
+                        Self::end_reads(loans, ops);
+                        return Ok(Some(a));
+                    }
                     ops.push(match op.as_str() {
                         "+" => Op::Add,
                         "-" => Op::Sub,
@@ -4781,6 +4836,7 @@ impl Lower<'_> {
                         moves(condition, out);
                         moves(body, out);
                     }
+                    Op::CheckedBlock { body, .. } => moves(body, out),
                     _ => {}
                 }
             }
@@ -4867,6 +4923,7 @@ impl Lower<'_> {
                     || self.waits(otherwise)
             }
             Op::Loop { condition, body } => self.waits(condition) || self.waits(body),
+            Op::CheckedBlock { body, .. } => self.waits(body),
             _ => false,
         })
     }
@@ -4986,9 +5043,11 @@ impl Lower<'_> {
                     {
                         // The case's bindings and locals end before the value
                         // is used, and no loan follows it out of the suite.
-                        return Err(e.at.error(
-                            "a `match` block used as a value cannot produce a reference or a closure with borrowed captures; produce an owned value, or assign in each case",
-                        ));
+                        return Err(e.at.error(if self.checked_value_tail {
+                            "a `checked:` block cannot produce a reference or a closure with borrowed captures; produce an owned value"
+                        } else {
+                            "a `match` block used as a value cannot produce a reference or a closure with borrowed captures; produce an owned value, or assign in each case"
+                        }));
                     }
                     if last
                         && self.return_origin.is_some()
@@ -5394,8 +5453,12 @@ fn type_name(ty: Type) -> String {
 }
 /// `e` is a `match` block whose selected case's final expression is its value.
 fn block_value(e: &Expr) -> bool {
-    matches!(ungroup(e).kind, Expression::Match(..))
+    matches!(
+        ungroup(e).kind,
+        Expression::Match(..) | Expression::Checked(_)
+    )
 }
+
 /// `ops` contains a `match` case value's `Building::Hold`.
 fn holds(ops: &[Op]) -> bool {
     ops.iter().any(|op| match op {
@@ -5413,6 +5476,7 @@ fn holds(ops: &[Op]) -> bool {
                 || holds(otherwise)
         }
         Op::Loop { condition, body } => holds(condition) || holds(body),
+        Op::CheckedBlock { body, .. } => holds(body),
         _ => false,
     })
 }
@@ -5999,6 +6063,8 @@ fn lower_body(
                 }),
                 loop_steps: Vec::new(),
                 loop_scopes: Vec::new(),
+                checked: Vec::new(),
+                checked_value_tail: false,
                 yield_type: yield_type.clone(),
                 consuming_pipeline: false,
                 loans: Vec::new(),

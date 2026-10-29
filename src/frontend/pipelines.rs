@@ -1949,6 +1949,10 @@ fn specialize(ops: &[Op], flag: u8, value: bool) -> Vec<Op> {
                 condition: nested(condition),
                 body: nested(body),
             },
+            Op::CheckedBlock { body, result } => Op::CheckedBlock {
+                body: nested(body),
+                result: result.clone(),
+            },
             op => op.clone(),
         });
         i += 1;
@@ -1986,6 +1990,11 @@ fn redirect_breaks(ops: Vec<Op>, replacement: &[Op]) -> Vec<Op> {
                     })
                     .collect(),
                 otherwise: nested(&otherwise),
+            }),
+            // A `break` in a checked block leaves the loop around the block.
+            Op::CheckedBlock { body, result } => out.push(Op::CheckedBlock {
+                body: nested(&body),
+                result,
             }),
             op => out.push(op),
         }

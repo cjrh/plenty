@@ -195,6 +195,7 @@ impl Lowerer<'_, '_> {
             stack: Vec::new(),
             terminated: false,
             loop_targets: Vec::new(),
+            checked_targets: Vec::new(),
             generator: None,
             local_frame,
             return_storage,
