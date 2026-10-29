@@ -3,6 +3,12 @@
 Install Plenty once, then use the `plenty` command throughout this tutorial.
 You do not need Rust, Cargo, or a copy of the compiler's source repository.
 
+Building from a source checkout instead? The [local build recipes](../development/workflow.md#build-a-complete-local-installation)
+provide `just build` for the release compiler, both optional engines, and their
+licenses/metadata. Put that checkout's `target/release/` on PATH. These builds
+require Rust and native build tools and target your local system, unlike the
+portable binary download described here.
+
 ## Check your system
 
 The current binary release supports **x86-64 Linux with glibc 2.28 or later**.

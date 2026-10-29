@@ -14,6 +14,58 @@ mutation, ownership, borrowing, and cleanup. Allocating operations need failure
 and partial-state cleanup checks. Use runtime allocation checks, sanitizers, or
 Miri where they exercise the changed boundary.
 
+## Build a complete local installation
+
+Install [just](https://just.systems/man/en/packages.html), a stable Rust toolchain
+with its `rust-docs` component, Python 3, and the native C compiler/linker and
+binutils (`readelf`, `nm`). From the checkout, run:
+
+```sh
+just                       # same as just build
+just compiler              # compiler only
+just engine dataframe      # one engine and its redistribution notices
+just engine linalg
+just test                  # all-features workspace suite
+just docs                  # all three published-site checks
+just --list
+```
+
+The default builds release `plenty` and `plentyc`, then both optional engines,
+sequentially. The first engine builds are substantial; later builds reuse Cargo
+artifacts. `target/release/` contains both executables, both shared libraries,
+and `dataframe-notices/` and `linalg-notices/` with checksummed metadata and
+licenses for `--dist`. Missing Rust license files can be installed with
+`rustup component add rust-docs`. Cargo may need network access for uncached
+registry and pinned Git dependencies.
+
+Add the checkout's absolute `target/release` directory to PATH. For Fish:
+
+```fish
+fish_add_path /path/to/plenty/target/release
+```
+
+Rebuilding updates this installation; moving the checkout or cleaning its
+artifacts removes it. The compiler recipe explicitly selects `target/`, even
+if `CARGO_TARGET_DIR` is set. Engine caches stay under
+`target/dataframe-engine/` and `target/linalg-engine/`. Ordinary
+`cargo build --release --locked` remains compiler-only. Existing Python engine
+build commands remain available for custom output paths and job counts.
+
+These are **local host builds**, not portable release archives. Local packaging
+retains architecture, SONAME, export, dependency and RPATH checks, but records
+the engine's actual required glibc symbol version rather than enforcing 2.28.
+It also records `build_kind: local` and whether the checkout is dirty (excluding
+the shared issues register); this is provenance information, not an attestation.
+The compiler and generated applications can require newer system libraries too.
+[Portable releases](releasing.md) keep the strict baseline audit unchanged.
+
+Do not run builds against the same installation concurrently. Recipes stop on
+the first failure; the complete installation is not a transaction. Notices are
+staged before replacement, and `--dist` rejects a library whose checksum no
+longer matches its notices after an interrupted update. Re-run the recipe to
+repair that installation. Existing notices directories are generated output and
+are replaced, not a location for application-owned files.
+
 ## Dependency versions
 
 The compiler executable and runtime share a tracked workspace `Cargo.lock`.

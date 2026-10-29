@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Reject release executables that need more than the published baseline.
 #
-# Usage: check-elf.sh [--dataframe-engine] ELF...
+# Usage: check-elf.sh [--engine LIBRARY | --local-engine LIBRARY] ELF...
+# --local-engine keeps structural checks but allows host GLIBC/GCC versions;
+# release packaging never selects it.
 #
 # Baseline: x86-64 GNU/Linux, glibc 2.28, libgcc_s from GCC 4.2 or later.
 # Each executable must be a dynamically linked x86-64 ELF using the standard
@@ -14,8 +16,10 @@ max_glibc=2.28
 max_gcc=4.2.0
 allowed_needed="libc.so.6 libm.so.6 libgcc_s.so.1 libpthread.so.0 libdl.so.2 librt.so.1 libutil.so.1 ld-linux-x86-64.so.2"
 engine=0
+local_engine=0
 library=""
 if [ "${1:-}" = --dataframe-engine ]; then engine=1; library=libplenty_dataframe_v1.so; shift; fi
+if [ "${1:-}" = --local-engine ]; then local_engine=1; engine=1; library="${2:?engine library required}"; shift 2; fi
 if [ "${1:-}" = --engine ]; then engine=1; library="${2:?engine library required}"; shift 2; fi
 [ "$#" -gt 0 ] || { echo "check-elf: no inputs" >&2; exit 2; }
 
@@ -55,7 +59,7 @@ for exe in "$@"; do
     versions="$(readelf -V "$exe" | grep -Eo '(GLIBC|GCC)_[0-9][0-9.]*' | sort -u)"
     glibc="$(grep '^GLIBC_' <<<"$versions" | sed 's/^GLIBC_//' | sort -V | tail -n1)"
     gcc="$( (grep '^GCC_' <<<"$versions" || true) | sed 's/^GCC_//' | sort -V | tail -n1)"
-    if newer_than "$glibc" "$max_glibc"; then
+    if [ "$local_engine" = 0 ] && newer_than "$glibc" "$max_glibc"; then
         echo "$exe: needs GLIBC_$glibc, newer than the GLIBC_$max_glibc baseline:" >&2
         readelf -W --dyn-syms "$exe" | grep -E "@GLIBC_[0-9.]+" | awk '{print $8}' \
             | while IFS=@ read -r symbol version; do
@@ -63,7 +67,7 @@ for exe in "$@"; do
             done || true
         status=1
     fi
-    if [ -n "$gcc" ] && newer_than "$gcc" "$max_gcc"; then
+    if [ "$local_engine" = 0 ] && [ -n "$gcc" ] && newer_than "$gcc" "$max_gcc"; then
         echo "$exe: needs GCC_$gcc from libgcc_s, newer than GCC_$max_gcc" >&2; status=1
     fi
     echo "$exe: needs [${needed//$'\n'/ }]; newest GLIBC_$glibc${gcc:+, GCC_$gcc}"

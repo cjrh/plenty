@@ -184,6 +184,11 @@ release.
   the next version. Delete an unpublished draft for the bad tag in the GitHub
   interface if one remains; the tag stays.
 
+For a host-only compiler/engine installation with `--dist` notices, use the
+[just recipes](workflow.md#build-a-complete-local-installation). Their explicit
+`--local-install` packaging mode does not produce release archives or enforce
+the portable GLIBC/GCC symbol baseline. The release workflow never selects it.
+
 ## Checking locally
 
 `scripts/release/local-check.sh` runs the build and smoke jobs with Docker,
