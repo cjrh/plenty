@@ -295,11 +295,16 @@ fn walking_orders_prunes_and_recovers_without_following_child_links() {
         std::fs::Permissions::from_mode(0o700),
     )
     .unwrap();
-    assert!(!output.contains("/pruned"));
-    assert!(!output.contains("/linked"));
-    assert!(!output.contains("/ancestor"));
-    assert!(output.contains("/missing\nread_dir\nIoError.System(2)\n"));
     let root = fixture.path().display().to_string();
+    // Check names relative to the fixture root: the root itself may contain
+    // them, for example a TMPDIR under a directory named `linked-*`.
+    for name in ["/pruned", "/linked", "/ancestor"] {
+        assert!(
+            !output.contains(&format!("{root}{name}")),
+            "{name} in {output}"
+        );
+    }
+    assert!(output.contains(&format!("{root}/missing\nread_dir\nIoError.System(2)\n")));
     let position = |name: &str| output.find(&format!("{root}{name}\n")).unwrap();
     assert!(position("") < position("/a"));
     assert!(position("/a") < position("/a/deep"));
