@@ -336,6 +336,13 @@ a one-field class forwards its field's operators between two values of the
 class, rewrapping field-typed and `Result` results; comparisons return `bool`.
 Typing stays nominal and explicit hooks override per operator.
 
+Issue #557 adds [`checked:` blocks](design/language/03-types/numbers.md#checked-blocks):
+integer overflow and zero division written inside one return
+`Result[T, OverflowError[T] | ZeroDivisionError]`, while arithmetic outside
+blocks keeps plain types, traps, and compiles unchanged. Float `div_checked`
+and a non-trapping `MIN % -1` landed with it. Checked shifts and casts, and
+class patterns for `OverflowError` (issue #558), remain B14 candidates.
+
 Issue #61's initial lossless Unix transport is implemented with owned `list[u8]`,
 explicit UTF-8 conversion, raw arguments, binary file helpers, and NUL stream
 records. The finder now exercises those contracts with `--null`. Compact byte
