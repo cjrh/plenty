@@ -93,9 +93,12 @@ fn cold_workspace_failure_then_allocation_free_reuse() {
         )
     };
     let (cold, _) = budgeted(0, &mut multiply);
-    if std::is_x86_feature_detected!("avx512f")
-        || (std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma"))
-    {
+    #[cfg(target_arch = "x86_64")]
+    let uses_packing = std::is_x86_feature_detected!("avx512f")
+        || (std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma"));
+    #[cfg(not(target_arch = "x86_64"))]
+    let uses_packing = false;
+    if uses_packing {
         assert_eq!(cold, ALLOC);
     } else {
         assert_eq!(cold, 0);

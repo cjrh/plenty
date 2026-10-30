@@ -65,7 +65,7 @@ class EnginePackage(unittest.TestCase):
         name = archive.name.removesuffix(".tar.gz")
         with tarfile.open(archive) as tar:
             metadata = json.load(tar.extractfile(f"{name}/engine.json"))
-            self.assertEqual(metadata["target"], "x86_64-unknown-linux-gnu")
+            self.assertEqual(metadata["target"], f"{os.uname().machine}-unknown-linux-gnu")
             self.assertEqual(metadata["minimum_glibc"], "2.28")
             self.assertEqual(metadata["library_sha256"], hashlib.sha256(self.engine.read_bytes()).hexdigest())
             for path in ["lib/" + LIBRARY, "engine.json", "THIRD-PARTY-NOTICES.md", "licenses/rust/LICENSE.txt"]:

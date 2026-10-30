@@ -21,11 +21,10 @@ an engine's native operations need that engine; ordinary programs need neither.
 
 ## Requirements
 
-- x86-64 Linux with **glibc 2.28 or later**, for example RHEL/AlmaLinux/Rocky 8,
-  Debian 10, Ubuntu 18.10, Fedora 29, or newer. The kernel must be 3.2 or
-  later, the Rust standard library's minimum; old kernels are not tested.
-- Any x86-64 CPU. The compiler and the programs it generates use only the
-  original x86-64 instruction set (SSE2).
+- GNU/Linux on the archive's @TARGET@ architecture with **glibc 2.28 or later**, for example RHEL/AlmaLinux/Rocky 8,
+  Debian 10, Ubuntu 18.10, Fedora 29, or newer. The kernel must meet Rust's target minimum: 3.2 for x86_64 or 4.1 for aarch64; old kernels are not tested.
+- Baseline CPU instructions: x86-64/SSE2 for x86_64 archives, ARMv8-A for
+  aarch64 archives. Host CPU extensions are not required.
 - A C compiler driver, `cc`, with the C library development files. Plenty
   generates machine code itself and runs `cc` only to link programs.
 

@@ -157,7 +157,7 @@ class ElfPolicy(unittest.TestCase):
             readelf = root / "readelf"
             readelf.write_text('''#!/bin/sh
 case "$1" in
--h) printf 'Machine: Advanced Micro Devices X86-64\nType: DYN\n';;
+-h) printf 'Machine: Advanced Micro Devices X86-64\nClass: ELF64\nData: little endian\nType: DYN\n';;
 -l) :;;
 -d) printf ' (SONAME) [%s]\n (NEEDED) [libc.so.6]\n' "$TEST_SONAME";;
 -V) echo GLIBC_2.34;;
@@ -166,7 +166,7 @@ esac
 ''')
             readelf.chmod(0o755)
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
-                   "TEST_SONAME": "libplenty_linalg_v1.so"}
+                   "TEST_SONAME": "libplenty_linalg_v1.so", "PLENTY_RELEASE_TARGET": "x86_64-unknown-linux-gnu"}
             script = REPO / "scripts/release/check-elf.sh"
             for option, soname, success in [("--engine", env["TEST_SONAME"], False),
                                             ("--local-engine", env["TEST_SONAME"], True),

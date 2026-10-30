@@ -12,9 +12,12 @@
 # This complements running the archive on glibc 2.28; it does not replace it.
 set -euo pipefail
 
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=target.sh
+. "$here/target.sh"
 max_glibc=2.28
 max_gcc=4.2.0
-allowed_needed="libc.so.6 libm.so.6 libgcc_s.so.1 libpthread.so.0 libdl.so.2 librt.so.1 libutil.so.1 ld-linux-x86-64.so.2"
+allowed_needed="libc.so.6 libm.so.6 libgcc_s.so.1 libpthread.so.0 libdl.so.2 librt.so.1 libutil.so.1 ${release_loader##*/}"
 engine=0
 local_engine=0
 library=""
@@ -30,15 +33,19 @@ newer_than() { # newer_than A B: A > B as versions
 status=0
 for exe in "$@"; do
     header="$(readelf -h "$exe")"
-    grep -q 'Machine:[[:space:]]*Advanced Micro Devices X86-64' <<<"$header" \
-        || { echo "$exe: not an x86-64 ELF" >&2; status=1; continue; }
+    grep -q "Machine:[[:space:]]*$release_machine" <<<"$header" \
+        || { echo "$exe: not a $PLENTY_RELEASE_TARGET ELF" >&2; status=1; continue; }
+    if ! grep -Eq 'Class:[[:space:]]*ELF64' <<<"$header" || ! grep -Eq 'Data:.*little endian' <<<"$header"; then
+        echo "$exe: expected little-endian ELF64" >&2; status=1; continue
+    fi
     interp="$(readelf -l "$exe" | sed -n 's/.*\[Requesting program interpreter: \(.*\)\]/\1/p')"
     if [ "$engine" = 1 ]; then
-        [ -z "$interp" ] && grep -Eq 'Type:[[:space:]]*DYN' <<<"$header" \
-            || { echo "$exe: expected a shared library without an interpreter" >&2; status=1; }
+        if [ -n "$interp" ] || ! grep -Eq 'Type:[[:space:]]*DYN' <<<"$header"; then
+            echo "$exe: expected a shared library without an interpreter" >&2; status=1
+        fi
     else
-        [ "$interp" = /lib64/ld-linux-x86-64.so.2 ] \
-            || { echo "$exe: interpreter '$interp', expected /lib64/ld-linux-x86-64.so.2" >&2; status=1; }
+        [ "$interp" = "$release_loader" ] \
+            || { echo "$exe: interpreter '$interp', expected $release_loader" >&2; status=1; }
     fi
     dynamic="$(readelf -d "$exe")"
     if [ "$engine" = 1 ]; then
