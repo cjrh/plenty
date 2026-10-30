@@ -1,26 +1,54 @@
 //! RSA and P-256 keys over `ring`. `std.crypto` parses public-key encodings
 //! and validates RSA components in Plenty; this module holds private keys
 //! parsed from PKCS#8 and runs ring's signing and verification. ECDSA paths
-//! allocate nothing. ring's RSA key parsing, signing and verification allocate
-//! through the Rust global allocator, which cannot report failure: see
-//! book/src/design/stdlib/crypto-keys.md.
+//! allocate nothing. ring's RSA operations allocate limb buffers through the
+//! Rust global allocator, which cannot report failure, so each runs inside an
+//! arena reserved beforehand: see book/src/design/stdlib/crypto-keys.md.
 use super::byte_storage::{Storage, result};
+use crate::actor_heap::{Arena, within};
 use crate::memory::{self, AllocError, Header};
 use ring::{agreement, rand, rsa, signature};
 use signature::KeyPair as _;
+use std::mem::ManuallyDrop;
 use std::ptr;
 
 // Status ABI, shared with `std.crypto`'s advanced_status: 1 success, 0 bad
 // signature, -1 invalid length, -3 entropy failure, -5 invalid key, -6 key
-// too small.
+// too small, -7 allocation failure.
 const INVALID_LENGTH: i64 = -1;
 const RANDOM_FAILURE: i64 = -3;
 const INVALID_KEY: i64 = -5;
 const WEAK_KEY: i64 = -6;
+const ALLOCATION: i64 = -7;
+
+// Arena sizes for ring 0.17's RSA operations. ring allocates only limb
+// buffers, each at most MAX_LIMBS (8192 bits, 1 KiB): a modulus larger than
+// that is rejected before its buffer is made. Each operation makes a fixed
+// number of them whatever the input, and reuses them in its loops, so the
+// worst case is the largest key each operation accepts. A rejected input
+// stops partway through the same sequence; one component may be up to
+// MAX_LIMBS before its range check. On x86_64 the exponentiation table is on
+// the stack. Each size is at least twice the high-water mark that
+// `arena_bounds_cover_the_largest_keys` measures (5376, 3328 and 5120 bytes
+// with ring 0.17.14); that test fails if a ring update outgrows them.
+/// A parsed private key (modulus at most 4096 bits) and its parse.
+const KEY_ARENA: usize = 12 << 10;
+/// One signature with a key of at most 4096 bits.
+const SIGN_ARENA: usize = 8 << 10;
+/// One verification with a public modulus of at most 8192 bits.
+const VERIFY_ARENA: usize = 12 << 10;
+
+/// ring's RSA key and the arena that holds all of its heap memory. The key is
+/// never dropped through the allocator: dropping the arena zeroes and frees
+/// its limbs on whichever thread drops it.
+struct RsaKey {
+    pair: ManuallyDrop<rsa::KeyPair>,
+    _arena: Arena,
+}
 
 enum Key {
     Empty,
-    Rsa(rsa::KeyPair),
+    Rsa(RsaKey),
     P256(signature::EcdsaKeyPair),
 }
 
@@ -31,8 +59,8 @@ struct Private {
 }
 
 /// Overwrites the key slot. `EcdsaKeyPair` has no drop glue, so its scalar
-/// and nonce key are scrubbed in place. ring's RSA limbs live in boxes that
-/// ring frees without zeroing; only the boxes' pointers are scrubbed here.
+/// and nonce key are scrubbed in place. ring's RSA limbs live in the key's
+/// arena, which zeroes them when dropped.
 unsafe fn clear_key(slot: *mut Key) {
     const { assert!(!std::mem::needs_drop::<signature::EcdsaKeyPair>()) };
     // SAFETY: the caller owns this initialized slot and writes a valid value
@@ -181,7 +209,18 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                 }
                 let der = view(b);
                 let loaded = if op == 341 {
-                    rsa::KeyPair::from_pkcs8(der).map(Key::Rsa)
+                    let Some(mut arena) = Arena::new(KEY_ARENA) else {
+                        return ALLOCATION as u128;
+                    };
+                    let Some(parsed) = within(&mut arena, || rsa::KeyPair::from_pkcs8(der)) else {
+                        return ALLOCATION as u128;
+                    };
+                    parsed.map(|pair| {
+                        Key::Rsa(RsaKey {
+                            pair: ManuallyDrop::new(pair),
+                            _arena: arena,
+                        })
+                    })
                 } else {
                     signature::EcdsaKeyPair::from_pkcs8(
                         &signature::ECDSA_P256_SHA256_FIXED_SIGNING,
@@ -205,8 +244,8 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             343 => {
                 let state = &*private_state(a);
                 match (&state.key, b as i64) {
-                    (Key::Rsa(key), 0) => key.public().as_ref().len() as i64,
-                    (Key::Rsa(key), _) => key.public().modulus_len() as i64,
+                    (Key::Rsa(key), 0) => key.pair.public().as_ref().len() as i64,
+                    (Key::Rsa(key), _) => key.pair.public().modulus_len() as i64,
                     (Key::P256(key), 0) => key.public_key().as_ref().len() as i64,
                     (Key::P256(_), _) => 64,
                     (Key::Empty, _) => crate::fail("private key state is empty"),
@@ -215,7 +254,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             344 => {
                 let state = &*private_state(a);
                 let public = match &state.key {
-                    Key::Rsa(key) => key.public().as_ref(),
+                    Key::Rsa(key) => key.pair.public().as_ref(),
                     Key::P256(key) => key.public_key().as_ref(),
                     Key::Empty => crate::fail("private key state is empty"),
                 };
@@ -235,15 +274,28 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                 match &state.key {
                     Key::Rsa(key) => {
                         let padding = rsa_padding(b as i64);
-                        if out.len() != key.public().modulus_len() {
+                        if out.len() != key.pair.public().modulus_len() {
                             INVALID_LENGTH
-                        } else if key.sign(padding, &rng, message, out).is_ok() {
-                            1
                         } else {
-                            // The length is checked, so only PSS salt
-                            // generation can fail.
-                            out.fill(0);
-                            RANDOM_FAILURE
+                            // Signing only reads the key, so its temporaries
+                            // go to a separate arena and the key's arena can
+                            // be shared by concurrent signers.
+                            let signed = Arena::new(SIGN_ARENA).and_then(|mut arena| {
+                                within(&mut arena, || key.pair.sign(padding, &rng, message, out))
+                            });
+                            match signed {
+                                Some(Ok(())) => 1,
+                                None => {
+                                    out.fill(0);
+                                    ALLOCATION
+                                }
+                                // The length is checked, so only PSS salt
+                                // generation can fail.
+                                Some(Err(_)) => {
+                                    out.fill(0);
+                                    RANDOM_FAILURE
+                                }
+                            }
                         }
                     }
                     Key::P256(key) => {
@@ -264,11 +316,11 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             }
             346 => {
                 let parameters = rsa_parameters(b as i64);
-                i64::from(
-                    signature::UnparsedPublicKey::new(parameters, view(a))
-                        .verify(view(c), view(d))
-                        .is_ok(),
-                )
+                let key = signature::UnparsedPublicKey::new(parameters, view(a));
+                let verified = Arena::new(VERIFY_ARENA).and_then(|mut arena| {
+                    within(&mut arena, || key.verify(view(c), view(d)).is_ok())
+                });
+                verified.map_or(ALLOCATION, i64::from)
             }
             347 => {
                 if view(c).len() != 64 {
@@ -309,5 +361,56 @@ mod tests {
         assert!(!rejected_as(error, b"TooSmall"));
         assert_eq!(p256_point(&[4; 65]), INVALID_KEY);
         assert_eq!(p256_point(&[2; 33]), INVALID_KEY);
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/fixtures/crypto/rsa/");
+
+    /// The high-water mark of `job` in an arena larger than any bound.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn peak<R>(job: impl FnOnce() -> R) -> (usize, R) {
+        let mut arena = Arena::new(1 << 20).unwrap();
+        let result = within(&mut arena, job).unwrap();
+        (arena.high_water(), result)
+    }
+
+    // Measures each operation at the largest size it accepts. The arenas
+    // must leave at least the margin their comment claims.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn arena_bounds_cover_the_largest_keys() {
+        let pkcs8 = std::fs::read(format!("{FIXTURES}rsa4096.pk8")).unwrap();
+        let public = std::fs::read(format!("{FIXTURES}rsa8192.rsapublickey")).unwrap();
+        let signature = std::fs::read(format!("{FIXTURES}rsa8192-pkcs1-sha256.sig")).unwrap();
+        let message = std::fs::read(format!("{FIXTURES}message")).unwrap();
+        // The key's limbs live in `keys`, which must outlive every use.
+        let mut keys = Arena::new(1 << 20).unwrap();
+        let key = within(&mut keys, || rsa::KeyPair::from_pkcs8(&pkcs8))
+            .unwrap()
+            .unwrap();
+        let load = keys.high_water();
+        let rng = rand::SystemRandom::new();
+        let mut out = vec![0; key.public().modulus_len()];
+        let mut sign = 0;
+        for padding in [
+            &signature::RSA_PKCS1_SHA512 as &dyn signature::RsaEncoding,
+            &signature::RSA_PSS_SHA512,
+        ] {
+            let (used, signed) = peak(|| key.sign(padding, &rng, &message, &mut out));
+            signed.unwrap();
+            sign = sign.max(used);
+        }
+        let (verify, verified) = peak(|| {
+            signature::UnparsedPublicKey::new(&signature::RSA_PKCS1_2048_8192_SHA256, &public)
+                .verify(&message, &signature)
+        });
+        verified.unwrap();
+        eprintln!("high water: load {load}, sign {sign}, verify {verify}");
+        // Dropping the arena frees the key's limbs.
+        std::mem::forget(key);
+        drop(keys);
+        assert!(load * 2 <= KEY_ARENA, "load {load}");
+        assert!(sign * 2 <= SIGN_ARENA, "sign {sign}");
+        assert!(verify * 2 <= VERIFY_ARENA, "verify {verify}");
     }
 }

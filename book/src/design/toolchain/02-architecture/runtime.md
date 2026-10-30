@@ -102,7 +102,10 @@ A Rust panic in the runtime is a runtime defect, not a Plenty error. An
 executable reports it as `error: internal runtime panic at FILE:LINE:COLUMN:
 MESSAGE` on standard error and aborts with `SIGABRT`, without unwinding or a
 backtrace. A failed Rust allocation reports `error: memory allocation of N bytes
-failed` and aborts. Plenty's own traps and errors are unaffected.
+failed` and aborts, unless an actor handler contains it as a trap or it
+happens inside a reserved arena call, which returns an error instead: see
+[RSA allocation](../../stdlib/crypto-keys.md#allocation-and-key-material).
+Plenty's own traps and errors are unaffected.
 
 std's panic handler would link its panic hook and backtrace symbolizer into
 every executable, even with abort-on-panic. The application archive's link

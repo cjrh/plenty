@@ -249,6 +249,9 @@ def advanced_status(status: i64) -> Result[(), AdvancedError]:
             Err(AdvancedError.InvalidKey)
         case -6:
             Err(AdvancedError.WeakKey)
+        # The runtime could not reserve memory for a ring RSA operation.
+        case -7:
+            Err(AdvancedError.Allocation(AllocError.OutOfMemory))
         case _:
             Err(AdvancedError.InvalidLength)
 
@@ -395,7 +398,10 @@ pub class RsaPublicKey:
     pub def verify(self, scheme: RsaScheme, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
         if signature.len() != self._size:
             return Err(AdvancedError.InvalidLength)
-        Ok(std.bytes.crypto_rsa_verify(&self._key, rsa_scheme(scheme), message, signature) == 1)
+        status = std.bytes.crypto_rsa_verify(&self._key, rsa_scheme(scheme), message, signature)
+        if status < 0:
+            advanced_status(status)?
+        Ok(status == 1)
 
 # An RSA private key with a 2048..4096-bit modulus, held by the runtime.
 pub class RsaPrivateKey:
