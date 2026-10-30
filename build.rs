@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 #[path = "plenty-runtime/native/brotli_build.rs"]
 mod brotli_build;
+#[path = "plenty-runtime/native/tools.rs"]
+mod native_tools;
 use std::process::Command;
 
 /// The runtime's only third-party code: RustCrypto digests, HMAC, BLAKE3 and
@@ -64,7 +66,15 @@ const VENDORED: &[Vendored] = &[
         &[],
         &["crypto_common", "block_buffer", "subtle"],
     ),
-    ("cpufeatures-0.2.17", "cpufeatures", "2018", &[], &[], &[]),
+    ("libc-0.2.186", "libc", "2021", &["std"], &[], &[]),
+    (
+        "cpufeatures-0.2.17",
+        "cpufeatures",
+        "2018",
+        &[],
+        &[],
+        &["libc"],
+    ),
     (
         "sha2-0.10.9",
         "sha2",
@@ -99,7 +109,7 @@ const VENDORED: &[Vendored] = &[
         "2024",
         &[],
         &[],
-        &[],
+        &["libc"],
     ),
     (
         "blake3-1.8.7",
@@ -125,8 +135,6 @@ const VENDORED: &[Vendored] = &[
         &[],
         &[],
     ),
-    // `std.tls`. libc's build script sets no cfg for x86_64 Linux GNU.
-    ("libc-0.2.186", "libc", "2021", &[], &[], &[]),
     (
         "getrandom-0.2.17",
         "getrandom",
@@ -151,7 +159,7 @@ const VENDORED: &[Vendored] = &[
         "2021",
         &["alloc", "default", "dev_urandom_fallback"],
         &[],
-        &["cfg_if", "getrandom", "untrusted"],
+        &["cfg_if", "getrandom", "untrusted", "libc"],
     ),
     (
         "rustls-pki-types-1.15.1",
@@ -195,6 +203,7 @@ const RUNTIME_EXTERNS: &[&str] = &[
     "rustls",
     "ring",
     "siphasher",
+    "libc",
 ];
 
 fn main() {
@@ -226,7 +235,7 @@ const TEST_HOOKS: &str = "plenty-runtime/native/test_hooks.c";
 fn build_native_object(out: &Path, source: &str, object: &str) {
     println!("cargo:rerun-if-changed={source}");
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
+    let cc = native_tools::tool("CC");
     let output = Command::new(&cc)
         .args(["-c", "-O2", "-fPIC", "-g0", "-Wall", "-Werror"])
         .args(["-ffunction-sections", "-fdata-sections"])
@@ -265,7 +274,7 @@ fn build_sqlite(dir: &Path) {
     println!("cargo:rerun-if-env-changed=AR");
     let object = dir.join("sqlite3.o");
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
+    let cc = native_tools::tool("CC");
     let output = Command::new(&cc)
         .args(["-c", "-O2", "-fPIC", "-g0", "-w"])
         .args(["-ffunction-sections", "-fdata-sections"])
@@ -283,7 +292,7 @@ fn build_sqlite(dir: &Path) {
     );
     let archive = dir.join(format!("lib{SQLITE_ARCHIVE}.a"));
     let _ = std::fs::remove_file(&archive);
-    let ar = std::env::var_os("AR").unwrap_or_else(|| "ar".into());
+    let ar = native_tools::tool("AR");
     let output = Command::new(&ar)
         .arg("crsD")
         .arg(&archive)
@@ -303,7 +312,7 @@ fn build_sqlite(dir: &Path) {
 /// symbol prefix expects.
 const RING: &str = "plenty-runtime/vendor/ring-0.17.14";
 const RING_ARCHIVE: &str = "ring_core_0_17_14_";
-const RING_SOURCES: &[&str] = &[
+const RING_X86_SOURCES: &[&str] = &[
     "crypto/curve25519/curve25519.c",
     "crypto/fipsmodule/aes/aes_nohw.c",
     "crypto/fipsmodule/bn/montgomery.c",
@@ -335,15 +344,42 @@ const RING_SOURCES: &[&str] = &[
     "pregenerated/chacha20_poly1305_x86_64-elf.S",
 ];
 
+/// Match ring 0.17.14's upstream RING_SRCS and linux64 pregenerated selection.
+fn ring_sources() -> Vec<&'static str> {
+    match std::env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() {
+        "x86_64" => RING_X86_SOURCES.to_vec(),
+        "aarch64" => RING_X86_SOURCES[..11]
+            .iter()
+            .copied()
+            .chain([
+                "crypto/fipsmodule/ec/p256-nistz.c",
+                "pregenerated/chacha-armv8-linux64.S",
+                "pregenerated/chacha20_poly1305_armv8-linux64.S",
+                "pregenerated/aesv8-armx-linux64.S",
+                "pregenerated/aesv8-gcm-armv8-linux64.S",
+                "pregenerated/ghash-neon-armv8-linux64.S",
+                "pregenerated/ghashv8-armx-linux64.S",
+                "pregenerated/vpaes-armv8-linux64.S",
+                "pregenerated/armv8-mont-linux64.S",
+                "pregenerated/p256-armv8-asm-linux64.S",
+                "pregenerated/sha512-armv8-linux64.S",
+                "pregenerated/sha256-armv8-linux64.S",
+            ])
+            .collect(),
+        arch => panic!("embedded runtime does not support architecture {arch}"),
+    }
+}
+
 fn build_ring(dir: &Path) {
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
-    let objects: Vec<PathBuf> = RING_SOURCES
+    let cc = native_tools::tool("CC");
+    let sources = ring_sources();
+    let objects: Vec<PathBuf> = sources
         .iter()
         .map(|source| dir.join(format!("ring-{}.o", source.replace('/', "-"))))
         .collect();
     // A few compilers at a time: the build shares the machine with Cargo's jobs.
-    for (sources, objects) in RING_SOURCES.chunks(4).zip(objects.chunks(4)) {
+    for (sources, objects) in sources.chunks(4).zip(objects.chunks(4)) {
         let children: Vec<_> = sources
             .iter()
             .zip(objects)
@@ -374,7 +410,7 @@ fn build_ring(dir: &Path) {
     }
     let archive = dir.join(format!("lib{RING_ARCHIVE}.a"));
     let _ = std::fs::remove_file(&archive);
-    let ar = std::env::var_os("AR").unwrap_or_else(|| "ar".into());
+    let ar = native_tools::tool("AR");
     let output = Command::new(&ar)
         .arg("crsD")
         .arg(&archive)
@@ -470,7 +506,9 @@ fn build_vendored(out: &Path) -> PathBuf {
             rustc.args(["--cfg", &format!("feature=\"{feature}\"")]);
         }
         for cfg in *cfgs {
-            rustc.args(["--cfg", cfg]);
+            if *name != "blake3" || std::env::var("CARGO_CFG_TARGET_ARCH").unwrap() == "x86_64" {
+                rustc.args(["--cfg", cfg]);
+            }
         }
         for name in *externs {
             rustc.arg(extern_arg(&dir, name));

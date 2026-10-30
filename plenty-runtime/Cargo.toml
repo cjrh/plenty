@@ -28,3 +28,4 @@ rustls = { version = "=0.23.46", default-features = false, features = ["ring", "
 siphasher = { version = "=1.0.4", default-features = false }
 ring = { version = "=0.17.14", default-features = false, features = ["alloc"] }
 blake3 = { version = "=1.8.7", default-features = false, features = ["pure"] }
+libc = "=0.2.186"
