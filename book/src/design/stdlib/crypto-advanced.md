@@ -52,7 +52,7 @@ The other inputs and output must be separate buffers under the loan rules.
 | `ed25519_public_key_into(seed, target)` | Writes an exactly 32-byte buffer |
 | `ed25519_sign(seed, message)` | A new 64-byte signature |
 | `ed25519_sign_into(seed, message, target)` | Writes an exactly 64-byte buffer |
-| `ed25519_verify(public_key, message, signature)` | `True` for a valid signature; `False` for a mismatch |
+| `ed25519_verify(public_key, message, signature)` | `True` for a valid signature; `False` for a mismatch; `SmallOrderKey` for a [small-order key](#small-order-public-keys) |
 
 Every input is `&Bytes`; `target` is `&mut Bytes`. A seed must be exactly
 32 cryptographically random bytes. Generate one with `std.secrets.token_bytes(32)`;
@@ -61,13 +61,53 @@ deterministic, and a signing seed can sign multiple messages. Verification
 requires exactly 32 public-key bytes and 64 signature bytes; other lengths
 return `InvalidLength`, whereas correctly sized malformed keys/signatures
 return `False`. This is plain Ed25519, without a prehash or context mode.
-Public keys must be authenticated by the application's protocol. Small-order
-and mixed-order public keys are not rejected. With such a key, a signature can
-verify without any matching seed; with the identity point, one fixed signature
-verifies for every message. Never accept a public key that the protocol has
-not authenticated. The
-[Wycheproof vectors](crypto-keys.md#test-vectors) record this as their
-`acceptable` cases.
+Public keys must be authenticated by the application's protocol.
+
+### Small-order public keys
+
+`ed25519_verify` and [SPKI import](crypto-keys.md#import) reject a
+small-order public key with `SmallOrderKey`. Such a key is a point whose
+order divides 8; no private key stands behind it, so anyone can make
+signatures that verify under it. Under the identity point, the signature
+`R = B`, `S = 1` verifies for every message. The rule covers all 14
+encodings of the eight points, including the non-canonical ones (`y = p` and
+`y = p + 1`) and both sign bits. Verification checks lengths first, so a
+small-order key with a wrong-length signature is still `InvalidLength`. The
+result is an error rather than `False` because no answer about the signature
+is meaningful for such a key.
+
+```plenty
+import std.bytes
+import std.crypto
+import std.encoding
+import std.report
+
+def main() -> Result[(), IoError | std.bytes.BytesError | std.encoding.EncodingError | std.report.FormatError]:
+    identity = std.encoding.hex_from_text("0100000000000000000000000000000000000000000000000000000000000000")?
+    forged = std.encoding.hex_from_text("58666666666666666666666666666666666666666666666666666666666666660100000000000000000000000000000000000000000000000000000000000000")?
+    message = std.bytes.from_text("any message")?
+    match std.crypto.ed25519_verify(&identity, &message, &forged):
+        case Ok(valid):
+            print(valid)?
+        case Err(error):
+            print(std.report.to_string(&error, 256, 4)?)?
+    Ok(())
+```
+```output
+Ed25519 public key has small order: signatures can verify under it without any private key, so it is rejected
+```
+
+[RFC 8032](https://www.rfc-editor.org/rfc/rfc8032) permits these keys and
+`ring` accepts them, so a peer that publishes one interoperates with RFC 8032
+verifiers but not with Plenty. libsodium rejects the same set.
+
+Mixed-order keys, a prime-order point plus a small-order one, are accepted.
+Signing under one still needs the private key of its prime-order part, so
+they do not allow forgery. They do let a key holder produce signatures that
+verifiers with and without the cofactor in their equation judge differently.
+Rejecting them needs a scalar multiplication by the group order, which `ring`
+does not expose; libsodium's verification accepts them too. The
+[Wycheproof vectors](crypto-keys.md#test-vectors) pin both rules.
 
 ## X25519
 
@@ -118,7 +158,14 @@ unchanged. Use context to separate keys with different purposes. HKDF is
 | `Finished` | X25519 key already used for an agreement attempt |
 | `RandomFailure` | OS entropy or X25519 key/public-key generation failed |
 | `InvalidKey`, `WeakKey` | Raised only by [RSA, ECDSA and key import](crypto-keys.md#errors) |
+| `SmallOrderKey` | An Ed25519 public key has [small order](#small-order-public-keys) |
 | `Allocation(AllocError)` | A fallible buffer or private-state allocation failed |
+
+`AdvancedError` satisfies [`std.report.Formattable`](report.md): each variant
+formats as a fixed sentence stating its cause, without key material. An
+[entrypoint report](../toolchain/01-building/entry-report.md) uses it when
+`main` returns a bare `AdvancedError`; an error sum uses it only when every
+member is formattable.
 
 The `_into` functions, verification, and opening allocate nothing. Sealing
 allocates only if growth exceeds capacity. Functions returning `Bytes`

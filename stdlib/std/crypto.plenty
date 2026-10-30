@@ -5,6 +5,7 @@
 # book/src/design/stdlib/crypto.md.
 import std.bytes
 from std.bytes import Bytes, BytesError, ByteSource
+from std.report import Formatter, FormatError
 
 pub enum CryptoError:
     OutOfRange
@@ -216,7 +217,32 @@ pub enum AdvancedError:
     RandomFailure
     InvalidKey
     WeakKey
+    SmallOrderKey
     Allocation(AllocError)
+
+    # The std.report message, used by entrypoint reports. Each states the
+    # cause without key material.
+    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+        message = match self:
+            case AdvancedError.InvalidLength:
+                "wrong length for a key, nonce, tag, signature or output"
+            case AdvancedError.AuthenticationFailed:
+                "authentication failed"
+            case AdvancedError.InvalidPeer:
+                "X25519 rejected the peer public key"
+            case AdvancedError.Finished:
+                "the X25519 key was already used for an agreement"
+            case AdvancedError.RandomFailure:
+                "operating-system randomness or key generation failed"
+            case AdvancedError.InvalidKey:
+                "malformed key, or a key for another algorithm or curve"
+            case AdvancedError.WeakKey:
+                "RSA modulus shorter than 2048 bits"
+            case AdvancedError.SmallOrderKey:
+                "Ed25519 public key has small order: signatures can verify under it without any private key, so it is rejected"
+            case AdvancedError.Allocation(_):
+                "out of memory"
+        output.text(message)
 
 pub enum AeadAlgorithm:
     Aes256Gcm
@@ -308,7 +334,11 @@ pub def ed25519_sign(seed: &Bytes, message: &Bytes) -> Result[Bytes, AdvancedErr
     ed25519_sign_into(seed, message, &mut target)?
     Ok(target)
 
+# Lengths are checked first. A small-order key is an error, not False: no
+# private key stands behind it, so no answer about the signature is useful.
 pub def ed25519_verify(public_key: &Bytes, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
+    if public_key.len() == 32 and signature.len() == 64 and ed25519_small_order(public_key, 0)?:
+        return Err(AdvancedError.SmallOrderKey)
     status = std.bytes.crypto_ed_verify(public_key, message, signature)
     if status < 0:
         return Err(AdvancedError.InvalidLength)
@@ -662,7 +692,36 @@ pub def ed25519_public_key_from_spki(der: &Bytes) -> Result[Bytes, AdvancedError
     bits = spki(der, b"\x06\x03\x2b\x65\x70")?
     if bits.stop - bits.start != 32:
         return Err(AdvancedError.InvalidKey)
+    if ed25519_small_order(der, bits.start)?:
+        return Err(AdvancedError.SmallOrderKey)
     advanced_bytes(der.slice(bits.start, bits.stop))
+
+# Whether data[at:at + 32] encodes a point of order 1, 2, 4 or 8. For such
+# a key A, the signature (R, S) = ([r]B, r) verifies whenever [k]A is the
+# identity: for every message under the identity point, and for at least
+# one message in eight under the others, so anyone can sign. RFC 8032 permits these keys;
+# libsodium rejects them. Their y values are 0, 1, p - 1, the two order-8
+# values, and the non-canonical p and p + 1. Ignoring the sign bit covers the
+# remaining encodings: 14 in all. Mixed-order keys are accepted; see
+# crypto-advanced.md.
+def ed25519_small_order(data: &Bytes, at: i64) -> Result[bool, AdvancedError]:
+    if at < 0 or at + 32 > data.len():
+        return Ok(False)
+    match data[at + 31] & 127u8:
+        case 0u8:
+            Ok(ed25519_y(data, at, b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")? or ed25519_y(data, at, b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")?)
+        case 5u8:
+            ed25519_y(data, at, b"\x26\xe8\x95\x8f\xc2\xb2\x27\xb0\x45\xc3\xf4\x89\xf2\xef\x98\xf0\xd5\xdf\xac\x05\xd3\xc6\x33\x39\xb1\x38\x02\x88\x6d\x53\xfc")
+        case 122u8:
+            ed25519_y(data, at, b"\xc7\x17\x6a\x70\x3d\x4d\xd8\x4f\xba\x3c\x0b\x76\x0d\x10\x67\x0f\x2a\x20\x53\xfa\x2c\x39\xcc\xc6\x4e\xc7\xfd\x77\x92\xac\x03")
+        case 127u8:
+            Ok(ed25519_y(data, at, b"\xec\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")? or ed25519_y(data, at, b"\xed\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")? or ed25519_y(data, at, b"\xee\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")?)
+        case _:
+            Ok(False)
+
+# Whether data[at:at + 31] equals a small-order y's low 31 bytes.
+def ed25519_y[S: ByteSource](data: &Bytes, at: i64, low: &S) -> Result[bool, AdvancedError]:
+    advanced_bytes(data.matches(at, low, 0, 31))
 
 # Unencrypted PKCS #8 (RFC 8410) holding an Ed25519 key. Returns the 32-byte
 # seed that ed25519_sign takes. Version 1 may include the public key, which

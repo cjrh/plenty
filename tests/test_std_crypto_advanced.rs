@@ -78,6 +78,109 @@ print(std.crypto.ed25519_verify(&key, &message, &signature)?)?
     );
 }
 
+/// Every encoding of the eight points of order dividing 8: y in {0, 1, p - 1,
+/// the two order-8 values} and the non-canonical p and p + 1, each with both
+/// sign bits (issue #569). The signature is a forgery that ring accepts for
+/// the identity key: R = B and S = 1 satisfy [S]B = R + [k]A for A = 0.
+const SMALL_ORDER_KEYS: &str = r#"[
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "0000000000000000000000000000000000000000000000000000000000000080",
+    "0100000000000000000000000000000000000000000000000000000000000000",
+    "0100000000000000000000000000000000000000000000000000000000000080",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+]"#;
+
+#[test]
+fn ed25519_rejects_every_small_order_key_encoding() {
+    native(
+        &format!(
+            r#"
+forged = unhex("58666666666666666666666666666666666666666666666666666666666666660100000000000000000000000000000000000000000000000000000000000000")?
+message = std.bytes.from_text("anything")?
+encodings = {SMALL_ORDER_KEYS}?
+for text in encodings:
+    key = unhex(text)?
+    print(str.repr(std.crypto.ed25519_verify(&key, &message, &forged))?)?
+"#
+        ),
+        &["Result[bool, E].Err(E.SmallOrderKey)"; 14].join("\n"),
+    );
+}
+
+/// Keys next to the blocklist reach ring: a different y with a matching top
+/// byte, y = 2 and its non-canonical p + 2, and a mixed-order key (Wycheproof
+/// tcId 160), which is accepted by design. Bad lengths stay `InvalidLength`.
+#[test]
+fn ed25519_small_order_check_is_exact() {
+    native(
+        r#"
+forged = unhex("58666666666666666666666666666666666666666666666666666666666666660100000000000000000000000000000000000000000000000000000000000000")?
+message = std.bytes.from_text("anything")?
+for text in ["27e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05", "0200000000000000000000000000000000000000000000000000000000000000", "efffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", "15deb30729eb3e465c88f11b57d0c8d36eb0f670c3b22d2f80ea6049eeb2c23b"]?:
+    key = unhex(text)?
+    print(str.repr(std.crypto.ed25519_verify(&key, &message, &forged))?)?
+short = unhex("00000000000000000000000000000000000000000000000000000000000000")?
+print(str.repr(std.crypto.ed25519_verify(&short, &message, &forged))?)?
+identity = unhex("0100000000000000000000000000000000000000000000000000000000000000")?
+print(str.repr(std.crypto.ed25519_verify(&identity, &message, &message))?)?
+"#,
+        "Result[bool, E].Ok(False)\nResult[bool, E].Ok(False)\nResult[bool, E].Ok(False)\nResult[bool, E].Ok(False)\nResult[bool, E].Err(E.InvalidLength)\nResult[bool, E].Err(E.InvalidLength)",
+    );
+}
+
+/// The entrypoint report of a bare `AdvancedError` uses its std.report
+/// `format`, which explains the rejection. Other variants are checked by
+/// `to_string`.
+#[test]
+fn small_order_key_error_explains_why() {
+    let output = run(r#"import std.bytes
+import std.crypto
+import std.report
+from std.crypto import AdvancedError
+
+def main() -> Result[(), AdvancedError]:
+    match std.report.to_string(&AdvancedError.WeakKey, 256, 4):
+        case Ok(text):
+            match print(text):
+                case _:
+                    pass
+        case Err(_):
+            pass
+    mut key = match std.bytes.empty():
+        case Ok(bytes):
+            bytes
+        case Err(_):
+            return Ok(())
+    mut signature = match std.bytes.empty():
+        case Ok(bytes):
+            bytes
+        case Err(_):
+            return Ok(())
+    if key.resize(32, 0u8).is_err() or signature.resize(64, 0u8).is_err():
+        return Ok(())
+    std.crypto.ed25519_verify(&key, &signature, &signature)?
+    Ok(())
+"#);
+    assert!(!output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "RSA modulus shorter than 2048 bits\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "error: main returned Ed25519 public key has small order: signatures can verify under it without any private key, so it is rejected\n"
+    );
+}
+
 #[test]
 fn hkdf_rfc5869_case_one_and_empty_inputs() {
     native(
