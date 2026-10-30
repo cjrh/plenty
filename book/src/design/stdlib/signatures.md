@@ -9,8 +9,95 @@ variants, and limits. `pub` is omitted. Fields, methods, and variants are
 indented under their owner. Summaries come from the
 [module table](index.md#modules).
 
+<!-- contributors-only -->
 After changing a standard module, regenerate this page with
 `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.
+<!-- /contributors-only -->
+
+## Modules
+
+Each section's lines in this file, so one module can be read alone.
+
+- [`std.actor`](#stdactor): 102-174
+- [`std.actor.net`](#stdactornet): 176-239
+- [`std.actor.tls`](#stdactortls): 241-270
+- [`std.archive`](#stdarchive): 272-338
+- [`std.atomic`](#stdatomic): 340-349
+- [`std.bytes`](#stdbytes): 351-446
+- [`std.cache.lru`](#stdcachelru): 448-470
+- [`std.channel`](#stdchannel): 472-476
+- [`std.cli`](#stdcli): 478-508
+- [`std.cli.fileinput`](#stdclifileinput): 510-519
+- [`std.cli.progress`](#stdcliprogress): 521-545
+- [`std.collections`](#stdcollections): 547-574
+- [`std.complex`](#stdcomplex): 576-602
+- [`std.compress`](#stdcompress): 604-634
+- [`std.concurrent`](#stdconcurrent): 636-640
+- [`std.crypto`](#stdcrypto): 642-723
+- [`std.csv`](#stdcsv): 725-788
+- [`std.dataframe`](#stddataframe): 790-989
+- [`std.db.kv`](#stddbkv): 991-1023
+- [`std.db.sqlite`](#stddbsqlite): 1025-1089
+- [`std.deque`](#stddeque): 1091-1105
+- [`std.diff`](#stddiff): 1107-1136
+- [`std.encoding`](#stdencoding): 1138-1199
+- [`std.env`](#stdenv): 1201-1215
+- [`std.error`](#stderror): 1217-1237
+- [`std.fmt`](#stdfmt): 1239-1292
+- [`std.fs`](#stdfs): 1294-1377
+- [`std.fs.dirs`](#stdfsdirs): 1379-1389
+- [`std.fs.watch`](#stdfswatch): 1391-1426
+- [`std.graph`](#stdgraph): 1428-1516
+- [`std.http`](#stdhttp): 1518-1587
+- [`std.http.body`](#stdhttpbody): 1589-1624
+- [`std.http.client`](#stdhttpclient): 1626-1736
+- [`std.http.cookie`](#stdhttpcookie): 1738-1770
+- [`std.http.files`](#stdhttpfiles): 1772-1785
+- [`std.http.https`](#stdhttphttps): 1787-1801
+- [`std.http.proxy`](#stdhttpproxy): 1803-1824
+- [`std.http.server`](#stdhttpserver): 1826-1911
+- [`std.http.sse`](#stdhttpsse): 1913-1932
+- [`std.http.tls`](#stdhttptls): 1934-1951
+- [`std.http.typed`](#stdhttptyped): 1953-1986
+- [`std.http.websocket`](#stdhttpwebsocket): 1988-2023
+- [`std.http.wss`](#stdhttpwss): 2025-2031
+- [`std.io`](#stdio): 2033-2113
+- [`std.io.typed`](#stdiotyped): 2115-2153
+- [`std.json`](#stdjson): 2155-2219
+- [`std.log`](#stdlog): 2221-2288
+- [`std.markdown`](#stdmarkdown): 2290-2324
+- [`std.template`](#stdtemplate): 2326-2347
+- [`std.math`](#stdmath): 2349-2415
+- [`std.net`](#stdnet): 2417-2499
+- [`std.path`](#stdpath): 2501-2518
+- [`std.process`](#stdprocess): 2520-2566
+- [`std.random`](#stdrandom): 2568-2589
+- [`std.ready`](#stdready): 2591-2621
+- [`std.regex`](#stdregex): 2623-2676
+- [`std.report`](#stdreport): 2678-2701
+- [`std.secrets`](#stdsecrets): 2703-2729
+- [`std.shlex`](#stdshlex): 2731-2740
+- [`std.sketch`](#stdsketch): 2742-2780
+- [`std.sketch.xor`](#stdsketchxor): 2782-2793
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2795-2810
+- [`std.signal`](#stdsignal): 2812-2829
+- [`std.simd`](#stdsimd): 2831-2932
+- [`std.stat`](#stdstat): 2934-2967
+- [`std.plot`](#stdplot): 2969-3058
+- [`std.linalg`](#stdlinalg): 3060-3101
+- [`std.sync`](#stdsync): 3103-3112
+- [`std.system`](#stdsystem): 3114-3172
+- [`std.tempfile`](#stdtempfile): 3174-3206
+- [`std.test`](#stdtest): 3208-3250
+- [`std.text`](#stdtext): 3252-3271
+- [`std.thread`](#stdthread): 3273-3277
+- [`std.time`](#stdtime): 3279-3323
+- [`std.tls`](#stdtls): 3325-3407
+- [`std.toml`](#stdtoml): 3409-3458
+- [`std.unicode`](#stdunicode): 3460-3472
+- [`std.url`](#stdurl): 3474-3502
+- [`std.uuid`](#stduuid): 3504-3527
+- [`std.xml`](#stdxml): 3529-3562
 
 ## `std.actor`
 

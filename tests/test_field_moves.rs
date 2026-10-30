@@ -254,7 +254,7 @@ print(r.name).unwrap()
 fn references_and_other_owners_keep_fields_in_place() {
     rejects(
         "def steal(p: &mut Pair) -> Res:\n    p.a",
-        "cannot move out of a field through a reference; use &value.field (or &mut value.field), or replace(value.field, replacement) through a mutable reference",
+        "cannot move out of a field through a reference; borrow it with &value.field (or &mut value.field), or take it with replace(value.field, replacement) through a mutable reference",
     );
     rejects(
         "class Holder:\n    r: Res\n    def steal(self) -> Res:\n        self.r",

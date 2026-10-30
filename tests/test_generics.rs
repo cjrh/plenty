@@ -423,7 +423,8 @@ def main() -> Result[(), AllocError]:
         ),
         "10:11: cannot instantiate `Holder[i64].row`: its definition is rejected
   6:9: note: in instantiation `Holder[i64].row`: cannot move out of indexed storage; \
-         use copy(collection[index])"
+         borrow it with &collection[index], take it with replace(collection[index], value) \
+         or collection.pop(index), or copy it with copy(collection[index])?"
     );
     // Two parameters with the copied argument: either could be the cause.
     assert_eq!(
@@ -440,7 +441,7 @@ def main() -> Result[(), AllocError]:
         ),
         "7:12: cannot instantiate `both[list[i64], list[i64]]`: its definition is rejected
   2:6: note: in instantiation `both[list[i64], list[i64]]`: cannot move out of a reference; \
-         use copy or borrow"
+         use the reference instead of dereferencing it, or copy the value with copy(reference)?"
     );
 }
 
@@ -467,7 +468,8 @@ def main() -> Result[(), AllocError]:
         ),
         "10:11: cannot instantiate `Holder[list[i64]].row`: its definition is rejected
   6:9: note: in instantiation `Holder[list[i64]].row`: cannot move out of indexed storage; \
-         use copy(collection[index])"
+         borrow it with &collection[index], take it with replace(collection[index], value) \
+         or collection.pop(index), or copy it with copy(collection[index])?"
     );
     // A parameter type of a generic function.
     assert_eq!(
@@ -482,7 +484,8 @@ def main() -> Result[(), AllocError]:
         ),
         "5:11: cannot instantiate `pick[list[i64]]`: its definition is rejected
   2:5: note: in instantiation `pick[list[i64]]`: cannot move out of indexed storage; \
-         use copy(collection[index])"
+         borrow it with &collection[index], take it with replace(collection[index], value) \
+         or collection.pop(index), or copy it with copy(collection[index])?"
     );
     // An annotation in the body, rejected by the ownership check.
     assert_eq!(

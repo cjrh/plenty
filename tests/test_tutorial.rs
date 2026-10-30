@@ -600,6 +600,55 @@ fn run_shard(shard: usize, shards: usize) {
     );
 }
 
+/// The pages of the `plenty` agent skill (`.agents/skills/plenty/`) use the
+/// same fence kinds, so their programs, diagnostics and project commands are
+/// checked against this compiler. The skill links to book pages checked above;
+/// `scripts/sync_agent_skill.py` bundles copies of them when publishing.
+#[test]
+fn agent_skill_examples_match_the_language() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(".agents/skills/plenty");
+    let mut pages = Vec::new();
+    markdown_paths(&root, &mut pages);
+    pages.sort();
+    let fences: Vec<Fence> = pages
+        .iter()
+        .flat_map(|path| {
+            let page = path.strip_prefix(&root).unwrap().to_string_lossy();
+            let page = format!(".agents/skills/plenty/{}", page.replace('\\', "/"));
+            fences(&page, &std::fs::read_to_string(path).unwrap())
+        })
+        .collect();
+    let jobs = jobs(&fences);
+    let workspace =
+        Workspace(std::env::temp_dir().join(format!("plenty-agent-skill-{}", std::process::id())));
+    std::fs::create_dir(&workspace.0).unwrap();
+    let run_command = first_runnable_example_per_directory(&jobs);
+    let failures: Vec<&str> = jobs
+        .iter()
+        .enumerate()
+        .filter(|(number, job)| !run_job(job, *number, &workspace.0, run_command[*number]))
+        .map(|(_, job)| match job {
+            Job::Example { source, .. } => source.line.as_str(),
+            Job::Project { command, .. } => command.line.as_str(),
+        })
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "agent skill examples failed at lines {failures:?}"
+    );
+}
+
+fn markdown_paths(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            markdown_paths(&path, out);
+        } else if path.extension().is_some_and(|e| e == "md") {
+            out.push(path);
+        }
+    }
+}
+
 #[test]
 fn dataframe_examples_with_optional_engine() {
     if std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none() {

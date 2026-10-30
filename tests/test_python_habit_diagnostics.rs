@@ -419,3 +419,233 @@ fn membership_accepts_a_borrowed_string() {
         "(True, False, False)\n"
     );
 }
+
+#[test]
+fn none_names_nothing_and_unit() {
+    // Issue #570.
+    assert_eq!(
+        diagnostic("def main() -> ():\n    x = None\n"),
+        "2:9: Plenty has no `None`; an absent value is `Nothing`, the empty variant of `Option[T]`"
+    );
+    assert_eq!(
+        diagnostic("def f() -> None:\n    pass\ndef main() -> ():\n    f()\n"),
+        "1:12: Plenty has no `None` type; write `()` for no result, or `Option[T]` for an optional value"
+    );
+    assert_eq!(
+        output(
+            "def main() -> Result[(), IoError]:\n    x: Option[i64] = Nothing\n    print(x)?\n    Ok(())\n"
+        ),
+        "Option[i64].Nothing\n"
+    );
+}
+
+#[test]
+fn exception_statements_name_result_and_propagation() {
+    // Issue #571.
+    let hint = |keyword: &str| {
+        format!(
+            "`{keyword}` is not supported; Plenty has no exceptions: return `Result[T, E]`, propagate an error with `?`, and handle it with `match`"
+        )
+    };
+    for (body, keyword) in [
+        ("try:\n        pass", "try"),
+        ("except:\n        pass", "except"),
+        ("except ValueError as error:\n        pass", "except"),
+        ("finally:\n        pass", "finally"),
+        ("raise ValueError(\"bad\")", "raise"),
+    ] {
+        let source = format!("def main() -> ():\n    {body}\n");
+        assert_eq!(
+            diagnostic(&source),
+            format!("2:5: {}", hint(keyword)),
+            "{body}"
+        );
+    }
+    // Only `try` is reserved; the other words remain ordinary names.
+    support::check_source(
+        "def raise(n: i64) -> i64:\n    n\ndef main() -> ():\n    finally = 2\n    except = raise(1)\n    x = raise(finally) + except\n",
+    )
+    .unwrap();
+}
+
+#[test]
+fn python_type_names_name_the_plenty_type() {
+    // Issue #572.
+    for (written, hint) in [
+        ("int", "use `i64`, or another width such as `i32` or `u8`"),
+        ("float", "use `f64` or `f32`"),
+        ("List", "write `list[T]`"),
+        ("Dict", "write `dict[K, V]`"),
+        ("Set", "write `set[T]`"),
+        ("Tuple", "write `tuple[A, B]`"),
+        ("Optional", "write `Option[T]`"),
+        ("Union", "write the members as `A | B`"),
+    ] {
+        // Both the function signature and the local annotation paths.
+        assert_eq!(
+            diagnostic(&format!(
+                "def f(x: {written}) -> ():\n    pass\ndef main() -> ():\n    pass\n"
+            )),
+            format!("1:10: unknown type `{written}`; {hint}"),
+        );
+        assert_eq!(
+            diagnostic(&format!("def main() -> ():\n    x: {written} = 3\n")),
+            format!("2:8: unknown type `{written}`; {hint}"),
+        );
+    }
+    assert_eq!(
+        diagnostic("def main() -> ():\n    x: Missing = 3\n"),
+        "2:8: unknown type `Missing`"
+    );
+}
+
+#[test]
+fn python_builtins_name_the_plenty_spelling() {
+    // Issue #573.
+    for (call, name, hint) in [
+        ("abs(-1)", "abs", "import `std.math` and call `math.abs(x)`"),
+        (
+            "min(1, 2)",
+            "min",
+            "import `std.math` and call `math.min(a, b)`, or `math.min_all(&items)` for a list",
+        ),
+        (
+            "max(1, 2)",
+            "max",
+            "import `std.math` and call `math.max(a, b)`, or `math.max_all(&items)` for a list",
+        ),
+        (
+            "sum(1)",
+            "sum",
+            "import `std.math` and call `math.sum(&items, 0)`",
+        ),
+        (
+            "round(2.5)",
+            "round",
+            "import `std.math` and call `math.round(x)?`, or keep the float with `x.round()`",
+        ),
+        (
+            "int(\"3\")",
+            "int",
+            "convert a number with `i64(value)`, or parse text with `i64.parse(text)?`",
+        ),
+        (
+            "float(\"3\")",
+            "float",
+            "convert a number with `f64(value)`, or parse text with `f64.parse(text)?`",
+        ),
+    ] {
+        assert_eq!(
+            diagnostic(&format!("def main() -> ():\n    y = {call}\n")),
+            format!("2:9: unknown function `{name}`; {hint}"),
+        );
+    }
+    assert_eq!(
+        diagnostic("def main() -> ():\n    y = missing(1)\n"),
+        "2:9: unknown function `missing`"
+    );
+    assert_eq!(
+        output(
+            "import std.math as math\ndef main() -> Result[(), AllocError | IoError | ParseError | math.MathError]:\n    xs = [3, 1]?\n    print(math.max(1, 2), math.max_all(&xs), math.sum(&xs, 0), math.round(2.5)?, i64.parse(\"3\")?)?\n    Ok(())\n"
+        ),
+        "2 Option[i64].Some(3) 4 2 3\n"
+    );
+}
+
+#[test]
+fn iterating_a_file_names_the_line_readers() {
+    // Issue #574.
+    let expected = "a file is not iterable; read lines with `line = file.readline()?` in a `while` loop until it returns `\"\"`, or collect them with `file.readlines()?`";
+    for (iterable, column) in [("file", 21), ("&file", 21), ("&mut file", 21)] {
+        let source = format!(
+            "def main() -> Result[(), IoError]:\n    with open(\"lines.txt\")? as file:\n        for line in {iterable}:\n            pass\n    Ok(())\n"
+        );
+        assert_eq!(
+            diagnostic(&source),
+            format!("3:{column}: {expected}"),
+            "{iterable}"
+        );
+    }
+    assert_eq!(
+        diagnostic(
+            "def main() -> Result[(), IoError]:\n    for line in open(\"lines.txt\")?:\n        pass\n    Ok(())\n"
+        ),
+        format!("2:34: {expected}")
+    );
+}
+
+#[test]
+fn a_member_variant_pattern_on_a_sum_names_the_member_pattern() {
+    // Issue #575.
+    let declarations = "enum A:\n    X\n    Y\nenum B:\n    Z\n";
+    let hint = "a sum pattern names a whole member: write `case value: A:` in a `match` on the sum, then match `A` variants on `value` in a nested `match`";
+    assert_eq!(
+        diagnostic(&format!(
+            "{declarations}def f() -> A | B:\n    A.X\ndef main() -> ():\n    match f():\n        case A.X:\n            pass\n        case _:\n            pass\n"
+        )),
+        format!("10:14: expected A | B, got A; {hint}")
+    );
+    assert_eq!(
+        diagnostic(&format!(
+            "{declarations}def f() -> Result[i64, A | B]:\n    Err(A.X)\ndef main() -> ():\n    match f():\n        case Ok(v):\n            pass\n        case Err(A.X):\n            pass\n        case Err(_):\n            pass\n"
+        )),
+        format!("12:18: expected A | B, got A; {hint}")
+    );
+    // A builtin error member.
+    assert_eq!(
+        diagnostic(
+            "def f() -> Result[i64, AllocError | ParseError]:\n    Ok(1)\ndef main() -> ():\n    match f():\n        case Ok(v):\n            pass\n        case Err(ParseError.Invalid):\n            pass\n        case Err(_):\n            pass\n"
+        ),
+        "7:18: expected AllocError | ParseError, got ParseError; a sum pattern names a whole member: write `case value: ParseError:` in a `match` on the sum, then match `ParseError` variants on `value` in a nested `match`"
+    );
+    // An enum that is not a member keeps the plain mismatch.
+    assert_eq!(
+        diagnostic(&format!(
+            "{declarations}enum C:\n    W\ndef f() -> A | B:\n    A.X\ndef main() -> ():\n    match f():\n        case C.W:\n            pass\n        case _:\n            pass\n"
+        )),
+        "12:14: expected A | B, got C"
+    );
+    assert_eq!(
+        output(&format!(
+            "{declarations}def f() -> A | B:\n    A.Y\ndef main() -> Result[(), IoError]:\n    match f():\n        case value: A:\n            match value:\n                case A.X:\n                    print(\"x\")?\n                case A.Y:\n                    print(\"y\")?\n        case _:\n            pass\n    Ok(())\n"
+        )),
+        "y\n"
+    );
+}
+
+#[test]
+fn moving_out_through_a_reference_leads_with_borrowing() {
+    // Issue #576: borrow and `replace` come before a fallible copy, which
+    // propagates with `?` rather than `unwrap`.
+    let class = "class Bag:\n    items: list[i64]\n";
+    assert_eq!(
+        diagnostic(&format!(
+            "{class}def take(b: &mut Bag) -> list[i64]:\n    b.items\ndef main() -> ():\n    pass\n"
+        )),
+        "4:5: cannot move out of a field through a reference; borrow it with &value.field (or &mut value.field), take it with replace(value.field, replacement) through a mutable reference, or copy it with copy(value.field)?"
+    );
+    assert_eq!(
+        diagnostic(&format!(
+            "{class}def main() -> Result[(), AllocError]:\n    bags = [Bag([1]?)]?\n    y = bags[0].items\n    Ok(())\n"
+        )),
+        "5:9: cannot move out of a field here: fields move out only from a named class binding, not through a Box, Shared handle, element, capture, or temporary; borrow it with &value.field (or &mut value.field), take it with replace(value.field, replacement) on a mutable owner, or copy it with copy(value.field)?"
+    );
+    assert_eq!(
+        diagnostic(
+            "def main() -> Result[(), AllocError]:\n    rows = [[1]?]?\n    y = rows[0]\n    Ok(())\n"
+        ),
+        "3:9: cannot move out of indexed storage; borrow it with &collection[index], take it with replace(collection[index], value) or collection.pop(index), or copy it with copy(collection[index])?"
+    );
+    assert_eq!(
+        diagnostic(
+            "def take(xs: &list[i64]) -> list[i64]:\n    *xs\ndef main() -> ():\n    pass\n"
+        ),
+        "2:5: cannot move out of a reference; use the reference instead of dereferencing it, or copy the value with copy(reference)?"
+    );
+    assert_eq!(
+        output(&format!(
+            "{class}def take(b: &mut Bag) -> Result[list[i64], AllocError]:\n    copy(b.items)\ndef swap(b: &mut Bag) -> Result[list[i64], AllocError]:\n    Ok(replace(b.items, [9]?))\ndef main() -> Result[(), AllocError | IoError]:\n    mut bag = Bag([1]?)\n    print(take(&mut bag)?)?\n    old = swap(&mut bag)?\n    print(old, bag.items)?\n    Ok(())\n"
+        )),
+        "[1]\n[1] [9]\n"
+    );
+}

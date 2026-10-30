@@ -401,12 +401,14 @@ x86-64 ELF files), so building the compiler needs no network:
 | `untrusted`, `zeroize`, `once_cell` | 0.9.0, 1.9.1, 1.21.4 | ISC; MIT or Apache-2.0; MIT or Apache-2.0 |
 | `getrandom`, `libc` | 0.2.17, 0.2.186 | MIT or Apache-2.0 |
 
+<!-- contributors-only -->
 ring's C and assembly sources are compiled by `build.rs` with the system C
 compiler into a static archive, as SQLite's are. The versions are pinned in
 `Cargo.lock`, and a test fails if the two disagree. To update, replace the
 directories with new releases, run `cargo update -p CRATE --precise VERSION`,
 and rerun `tests/test_std_tls.rs`. Follow rustls security advisories: an
 update is a change to the compiler, and programs pick it up when rebuilt.
+<!-- /contributors-only -->
 
 Programs whose `main` never reaches `std.tls` code contain none of rustls or
 ring, even when they import a module that imports `std.tls`; the linker drops

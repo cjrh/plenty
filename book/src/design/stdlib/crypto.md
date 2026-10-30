@@ -195,11 +195,13 @@ installed compiler needs neither the sources nor a Rust toolchain:
 | `generic-array`, `typenum` | 0.14.7, 1.20.1 | MIT; MIT or Apache-2.0 |
 | `cpufeatures`, `cfg-if` | 0.2.17, 1.0.4 | MIT or Apache-2.0 |
 
+<!-- contributors-only -->
 Each crate's licence file is kept with its sources. The same versions are
 pinned in `Cargo.lock`, and a test fails if the two disagree. To update one,
 replace its directory with the new release, run `cargo update -p CRATE
 --precise VERSION`, and rerun the known-answer tests in
 `tests/test_std_crypto.rs`.
+<!-- /contributors-only -->
 
 Executables are linked with `--gc-sections`, and the hashing code is reached
 only through its own runtime entry symbols, so a program that does not use
