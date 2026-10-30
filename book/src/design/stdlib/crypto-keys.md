@@ -7,9 +7,11 @@ PEM. These are the signature schemes of JOSE and JWT: RS256, PS256 and ES256,
 with the SHA-384 and SHA-512 RSA variants. Ed25519 keys import here too and
 sign with the [Ed25519 functions](crypto-advanced.md#ed25519).
 
-Signing, verification and private-key parsing are `ring` primitives. Plenty
-parses public-key encodings and checks RSA key sizes itself, in checked code,
-so a public key reaches `ring` only after its structure is validated.
+> **Upstream code, used as-is.** Signing, verification and private-key
+> parsing are unmodified `ring` primitives; Plenty implements no cryptographic
+> arithmetic. Plenty parses public-key encodings and checks RSA key sizes
+> itself, in checked code, so a public key reaches `ring` only after its
+> structure is validated. See [`std.crypto`](crypto.md) for this policy.
 Every function returns `Result[_, AdvancedError]`. See the
 [signature index](signatures.md#stdcrypto) for complete declarations.
 

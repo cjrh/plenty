@@ -7,9 +7,12 @@ and key, and may ask clients for theirs. Handshakes, reads, and writes take the 
 cancellation token as the TCP stream under them. The module has one error
 type, `TlsError`, and is available on the supported x86-64 Linux GNU target.
 
-The protocol and certificate verification are [rustls](https://github.com/rustls/rustls)
-with its ring provider, compiled into the runtime. A rustls session never
-touches a socket: `std.tls` moves ciphertext between the session and the TCP
+> **Upstream code, used as-is.** The TLS protocol, certificate verification
+> and all cryptography are [rustls](https://github.com/rustls/rustls) with its
+> `ring` provider, compiled into the runtime. Plenty implements none of them;
+> this is deliberate, as for [`std.crypto`](crypto.md).
+
+A rustls session never touches a socket: `std.tls` moves ciphertext between the session and the TCP
 stream in checked Plenty, so every wait is a `std.net` wait.
 
 ```plenty

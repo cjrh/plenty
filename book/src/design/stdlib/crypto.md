@@ -1,5 +1,16 @@
 # std.crypto
 
+> **Cryptography here is upstream code, used as-is.** Plenty implements no
+> cryptographic algorithm. Every hash, MAC, cipher, signature, key agreement,
+> key derivation and constant-time comparison is the upstream Rust
+> implementation, vendored unmodified and compiled into the runtime: the
+> RustCrypto crates, `subtle`, the BLAKE3 team's `blake3`, and `ring`. This is
+> deliberate. Constant-time code, side-channel resistance and algorithm
+> correctness stay entirely with those projects and their review and testing.
+> The Plenty side validates arguments, owns buffers, parses key encodings and
+> reports errors. Versions and licences are under [Supply](#supply) and
+> [Acknowledgements](#acknowledgements).
+
 `import std.crypto` computes BLAKE3, SHA-256, SHA-512 and legacy SHA-1 digests and HMAC tags over
 [`std.bytes`](bytes.md) buffers, and compares byte buffers in constant time.
 The digest and HMAC operations use `CryptoError`.
@@ -9,10 +20,7 @@ X25519 key agreement, and HKDF](crypto-advanced.md) and
 [RSA and ECDSA signatures with key import](crypto-keys.md), with
 `AdvancedError`.
 
-Every primitive is third-party code: the RustCrypto `sha2`, `sha1`,
-`hmac`, and `subtle` crates, the BLAKE3 team’s `blake3`, and `ring`, compiled into the runtime. The Plenty module validates
-arguments and reports errors; it implements no cryptography. The module is
-available on the supported x86-64 Linux GNU target.
+The module is available on the supported x86-64 Linux GNU target.
 
 ```plenty
 import std.bytes

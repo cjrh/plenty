@@ -4,6 +4,10 @@
 32 bytes and accepts `std.bytes.Bytes` input. The incremental forms use the
 same `Digest` and `Mac` methods and range rules as SHA and HMAC.
 
+> **Upstream code, used as-is.** Every mode is the BLAKE3 team's `blake3`
+> crate, vendored unmodified; Plenty implements none of the hash. See
+> [`std.crypto`](crypto.md) for this policy.
+
 | Function | Result | Contract |
 |---|---|---|
 | `blake3(data: &Bytes)` | `Result[Bytes, CryptoError]` | Unkeyed hash |
