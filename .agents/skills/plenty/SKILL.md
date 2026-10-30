@@ -57,7 +57,7 @@ executables, or tests. See [workflow and packages](references/workflow.md).
   (exclusive), or copy explicitly with `copy(x)?`. Iterating `&list[T]`
   yields `&T`; dereference with `*value`. `for x in owner` moves `owner`;
   write `for x in &self.items` to borrow.
-- Tuples: `pair = (3, "a")`, `pair[0]`, `count, word = pair`. <!-- issue #577: drop once the cheat sheet covers tuples -->
+- Tuples: `pair = (3, "a")`, `pair[0]`, `pair[-1]` (literal indices only), `count, word = pair`. <!-- issue #577: drop once the cheat sheet covers tuples -->
 - Methods that mutate declare `self: &mut ClassName`; bare `self` is a shared
   borrow.
 - Dictionaries have no indexed assignment: `d.insert(k, v)?` adds or

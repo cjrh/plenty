@@ -2440,21 +2440,9 @@ impl Lower<'_> {
         if let Ty::Enum(t) = &ty
             && t.tuple()
         {
-            let Expression::Number(n) = &ungroup(index).kind else {
-                return Err(index
-                    .at
-                    .error("tuple index must be a nonnegative integer literal"));
-            };
-            let i = n.parse::<usize>().map_err(|_| {
-                index
-                    .at
-                    .error("tuple index must be a nonnegative integer literal")
-            })?;
-            let value = t.get().variants[0]
-                .fields
-                .get(i)
-                .ok_or_else(|| index.at.error("tuple index out of bounds"))?
-                .clone();
+            let fields = &t.get().variants[0].fields;
+            let i = slices::tuple_position(index, fields.len())?;
+            let value = fields[i].clone();
             if value.affine() {
                 return Err(index
                     .at

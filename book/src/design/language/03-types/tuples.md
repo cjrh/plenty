@@ -16,8 +16,11 @@ changing the original does not change the copy. Components can be changed
 through `&mut pair[0]` or a mutable payload match. Direct indexed assignment
 (`pair[0] = value`) remains unsupported; assign through the reference instead.
 
-`pair[0]` selects a component. Indices must be nonnegative integer literals within
-the tuple's arity. Owned components may be observed or explicitly copied; moving
+`pair[0]` selects a component. Indices must be integer literals. A negative
+literal counts from the end, as in Python: for a tuple of length `n`, `pair[-k]`
+is `pair[n - k]`, and `pair[-0]` is `pair[0]`. The same resolved component is
+borrowed by `&pair[-1]` and `&mut pair[-1]`. An index outside `-n` to `n - 1`
+is a compile error that states the tuple's length. Owned components may be observed or explicitly copied; moving
 them out requires whole-tuple unpacking:
 
 ```plenty fragment
