@@ -89,8 +89,8 @@ def main() -> Result[(), IoError]:
 
 `Crate` and `Parcel` both satisfy `Sized`, so `feed` accepts either. Use an
 enum to model a sum type, a value that is one of several variants, and a class
-to model an affine type, a record with a single owner. Either can meet the
-same protocol.
+to model a product type, a record that holds all of its fields. Either can meet
+the same protocol.
 
 A generic method cannot satisfy a requirement without type parameters, and a
 non-generic method cannot satisfy one with them. This is how `std.io.Writer`
