@@ -272,7 +272,11 @@ fn unsupported_target_fails_before_source_or_codegen() {
     );
     assert_eq!(
         String::from_utf8(result.stdout).unwrap().trim(),
-        format!("{} (CPU baseline: x86-64/SSE2)", plenty::native_target())
+        format!(
+            "{} (CPU baseline: {})",
+            plenty::native_target(),
+            plenty::native_cpu_baseline()
+        )
     );
     plenty::validate_target(Some(plenty::native_target())).unwrap();
 }

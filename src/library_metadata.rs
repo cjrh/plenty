@@ -206,10 +206,17 @@ fn read_object(
 ) -> Result<()> {
     let object = object::File::parse(data)?;
     if object.format() != object::BinaryFormat::Elf
-        || object.architecture() != object::Architecture::X86_64
+        || object.architecture()
+            != crate::toolchain::target_description(crate::native_target())
+                .ok_or("unsupported packaged runtime target")?
+                .object_arch
         || !object.is_little_endian()
     {
-        return Err("interface inspection requires an x86_64 little-endian ELF object".into());
+        return Err(format!(
+            "interface inspection requires a {} little-endian ELF object",
+            crate::native_target()
+        )
+        .into());
     }
     for section in object.sections() {
         if let Some(name) = section.name()?.strip_prefix(".plenty.interface.") {
