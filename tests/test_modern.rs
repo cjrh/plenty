@@ -86,7 +86,7 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("1 / 2", "use `//`")]
 #[case("True + 1", "expected bool, got i64")]
 #[case("1i8 + 1i64", "cannot combine i8 with i64")]
-#[case("None", "expected an expression")]
+#[case("None", "Plenty has no `None`; an absent value is `Nothing`")]
 #[case("missing", "unknown binding")]
 #[case("missing()", "unknown function")]
 #[case("def f(x: i64) -> i64:\n    x\nf()", "expects 1 arguments")]

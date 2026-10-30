@@ -1078,7 +1078,7 @@ impl TypeRef {
         if !self.args.is_empty() {
             return Err(self.at.error("this type does not take type arguments"));
         }
-        lookup_type(name, aliases).ok_or_else(|| self.at.error(format!("unknown type `{name}`")))
+        lookup_type(name, aliases).ok_or_else(|| self.at.error(unknown_type(name)))
     }
 }
 
@@ -1588,6 +1588,9 @@ impl Parser {
                 args: self.type_arguments()?,
             });
         }
+        if t.is("None") {
+            return Err(t.error(NONE_TYPE));
+        }
         Err(t.error("expected a type name or ()"))
     }
     fn type_arguments(&mut self) -> Result<Vec<TypeRef>> {
@@ -2079,8 +2082,34 @@ impl Parser {
             },
         })
     }
+    /// A Python exception statement at the start of a statement. Only `try`
+    /// is reserved, so the others are recognized only where no valid Plenty
+    /// statement could begin with that name: before a block colon ending the
+    /// line, or (`except` and `raise`) before a name, as in `raise Error(...)`.
+    fn exception_statement(&self) -> Option<&'static str> {
+        let Kind::Word(word) = &self.peek().kind else {
+            return None;
+        };
+        let next = self.token(self.pos + 1)?;
+        let block = next.is(":")
+            && self
+                .token(self.pos + 2)
+                .is_some_and(|t| t.kind == Kind::Newline);
+        match &**word {
+            "try" => Some("try"),
+            "finally" if block => Some("finally"),
+            "except" if block || matches!(next.kind, Kind::Word(_)) => Some("except"),
+            "raise" if matches!(next.kind, Kind::Word(_)) => Some("raise"),
+            _ => None,
+        }
+    }
     fn statement(&mut self) -> Result<Stmt> {
         self.misplaced_annotations("statements")?;
+        if let Some(keyword) = self.exception_statement() {
+            return Err(self.peek().error(format!(
+                "`{keyword}` is not supported; Plenty has no exceptions: return `Result[T, E]`, propagate an error with `?`, and handle it with `match`"
+            )));
+        }
         if self.peek().is("with") {
             let at = self.take();
             let mut managers = Vec::new();
@@ -2447,6 +2476,7 @@ impl Parser {
                 }
             }
             _ if at.is("match") => return Err(at.error(MATCH_VALUE_POSITION)),
+            _ if at.is("None") => return Err(at.error(NONE_VALUE)),
             _ => return Err(at.error("expected an expression")),
         };
         let mut left = Expr { at, kind };
@@ -2906,6 +2936,47 @@ struct Local {
     mutable: bool,
 }
 
+/// Names the Plenty spelling of a Python builtin that Plenty deliberately
+/// omits; numeric helpers live in `std.math` (issue #573).
+fn unknown_function(name: &str) -> String {
+    let hint = match name {
+        "abs" => "import `std.math` and call `math.abs(x)`",
+        "min" => {
+            "import `std.math` and call `math.min(a, b)`, or `math.min_all(&items)` for a list"
+        }
+        "max" => {
+            "import `std.math` and call `math.max(a, b)`, or `math.max_all(&items)` for a list"
+        }
+        "sum" => "import `std.math` and call `math.sum(&items, 0)`",
+        "round" => {
+            "import `std.math` and call `math.round(x)?`, or keep the float with `x.round()`"
+        }
+        "int" => "convert a number with `i64(value)`, or parse text with `i64.parse(text)?`",
+        "float" => "convert a number with `f64(value)`, or parse text with `f64.parse(text)?`",
+        _ => return format!("unknown function `{name}`"),
+    };
+    format!("unknown function `{name}`; {hint}")
+}
+/// Names a Plenty type for a common Python or `typing` spelling, which
+/// programmers and coding agents write from habit (issue #572).
+pub(crate) fn unknown_type(name: &str) -> String {
+    let hint = match name {
+        "int" => "use `i64`, or another width such as `i32` or `u8`",
+        "float" => "use `f64` or `f32`",
+        "List" => "write `list[T]`",
+        "Dict" => "write `dict[K, V]`",
+        "Set" => "write `set[T]`",
+        "Tuple" => "write `tuple[A, B]`",
+        "Optional" => "write `Option[T]`",
+        "Union" => "write the members as `A | B`",
+        _ => return format!("unknown type `{name}`"),
+    };
+    format!("unknown type `{name}`; {hint}")
+}
+const NONE_VALUE: &str =
+    "Plenty has no `None`; an absent value is `Nothing`, the empty variant of `Option[T]`";
+const NONE_TYPE: &str =
+    "Plenty has no `None` type; write `()` for no result, or `Option[T]` for an optional value";
 const MATCH_VALUE_POSITION: &str = "a `match` block is a value only as the whole right side of a binding, a single-target assignment, or `return`; bind its value to a name first";
 
 /// What becomes of the value of a suite's final expression.
@@ -3544,23 +3615,31 @@ impl Lower<'_> {
                         }
                         let (ty, loans) = self.field(e, ops)?;
                         if ty.affine() {
-                            let copy = if ty.can_copy() && !ty.recursive_data() {
-                                "copy(value.field).unwrap(), "
-                            } else {
-                                ""
-                            };
+                            // Borrowing and replacement come first: they keep one
+                            // owner. Copying allocates, so it is last and
+                            // propagates its AllocError (issue #576).
                             let borrow = if matches!(ty, Ty::Enum(_)) && ty.recursive_data() {
-                                "match &value.field (or &mut value.field)"
+                                "borrow it by matching &value.field (or &mut value.field)"
                             } else {
-                                "&value.field (or &mut value.field)"
+                                "borrow it with &value.field (or &mut value.field)"
+                            };
+                            let replace = if matches!(owner, classes::FieldOwner::Reference) {
+                                "take it with replace(value.field, replacement) through a mutable reference"
+                            } else {
+                                "take it with replace(value.field, replacement) on a mutable owner"
+                            };
+                            let rest = if ty.can_copy() && !ty.recursive_data() {
+                                format!("{replace}, or copy it with copy(value.field)?")
+                            } else {
+                                format!("or {replace}")
                             };
                             let message = if matches!(owner, classes::FieldOwner::Reference) {
                                 format!(
-                                    "cannot move out of a field through a reference; use {copy}{borrow}, or replace(value.field, replacement) through a mutable reference"
+                                    "cannot move out of a field through a reference; {borrow}, {rest}"
                                 )
                             } else {
                                 format!(
-                                    "cannot move out of a field here: fields move out only from a named class binding, not through a Box, Shared handle, element, capture, or temporary; use {copy}{borrow}, or replace(value.field, replacement) on a mutable owner"
+                                    "cannot move out of a field here: fields move out only from a named class binding, not through a Box, Shared handle, element, capture, or temporary; {borrow}, {rest}"
                                 )
                             };
                             return Err(self.value_demand_error(
@@ -3725,7 +3804,7 @@ impl Lower<'_> {
                         return Err(self.value_demand_error(
                             &e.at,
                             e,
-                            "cannot move out of a reference; use copy or borrow",
+                            "cannot move out of a reference; use the reference instead of dereferencing it, or copy the value with copy(reference)?",
                             crate::ownership::Demand::Copy(
                                 (*ty).clone(),
                                 "cannot move out of a reference",
@@ -4505,7 +4584,7 @@ impl Lower<'_> {
         let sig = self
             .sigs
             .get(name)
-            .ok_or_else(|| at.error(format!("unknown function `{name}`")))?
+            .ok_or_else(|| at.error(unknown_function(name)))?
             .clone();
         if sig.inputs.len() != args.len() {
             return Err(at.error(format!(

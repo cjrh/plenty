@@ -1536,6 +1536,13 @@ impl Lower<'_> {
                 (ty, loan.into_iter().collect())
             }
         };
+        // Checked before the ownership-mode errors, which would otherwise
+        // suggest a list or a borrow (issue #574).
+        if ty == Ty::File {
+            return Err(iterable.at.error(
+                "a file is not iterable; read lines with `line = file.readline()?` in a `while` loop until it returns `\"\"`, or collect them with `file.readlines()?`",
+            ));
+        }
         if matches!(ty, Ty::KeyView(_)) {
             borrowed = true;
             if loans.is_empty() {
@@ -2453,7 +2460,7 @@ impl Lower<'_> {
             return Err(self.value_demand_error(
                 &base.at,
                 e,
-                "cannot move out of indexed storage; use copy(collection[index])",
+                "cannot move out of indexed storage; borrow it with &collection[index], take it with replace(collection[index], value) or collection.pop(index), or copy it with copy(collection[index])?",
                 crate::ownership::Demand::Copy(value, "cannot move out of indexed storage"),
                 false,
             ));

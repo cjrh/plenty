@@ -1570,9 +1570,28 @@ impl Lower<'_> {
             if instance {
                 return Ok(());
             }
+            if t.anonymous()
+                && let Some(member) = crate::sum::members(&matched).into_iter().find(|member| {
+                    matches!(member, Ty::Enum(e) if &*e.name == name)
+                        || self
+                            .aliases
+                            .data
+                            .arguments(member)
+                            .is_some_and(|(declaration, _)| declaration == name)
+                })
+            {
+                return Err(owner.at.error(sum_member_pattern(&matched, name, &member)));
+            }
             return Err(owner.at.error(format!("expected {matched}, got {name}")));
         }
-        self.same(owner.resolve(self.aliases)?, Some(matched), &owner.at)
+        let written = owner.resolve(self.aliases)?;
+        if t.anonymous()
+            && let Some(member) = &written
+            && crate::sum::members(&matched).contains(member)
+        {
+            return Err(owner.at.error(sum_member_pattern(&matched, member, member)));
+        }
+        self.same(written, Some(matched), &owner.at)
     }
 
     pub(super) fn match_patterns(
@@ -2154,4 +2173,12 @@ fn owned_class(pattern: &Checked, slots: &HashMap<&str, u8>, ops: &mut Vec<Op>) 
             owned(field, slots, ops);
         }
     }
+}
+
+/// A sum's own variants are its members, so a member's variant cannot qualify
+/// a pattern on the sum; name the typed member pattern instead (issue #575).
+fn sum_member_pattern(sum: &Ty, written: impl std::fmt::Display, member: &Ty) -> String {
+    format!(
+        "expected {sum}, got {written}; a sum pattern names a whole member: write `case value: {member}:` in a `match` on the sum, then match `{member}` variants on `value` in a nested `match`"
+    )
 }

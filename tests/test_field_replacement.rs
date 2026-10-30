@@ -182,7 +182,7 @@ fn recursive_field_diagnostic_offers_supported_operations() {
     let error = support::compile_source_to_executable(&source, &dir.path().join("program"))
         .unwrap_err()
         .to_string();
-    assert!(error.contains("match &value.field"), "{error}");
+    assert!(error.contains("matching &value.field"), "{error}");
     assert!(
         error.contains("replace(value.field, replacement)"),
         "{error}"

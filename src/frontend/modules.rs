@@ -1496,7 +1496,7 @@ impl Scope {
                 }
                 *name = symbol;
             } else if !matches!(name.as_str(), "&" | "&mut" | "|") {
-                return Err(ty.at.error(format!("unknown type `{name}`")));
+                return Err(ty.at.error(super::unknown_type(name)));
             }
         }
         Ok(())
