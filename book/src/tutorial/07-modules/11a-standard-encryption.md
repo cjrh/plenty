@@ -76,7 +76,10 @@ False
 ```
 
 Signing can reuse its seed. Keys and signatures have fixed lengths; malformed
-lengths are errors, while a well-sized invalid signature returns `False`.
+lengths are errors, while a well-sized invalid signature returns `False`. A
+public key that anyone could sign for, one of
+[small order](../../design/stdlib/crypto-advanced.md#small-order-public-keys),
+is the error `SmallOrderKey`.
 
 ## Derive a key after an exchange
 

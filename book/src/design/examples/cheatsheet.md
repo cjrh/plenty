@@ -161,6 +161,41 @@ Indexing a missing element or key traps; `get` returns an `Option`.
 [lists](../facilities/01-builtins/lists.md), and
 [dictionaries](../facilities/01-builtins/dictionaries.md).
 
+## Tuples
+
+```plenty
+def div_mod(a: i64, b: i64) -> (i64, i64):
+    (a // b, a % b)
+
+def main() -> Result[(), AllocError | IoError]:
+    pair = (42, "cm")
+    single: (i64,) = (7,)
+    print(pair, pair[0], pair[1], single[0])?
+    quotient, remainder = div_mod(7, 2)
+    print(quotient, remainder, (1, "b") < (1, "c"))?
+    mut point = (1, 2)
+    x = &mut point[0]
+    *x += 10
+    print(point)?
+    for n, unit in [(1, "kg"), (2, "m")]?:
+        print(n, unit)?
+    Ok(())
+```
+```output
+(42, "cm") 42 cm 7
+3 1 True
+(11, 2)
+1 kg
+2 m
+```
+
+Tuples allocate nothing. Indices are nonnegative integer literals; there is no
+`pair[0] = value`, so assign through `&mut pair[0]`. Moving an owned component
+out needs whole-tuple unpacking, which is flat only: no nested or starred
+targets. `match` has no tuple patterns. See
+[tuples](../language/03-types/tuples.md) and
+[assignment to several targets](../language/04-expressions/assignment.md#several-targets).
+
 ## Control flow and matching
 
 ```plenty
