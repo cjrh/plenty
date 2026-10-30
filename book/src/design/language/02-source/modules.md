@@ -28,6 +28,27 @@ filenames and directories must have identifier components and cannot escape
 the root. File/directory name collisions and import cycles are errors; a cycle
 diagnostic names the actual dependency chain.
 
+`import a.b` binds the path `a.b`, and `a.b.f` names a member of that module.
+A binding cannot reuse a name the file declares or imports with `from`, and an
+alias cannot enclose another binding: `import x as a` with `import a.b` is
+rejected. Because `a.plenty` beside `a/` is ambiguous, only a dependency alias
+names a module with other modules beneath it: `tz` names the library, such as
+`src/lib.plenty`, and `tz.zones` names `src/zones.plenty` of that dependency.
+A file can import both under their own paths, in either order:
+
+```plenty fragment
+import tz
+import tz.zones
+```
+
+`tz.f` then names the library's `f`, and `tz.zones.f` the `f` of `tz.zones`.
+If the library declares a member `zones`, public or private, `tz.zones` would
+name both, so the later import is rejected with a diagnostic naming both
+imports; `import tz.zones as zones` binds the module without the clash. The
+same holds for a deeper path such as `tz.rules.dst` and a library member
+`rules`. `from tz import zones` imports only a declaration of the library,
+never the module beside it, since imports do not re-export.
+
 Canonical paths identify modules, so imports through different aliases or diamond
 dependencies preserve the same nominal types. Private declarations remain private
 to their defining module, regardless of directory ancestry. All reachable modules
