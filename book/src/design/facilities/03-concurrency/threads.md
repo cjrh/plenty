@@ -3,8 +3,11 @@
 `with spawn(worker, arguments...)? as task:` starts a native thread and joins it
 before leaving the block. Named functions, including inferred generic instances,
 use their ordinary typed parameters. `spawn(&job)` or `spawn(&mut job)` runs an
-explicitly borrowed reusable zero-argument closure. Wholly owned jobs use
-[consuming spawn](jobs.md).
+explicitly borrowed reusable zero-argument closure. A binding that already holds
+a `&Closure` or `&mut Closure`, such as a parameter or a `get_mut` match binding,
+is reborrowed for the task's scope: `spawn(callback)` means `spawn(&*callback)`,
+or `spawn(&mut *callback)` when the closure has mutable captures, which requires a
+`&mut` reference. Wholly owned jobs use [consuming spawn](jobs.md).
 
 `task.join()` waits and transfers the result exactly once, consuming the task
 binding. A worker returning `Result[T, E]` yields that same result. Join itself

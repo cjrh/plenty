@@ -26,6 +26,21 @@ pub(super) fn spawn_expression(manager: &Expr) -> Option<(&Expr, bool, Option<&[
     ))
 }
 
+/// For a binding holding a closure reference: whether the closure has mutable
+/// captures, and whether the reference is exclusive.
+fn reference_closure(lower: &Lower<'_>, worker: &Expr) -> Option<(bool, bool)> {
+    let Expression::Name(name) = &ungroup(worker).kind else {
+        return None;
+    };
+    match &lower.names.get(name)?.ty {
+        Ty::Ref(referent, exclusive) => match &**referent {
+            Ty::Closure(closure) => Some((closure.mutable, *exclusive)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 const DROP_JOB_RECEIVER: &str =
     "drop_job requires a SpawnError or SubmitError, or a Result whose error is one";
 
@@ -46,6 +61,29 @@ impl Lower<'_> {
             return Err(call
                 .at
                 .error("spawn requires a named function or an explicitly borrowed closure"));
+        };
+        // A binding that holds `&Closure` or `&mut Closure` reborrows its
+        // referent for the task's scope, as `spawn(&*r)` or `spawn(&mut *r)`
+        // would (issue #585). A mutable closure needs an exclusive reborrow;
+        // any other closure is lent shared, so the binding stays readable.
+        let reborrow;
+        let worker = match reference_closure(self, worker) {
+            Some((mutable, exclusive)) => {
+                if mutable && !exclusive {
+                    return Err(worker.at.error(
+                        "this worker closure has mutable captures and needs exclusive access, but this binding is a shared reference; bind or pass it as `&mut`",
+                    ));
+                }
+                let at = worker.at.clone();
+                let deref = Expression::Unary("*".into(), Box::new(worker.clone()));
+                let op = if mutable { "&mut" } else { "&" };
+                reborrow = Expr {
+                    at: at.clone(),
+                    kind: Expression::Unary(op.into(), Box::new(Expr { at, kind: deref })),
+                };
+                &reborrow
+            }
+            None => worker,
         };
         let saved = self.names.clone();
         let start = self.locals.len();

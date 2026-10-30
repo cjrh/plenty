@@ -210,3 +210,78 @@ with spawn(make).unwrap():
         "{error}"
     );
 }
+
+const COUNTER_AND_READER: &str = "def counter(n: i64) -> Closure[[], i64]:\n    def [mut n]() -> i64:\n        n = n + 1\n        n\ndef reader(n: i64) -> Closure[[], i64]:\n    def [n]() -> i64:\n        n * 2\n";
+
+/// Issue #585: a binding that holds a closure reference reborrows its referent
+/// for the task's scope, without writing `&mut *callback`.
+#[test]
+fn reference_bindings_reborrow_their_closure_for_the_task() {
+    run(
+        &format!(
+            r#"{COUNTER_AND_READER}
+def run_mut(job: &mut Closure[[], i64]) -> Result[i64, ThreadError]:
+    with spawn(job)? as task:
+        return Ok(task.join())
+def run_generic[F: Callable[[], i64]](job: &mut F) -> Result[i64, ThreadError]:
+    with spawn(job)? as task:
+        return Ok(task.join())
+def run_shared(job: &Closure[[], i64]) -> Result[i64, ThreadError]:
+    with spawn(job)? as first, spawn(job)? as second:
+        return Ok(first.join() + second.join())
+def main() -> Result[(), AllocError | IoError | ThreadError]:
+    mut named = {{0: counter(30)}}?
+    match named.get_mut(0):
+        case Some(callback):
+            with spawn(callback)? as task:
+                print(task.join())?
+        case Nothing:
+            pass
+    mut c = counter(40)
+    print(run_mut(&mut c)?)?
+    print(run_generic(&mut c)?)?
+    print(c())?
+    r = reader(5)
+    print(run_shared(&r)?)?
+    shared = &r
+    with spawn(shared)? as task:
+        print(r())?
+        print(task.join())?
+    Ok(())
+"#
+        ),
+        "31\n41\n42\n43\n20\n10\n10\n",
+    );
+}
+
+#[test]
+fn reference_binding_workers_keep_closure_and_loan_rules() {
+    let cases = [
+        (
+            "def run(job: &Closure[[], i64]) -> Result[i64, ThreadError]:\n    with spawn(job)? as task:\n        return Ok(task.join())\ndef main() -> Result[(), ThreadError]:\n    mut c = counter(1)\n    run(&c)?\n    Ok(())\n",
+            "this worker closure has mutable captures and needs exclusive access, but this binding is a shared reference; bind or pass it as `&mut`",
+        ),
+        (
+            "def run(job: &mut Closure[[], i64]) -> Result[i64, ThreadError]:\n    with spawn(job)? as task:\n        x = job()\n        return Ok(task.join() + x)\ndef main() -> Result[(), ThreadError]:\n    mut c = counter(1)\n    run(&mut c)?\n    Ok(())\n",
+            "conflicting borrow: cannot modify or exclusively borrow `job` while it is exclusively borrowed",
+        ),
+        (
+            "def main() -> Result[(), AllocError | ThreadError]:\n    mut named = {0: counter(1)}?\n    match named.get_mut(0):\n        case Some(callback):\n            with spawn(callback)? as task:\n                named.clear()\n                task.join()\n        case Nothing:\n            pass\n    Ok(())\n",
+            "conflicting borrow: cannot modify or exclusively borrow `named` while it is exclusively borrowed",
+        ),
+        (
+            "def main() -> Result[(), ThreadError]:\n    mut r = reader(1)\n    shared = &r\n    with spawn(shared)? as task:\n        r = reader(2)\n        task.join()\n    Ok(())\n",
+            "borrow",
+        ),
+        (
+            "def run(job: &mut OnceClosure[[], i64]) -> Result[i64, ThreadError]:\n    with spawn(job)? as task:\n        return Ok(task.join())\ndef main() -> Result[(), ThreadError]:\n    n = 1\n    mut c = def once [n]() -> i64:\n        n\n    run(&mut c)?\n    Ok(())\n",
+            "spawn requires a reusable zero-argument closure",
+        ),
+    ];
+    for (body, expected) in cases {
+        let error = support::check_source(&format!("{COUNTER_AND_READER}{body}"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
