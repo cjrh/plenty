@@ -1,6 +1,6 @@
 # Enums
 
-```python
+```plenty fragment
 enum Reading:
     Missing
     Value(i64)
@@ -50,7 +50,7 @@ contextual inference. Generic enums follow [generic data](../07-generics/data.md
 
 An enum can declare ordinary methods alongside its variants:
 
-```plenty
+```plenty fragment
 enum Reading:
     Missing
     Value(i64)

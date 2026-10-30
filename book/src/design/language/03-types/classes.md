@@ -3,7 +3,7 @@
 A class declares typed fields and associated methods. It has no inheritance,
 dynamic attributes, class variables, properties, or runtime method lookup.
 
-```python
+```plenty fragment
 class Point:
     x: i64
     y: i64

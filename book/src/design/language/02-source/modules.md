@@ -7,7 +7,7 @@ sources. Unknown `std` modules never
 fall back to the source root. Local files/directories and declarations named
 `std`, and imports binding a non-standard module as `std`, are rejected.
 
-```python
+```plenty fragment
 import package.module
 import package.module as module_alias
 from package.module import Name as Alias
@@ -54,8 +54,20 @@ const RATIO: f32 = f32(MIB) / 3.0
 const NAME: str = "plenty" + "-" + "lang"
 const WIDE: bool = MIB > KIB and not (KIB == 0)
 
-def main() -> ():
-    pass
+def main() -> Result[(), IoError]:
+    print(MIB)?
+    print(MASK)?
+    print(RATIO)?
+    print(NAME)?
+    print(WIDE)?
+    Ok(())
+```
+```output
+1048576
+247
+349525.34
+plenty-lang
+True
 ```
 
 A constant expression contains literals, other constants (from this module or
@@ -90,8 +102,12 @@ no code.
 const PAGE: i64 = 4096
 assert PAGE % 64 == 0, "pages hold whole cache lines"
 
-def main() -> ():
-    pass
+def main() -> Result[(), IoError]:
+    print(PAGE // 64)?
+    Ok(())
+```
+```output
+64
 ```
 
 Module-scope `assert` uses the spelling of a Python `assert` statement, which

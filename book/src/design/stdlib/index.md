@@ -110,7 +110,7 @@ introduces the library in
 Standard modules use the ordinary
 [import forms](../language/02-source/modules.md):
 
-```python
+```plenty fragment
 import std.math
 import std.math as math
 from std.math import sqrt, pi

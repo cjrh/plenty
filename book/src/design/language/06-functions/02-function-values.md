@@ -43,6 +43,10 @@ def main() -> Result[(), IoError]:
     print(apply(def(value: i64) -> i64: value + 1, 3))?
     Ok(())
 ```
+```output
+6
+4
+```
 
 The one-expression body is the final expression of a block, so both forms
 create the same value and follow the same type, capture, and ownership rules.

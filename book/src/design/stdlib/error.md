@@ -6,7 +6,7 @@ module is ordinary embedded Plenty code over [`Result`](../language/08-errors/01
 and [`std.path`](path.md); it adds no exceptions, implicit conversions, or
 runtime support.
 
-```python
+```plenty fragment
 pub enum Subject:
     Absent
     At(Path)
@@ -139,7 +139,7 @@ code appears as `IoError.System(2)`.
 A nested context is a cause like any other, so `describe` shows its structural
 representation. Describe the inner context first and pass the text outward:
 
-```python
+```plenty fragment
 outer.describe_with(&outer.cause.describe()?)
 ```
 

@@ -4,7 +4,7 @@
 enum, an [anonymous sum](../03-types/anonymous-sums.md), a class, an integer, a
 `str`, or a `bool`, or a reference to one:
 
-```python
+```plenty fragment
 enum Reading:
     Missing
     Value(i64)
@@ -46,7 +46,7 @@ that payload's enum is rejected, so a forgotten qualifier cannot silently bind
 everything. A variant pattern at a `Box[T]` payload matches the box's contents.
 Patterns nest to at most 64 levels.
 
-```python
+```plenty fragment
 enum Shape:
     Dot
     Circle(i64)
@@ -72,7 +72,7 @@ constructor takes its fields: positional patterns in field-declaration order,
 then `field=pattern`. It matches a class position, the contents of a `Box`, or
 that class's member of an anonymous sum.
 
-```python
+```plenty fragment
 class Point:
     x: i64
     y: i64
@@ -116,7 +116,7 @@ costs no projection at run time. The error of a
 [`checked:` block](../03-types/numbers.md#checked-blocks) is the motivating
 case:
 
-```python
+```plenty fragment
 def total(a: i64, b: i64) -> i64:
     result = checked:
         a + b
@@ -127,7 +127,7 @@ def total(a: i64, b: i64) -> i64:
             wrapped
 ```
 
-```python
+```plenty fragment
 def opcode(name: str) -> i64:
     match name:
         case "cpy":
@@ -156,7 +156,7 @@ the name alone binds. Because it matches everything, a case after it is
 unreachable, and it is itself unreachable when earlier cases are exhaustive.
 `name` cannot be a variant of the matched enum, `_`, or `mut`.
 
-```python
+```plenty fragment
 def forward(shape: Shape) -> i64:
     match shape:
         case Shape.Dot:
@@ -217,7 +217,7 @@ position:
 | `place = match value:`, where `place` is a field, a collection element, or `*reference` | assigns the place |
 | `return match value:` | returns from the function |
 
-```python
+```plenty fragment
 def area(shape: Shape) -> i64:
     side: i64 = match shape:
         case Shape.Dot:

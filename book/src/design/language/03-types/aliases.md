@@ -1,6 +1,6 @@
 # Type aliases
 
-```python
+```plenty fragment
 type Count = i32
 
 def increment(value: Count) -> Count:

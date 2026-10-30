@@ -6,7 +6,7 @@ numeric helpers, and constants. Its source is `stdlib/std/math.plenty`.
 [Importing, the reserved `std` namespace, and compilation](index.md) are common
 to every standard module.
 
-```python
+```plenty fragment
 import std.math as math
 from std.math import pi, MathError
 ```

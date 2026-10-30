@@ -54,6 +54,9 @@ def main() -> Result[(), AllocError | IoError]:
     print(checked_first(&values))?
     Ok(())
 ```
+```output
+Option[i64].Some(4)
+```
 
 Propagation may appear in arguments, conditions, loops, and comprehensions.
 It composes with other postfix operations: `values?[0]` indexes the unwrapped
