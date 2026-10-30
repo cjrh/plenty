@@ -130,6 +130,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         "std.archive",
         include_str!("../../stdlib/std/archive.plenty"),
     ),
+    ("std.image", include_str!("../../stdlib/std/image.plenty")),
     ("std.regex", include_str!("../../stdlib/std/regex.plenty")),
     ("std.json", include_str!("../../stdlib/std/json.plenty")),
     ("std.jwt", include_str!("../../stdlib/std/jwt.plenty")),

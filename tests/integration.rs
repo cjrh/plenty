@@ -494,6 +494,8 @@ mod test_std_http_shared_client;
 mod test_std_http_sse;
 #[path = "test_std_http_websocket.rs"]
 mod test_std_http_websocket;
+#[path = "test_std_image.rs"]
+mod test_std_image;
 #[path = "test_std_io.rs"]
 mod test_std_io;
 #[path = "test_std_json.rs"]
