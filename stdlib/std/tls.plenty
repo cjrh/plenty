@@ -222,10 +222,12 @@ pub def system_roots() -> Result[TrustRoots, TlsError]:
 
 # Settings for client sessions. A configuration is immutable and shared by
 # every session that borrows it.
+@redacted
 pub class ClientConfig:
     _handle: ByteStorage
 
 # Settings for server sessions.
+@redacted
 pub class ServerConfig:
     _handle: ByteStorage
 
@@ -282,6 +284,7 @@ def suite_named(code: i64) -> Option[CipherSuite]:
 
 # Gathers a client configuration's settings; `build` checks them together.
 # Without other calls, the result is `client_config(roots)`.
+@redacted
 pub class ClientBuilder:
     _handle: ByteStorage
 
@@ -330,6 +333,7 @@ pub def client_config(roots: &TrustRoots) -> Result[ClientConfig, TlsError]:
 
 # Gathers a server configuration's settings; `build` checks them together.
 # Without other calls, the result is `server_config(chain_pem, key_pem)`.
+@redacted
 pub class ServerBuilder:
     _handle: ByteStorage
 
@@ -413,6 +417,7 @@ def text_detail(session: &ByteStorage, which: i64) -> Result[Option[str], TlsErr
 # methods take a deadline and a cancellation token; `read`, `write`, `flush`
 # and `close` make it a std.io Reader and Writer that block as TcpStream's do;
 # the `try_` methods never wait, for use with a std.ready selector.
+@redacted
 pub class TlsStream:
     _tcp: TcpStream
     _session: ByteStorage
@@ -809,6 +814,7 @@ pub def accept(tcp: TcpStream, config: &ServerConfig, deadline: &Deadline, cance
 # and `write` move plaintext. Each step reports how far it got, so an empty
 # result means the session wants more input (`wants_read`) or has output to
 # give (`wants_write`). Methods that change the session take `&mut`.
+@redacted
 pub class Session:
     _handle: ByteStorage
     _closed: bool

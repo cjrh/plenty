@@ -82,6 +82,9 @@ executables, or tests. See [workflow and packages](references/workflow.md).
 - Prefer borrowed parameters (`&str`, `&list[T]`) unless the function keeps the
   value. Avoid `copy` unless two owners are needed.
 - Reserve capacity when the size is known: `list[i64].with_capacity(n)?`.
+- Mark a class or enum that holds a secret `@redacted`: `print`, `str.repr`
+  and f-strings then show `ApiKey(@redacted)` at any depth, while field access is
+  unchanged. See [redacted types](../../../book/src/design/language/03-types/classes.md#redacted-types).
 
 See [errors](references/errors.md), [ownership](references/ownership.md), and
 [common diagnostics](references/diagnostics.md).

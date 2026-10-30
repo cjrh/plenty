@@ -392,6 +392,7 @@ mod tests {
             fallible_init: false,
             copy: false,
             forwards_operators: false,
+            redacted: false,
             bytes: OnceLock::new(),
             managed: OnceLock::new(),
         }
@@ -400,6 +401,7 @@ mod tests {
         EnumType {
             facts: OnceLock::new(),
             restricted_storage: false,
+            redacted: false,
             name: name.into(),
             variants: variants
                 .into_iter()

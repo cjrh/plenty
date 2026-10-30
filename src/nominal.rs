@@ -390,6 +390,7 @@ mod tests {
             fallible_init: false,
             copy: false,
             forwards_operators: false,
+            redacted: false,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -421,6 +422,7 @@ mod tests {
             fallible_init: false,
             copy: false,
             forwards_operators: false,
+            redacted: false,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -446,6 +448,7 @@ mod tests {
             fallible_init: false,
             copy: false,
             forwards_operators: false,
+            redacted: false,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });

@@ -24,6 +24,8 @@ mod test_arithmetic_errors;
 
 #[path = "test_record_walks.rs"]
 mod test_record_walks;
+#[path = "test_redacted.rs"]
+mod test_redacted;
 #[path = "test_std_dataframe.rs"]
 mod test_std_dataframe;
 #[path = "test_std_linalg.rs"]

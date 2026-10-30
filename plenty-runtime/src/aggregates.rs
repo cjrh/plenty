@@ -64,6 +64,10 @@ pub(crate) struct Type {
     /// Layout facts the compiler records for a class with a record, so
     /// release and relocation can skip their field walks (issue #550).
     pub(crate) plan: Option<&'static Plan>,
+    /// A `@redacted` class or enum: rendering writes `name(@redacted)` and reads
+    /// nothing from the value. See
+    /// book/src/design/language/03-types/classes.md#redacted-types.
+    pub(crate) redacted: bool,
 }
 /// What releasing and moving a class record involves, precomputed from its
 /// field types. Mirrors `codegen::metadata::plan`.
@@ -81,8 +85,9 @@ pub(crate) struct Plan {
     pub(crate) fixed: bool,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 80);
+    assert!(size_of::<Type>() == 88);
     assert!(std::mem::offset_of!(Type, plan) == 72);
+    assert!(std::mem::offset_of!(Type, redacted) == 80);
     assert!(size_of::<Plan>() == 24);
     assert!(std::mem::offset_of!(Plan, only_strings) == 16);
     assert!(std::mem::offset_of!(Plan, fixed) == 17);
@@ -94,6 +99,11 @@ const _: () = {
     assert!(size_of::<Variant>() == 32);
 };
 impl Type {
+    /// A plain string, whose bytes are its `print` spelling. A class over
+    /// `str` formats as the class instead.
+    fn raw_text(&self) -> bool {
+        self.kind == b's' && self.wrapper.is_none() && !self.redacted
+    }
     fn managed(&self) -> bool {
         self.kind == b'B'
             || matches!(
@@ -1641,6 +1651,11 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
     if out.failed() {
         return;
     }
+    if ty.redacted {
+        out.extend_from_slice(ty.name.as_bytes());
+        out.extend_from_slice(b"(@redacted)");
+        return;
+    }
     if let Some(wrapper) = ty.wrapper {
         out.extend_from_slice(ty.name.as_bytes());
         out.push(b'(');
@@ -2266,7 +2281,7 @@ pub(crate) unsafe fn collection_at(
                     crate::io::plenty_println(a as *const Text);
                     return wrap(0, 0);
                 }
-                if op == 111 && (*descriptor).kind == b's' && (*descriptor).wrapper.is_none() {
+                if op == 111 && (*descriptor).raw_text() {
                     // A string already has its final byte representation. Printing
                     // it needs no formatting buffer, including inside destructors. A
                     // newtype over str formats as the class instead.
@@ -2286,7 +2301,7 @@ pub(crate) unsafe fn collection_at(
                         if i != 0 {
                             out.push(b' ');
                         }
-                        if field.kind == b's' && field.wrapper.is_none() {
+                        if field.raw_text() {
                             out.extend_from_slice(strings::bytes(&(value as *const Text)));
                         } else {
                             render(value, field, &mut out);

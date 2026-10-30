@@ -16,6 +16,8 @@ pub(super) struct ClassDecl {
     /// operators are lowered as if written at this token, in the class's
     /// own module; see `operators::Lower::forward_binary`.
     pub(super) newtype: Option<Token>,
+    /// Declared `@redacted`: automatic formatting writes `Name(@redacted)`.
+    pub(super) redacted: bool,
 }
 
 impl ClassDecl {
@@ -36,6 +38,7 @@ impl ClassDecl {
             public_members: self.public_members.clone(),
             copy: self.copy.clone(),
             newtype: self.newtype.clone(),
+            redacted: self.redacted,
         }
     }
 }
@@ -132,6 +135,7 @@ impl Parser {
             public_members,
             copy: None,
             newtype: None,
+            redacted: false,
         })
     }
 }
@@ -166,6 +170,7 @@ impl ClassDecl {
             destructor,
             copy: self.copy.is_some(),
             forwards_operators: self.newtype.is_some(),
+            redacted: self.redacted,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         })))

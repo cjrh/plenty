@@ -100,7 +100,15 @@ fn define_type(
 ) -> Result<()> {
     let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
-    let mut bytes = vec![0; 80];
+    let mut bytes = vec![0; 88];
+    // Taken before a newtype is replaced by its field: a redacted wrapper
+    // formats as `Name(@redacted)`, and a plain wrapper over a redacted type
+    // reaches the field's own descriptor through the wrapper link.
+    bytes[80] = u8::from(match ty {
+        Ty::Class(t) => t.get().redacted,
+        Ty::Enum(t) => t.get().redacted,
+        _ => false,
+    });
     // A newtype class has its field's values, so the runtime gets the
     // field's layout under the class's name; the wrapper link at byte 64
     // names the field for formatting and the columnar-list schema.

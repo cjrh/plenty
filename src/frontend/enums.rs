@@ -9,6 +9,8 @@ pub(super) struct EnumDecl {
     pub(super) variants: Vec<(String, Vec<TypeRef>)>,
     pub(super) methods: Vec<Function>,
     pub(super) public_members: HashSet<String>,
+    /// Declared `@redacted`: automatic formatting writes `Name(@redacted)`.
+    pub(super) redacted: bool,
 }
 impl EnumDecl {
     pub(super) fn template(&self) -> Self {
@@ -22,6 +24,7 @@ impl EnumDecl {
             variants: self.variants.clone(),
             methods: self.methods.iter().map(classes::header).collect(),
             public_members: self.public_members.clone(),
+            redacted: self.redacted,
         }
     }
 }
@@ -125,6 +128,7 @@ impl Parser {
             variants,
             methods,
             public_members,
+            redacted: false,
         })
     }
 

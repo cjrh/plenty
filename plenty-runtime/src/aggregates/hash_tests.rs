@@ -13,6 +13,7 @@ static INTEGER: Type = Type {
     drop: None,
     wrapper: None,
     plan: None,
+    redacted: false,
 };
 static ID: Type = Type {
     kind: b'B',
