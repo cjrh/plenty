@@ -1,6 +1,6 @@
 ---
 name: plenty-search
-description: Find related Plenty concepts across repository docs, source documentation, and local issue/PR descriptions using the local semantic index. Use for conceptual discovery or index freshness checks; use rg for exact symbols and implementation code.
+description: For work inside the Plenty compiler repository. Find related Plenty concepts across repository docs, source documentation, and local issue/PR descriptions using the local semantic index. Use for conceptual discovery or index freshness checks; use rg for exact symbols and implementation code. To write or fix Plenty code, use the plenty skill.
 ---
 
 # Plenty semantic search

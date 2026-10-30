@@ -177,8 +177,10 @@ fn render(rows: &[Row], listings: &[Vec<String>], provided: &[Vec<&str>]) -> Str
          variants, and limits. `pub` is omitted. Fields, methods, and variants are\n\
          indented under their owner. Summaries come from the\n\
          [module table](index.md#modules).\n\n\
+         <!-- contributors-only -->\n\
          After changing a standard module, regenerate this page with\n\
-         `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.\n\n\
+         `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.\n\
+         <!-- /contributors-only -->\n\n\
          ## Modules\n\n\
          Each section's lines in this file, so one module can be read alone.\n\n";
     let sections: Vec<String> = rows

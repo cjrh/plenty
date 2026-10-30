@@ -655,4 +655,5 @@
 - [Profiling the compiler](development/profiling.md)
 - [Measuring module edits](development/module-edits.md)
 - [Per-module cache investigation](development/module-cache-investigation.md)
+- [The Plenty agent skill](development/agent-skill.md)
 - [Releasing Plenty](development/releasing.md)
