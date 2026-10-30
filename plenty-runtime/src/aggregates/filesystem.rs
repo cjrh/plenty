@@ -1,6 +1,9 @@
 //! Linux directory streams with detached entries and fallible owned buffers.
 //! Rust's read_dir/scandir contracts, without Rust DirEntry's retained descriptor
 //! or its infallible Arc/PathBuf allocations. Native records never cross the ABI.
+//!
+//! Linux ABI bindings use the [libc crate](https://github.com/rust-lang/libc),
+//! licensed MIT OR Apache-2.0.
 use super::{Collection, OwnedValue, Type};
 use crate::memory::{self, AllocError, Header};
 use crate::text_io::{self, Error, Kind};

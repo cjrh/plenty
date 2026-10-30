@@ -45,7 +45,10 @@ fn code_relocations(object: &Path) -> Vec<(String, String)> {
             continue;
         }
         let fields: Vec<_> = line.split_whitespace().collect();
-        if in_code && fields.len() >= 5 && fields[2].starts_with("R_X86_64_") {
+        if in_code
+            && fields.len() >= 5
+            && (fields[2].starts_with("R_X86_64_") || fields[2].starts_with("R_AARCH64_"))
+        {
             relocations.push((fields[2].to_string(), fields[4].to_string()));
         }
     }
@@ -54,7 +57,7 @@ fn code_relocations(object: &Path) -> Vec<(String, String)> {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn runtime_calls_and_local_data_are_pc_relative_and_native_libraries_use_the_got() {
+fn runtime_calls_are_direct_and_native_libraries_use_the_got() {
     for optimize in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let source = write_program(dir.path());
@@ -72,20 +75,42 @@ fn runtime_calls_and_local_data_are_pc_relative_and_native_libraries_use_the_got
             .collect();
         // The C library may be shared; the runtime and the object's own data
         // never are.
-        assert_eq!(got, ["labs"], "optimize={optimize}: {relocations:?}");
+        let (direct_call, local_data) = if cfg!(target_arch = "aarch64") {
+            // The ARM backend uses GOT page+low12 pairs for both foreign and
+            // local data. The x86-only relaxation pass must leave these intact.
+            let foreign: Vec<_> = relocations
+                .iter()
+                .filter(|(kind, symbol)| kind.contains("GOT") && symbol == "labs")
+                .map(|(kind, _)| kind.as_str())
+                .collect();
+            assert_eq!(
+                foreign,
+                ["R_AARCH64_ADR_GOT_PAGE", "R_AARCH64_LD64_GOT_LO12_NC"]
+            );
+            assert!(
+                got.iter().all(|symbol| *symbol == "labs"
+                    || symbol.starts_with(".L")
+                    || symbol.starts_with("plenty_str_")),
+                "{relocations:?}"
+            );
+            ("R_AARCH64_CALL26", "R_AARCH64_ADR_GOT_PAGE")
+        } else {
+            assert_eq!(got, ["labs"], "optimize={optimize}: {relocations:?}");
+            ("R_X86_64_PLT32", "R_X86_64_PC32")
+        };
         for helper in ["plenty_op_166", "plenty_release", "plenty_traps_register"] {
             assert!(
                 relocations
                     .iter()
-                    .any(|(kind, symbol)| kind == "R_X86_64_PLT32" && symbol == helper),
+                    .any(|(kind, symbol)| kind == direct_call && symbol == helper),
                 "optimize={optimize}: no direct call to {helper}: {relocations:?}"
             );
         }
         assert!(
             relocations
                 .iter()
-                .any(|(kind, symbol)| kind == "R_X86_64_PC32" && symbol.starts_with(".L")),
-            "optimize={optimize}: no PC-relative data address: {relocations:?}"
+                .any(|(kind, symbol)| kind == local_data && symbol.starts_with(".L")),
+            "optimize={optimize}: no local-data address: {relocations:?}"
         );
     }
 }

@@ -142,10 +142,15 @@ fn float_negation_reads_its_mask_from_the_constant_pool() {
             "out",
         ],
     );
+    let xor_mnemonic = if cfg!(target_arch = "aarch64") {
+        "eor"
+    } else {
+        "xorp"
+    };
     for name in ["neg", "neg_sum", "neg32", "neg_loop"] {
         let asm = section(dir.path(), "asm.txt", name);
         assert!(
-            asm.contains("xorp") && !asm.contains("movabs") && !asm.contains("movq"),
+            asm.contains(xor_mnemonic) && !asm.contains("movabs") && !asm.contains("movq"),
             "{name}:\n{asm}"
         );
         let clif = section(dir.path(), "clif-opt.txt", name);
@@ -157,6 +162,6 @@ fn float_negation_reads_its_mask_from_the_constant_pool() {
     // `-(-x)` cancels, and a negated constant folds.
     for name in ["neg2", "neg32_2", "neg_c", "neg_z32"] {
         let asm = section(dir.path(), "asm.txt", name);
-        assert!(!asm.contains("xorp"), "{name}:\n{asm}");
+        assert!(!asm.contains(xor_mnemonic), "{name}:\n{asm}");
     }
 }

@@ -51,7 +51,14 @@ subprocess.run(["cc", "-fuse-ld=bfd", *sys.argv[1:]], check=True)
     clif = (out / "dump/clif.txt").read_text()
     vector = clif.split("==== simd_count ")[1].split("==== ")[0]
     scalar = clif.split("==== scalar_count ")[1].split("==== ")[0]
-    assert "load.i32x4" in vector and "load.i32x4" not in scalar
+    version = subprocess.check_output([str(compiler), "--version"], text=True)
+    # ARM currently uses the scalar lowering for this bounded filter. Keep
+    # guard-page verification on both targets; only x86 promises vector code.
+    if "aarch64-unknown-linux-gnu" in version:
+        assert "load.i32x4" not in vector and "load.i32x4" not in scalar
+    else:
+        assert "x86_64-unknown-linux-gnu" in version
+        assert "load.i32x4" in vector and "load.i32x4" not in scalar
     subprocess.run(["objcopy", "--redefine-sym", "main=unused_plenty_main",
                     "--rename-section", ".text.subsection=.plenty_scan_text",
                     "--globalize-symbol", "__plenty_fn_simd_count",

@@ -7,6 +7,9 @@
 //! program has closed its end, the send fails and the handler re-raises the
 //! signal under the default action: the process ends as if it had never
 //! listened. See book/src/design/stdlib/signal.md.
+//!
+//! Linux ABI bindings use the [libc crate](https://github.com/rust-lang/libc),
+//! licensed MIT OR Apache-2.0.
 use crate::aggregates::Type;
 use crate::files;
 use crate::text_io::Error;
