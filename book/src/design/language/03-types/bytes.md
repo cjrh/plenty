@@ -60,6 +60,7 @@ contents cannot change.
 | `len(value)`, `value.len()` | Number of bytes, `i64` |
 | `value[i]` | The byte at `i`, `u8`; list index rules: negative counts from the end, a missing index stops the program with `index out of bounds` |
 | `value[a:b:c]` | A [slice](../04-expressions/slices.md): `Result[std.bytes.Bytes, AllocError]`, a new owned buffer; no import needed |
+| `&value[a:b]` | A shared [slice view](../04-expressions/slices.md#slice-views), `&[u8]`, of the selected bytes; no copy |
 | `for byte in value`, `reversed(value)` | Each byte as `u8` |
 | `x in value` | Whether the `u8` `x` occurs |
 | `==`, `!=` | Content equality with another `bytes` |

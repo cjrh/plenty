@@ -63,6 +63,7 @@ mod sorting;
 mod tail_calls;
 mod target;
 mod threads;
+mod views;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Type = Option<Ty>; // Unit expressions have no operand; enum slots use Ty::Unit.
@@ -819,6 +820,9 @@ impl TypeRef {
                 output: output.resolve(aliases)?,
             };
             callables::validate(&signature, &self.at)?;
+            if matches!(signature.output, Some(Ty::View(..))) {
+                return Err(self.at.error(views::RETURN));
+            }
             if name == "BoxedCallable" && matches!(signature.output, Some(Ty::Ref(..))) {
                 return Err(self
                     .at
@@ -874,12 +878,21 @@ impl TypeRef {
             }
             return Ok(Some(Ty::Range(Arc::new(ty))));
         }
+        if matches!(name.as_str(), VIEW_TYPE | MUT_VIEW_TYPE) {
+            let element = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
+            return view_type(element, name == MUT_VIEW_TYPE, &self.at).map(Some);
+        }
         if matches!(name.as_str(), "&" | "&mut") {
             // `&()` is the type of a borrowed unit payload; spelling it lets
             // generic `&T` signatures instantiate with `T = ()`.
             let inner = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
             if matches!(inner, Ty::Ref(..)) {
                 return Err(self.at.error("references to references are not supported"));
+            }
+            if matches!(inner, Ty::View(..)) {
+                return Err(self.at.error(
+                    "a slice view is already a borrow; write `&[T]` or `&mut [T]` without another `&`",
+                ));
             }
             return Ok(Some(Ty::Ref(Arc::new(inner), name == "&mut")));
         }
@@ -1017,6 +1030,11 @@ impl TypeRef {
             for (i, arg) in args.iter().enumerate() {
                 if !arg.contains_reference() || Some(i) == success && references::carriable(arg) {
                     continue;
+                }
+                if arg.storage_barrier() == Some(crate::op::StorageBarrier::View) {
+                    return Err(self
+                        .at
+                        .error(crate::op::StorageBarrier::View.message("enum payloads")));
                 }
                 return Err(self.at.error(if name == "Result" && i == 1 {
                     "Result errors cannot carry references; copy the part of the input the error reports"
@@ -1565,12 +1583,24 @@ impl Parser {
     fn ty_inner(&mut self) -> Result<TypeRef> {
         let at = self.peek().clone();
         if self.eat("&") {
-            let name = if self.eat("mut") { "&mut" } else { "&" };
+            let mutable = self.eat("mut");
+            // `&[T]` and `&mut [T]` are slice views; see `view_type`.
+            let view = self.eat("[");
+            let name = match (view, mutable) {
+                (false, false) => "&",
+                (false, true) => "&mut",
+                (true, false) => VIEW_TYPE,
+                (true, true) => MUT_VIEW_TYPE,
+            };
             if self.type_depth >= 64 {
                 return Err(at.error("type nesting exceeds the implementation limit of 64"));
             }
             self.type_depth += 1;
-            let inner = self.ty_inner();
+            let inner = if view {
+                self.ty().and_then(|inner| self.expect("]").map(|_| inner))
+            } else {
+                self.ty_inner()
+            };
             self.type_depth -= 1;
             return Ok(TypeRef {
                 concrete: None,
@@ -2527,8 +2557,9 @@ impl Parser {
             Kind::Symbol(s) if &**s == "&" => {
                 let op = if self.eat("mut") { "&mut" } else { "&" };
                 let operand = self.expr(10)?;
-                if slice_operand(&operand) {
-                    return Err(at.error(BORROWED_SLICE));
+                if matches!(&ungroup(&operand).kind, Expression::Try(inner) if matches!(ungroup(inner).kind, Expression::Slice(..)))
+                {
+                    return Err(at.error(VIEW_TRY));
                 }
                 Expression::Unary(op.into(), Box::new(operand))
             }
@@ -4060,6 +4091,11 @@ impl Lower<'_> {
                 let (a, mut loans) = self.observe(left, ops)?;
                 let (b, other_loans) = self.observe(right, ops)?;
                 loans.extend(other_loans);
+                if let Ty::View(..) = b {
+                    return Err(e.at.error(format!(
+                        "slice views do not support `{op}` yet; compare the elements in a loop"
+                    )));
+                }
                 if b.restricted_storage() && !matches!(b, Ty::KeyView(_)) {
                     return Err(e
                         .at
@@ -4169,6 +4205,9 @@ impl Lower<'_> {
                 }
                 if matches!(a, Ty::KeyView(_)) || matches!(b, Ty::KeyView(_)) {
                     return Err(e.at.error(format!("KeyView does not support binary operator `{op}`; use ==/!= for set equality or the set relationship/algebra methods")));
+                }
+                if matches!(a, Ty::View(..)) || matches!(b, Ty::View(..)) {
+                    return self.view_equality(op, (a, b), rhs, loans, &e.at, ops);
                 }
                 if a.restricted_storage() {
                     if matches!(a, Ty::Closure(_)) {
@@ -4412,6 +4451,11 @@ impl Lower<'_> {
                         let (ty, loans) = self.observe(argument, ops)?;
                         if ty.key_view() {
                             return Err(argument.at.error("dictionary key views cannot be printed; iterate the view or materialise keys_snapshot(), into_keys(), or to_set()"));
+                        }
+                        if let Ty::View(..) = ty {
+                            return Err(argument
+                                .at
+                                .error(crate::op::FormatBlocker::View.direct_message()));
                         }
                         if ty.prints_generator_frame() {
                             return Err(e.at.error("generators cannot be printed"));
@@ -4848,6 +4892,12 @@ impl Lower<'_> {
     ) -> Result<Vec<usize>> {
         let mut argument_loans = Vec::new();
         for (arg, (_, expected)) in args.iter().zip(inputs) {
+            if let Ty::View(_, mutable) = expected {
+                let (ty, loan) = self.view_argument(arg, *mutable, ops)?;
+                self.same(Some(ty), Some(expected.clone()), &arg.at)?;
+                argument_loans.push(loan);
+                continue;
+            }
             if let Ty::Ref(inner, mutable) = expected {
                 let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
                 // A borrowed box also lends its content.
@@ -5717,18 +5767,24 @@ fn mixed_numeric(left: &Expr, a: &Ty, right: &Expr, b: &Ty) -> Box<dyn Error> {
     }
 }
 
-/// Borrowed slice views are reserved syntax (issue #581, B11, B39).
-const BORROWED_SLICE: &str = "borrowed slice views are not implemented yet; bind the copy first, as in `part = xs[1:3]?`, then borrow `&part`";
+/// The type-reference names of `&[T]` and `&mut [T]`.
+pub(crate) const VIEW_TYPE: &str = "&[]";
+pub(crate) const MUT_VIEW_TYPE: &str = "&mut []";
 
-/// A slice, possibly parenthesized or followed by `?`: the operand forms of
-/// `&` and `&mut` reserved for borrowed views.
-fn slice_operand(e: &Expr) -> bool {
-    match &ungroup(e).kind {
-        Expression::Slice(..) => true,
-        Expression::Try(inner) => slice_operand(inner),
-        _ => false,
+/// `&[T]` (shared) or `&mut [T]` (exclusive): a view of list rows, or of
+/// bytes when `T` is `u8`. Its elements are list elements, which never hold
+/// references.
+fn view_type(element: Ty, mutable: bool, at: &Token) -> Result<Ty> {
+    if element.contains_reference() || element.restricted_storage() {
+        return Err(at.error(format!(
+            "a slice view's elements are list elements, and {element} cannot be stored in a list"
+        )));
     }
+    Ok(Ty::View(Arc::new(element), mutable))
 }
+
+/// `&xs[a:b]?` would propagate an error that a view cannot produce.
+const VIEW_TRY: &str = "a slice view `&xs[a:b]` does not allocate, so it takes no `?`; write `&xs[a:b]`, or copy the elements with `xs[a:b]?`";
 
 const SLICE_ASSIGNMENT: &str =
     "slice assignment is not supported; assign elements by index, or build a new list";
@@ -6133,6 +6189,10 @@ fn register_with_body(
         Some(resolved) => resolved,
         None => protocols::signature(f, aliases)?,
     };
+    // Aggregates, `Option` and `Result` included, reject views when built.
+    if matches!(output, Some(Ty::View(..))) {
+        return Err(f.at.error(views::RETURN));
+    }
     if types.iter().any(Ty::key_view) || output.as_ref().is_some_and(Ty::key_view) {
         return Err(f.at.error("dictionary key views are local-only; user-function parameters, returns, and captures require an owned keys_snapshot(), into_keys(), or to_set()"));
     }
@@ -6184,12 +6244,13 @@ fn register_with_body(
     }
     check_carried_parameters(f, &inputs)?;
     if let Some(output) = output.as_ref().filter(|ty| ty.carries_loan()) {
-        // The first reference parameter is the result's origin; later ones
+        // The first reference or view parameter is the result's origin; later ones
         // are ordinary inputs whose loans end with the call.
-        let Some((_, origin)) = inputs.iter().find(|(_, ty)| matches!(ty, Ty::Ref(..))) else {
+        let Some((_, origin)) = inputs.iter().find(|(_, ty)| references::lends(ty)) else {
             return Err(f.at.error(no_origin(output)));
         };
-        if output.carries_mutable_loan() && !matches!(origin, Ty::Ref(_, true)) {
+        if output.carries_mutable_loan() && !matches!(origin, Ty::Ref(_, true) | Ty::View(_, true))
+        {
             return Err(f.at.error(immutable_origin(output)));
         }
     }
@@ -6372,7 +6433,7 @@ fn lower_body(
                 return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
                     sig.inputs
                         .iter()
-                        .position(|(_, ty)| matches!(ty, Ty::Ref(..)))
+                        .position(|(_, ty)| references::lends(ty))
                         .map(|i| i as u8)
                 } else {
                     None
@@ -6408,7 +6469,7 @@ fn lower_body(
             // Parameter loans start at the function header.
             lower.mark(&f.at, &mut body);
             for (i, (_, ty)) in sig.inputs.iter().enumerate() {
-                if let Ty::Ref(_, mutable) = ty {
+                if let Ty::Ref(_, mutable) | Ty::View(_, mutable) = ty {
                     if yield_type.is_some() {
                         return Err(f.at.error("generators cannot capture references"));
                     }

@@ -1507,7 +1507,12 @@ impl Lower<'_> {
         let counted = range_args
             .zip(range_element.clone())
             .filter(|(_, element)| std::ptr::eq(range_expr, iterable) && element.is_int());
-        let (ty, mut loans) = if let Some((_, element)) = &counted {
+        let (ty, mut loans) = if self.is_view(iterable) {
+            let (view, loan) = self.view_source(iterable, ops)?;
+            borrowed = true;
+            mutable = matches!(view, Ty::View(_, true));
+            (view, vec![loan])
+        } else if let Some((_, element)) = &counted {
             (Ty::Range(Arc::new(element.clone())), vec![])
         } else if let Some(element) = range_element {
             (
@@ -1576,7 +1581,13 @@ impl Lower<'_> {
             }
         }
         let bytes = byte_buffers::byte_buffer(&ty).is_some();
-        if reverse && !matches!(ty, Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_)) && !bytes {
+        if reverse
+            && !matches!(
+                ty,
+                Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_) | Ty::View(..)
+            )
+            && !bytes
+        {
             return Err(iterable
                 .at
                 .error("reversed requires a list, str, bytes, range, or Bytes"));
@@ -1588,13 +1599,20 @@ impl Lower<'_> {
                 "mutable iteration over Bytes is not supported; assign through an index with `b[i] = value`",
             ));
         }
-        let element = if bytes { Some(Ty::U8) } else { ty.element() };
+        let element = match &ty {
+            _ if bytes => Some(Ty::U8),
+            Ty::View(element, _) => Some((**element).clone()),
+            _ => ty.element(),
+        };
         if borrowed && matches!(ty, Ty::Generator(_)) {
             return Err(iterable.at.error("borrowed generator iteration is not supported; use next with an exclusive reference"));
         }
-        let references =
-            borrowed && matches!(ty, Ty::List(_) | Ty::Dict(..) | Ty::Set(_) | Ty::KeyView(_));
-        if mutable && !matches!(ty, Ty::List(_)) {
+        let references = borrowed
+            && matches!(
+                ty,
+                Ty::List(_) | Ty::Dict(..) | Ty::Set(_) | Ty::KeyView(_) | Ty::View(..)
+            );
+        if mutable && !matches!(ty, Ty::List(_) | Ty::View(..)) {
             return Err(iterable.at.error(
                 "mutable iteration requires a list; use items for mutable dictionary values",
             ));
@@ -1604,6 +1622,8 @@ impl Lower<'_> {
         }
         let mut plan = if let Some((args, element)) = counted {
             self.counted_range_iteration(args, element, reverse, &iterable.at, ops)?
+        } else if let Ty::View(..) = ty {
+            self.view_iteration(ty.clone(), reverse, &iterable.at, ops)?
         } else if references && matches!(ty, Ty::List(_)) {
             self.borrowed_list_iteration(ty.clone(), mutable, reverse, &iterable.at, ops)?
         } else if references {
@@ -2458,6 +2478,17 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Ty::U8);
         }
+        if let Ty::View(element, _) = &ty {
+            if element.affine() {
+                return Err(e.at.error(
+                    "cannot move an element out of a slice view; borrow it with `&v[i]`, or copy it with `copy(v[i])?`",
+                ));
+            }
+            let (value, reads) = self.view_get(&ty, index, &e.at, ops)?;
+            Self::end_reads(reads, ops);
+            Self::end_reads(loans, ops);
+            return Ok(value);
+        }
         let (key, value) = match &ty {
             Ty::List(v) => (Ty::I64, (**v).clone()),
             Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
@@ -2770,6 +2801,12 @@ impl Lower<'_> {
                 ))
         {
             return self.pipeline_terminal(base, name, args, ops);
+        }
+        if self.is_view(base) {
+            return Err(base.at.error(format!(
+                "a slice view has no method `{name}`; {}",
+                views::OPERATIONS
+            )));
         }
         if matches!(self.place_type(base), Some(Ty::Clist(_))) {
             return self.clist_method(base, name, args, ops);
@@ -4189,12 +4226,22 @@ impl Lower<'_> {
                 return Ok(Ty::I64);
             }
             let (ty, loans) = self.observe(&args[0], ops)?;
+            if let Ty::View(..) = ty {
+                ops.push(Op::Collection(CollectionOp::ViewLen(ty)));
+                Self::end_reads(loans, ops);
+                return Ok(Ty::I64);
+            }
             if ty.element().is_none() || ty.restricted_storage() && !matches!(ty, Ty::KeyView(_)) {
                 return Err(at.error("len requires an iterable"));
             }
             Self::push_query(CollectionOp::Len(ty), ops);
             Self::end_reads(loans, ops);
             return Ok(Ty::I64);
+        }
+        if self.is_view(&args[0]) {
+            return Err(args[0].at.error(format!(
+                "{name}() does not take a slice view; copy the elements with a copying slice, `xs[a:b]?`"
+            )));
         }
         let ty = self.value(&args[0], ops)?;
         if ty.key_view() {

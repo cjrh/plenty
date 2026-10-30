@@ -230,6 +230,23 @@ pub enum CollectionOp {
     /// First-row address, row size, in-bounds index -> reference to that row's
     /// element, the address `ElementRef` returns. The index is not checked.
     ListRowRef(Ty, bool),
+    /// `&xs[a:b]` and `&mut xs[a:b]` (issue #581): owner, start, stop, and
+    /// the written-bound flags of `slice_operands` -> `View(element, mutable)`.
+    /// Bounds clamp as a copying slice's do, with step 1. The owner is a
+    /// reference to a list, `ByteStorage`, or `bytes` literal, or a view. The
+    /// view is the first selected row's address and the row count; the
+    /// frontend keeps the owner's loan live while the view is used.
+    ViewNew(Ty, bool),
+    /// View -> its row count.
+    ViewLen(Ty),
+    /// View, index -> reference to that row. Negative indices count from the
+    /// end, and an out-of-range index traps, as list indexing does.
+    ViewRow(Ty, bool),
+    /// View, in-bounds index -> reference to that row, for iteration. The
+    /// index is not checked.
+    ViewItem(Ty, bool),
+    /// Two shared views of one type -> whether their elements are equal.
+    ViewEqual(Ty),
     /// Internal to `.par`: first-row address, row size, in-bounds index ->
     /// the owned element, leaving an empty row so the list's drop skips it.
     /// The index is not checked.
@@ -681,6 +698,33 @@ impl CollectionOp {
                 Ty::Ref(Arc::new(t.element().unwrap()), *mutable),
             ),
             ListRowTake(t) => (vec![Ty::I64, Ty::I64, Ty::I64], t.element().unwrap()),
+            ViewNew(source, mutable) => {
+                let (owner, element) = match source {
+                    Ty::View(element, _) => (Ty::View(element.clone(), *mutable), element.clone()),
+                    Ty::List(element) => {
+                        (Ty::Ref(Arc::new(source.clone()), *mutable), element.clone())
+                    }
+                    _ => (
+                        Ty::Ref(Arc::new(source.clone()), *mutable),
+                        Arc::new(Ty::U8),
+                    ),
+                };
+                (
+                    vec![owner, Ty::I64, Ty::I64, Ty::I64],
+                    Ty::View(element, *mutable),
+                )
+            }
+            ViewLen(view) => (vec![view.clone()], Ty::I64),
+            ViewRow(view, mutable) | ViewItem(view, mutable) => {
+                let Ty::View(element, _) = view else {
+                    unreachable!("a view operation on {view}")
+                };
+                (
+                    vec![view.clone(), Ty::I64],
+                    Ty::Ref(element.clone(), *mutable),
+                )
+            }
+            ViewEqual(view) => (vec![view.clone(), view.clone()], Ty::Bool),
             QueryRef(query) => (query.inputs(), query.output()),
             ListScalarGetRef(t) => (
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
@@ -884,11 +928,16 @@ impl CollectionOp {
             | Self::ListRowBytesRef(_)
             | Self::ListRowRef(..)
             | Self::ListRowTake(_)
+            | Self::ViewNew(..)
+            | Self::ViewLen(_)
+            | Self::ViewRow(..)
+            | Self::ViewItem(..)
+            | Self::ViewEqual(_)
             | Self::ListSortBy(_)
             | Self::OrderCompare(_)
             | Self::QueryRef(_) => {
                 unreachable!(
-                    "borrowed list access, queries, key sorts, and ordering use narrow runtime helpers"
+                    "borrowed list access, slice views, queries, key sorts, and ordering use narrow runtime helpers"
                 )
             }
             Self::IterGet(_) => 6,

@@ -366,6 +366,9 @@ impl Lower<'_> {
         if name == "Some" && args.is_some_and(|a| a.len() == 1) {
             let arg = &args.unwrap()[0];
             let ty = self.expr(arg, ops)?.unwrap_or(Ty::Unit);
+            if ty.storage_barrier() == Some(crate::op::StorageBarrier::View) {
+                return Err(at.error(crate::op::StorageBarrier::View.message("enum payloads")));
+            }
             if ty.contains_reference() && !references::carriable(&ty) {
                 return Err(at.error("references cannot be stored in enum payloads"));
             }

@@ -14,13 +14,7 @@ mod sort;
 mod tests;
 
 pub(crate) fn scalar_bytes(ty: &Type) -> Option<usize> {
-    match ty.kind {
-        b'1' | b'5' | b'b' => Some(1),
-        b'2' | b'6' => Some(2),
-        b'3' | b'7' | b'f' => Some(4),
-        b'4' | b'8' | b'd' => Some(8),
-        _ => None,
-    }
+    crate::list_layout::scalar_bytes(ty.kind)
 }
 
 fn canonical_scalar(value: u128, ty: &Type) -> u128 {
@@ -73,6 +67,12 @@ unsafe fn read_row(base: *const u8, key: &Type, value: Option<&Type>, packed: bo
             value: value.map_or(0, |_| base.add(key.slot_words() * 16).cast::<u128>().read()),
         }
     }
+}
+
+/// The element word of the dense list row at `base`, as `Entries::get`
+/// returns it. Slice views address rows without their list.
+pub(crate) unsafe fn dense_element(base: *const u8, element: &Type) -> u128 {
+    unsafe { read_row(base, element, None, scalar_bytes(element).is_some()).key }
 }
 
 #[derive(Clone, Copy)]
@@ -209,7 +209,11 @@ impl Entries {
             key,
             value,
             stride: if value.is_none() {
-                scalar_bytes(key).unwrap_or(key.slot_words() * 16)
+                crate::list_layout::row_bytes(
+                    key.kind,
+                    key.inline_bytes as usize,
+                    key.has_inline_range(),
+                )
             } else {
                 (key.slot_words() + value.map_or(0, Type::slot_words)) * 16
             },

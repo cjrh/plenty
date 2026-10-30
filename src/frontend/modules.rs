@@ -1604,7 +1604,10 @@ impl Scope {
                     super::ide::refer(&ty.at, Find::At(written), super::ide::global(&symbol));
                 }
                 *name = symbol;
-            } else if !matches!(name.as_str(), "&" | "&mut" | "|") {
+            } else if !matches!(
+                name.as_str(),
+                "&" | "&mut" | "|" | VIEW_TYPE | MUT_VIEW_TYPE
+            ) {
                 return Err(ty.at.error(super::unknown_type(name)));
             }
         }
@@ -2744,10 +2747,9 @@ fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mu
     if !mentions(t, params) {
         out.push(t.clone());
     } else {
-        if t.name
-            .as_ref()
-            .is_some_and(|n| !builtin(n) && !matches!(n.as_str(), "&" | "&mut" | "|"))
-        {
+        if t.name.as_ref().is_some_and(|n| {
+            !builtin(n) && !matches!(n.as_str(), "&" | "&mut" | "|" | VIEW_TYPE | MUT_VIEW_TYPE)
+        }) {
             let mut head = t.clone();
             head.args.clear();
             out.push(head);

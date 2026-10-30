@@ -982,6 +982,11 @@ impl Lower<'_> {
                 .templates
                 .insert(name.clone(), Arc::new(function));
         }
+        if let Some(view) = values.iter().find(|value| self.is_view(value)) {
+            return Err(view
+                .at
+                .error(crate::op::FormatBlocker::View.direct_message()));
+        }
         // Every field is lent; a reference value is lent again.
         let args: Vec<Expr> = target
             .into_iter()

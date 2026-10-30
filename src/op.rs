@@ -69,6 +69,12 @@ pub enum Ty {
     /// Local-only shared dictionary-key projection. The owner carries its
     /// complete row descriptor; the view never owns or retains that owner.
     KeyView(Arc<Ty>),
+    /// `&[T]` (false) or `&mut [T]` (true): a borrowed run of contiguous
+    /// list or byte rows, made by `&xs[a:b]`. Its value is the first row's
+    /// address and the row count; the frontend keeps the owner's loan live
+    /// for as long as the view is used. Local-only until stored references
+    /// (backlog B11); see book/src/design/language/04-expressions/slices.md.
+    View(Arc<Ty>, bool),
     Dict(Arc<Ty>, Arc<Ty>),
     /// One owned heap value; recursive types reach themselves through boxes.
     Box(Arc<Ty>),
@@ -88,6 +94,7 @@ pub enum Ty {
 pub enum StorageBarrier {
     Iter,
     KeyView,
+    View,
     Reference,
     Generator,
     ScopedTask,
@@ -105,6 +112,11 @@ impl StorageBarrier {
         let subject = match self {
             Self::Iter => "iterator pipelines",
             Self::KeyView => "dictionary key views",
+            Self::View => {
+                return format!(
+                    "slice views cannot be stored in {place} yet (backlog B11); store the bounds, or an owned copy `xs[a:b]?`"
+                );
+            }
             Self::Reference => "references",
             Self::Generator => "generators",
             Self::ScopedTask => "scoped tasks",
@@ -258,7 +270,8 @@ impl Ty {
             | Self::Generator(_)
             | Self::Closure(_)
             | Self::Ref(..)
-            | Self::KeyView(_) => true,
+            | Self::KeyView(_)
+            | Self::View(..) => true,
             Self::Enum(t) => t.try_get().is_some_and(|t| t.restricted_storage),
             _ => false,
         }
@@ -301,6 +314,7 @@ impl Ty {
         match self {
             Self::Iter(..) => Some(StorageBarrier::Iter),
             Self::KeyView(_) => Some(StorageBarrier::KeyView),
+            Self::View(..) => Some(StorageBarrier::View),
             Self::Ref(..) => Some(StorageBarrier::Reference),
             Self::Generator(_) => Some(StorageBarrier::Generator),
             Self::Task(_) => Some(StorageBarrier::ScopedTask),
@@ -419,6 +433,7 @@ impl Ty {
                     work.push(inner)
                 }
                 Self::Ref(..) => return Some(FormatBlocker::Reference),
+                Self::View(..) => return Some(FormatBlocker::View),
                 Self::Enum(t) if t.get().restricted_storage && seen.insert(&*t.name) => {
                     work.extend(
                         t.local()
@@ -435,7 +450,7 @@ impl Ty {
     }
     pub fn contains_reference(&self) -> bool {
         // Other composite references are rejected at their construction boundary.
-        matches!(self, Self::Ref(..) | Self::KeyView(_))
+        matches!(self, Self::Ref(..) | Self::KeyView(_) | Self::View(..))
             || matches!(self, Self::Closure(t) if t.borrowed)
             || self.carried_reference().is_some()
     }
@@ -640,6 +655,7 @@ pub enum FormatBlocker {
     Closure,
     Task,
     Reference,
+    View,
 }
 
 impl FormatBlocker {
@@ -649,6 +665,7 @@ impl FormatBlocker {
             Self::Closure => "closures",
             Self::Task => "scoped tasks",
             Self::Reference => "references",
+            Self::View => "slice views",
         }
     }
     pub fn singular(self) -> &'static str {
@@ -657,7 +674,17 @@ impl FormatBlocker {
             Self::Closure => "a closure",
             Self::Task => "a scoped task",
             Self::Reference => "a reference",
+            Self::View => "a slice view",
         }
+    }
+    /// The diagnostic for formatting a value of this kind itself.
+    pub fn direct_message(self) -> String {
+        let advice = match self {
+            Self::Closure => "; call the closure and format its result",
+            Self::View => "; format the elements, or an owned copy `xs[a:b]?`",
+            _ => "",
+        };
+        format!("{} cannot be formatted{advice}", self.plural())
     }
     /// The diagnostic for formatting a value of type `ty` whose first
     /// unformattable part is this kind.
@@ -668,13 +695,10 @@ impl FormatBlocker {
                 | (Self::Closure, Ty::Closure(_))
                 | (Self::Task, Ty::Task(_))
                 | (Self::Reference, Ty::Ref(..))
+                | (Self::View, Ty::View(..))
         );
         if direct {
-            let advice = match self {
-                Self::Closure => "; call the closure and format its result",
-                _ => "",
-            };
-            format!("{} cannot be formatted{advice}", self.plural())
+            self.direct_message()
         } else {
             format!(
                 "`{ty}` holds {}, and {} cannot be formatted; match the value and format its parts instead",
@@ -736,6 +760,8 @@ impl fmt::Display for Ty {
             Ty::List(t) => return write!(f, "list[{t}]"),
             Ty::Set(t) => return write!(f, "set[{t}]"),
             Ty::KeyView(t) => return write!(f, "KeyView[{t}]"),
+            Ty::View(t, false) => return write!(f, "&[{t}]"),
+            Ty::View(t, true) => return write!(f, "&mut [{t}]"),
             Ty::Clist(t) => return write!(f, "clist[{t}]"),
             Ty::Dict(k, v) => return write!(f, "dict[{k}, {v}]"),
             Ty::Box(t) => return write!(f, "Box[{t}]"),
@@ -2150,11 +2176,10 @@ fn step(
             stack.push(ty.clone());
         }
         Op::Reborrow(target) => {
-            let Some(Ty::Ref(source, writable)) = stack.pop() else {
+            let ((Some(Ty::Ref(source, writable)), Ty::Ref(inner, mutable))
+            | (Some(Ty::View(source, writable)), Ty::View(inner, mutable))) = (stack.pop(), target)
+            else {
                 return Err("invalid reborrow".into());
-            };
-            let Ty::Ref(inner, mutable) = target else {
-                return Err("invalid reborrow target".into());
             };
             if source != *inner || (*mutable && !writable) {
                 return Err("invalid reborrow permissions".into());
@@ -2181,6 +2206,25 @@ fn step(
                     if !matches!(ty, Ty::List(_)) =>
                 {
                     return Err("list length and rows require a list reference".into());
+                }
+                crate::collection::CollectionOp::ViewNew(
+                    Ty::List(_) | Ty::ByteStorage | Ty::ByteStr | Ty::View(..),
+                    _,
+                ) => {}
+                crate::collection::CollectionOp::ViewNew(..) => {
+                    return Err("a slice view requires a list, byte, or view owner".into());
+                }
+                crate::collection::CollectionOp::ViewLen(ty)
+                | crate::collection::CollectionOp::ViewRow(ty, _)
+                | crate::collection::CollectionOp::ViewItem(ty, _)
+                | crate::collection::CollectionOp::ViewEqual(ty)
+                    if !matches!(ty, Ty::View(..)) =>
+                {
+                    return Err("view operations require a slice view".into());
+                }
+                crate::collection::CollectionOp::ViewRow(Ty::View(_, false), true)
+                | crate::collection::CollectionOp::ViewItem(Ty::View(_, false), true) => {
+                    return Err("a shared slice view cannot lend a mutable row".into());
                 }
                 crate::collection::CollectionOp::ListScalarGetRef(ty)
                 | crate::collection::CollectionOp::ListScalarGetView(ty)

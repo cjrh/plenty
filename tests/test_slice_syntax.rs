@@ -295,19 +295,6 @@ fn invalid_slices_are_rejected(#[case] source: &str, #[case] expected: &str) {
     assert!(error.contains(expected), "{error}");
 }
 
-/// Phase guard: borrowed slice views are rejected until issue #581 (backlog
-/// B39) lands; delete this test then.
-#[rstest]
-#[case("xs = [1, 2, 3].unwrap()\nys = &xs[1:3]")]
-#[case("mut xs = [1, 2, 3].unwrap()\nys = &mut xs[1:3]")]
-fn borrowed_slices_are_rejected_until_views_land(#[case] source: &str) {
-    let error = support::check_source(source).unwrap_err().to_string();
-    assert!(
-        error.contains("borrowed slice views are not implemented yet; bind the copy first"),
-        "{error}"
-    );
-}
-
 #[cfg(feature = "runtime-checks")]
 #[rstest]
 #[case(

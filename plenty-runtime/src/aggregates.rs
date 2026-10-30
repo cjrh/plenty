@@ -1824,6 +1824,35 @@ pub(crate) unsafe extern "C" fn plenty_list_row_bytes(owner: *const u8) -> u64 {
     unsafe { (*(owner.cast::<Collection>())).entries.row_bytes() as u64 }
 }
 
+/// Narrow ABI: whether two slice views of dense rows of `descriptor`'s type
+/// hold equal elements, compared as list equality compares rows. A view is the
+/// address of its first row and a row count; neither changes ownership.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_view_equal(
+    a: *const u8,
+    a_len: u64,
+    b: *const u8,
+    b_len: u64,
+    descriptor: *const Type,
+) -> u64 {
+    // SAFETY: the compiler holds both views' loans through the call, so every
+    // named row is live, and passes the element's static descriptor.
+    unsafe {
+        let ty = &*descriptor;
+        let stride =
+            crate::list_layout::row_bytes(ty.kind, ty.inline_bytes as usize, ty.has_inline_range());
+        let same = a_len == b_len
+            && (0..a_len as usize).all(|i| {
+                equal(
+                    crate::entries::dense_element(a.add(i * stride), ty),
+                    crate::entries::dense_element(b.add(i * stride), ty),
+                    ty,
+                )
+            });
+        u64::from(same)
+    }
+}
+
 /// Narrow ABI: the total sort order of two values of `descriptor`'s type as
 /// -1, 0, or 1. Operands arrive as 64-bit halves; neither changes ownership.
 #[unsafe(no_mangle)]

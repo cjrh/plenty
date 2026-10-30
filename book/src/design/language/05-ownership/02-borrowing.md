@@ -29,6 +29,10 @@ indices, such as `xs[0]` and `xs[1]`, are disjoint. Every other element loan
 protects the whole collection: a variable, computed, or negative index, and
 every dictionary key. Growth, removal, replacement, movement, and whole-list
 access such as `len(xs)` or `&xs` overlap every element loan.
+`&xs[a:b]` and `&mut xs[a:b]` borrow a run of list or byte-buffer elements as
+a [slice view](../04-expressions/slices.md#slice-views), `&[T]` or `&mut [T]`.
+A view's loan covers its whole owner, so two views of one list are never
+disjoint.
 Nested fields and collection elements can be projected through these references.
 Borrowing itself allocates nothing.
 

@@ -142,50 +142,7 @@ fn define_type(
         Ty::Atomic(t) => &**t,
         _ => ty,
     };
-    bytes[0] = match ty {
-        Ty::I8 => b'1',
-        Ty::Callable(_) | Ty::Task(_) => b'c',
-        Ty::Channel(_, true) => b'X',
-        Ty::Channel(_, false) => b'Y',
-        Ty::Executor => b'P',
-        Ty::CancellationToken => b'K',
-        Ty::Future(_) => b'Z',
-        Ty::Closure(_) => b'H',
-        Ty::BoxedCallable(_) => b'J',
-        Ty::I16 => b'2',
-        Ty::I32 => b'3',
-        Ty::I64 => b'4',
-        Ty::U8 => b'5',
-        Ty::U16 => b'6',
-        Ty::U32 => b'7',
-        Ty::U64 | Ty::ForeignPtr(_) => b'8',
-        Ty::F32 => b'f',
-        Ty::F64 => b'd',
-        Ty::Unit | Ty::Iter(..) => b'v',
-        Ty::Bool => b'b',
-        Ty::Str => b's',
-        Ty::ByteStr => b'y',
-        Ty::File => b'F',
-        Ty::FsReadDir => b'A',
-        Ty::FsDirEntry => b'I',
-        Ty::FsMetadata => b'M',
-        Ty::ByteStorage => b'U',
-        Ty::List(_) => b'L',
-        Ty::Clist(_) => b'Q',
-        Ty::Set(_) => b'S',
-        Ty::Dict(..) => b'D',
-        Ty::Range(_) => b'R',
-        Ty::Class(_) => b'C',
-        Ty::Box(_) => b'O',
-        // A shared owner is a box with more than one counted owner. Its own
-        // kind lets `copy()` retain it instead of copying the box.
-        Ty::Shared(_) => b'W',
-        Ty::Generator(_) => b'G',
-        Ty::Enum(_) => b'B',
-        Ty::Ref(..) => b'r',
-        Ty::KeyView(_) => b'v',
-        Ty::Atomic(_) => unreachable!("replaced by its element"),
-    };
+    bytes[0] = kind_code(ty);
     bytes[1] = u8::from(affine);
     bytes[2] = u8::from(ty.facts().reflexive);
     bytes[3] = u8::from(ty.has_inline_range());
@@ -295,4 +252,75 @@ fn define_type(
         // no instance can reach the hook.
         .and_then(|name| runtime.drop_hooks.get(name).copied());
     define(module, id, bytes, &links, hook)
+}
+
+/// The descriptor kind byte of `ty`, after `define_type` has replaced a
+/// `NonZero`, newtype, or atomic by the type whose layout it shares.
+fn kind_code(ty: &Ty) -> u8 {
+    match ty {
+        Ty::I8 => b'1',
+        Ty::Callable(_) | Ty::Task(_) => b'c',
+        Ty::Channel(_, true) => b'X',
+        Ty::Channel(_, false) => b'Y',
+        Ty::Executor => b'P',
+        Ty::CancellationToken => b'K',
+        Ty::Future(_) => b'Z',
+        Ty::Closure(_) => b'H',
+        Ty::BoxedCallable(_) => b'J',
+        Ty::I16 => b'2',
+        Ty::I32 => b'3',
+        Ty::I64 => b'4',
+        Ty::U8 => b'5',
+        Ty::U16 => b'6',
+        Ty::U32 => b'7',
+        Ty::U64 | Ty::ForeignPtr(_) => b'8',
+        Ty::F32 => b'f',
+        Ty::F64 => b'd',
+        Ty::Unit | Ty::Iter(..) => b'v',
+        Ty::Bool => b'b',
+        Ty::Str => b's',
+        Ty::ByteStr => b'y',
+        Ty::File => b'F',
+        Ty::FsReadDir => b'A',
+        Ty::FsDirEntry => b'I',
+        Ty::FsMetadata => b'M',
+        Ty::ByteStorage => b'U',
+        Ty::List(_) => b'L',
+        Ty::Clist(_) => b'Q',
+        Ty::Set(_) => b'S',
+        Ty::Dict(..) => b'D',
+        Ty::Range(_) => b'R',
+        Ty::Class(_) => b'C',
+        Ty::Box(_) => b'O',
+        // A shared owner is a box with more than one counted owner. Its own
+        // kind lets `copy()` retain it instead of copying the box.
+        Ty::Shared(_) => b'W',
+        Ty::Generator(_) => b'G',
+        Ty::Enum(_) => b'B',
+        Ty::Ref(..) => b'r',
+        Ty::KeyView(_) => b'v',
+        // A view owns nothing, as a reference does.
+        Ty::View(..) => b'r',
+        Ty::Atomic(_) => unreachable!("replaced by its element"),
+    }
+}
+
+/// Bytes between the rows of a dense `list[element]`, as the runtime's
+/// `Entries::new` derives them from the element's descriptor. Slice views
+/// address rows with this constant instead of asking the list.
+pub(super) fn list_row_bytes(element: &Ty) -> usize {
+    let integer;
+    let ty = match element.nonzero_element() {
+        Some(inner) => {
+            integer = inner;
+            &integer
+        }
+        None => element,
+    };
+    let base = ty.newtype_base();
+    let ty = match &*base {
+        Ty::Atomic(t) => &**t,
+        ty => ty,
+    };
+    crate::list_layout::row_bytes(kind_code(ty), ty.inline_bytes(), ty.has_inline_range())
 }
