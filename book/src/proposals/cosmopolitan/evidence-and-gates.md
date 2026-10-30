@@ -48,7 +48,9 @@ universal failure.
 `reproduce.sh` retains consolidated commands, but was not rerun as a suite and
 ends with an expected failing as-is link. It is not a passing regression test.
 Do not rerun expensive probes merely to write this proposal; the first approved
-implementation experiment must replace the prebuilt provenance gap.
+implementation experiment must replace the prebuilt provenance gap. Its first
+deliverable is the checked-in [self-contained harness](reproduction-harness.md),
+including all source fixtures, pinned/offline inputs and per-case failure records.
 
 ## Staged go/no-go criteria
 
@@ -57,7 +59,8 @@ recorded limitation if acceptance fails; do not expand an allowlist to bypass it
 
 | Gate | Bounded experiment / acceptance criteria | Decision enabled |
 | --- | --- | --- |
-| Reproducible baseline | Fresh locked compiler and runtime build at a recorded commit; exact Rust/Cosmo inputs and commands; repeat native and Cosmo empty/allocation/trap results; retain source, hashes, logs and extracted manifest | Confirm the spike applies to reproducible source, or investigate the discrepancy before proceeding |
+| Reproducible baseline | Implement the [harness contract](reproduction-harness.md) first; fresh locked compiler/runtime, pinned offline inputs and retained sources/commands/artifacts; record expected linker/trap failures separately from passing acceptance | Confirm the spike applies to reproducible source, or investigate the discrepancy before proceeding |
+| Target and code-generation compatibility | Establish the [target-fact and red-zone contract](target-and-codegen.md): host-independent branch/import selection, target/cache isolation, effective codegen settings and reachable-object audit across Plenty, Rust runtime/std and native dependencies; rebuild or reject implicated components before runtime acceptance | Admit only code-generation inputs with a defensible multi-OS ABI contract; no final-link-only fix |
 | x86-64 runtime compatibility | Cosmo-header signal/context shim; checked traps with site/status, unknown-signal forwarding, stack overflow on main and worker threads, page probing, allocation failure/panic/OOM reporting, repeated thread start/join/failure, isolated TLS/destructors and contended synchronization | Decide whether a bounded GNU-component compatibility model is defensible; otherwise stop or approve a dedicated runtime-build investigation |
 | Real multi-OS execution | Transfer the exact same hashed x86-64 artifact to at least one real non-Linux OS; run core success/failure/thread tests through a documented loader route, without rebuilding it per OS | Decide whether to adopt a restricted executable profile; Linux-only success is insufficient |
 | Restricted preview integration | Reviewed capability set, explicit negative tests, target/archive/cache validation, pinned driver and reproducible offline packaging; preserve native GNU tests | Admit only named profile/OS/version/CPU configurations as experimental, with limitations |

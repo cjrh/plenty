@@ -25,6 +25,10 @@ choose an explicit output-target option integrated with existing target selectio
 `--linker` alone must never imply support. Host execution of a generated APE is
 a separate operation from compilation, with a documented loader selection policy.
 
+The proposed [compile-time target and code-generation contract](target-and-codegen.md)
+specifies host-independent `target.os = "cosmo"` selection and the early red-zone
+audit. Neither target facts nor object code can be corrected by final link flags.
+
 ## Runtime build choices to resolve experimentally
 
 Do not assume linking GNU-built Rust std into Cosmo is generally safe. Rust

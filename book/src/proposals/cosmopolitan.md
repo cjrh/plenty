@@ -20,7 +20,11 @@ paths, threads and execution of the identical artifact on a non-Linux OS.
 Then choose a restricted feature profile, a larger runtime port, or no support.
 The [runtime design](cosmopolitan/runtime.md) describes the unresolved build and
 ABI choices; [evidence and qualification](cosmopolitan/evidence-and-gates.md)
-records what was actually measured and the go/no-go criteria.
+records what was actually measured and the go/no-go criteria. The proposed
+[target facts and code-generation contract](cosmopolitan/target-and-codegen.md)
+prevents host-Linux branch selection; a
+[self-contained harness specification](cosmopolitan/reproduction-harness.md)
+defines the first implementation deliverable without relying on scratch state.
 
 ## Multi-OS is not multi-architecture
 
@@ -90,7 +94,7 @@ questions, not prerequisites for the bounded experiment.
   remove GNU assumptions, but carries substantial toolchain/runtime maintenance;
   compare against selective compatibility shims using evidence, not ideology.
 
-This proposal does not replace Cranelift, change Plenty semantics, weaken
+This proposal does not replace Cranelift, change runtime language semantics, weaken
 fallible allocation/security contracts, implement native MSVC/Darwin ports,
 provide BIOS services, promise arbitrary dynamic C libraries, or bundle a new
 SDK into every compiler distribution. It supplies no production effort estimate.
