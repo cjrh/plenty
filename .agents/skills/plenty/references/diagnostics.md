@@ -22,6 +22,8 @@ start with `error: FILE:LINE:COLUMN:`.
 | `` use of moved binding `xs` `` | Using a value after moving it | Borrow (`&xs`), or `copy(xs)?` |
 | `conflicting borrow` | Mutating while a borrow is still used later | End the borrow before mutating |
 | `dictionaries have no indexed assignment` | `d[k] = v` or `d[k] += 1` | `d.insert(k, v)?`; change a value in place through `d.get_mut(k)` |
+| `` `from` imports declarations, and `pkg.sub` is a module `` | Python's `from pkg import sub` for a module | `import pkg.sub` or `import pkg.sub as sub` |
+| `` `pkg.sub` is a module, not a declaration `` | A module used as a value | Name one of its members: `pkg.sub.f()` |
 | `expected Result[...], got ()` at the end of `main` | Missing final value | End with `Ok(())` |
 
 ## Examples

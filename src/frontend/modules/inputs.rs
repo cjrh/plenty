@@ -95,6 +95,7 @@ impl Inputs {
             loaded: HashMap::default(),
             modules: vec![],
             dependencies: vec![],
+            owners: vec![],
             appendix: None,
             inputs: vec![],
         };
