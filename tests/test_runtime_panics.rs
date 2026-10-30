@@ -17,13 +17,14 @@ fn hello_links_no_backtrace_symbolizer() {
         "def main() -> Result[(), AllocError | IoError]:\n    print(\"hello\")?\n    Ok(())\n",
     );
     let bytes = std::fs::read(&executable).unwrap();
-    // std's default panic hook text, present even in a stripped executable.
-    for text in ["RUST_BACKTRACE", "panicked at"] {
-        assert!(
-            !bytes.windows(text.len()).any(|w| w == text.as_bytes()),
-            "found {text:?}"
-        );
-    }
+    // GNU ld can retain unused "panicked at" literals in a merged string
+    // section even after discarding the hook. Check its backtrace control text
+    // and linked functions instead of treating every panic literal as code.
+    let text = "RUST_BACKTRACE";
+    assert!(
+        !bytes.windows(text.len()).any(|w| w == text.as_bytes()),
+        "found {text:?}"
+    );
     // Generic functions folded with symbolizer instances may keep their names,
     // so check for crates whose code has no such aliases.
     let file = object::File::parse(&*bytes).unwrap();
@@ -32,13 +33,34 @@ fn hello_links_no_backtrace_symbolizer() {
         .filter(|symbol| symbol.kind() == SymbolKind::Text)
         .filter_map(|symbol| symbol.name().ok())
         .filter(|name| {
-            ["rustc_demangle", "miniz_oxide", "default_hook"]
-                .iter()
-                .any(|part| name.contains(part))
+            [
+                "rustc_demangle",
+                "miniz_oxide",
+                "default_hook",
+                "panic_with_hook",
+            ]
+            .iter()
+            .any(|part| name.contains(part))
         })
         .collect();
     assert!(linked.is_empty(), "{linked:?}");
+    let panic_entry = |part: &str| {
+        file.symbols()
+            .find(|symbol| {
+                symbol.kind() == SymbolKind::Text
+                    && symbol.name().is_ok_and(|name| name.contains(part))
+            })
+            .unwrap_or_else(|| panic!("missing panic entry {part}"))
+            .address()
+    };
+    assert_eq!(
+        panic_entry("rust_begin_unwind"),
+        panic_entry("plenty_rust_panic"),
+        "Rust panics must enter the runtime handler"
+    );
     let output = Command::new(&executable).output().unwrap();
+    assert!(output.status.success(), "{:?}", output.status);
+    assert!(output.stderr.is_empty(), "{:?}", output.stderr);
     assert_eq!(String::from_utf8_lossy(&output.stdout), "hello\n");
 }
 
