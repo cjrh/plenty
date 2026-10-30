@@ -4155,7 +4155,7 @@ mod linux_target_tests {
                     let result = builder.inst_results(call)[0];
                     builder.ins().return_(&[result]);
                 }
-                builder.finalize();
+                builder.finalize(isa.frontend_config());
                 let mut context = cranelift_codegen::Context::for_function(function);
                 context
                     .compile(
