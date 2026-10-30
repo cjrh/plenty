@@ -55,7 +55,8 @@ def main() -> Result[(), IoError | ParseError]:
 
 - Bindings are immutable; `mut` declares a mutable one, once.
 - There is no `int`: unsuffixed integers are `i64`, floats `f64`. Suffixes:
-  `7u8`, `1.5f32`.
+  `7u8`, `1.5f32`. Integers may be hexadecimal, octal, or binary (`0xFFu8`,
+  `0o755`, `0b1010`) and use `_` separators (`1_000_000`).
 - Types never widen implicitly; cast with `f64(n)`, `u8(n)` (traps if out of
   range), `T.try_from(n)`, or `T.wrapping_from(n)`. `T.parse(text)` returns
   `Result[T, ParseError]`.
@@ -112,7 +113,9 @@ A a el 42
 
 `str` is immutable. Operations that build text return
 `Result[str, AllocError]`; `?` binds tighter than `+`, so write `(a + b)?`.
-An f-string has type `Result[str, FormatError]`. `len` counts Unicode scalars;
+An f-string has type `Result[str, FormatError]`. Escapes are `\n`, `\t`,
+`\r`, `\0`, `\\`, quotes, and `\u{H...}` (`"e\u{301}"`); there is no `\x` or
+`\N{...}`. `len` counts Unicode scalars;
 `text.byte_len()` counts bytes. A [slice](../language/04-expressions/slices.md)
 such as `name[1:]?` or `name[::-1]?` copies, so it needs `?`. See
 [text](../facilities/01-builtins/text.md),

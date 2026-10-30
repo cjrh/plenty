@@ -566,6 +566,15 @@ impl<'a> Lexer<'a> {
                                 .ok_or_else(|| start.error("unterminated escape"))?;
                             self.pos += escaped.len_utf8();
                             self.column += 1;
+                            if escaped == 'u' {
+                                let (scalar, length) = unicode_escape(&source[self.pos..])
+                                    .map_err(|e| here.error(e))?;
+                                // The escape is ASCII, so bytes and columns agree.
+                                self.pos += length;
+                                self.skip_columns(length);
+                                text.push(scalar);
+                                continue;
+                            }
                             text.push(escape(escaped).ok_or_else(|| {
                                 here.error(format!("unsupported escape \\{escaped}"))
                             })?);
@@ -608,6 +617,23 @@ impl<'a> Lexer<'a> {
                             self.push(out, kind, line, column);
                         }
                     }
+                }
+                b'0' if matches!(
+                    bytes.get(self.pos + 1),
+                    Some(b'x' | b'X' | b'o' | b'O' | b'b' | b'B')
+                ) =>
+                {
+                    let begin = self.pos;
+                    let end = begin
+                        + 2
+                        + bytes[begin + 2..]
+                            .iter()
+                            .position(|c| !(c.is_ascii_alphanumeric() || *c == b'_'))
+                            .unwrap_or(bytes.len() - begin - 2);
+                    let decimal = radix_integer(&source[begin..end]).map_err(|e| start.error(e))?;
+                    self.pos = end;
+                    self.skip_columns(end - begin);
+                    self.push(out, Kind::Number(decimal.into()), line, column);
                 }
                 c if c.is_ascii_digit()
                     || (c == b'.' && bytes.get(self.pos + 1).is_some_and(u8::is_ascii_digit)) =>
@@ -2752,8 +2778,82 @@ fn byte_escape(rest: &str) -> std::result::Result<(u8, usize), String> {
     }
     match escape(escaped) {
         Some(byte) => Ok((byte as u8, 1)),
+        None if escaped == 'u' => Err(
+            "unsupported escape \\u in a byte literal; a byte literal holds bytes, not scalars, so write the UTF-8 encoding with `\\xHH` escapes".into(),
+        ),
         None => Err(format!("unsupported escape \\{escaped} in a byte literal")),
     }
+}
+
+/// Decodes a `\u{H...}` escape in string text. `rest` follows the `\u`;
+/// returns the scalar and the source bytes consumed. The spelling is the one
+/// the `!a` conversion writes, so its output can be pasted back into source.
+fn unicode_escape(rest: &str) -> std::result::Result<(char, usize), String> {
+    let shape = || "`\\u` needs 1 to 6 hexadecimal digits in braces, as in `\\u{200d}`".to_string();
+    let digits = rest
+        .strip_prefix('{')
+        .map(|inner| {
+            &inner[..inner
+                .find(|c: char| !c.is_ascii_hexdigit())
+                .unwrap_or(inner.len())]
+        })
+        .filter(|digits| (1..=6).contains(&digits.len()))
+        .ok_or_else(shape)?;
+    if rest.as_bytes().get(digits.len() + 1) != Some(&b'}') {
+        return Err(shape());
+    }
+    let value = u32::from_str_radix(digits, 16).expect("at most six hexadecimal digits");
+    let scalar = char::from_u32(value).ok_or_else(|| {
+        if value > 0x10ffff {
+            format!("`\\u{{{digits}}}` is beyond the largest Unicode scalar value, `\\u{{10ffff}}`")
+        } else {
+            format!("`\\u{{{digits}}}` is a surrogate code point, not a Unicode scalar value")
+        }
+    })?;
+    Ok((scalar, digits.len() + 2))
+}
+
+/// Rewrites a `0x`, `0o`, or `0b` integer literal in decimal with the same
+/// suffix, so every later stage reads one integer spelling. Range checks
+/// against the suffix or context type happen there, as for decimal literals.
+fn radix_integer(text: &str) -> std::result::Result<String, String> {
+    let (radix, article, name) = match text.as_bytes()[1] {
+        b'x' | b'X' => (16, "a", "hexadecimal"),
+        b'o' | b'O' => (8, "an", "octal"),
+        _ => (2, "a", "binary"),
+    };
+    let body = &text[2..];
+    let split = body
+        .find(|c: char| c != '_' && !c.is_digit(radix))
+        .unwrap_or(body.len());
+    let (digits, suffix) = body.split_at(split);
+    // A suffix names an integer type, so anything else after the digits is a
+    // misplaced digit: `0b102`, `0xG`, or a float suffix such as `0b1f32`.
+    if !suffix.is_empty() && !suffix.starts_with(['i', 'u']) {
+        let bad = suffix.chars().next().unwrap();
+        return Err(format!("invalid digit `{bad}` in {article} {name} literal"));
+    }
+    if !matches!(
+        suffix,
+        "" | "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+    ) {
+        return Err("invalid integer suffix".into());
+    }
+    if digits.is_empty() {
+        return Err(format!("`{}` needs at least one {name} digit", &text[..2]));
+    }
+    if digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
+        return Err("invalid integer separator".into());
+    }
+    let value = digits
+        .bytes()
+        .filter(|&c| c != b'_')
+        .try_fold(0u128, |value, c| {
+            let digit = (c as char).to_digit(radix).expect("checked digit");
+            value.checked_mul(radix.into())?.checked_add(digit.into())
+        })
+        .ok_or("integer literal out of range")?;
+    Ok(format!("{value}{suffix}"))
 }
 
 /// The escapes string and byte literals share; byte literals add `\xHH`.

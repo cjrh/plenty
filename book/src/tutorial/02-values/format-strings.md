@@ -90,7 +90,8 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 ```
 
 `!a` is like `!r` but spells every non-ASCII character as an escape, so
-`f"{'café'!a}"` gives `"caf\u{e9}"`.
+`f"{'café'!a}"` gives `"caf\u{e9}"`, which you can paste back into source as
+the string literal `"caf\u{e9}"`.
 
 The compiler checks every spec against the field's type. A precision does not
 apply to an integer:

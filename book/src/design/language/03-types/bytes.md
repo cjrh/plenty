@@ -40,7 +40,8 @@ strings. Each rule has one form:
   character never stands for its UTF-8 encoding.
 - Escapes are those of string literals (`\0`, `\n`, `\r`, `\t`, `\\`, `\'`,
   `\"`) plus `\xHH`, exactly two hexadecimal digits of either case, for any
-  byte. `\u`, `\N`, and every other escape are errors.
+  byte. `\u{...}` is rejected with a hint to write the scalar's UTF-8 bytes
+  as `\xHH`; `\N` and every other escape are errors.
 - There are no other prefixes: no raw form (`rb`, `br`) because there are no raw
   strings, and no formatted form (`bf`, `fb`). Build formatted text with a
   string and convert it with `std.bytes.from_text`.

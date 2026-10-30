@@ -18,6 +18,36 @@ including every single character and the empty string, also require no heap
 allocation. Longer constructed results use fallible storage. This threshold does
 not change the public type or the result type of an operation.
 
+## Escapes
+
+String literals and f-string text accept the escapes `\0`, `\n`, `\r`, `\t`,
+`\\`, `\'`, `\"`, and `\u{H...}`. The last names one Unicode scalar by code
+point with 1 to 6 hexadecimal digits of either case, so invisible and combining
+scalars stay visible in source:
+
+```plenty
+def main() -> Result[(), IoError]:
+    print(len("e\u{301}"), "e\u{301}" == "é", "\u{1F600}".byte_len())?
+    Ok(())
+```
+```output
+2 False 4
+```
+
+It is the spelling the [`!a` conversion](../../language/04-expressions/format-strings.md)
+writes, so `!a` output pastes back into source as the same text. A surrogate
+(`\u{d800}` to `\u{dfff}`) or a value above `\u{10ffff}` is not a scalar and is
+rejected, as are `\u` without braces, an empty or longer digit run, and every
+other escape, including Python's `\x`, `\uXXXX`, `\U`, and `\N{...}`. A
+[byte literal](../../language/03-types/bytes.md) rejects `\u{...}`: it holds
+bytes, so write the UTF-8 encoding with `\xHH`.
+
+| Source | Diagnostic |
+| --- | --- |
+| `"\u200d"` | `` `\u` needs 1 to 6 hexadecimal digits in braces, as in `\u{200d}` `` |
+| `"\u{d800}"` | `` `\u{d800}` is a surrogate code point, not a Unicode scalar value `` |
+| `"\u{110000}"` | `` `\u{110000}` is beyond the largest Unicode scalar value, `\u{10ffff}` `` |
+
 ## Character lookup
 
 `text[index] -> str` accepts an `i64` scalar index, with negative indices counted

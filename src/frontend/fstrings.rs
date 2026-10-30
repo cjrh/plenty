@@ -205,6 +205,15 @@ impl Lexer<'_> {
                     let escaped = self
                         .advance()
                         .ok_or_else(|| start.error("unterminated escape"))?;
+                    if escaped == 'u' {
+                        let (scalar, length) = super::unicode_escape(&self.source[self.pos..])
+                            .map_err(|e| at.error(e))?;
+                        for _ in 0..length {
+                            self.advance();
+                        }
+                        text.push(scalar);
+                        continue;
+                    }
                     text.push(
                         escape(escaped)
                             .ok_or_else(|| at.error(format!("unsupported escape \\{escaped}")))?,
