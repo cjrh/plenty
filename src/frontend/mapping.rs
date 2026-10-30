@@ -65,9 +65,8 @@ impl Lower<'_> {
         let result = actual.unwrap();
         let result_name = self.hide(result, at, ops)?;
         let mapper_ty = self.value(mapper, ops)?;
-        let expected = format!(
-            "map_error mapper must take the error `{error}` and return the new error type"
-        );
+        let expected =
+            format!("map_error mapper must take the error `{error}` and return the new error type");
         match &mapper_ty {
             Ty::Ref(..) => {
                 return Err(mapper.at.error(
@@ -88,9 +87,16 @@ impl Lower<'_> {
                         .output
                         .as_ref()
                         .map_or_else(|| "()".to_string(), ToString::to_string);
-                    return Err(mapper
-                        .at
-                        .error(format!("{expected}; got a callable taking ({inputs}) and returning {output}")));
+                    let extra = if signature.inputs.len() > 1 {
+                        format!(
+                            "; supply the other payloads in a closure such as `def(cause: {error}) -> T: ...`"
+                        )
+                    } else {
+                        String::new()
+                    };
+                    return Err(mapper.at.error(format!(
+                        "{expected}; got a callable taking ({inputs}) and returning {output}{extra}"
+                    )));
                 }
                 None => return Err(mapper.at.error(format!("{expected}; got {ty}"))),
             },

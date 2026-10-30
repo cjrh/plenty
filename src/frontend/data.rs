@@ -118,6 +118,9 @@ impl DataTypes {
     pub(super) fn is_class(&self, name: &str) -> bool {
         self.classes.contains_key(name)
     }
+    pub(super) fn is_enum(&self, name: &str) -> bool {
+        self.enums.contains_key(name)
+    }
     pub(super) fn contains(&self, name: &str) -> bool {
         self.enums.contains_key(name) || self.classes.contains_key(name)
     }

@@ -28,8 +28,8 @@ implement HTTP header parsing, chunking, TLS, deadlines, or connection reuse.
 See the [proposal and findings](../../book/src/proposals/completed/error-composition.md)
 for the scope, tradeoffs, and production migration boundary.
 
-Separately, `std.error.map_error` is implemented as an ordinary library helper
-and used by representative HTTP/JSON converters. Worker-reachable code uses
+Separately, `std.error.map_error` (also available as the `Result.map_error`
+method) is used by representative HTTP/JSON converters. Worker-reachable code uses
 concrete callbacks (`def once (...)`) so the existing thread effect checker can
 inspect their bodies; passing a thin function value through a generic helper
 still has the language's existing worker restriction.

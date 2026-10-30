@@ -94,7 +94,11 @@ fn native_values(#[case] source: &str, #[case] expected: &str) {
     "expected i64, got bool"
 )]
 #[case("enum E:\n    A\nprint(E.A()).unwrap()", "nullary variants")]
-#[case("enum E:\n    A(i64)\nprint(E.A).unwrap()", "payload arguments")]
+// A payload variant without arguments is a constructor function value (issue #556).
+#[case(
+    "enum E:\n    A(i64)\nx: E = E.A",
+    "expected E, got Callable[[i64], E]"
+)]
 #[case(
     "enum E:\n    A\n    B\nmatch E.A:\n    case E.A:\n        pass",
     "non-exhaustive match; missing E.B"

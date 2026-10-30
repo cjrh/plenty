@@ -25,6 +25,16 @@ local and never stored, as described in
 Constructors can qualify variants with an enum name, transparent alias, or
 explicit generic instance; patterns use the enum name or an alias and never
 type arguments. Public enums expose every variant.
+
+A payload variant named without arguments is a
+[function value](../06-functions/02-function-values.md): `Reading.Value` has
+type `Callable[[i64], Reading]`, and a variant with two payloads takes two
+arguments. Pass it where a callable is expected, for example
+`i64.parse(text).map_error(ConfigError.InvalidCount)`. A generic enum needs its
+instance, as in `Wrapped[i64].One`. Nullary variants remain values of the enum,
+not functions. The prelude `Some`, `Ok`, and `Err` and variants of `Option` or
+`Result` are not function values; write a closure such as
+`def(value: i64) -> Option[i64]: Some(value)`.
 Enums with permitted element types can be list elements or dictionary values;
 they are not dictionary keys or set elements.
 
