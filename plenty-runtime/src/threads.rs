@@ -7,8 +7,12 @@ use std::ffi::c_void;
 
 pub(crate) type Entry = unsafe extern "C" fn(*mut c_void) -> *mut c_void;
 
-// This is the x86_64 Linux GNU ABI, the compiler's only supported native target.
-// Keep pthread_t opaque to generated code: it reserves one aligned machine word.
+// Keep pthread_t opaque to generated code: Linux GNU uses one machine word
+// on both supported architectures. Assert the storage contract against libc.
+const _: () = {
+    assert!(size_of::<usize>() == size_of::<libc::pthread_t>());
+    assert!(align_of::<usize>() == align_of::<libc::pthread_t>());
+};
 #[link(name = "pthread")]
 unsafe extern "C" {
     fn pthread_create(

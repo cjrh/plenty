@@ -1,9 +1,15 @@
 //! Opt-in test instrumentation; absent from normal compiler/runtime builds.
 use std::alloc::{GlobalAlloc, Layout};
 // Programs route through actor heaps; accounting still counts every call.
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 use crate::actor_heap::Router as System;
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(not(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
 use std::alloc::System;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
