@@ -10,7 +10,7 @@ pub(super) struct GeneratorContext {
 }
 
 pub(super) fn resume_signature() -> Signature {
-    let mut sig = Signature::new(CallConv::SystemV);
+    let mut sig = Signature::new(crate::toolchain::native_call_conv());
     sig.params.extend([AbiParam::new(PTR_TY); 2]);
     sig.returns.push(AbiParam::new(types::I8));
     sig

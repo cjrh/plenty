@@ -115,4 +115,32 @@ mod tests {
         assert_eq!(&bytes[7..10], [0x48, MOV_LOAD, 0x3D]);
         assert_eq!(relocs[1].kind, Reloc::X86GOTPCRel4);
     }
+    #[test]
+    fn leaves_arm_relocations_and_words_unchanged() {
+        let mut function = Function::new();
+        let local = symbol(&mut function, 0, true);
+        let mut bytes = [0x90000000_u32, 0xf9400000, 0x94000000]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>();
+        let original = bytes.clone();
+        let kinds = [
+            Reloc::Aarch64AdrGotPage21,
+            Reloc::Aarch64Ld64GotLo12Nc,
+            Reloc::Arm64Call,
+        ];
+        let mut relocs = kinds
+            .iter()
+            .enumerate()
+            .map(|(i, kind)| MachReloc {
+                offset: (i * 4) as u32,
+                kind: *kind,
+                target: RelocTarget::ExternalName(local.clone()),
+                addend: 0,
+            })
+            .collect::<Vec<_>>();
+        relax_local_addresses(&function, &mut bytes, &mut relocs);
+        assert_eq!(bytes, original);
+        assert_eq!(relocs.iter().map(|r| r.kind).collect::<Vec<_>>(), kinds);
+    }
 }

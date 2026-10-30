@@ -1,7 +1,7 @@
-//! Reports failed checks that end in `ud2` instead of a helper call.
+//! Reports failed checks that end in a native illegal instruction.
 //!
-//! An executable's failed check jumps to a `ud2`, and the compiler lists
-//! every such address in a table that `plenty_main` registers first
+//! An executable's failed check jumps to `ud2` (x86-64) or `udf` (AArch64).
+//! The compiler lists every such address in a table that `plenty_main` registers first
 //! (`src/codegen/traps.rs`). The `SIGILL` handler finds the faulting address
 //! there and resumes the thread in the helper a call would have reached, with
 //! the check's site as its argument, so the report runs in the thread's own
@@ -14,17 +14,10 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::Site;
 
-// The constants and layouts below are the x86_64 Linux GNU ABI, the compiler's
-// only supported native target.
-const SIGILL: i32 = 4;
-const SA_SIGINFO: i32 = 4;
-const SA_ONSTACK: i32 = 0x0800_0000;
-const REG_RDI: usize = 8;
-const REG_RSI: usize = 9;
-const REG_RSP: usize = 15;
-const REG_RIP: usize = 16;
+use crate::signal_context;
+use libc::{SA_ONSTACK, SA_SIGINFO, SIGILL, raise, sigaction};
 
-/// The header of the compiler's table, followed by `count` `ud2` addresses
+/// The header of the compiler's table, followed by `count` illegal-instruction addresses
 /// and then `count` `u32`s: each check's site record offset, with its kind in
 /// the low four bits. `sites` and the addresses are offsets from the field
 /// holding them, which the linker resolves; `sites` is zero for none.
@@ -33,6 +26,7 @@ struct Table {
     count: u32,
     sites: i32,
 }
+const _: () = assert!(size_of::<Table>() == 8);
 
 /// The address `field` holds as an offset from itself.
 ///
@@ -46,39 +40,8 @@ unsafe fn resolve(field: *const i32) -> usize {
 const KIND_MASK: u32 = 15;
 const NO_SITE: u32 = !KIND_MASK;
 
-#[repr(C)]
-struct Action {
-    handler: usize,
-    mask: [u64; 16],
-    flags: i32,
-    restorer: usize,
-}
-
-#[repr(C)]
-struct Info {
-    signal: i32,
-    errno: i32,
-    code: i32,
-}
-
-#[repr(C)]
-struct Context {
-    flags: u64,
-    link: usize,
-    stack: [u64; 3],
-    registers: [u64; 23],
-}
-
-const _: () = {
-    assert!(size_of::<Action>() == 152);
-    assert!(size_of::<Table>() == 8);
-    assert!(std::mem::offset_of!(Context, registers) == 40);
-};
-
-unsafe extern "C" {
-    fn sigaction(signal: i32, action: *const Action, previous: *mut Action) -> i32;
-    fn raise(signal: i32) -> i32;
-}
+type Action = libc::sigaction;
+type Info = libc::siginfo_t;
 
 static TABLE: AtomicPtr<Table> = AtomicPtr::new(null_mut());
 /// The disposition `SIGILL` had before registration, restored for any
@@ -92,12 +55,7 @@ static mut PREVIOUS: MaybeUninit<Action> = MaybeUninit::uninit();
 /// process.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_traps_register(table: *const c_void) {
-    let action = Action {
-        handler: on_illegal as *const () as usize,
-        mask: [0; 16],
-        flags: SA_SIGINFO | SA_ONSTACK,
-        restorer: 0,
-    };
+    let action = signal_context::action(on_illegal as *const () as usize, SA_SIGINFO | SA_ONSTACK);
     // SAFETY: registration runs once, on the main thread, before the handler
     // can read `PREVIOUS`; both records have the ABI layout.
     unsafe {
@@ -107,12 +65,12 @@ pub(crate) unsafe extern "C" fn plenty_traps_register(table: *const c_void) {
         }
         TABLE.store(table.cast_mut().cast(), Ordering::Release);
         // A refusal leaves checks to the previous disposition: the process
-        // still dies on the `ud2`, without a message.
+        // still dies on the illegal instruction, without a message.
         sigaction(SIGILL, &action, null_mut());
     }
 }
 
-/// The helper and its arguments for the check whose `ud2` is at `address`.
+/// The helper and its arguments for the check whose illegal instruction is at `address`.
 ///
 /// # Safety
 /// `table` must point to a header followed by its arrays.
@@ -151,22 +109,18 @@ unsafe extern "C" fn on_illegal(_signal: i32, info: *const Info, context: *mut c
     // SAFETY: the kernel passes live records with the declared layouts, and
     // `TABLE` is the compiler's table once set.
     unsafe {
-        let registers = &mut (*context.cast::<Context>()).registers;
+        let context = &mut *context.cast::<libc::ucontext_t>();
         // The kernel reports its own faults with a positive code; a signal
         // sent by a process reruns nothing.
-        let fault = (*info).code > 0;
+        let fault = (*info).si_code > 0;
         let table = TABLE.load(Ordering::Acquire);
         if fault
             && !table.is_null()
-            && let Some((helper, site, option)) = lookup(table, registers[REG_RIP] as usize)
+            && let Some((helper, site, option)) = lookup(table, signal_context::pc(context))
         {
-            // Resume as if the check had called `helper`: it never returns,
-            // so the return address slot stays unwritten, and the stack
-            // pointer has the alignment a call leaves.
-            registers[REG_RDI] = site as u64;
-            registers[REG_RSI] = option;
-            registers[REG_RSP] = (registers[REG_RSP] & !15) - 8;
-            registers[REG_RIP] = helper as u64;
+            // Resume in the native C helper, respecting the architecture's
+            // stack and argument-register convention. The helper never returns.
+            signal_context::enter_helper(context, helper, site as usize, option);
             return;
         }
         let previous = &raw const PREVIOUS;

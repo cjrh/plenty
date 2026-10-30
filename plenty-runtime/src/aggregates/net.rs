@@ -68,6 +68,18 @@ mod native {
         next: *mut AddrInfo,
     }
 
+    const _: () = {
+        assert!(size_of::<SocketAddress>() == size_of::<libc::sockaddr_storage>());
+        assert!(align_of::<SocketAddress>() == align_of::<libc::sockaddr_storage>());
+        assert!(size_of::<AddrInfo>() == size_of::<libc::addrinfo>());
+        assert!(
+            std::mem::offset_of!(AddrInfo, addr) == std::mem::offset_of!(libc::addrinfo, ai_addr)
+        );
+        assert!(
+            std::mem::offset_of!(AddrInfo, next) == std::mem::offset_of!(libc::addrinfo, ai_next)
+        );
+    };
+
     unsafe extern "C" {
         fn socket(domain: i32, kind: i32, protocol: i32) -> i32;
         fn bind(fd: i32, address: *const SocketAddress, length: u32) -> i32;
@@ -106,9 +118,7 @@ mod native {
         fn send(fd: i32, data: *const u8, length: usize, flags: i32) -> isize;
     }
 
-    /// glibc's 56-byte `pthread_attr_t`, rounded up.
-    #[repr(C, align(8))]
-    struct Attributes([u64; 8]);
+    type Attributes = libc::pthread_attr_t;
     const PTHREAD_CREATE_DETACHED: i32 = 1;
 
     #[link(name = "pthread")]
@@ -520,7 +530,7 @@ mod native {
         // SAFETY: glibc's pthread_attr_t fits the zeroed, aligned storage;
         // the job is handed to the new thread, or reclaimed if none starts.
         let status = unsafe {
-            let mut attributes = Attributes([0; 8]);
+            let mut attributes: Attributes = std::mem::zeroed();
             let mut status = pthread_attr_init(&mut attributes);
             if status == 0 {
                 status = pthread_attr_setstacksize(&mut attributes, LOOKUP_STACK);

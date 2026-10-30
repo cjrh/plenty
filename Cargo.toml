@@ -37,7 +37,7 @@ pretty_env_logger = "0.5.0"
 # finished module to a native object file via the `object` crate.
 # `incremental-cache` gives the per-function cache key and the serialized
 # compiled stencil behind the compiled-function cache (issue #144).
-cranelift-codegen = { version = "0.137.0", features = ["incremental-cache"] }
+cranelift-codegen = { version = "0.137.0", features = ["arm64", "incremental-cache", "x86"] }
 cranelift-frontend = "0.137.0"
 cranelift-module = "0.137.0"
 cranelift-object = "0.137.0"
@@ -70,6 +70,9 @@ hotpath = { version = "=0.28.6", optional = true, default-features = false }
 iced-x86 = { version = "1.21.0", default-features = false, features = ["std", "decoder", "gas"] }
 # Atomic no-replace directory publication for --dist; already used by tempfile.
 rustix = { version = "1", features = ["fs"] }
+# Decode final A64 words for --dump asm; no native disassembler dependency.
+yaxpeax-arm = { version = "0.5.0", default-features = false, features = ["std", "fmt"] }
+yaxpeax-arch = { version = "0.3.3", default-features = false, features = ["std"] }
 
 # Run the benchmark's argument-parsing tests with the workspace suite; Cargo
 # only builds examples by default.

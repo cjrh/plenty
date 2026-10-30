@@ -7,8 +7,8 @@
 //! held lock, so there is no poisoned state.
 use std::sync::atomic::{AtomicU32, Ordering};
 
-// The x86_64 Linux GNU ABI, the compiler's only supported native target.
-const SYS_FUTEX: i64 = 202;
+// Syscall numbers differ between the supported Linux architectures.
+const SYS_FUTEX: libc::c_long = libc::SYS_futex;
 const FUTEX_WAIT_PRIVATE: i64 = 128;
 const FUTEX_WAKE_PRIVATE: i64 = 129;
 const EINTR: i32 = 4;

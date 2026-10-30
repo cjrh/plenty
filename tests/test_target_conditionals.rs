@@ -13,8 +13,7 @@ fn run(source: &str) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-// The supported target is x86_64 Linux (`toolchain::validate_target`); these
-// expectations change when another target is added.
+// Both native targets select only their own declarations.
 #[test]
 fn module_scope_branches_select_declarations() {
     let output = run("\
@@ -25,6 +24,10 @@ if const target.os == \"windows\":
 elif const target.os == \"linux\" and target.arch == \"x86_64\":
     def platform() -> str:
         return \"linux-x86_64\"
+    const WORD_BITS: i64 = 64
+elif const target.os == \"linux\" and target.arch == \"aarch64\":
+    def platform() -> str:
+        return \"linux-aarch64\"
     const WORD_BITS: i64 = 64
 else:
     def platform() -> str:
@@ -42,7 +45,7 @@ def main() -> Result[(), IoError]:
     print(WORD_BITS)?
     Ok(())
 ");
-    assert_eq!(output, "linux-x86_64\n64\n");
+    assert_eq!(output, format!("linux-{}\n64\n", std::env::consts::ARCH));
 }
 
 #[test]
@@ -66,7 +69,14 @@ def main() -> Result[(), IoError]:
     print(word_bytes())?
     Ok(())
 ");
-    assert_eq!(output, "linux\n8\n");
+    assert_eq!(
+        output,
+        if cfg!(target_arch = "aarch64") {
+            "linux\narm\n8\n"
+        } else {
+            "linux\n8\n"
+        }
+    );
 }
 
 #[test]

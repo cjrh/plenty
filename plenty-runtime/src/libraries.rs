@@ -11,7 +11,7 @@ unsafe extern "C" {
     fn dlerror() -> *const c_char;
 }
 
-// glibc's dlfcn.h on the compiler's supported x86_64 Linux GNU target.
+// glibc's dlfcn.h on both supported Linux GNU targets.
 const RTLD_NOW: c_int = 2;
 const RTLD_NODELETE: c_int = 0x1000;
 

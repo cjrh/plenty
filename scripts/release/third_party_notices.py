@@ -38,6 +38,11 @@ LICENSE_DIR = Path(__file__).resolve().parent / "licenses"
 # version and declared license; upgrades must be reviewed again. The commit
 # comes from the crate's .cargo_vcs_info.json.
 FALLBACK_LICENSE_TEXT = {
+    ("yaxpeax-arm", "0.5.0", "0BSD"): (
+        "yaxpeax-arm-0.5.0-LICENSE.txt",
+        "https://github.com/iximeow/yaxpeax-arm/blob/"
+        "a2723ae2043777472dd373feef4b9c40d52569bb/Cargo.toml",
+    ),
     ("equator", "0.2.2", "MIT"): (
         "equator-0.2.2-LICENSE.txt",
         "https://raw.githubusercontent.com/sarah-ek/equator/9d4107bdd6a75598aed4a60fe46200c9e9f4e653/LICENSE",

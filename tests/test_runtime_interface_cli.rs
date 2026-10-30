@@ -54,7 +54,14 @@ fn command_generates_without_a_toolchain_and_preserves_source_files() {
     for flags in [
         vec!["--link-arg", "bad"],
         vec!["--archiver", "bad"],
-        vec!["--target", "aarch64-unknown-linux-gnu"],
+        vec![
+            "--target",
+            if cfg!(target_arch = "aarch64") {
+                "x86_64-unknown-linux-gnu"
+            } else {
+                "aarch64-unknown-linux-gnu"
+            },
+        ],
     ] {
         let result = command()
             .arg("-o")
