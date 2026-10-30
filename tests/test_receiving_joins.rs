@@ -275,11 +275,11 @@ fn last_sender_cleanup_precedes_receiving_joins() {
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("receiving-join");
         support::compile_source_to_executable(&source, &executable).unwrap();
-        let output = std::process::Command::new("timeout")
-            .arg("5")
-            .arg(&executable)
-            .output()
-            .unwrap();
+        let output = support::output_within(
+            &mut std::process::Command::new(&executable),
+            b"",
+            std::time::Duration::from_secs(5),
+        );
         assert!(output.status.success(), "{body}: {output:?}");
     }
 }

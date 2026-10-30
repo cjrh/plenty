@@ -2,6 +2,8 @@
 //! timestamps, so no assertion depends on how long this machine takes. Real
 //! clocks are only held to lower bounds and ordering.
 
+mod support;
+
 fn compile(source: &str) -> Result<(tempfile::TempDir, std::path::PathBuf), String> {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("main.plenty");
@@ -15,11 +17,11 @@ fn compile(source: &str) -> Result<(tempfile::TempDir, std::path::PathBuf), Stri
 fn runs(source: &str, expected: &str) {
     let (_directory, executable) = compile(source).unwrap_or_else(|e| panic!("{source}\n{e}"));
     // A lost wakeup would otherwise hang the suite instead of failing it.
-    let output = std::process::Command::new("timeout")
-        .arg("60s")
-        .arg(executable)
-        .output()
-        .unwrap();
+    let output = support::output_within(
+        &mut std::process::Command::new(executable),
+        b"",
+        std::time::Duration::from_secs(60),
+    );
     assert!(
         output.status.success(),
         "status {:?}; stdout {}; stderr {}",

@@ -1,6 +1,7 @@
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
+
+mod support;
 
 fn compile(directory: &Path, body: &str) -> PathBuf {
     let source = directory.join("fileinput.plenty");
@@ -49,27 +50,13 @@ def main() -> Result[(), AllocError | IoError | FileInputError | StreamError | B
 }
 
 fn run(executable: &Path, args: &[&Path], input: &[u8]) -> Output {
-    // Bound any accidental stdin/EOF regression; write concurrently so long
-    // stdin and stdout cannot fill each other's pipes.
-    let mut child = Command::new("timeout")
-        .arg("20")
-        .arg(executable)
-        .args(args)
-        .current_dir(executable.parent().unwrap())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    let bytes = input.to_vec();
-    let writer = std::thread::spawn(move || {
-        let _ = stdin.write_all(&bytes);
-    });
-    let output = child.wait_with_output().unwrap();
-    writer.join().unwrap();
-    assert_ne!(output.status.code(), Some(124), "subprocess timed out");
-    output
+    support::output_within(
+        Command::new(executable)
+            .args(args)
+            .current_dir(executable.parent().unwrap()),
+        input,
+        std::time::Duration::from_secs(20),
+    )
 }
 
 fn success(output: Output, expected: &[u8]) {

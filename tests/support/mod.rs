@@ -361,3 +361,52 @@ pub fn operation_in(symbol: &str, operations: std::ops::Range<u32>) -> bool {
         .and_then(|number| number.parse().ok())
         .is_some_and(|number| operations.contains(&number))
 }
+
+/// Run `command` with `input` on stdin, panicking if it outlives `limit`.
+///
+/// Tests used to wrap programs in coreutils `timeout`, but the uutils
+/// `timeout` on newer CI images rejects arguments that are not UTF-8.
+/// Reading output and writing stdin on their own threads keeps either pipe
+/// from filling and blocking the child.
+pub fn output_within(command: &mut Command, input: &[u8], limit: std::time::Duration) -> Output {
+    use std::io::{Read, Write};
+    use std::process::Stdio;
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let input = input.to_vec();
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&input);
+    });
+    let reader = |mut pipe: Box<dyn Read + Send>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            pipe.read_to_end(&mut bytes).unwrap();
+            bytes
+        })
+    };
+    let stdout = reader(Box::new(child.stdout.take().unwrap()));
+    let stderr = reader(Box::new(child.stderr.take().unwrap()));
+    let deadline = std::time::Instant::now() + limit;
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("subprocess timed out after {limit:?}: {command:?}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    writer.join().unwrap();
+    Output {
+        status,
+        stdout: stdout.join().unwrap(),
+        stderr: stderr.join().unwrap(),
+    }
+}
