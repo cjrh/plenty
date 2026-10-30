@@ -616,19 +616,9 @@ impl Lower<'_> {
             if let Ty::Enum(t) = &collection
                 && t.tuple()
             {
-                let Expression::Number(n) = &ungroup(index).kind else {
-                    return Err(index
-                        .at
-                        .error("tuple index must be a nonnegative integer literal"));
-                };
-                let index = n
-                    .parse::<usize>()
-                    .map_err(|_| index.at.error("invalid tuple index"))?;
-                let field = t.get().variants[0]
-                    .fields
-                    .get(index)
-                    .cloned()
-                    .ok_or_else(|| e.at.error("tuple index out of bounds"))?;
+                let fields = &t.get().variants[0].fields;
+                let index = slices::tuple_position(index, fields.len())?;
+                let field = fields[index].clone();
                 let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
                 if self.loans[loan].precise {
                     self.loans[loan].fields.push(index);
@@ -1043,21 +1033,9 @@ impl Lower<'_> {
                 if let Ty::Enum(t) = &ty
                     && t.tuple()
                 {
-                    let Expression::Number(n) = &ungroup(index).kind else {
-                        return Err(index
-                            .at
-                            .error("tuple index must be a nonnegative integer literal"));
-                    };
-                    let i = n.parse::<usize>().map_err(|_| {
-                        index
-                            .at
-                            .error("tuple index must be a nonnegative integer literal")
-                    })?;
-                    let value = t.get().variants[0]
-                        .fields
-                        .get(i)
-                        .ok_or_else(|| index.at.error("tuple index out of bounds"))?
-                        .clone();
+                    let fields = &t.get().variants[0].fields;
+                    let i = slices::tuple_position(index, fields.len())?;
+                    let value = fields[i].clone();
                     if value == Ty::Unit {
                         return Err(e.at.error("expected a value, got ()"));
                     }
@@ -1134,17 +1112,20 @@ impl Lower<'_> {
             return Ok(None);
         }
         let (ty, loans) = self.observe(arg, ops)?;
-        if ty.facts().shared {
+        // A nested handle is shared, as `share()` would; a bare handle is
+        // rejected so that taking another owner is written as `share()`.
+        if matches!(ty, Ty::Shared(_)) {
             return Err(at.error(
-                "values containing Shared owners cannot be copied; call share() for another owner of the same value",
+                "copy() does not take a Shared owner; call handle.share() for another owner of the same value",
             ));
         }
-        if ty.recursive_data() {
+        let facts = ty.copy_facts();
+        if facts.recursive {
             return Err(at.error(
                 "automatic copy is not supported for recursive data; rebuild it explicitly",
             ));
         }
-        if !ty.can_copy() {
+        if !facts.copyable {
             return Err(at.error("this resource cannot be copied"));
         }
         if ty.layout_depth() >= 64 {

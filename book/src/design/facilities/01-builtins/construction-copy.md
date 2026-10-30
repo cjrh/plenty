@@ -82,7 +82,10 @@ and pair-iterable dictionary construction are unsupported.
 references to `T`. Mutable contents are recursively duplicated; immutable
 strings can share storage. Scalars and wholly immutable values need no
 allocation. Classes with custom cleanup, aggregates containing them, and
-generators are uncopyable.
+generators are uncopyable. A nested [`Shared`](shared.md) handle gains another
+owner, as `share()` would, and its content is not copied, so content behind a
+handle may be of any type. `copy(handle)` of a handle itself is rejected; write
+`handle.share()`.
 
 A failed copy preserves the source and releases newly initialized contents.
 Partial records do not run whole-record destructors. Copying follows the

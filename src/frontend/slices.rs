@@ -48,6 +48,33 @@ fn literal_bound(e: &Expr) -> Option<i64> {
     i64::try_from(if negative { -value } else { value }).ok()
 }
 
+/// The component a tuple index names: a literal `k` or `-k` with `-0` as `0`,
+/// where negative literals count from the end as in Python (issue #583).
+/// Tuple indexing is resolved at compile time, so the index must be a literal.
+pub(super) fn tuple_position(index: &Expr, len: usize) -> Result<usize> {
+    let value = literal_bound(index).ok_or_else(|| {
+        index
+            .at
+            .error("tuple index must be an integer literal, such as `t[0]` or `t[-1]`")
+    })?;
+    let position = if value < 0 {
+        usize::try_from(value.unsigned_abs())
+            .ok()
+            .and_then(|back| len.checked_sub(back))
+    } else {
+        usize::try_from(value).ok().filter(|&i| i < len)
+    };
+    position.ok_or_else(|| {
+        let valid = match len {
+            0 => "no index is valid".to_owned(),
+            _ => format!("valid indices are 0 to {} and -1 to -{len}", len - 1),
+        };
+        index.at.error(format!(
+            "tuple index {value} is out of range for a tuple of length {len}; {valid}"
+        ))
+    })
+}
+
 fn zero_step(bounds: &SliceBounds) -> bool {
     bounds
         .step
@@ -195,11 +222,10 @@ impl Lower<'_> {
         if matches!(element, Ty::Shared(_)) {
             return Ok(());
         }
-        let reason = if element.facts().shared {
-            "copy() does not yet copy values containing Shared owners (issue #582)".to_owned()
-        } else if element.recursive_data() {
+        let facts = element.copy_facts();
+        let reason = if facts.recursive {
             format!("{element} is recursive data, which copy() does not copy")
-        } else if !element.can_copy() {
+        } else if !facts.copyable {
             format!("{element} cannot be copied")
         } else if element.layout_depth() >= 64 {
             return Err(at.error("type nesting exceeds the implementation limit of 64"));

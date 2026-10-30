@@ -913,6 +913,7 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
         loaded: HashMap::default(),
         modules: vec![],
         dependencies: vec![],
+        owners: vec![],
         appendix: None,
         inputs: vec![],
     };
@@ -939,11 +940,13 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
         .keys()
         .map(|source| source.path().to_string_lossy().into_owned().into())
         .collect();
-    let mut modules = loader.modules;
-    let mut dependencies = loader.dependencies;
+    let mut modules = std::mem::take(&mut loader.modules);
+    let mut dependencies = std::mem::take(&mut loader.dependencies);
     modules.push(module);
     dependencies.push(entry);
-    let mut result = resolve(modules, dependencies, at, true)?;
+    let mut result = resolve(modules, dependencies, at, true, &|_, import| {
+        loader.module_import_error(import, 0)
+    })?;
     result.standard_sources.extend(standard_sources);
     Ok(result)
 }
@@ -953,7 +956,7 @@ pub(super) fn generated_interface(source: &str) -> Result<Resolved> {
     if !module.imports.is_empty() {
         return Err(at.error("generated runtime interfaces must be self-contained"));
     }
-    resolve(vec![module], vec![vec![]], at, false)
+    resolve(vec![module], vec![vec![]], at, false, &|_, _| None)
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -1025,6 +1028,9 @@ struct Loader {
     loaded: HashMap<ModuleSource, usize>,
     modules: Vec<Module>,
     dependencies: Vec<Vec<usize>>,
+    /// The package of each module, to resolve its imports again on an error
+    /// path.
+    owners: Vec<usize>,
     /// Taken by the first file read, which is the entry.
     appendix: Option<String>,
     /// Each source file read, with its imports' resolutions.
@@ -1172,6 +1178,7 @@ impl Loader {
         self.loaded.insert(source, index);
         self.modules.push(module);
         self.dependencies.push(deps);
+        self.owners.push(package);
         Ok((index, at))
     }
 
@@ -1196,6 +1203,30 @@ impl Loader {
     }
 
     fn import_path(&self, import: &Import, package: usize) -> Result<(ModuleSource, usize)> {
+        self.module_source(import, package)
+            .map_err(|e| self.module_import_error(import, package).unwrap_or(e))
+    }
+
+    /// For `from p import sub` where `p.sub` is a module: `from` imports
+    /// declarations only, since imports do not re-export (issue #587). Called
+    /// only after an import fails, so ordinary imports probe nothing.
+    fn module_import_error(&self, import: &Import, package: usize) -> Option<Box<dyn Error>> {
+        let item = import.item.as_ref()?;
+        let module = Import {
+            at: import.at.clone(),
+            module: format!("{}.{item}", import.module),
+            item: None,
+            binding: String::new(),
+        };
+        self.module_source(&module, package).ok()?;
+        Some(
+            import
+                .at
+                .error(from_module_message(&module.module, &import.binding)),
+        )
+    }
+
+    fn module_source(&self, import: &Import, package: usize) -> Result<(ModuleSource, usize)> {
         let first = import.module.split('.').next().unwrap();
         if first == "std" {
             let Some(&(name, _)) = STANDARD_MODULES
@@ -1341,13 +1372,18 @@ pub(super) fn load_graph_with(
         loaded: HashMap::default(),
         modules: vec![],
         dependencies: vec![],
+        owners: vec![],
         appendix: appendix.map(str::to_owned),
         inputs: vec![],
     };
     let (_, at) = loader.file(ModuleSource::File(entry), 0, String::new())?;
     loader.slice_bytes(None).map_err(|e| at.error(e))?;
     let inputs = inputs::Inputs::new(std::mem::take(&mut loader.inputs));
-    let mut result = resolve(loader.modules, loader.dependencies, at, require_main)?;
+    let modules = std::mem::take(&mut loader.modules);
+    let dependencies = std::mem::take(&mut loader.dependencies);
+    let mut result = resolve(modules, dependencies, at, require_main, &|i, import| {
+        loader.module_import_error(import, loader.owners[i])
+    })?;
     result.inputs = inputs;
     result
         .standard_sources
@@ -1506,10 +1542,40 @@ impl Scope {
             && let Some(exports) = self.namespaces.get(prefix)
         {
             return exports.get(member).cloned().map(Some).ok_or_else(|| {
-                at.error(format!("`{path}` is private or is not a declared export"))
+                at.error(
+                    self.module_path(path).unwrap_or_else(|| {
+                        format!("`{path}` is private or is not a declared export")
+                    }),
+                )
             });
         }
         Ok(None)
+    }
+    /// The diagnostic for a use of `path` when it is a bound module path or
+    /// encloses one: a module is not a value (issue #587).
+    fn module_path(&self, path: &str) -> Option<String> {
+        let example = |module: &str| {
+            self.namespaces[module]
+                .keys()
+                .min()
+                .map(|name| format!(", such as `{module}.{name}`"))
+                .unwrap_or_default()
+        };
+        if self.namespaces.contains_key(path) {
+            return Some(format!(
+                "`{path}` is a module, not a declaration; name one of its declarations{}",
+                example(path)
+            ));
+        }
+        let module = self
+            .namespaces
+            .keys()
+            .filter(|module| nested_member(path, module).is_some())
+            .min()?;
+        Some(format!(
+            "`{path}` is a module namespace, not a declaration; name a declaration of an imported module{}",
+            example(module)
+        ))
     }
     fn namespace_root(&self, name: &str) -> bool {
         self.namespaces
@@ -1820,10 +1886,20 @@ impl Scope {
             Expression::Member(..) => path(e),
             _ => None,
         };
-        if let Some(candidate) =
-            candidate.filter(|p| !locals.contains_key(p.split('.').next().unwrap()))
-            && let Some(symbol) = self.symbol(&candidate, &e.at)?
+        let candidate = candidate.filter(|p| !locals.contains_key(p.split('.').next().unwrap()));
+        let symbol = match &candidate {
+            Some(candidate) => self.symbol(candidate, &e.at)?,
+            None => None,
+        };
+        // An unresolved path, such as `p.sub` bound only by `import p.sub`,
+        // is a module path when it is or encloses a bound one.
+        if symbol.is_none()
+            && let Expression::Member(..) = e.kind
+            && let Some(message) = candidate.as_deref().and_then(|p| self.module_path(p))
         {
+            return Err(e.at.error(message));
+        }
+        if let Some(symbol) = symbol {
             let member = match &e.kind {
                 Expression::Member(_, name, pos) | Expression::Method(_, name, _, pos) => {
                     Some((name.as_str(), *pos))
@@ -1879,8 +1955,11 @@ impl Scope {
                         "iter" | "enumerate" | "zip" | "reversed" | "any" | "all"
                     )
                     && !builtin(n)
-                    && !self.namespace_root(n)
                 {
+                    // `p` alone, bound by `import p` or `import p.sub`.
+                    if let Some(message) = self.module_path(n) {
+                        return Err(e.at.error(message));
+                    }
                     *n = qualified(&self.module, n);
                 }
                 if super::ide::active() {
@@ -2124,6 +2203,14 @@ fn nested_member<'a>(outer: &str, inner: &'a str) -> Option<&'a str> {
         .next()
 }
 
+/// The diagnostic for `from` naming the module `module`, which `binding`
+/// would have bound.
+fn from_module_message(module: &str, binding: &str) -> String {
+    format!(
+        "`from` imports declarations, and `{module}` is a module; use `import {module}` or `import {module} as {binding}`"
+    )
+}
+
 /// A module import as written, for diagnostics.
 fn import_text(import: &Import) -> String {
     if import.module == import.binding {
@@ -2133,12 +2220,17 @@ fn import_text(import: &Import) -> String {
     }
 }
 
+type SubmoduleError<'a> = dyn Fn(usize, &Import) -> Option<Box<dyn Error>> + 'a;
+
+/// `submodule(i, import)` is the diagnostic for `from p import sub` in module
+/// `i` when `p.sub` is a module, or `None`; it is called only on that error path.
 #[cfg_attr(feature = "profile", hotpath::measure)]
 fn resolve(
     mut modules: Vec<Module>,
     mut dependencies: Vec<Vec<usize>>,
     at: Token,
     require_main: bool,
+    submodule: &SubmoduleError,
 ) -> Result<Resolved> {
     let (errors, _) = parse(
         ARITHMETIC_ERRORS,
@@ -2227,7 +2319,11 @@ fn resolve(
         require_main,
         inputs: inputs::Inputs::default(),
     };
-    for (i, m) in modules.iter_mut().enumerate() {
+    for (i, deps) in dependencies.iter().enumerate() {
+        // Dependencies precede their importers, so each import's module is
+        // in `earlier`, already resolved.
+        let (earlier, rest) = modules.split_at_mut(i);
+        let m = &mut rest[0];
         let mut scope = Scope {
             captures: HashSet::default(),
             uncaptured: HashSet::default(),
@@ -2240,7 +2336,7 @@ fn resolve(
         };
         // Namespace imports so far, to check enclosing and nested bindings.
         let mut bound: Vec<(&Import, usize)> = Vec::new();
-        for (import, dependency) in m.imports.iter().zip(&dependencies[i]) {
+        for (import, dependency) in m.imports.iter().zip(deps) {
             let root = import.binding.split('.').next().unwrap();
             let identical_builtin = import.item.as_ref().is_some_and(|item| {
                 exports[*dependency]
@@ -2298,10 +2394,25 @@ fn resolve(
             }
             if let Some(item) = &import.item {
                 let name = exports[*dependency].get(item).ok_or_else(|| {
-                    import.at.error(format!(
-                        "`{}.{item}` is private or is not a declared export",
-                        import.module
-                    ))
+                    // The module's declarations, already resolved, are in `result`.
+                    let declared = earlier.get(*dependency).is_some_and(|d| {
+                        let symbol = qualified(&d.name, item);
+                        constants.contains_key(&symbol)
+                            || result.functions.iter().any(|f| f.name == symbol)
+                            || result.declarations.iter().any(|a| a.name == symbol)
+                            || result.enums.iter().any(|e| e.name == symbol)
+                            || result.classes.iter().any(|c| c.name == symbol)
+                            || result.protocols.iter().any(|p| p.name == symbol)
+                    });
+                    (!declared)
+                        .then(|| submodule(i, import))
+                        .flatten()
+                        .unwrap_or_else(|| {
+                            import.at.error(format!(
+                                "`{}.{item}` is private or is not a declared export",
+                                import.module
+                            ))
+                        })
                 })?;
                 if super::ide::active() {
                     let symbol = constants.get(name).unwrap_or(name);

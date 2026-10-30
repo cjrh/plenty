@@ -88,9 +88,9 @@ result storage once, before copying; allocation failure returns
 
 A list element type that `copy()` rejects, such as `std.bytes.Bytes`, is a
 compile error. Transfer such elements out of an owned temporary with the
-[`slice()` method](../../facilities/01-builtins/lists.md#slices) instead. Element
-types that contain `Shared` fields are also rejected until `copy()` shares
-nested handles (issue #582).
+[`slice()` method](../../facilities/01-builtins/lists.md#slices) instead. A
+`Shared` handle in an element, as in `list[(str, Shared[T])]`, gains another
+owner, as [`copy()`](../05-ownership/01-bindings-moves-and-copies.md) does.
 
 A `bytes` literal slice gives an owned `std.bytes.Bytes`. Slice syntax makes the
 `Bytes` type available without an `import std.bytes` line; naming the type in a

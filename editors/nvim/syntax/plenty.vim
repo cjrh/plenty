@@ -25,10 +25,14 @@ syntax match plentyNumber /\<\d[0-9_]*\%([iu]\%(8\|16\|32\|64\)\)\?\>/
 syntax match plentyFloat /\<\d[0-9_]*\%([eE][+-]\?[0-9_]\+\)\%(f32\|f64\)\?\>/
 syntax match plentyFloat /\<\d[0-9_]*\%(f32\|f64\)\>/
 syntax match plentyFloat /\%([A-Za-z_0-9]\)\@<!\%(\d[0-9_]*\.[0-9_]*\|\.\d[0-9_]*\)\%([eE][+-]\?[0-9_]\+\)\?\%(f32\|f64\)\?/
+" Hexadecimal, octal, and binary forms are always integers.
+syntax match plentyNumber /\<0[xX][0-9A-Fa-f_]\+\%([iu]\%(8\|16\|32\|64\)\)\?\>/
+syntax match plentyNumber /\<0[oO][0-7_]\+\%([iu]\%(8\|16\|32\|64\)\)\?\>/
+syntax match plentyNumber /\<0[bB][01_]\+\%([iu]\%(8\|16\|32\|64\)\)\?\>/
 
 syntax keyword plentyTodo TODO FIXME XXX NOTE contained
 syntax match plentyComment /#.*/ contains=plentyTodo,@Spell
-syntax match plentyEscape /\\[0nrt\\'\"]/ contained
+syntax match plentyEscape /\\\%([0nrt\\'\"]\|u{\x\{1,6}}\)/ contained
 syntax region plentyString start=/"/ skip=/\\./ end=/"/ oneline contains=plentyEscape,@Spell
 syntax region plentyString start=/'/ skip=/\\./ end=/'/ oneline contains=plentyEscape,@Spell
 " Later definitions take precedence over the single-quote regions.

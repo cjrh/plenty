@@ -1044,13 +1044,9 @@ impl Lower<'_> {
                 }),
                 Ty::List(element) | Ty::Dict(_, element) => Some((*element).clone()),
                 Ty::Enum(t) if t.tuple() => {
-                    let Expression::Number(n) = &ungroup(index).kind else {
-                        return None;
-                    };
-                    t.get().variants[0]
-                        .fields
-                        .get(n.parse::<usize>().ok()?)
-                        .cloned()
+                    let fields = &t.get().variants[0].fields;
+                    let i = slices::tuple_position(index, fields.len()).ok()?;
+                    Some(fields[i].clone())
                 }
                 _ => None,
             },

@@ -244,7 +244,7 @@ fn a_dependency_library_and_its_modules_import_together() {
     fails(
         &app,
         &["check"],
-        "`tz.zones` is private or is not a declared export",
+        "`from` imports declarations, and `tz.zones` is a module; use `import tz.zones` or `import tz.zones as zones`",
     );
 
     // A library member named like the module path is a real clash, in
@@ -278,6 +278,84 @@ fn a_dependency_library_and_its_modules_import_together() {
         "import tz\nimport tz.zones as zones\n\ndef main() -> Result[(), IoError]:\n    print(tz.zones() + zones.HOURS)?\n    Ok(())\n",
     );
     assert_eq!(succeeds(&app, &["run"]), "25\n");
+}
+
+/// A module path names no declaration: `from` cannot import a module, and a
+/// module is not a value (issue #587). A missing name that is not a module
+/// keeps the visibility diagnostic.
+#[test]
+fn a_dependency_module_is_not_a_declaration() {
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "tz",
+        "",
+        &[
+            (
+                "src/lib.plenty",
+                "pub def base() -> i64:\n    100\n\ndef hidden() -> i64:\n    1\n",
+            ),
+            (
+                "src/zones.plenty",
+                "pub def offset() -> i64:\n    1\n\npub const HOURS: i64 = 24\n",
+            ),
+            ("src/hidden.plenty", "pub def f() -> i64:\n    1\n"),
+            ("src/rules/dst.plenty", "pub def shift() -> i64:\n    1\n"),
+        ],
+    );
+    package(dir.path(), "app", "tz = { path = \"../tz\" }\n", &[]);
+    let app = dir.path().join("app");
+    let private = |path: &str| format!("`{path}` is private or is not a declared export");
+    for (main, message) in [
+        (
+            "import tz.zones\nfrom tz import zones as z\n",
+            "`from` imports declarations, and `tz.zones` is a module; use `import tz.zones` or `import tz.zones as z`".to_string(),
+        ),
+        (
+            "from tz.rules import dst\n",
+            "`from` imports declarations, and `tz.rules.dst` is a module; use `import tz.rules.dst` or `import tz.rules.dst as dst`".to_string(),
+        ),
+        ("from tz import missing\n", private("tz.missing")),
+        // A private declaration of the library is reported as private, even
+        // beside a module of the same name.
+        ("from tz import hidden\n", private("tz.hidden")),
+        ("from tz.zones import missing\n", private("tz.zones.missing")),
+        (
+            "import tz\nimport tz.zones\n\ndef local() -> ():\n    x = tz.zones\n",
+            "`tz.zones` is a module, not a declaration; name one of its declarations, such as `tz.zones.HOURS`".to_string(),
+        ),
+        (
+            "import tz\nimport tz.zones\n\ndef local(x: tz.zones) -> ():\n    pass\n",
+            "`tz.zones` is a module, not a declaration".to_string(),
+        ),
+        (
+            "import tz\nimport tz.rules.dst\n\ndef local() -> ():\n    x = tz.rules\n",
+            "`tz.rules` is a module namespace, not a declaration; name a declaration of an imported module, such as `tz.rules.dst.shift`".to_string(),
+        ),
+        (
+            "import tz\n\ndef local() -> ():\n    x = tz.missing\n",
+            private("tz.missing"),
+        ),
+        // Without `import tz`, the path is not below a bound module.
+        (
+            "import tz.zones\n\ndef local() -> ():\n    x = tz.zones\n",
+            "`tz.zones` is a module, not a declaration".to_string(),
+        ),
+        (
+            "import tz.rules.dst\n\ndef local() -> ():\n    x = tz.rules\n",
+            "`tz.rules` is a module namespace, not a declaration; name a declaration of an imported module, such as `tz.rules.dst.shift`".to_string(),
+        ),
+        (
+            "import tz\n\ndef local() -> ():\n    x = tz\n",
+            "`tz` is a module, not a declaration; name one of its declarations, such as `tz.base`".to_string(),
+        ),
+    ] {
+        write(
+            &app.join("src/main.plenty"),
+            &format!("{main}\ndef main() -> ():\n    pass\n"),
+        );
+        fails(&app, &["check"], &message);
+    }
 }
 
 #[test]

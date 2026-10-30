@@ -176,8 +176,10 @@ fn define_type(
         Ty::Dict(..) => b'D',
         Ty::Range(_) => b'R',
         Ty::Class(_) => b'C',
-        // A shared owner is a box with more than one counted owner.
-        Ty::Box(_) | Ty::Shared(_) => b'O',
+        Ty::Box(_) => b'O',
+        // A shared owner is a box with more than one counted owner. Its own
+        // kind lets `copy()` retain it instead of copying the box.
+        Ty::Shared(_) => b'W',
         Ty::Generator(_) => b'G',
         Ty::Enum(_) => b'B',
         Ty::Ref(..) => b'r',

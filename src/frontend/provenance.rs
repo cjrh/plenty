@@ -193,12 +193,12 @@ impl Lower<'_> {
                 match ty {
                     Some(Ty::List(_)) => origin.child(0),
                     Some(Ty::Dict(..)) => origin.child(1),
-                    Some(Ty::Enum(t)) if t.tuple() => match &index.kind {
-                        Expression::Number(n) => {
-                            n.parse().ok().map(|i| origin.child(i)).unwrap_or_default()
-                        }
-                        _ => Origin::Concrete,
-                    },
+                    Some(Ty::Enum(t)) if t.tuple() => {
+                        let len = t.get().variants[0].fields.len();
+                        slices::tuple_position(index, len)
+                            .map(|i| origin.child(i))
+                            .unwrap_or_default()
+                    }
                     _ => Origin::Concrete,
                 }
             }
