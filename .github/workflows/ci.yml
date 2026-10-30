@@ -70,7 +70,7 @@ jobs:
     env:
       SHARDS: 4
       FN_CACHE: target/plenty-cache/fn
-      FN_CACHE_PREFIX: plenty-fn-Linux-${{ runner.arch }}-shard-${{ matrix.shard }}-of-4-
+      FN_CACHE_PREFIX: plenty-fn-Linux-${{ matrix.runner }}-shard-${{ matrix.shard }}-of-4-
     steps:
       - uses: actions/checkout@v4
       - name: Install mold
