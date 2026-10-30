@@ -20,8 +20,8 @@ pub(super) fn arm64_loop_stores(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ 
         .filter_map(|(index, window)| {
             if LOOP
                 .iter()
-                .zip(window.chunks_exact(4))
-                .all(|(&word, bytes)| word == u32::from_le_bytes(bytes.try_into().unwrap()))
+                .zip(window.as_chunks::<4>().0)
+                .all(|(&word, bytes)| word == u32::from_le_bytes(*bytes))
             {
                 Some(u32::try_from(index * 4 + 4).expect("function offset fits u32"))
             } else {
