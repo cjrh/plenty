@@ -41,9 +41,11 @@ composition does not let an oversized decomposition bypass it.
 
 Classification allocates nothing and returns `Nothing` for zero or multiple
 scalars. Mark and nonzero combining class are distinct properties. This module
-does not offer locale collation, grapheme segmentation, case folding, general
-categories beyond Mark, or display-width calculations. Existing string casing
-and ASCII classification remain the [text builtins](../facilities/01-builtins/text.md).
+does not offer locale collation, case folding, or general categories beyond
+Mark. Grapheme, word and sentence segmentation and display width are in the
+official `unicode_text` package, described with
+[text segmentation and width](text.md#segmentation-and-display-width). Existing
+string casing and ASCII classification remain the [text builtins](../facilities/01-builtins/text.md).
 Compatibility normalization can erase meaningful presentation distinctions;
 callers choose it explicitly. No implicit normalization occurs in equality,
 hashing, paths, decoding, or text builders.
