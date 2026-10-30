@@ -131,7 +131,8 @@ pub use library_metadata::{
     LibraryInterface, extract_library_interface, read_library_interfaces, verify_library_interface,
 };
 pub use toolchain::{
-    CompileOptions, RuntimeArtifacts, emit_runtime, find_libfuzzer, native_target, validate_target,
+    CompileOptions, RuntimeArtifacts, emit_runtime, find_libfuzzer, native_cpu_baseline,
+    native_target, validate_target,
 };
 
 /// Parse and type-check a standalone modern Plenty binary without executing

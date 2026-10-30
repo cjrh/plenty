@@ -850,6 +850,11 @@ fn asm(
     srclocs: &[(u32, u32, u32)],
     names: &Names,
 ) -> String {
+    if names.module.isa().triple().architecture
+        == target_lexicon::Architecture::Aarch64(target_lexicon::Aarch64Architecture::Aarch64)
+    {
+        return asm_arm64(bytes, relocs, traps, srclocs, names);
+    }
     let code = &bytes[..code_length(bytes, relocs)];
     let mut decoder = Decoder::with_ip(64, code, 0, DecoderOptions::NONE);
     let mut formatter = GasFormatter::new();
@@ -933,4 +938,114 @@ fn code_length(bytes: &[u8], relocs: &[ModuleReloc]) -> usize {
         }
     }
     end
+}
+
+/// Decode final A64 words, including UDF checks. A zero word is an instruction
+/// on ARM, so the x86 trailing-zero padding heuristic must not be used here.
+fn asm_arm64(
+    bytes: &[u8],
+    relocs: &[ModuleReloc],
+    traps: &[(u32, u8)],
+    srclocs: &[(u32, u32, u32)],
+    names: &Names,
+) -> String {
+    let mut out = String::new();
+    let mut line = None;
+    let end = arm64_code_length(bytes, relocs);
+    let mut offset = 0;
+    while offset + 4 <= end {
+        let start = offset as u32;
+        if let Some((_, _, source)) = srclocs
+            .iter()
+            .find(|(from, until, _)| (*from..*until).contains(&start))
+            && line != Some(*source)
+        {
+            line = Some(*source);
+            let _ = writeln!(out, "    # line {source}");
+        }
+        let text = decode_arm64(&bytes[offset..offset + 4]);
+        let _ = write!(out, "{offset:6x}:  {text}");
+        for reloc in relocs
+            .iter()
+            .filter(|r| (start..start + 4).contains(&r.offset))
+        {
+            let _ = write!(out, "  # {}", names.reloc(&reloc.name));
+            if reloc.addend != 0 {
+                let _ = write!(out, "{:+}", reloc.addend);
+            }
+        }
+        if let Some(helper) = traps
+            .iter()
+            .find(|(at, _)| *at == start)
+            .and_then(|(_, code)| names.checks.helper(*code))
+        {
+            let _ = write!(out, "  # {helper}");
+        }
+        out.push('\n');
+        offset += 4;
+    }
+    for row in bytes[offset..].chunks(16) {
+        let data: Vec<_> = row.iter().map(|byte| format!("0x{byte:02x}")).collect();
+        let _ = writeln!(out, "{offset:6x}:  .byte   {}", data.join(","));
+        offset += row.len();
+    }
+    out
+}
+
+fn decode_arm64(bytes: &[u8]) -> String {
+    use yaxpeax_arch::{Decoder as _, U8Reader};
+    match yaxpeax_arm::armv8::a64::InstDecoder::default().decode(&mut U8Reader::new(bytes)) {
+        Ok(instruction) => instruction.to_string(),
+        Err(_) => format!(
+            ".inst 0x{:08x}",
+            u32::from_le_bytes(bytes.try_into().expect("A64 word"))
+        ),
+    }
+}
+
+/// Cranelift loads trailing constant pools with PC-relative literal loads.
+/// Recognize their signed imm19 address from the encoding, without treating
+/// ADR/branches or relocated loads as evidence of a pool boundary.
+fn arm64_code_length(bytes: &[u8], relocs: &[ModuleReloc]) -> usize {
+    let mut end = bytes.len();
+    let mut offset = 0;
+    while offset + 4 <= end {
+        let word = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+        if word & 0x3b00_0000 == 0x1800_0000
+            && !relocs
+                .iter()
+                .any(|r| (offset..offset + 4).contains(&(r.offset as usize)))
+        {
+            let displacement = ((word << 8) as i32 >> 13) * 4;
+            let target = offset as i64 + i64::from(displacement);
+            if target >= (offset + 4) as i64 && target < end as i64 {
+                end = target as usize;
+            }
+        }
+        offset += 4;
+    }
+    end
+}
+
+#[cfg(test)]
+mod arm64_tests {
+    use super::*;
+
+    #[test]
+    fn final_words_decode_as_arm_including_zero_trap() {
+        assert_eq!(decode_arm64(&0xd65f03c0_u32.to_le_bytes()), "ret");
+        assert!(decode_arm64(&0x91000400_u32.to_le_bytes()).starts_with("add x0, x0"));
+        assert!(decode_arm64(&0_u32.to_le_bytes()).starts_with("udf"));
+    }
+
+    #[test]
+    fn literal_pool_and_relocation_boundaries() {
+        // ldr x0, pc+8; ret; an eight-byte constant.
+        let bytes: Vec<_> = [0x58000040_u32, 0xd65f03c0, 42, 0]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect();
+        assert_eq!(arm64_code_length(&bytes, &[]), 8);
+        assert_eq!(arm64_code_length(&0_u32.to_le_bytes(), &[]), 4);
+    }
 }

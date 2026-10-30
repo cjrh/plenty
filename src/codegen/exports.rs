@@ -317,7 +317,7 @@ fn collection(
     // Adapter operations cannot trap, so they pass no trap site.
     let site = b.ins().iconst(PTR_TY, 0);
     let mut sig = module.make_signature();
-    sig.call_conv = CallConv::SystemV;
+    sig.call_conv = crate::toolchain::native_call_conv();
     sig.params.extend([AbiParam::new(PTR_TY); 3]);
     let id = module.declare_function(&format!("plenty_op_{opcode}"), Linkage::Import, &sig)?;
     let f = module.declare_func_in_func(id, b.func);
