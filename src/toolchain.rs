@@ -76,22 +76,34 @@ fn validate_target_pair(requested: &str, packaged: &str) -> Result<(), Box<dyn s
 /// libFuzzer's archive without its `main`, as `clang` reports it: the
 /// default `--libfuzzer` of `--fuzz` builds.
 pub fn find_libfuzzer() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    const ARCHIVE: &str = "libclang_rt.fuzzer_no_main.a";
+    let target = target_description(native_target()).ok_or("unsupported native target")?;
+    find_libfuzzer_with(Path::new("clang"), target.arch)
+}
+
+fn find_libfuzzer_with(clang: &Path, arch: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let names = [
+        "libclang_rt.fuzzer_no_main.a".to_string(),
+        format!("libclang_rt.fuzzer_no_main-{arch}.a"),
+    ];
     let missing = || {
         format!(
-            "libFuzzer not found: `clang -print-file-name={ARCHIVE}` names no file; install clang's compiler-rt or pass --libfuzzer PATH"
+            "libFuzzer not found: clang did not resolve an installed {} or {}; install clang's compiler-rt or pass --libfuzzer PATH",
+            names[0], names[1],
         )
     };
-    let output = Command::new("clang")
-        .arg(format!("-print-file-name={ARCHIVE}"))
-        .output()
-        .map_err(|error| format!("{}: {error}", missing()))?;
-    // clang echoes the bare name when it has no such file.
-    let path = PathBuf::from(String::from_utf8(output.stdout)?.trim());
-    if !output.status.success() || !path.is_absolute() || !path.is_file() {
-        return Err(missing().into());
+    for archive in &names {
+        let output = Command::new(clang)
+            .arg(format!("-print-file-name={archive}"))
+            .output()
+            .map_err(|error| format!("{}: {error}", missing()))?;
+        // Clang echoes a bare filename when it cannot find it. Debian uses
+        // target suffixes, while other distributions expose the generic name.
+        let path = PathBuf::from(String::from_utf8(output.stdout)?.trim());
+        if output.status.success() && path.is_absolute() && path.is_file() {
+            return Ok(path);
+        }
     }
-    Ok(path)
+    Err(missing().into())
 }
 
 /// The exact runtime embedded in this compiler and its native dependencies.
@@ -645,6 +657,90 @@ fn engine_link_args(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    fn fake_clang(root: &Path, cases: &[(&str, &Path, i32)]) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let quote = |path: &Path| format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"));
+        let mut script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$1\" >> {}\ncase \"$1\" in\n",
+            quote(&root.join("queries"))
+        );
+        for (name, path, status) in cases {
+            script.push_str(&format!(
+                "-print-file-name={name}) printf '%s\\n' {}; exit {status} ;;\n",
+                quote(path)
+            ));
+        }
+        script.push_str("*) printf '%s\\n' \"${1#-print-file-name=}\" ;;\nesac\n");
+        let clang = root.join("clang");
+        std::fs::write(&clang, script).unwrap();
+        std::fs::set_permissions(&clang, std::fs::Permissions::from_mode(0o755)).unwrap();
+        clang
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn libfuzzer_discovery_uses_clang_native_suffix_after_generic_miss() {
+        for target in NATIVE_TARGETS {
+            let temp = tempfile::tempdir().unwrap();
+            let runtime = temp.path().join("resource directory");
+            std::fs::create_dir(&runtime).unwrap();
+            let name = format!("libclang_rt.fuzzer_no_main-{}.a", target.arch);
+            let archive = runtime.join(&name);
+            std::fs::write(&archive, "fixture").unwrap();
+            let clang = fake_clang(temp.path(), &[(&name, &archive, 0)]);
+            assert_eq!(find_libfuzzer_with(&clang, target.arch).unwrap(), archive);
+            assert_eq!(
+                std::fs::read_to_string(temp.path().join("queries")).unwrap(),
+                format!("-print-file-name=libclang_rt.fuzzer_no_main.a\n-print-file-name={name}\n")
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn libfuzzer_discovery_prefers_generic_and_rejects_failed_or_missing_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive = temp.path().join("generic.a");
+        std::fs::write(&archive, "fixture").unwrap();
+        let clang = fake_clang(
+            temp.path(),
+            &[("libclang_rt.fuzzer_no_main.a", &archive, 0)],
+        );
+        assert_eq!(find_libfuzzer_with(&clang, "aarch64").unwrap(), archive);
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("queries"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        // A path printed with failure status is not a usable tool response.
+        let clang = fake_clang(
+            temp.path(),
+            &[("libclang_rt.fuzzer_no_main.a", &archive, 1)],
+        );
+        assert!(
+            find_libfuzzer_with(&clang, "aarch64")
+                .unwrap_err()
+                .to_string()
+                .contains("libFuzzer not found")
+        );
+        // Missing files, bare names, and the opposite architecture's installed
+        // archive cannot satisfy either native query.
+        let absent = temp.path().join("absent.a");
+        let other = temp.path().join("libclang_rt.fuzzer_no_main-x86_64.a");
+        std::fs::write(&other, "fixture").unwrap();
+        let clang = fake_clang(
+            temp.path(),
+            &[
+                ("libclang_rt.fuzzer_no_main.a", &absent, 0),
+                ("libclang_rt.fuzzer_no_main-x86_64.a", &other, 0),
+            ],
+        );
+        assert!(find_libfuzzer_with(&clang, "aarch64").is_err());
+    }
 
     #[cfg(unix)]
     #[test]
