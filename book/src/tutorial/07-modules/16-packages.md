@@ -77,11 +77,13 @@ The first build also writes `plenty.lock`, which records the resolved packages.
 Commit it with the manifest. `--locked` makes a build fail instead of changing
 it.
 
-A dependency can also come from a Git repository, at a tag or a commit:
+A dependency can also come from a Git repository, at a tag or a commit. The
+official [time-zone package](../../design/stdlib/time.md#civil-time-and-time-zones)
+is one:
 
 ```toml
 [dependencies]
-audio = { git = "https://example.com/audio.git", tag = "v1.2.0", version = "1.2.0" }
+tz = { git = "https://github.com/plentylang/tz.git", tag = "v0.1.0", version = "0.1.0" }
 ```
 
 The first build fetches the repository into `.pkg/` and records the exact
@@ -92,7 +94,7 @@ these entries and updates the lockfile:
 
 ```text
 plenty add geometry --path ../shapes
-plenty add audio --git https://example.com/audio.git --tag v1.2.0
+plenty add tz --git https://github.com/plentylang/tz.git --tag v0.1.0
 ```
 
 Several related packages can share one lockfile and `target/` as a

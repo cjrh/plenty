@@ -235,7 +235,7 @@ as `util::lib.Point`; the root package's names are unqualified.
 
 ```toml
 [dependencies]
-audio = { git = "https://example.com/audio.git", tag = "v1.2.0" }
+tz = { git = "https://github.com/plentylang/tz.git", tag = "v0.1.0" }
 codec = { git = "https://example.com/media.git", rev = "4f2a9c1", subdir = "codec" }
 ```
 
@@ -288,7 +288,7 @@ resolves and locks the graph. If resolution fails, the manifest is restored.
 
 ```text
 plenty add --path ../util
-plenty add audio --git https://example.com/audio.git --tag v1.2.0 --version 1.2.0
+plenty add tz --git https://github.com/plentylang/tz.git --tag v0.1.0 --version 0.1.0
 plenty add codec --git https://example.com/media.git --rev 4f2a9c1 --subdir codec
 ```
 
