@@ -32,6 +32,10 @@ with spilled arguments, a large inline-probed frame, data addresses and a
 recorded UDF trap. The expected trap runs in a child process.
 Keep the tool/version output with qualification results; the toolchain's libc
 is a development input, not evidence for the release's glibc 2.28 floor.
+This Bootlin GCC also injects 4096-byte maximum/common ELF page sizes through
+its linker specs. Its linked binaries qualify the 4 KiB test environment only.
+Use native release tools and test the resulting ELF layout before claiming
+support for larger kernel page sizes; do not carry those overrides into releases.
 
 ## Build the ARM compiler on x86
 
@@ -67,7 +71,8 @@ is insufficient. Use an explicit subprocess harness or run inside an ARM guest.
 A full-system guest exercises an ARM kernel's signal contexts, filesystem flags
 and stack behavior. The initial environment used QEMU 10.2.2, Cortex-A53 with TCG,
 two virtual CPUs and 2 GiB RAM, and Debian 13 genericcloud ARM64, kernel
-6.12.113 with 4 KiB pages. Its base image was downloaded from
+6.12.113 with 4 KiB pages, glibc 2.41 and native GCC 14.2. Its base image was
+downloaded from
 [Debian cloud images](https://cloud.debian.org/images/cloud/trixie/latest/)
 and verified against the official sibling `SHA512SUMS`:
 
@@ -123,17 +128,53 @@ avoids captured host paths; it needs Rust and sufficient disk/RAM as well.
 
 ## Qualification boundaries
 
-The isolated C/backend probe has passed under QEMU user mode. The all-feature
-runtime unit suite has passed in both user mode and the full-system guest above.
-These results do not establish completion of the full compiler/workflow suite.
-Four runtime measurements remain intentionally ignored: wide-tuple scaling,
-removal timing, and two entry-operation timing/scaling benchmarks. They are not
-part of the passing functional suite.
+The isolated C/backend probe and all-feature runtime suites passed under QEMU.
+Compiler workflow qualification combines a broad all-feature user-mode run with
+exact tests in the full ARM guest. Guest execution covers checked traps and
+stack overflow, signal-host coexistence, actor ownership, native process and
+environment contracts, relocated/offline toolchains, persistent SQLite/KV and
+required fuzz tests. The guest uses native tools where user-mode subprocesses
+would otherwise find x86 tools or lose their ARM loader settings.
 
-User-mode QEMU cannot establish kernel signal coexistence or ARM's real weak-memory concurrency behavior by itself. Full-system
-TCG adds kernel coverage but is still emulation. Native hardware stress,
-additional page sizes, release-baseline clean-container execution and optional
-engine execution must each be recorded before claiming them as supported.
+Raw user-mode failures are retained rather than reported as a clean run. Exact
+guest reruns preserve the assertions, including missing-program errors and fatal
+signal output. A tutorial allocation imbalance observed in user mode did not
+reproduce in the complete unchanged guest shard; its cause remains unproven.
+An earlier integration harness itself exited on SIGILL without a core, before
+several qualification fixes. Focused reruns did not reproduce it, and local
+issue #592 records the missing original binary and diagnostic evidence without
+attributing a cause. Local PR #706 records revisions, totals and reconciled
+results; the task's ignored `target/worker-qualification/` and
+`target/aarch64-vm/evidence/` directories retain the manifests and raw logs.
+
+Seven tests are explicitly ignored: the large specialization-budget resource
+case, the external SQLite-vec extension trial, the systemd/playpen memory-limit
+case, and four runtime timing/scaling benchmarks. Additionally, 13 dataframe
+real-engine/tutorial cases and eight Docker proxy cases return early without
+their opt-ins. Their libtest `ok` entries do not establish execution coverage.
+Dataframe all-target compilation passed; full dataframe execution remains unrun
+locally. FFI tests ran without optional Valgrind instrumentation.
+
+The required nine libFuzzer tests passed in the guest with native clang and its
+matching runtime/interceptor archives. The supported engine-build helper's
+SONAME-bearing linalg package passed all six enabled integration tests and the
+optional tutorial test. That local package requires GLIBC 2.39; it does not
+qualify the release floor. The release configuration retains glibc 2.28 with
+GNU ld for ARM, avoiding the pinned ARM mold binary's glibc 2.30 requirement.
+
+The emulated Cortex-A53 advertises AES, PMULL, SHA1, SHA2 and CRC32, but no LSE.
+Known-answer crypto and compression checks also passed with a temporary
+`getauxval` interposer reporting only mandatory FP/ASIMD features. This exercises
+runtime fallback dispatch; it does not emulate the physical absence of crypto
+instructions or change the compiler's generic ARMv8-A baseline.
+
+User-mode QEMU cannot establish kernel signal coexistence or ARM's real
+weak-memory concurrency behavior by itself. Full-system TCG adds kernel coverage
+but is still emulation. Native hardware stress, additional page sizes and
+release-baseline clean-container execution must each be recorded before claiming
+them as supported. Native ARM CI is configured for the compiler/runtime suite,
+both optional engines and the Docker reverse-proxy tests; configuring those jobs
+is not evidence that they have run.
 
 For the complete developer gate, run the locked workspace suite with all
 features, default-feature tests, formatting, clippy and tutorial/reference

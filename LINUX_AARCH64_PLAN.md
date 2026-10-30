@@ -5,13 +5,32 @@ This document records the implementation plan; it is not a release support
 announcement. The source tree now implements the ARM path, with the reproducible
 harness and measured limits documented in
 [Linux AArch64 development](book/src/development/linux-aarch64.md). The isolated
-backend/C ABI probe and runtime suites have passed under QEMU user mode;
-full compiler workflow qualification is continuing under an ARM Linux guest.
+backend/C ABI probe and runtime suites have passed under QEMU. Compiler workflow
+qualification combines a broad user-mode run with exact full ARM guest tests;
+the development guide records the split harness and its limits.
 Native hardware, the ARM glibc 2.28 deployment floor, other page sizes and
-optional-engine execution remain separate admission gates.
+full dataframe execution remain separate admission gates. The user permits a
+global glibc 2.30 floor if needed; current release tooling retains 2.28 by using
+GNU ld for ARM, pending baseline qualification.
 It expands B18 in the [backlog](book/src/backlog.md), with release work under
 B17 and actor portability under B85. Keep priorities there and implementation
 status in local issues/PRs. This worktree-local plan was requested explicitly.
+
+## Implementation record
+
+Local PR #706 collects the implementation on `feat-cross-platform-aarch64-linux`
+for review into `main`. Worker branches were based on this feature branch and
+merged here after validation. The original work packages remain below as the
+acceptance criteria; remaining priorities are tracked in B18/B17/B85.
+
+| Packages | Implemented and validated | Qualification boundary |
+| --- | --- | --- |
+| P0–P2 | Pinned QEMU/backend probe, two target descriptions, target-aware native dependencies and matching embedded runtime archives | Native builds and release floor still need their release-environment runs |
+| P3–P4 | ARM Linux bindings, synchronization, checked traps, registered loop stack probes and signal-host coexistence | Full guest covers 4 KiB pages; other page sizes and native hardware remain gates |
+| P5–P6 | C/Tail boundaries, ARM metadata/dumps, source relocations, actor heap/recovery and ownership fixes | Emulation does not establish physical ARM weak-memory stress behavior |
+| P7 | Target admission, integration expectations and native ARM CI, including reverse proxies | Final emulated suite reconciliation is recorded in the development guide; native CI has not run remotely |
+| P8 | Target-aware engine helper; packaged linalg integration/tutorial execution; dataframe all-target compilation | Full dataframe execution and release-baseline engine artifacts remain gates |
+| P9 | Dual-architecture packaging/audits/notices and installation/reference/tutorial documentation | Reproducible release builds, minimum libc/kernel and clean release smoke tests remain gates; no release was published |
 
 ## Recommendation and scope
 
@@ -105,8 +124,10 @@ upgrade is required by the evidence gathered so far.
 
 ## Work packages and acceptance gates
 
-These are proposed reviewable changes, not estimates or assigned issues.
-Split a package further when it becomes large; record dependencies in local PRs.
+These packages describe the original scope and acceptance gates. Local PR #706
+collects the implementation; worker PRs are merged into its feature branch.
+Native hardware and release qualification remain subject to the gates below.
+Priorities remain in B18/B17/B85 rather than in a second work queue here.
 
 ### P0 — Establish an ARM execution harness and backend probe
 
@@ -339,7 +360,7 @@ and requires choosing a 64-bit CPU explicitly. Test a baseline CPU rather than
 only `max`. QEMU execution is valuable evidence; native ARM runs are still
 required for concurrency stress, realistic performance and release qualification.
 
-## Sequence and first implementation session
+## Sequence at the research baseline
 
 Critical path: **P0 → P1 → P2 → P3/P4 → P5 → P6 → P7 → P9**.
 P8 can follow ABI qualification independently of actor work. Release-script

@@ -97,11 +97,15 @@ the stack when Plenty code returns, with no heap allocation or mapping. Startup
 checks the runtime page size and kernel minimum signal-stack requirement before
 installing the handler; an inadequate reserved stack leaves the default signal
 behavior in place. ARM qualification currently covers 4 KiB pages.
-Generated frames larger than a page probe
-each page. The handler recognizes a data fault below the entry frame and no more
-than one page below the faulting stack pointer; other faults retain the default
-action. Foreign code skipping stack pages is outside this detection. Stack sizes
-remain the system's limits, and core-file policy follows the system.
+Generated frames larger than a page probe each page. The handler recognizes a
+data fault below the entry frame and no more than one page below the faulting
+stack pointer. AArch64 loop probes leave SP unchanged, so the compiler also
+registers their exact store addresses in the read-only trap table. At those
+addresses only, the handler checks the negative probe offset in x16 against the
+frame size in x17 and uses the resulting probe address as the stack frontier.
+Other faults retain the default action. Foreign code skipping stack pages is
+outside this detection. Stack sizes remain the system's limits, and core-file
+policy follows the system.
 
 ## Rust panics
 
@@ -146,8 +150,11 @@ AArch64 `udf`, with its own Cranelift trap code, and the object holds a trap tab
 each such address to the check's kind and site record. Its addresses are
 32-bit offsets the linker resolves, so a PIE applies no relocations to it
 and its pages stay unread until a check fails. `plenty_main`
-registers the table, and startup installs a `SIGILL` handler on the
-alternate signal stack. On a kernel-raised `SIGILL` at a listed address the
+registers the table, and startup installs a `SIGILL` handler. It uses the
+alternate signal stack by default; if a custom `SIGILL` action was already
+installed, its `SA_ONSTACK` and `SA_RESTART` choices and signal mask are retained.
+Unrelated signals invoke that saved action without removing Plenty's
+checked-trap handler. On a kernel-raised `SIGILL` at a listed check address the
 handler resumes the thread in the check's helper with the site as its
 argument, so the report, exit status and thread behaviour match a direct
 call. x86 restores a call-compatible stack; AArch64 restores PC, aligned SP and
@@ -155,7 +162,7 @@ argument registers for a native C helper entry. Any other
 `SIGILL` goes to the previous action. The table lists only
 functions reachable from exported functions and destructors, so linker
 garbage collection still removes the rest. A function has 247 trap codes;
-later checks, and every check in a library, `--fuzz` or `--coverage` build,
+later checks, and every check in a library or `--fuzz` build,
 compute the pointer in the cold block and call the helper. Either way the
 passing path gains nothing. A check whose
 condition the compiler computes from constants and finds false, such as the
