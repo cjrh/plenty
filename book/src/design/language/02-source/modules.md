@@ -172,7 +172,8 @@ editing it rebuilds the program.
 
 Imports and aliases bind constants as values: `import std.math as math` permits
 `math.pi`, while `from std.math import pi` permits `pi`. Constants are not
-callables or mutable places. Private constants follow the same visibility
+callables or mutable places; brackets on a constant index it, as in `TABLE[n]`
+or `tables.TABLE[n:]`. Private constants follow the same visibility
 rules as private functions. A local binding may shadow an imported constant.
 Constant names share the declaration namespace with functions and types.
 

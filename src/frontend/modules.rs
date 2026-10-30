@@ -1833,6 +1833,17 @@ impl Scope {
                     path(base).is_none_or(|p| local(&p))
                         && matches!(&index.kind, Expression::Index(_, i) if leading(i).is_some_and(local))
                 }
+                // A module constant is a value, so brackets on it index it
+                // (issue #562). Constants are never generic.
+                Expression::GenericValue(name, _) => {
+                    root(&generic).is_some_and(local)
+                        || (!self.type_param(name)
+                            && self
+                                .symbol(name, &generic.at)
+                                .ok()
+                                .flatten()
+                                .is_some_and(|symbol| self.constants.contains_key(&symbol)))
+                }
                 _ => root(&generic).is_some_and(local),
             };
             e.kind = match generic.kind {

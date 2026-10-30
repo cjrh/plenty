@@ -15,7 +15,8 @@ without arguments, such as `AppError.Io`, is also a function value; see
 
 An arbitrary callee expression is allowed: `choose()(n)`, `(f)(n)`,
 `handlers[index](n)`, and `record.callback(n)`. The callee evaluates before its
-arguments. Brackets following a local binding index it; brackets following a
+arguments. Brackets following a local binding or a
+[module constant](../02-source/modules.md#constants) index it; brackets following a
 function declaration or module path provide type arguments. Following a field
 or method on a value, brackets index when their contents start at a local
 binding and otherwise provide method type arguments.
