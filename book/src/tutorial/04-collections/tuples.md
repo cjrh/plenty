@@ -3,7 +3,9 @@
 A tuple groups values with different types. Write `(value,)` for one component;
 parentheses without a comma simply group an expression. Function signatures may
 spell a tuple as `(i64, str)` or `tuple[i64, str]`. Unpacking transfers owned
-components, and `_` discards a component. Indices must be integer literals.
+components, and `_` discards a component. Indices must be integer literals; as
+with lists, a negative index counts from the end, so `pair[-1]` is the last
+component.
 
 ```plenty
 def measurement() -> (i64, str):

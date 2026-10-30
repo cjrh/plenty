@@ -616,19 +616,9 @@ impl Lower<'_> {
             if let Ty::Enum(t) = &collection
                 && t.tuple()
             {
-                let Expression::Number(n) = &ungroup(index).kind else {
-                    return Err(index
-                        .at
-                        .error("tuple index must be a nonnegative integer literal"));
-                };
-                let index = n
-                    .parse::<usize>()
-                    .map_err(|_| index.at.error("invalid tuple index"))?;
-                let field = t.get().variants[0]
-                    .fields
-                    .get(index)
-                    .cloned()
-                    .ok_or_else(|| e.at.error("tuple index out of bounds"))?;
+                let fields = &t.get().variants[0].fields;
+                let index = slices::tuple_position(index, fields.len())?;
+                let field = fields[index].clone();
                 let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
                 if self.loans[loan].precise {
                     self.loans[loan].fields.push(index);
@@ -1043,21 +1033,9 @@ impl Lower<'_> {
                 if let Ty::Enum(t) = &ty
                     && t.tuple()
                 {
-                    let Expression::Number(n) = &ungroup(index).kind else {
-                        return Err(index
-                            .at
-                            .error("tuple index must be a nonnegative integer literal"));
-                    };
-                    let i = n.parse::<usize>().map_err(|_| {
-                        index
-                            .at
-                            .error("tuple index must be a nonnegative integer literal")
-                    })?;
-                    let value = t.get().variants[0]
-                        .fields
-                        .get(i)
-                        .ok_or_else(|| index.at.error("tuple index out of bounds"))?
-                        .clone();
+                    let fields = &t.get().variants[0].fields;
+                    let i = slices::tuple_position(index, fields.len())?;
+                    let value = fields[i].clone();
                     if value == Ty::Unit {
                         return Err(e.at.error("expected a value, got ()"));
                     }

@@ -177,7 +177,7 @@ def div_mod(a: i64, b: i64) -> (i64, i64):
 def main() -> Result[(), AllocError | IoError]:
     pair = (42, "cm")
     single: (i64,) = (7,)
-    print(pair, pair[0], pair[1], single[0])?
+    print(pair, pair[0], pair[-1], single[0])?
     quotient, remainder = div_mod(7, 2)
     print(quotient, remainder, (1, "b") < (1, "c"))?
     mut point = (1, 2)
@@ -196,10 +196,10 @@ def main() -> Result[(), AllocError | IoError]:
 2 m
 ```
 
-Tuples allocate nothing. Indices are nonnegative integer literals; there is no
-`pair[0] = value`, so assign through `&mut pair[0]`. Moving an owned component
-out needs whole-tuple unpacking, which is flat only: no nested or starred
-targets. `match` has no tuple patterns. See
+Tuples allocate nothing. Indices are integer literals; negative ones count from
+the end, so `pair[-1]` is `pair[1]`. There is no `pair[0] = value`, so assign
+through `&mut pair[0]`. Moving an owned component out needs whole-tuple
+unpacking, which is flat only: no nested or starred targets. `match` has no tuple patterns. See
 [tuples](../language/03-types/tuples.md) and
 [assignment to several targets](../language/04-expressions/assignment.md#several-targets).
 

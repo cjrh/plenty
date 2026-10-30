@@ -353,6 +353,15 @@ fn a_nested_lock_of_the_same_type_is_rejected_when_it_could_alias() {
         "a = Mutex(1)\nb = Mutex(2)\nwith a.lock() as x, b.lock() as y:\n    *x = *x + *y\ncells = [Mutex(3), Mutex(4)]?\nwith cells[0].lock() as x, cells[1].lock() as y:\n    *x = *x + *y\nprint(a.into_inner())?\nwith cells[0].lock() as x:\n    print(*x)?",
     );
     assert_eq!(output(&source), "3\n7");
+    // A negative tuple index names its resolved component (issue #583).
+    rejects_body(
+        "pair = (Mutex(1), Mutex(2))\nwith pair[1].lock() as x:\n    with pair[-1].lock() as y:\n        pass",
+        "`pair[1]` is already locked by an enclosing `with` block",
+    );
+    let source = program(
+        "pair = (Mutex(1), Mutex(2))\nwith pair[-2].lock() as x, pair[-1].lock() as y:\n    *x = *x + *y\nwith pair[0].lock() as x:\n    print(*x)?",
+    );
+    assert_eq!(output(&source), "3");
     // Distinct guarded types may nest.
     let source = program(
         "a = Shared(Mutex(1))?\nb = Shared(Mutex[str](\"s\"))?\nwith a.lock() as x, b.lock() as y:\n    *x = *x + len(*y)\nwith a.lock() as x:\n    print(*x)?",
