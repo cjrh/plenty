@@ -306,8 +306,8 @@ fn build_sqlite(dir: &Path) {
     );
 }
 
-/// ring's C and assembly for x86_64 Linux, as its build script selects them,
-/// with the pregenerated `-elf.S` files its crates.io package ships in place
+/// ring's C and assembly for Linux, as its build script selects them,
+/// with the pregenerated `-elf.S` / `-linux64.S` files its crates.io package ships in place
 /// of the Perl generators. The archive name is the `links` value ring's
 /// symbol prefix expects.
 const RING: &str = "plenty-runtime/vendor/ring-0.17.14";
