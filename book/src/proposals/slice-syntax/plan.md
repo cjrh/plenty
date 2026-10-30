@@ -3,7 +3,7 @@
 **Status: Not implemented.** This page plans the
 [slice syntax proposal](../slice-syntax.md) (issue #579). Its code fences show
 proposed syntax and are not compiled. File names refer to local `main` at
-`498d5d4d`.
+`f681a0d5`.
 
 ## Reviewable slices
 
@@ -15,13 +15,15 @@ and tutorial lessons for what it ships, following the
    start, stop, step }` in `src/frontend.rs`; the postfix loop that builds
    `Expression::Index` recognizes a top-level `:`. Reject slice assignment
    targets (`Statement::SetIndex` and augmented assignment), commas, `&` and
-   `&mut` applied to a slice, constant zero steps, and unsupported receivers,
+   `&mut` applied to a slice, and unsupported receivers,
    with the messages in the [proposal](../slice-syntax.md#diagnostics).
    Generalize the runtime's `slice_bounds` (`plenty-runtime/src/aggregates.rs`)
    to the stepped algorithm, and extend `try_list_slice` to copy strided rows of
-   copyable elements, including `str` retains. Add the zero-step trap.
+   copyable elements, including `str` retains. Implement the zero-step
+   treatment once it is chosen ([open question](../slice-syntax.md#zero-step-open)).
 2. **Lists of affine elements.** Reuse the runtime's `try_copy` for each
-   selected element, and `share()` for `Shared[T]`. Check copyability per
+   selected element, and `share()` for `Shared[T]`. Elements with nested
+   `Shared` fields work once issue #582 lands. Check copyability per
    specialization, with a diagnostic that names the element type. Owned
    temporaries may transfer selected elements instead of copying them.
 3. **Strings.** Extend `try_slice` in `plenty-runtime/src/strings.rs` to steps:
@@ -66,9 +68,10 @@ Extend `tests/test_slicing.rs`, which holds the existing `slice` method tests:
   `len(xs[1:3]?)`.
 - **Diagnostics.** One `plenty-error` style case per row of the proposal's
   diagnostics table. The `&xs[a:b]` rejection is a phase-guard test with a
-  comment naming B11 and B39, to be replaced when views land.
-- **Traps.** A runtime zero step reports `slice step cannot be zero` at the
-  slice's position with exit status one.
+  comment naming issue #581, B11 and B39, to be replaced when views land.
+- **Zero step.** Constant and run-time zero steps, with expectations for the
+  chosen option: a trap at the slice's position with exit status one, an
+  `Err` value, or an empty result.
 - **Strings.** ASCII and mixed text, negative steps, combining marks,
   results of seven and eight UTF-8 bytes (inline versus heap), and the
   whole-string case.
@@ -90,7 +93,7 @@ and costs:
 | `design/language/03-types/bytes.md` | Replace "no slicing" with the `Bytes` result |
 | `design/language/03-types/tuples.md` | Literal-bound slices and their types |
 | `design/facilities/01-builtins/clists.md` | Row slices; `items[:]?` as the duplicate |
-| `design/language/08-errors/02-allocation-and-traps.md` | Add `slice step cannot be zero` to the trap table |
+| `design/language/08-errors/02-allocation-and-traps.md` | Add `slice step cannot be zero` to the trap table, if the trap option is chosen |
 | `design/examples/cheatsheet.md` | Use `name[1:3]?` and `items[1:3]?` in the examples; replace "There is no slice syntax"; change the Python row to `xs[1:3]` → `xs[1:3]?` ("allocates a copy") |
 | `design/examples/collections/list-slices.md`, `design/examples/text-files/text-23-slice-text-by-unicode-scalar-position.md` | Show the syntax first, then the methods |
 | `design/toolchain/02-architecture/support.md` | List slice syntax |
@@ -127,7 +130,7 @@ The backlog is edited only after merge. Proposed B39 wording, replacing
 > Slice syntax (`buffer[a:b:c]?`, issue #579) copies with Python's clamping and
 > returns `Result[Bytes, AllocError]`; `bytes` slices produce a `Bytes`. See
 > `[slices](design/language/04-expressions/slices.md)`. Remaining: borrowed
-> sub-range views `&buffer[a:b]` (needs B11 stored references).
+> sub-range views `&buffer[a:b]` (issue #581; needs B11 stored references).
 
 B12 lists "borrowed sub-range views (B11/B39)"; add that their spelling is
 `&xs[a:b]`.

@@ -5,7 +5,7 @@
 [lists](../design/facilities/01-builtins/lists.md#slices),
 [text](../design/facilities/01-builtins/text-building.md) and
 [`Bytes`](../design/stdlib/bytes.md). The backlog records the omission under
-B39; this proposal is issue #579. Researched against local `main` at `498d5d4d`
+B39; this proposal is issue #579. Researched against local `main` at `f681a0d5`
 on 2026-10-30. The [implementation and documentation plan](slice-syntax/plan.md)
 is a companion page.
 
@@ -27,7 +27,7 @@ def main() -> Result[(), AllocError | IoError]:
 
 ## Decisions
 
-These were settled with the user on the issue (comments 1460 and 1461):
+These were settled with the user on the issue and in review of local PR #694:
 
 1. A slice that produces a new value is fallible: `ys = xs[1:3]?`, typed
    `Result[_, AllocError]`.
@@ -37,9 +37,21 @@ These were settled with the user on the issue (comments 1460 and 1461):
 3. Copying slices come first. Borrowed views will be spelled `&xs[1:3]`; the
    syntax reserves that form.
 4. Out-of-range bounds clamp exactly as in Python, including negative indices
-   and negative steps. A zero step is an error.
+   and negative steps. The treatment of a zero step is still
+   [open](#zero-step-open).
 5. First-class `slice(...)` values are deferred.
 6. Receivers: `list`, `str`, `Bytes`, `bytes`, tuples and `clist`.
+7. Every slice returns a `Result`, tuples included, for consistency. The
+   compiler may remove work it can prove unnecessary.
+8. A `bytes` slice returns an owned `Bytes`, with no import needed.
+9. `copy()` will duplicate nested `Shared` handles with `share()` (issue #582).
+   Slices of elements that contain `Shared` fields depend on that change.
+10. Tuple indexing will accept negative literals, as in Python: `t[-1]`
+    (issue #583).
+11. `str` slices always copy. `&` and `&mut` applied to a slice are rejected
+    until borrowed views exist (issue #581).
+12. `str.slice()` stays until slice syntax lands; whether to deprecate it is
+    decided then, by its remaining use.
 
 Plenty has no shared mutable aliasing, so a deep copy differs from Python's
 shallow copy only where a Python program mutates an element through one list
@@ -104,7 +116,7 @@ positions(length, start: Option[i64], stop: Option[i64], step: i64):
     # of i64.MIN to -i64.MAX as CPython does. Both give the same positions,
     # since a step of magnitude >= length selects at most one element.
     if step == 0:
-        trap "slice step cannot be zero"
+        see "Zero step (open)"
     if step > 0:
         low, high = 0, length                 # clamp targets
         first, last = 0, length               # omitted start, omitted stop
@@ -154,7 +166,7 @@ CPython 3, checked with `slice.indices` while writing this page.
 | `a[10:20]` | Past the end: clamps | `(5, 5, 1)` | `[]` |
 | `a[-100:100]` | Both sides clamp | `(0, 5, 1)` | `[0, 1, 2, 3, 4]` |
 | `a[3:1]` | Empty, not reversed | `(3, 1, 1)` | `[]` |
-| `a[::0]` | Zero step | — | error |
+| `a[::0]` | Zero step | — | [open](#zero-step-open) |
 
 ### Why clamp
 
@@ -165,24 +177,38 @@ three. A trapping slice would turn correct Python habits into crashes. Clamping
 is total, so clamping alone never causes an error. The existing `slice` methods
 of lists and text already clamp.
 
-### Zero step
+### Zero step (open)
 
-A zero step is a programming error, not a recoverable outcome:
+A zero step selects no well-defined positions. Python raises
+`ValueError: slice step cannot be zero`; Plenty's `range` traps with
+`range step cannot be zero`. Three treatments are under consideration, and none
+is decided:
 
-- When the step is a compile-time constant (a literal, a `const` name, or a
-  constant expression), zero is a compile error: `slice step cannot be zero`.
-  The compiler already evaluates constant expressions and rejects, for example,
-  division by zero in a constant. A constant zero step is always wrong, so
-  rejecting it costs nothing.
-- Otherwise a zero step traps at the slice's position with
-  `slice step cannot be zero` and exit status one, as `range` does with
-  `range step cannot be zero`.
+| Option | `xs[::0]` | `xs[::k]` with `k == 0` at run time | Slice type |
+| --- | --- | --- | --- |
+| (a) Trap | Compile error `slice step cannot be zero` when the step is a constant | Trap with the same message, exit status one | `Result[_, AllocError]` |
+| (b) Error value | `Err(ZeroStepError)`, or a compile error for a constant | `Err(ZeroStepError)` | `Result[_, AllocError \| ZeroStepError]` |
+| (c) Empty | Empty result | Empty result | `Result[_, AllocError]` |
 
-It is not an `Err` variant. Adding one would widen every slice's error type for
-a bug that is rare and not worth recovering from, and would break the uniform
-`Result[_, AllocError]`. Today `range(0, 10, 0)` with a literal zero passes
-`--check` and traps when run; making `range` follow the constant rule is a
-separate change.
+Trade-offs:
+
+- **Bug masking.** A zero step is almost always a bug, such as an uninitialized
+  or miscomputed stride. (a) stops at the bug. (b) reports it but lets `?`
+  carry it to a caller that cannot fix it. (c) hides it: the program continues
+  with empty data and fails later, far from the cause.
+- **Type widening.** (b) adds a variant to every slice's error type, including
+  slices with no step, unless the type depends on whether a step is written or
+  constant. Callers whose error type is `AllocError` would need to widen it or
+  handle a case that cannot occur. (a) and (c) keep `Result[_, AllocError]`.
+- **Python mindshare.** Python raises, which matches (a) most closely: a
+  program that fails in Python fails in Plenty. (b) is close in spirit. (c)
+  silently accepts code that Python rejects.
+- **Consistency with `range`.** `range` traps today, so (a) matches it. (b) or
+  (c) would need `range` to change too, or leave the two step rules different.
+  Under (a), a constant zero `range` step could also become a compile error;
+  today `range(0, 10, 0)` passes `--check` and traps when run.
+- **Cost.** All three need one comparison when the step is not constant, and
+  none when it is.
 
 ## Results by receiver
 
@@ -200,9 +226,11 @@ a mutable receiver is borrowed shared for the duration of the copy.
 | `clist[T]` | `Result[clist[T], AllocError]` | Copying column values |
 
 Every slice returns a `Result`, including empty slices, tuple slices of
-copyable components, and short strings that happen not to allocate. One rule is
-easier to learn and to keep in mind than a list of exceptions, and code does
-not change type when a bound changes.
+copyable components such as `(1, 2, 3)[1:]`, and short strings that happen not
+to allocate. One rule is easier to learn and to keep in mind than a list of
+exceptions, and code does not change type when a bound changes. The compiler
+may remove work it can prove unnecessary, such as the error path of a tuple
+slice that cannot allocate.
 
 Other receivers are rejected: `dict`, `set`, deques, ranges, generators,
 `Shared[list[T]]` handles (slice `&*handle` once views exist, or index it), and
@@ -219,9 +247,12 @@ Each selected element is duplicated by its type's copy:
   what makes `rows[1:]?` work for the common nested data.
 - `Shared[T]` elements are duplicated with `share()`: a count increment, no
   allocation. The handles in both lists name the same values.
+- Aggregates that contain `Shared` fields, such as `(str, Shared[Log])`, are
+  copied with their handles shared once `copy()` does that (issue #582). Until
+  then they are rejected, as `copy()` rejects them.
 - Any other element type is a compile error naming the type. These include
   `Bytes` and other resources, generators, closures with captures, types with
-  `__del__`, and aggregates that contain any of them or a `Shared` handle.
+  `__del__`, and aggregates that contain any of them.
 
 For an owned temporary receiver, as in `load()[1:]?`, the implementation may
 move the selected elements instead of copying them and drop the rest. Types
@@ -299,8 +330,9 @@ An empty selection has the unit type `()`, which is also how Python spells the
 empty tuple. Components are duplicated with `copy()` semantics, so the
 `list[i64]` component is deep-copied and the source tuple is unchanged.
 Today tuple indexing accepts only nonnegative literals (`t[-1]` is rejected
-with `tuple index must be a nonnegative integer literal`); see the questions
-below.
+with `tuple index must be a nonnegative integer literal`); issue #583 makes
+indexing accept negative literals too, so indices and slice bounds follow the
+same rule.
 
 ### Columnar lists
 
@@ -331,7 +363,7 @@ and with or without parentheses:
 temporary copy would leave two spellings one character apart, one copying and
 one not, once views land. Rejecting both now keeps the view syntax free and the
 cost of every accepted form plain. These rejections are phase-guard tests that
-name B11 and B39.
+name issue #581, B11 and B39.
 
 ## Costs and allocation failure
 
@@ -369,7 +401,7 @@ over the source for that, until a view can be iterated with `for x in &xs[1:]`.
 | --- | --- |
 | `ys: list[i64] = xs[1:3]` | `slice returns Result[list[i64], AllocError]; use ? to propagate allocation failure`, matching the collection-literal message |
 | `buffers[1:]?`, `buffers: list[Bytes]` | `slicing list[Bytes] copies each element, and Bytes cannot be copied`; hint: transfer from an owned temporary with `.slice(start, stop)`, or build a new list from explicit copies |
-| `xs[::0]` | `slice step cannot be zero` at compile time |
+| `xs[::0]` | Under options (a) and (b) for the [zero step](#zero-step-open): `slice step cannot be zero` at compile time |
 | `xs[a:b] = ys`, `xs[a:b] += ys` | `slice assignment is not supported`; hint: assign elements by index, or build a new list |
 | `&xs[1:3]`, `&mut xs[1:3]` | `borrowed slice views are not implemented yet`; hint: bind the copy first |
 | `t[i:]`, `t: tuple` | `tuple slice bounds must be integer literals; the result type depends on them` |
@@ -388,7 +420,7 @@ element is not written in the slice expression.
 | Slice assignment `a[1:3] = values` | Python lets a step-1 assignment change the length, which can allocate. An assignment statement has no value for `?`, so this needs a fallible method such as `xs.splice(start, stop, values)?` or a statement-level failure rule. A stepped assignment requires equal lengths. The right side's elements would move in. |
 | Deletion `del a[1:3]` | Plenty has no `del`. A `remove_range(start, stop)` method needs no allocation and can be added independently. |
 | `slice(start, stop, step)` values | A prelude `slice` type with `Option[i64]` fields, and subscripts that dispatch on the operand's type; today they accept integers and dictionary keys. A `range` has required, typed bounds and is a sequence of positions; a `slice` is unresolved until applied to a length. `s.indices(length)` would return the normalized `range`. |
-| Borrowed views `&xs[a:b]` | A view type (address, length, stride) under the existing loan rules. Local-only views can follow the dictionary key-view precedent (issue #396); storing and returning them needs B11 stored references. `&mut xs[a:b]` would allow in-place sorts and fills of a sub-range. String views need byte offsets; `Bytes` sub-range views are B39's remaining item. |
+| Borrowed views `&xs[a:b]`, `&mut xs[a:b]` (issue #581) | A view type (address, length, stride) under the existing loan rules. Local-only views can follow the dictionary key-view precedent (issue #396); storing and returning them needs B11 stored references. `&mut xs[a:b]` would allow in-place sorts and fills of a sub-range. String views need byte offsets; `Bytes` sub-range views are B39's remaining item. |
 | Ranges, deques, generators, user classes | Slicing a `range` could return a `range` without allocation; user classes need a hook design. Each needs its own use case. |
 
 ## Prior art
@@ -412,22 +444,8 @@ element is not written in the slice expression.
   It copies into a new `seq` and raises on out-of-range bounds; `toOpenArray`
   borrows without copying.
 
-## Questions for review
+## Open question: zero step
 
-1. **Tuple slices of copyable components.** This page returns a `Result` for
-   every slice, including `(1, 2, 3)[1:]`, which cannot fail. Keep the one rule,
-   or make tuple slices infallible when no selected component allocates?
-2. **`bytes` slices.** Return an owned `Bytes` without requiring
-   `import std.bytes` (recommended), require the import, or reject `bytes`
-   slicing in favor of `std.bytes.from_bytes(value)?[a:b]?`?
-3. **`Shared` inside elements.** Slices `share()` direct `Shared[T]` elements,
-   but a tuple or class containing a `Shared` field is rejected because
-   `copy()` rejects it. Should `copy()` itself share nested handles? That would
-   change `copy()` everywhere, so it is a separate decision.
-4. **Tuple negative indices.** Allow `t[-1]` with a negative literal, so tuple
-   indexing and tuple slicing accept the same bounds?
-5. **Constant zero `range` steps.** Reject `range(0, 10, 0)` at compile time,
-   matching the slice rule?
-6. **`str.slice` method.** After `s[a:b]?` lands, keep `text.slice(start, stop)`
-   or deprecate it? The list method stays for transfers from temporaries, and
-   the `Bytes` method for its `BytesError` contract.
+Choose (a) trap, (b) `ZeroStepError` in the result type, or (c) an empty
+result. The [zero step](#zero-step-open) section compares them. If (b) or (c)
+is chosen, decide whether `range` changes to match.
