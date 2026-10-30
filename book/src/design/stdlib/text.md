@@ -31,6 +31,52 @@ find word boundaries, calculate terminal display width, or keep grapheme cluster
 together: a combining mark can begin a new line. Width and string positions are
 scalar counts; the output limit and `byte_len` are byte counts.
 
+### Segmentation and display width
+
+The official [`unicode_text`](https://github.com/plentylang/unicode-text)
+package provides [UAX #29](https://www.unicode.org/reports/tr29/) grapheme
+cluster, word and sentence boundaries, and terminal display width following the
+Rust `unicode-width` crate, with Unicode 17.0.0 data matching
+[`std.unicode`](unicode.md). It is plain Plenty; add it as a
+[git dependency](../toolchain/01-building/packages.md#adding-dependencies):
+
+```toml
+[dependencies]
+unicode_text = { git = "https://github.com/plentylang/unicode-text.git", tag = "v0.1.0" }
+```
+
+```plenty fragment
+import unicode_text
+from unicode_text import Ambiguous
+
+def main() -> Result[(), AllocError | IoError]:
+    text = "Hi 👩‍🔬! 日本語のテキスト。"
+    print(unicode_text.grapheme_list(&text)?)?
+    print(unicode_text.word_list(&text)?)?
+    for span in unicode_text.sentences(text):
+        print(span.start, span.stop)?
+    print(unicode_text.width(&text, Ambiguous.Narrow))?
+    print(unicode_text.width("±1", Ambiguous.Wide))?
+    Ok(())
+```
+
+```text
+["H", "i", " ", "👩‍🔬", "!", " ", "日", "本", "語", "の", "テ", "キ", "ス", "ト", "。"]
+["Hi", "日", "本", "語", "の", "テキスト"]
+0 8
+8 17
+25
+3
+```
+
+`graphemes`, `word_bounds`, `words` and `sentences` are generators of `Span`
+values carrying scalar positions and UTF-8 byte offsets, and allocate nothing;
+the `*_list` forms return `Result[list[str], AllocError]`. `width` takes an
+explicit `Ambiguous.Narrow` or `Ambiguous.Wide` for East Asian Ambiguous
+characters and, like `unicode-width`, counts each control scalar as one column;
+`scalar_width` returns `Nothing` for a control. The package README lists the
+complete API, policies and data update procedure.
+
 `find_in` and `find_not_in` are the `str` forms of the
 [`Bytes` scans](bytes.md#scanning): `set` is a `Bytes` buffer or a `bytes`
 literal, borrowed, and the whole text is scanned in one native call that
