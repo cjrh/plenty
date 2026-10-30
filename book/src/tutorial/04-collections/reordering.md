@@ -106,7 +106,7 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 ```
 ```error
-cannot move out of indexed storage; use copy(collection[index])
+cannot move out of indexed storage; borrow it with &collection[index], take it with replace(collection[index], value) or collection.pop(index), or copy it with copy(collection[index])?
 ```
 
 Use `rows.swap(0, 1)` instead.

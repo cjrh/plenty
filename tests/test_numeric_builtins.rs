@@ -317,7 +317,10 @@ fn programs_may_define_abs_min_max_and_sum() {
 fn abs_min_max_and_sum_are_not_built_in(#[case] call: &str) {
     let error = rejection(&format!("    xs = [1, 2].unwrap()\n    x = {call}\n"));
     let name = &call[..3];
-    assert_eq!(error, format!("3:9: unknown function `{name}`"));
+    // The diagnostic names the `std.math` replacement (issue #573).
+    let expected =
+        format!("3:9: unknown function `{name}`; import `std.math` and call `math.{name}(");
+    assert!(error.starts_with(&expected), "{error}");
 }
 
 #[test]

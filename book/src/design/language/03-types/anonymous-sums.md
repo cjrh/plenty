@@ -50,6 +50,52 @@ nested match. A member annotation must name a single normalized type; pattern
 Typed member patterns are supported at the case position, not inside other
 patterns. Case guards remain unsupported; test payloads inside the arm.
 
+A member's variant cannot qualify a pattern on the sum, because the sum's
+alternatives are its members, not their variants:
+
+```plenty-error
+def parse(text: &str) -> Result[i64, AllocError | ParseError]:
+    Ok(i64.parse(text)?)
+
+def main() -> ():
+    match parse("x"):
+        case Ok(value):
+            pass
+        case Err(ParseError.Invalid):
+            pass
+        case Err(_):
+            pass
+```
+```error
+expected AllocError | ParseError, got ParseError; a sum pattern names a whole member: write `case value: ParseError:` in a `match` on the sum, then match `ParseError` variants on `value` in a nested `match`
+```
+
+Bind the error, match its member, then match the member's variants:
+
+```plenty
+def parse(text: &str) -> Result[i64, AllocError | ParseError]:
+    Ok(i64.parse(text)?)
+
+def main() -> Result[(), IoError]:
+    match parse("x"):
+        case Ok(value):
+            print(value)?
+        case Err(error):
+            match error:
+                case parse_error: ParseError:
+                    match parse_error:
+                        case ParseError.Invalid:
+                            print("not a number")?
+                        case _:
+                            print("other parse error")?
+                case _:
+                    print("out of memory")?
+    Ok(())
+```
+```output
+not a number
+```
+
 An owned match moves noncopyable payloads. Matching `&value` or `&mut value`
 borrows the active member with the same permission and lifetime. Only the
 active payload is initialized or destroyed. Copyability and thread transfer
