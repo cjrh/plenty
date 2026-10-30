@@ -7,6 +7,10 @@ Use it for session tokens, keys, nonces, and password-reset links. For
 repeatable simulation and sampling use [`std.random`](random.md); the two
 modules share no state and no code path.
 
+> **Entropy comes from the kernel.** Plenty implements no random generator
+> for secrets: every byte comes from `getrandom(2)`, deliberately leaving
+> entropy collection and the generator to the operating system.
+
 Policy is checked Plenty code over one native primitive,
 [`Bytes.read_os_entropy`](bytes.md#transport), which makes a single
 `getrandom(2)` request. The module is available on the supported x86-64 Linux

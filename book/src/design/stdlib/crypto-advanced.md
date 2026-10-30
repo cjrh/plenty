@@ -2,10 +2,10 @@
 
 [`std.crypto`](crypto.md) provides AES-256-GCM, ChaCha20-Poly1305,
 Ed25519, ephemeral X25519, and HKDF-SHA256 over [`Bytes`](bytes.md).
-These are `ring` primitives; Plenty implements argument validation, buffer
-ownership, and error handling. Cryptography requires specialist implementation
-and review, so this module wraps the existing vendored library instead of
-reimplementing primitives in Plenty.
+> **Upstream code, used as-is.** These are unmodified `ring` primitives.
+> Plenty implements argument validation, buffer ownership and error handling,
+> and no cryptography: the algorithms and their side-channel resistance are
+> deliberately left to `ring`. See [`std.crypto`](crypto.md) for this policy.
 
 All functions return `Result[_, AdvancedError]`. This error is separate from
 `CryptoError`, which describes the digest/HMAC API. See the
