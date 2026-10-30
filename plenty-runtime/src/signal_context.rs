@@ -1,4 +1,7 @@
 //! Linux GNU signal records come from libc; only register selection is local.
+//!
+//! Linux ABI bindings use the [libc crate](https://github.com/rust-lang/libc),
+//! licensed MIT OR Apache-2.0.
 
 pub(crate) fn action(handler: usize, flags: i32) -> libc::sigaction {
     // SAFETY: zero initializes an empty signal mask and absent restorer.
@@ -37,6 +40,33 @@ pub(crate) fn instruction_fault(context: &libc::ucontext_t, address: usize) -> b
     pc(context) == address
 }
 
+/// The current stack frontier for a data fault. A registered AArch64 loop
+/// probe moves its temporary address down while leaving the actual SP still.
+pub(crate) fn fault_stack_pointer(context: &libc::ucontext_t, address: usize) -> usize {
+    #[cfg(target_arch = "aarch64")]
+    if crate::traps::stack_probe(pc(context)) {
+        return probe_stack_pointer(context, address).unwrap_or_else(|| sp(context));
+    }
+    let _ = address;
+    sp(context)
+}
+
+#[cfg(target_arch = "aarch64")]
+fn probe_stack_pointer(context: &libc::ucontext_t, address: usize) -> Option<usize> {
+    let offset = context.uc_mcontext.regs[16] as i64;
+    let frame = context.uc_mcontext.regs[17];
+    // The pinned backend uses 4 KiB steps, independent of kernel page size.
+    // It may probe one step beyond a frame whose size is not page-aligned.
+    let distance = offset.checked_neg().and_then(|n| usize::try_from(n).ok())?;
+    (offset < 0
+        && frame > 3 * 4096
+        && frame <= u64::from(u32::MAX)
+        && distance.is_multiple_of(4096)
+        && distance as u64 <= frame + 4095
+        && sp(context).checked_sub(distance) == Some(address))
+    .then_some(address)
+}
+
 pub(crate) fn enter_helper(
     context: &mut libc::ucontext_t,
     helper: usize,
@@ -66,6 +96,29 @@ pub(crate) fn enter_helper(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn loop_probe_frontier_requires_negative_aligned_bounded_offset() {
+        // SAFETY: no synthetic context pointers are dereferenced.
+        let mut context: libc::ucontext_t = unsafe { std::mem::zeroed() };
+        context.uc_mcontext.sp = 0x10_0000;
+        context.uc_mcontext.regs[16] = (-0x8000i64) as u64;
+        context.uc_mcontext.regs[17] = 0x9000;
+        // A matching offset alone is insufficient at an unregistered PC.
+        assert_eq!(fault_stack_pointer(&context, 0xf_8000), 0x10_0000);
+        assert_eq!(probe_stack_pointer(&context, 0xf_8000), Some(0xf_8000));
+        assert_eq!(probe_stack_pointer(&context, 0xf_7000), None);
+        context.uc_mcontext.regs[17] = 0x6000;
+        assert_eq!(probe_stack_pointer(&context, 0xf_8000), None);
+        context.uc_mcontext.regs[17] = u64::MAX;
+        assert_eq!(probe_stack_pointer(&context, 0xf_8000), None);
+        context.uc_mcontext.regs[17] = 0x9000;
+        for offset in [0, 0x8000, -1, i64::MIN] {
+            context.uc_mcontext.regs[16] = offset as u64;
+            assert_eq!(probe_stack_pointer(&context, 0xf_8000), None);
+        }
+    }
 
     #[test]
     fn checked_helper_receives_native_arguments_and_stack_alignment() {

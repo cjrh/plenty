@@ -17,10 +17,11 @@ use crate::Site;
 use crate::signal_context;
 use libc::{SA_ONSTACK, SA_SIGINFO, SIGILL, raise, sigaction};
 
-/// The header of the compiler's table, followed by `count` illegal-instruction addresses
+/// The header of the compiler's table, followed by `count` fault-instruction addresses
 /// and then `count` `u32`s: each check's site record offset, with its kind in
 /// the low four bits. `sites` and the addresses are offsets from the field
 /// holding them, which the linker resolves; `sites` is zero for none.
+/// Kind 6 with `NO_SITE` marks an AArch64 loop-probe store for SIGSEGV.
 #[repr(C)]
 struct Table {
     count: u32,
@@ -102,6 +103,25 @@ unsafe fn lookup(table: *const Table, address: usize) -> Option<(usize, *const S
         _ => return None,
     };
     Some((helper, site, u64::from(kind == 5)))
+}
+
+/// Whether the compiler registered this exact PC as an AArch64 loop-probe
+/// store. Reading the immutable table is allocation-free and signal-safe.
+#[cfg(target_arch = "aarch64")]
+pub(crate) fn stack_probe(address: usize) -> bool {
+    let table = TABLE.load(Ordering::Acquire);
+    if table.is_null() {
+        return false;
+    }
+    // SAFETY: registration publishes a process-lifetime compiler table.
+    unsafe {
+        let count = (*table).count as usize;
+        let addresses = table.add(1).cast::<i32>();
+        let entries = addresses.add(count).cast::<u32>();
+        (0..count).any(|index| {
+            resolve(addresses.add(index)) == address && *entries.add(index) == (NO_SITE | 6)
+        })
+    }
 }
 
 unsafe extern "C" fn on_illegal(_signal: i32, info: *const Info, context: *mut c_void) {

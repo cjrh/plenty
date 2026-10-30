@@ -117,7 +117,7 @@ unsafe extern "C" fn on_fault(_signal: i32, info: *const Info, context: *const c
             if stack.ss_flags & SS_ONSTACK != 0
                 && exhausted(
                     (*info).si_addr() as usize,
-                    signal_context::sp(context),
+                    signal_context::fault_stack_pointer(context, (*info).si_addr() as usize),
                     stack.ss_sp as usize,
                     signal_context::instruction_fault(context, (*info).si_addr() as usize),
                 )

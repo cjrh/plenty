@@ -352,6 +352,17 @@ impl Output {
         if let Some(table) = &mut self.traps {
             table.refer(id, &code.relocs);
             table.add(id, checks, &code.traps, site_base)?;
+            if matches!(
+                self.module.isa().triple().architecture,
+                target_lexicon::Architecture::Aarch64(_)
+            ) {
+                // Run after either compilation or cache lookup: probes in cached
+                // code need the same registration as a freshly compiled body.
+                table.add_stack_probes(
+                    id,
+                    super::stack_probes::arm64_loop_stores(code.bytes.as_slice()),
+                );
+            }
         } else if !code.traps.is_empty() {
             return Err("a check traps in an object without a check table".into());
         }

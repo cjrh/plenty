@@ -109,6 +109,7 @@ mod scalar_captures;
 mod sites;
 mod small_calls;
 mod sorting;
+mod stack_probes;
 mod symbols;
 #[cfg(test)]
 mod tail_tests;

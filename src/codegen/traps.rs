@@ -27,6 +27,8 @@
 //! leaves free. The site table and instruction addresses are `i32` offsets
 //! from the field itself. Eight bytes per entry, read only when a check fails.
 //! Release builds can give checks that share a CLIF block separate instructions.
+//! AArch64 loop-probe stores additionally use kind 6 with `NO_SITE`, allowing
+//! the SIGSEGV handler to recognize their temporary stack frontier precisely.
 use super::*;
 use crate::hash::HashSet;
 use cranelift_codegen::MachTrap;
@@ -197,6 +199,21 @@ impl Table {
             self.entries.push((function, offset, site | kind));
         }
         Ok(())
+    }
+
+    /// Registers AArch64 loop-probe stores, which use the temporary address
+    /// register rather than SP. Kind 6 is shared with the runtime's SIGSEGV
+    /// classifier; SIGILL lookup deliberately does not dispatch it as a check.
+    pub(super) fn add_stack_probes(
+        &mut self,
+        function: FuncId,
+        offsets: impl IntoIterator<Item = u32>,
+    ) {
+        self.entries.extend(
+            offsets
+                .into_iter()
+                .map(|offset| (function, offset, NO_SITE | 6)),
+        );
     }
 
     /// Defines the table, once every function is placed. `sites` is the
