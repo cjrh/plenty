@@ -1,7 +1,14 @@
 # Linux AArch64 implementation plan
 
 Research baseline: `251b5277c97fc15a5e87b373474b3336d8142e12`, 2026-10-30.
-This document plans implementation; it does not announce working ARM support.
+This document records the implementation plan; it is not a release support
+announcement. The source tree now implements the ARM path, with the reproducible
+harness and measured limits documented in
+[Linux AArch64 development](book/src/development/linux-aarch64.md). The isolated
+backend/C ABI probe and runtime suites have passed under QEMU user mode;
+full compiler workflow qualification is continuing under an ARM Linux guest.
+Native hardware, the ARM glibc 2.28 deployment floor, other page sizes and
+optional-engine execution remain separate admission gates.
 It expands B18 in the [backlog](book/src/backlog.md), with release work under
 B17 and actor portability under B85. Keep priorities there and implementation
 status in local issues/PRs. This worktree-local plan was requested explicitly.
@@ -38,7 +45,7 @@ PR #355, remains useful rationale. It inspected Cranelift 0.131.1 and an older
 Plenty revision. This plan checks the current 0.137.0 dependencies and newer
 trap, actor, assembly-dump and optional-engine code.
 
-## Findings in the current source
+## Findings at the research baseline
 
 | Area | Evidence and implication |
 | --- | --- |
@@ -297,7 +304,7 @@ off. Actual publication remains a separate user-authorized action.
 **Done when:** independently audited ARM archives compile and run representative
 programs, checksums/notices are complete, and docs state the tested contract.
 
-## QEMU development path
+## QEMU development path at the research baseline
 
 This workstation is x86-64. Inspection found `qemu-aarch64`,
 `qemu-aarch64-static`, `qemu-system-aarch64` and the Rust
@@ -349,5 +356,7 @@ early checkpoint, not completion of the port.
 Implementation PRs should include focused tests and relevant reference/tutorial
 changes. New defects discovered in supported behavior belong in the shared
 issues register after duplicate search; claim numbered work atomically and keep
-issues open until the fixing PR merges. This planning change makes no compiler
-modifications and has not executed the proposed qualification suite.
+issues open until the fixing PR merges. The original planning-only revision made
+no compiler modifications or ARM test runs; subsequent implementation and
+emulated evidence are described in
+[Linux AArch64 development](book/src/development/linux-aarch64.md).

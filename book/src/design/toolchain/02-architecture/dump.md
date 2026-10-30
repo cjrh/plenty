@@ -27,7 +27,7 @@ plenty --dump asm --dump-std app.plenty -o - | less
 | `ops` | The typed operation IR the [frontend](frontend.md) hands to code generation, after [call-site substitution](emission.md#call-site-substitution): each local slot's type, then one operation per line, with nested bodies indented |
 | `clif` | Cranelift IR as lowered from the operations, before Cranelift's passes |
 | `clif-opt` | Cranelift IR after its passes, as compiled to machine code |
-| `asm` | x86-64 machine code in AT&T syntax, with byte offsets |
+| `asm` | Final machine code with byte offsets: x86-64 AT&T syntax or AArch64 instructions |
 
 Without `--release`, Cranelift runs at `opt_level=none`, so `clif-opt` shows
 legalized rather than optimized IR; the [native emission](emission.md) page
@@ -38,6 +38,8 @@ own debug form and change with it; they are for comparison, not parsing.
 
 Every stage file holds one section per function, in the order the compiler
 places functions in the object, which does not depend on the worker count:
+
+For example, an x86-64 dump can contain:
 
 ```text
 ==== twice  symbol=__plenty_fn_twice  kind=function  source=app.plenty:1
@@ -66,10 +68,14 @@ a `#N` suffix.
   name each external function and data symbol on its declaration line.
 - A check's trap in an executable names the runtime helper its
   [trap table](runtime.md#trap-sites) entry reaches: `trap user4  ;
-  plenty_trap_div_zero` in CLIF, `ud2  # plenty_trap_overflow` in `asm`.
+  plenty_trap_div_zero` in CLIF, `ud2  # plenty_trap_overflow` in x86 `asm`,
+  or an AArch64 `udf` with the same helper comment.
 - `asm` marks source lines with `# line N`, names the symbol each relocated
   operand refers to, and shows the constants Cranelift places after the code
-  as `.byte` rows. RIP-relative addresses are offsets within the function.
+  as `.byte` rows. x86 RIP-relative addresses are offsets within the function.
+  AArch64 offsets advance by four bytes per instruction, and PC-relative
+  operands retain the decoder's displacement notation. Unknown ARM encodings
+  appear as `.inst` words, preserving their bytes.
 - Data symbols carry what they hold: a string literal's text, a type's
   metadata, or the object's trap-site table, with the function's record count
   and its offset into the table (`.Ldata1 (trap sites: 1)+44`).
@@ -102,7 +108,9 @@ operations and show `-`.
 - Offsets and data symbol numbers shift when unrelated code changes, which adds
   noise to a `diff` of `asm` between revisions; diff `clif-opt` or compare the
   index first.
-- Only x86-64 Linux is supported, as for compilation generally.
+- Dumps use the compiler's native target. ARM bytes are decoded as A64 words,
+  including zero-valued UDF traps; they never pass through the x86 decoder.
+  The [platform contract](support.md) applies to compilation generally.
 
 The [compiler phase profiler](../../../development/profiling.md) measures
 where compile time goes; `--dump` shows what that time produced.

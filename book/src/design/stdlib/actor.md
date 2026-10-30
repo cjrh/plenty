@@ -7,8 +7,10 @@ running. Messages are copied into the receiver's heap, mailboxes are bounded
 and allocated when the actor starts, and a send that cannot be delivered
 returns the message.
 
-Supported target: x86-64 Linux. Elsewhere `supported()` is `False` and starting
-an actor returns `StartError.Unsupported`.
+Implemented targets: x86-64 and AArch64 GNU/Linux. Elsewhere `supported()` is
+`False` and starting an actor returns `StartError.Unsupported`. The ARM heap
+and AAPCS64 recovery path are part of [ARM qualification](../../development/linux-aarch64.md);
+native hardware validation remains a release gate.
 
 A boss starts two workers. One answers; the other has a bug and traps. The boss
 receives the answer and both exits:
@@ -518,3 +520,4 @@ actor heaps and are neither limited nor freed by a trap.
 - Parents receiving their children's exits follow Erlang/OTP
   [supervisors](https://www.erlang.org/doc/apps/stdlib/supervisor.html); no
   Erlang code is used.
+- Uses the Rust [`libc`](https://github.com/rust-lang/libc) crate for the Linux page-size query used by actor heaps (MIT OR Apache-2.0).

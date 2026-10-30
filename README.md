@@ -71,7 +71,10 @@ Running compiles into a private temporary directory, executes, and cleans up.
 Executable builds need a `cc`-compatible linker driver; checking does not.
 The [Rust runtime](plenty-runtime/README.md) is compiled and embedded when Plenty
 is built, so installed compilers need no runtime source or Rust toolchain to
-compile programs. Native emission currently supports `x86_64-unknown-linux-gnu`.
+compile programs. Native emission implements `x86_64-unknown-linux-gnu` and
+`aarch64-unknown-linux-gnu`, with a matching compiler, runtime and linker.
+The ARM implementation is under [development qualification](book/src/development/linux-aarch64.md);
+native hardware and baseline release validation remain separate gates.
 See [commands and linking](book/src/design/toolchain/01-building/index.md) for
 objects, libraries, native driver options, and external build systems.
 
