@@ -28,6 +28,7 @@ fn section(text: &str, name: &str) -> String {
 
 /// Address fixes after a copy: `lea OFF+16(%base),%r` then `mov %r,OFF(%base)`,
 /// pointing a slot's word at the payload that follows it.
+#[cfg(not(target_arch = "aarch64"))]
 fn address_fixes(asm: &str) -> usize {
     let operands: Vec<Vec<&str>> = asm
         .lines()
@@ -62,6 +63,55 @@ fn address_fixes(asm: &str) -> usize {
                 return false;
             };
             target == register && base == owner && payload == word + 16
+        })
+        .count()
+}
+
+/// AArch64's corresponding `add dst,base,#payload; str dst,[base,#word]`.
+#[cfg(target_arch = "aarch64")]
+fn address_fixes(asm: &str) -> usize {
+    let instructions: Vec<Vec<&str>> = asm
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .map(|(_, instruction)| instruction.split_whitespace().collect())
+        .collect();
+    let number = |text: &str| -> Option<i64> {
+        let text = text.trim_start_matches('#');
+        text.strip_prefix("0x").map_or_else(
+            || text.parse().ok(),
+            |hex| i64::from_str_radix(hex, 16).ok(),
+        )
+    };
+    instructions
+        .windows(2)
+        .filter(|pair| {
+            let ["add", destination, base, payload] = pair[0].as_slice() else {
+                return false;
+            };
+            let [store, register, memory @ ..] = pair[1].as_slice() else {
+                return false;
+            };
+            if !matches!(*store, "str" | "stur")
+                || destination.trim_end_matches(',') != register.trim_end_matches(',')
+            {
+                return false;
+            }
+            let memory = memory.join(" ");
+            let Some(memory) = memory
+                .strip_prefix('[')
+                .and_then(|text| text.strip_suffix(']'))
+            else {
+                return false;
+            };
+            let (owner, offset) = memory
+                .split_once(',')
+                .map_or((memory, Some(0)), |(owner, offset)| {
+                    (owner, number(offset.trim()))
+                });
+            base.trim_end_matches(',') == owner
+                && number(payload)
+                    .zip(offset)
+                    .is_some_and(|(payload, word)| payload == word + 16)
         })
         .count()
 }
