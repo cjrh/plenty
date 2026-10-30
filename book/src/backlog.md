@@ -344,6 +344,15 @@ and a non-trapping `MIN % -1` landed with it. Class patterns (issue #558)
 destructure `OverflowError` and other classes in `match`; checked shifts and
 casts remain B14 candidates.
 
+Issue #586 adds [`@redacted` classes and enums](design/language/03-types/classes.md#redacted-types):
+every automatic formatting path prints them as `TypeName(@redacted)` at any
+depth. The std.jwt, std.crypto and std.tls secret-bearing types use it.
+Field-level redaction (for example `Url` userinfo) is not implemented.
+
+Issues #563 and #564 add `0x`, `0o` and `0b` [integer literals](design/language/03-types/numbers.md)
+and the `\u{H...}` [string escape](design/facilities/01-builtins/text.md#escapes),
+which reads back `!a` output.
+
 Issue #61's initial lossless Unix transport is implemented with owned `list[u8]`,
 explicit UTF-8 conversion, raw arguments, binary file helpers, and NUL stream
 records. The finder now exercises those contracts with `--null`. Compact byte
