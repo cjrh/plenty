@@ -317,6 +317,12 @@ fn names_in_expr(e: &Expr, each: &mut impl FnMut(&str)) {
             names_in_expr(a, each);
             names_in_expr(b, each);
         }
+        Expression::Slice(base, bounds) => {
+            names_in_expr(base, each);
+            for bound in bounds.iter() {
+                names_in_expr(bound, each);
+            }
+        }
         Expression::Conditional { condition, yes, no } => {
             names_in_expr(condition, each);
             names_in_expr(yes, each);

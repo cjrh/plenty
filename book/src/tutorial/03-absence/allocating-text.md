@@ -47,4 +47,5 @@ Hello, Ada
 ```
 
 String-building operations return allocation results even when a particular
-short string fits inline.
+short string fits inline. A [slice](../04-collections/slices.md) such as
+`name[1:]?` is another: it copies part of the text.

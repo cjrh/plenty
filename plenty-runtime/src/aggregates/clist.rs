@@ -263,6 +263,43 @@ pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crat
     }
 }
 
+/// `source[start:stop:step]` for the clist in `slot`: a new clist holding the
+/// selected rows, one column copy each when the step is 1. Rows are
+/// primitives, so byte copies are complete copies.
+pub(super) unsafe fn slice(slot: *const u128, bounds: [u128; 4], ty: &Type) -> u128 {
+    unsafe {
+        let owner = slot.read() as *mut Columns;
+        let len = if owner.is_null() { 0 } else { (*owner).len };
+        let [start, stop, step, flags] = bounds.map(|word| word as i64);
+        let (first, step, count) = super::slice_positions(len, start, stop, step, flags);
+        let mut result = 0;
+        if let Err(error) = reserve(&mut result, ty, count as i64) {
+            return wrap((error as u128) << 64, 1);
+        }
+        if count != 0 {
+            let copy = result as *mut Columns;
+            for (field, schema) in schema(ty).iter().enumerate() {
+                let width = width(schema.fields[0].kind);
+                let (from, to) = (column(owner, ty, field), column(copy, ty, field));
+                if step == 1 {
+                    std::ptr::copy_nonoverlapping(from.add(first * width), to, count * width);
+                } else {
+                    for k in 0..count {
+                        let row = super::slice_position(first, step, k);
+                        std::ptr::copy_nonoverlapping(
+                            from.add(row * width),
+                            to.add(k * width),
+                            width,
+                        );
+                    }
+                }
+            }
+            (*copy).len = count;
+        }
+        wrap(result, 0)
+    }
+}
+
 pub(super) unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
     unsafe {
         let a = a as *mut Columns;

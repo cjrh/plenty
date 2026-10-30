@@ -503,7 +503,7 @@ impl Lower<'_> {
     /// A forwarded result of the field's type becomes the class; so does the
     /// payload of `Result[field, E]`, giving `Result[Class, E]`. Any other
     /// result is the wrapped operation's own and is returned unchanged.
-    fn rewrap(
+    pub(super) fn rewrap(
         &mut self,
         class: &crate::nominal::Nominal<ClassType>,
         declared: &Token,

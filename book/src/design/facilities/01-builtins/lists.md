@@ -122,11 +122,18 @@ by moving the destination are rejected. Use `extend(copy(source)?)` to preserve 
 
 ## Slices
 
-`items.slice(start: i64, stop: i64) -> Result[list[T], AllocError]` takes both
+[Slice syntax](../../language/04-expressions/slices.md) `items[start:stop:step]?`
+copies the selected elements into a new list with Python's clamping, omitted
+bounds, and negative steps. It duplicates elements with `copy()` and `Shared`
+handles with `share()`, and leaves the source unchanged; element types that
+`copy()` rejects are a compile error.
+
+`items.slice(start: i64, stop: i64) -> Result[list[T], AllocError]` is the
+transfer form for an owned temporary. It takes both
 bounds, observes receiver and bounds once in order, and accepts references.
 Start is inclusive; stop is exclusive. Negative bounds count from the end and
 clamp to `[0, len(items)]`; reversed or extreme bounds safely yield the corresponding
-clamped slice. Slice syntax, omitted bounds, and steps are unsupported.
+clamped slice. It has no step.
 
 Non-affine elements are retained into an independent list. Affine elements
 require an owned temporary receiver: selected owners transfer, and the remainder

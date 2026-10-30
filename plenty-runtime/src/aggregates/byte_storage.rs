@@ -341,6 +341,24 @@ pub(super) unsafe fn call(
                 0
             }
             // `copy_within`: memmove inside one buffer, so the ranges may overlap.
+            // `source[start:stop:step]` with clamped bounds, into a new
+            // buffer of exact capacity.
+            283 => {
+                let source = source(a);
+                let (first, step, count) =
+                    super::slice_positions(source.len(), b as i64, c as i64, d as i64, e as i64);
+                result(create(count).map(|owner| {
+                    let bytes = &mut (*owner).bytes;
+                    if step == 1 {
+                        bytes.extend_from_slice(&source[first..first + count]);
+                    } else {
+                        bytes.extend(
+                            (0..count).map(|k| source[super::slice_position(first, step, k)]),
+                        );
+                    }
+                    owner as u128
+                }))
+            }
             282 => {
                 let bytes = storage(a);
                 let within = range(b, c, bytes.len());

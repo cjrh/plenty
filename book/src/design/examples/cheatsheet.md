@@ -99,7 +99,7 @@ def main() -> Result[(), AllocError | IoError | FormatError]:
     words = "a,b,,c".split(",")?
     print(words, "-".join(&words)?, "  x ".strip()?)?
     print("hello".find("l"), "hello".startswith("he"), "ll" in "hello")?
-    print(name[0], name[-1], "hello".slice(1, 3)?, str.from(42)?)?
+    print(name[0], name[-1], "hello"[1:3]?, str.from(42)?)?
     Ok(())
 ```
 ```output
@@ -113,7 +113,8 @@ A a el 42
 `str` is immutable. Operations that build text return
 `Result[str, AllocError]`; `?` binds tighter than `+`, so write `(a + b)?`.
 An f-string has type `Result[str, FormatError]`. `len` counts Unicode scalars;
-`text.byte_len()` counts bytes. There is no slice syntax. See
+`text.byte_len()` counts bytes. A [slice](../language/04-expressions/slices.md)
+such as `name[1:]?` or `name[::-1]?` copies, so it needs `?`. See
 [text](../facilities/01-builtins/text.md),
 [building text](../facilities/01-builtins/text-building.md), and
 [format strings](../language/04-expressions/format-strings.md).
@@ -126,7 +127,7 @@ def main() -> Result[(), AllocError | IoError]:
     items.append(4)?
     items.sort()
     print(items, items[0], items[-1], items.get(10))?
-    print(items.slice(1, 3)?, items.pop(), 2 in items)?
+    print(items[1:3]?, items[::-1]?, items.pop(), 2 in items)?
 
     mut counts: dict[str, i64] = {}?
     for word in "a b a".split()?:
@@ -150,7 +151,7 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 ```output
 [1, 2, 3, 4] 1 4 Option[i64].Nothing
-[2, 3] Option[i64].Some(4) True
+[2, 3] [4, 3, 2, 1] Option[i64].Some(4) True
 {"a": 12, "b": 5} Option[i64].Nothing
 a 12
 b 5
@@ -532,7 +533,7 @@ def main() -> Result[(), IoError]:
 | `abs(x)`, `min`, `max`, `sum(xs)` | `std.math.abs`, `min`, `max`, `sum(&xs, 0)` |
 | `if items:` | `if len(items) > 0:` |
 | `a < b < c` | `a < b and b < c` |
-| `xs[1:3]`, `s[1:3]` | `xs.slice(1, 3)?`, `s.slice(1, 3)?` |
+| `xs[1:3]`, `s[1:3]` | `xs[1:3]?`, `s[1:3]?`: a slice allocates a copy |
 | `lambda x: x + 1` | `def(x: i64) -> i64: x + 1` inside brackets |
 | `map(f, xs)`, `filter(p, xs)`, `reduce(f, xs, init)` | `iter(&xs).filter(p).map(f)`, `.fold(init, f)`; no import |
 | `any(flags)`, `all(p(x) for x in xs)` | `iter(&flags).any()`, `iter(&xs).all(p)` |

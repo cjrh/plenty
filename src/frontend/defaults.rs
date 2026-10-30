@@ -61,6 +61,12 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
             expression(a, forbidden)?;
             expression(b, forbidden)?;
         }
+        Expression::Slice(base, bounds) => {
+            expression(base, forbidden)?;
+            for bound in bounds.iter() {
+                expression(bound, forbidden)?;
+            }
+        }
         Expression::Ambiguous { generic, index } => {
             expression(generic, forbidden)?;
             expression(index, forbidden)?;

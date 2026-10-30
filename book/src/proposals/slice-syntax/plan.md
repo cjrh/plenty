@@ -1,6 +1,6 @@
 # Slice syntax implementation plan
 
-**Status: Not implemented.** This page plans the
+**Status: Implemented** in one change rather than the sequence below. This page planned the
 [slice syntax proposal](../slice-syntax.md) (issue #579). Its code fences show
 proposed syntax and are not compiled. File names refer to local `main` at
 `f681a0d5`.

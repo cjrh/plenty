@@ -58,6 +58,7 @@ contents cannot change.
 |---|---|
 | `len(value)`, `value.len()` | Number of bytes, `i64` |
 | `value[i]` | The byte at `i`, `u8`; list index rules: negative counts from the end, a missing index stops the program with `index out of bounds` |
+| `value[a:b:c]` | A [slice](../04-expressions/slices.md): `Result[std.bytes.Bytes, AllocError]`, a new owned buffer; no import needed |
 | `for byte in value`, `reversed(value)` | Each byte as `u8` |
 | `x in value` | Whether the `u8` `x` occurs |
 | `==`, `!=` | Content equality with another `bytes` |
@@ -66,8 +67,8 @@ contents cannot change.
 `bytes` values can be elements, set members, dictionary keys, class fields, and
 enum payloads, and can be captured and passed to scoped threads. `len` is the
 only method; it lets `bytes` satisfy a [protocol](../07-generics/protocols.md)
-that requires it. There are no ordering comparisons, no concatenation, and no
-slicing. `bytes` and
+that requires it. There are no ordering comparisons and no concatenation. A slice copies into an
+owned `Bytes` rather than producing another `bytes`. `bytes` and
 `str` are distinct: neither converts to the other implicitly.
 
 ## Owned buffers

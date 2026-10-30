@@ -58,6 +58,7 @@ mod provenance;
 mod references;
 mod retention;
 mod shared;
+mod slices;
 mod sorting;
 mod tail_calls;
 mod target;
@@ -1189,6 +1190,10 @@ enum Expression {
         clauses: Vec<Clause>,
     },
     Index(Box<Expr>, Box<Expr>),
+    /// `base[start:stop:step]`, a copying slice; see
+    /// book/src/design/language/04-expressions/slices.md. Its own variant, so
+    /// no pass can mistake it for an index.
+    Slice(Box<Expr>, Box<SliceBounds>),
     Method(Box<Expr>, String, Vec<Expr>, Pos),
     // The name is boxed to keep `Expr` within its size bound with the position.
     GenericMethod(Box<Expr>, Box<str>, Vec<TypeRef>, Vec<Expr>, Pos),
@@ -1222,6 +1227,25 @@ enum Expression {
     /// `Ok` of its final expression, or `Err` of the first arithmetic error
     /// written inside it.
     Checked(Vec<Stmt>),
+}
+
+/// The bounds of a slice, each optional as in Python.
+#[derive(Clone)]
+struct SliceBounds {
+    start: Option<Expr>,
+    stop: Option<Expr>,
+    step: Option<Expr>,
+}
+
+impl SliceBounds {
+    fn iter(&self) -> impl Iterator<Item = &Expr> {
+        [&self.start, &self.stop, &self.step].into_iter().flatten()
+    }
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Expr> {
+        [&mut self.start, &mut self.stop, &mut self.step]
+            .into_iter()
+            .flatten()
+    }
 }
 
 /// Where a member name was written. Expressions carry only the position of
@@ -1283,6 +1307,12 @@ struct Parser {
     deepest: usize,
     /// Whether the module has an f-string, which needs `std.fmt`.
     formats: bool,
+    /// Whether the module has a slice, which can produce `std.bytes.Bytes`.
+    slices: bool,
+    /// Whether the module can introduce a `bytes` value: it has a `b"..."`
+    /// literal, `include_bytes`, or the word `bytes`. See
+    /// [`modules::Loader::slice_bytes`].
+    mentions_bytes: bool,
     /// Elements of the lists being parsed; see [`Parser::exact_list`].
     scratch_stmts: Vec<Stmt>,
     scratch_exprs: Vec<Expr>,
@@ -1311,6 +1341,8 @@ impl Parser {
             depth: 0,
             deepest: 0,
             formats: false,
+            slices: false,
+            mentions_bytes: false,
             scratch_stmts: Vec::new(),
             scratch_exprs: Vec::new(),
             scratch_inputs: Vec::new(),
@@ -1367,6 +1399,11 @@ impl Parser {
                 if matches!(symbol, "(" | "[" | "{") {
                     depth += 1;
                 }
+                self.mentions_bytes |= match &token.kind {
+                    Kind::Bytes(_) => true,
+                    Kind::Word(word) => matches!(&**word, "bytes" | "include_bytes"),
+                    _ => false,
+                };
             }
             // An annotation line belongs to the declaration below it, so
             // stacked annotations do not use up the lookahead.
@@ -1628,6 +1665,26 @@ impl Parser {
             at: base.at.clone(),
             kind: Expression::Index(Box::new(base.clone()), Box::new(index?)),
         })
+    }
+    /// The rest of `[start:stop:step]` after `start`, from its first colon
+    /// through the closing bracket.
+    fn slice_bounds(&mut self, start: Option<Expr>) -> Result<SliceBounds> {
+        self.expect(":")?;
+        self.slices = true;
+        let bound = |p: &mut Self| -> Result<Option<Expr>> {
+            if p.peek().is(":") || p.peek().is("]") || p.peek().is(",") {
+                Ok(None)
+            } else {
+                p.expr(0).map(Some)
+            }
+        };
+        let stop = bound(self)?;
+        let step = if self.eat(":") { bound(self)? } else { None };
+        if self.peek().is(",") {
+            return Err(self.peek().error("a slice cannot have several dimensions"));
+        }
+        self.expect("]")?;
+        Ok(SliceBounds { start, stop, step })
     }
     fn type_parameters(&mut self) -> Result<Vec<(String, Option<TypeRef>)>> {
         if !self.eat("[") {
@@ -2261,6 +2318,12 @@ impl Parser {
                     while self.eat(",") {
                         targets.push(self.expr(0)?);
                     }
+                    if let Some(slice) = targets
+                        .iter()
+                        .find(|t| matches!(&ungroup(t).kind, Expression::Slice(..)))
+                    {
+                        return Err(slice.at.error(SLICE_ASSIGNMENT));
+                    }
                     self.expect("=")?;
                     let value = self.unpacked_value()?;
                     let names = targets
@@ -2287,6 +2350,9 @@ impl Parser {
                         },
                     }
                 } else if self.eat("=") {
+                    if matches!(&ungroup(&target).kind, Expression::Slice(..)) {
+                        return Err(target.at.error(SLICE_ASSIGNMENT));
+                    }
                     Statement::SetIndex {
                         target,
                         value: self.statement_value()?,
@@ -2294,6 +2360,9 @@ impl Parser {
                 } else if matches!(&self.peek().kind, Kind::Symbol(s)
                     if matches!(&**s, "+=" | "-=" | "*=" | "/=" | "//=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="))
                 {
+                    if matches!(&ungroup(&target).kind, Expression::Slice(..)) {
+                        return Err(target.at.error(SLICE_ASSIGNMENT));
+                    }
                     let operator = self.take();
                     let Kind::Symbol(symbol) = operator.kind else {
                         unreachable!()
@@ -2431,7 +2500,11 @@ impl Parser {
             }
             Kind::Symbol(s) if &**s == "&" => {
                 let op = if self.eat("mut") { "&mut" } else { "&" };
-                Expression::Unary(op.into(), Box::new(self.expr(10)?))
+                let operand = self.expr(10)?;
+                if slice_operand(&operand) {
+                    return Err(at.error(BORROWED_SLICE));
+                }
+                Expression::Unary(op.into(), Box::new(operand))
             }
             Kind::Symbol(s) if matches!(&**s, "-" | "+" | "*" | "~") => {
                 Expression::Unary(s.to_string(), Box::new(self.expr(10)?))
@@ -2547,7 +2620,20 @@ impl Parser {
             }
             if self.eat("[") {
                 self.deepen()?;
-                let index = self.expr(0)?;
+                let start = if self.peek().is(":") {
+                    None
+                } else {
+                    Some(self.expr(0)?)
+                };
+                if self.peek().is(":") {
+                    let bounds = self.slice_bounds(start)?;
+                    left = Expr {
+                        at: left.at.clone(),
+                        kind: Expression::Slice(Box::new(left), Box::new(bounds)),
+                    };
+                    continue;
+                }
+                let index = start.expect("an index");
                 self.expect("]")?;
                 left = Expr {
                     at: left.at.clone(),
@@ -3660,6 +3746,7 @@ impl Lower<'_> {
             Expression::Tuple(values) => Some(self.tuple(values, None, &e.at, ops)?),
             Expression::Format(format) => self.format(format, &e.at, ops)?,
             Expression::Collection { .. } => Some(self.fallible_display(e, None, ops)?),
+            Expression::Slice(..) => Some(self.slice(e, None, ops)?),
             Expression::Index(..) => {
                 let ty = self.index(e, ops)?;
                 if ty == Ty::Unit {
@@ -5525,6 +5612,22 @@ fn mixed_numeric(left: &Expr, a: &Ty, right: &Expr, b: &Ty) -> Box<dyn Error> {
         )),
     }
 }
+
+/// Borrowed slice views are reserved syntax (issue #581, B11, B39).
+const BORROWED_SLICE: &str = "borrowed slice views are not implemented yet; bind the copy first, as in `part = xs[1:3]?`, then borrow `&part`";
+
+/// A slice, possibly parenthesized or followed by `?`: the operand forms of
+/// `&` and `&mut` reserved for borrowed views.
+fn slice_operand(e: &Expr) -> bool {
+    match &ungroup(e).kind {
+        Expression::Slice(..) => true,
+        Expression::Try(inner) => slice_operand(inner),
+        _ => false,
+    }
+}
+
+const SLICE_ASSIGNMENT: &str =
+    "slice assignment is not supported; assign elements by index, or build a new list";
 
 fn ungroup(mut e: &Expr) -> &Expr {
     while let Expression::Group(inner) = &e.kind {

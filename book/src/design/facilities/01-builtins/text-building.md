@@ -13,6 +13,7 @@ described [below](#joining).
 | `text.concat(other)` or `text + other` | Concatenate two strings |
 | `separator.join(parts)` | Insert the separator between consecutive elements of an iterable of `str` |
 | `text.repeat(count)` | Repeat exact contents; `count` is `i64`; zero or negative yields empty |
+| `text[start:stop:step]` | [Slice](../../language/04-expressions/slices.md) by scalar position, with Python's clamping, omitted bounds, and steps |
 | `text.slice(start, stop)` | Forward scalar slice with required `i64` bounds |
 | `text.replace(old, new)` | Replace all non-overlapping literal matches, left to right |
 | `text.removeprefix(prefix)` | Remove at most one exact prefix |
@@ -67,7 +68,9 @@ Choose by the shape of the text:
 `slice` includes start and excludes stop. Negative bounds count from the end;
 bounds clamp to `[0, len(text)]`, without overflow for extreme `i64` values.
 Reversed bounds yield empty text. ASCII bounds map directly to bytes; other
-text requires scanning scalar boundaries. Slice syntax and steps are unsupported.
+text requires scanning scalar boundaries. Slice syntax `text[a:b:c]?` follows the
+same scalar positions and also accepts omitted bounds and a `NonZero[i64]` step;
+`text[::-1]?` reverses the scalars.
 
 `replace` observes receiver, old, and new in that order. Inserted text is not
 searched again. An empty old string matches every scalar boundary, including

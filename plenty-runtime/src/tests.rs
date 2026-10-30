@@ -2700,3 +2700,69 @@ fn failed_callable_box_drops_the_concrete_environment_once() {
         assert_eq!(trace(), [43]);
     }
 }
+
+/// Python's slice selection, by brute force over every position.
+fn python_slice(len: usize, start: Option<i64>, stop: Option<i64>, step: i64) -> Vec<usize> {
+    let len = len as i128;
+    let step = step as i128;
+    let clamp = |bound: i128, low: i128, high: i128| {
+        let bound = if bound < 0 { bound + len } else { bound };
+        bound.clamp(low, high)
+    };
+    let (first, end) = if step > 0 {
+        (
+            start.map_or(0, |s| clamp(s as i128, 0, len)),
+            stop.map_or(len, |s| clamp(s as i128, 0, len)),
+        )
+    } else {
+        (
+            start.map_or(len - 1, |s| clamp(s as i128, -1, len - 1)),
+            stop.map_or(-1, |s| clamp(s as i128, -1, len - 1)),
+        )
+    };
+    let mut selected = Vec::new();
+    let mut at = first;
+    while (step > 0 && at < end) || (step < 0 && at > end) {
+        selected.push(at as usize);
+        at += step;
+    }
+    selected
+}
+
+#[test]
+fn slice_positions_match_python_including_extreme_bounds() {
+    use crate::aggregates::{slice_position, slice_positions};
+    use crate::collection_opcodes::{SLICE_START, SLICE_STOP};
+    let bounds = [
+        None,
+        Some(i64::MIN),
+        Some(-7),
+        Some(-3),
+        Some(-1),
+        Some(0),
+        Some(2),
+        Some(5),
+        Some(9),
+        Some(i64::MAX),
+    ];
+    let steps = [i64::MIN, -4, -2, -1, 1, 2, 3, i64::MAX];
+    for len in [0, 1, 2, 5, 6] {
+        for start in bounds {
+            for stop in bounds {
+                for step in steps {
+                    let flags = start.map_or(0, |_| SLICE_START) | stop.map_or(0, |_| SLICE_STOP);
+                    let (first, step_out, count) =
+                        slice_positions(len, start.unwrap_or(0), stop.unwrap_or(0), step, flags);
+                    let got: Vec<usize> = (0..count)
+                        .map(|k| slice_position(first, step_out, k))
+                        .collect();
+                    assert_eq!(
+                        got,
+                        python_slice(len, start, stop, step),
+                        "len {len} [{start:?}:{stop:?}:{step}]"
+                    );
+                }
+            }
+        }
+    }
+}

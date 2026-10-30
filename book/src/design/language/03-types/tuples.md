@@ -29,6 +29,12 @@ Flat unpacking transfers each component; `_` destroys a discarded component.
 The parentheses are optional on the right of an unpacking statement, and targets
 may also be fields and collection elements: see
 [assignment to several targets](../04-expressions/assignment.md#several-targets).
+
+A [slice](../04-expressions/slices.md) with integer-literal bounds and step
+selects components at compile time: `(1, "two", 3.0)[1:]?` has type
+`Result[(str, f64), AllocError]`, and `pair[::-1]?` reverses a pair. Slices of
+affine components are rejected for now.
+
 Nested and starred unpacking are unsupported. Unit components can be discarded
 or used as unit expressions without enabling standalone unit storage.
 

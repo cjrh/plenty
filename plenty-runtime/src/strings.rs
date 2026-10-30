@@ -672,6 +672,16 @@ pub(crate) unsafe fn try_slice(
 ) -> Result<*mut Text, AllocError> {
     unsafe {
         let bounds = crate::aggregates::slice_bounds(start, stop, scalar_len(text) as usize);
+        try_scalar_range(text, bounds)
+    }
+}
+
+/// Copy the scalars in `bounds`, which lie within the text.
+unsafe fn try_scalar_range(
+    text: *const Text,
+    bounds: std::ops::Range<usize>,
+) -> Result<*mut Text, AllocError> {
+    unsafe {
         if bounds.is_empty() {
             return try_new("");
         }
@@ -685,6 +695,59 @@ pub(crate) unsafe fn try_slice(
             .nth(bounds.len())
             .map_or(source.len(), |(offset, _)| start + offset);
         try_new(&source[start..end])
+    }
+}
+
+/// Copy `count` scalars `step` apart from scalar `first`, positions that
+/// `slice_positions` computed for this text. A negative step reverses them.
+/// The result has exact size and is the only allocation.
+pub(crate) unsafe fn try_stepped_slice(
+    text: *const Text,
+    (first, step, count): (usize, i64, usize),
+) -> Result<*mut Text, AllocError> {
+    use crate::aggregates::slice_position;
+    unsafe {
+        if step == 1 || count <= 1 {
+            return try_scalar_range(text, first..first + count);
+        }
+        if is_ascii(text) {
+            let source = bytes(&text);
+            return try_build(count as u64, count as u64, |out| {
+                for (k, byte) in out.iter_mut().enumerate() {
+                    *byte = source[slice_position(first, step, k)];
+                }
+            });
+        }
+        // Visit the selected scalars in text order, from the lowest position.
+        let low = if step > 0 {
+            first
+        } else {
+            slice_position(first, step, count - 1)
+        };
+        let source = utf8(&text);
+        let selected = || {
+            source
+                .chars()
+                .skip(low)
+                .step_by(step.unsigned_abs() as usize)
+                .take(count)
+        };
+        let total: usize = selected().map(char::len_utf8).sum();
+        try_build(total as u64, count as u64, |out| {
+            // A reversed slice writes each scalar so that it ends where the
+            // previous one starts, filling the output from its end.
+            let mut offset = if step > 0 { 0 } else { out.len() };
+            for character in selected() {
+                let length = character.len_utf8();
+                if step < 0 {
+                    offset -= length;
+                }
+                character.encode_utf8(&mut out[offset..offset + length]);
+                if step > 0 {
+                    offset += length;
+                }
+            }
+        })
     }
 }
 

@@ -1,12 +1,15 @@
 # Python slice syntax
 
-**Status: Not implemented.** Nothing shipped. Today `xs[0:2]` is a parse error
-(`expected ]`), and sub-ranges use the `slice(start, stop)` methods of
-[lists](../design/facilities/01-builtins/lists.md#slices),
-[text](../design/facilities/01-builtins/text-building.md) and
-[`Bytes`](../design/stdlib/bytes.md). The backlog records the omission under
-B39; this proposal is issue #579. Researched against local `main` at `f681a0d5`
-on 2026-10-30. The [implementation and documentation plan](slice-syntax/plan.md)
+**Status: Implemented** (issue #579). Copying slices of lists, text, `Bytes`,
+`bytes`, tuples and clists shipped as one change rather than the planned
+sequence; the [slices reference](../design/language/04-expressions/slices.md)
+owns the contract. Shipped differently: tuple slices of affine components and
+slices of temporary clists are rejected; Python-style `copy()` of such
+components is not implemented. Element types containing `Shared` fields wait on
+issue #582. Remaining: borrowed views `&xs[a:b]` (issue #581, B39/B11),
+negative tuple indices (issue #583), and first-class `slice(...)` values. The
+original text below was researched against local `main` at `f681a0d5` on
+2026-10-30; the [implementation and documentation plan](slice-syntax/plan.md)
 is a companion page.
 
 ## Problem

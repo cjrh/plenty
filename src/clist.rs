@@ -17,6 +17,9 @@ pub enum ClistOp {
     Get(Ty, usize),
     Set(Ty, usize),
     Column(Ty, usize),
+    /// `rows[start:stop:step]`: a reference to the clist, the bounds, and the
+    /// `SLICE_START`/`SLICE_STOP` flags.
+    Slice(Ty),
     /// In-bounds packed column pointer and index -> scalar, lowered inline.
     Load(Ty),
 }
@@ -54,7 +57,8 @@ impl ClistOp {
             | Self::Clear(t)
             | Self::Get(t, _)
             | Self::Set(t, _)
-            | Self::Column(t, _) => t,
+            | Self::Column(t, _)
+            | Self::Slice(t) => t,
             Self::Load(_) => unreachable!("inline scalar load"),
         }
     }
@@ -90,6 +94,10 @@ impl ClistOp {
                 crate::sum::option(row(owner).clone()),
             ),
             Self::Clear(_) => (vec![reference(true)], Ty::Unit),
+            Self::Slice(t) => (
+                vec![reference(false), Ty::I64, Ty::I64, Ty::I64, Ty::I64],
+                crate::sum::result(t.clone(), crate::sum::alloc_error()),
+            ),
             Self::Get(_, i) => (vec![reference(false), Ty::I64], field(owner, *i)),
             Self::Set(_, i) => (vec![reference(true), Ty::I64, field(owner, *i)], Ty::Unit),
             Self::Load(_) => unreachable!(),
@@ -112,6 +120,7 @@ impl ClistOp {
             Self::Get(..) => 526,
             Self::Set(..) => 527,
             Self::Column(..) => 528,
+            Self::Slice(_) => crate::collection_opcodes::CLIST_SLICE,
             Self::Load(_) => unreachable!("inline load"),
         }
     }

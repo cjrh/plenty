@@ -63,9 +63,10 @@ executables, or tests. See [workflow and packages](references/workflow.md).
 - Dictionaries have no indexed assignment: `d.insert(k, v)?` adds or
   replaces, and `d.get_mut(k)` returns `Option[&mut V]` to change a value in
   place. Reading `d[k]` traps on a missing key; `d.get(k)` returns an `Option`.
-- No `**`, slices, truthiness, chained comparisons, or inheritance. Use
-  `x.pow(n)`, `xs.slice(a, b)?`, `len(xs) > 0`, `a < b and b < c`, and
-  composition or protocols.
+- Slices copy and allocate: `xs[1:3]?`, `s[::-1]?`. A computed step needs
+  `NonZero.try_from(step)?`; `&xs[1:3]` and slice assignment are rejected.
+- No `**`, truthiness, chained comparisons, or inheritance. Use
+  `x.pow(n)`, `len(xs) > 0`, `a < b and b < c`, and composition or protocols.
 - `abs`, `min`, `max`, `sum` come from `std.math`. Standard modules need an
   explicit import; prelude names (`print`, `len`, `range`, `open`,
   `read_text`, `args`, ...) do not.

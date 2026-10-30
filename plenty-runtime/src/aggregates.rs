@@ -187,6 +187,14 @@ pub(crate) fn wrap(value: u128, tag: u64) -> u128 {
     (value & u64::MAX as u128) | (((value >> 64) * 2 + tag as u128) << 64)
 }
 
+/// `Result[T, AllocError]` in its word layout.
+fn fallible(value: Result<u128, AllocError>) -> u128 {
+    match value {
+        Ok(value) => wrap(value, 0),
+        Err(error) => wrap(wrap(0, error as u64), 1),
+    }
+}
+
 #[repr(C)]
 struct Collection {
     header: Header,
@@ -703,6 +711,65 @@ pub(crate) fn slice_bounds(start: i64, stop: i64, len: usize) -> std::ops::Range
     };
     let start = normalize(start);
     start..normalize(stop).max(start)
+}
+
+/// The positions `[start:stop:step]` selects from `len` elements: the first
+/// position, then `count` positions `step` apart. This is CPython's
+/// `PySlice_AdjustIndices`: a negative bound counts from the end, and an
+/// out-of-range bound clamps to just before the first element or just after
+/// the last in the step's direction. `flags` says which bounds were written
+/// (`SLICE_START`, `SLICE_STOP`). Wide arithmetic keeps extreme bounds exact.
+pub(crate) fn slice_positions(
+    len: usize,
+    start: i64,
+    stop: i64,
+    step: i64,
+    flags: i64,
+) -> (usize, i64, usize) {
+    assert!(step != 0, "slice step cannot be zero");
+    let len = len as i128;
+    let forward = step > 0;
+    let (low, high) = if forward { (0, len) } else { (-1, len - 1) };
+    let adjust = |bound: i64| {
+        let bound = bound as i128;
+        if bound < 0 {
+            (bound + len).max(low)
+        } else {
+            bound.min(high)
+        }
+    };
+    let first = if flags & SLICE_START != 0 {
+        adjust(start)
+    } else if forward {
+        0
+    } else {
+        len - 1
+    };
+    let end = if flags & SLICE_STOP != 0 {
+        adjust(stop)
+    } else if forward {
+        len
+    } else {
+        -1
+    };
+    // Both distances fit in `u64`, so the division stays narrow.
+    let stride = step.unsigned_abs();
+    let count = if forward && first < end {
+        (end - first - 1) as u64 / stride + 1
+    } else if !forward && end < first {
+        (first - end - 1) as u64 / stride + 1
+    } else {
+        0
+    };
+    if count == 0 {
+        return (0, step, 0);
+    }
+    (first as usize, step, count as usize)
+}
+
+/// The `k`th position of a non-empty slice from `slice_positions`.
+pub(crate) fn slice_position(first: usize, step: i64, k: usize) -> usize {
+    (first as i128 + k as i128 * step as i128) as usize
 }
 
 pub(crate) fn checked_index(index: i64, len: usize) -> Option<usize> {
@@ -1335,6 +1402,49 @@ unsafe fn try_list_slice(
     }
 }
 
+/// `source[start:stop:step]` as a new list with exact capacity. Each element
+/// is duplicated as `copy()` would; a `Shared` owner gains another reference.
+/// The source is only read, whether it is borrowed or a temporary.
+unsafe fn try_list_slice_stepped(
+    source: &Collection,
+    (first, step, count): (usize, i64, usize),
+    ty: &'static Type,
+) -> Result<u128, AllocError> {
+    unsafe {
+        let result = try_collection_new(ty, count)?;
+        let owner = OwnedValue {
+            value: result as u128,
+            ty,
+        };
+        let element = ty.key();
+        let entries = &mut (*result).entries;
+        if element.owns_nothing() {
+            // Byte copies are complete copies; a contiguous run is one copy.
+            if step == 1 {
+                entries.extend_rows(&source.entries, first, count);
+            } else {
+                for k in 0..count {
+                    entries.push(source.entries.get(slice_position(first, step, k)));
+                }
+            }
+            return Ok(owner.into_value());
+        }
+        for k in 0..count {
+            // Push a byte copy that still names the source, then replace it in
+            // place, so an inline payload is copied into the final row.
+            entries.push(source.entries.get(slice_position(first, step, k)));
+            let key = entries.slot(entries.len() - 1, false);
+            let mut copy = key.read();
+            if let Err(error) = try_copy_into(&mut copy, element) {
+                key.write(0);
+                return Err(error);
+            }
+            key.write(copy);
+        }
+        Ok(owner.into_value())
+    }
+}
+
 /// Replace the owned children of a byte-copied value with independent copies.
 /// Its inline storage must already be private. On failure it owns nothing.
 unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
@@ -1823,12 +1933,13 @@ operation_entries! {
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
     125 126 127 128 129 130 131 132 133 134 135 136 140 166 167 366 510 511 580 581 582
-    583 584 585
+    583 584 585 590 591
 }
 // `std.bytes` storage and single-call byte transport.
 operation_entries! {
     142 143 144 145 146 147 148 149 170 171 172 173 174 175 176 177 178 179 180 181
     182 183 188 189 190 191 230 231 232 233 234 235 236 237 238 239 248 280 281 282
+    283
 }
 // `std.fs` paths and descriptors, file seeking and file readiness.
 operation_entries! {
@@ -1882,7 +1993,7 @@ operation_entries! {
 }
 // Primitive column storage.
 operation_entries! {
-    521 522 523 524 525 526 527 528 529 530 531
+    521 522 523 524 525 526 527 528 529 530 531 532
 }
 // `std.db.sqlite`, present only in the application runtime.
 #[cfg(plenty_runtime_sqlite)]
@@ -1950,14 +2061,38 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
             out.write(range as u128);
             return;
         }
+        if op == CLIST_SLICE {
+            let [slot, start, stop, step, flags] = read_operands::<5>(op, args);
+            out.write(clist::slice(
+                slot as *const u128,
+                [start, stop, step, flags],
+                &*descriptor,
+            ));
+            return;
+        }
         if (521..=531).contains(&op) {
             let operands = read_operands::<4>(op, args);
             out.write(clist::call(op, operands, &*descriptor, site));
             return;
         }
-        if matches!(op, 170..=183 | 188..=191 | 230..=239 | 248 | 280..=282) {
+        if matches!(op, 170..=183 | 188..=191 | 230..=239 | 248 | 280..=283) {
             let operands = read_operands::<5>(op, args);
             out.write(byte_storage::call(op, operands, descriptor, site));
+            return;
+        }
+        if matches!(op, LIST_SLICE | TEXT_SLICE) {
+            let [source, start, stop, step, flags] = read_operands::<5>(op, args);
+            let (start, stop, step, flags) = (start as i64, stop as i64, step as i64, flags as i64);
+            out.write(if op == LIST_SLICE {
+                let source = &*(source as *const Collection);
+                let positions = slice_positions(source.entries.len(), start, stop, step, flags);
+                fallible(try_list_slice_stepped(source, positions, &*descriptor))
+            } else {
+                let text = source as *const Text;
+                let positions =
+                    slice_positions(strings::scalar_len(text) as usize, start, stop, step, flags);
+                fallible(strings::try_stepped_slice(text, positions).map(|t| t as u128))
+            });
             return;
         }
         if (419..424).contains(&op) {

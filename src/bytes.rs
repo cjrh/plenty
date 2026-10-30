@@ -40,6 +40,8 @@ pub enum BytesOp {
     FromStatic,
     // A memmove inside one buffer: `copy_within(start, stop, to)`.
     CopyWithin,
+    // `source[start:stop:step]`: the bounds and the slice flags.
+    Slice,
     // The operations above whose `source` operand is a `bytes` literal. The
     // runtime tells a literal from a buffer by its header.
     AppendLiteral,
@@ -47,6 +49,7 @@ pub enum BytesOp {
     FindInLiteral,
     FindBytesLiteral,
     MatchesLiteral,
+    SliceLiteral,
 }
 
 impl BytesOp {
@@ -90,6 +93,7 @@ impl BytesOp {
         match self.buffer_form() {
             Self::Append | Self::FindIn | Self::FindBytes => Some(1),
             Self::Overwrite | Self::Matches => Some(2),
+            Self::Slice => Some(0),
             _ => None,
         }
     }
@@ -102,6 +106,7 @@ impl BytesOp {
             Self::FindIn => Self::FindInLiteral,
             Self::FindBytes => Self::FindBytesLiteral,
             Self::Matches => Self::MatchesLiteral,
+            Self::Slice => Self::SliceLiteral,
             _ => return None,
         })
     }
@@ -113,6 +118,7 @@ impl BytesOp {
             Self::FindInLiteral => Self::FindIn,
             Self::FindBytesLiteral => Self::FindBytes,
             Self::MatchesLiteral => Self::Matches,
+            Self::SliceLiteral => Self::Slice,
             other => other,
         }
     }
@@ -137,6 +143,10 @@ impl BytesOp {
             Self::SetItem => return (vec![storage_ref(true), Ty::I64, Ty::U8], Ty::Unit),
             Self::Fill => return (vec![storage(), Ty::I64, Ty::I64, Ty::U8], Ty::Unit),
             Self::CopyWithin => return (vec![storage(), Ty::I64, Ty::I64, Ty::I64], Ty::Unit),
+            Self::Slice => (
+                vec![storage(), Ty::I64, Ty::I64, Ty::I64, Ty::I64],
+                storage(),
+            ),
             Self::WriteFloat => return (vec![storage(), Ty::F64], Ty::I64),
             Self::WriteFloatSpec => {
                 return (vec![storage(), Ty::F64, Ty::I64, Ty::I64, Ty::I64], Ty::I64);
@@ -185,7 +195,8 @@ impl BytesOp {
             | Self::OverwriteLiteral
             | Self::FindInLiteral
             | Self::FindBytesLiteral
-            | Self::MatchesLiteral => {
+            | Self::MatchesLiteral
+            | Self::SliceLiteral => {
                 unreachable!("a literal variant defers to its buffer form")
             }
         };
@@ -226,6 +237,7 @@ impl BytesOp {
             Self::WriteFloat => 280,
             Self::WriteFloatSpec => 281,
             Self::CopyWithin => 282,
+            Self::Slice => crate::collection_opcodes::BYTES_SLICE,
             Self::FromStatic => Self::FromText.opcode(),
             Self::Fill => 237,
             Self::Item | Self::ValueItem => 238,

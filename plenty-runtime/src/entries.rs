@@ -127,6 +127,19 @@ impl Words {
         // Words are plain integers; payload owners are released by callers.
         self.len = self.len.min(len);
     }
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        assert!(bytes.len() <= self.capacity - self.len);
+        // SAFETY: the reserved suffix is exclusively owned and writable, and
+        // `bytes` cannot alias it.
+        unsafe {
+            self.ptr
+                .as_ptr()
+                .cast::<u8>()
+                .add(self.len)
+                .copy_from_nonoverlapping(bytes.as_ptr(), bytes.len())
+        };
+        self.len += bytes.len();
+    }
     fn resize(&mut self, len: usize, value: u8) {
         assert!(len <= self.capacity);
         if len > self.len {
@@ -413,6 +426,17 @@ impl Entries {
             self.set(index, false, entry.key);
             self.set(index, true, entry.value);
         }
+    }
+    /// Append byte copies of `count` dense rows of `source`, starting at row
+    /// `first`, in one copy. Both sides are dense lists of one element type
+    /// whose elements own nothing; the caller reserved the capacity.
+    pub fn extend_rows(&mut self, source: &Self, first: usize, count: usize) {
+        assert!(self.order.is_none() && source.order.is_none() && self.stride == source.stride);
+        assert!(first + count <= source.len() && self.len() + count <= self.capacity());
+        self.data.truncate(self.len() * self.stride);
+        self.removed = false;
+        self.data
+            .extend_from_slice(&source.data[first * self.stride..(first + count) * self.stride]);
     }
     pub fn clear(&mut self) {
         self.data.clear();

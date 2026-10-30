@@ -145,8 +145,11 @@ P....Y
 ```
 
 Use `get` and `set` instead when a missing index is an expected outcome to
-handle. `for b in &mut word` is rejected: write through an index. There is no
-slice syntax; `slice` makes its copy explicit.
+handle. `for b in &mut word` is rejected: write through an index. A
+[slice](../04-collections/slices.md) such as `word[1:3]?` copies with the list
+rules, clamping its bounds, and reports only `AllocError`. The `slice` method
+checks its range and reports `BytesError`, so `frame.slice(1, 3)?` suits a
+function that already returns `BytesError`.
 
 Fixed binary data, such as a file signature or a protocol delimiter, is
 written as a byte literal: `b"..."` holds ASCII characters, the string escapes,
@@ -200,9 +203,10 @@ True True False
 ```
 
 The literal is never converted into a `Bytes` behind your back. To change bytes,
-or to call a `Bytes` method such as `find` or `slice` on them, copy the literal
+or to call a `Bytes` method such as `find` on them, copy the literal
 with `from_bytes`, as `header` does; the copy allocates, so it returns a
-`Result`. Stream writes in `std.io` accept a literal the same way, as the next
+`Result`. A slice of a literal, such as `b"GET /index"[4:]?`, is also an owned
+`Bytes`. Stream writes in `std.io` accept a literal the same way, as the next
 lessons show.
 
 A byte literal accepts only ASCII characters, so `b"é"` is an error; use
