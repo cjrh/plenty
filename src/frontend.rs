@@ -3716,7 +3716,11 @@ impl Lower<'_> {
                             } else {
                                 "take it with replace(value.field, replacement) on a mutable owner"
                             };
-                            let rest = if ty.can_copy() && !ty.recursive_data() {
+                            let copies = ty.copy_facts();
+                            let rest = if copies.copyable
+                                && !copies.recursive
+                                && !matches!(ty, Ty::Shared(_))
+                            {
                                 format!("{replace}, or copy it with copy(value.field)?")
                             } else {
                                 format!("or {replace}")

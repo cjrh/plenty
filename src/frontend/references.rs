@@ -1112,17 +1112,20 @@ impl Lower<'_> {
             return Ok(None);
         }
         let (ty, loans) = self.observe(arg, ops)?;
-        if ty.facts().shared {
+        // A nested handle is shared, as `share()` would; a bare handle is
+        // rejected so that taking another owner is written as `share()`.
+        if matches!(ty, Ty::Shared(_)) {
             return Err(at.error(
-                "values containing Shared owners cannot be copied; call share() for another owner of the same value",
+                "copy() does not take a Shared owner; call handle.share() for another owner of the same value",
             ));
         }
-        if ty.recursive_data() {
+        let facts = ty.copy_facts();
+        if facts.recursive {
             return Err(at.error(
                 "automatic copy is not supported for recursive data; rebuild it explicitly",
             ));
         }
-        if !ty.can_copy() {
+        if !facts.copyable {
             return Err(at.error("this resource cannot be copied"));
         }
         if ty.layout_depth() >= 64 {

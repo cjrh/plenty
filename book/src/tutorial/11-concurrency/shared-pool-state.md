@@ -66,8 +66,10 @@ def main() -> Result[(), AllocError]:
 a Shared owner gives shared access only; mutate its content through an Atomic or a Mutex inside it
 ```
 
-Handles cannot be compared, printed, or copied; read the content instead. A
-value cannot hold a share of itself through a mutex, since it would never be
+Handles cannot be compared or printed; read the content instead. Take another
+owner with `share()`, not `copy()`. Copying a value that holds a handle, such
+as a job's `(str, Shared[Atomic[u64]])` input, shares that handle the same way.
+A value cannot hold a share of itself through a mutex, since it would never be
 released: link back to it with an index into a list that owns the values.
 
 The compiler's lock checks see through handles. Shutting a pool down while

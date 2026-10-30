@@ -222,11 +222,10 @@ impl Lower<'_> {
         if matches!(element, Ty::Shared(_)) {
             return Ok(());
         }
-        let reason = if element.facts().shared {
-            "copy() does not yet copy values containing Shared owners (issue #582)".to_owned()
-        } else if element.recursive_data() {
+        let facts = element.copy_facts();
+        let reason = if facts.recursive {
             format!("{element} is recursive data, which copy() does not copy")
-        } else if !element.can_copy() {
+        } else if !facts.copyable {
             format!("{element} cannot be copied")
         } else if element.layout_depth() >= 64 {
             return Err(at.error("type nesting exceeds the implementation limit of 64"));
