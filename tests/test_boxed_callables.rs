@@ -29,7 +29,7 @@ enum Job:
 mut handlers: dict[str, BoxedCallable[[i64], i64]] = {"add": make(3).unwrap(), "mul": make(0).unwrap()}.unwrap()
 print(handlers["add"](4)).unwrap()
 print(handlers["mul"](4)).unwrap()
-handlers["add"] = BoxedCallable(negate).unwrap()
+handlers.insert("add", BoxedCallable(negate).unwrap()).unwrap()
 print(handlers["add"](4)).unwrap()
 mut callbacks: list[BoxedCallable[[i64], i64]] = [make(2).unwrap(), make(0).unwrap()].unwrap()
 for n in range(50):
@@ -198,7 +198,7 @@ def second(n: i64) -> Result[BoxedCallable[[], i64], AllocError]:
         guard.id + span[1]
     BoxedCallable(callback)
 mut callbacks = {"a": first(1).unwrap(), "b": second(2).unwrap()}.unwrap()
-callbacks["a"] = second(3).unwrap()
+callbacks.insert("a", second(3).unwrap()).unwrap()
 removed = callbacks.pop("b").unwrap()
 print(removed()).unwrap()
 drop(callbacks)

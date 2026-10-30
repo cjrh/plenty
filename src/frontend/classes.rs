@@ -964,10 +964,12 @@ impl Lower<'_> {
         let [target, value] = args else {
             return Err(at.error("replace takes a mutable field or element and its replacement"));
         };
-        if !matches!(
-            ungroup(target).kind,
-            Expression::Member(..) | Expression::Index(..)
-        ) {
+        let place = match &ungroup(target).kind {
+            Expression::Member(..) | Expression::Index(..) => true,
+            Expression::Unary(op, _) => op == "*",
+            _ => false,
+        };
+        if !place {
             return Err(target
                 .at
                 .error("replace requires a mutable class field or collection element"));

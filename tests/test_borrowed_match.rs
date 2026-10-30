@@ -552,7 +552,11 @@ show = def [original]() -> Shape:
     original
 store(&mut copied, 2)
 store(&mut shapes[0], 3)
-store(&mut table["a"], 4)
+match table.get_mut("a"):
+    case Some(shape):
+        store(shape, 4)
+    case Nothing:
+        pass
 store(&mut drawing.shape, 5)
 argument = widened(original)
 match &mut slot:

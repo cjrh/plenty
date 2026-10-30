@@ -59,7 +59,7 @@ def lookup(names: &dict[str, str], key: &str) -> Option[str]:
 mut directory = Directory({"name": ("A" + "da").unwrap()}.unwrap())
 key = ("na" + "me").unwrap()
 found = lookup(&directory.names, &key)
-directory.names[key] = "Bea"
+directory.names.insert(key, "Bea").unwrap()
 print(directory.names.get(key)).unwrap()
 print(key).unwrap()
 drop(directory)
@@ -198,7 +198,7 @@ print(len(values)).unwrap()
     "get cannot return owned dictionary values"
 )]
 #[case(
-    "mut data = {1: 2}.unwrap()\nloan = &mut data\nprint(data.get(1)).unwrap()\nloan[1] = 3",
+    "mut data = {1: 2}.unwrap()\nloan = &mut data\nprint(data.get(1)).unwrap()\nloan.insert(1, 3).unwrap()",
     "borrow"
 )]
 fn rejects_invalid_lookup(#[case] source: &str, #[case] expected: &str) {

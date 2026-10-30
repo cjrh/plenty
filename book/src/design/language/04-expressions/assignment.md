@@ -15,9 +15,11 @@ moves, and exclusive access follow [ownership](../05-ownership/index.md).
 
 Field and indexed assignment accept nested writable paths such as
 `rows[0][-1] = 9` and `records[0].values[1] = 7`. The root must be mutable or an
-exclusive reference. Existing list slots and dictionary values change in place,
-without copying or allocating their containing owners. A missing dictionary key
-is an error; use fallible `insert` to add one.
+exclusive reference. Existing list slots change in place, without copying or
+allocating their containing owners. Dictionaries have no indexed assignment, so
+an assignment path cannot write through `dictionary[key]`; use `insert(key, value)?`
+to add or replace, or [`get_mut`](../../facilities/01-builtins/dictionaries.md#lookup-and-removal)
+to change a value in place.
 
 Assignment proceeds in this order:
 
@@ -63,8 +65,9 @@ side may observe it (`count += count`), but cannot move, replace, or resize its
 owner. Collection loans cover the whole collection unless distinct literal
 list indices separate them. Index
 expressions may mutate the owner before the destination is read. If an index or
-the right side propagates an error, the update performs no write. Missing keys
-and invalid indices trap as in ordinary indexed assignment. The update itself
+the right side propagates an error, the update performs no write. Invalid list
+indices trap as in ordinary indexed assignment; dictionary elements are not
+destinations. The update itself
 allocates nothing, introduces no binding, and cannot initialize an unread
 constructor field.
 
@@ -124,8 +127,9 @@ Nothing is allocated.
 the previous field value to the caller instead of destroying it. It requires the
 same type, visibility, mutability, and loan checks. It supports nested fields,
 boxed owners, and fields reached through collection elements. It allocates
-nothing and keeps the field initialized. It accepts a field rather than a whole
-binding, element, or temporary receiver. A user declaration named `replace`
+nothing and keeps the field initialized. It also accepts a list element and
+the target of a mutable reference, `replace(*reference, replacement)`, but not a
+whole binding or temporary receiver. A user declaration named `replace`
 continues to resolve normally.
 
 Use `replace` when the owner is reached through a reference or defines

@@ -74,6 +74,18 @@ pub(super) fn returned_fields(body: &[Stmt], sig: &FnSig) -> Option<Vec<usize>> 
     Some(fields)
 }
 
+/// Dictionary indexing never writes: a missing key would trap at run time,
+/// which `--check` cannot report (issue #580). These name the forms that
+/// add, replace, or update without trapping.
+pub(super) const DICT_INDEX_ASSIGNMENT: &str =
+    "dictionaries have no indexed assignment; use `d.insert(k, v)?`, which adds or replaces";
+pub(super) const DICT_INDEX_BORROW: &str = "dictionary values cannot be borrowed mutably by index; use `d.get_mut(k)`, which returns `Option[&mut V]`";
+pub(super) fn dict_index_augment(op: &str) -> String {
+    format!(
+        "dictionaries have no indexed assignment; use `d.insert(k, d.get(k, 0) {op} v)?`, or update the value in place through `d.get_mut(k)`, which returns `Option[&mut V]`"
+    )
+}
+
 /// The loan path step for a list element at a nonnegative integer literal.
 fn literal_index(collection: &Ty, index: &Expr) -> Option<usize> {
     let Ty::List(_) = collection else {
@@ -572,6 +584,17 @@ impl Lower<'_> {
         }
     }
 
+    /// Whether `target` is `d[k]` on a dictionary place.
+    pub(super) fn dict_index_target(&self, target: &Expr) -> bool {
+        let Expression::Index(base, _) = &ungroup(target).kind else {
+            return false;
+        };
+        matches!(
+            self.place_type(base).map(classes::unbox),
+            Some(Ty::Dict(..))
+        )
+    }
+
     pub(super) fn borrow_with_indices(
         &mut self,
         e: &Expr,
@@ -627,6 +650,7 @@ impl Lower<'_> {
             }
             let key = match &collection {
                 Ty::List(_) => Ty::I64,
+                Ty::Dict(_, _) if mutable => return Err(e.at.error(DICT_INDEX_BORROW)),
                 Ty::Dict(key, _) => (**key).clone(),
                 _ => {
                     return Err(e
@@ -637,8 +661,7 @@ impl Lower<'_> {
             let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
             // Only distinct literal list indices are proven disjoint. Other
             // element loans, and descendant projections, keep the whole
-            // collection's footprint. Dictionary assignment may insert, so
-            // dictionary keys never refine a loan.
+            // collection's footprint. Dictionary keys never refine a loan.
             match literal_index(&collection, index) {
                 Some(step) if self.loans[loan].precise => self.loans[loan].fields.push(step),
                 _ => self.loans[loan].precise = false,

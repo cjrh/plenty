@@ -154,6 +154,8 @@ mod test_data_structure_patterns;
 mod test_dense_match;
 #[path = "test_dictionary_lookup.rs"]
 mod test_dictionary_lookup;
+#[path = "test_dictionary_mutation.rs"]
+mod test_dictionary_mutation;
 #[path = "test_dictionary_removal.rs"]
 mod test_dictionary_removal;
 #[path = "test_dictionary_snapshots.rs"]
@@ -489,6 +491,8 @@ mod test_std_http_websocket;
 mod test_std_io;
 #[path = "test_std_json.rs"]
 mod test_std_json;
+#[path = "test_std_jwt.rs"]
+mod test_std_jwt;
 #[path = "test_std_kv.rs"]
 mod test_std_kv;
 #[path = "test_std_log.rs"]
@@ -627,7 +631,7 @@ fn every_test_file_is_listed() {
 #[path = "test_std_xml.rs"]
 mod test_std_xml;
 
-#[path = "test_nonzero.rs"]
-mod test_nonzero;
 #[path = "test_std_cli_fileinput.rs"]
 mod test_std_cli_fileinput;
+#[path = "test_nonzero.rs"]
+mod test_nonzero;

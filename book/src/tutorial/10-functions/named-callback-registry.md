@@ -1,7 +1,9 @@
 # Name stored callbacks
 
-A dictionary can associate names with owned callbacks from one factory. Use a
-borrowed index call to keep the callback registered, or `pop` to take ownership.
+A dictionary can associate names with owned callbacks from one factory. Calling
+a callback that changes its captured state needs a mutable borrow: use
+[`get_mut`](../04-collections/dictionaries.md) to keep the callback registered,
+or `pop` to take ownership.
 
 ```plenty
 def counter(total: i64) -> Closure[[], i64]:
@@ -11,7 +13,11 @@ def counter(total: i64) -> Closure[[], i64]:
 
 def main() -> Result[(), AllocError | IoError]:
     mut callbacks = {"open": counter(10), "close": counter(100)}?
-    print(callbacks["open"]())?
+    match callbacks.get_mut("open"):
+        case Some(callback):
+            print(callback())?
+        case Nothing:
+            print("no open handler")?
     match callbacks.pop("close"):
         case Some(callback):
             mut owned = callback

@@ -220,6 +220,9 @@ impl Lower<'_> {
         if self.overloaded_augment(target, op, value, ops)? {
             return Ok(());
         }
+        if self.dict_index_target(target) {
+            return Err(target.at.error(references::dict_index_augment(op)));
+        }
         if self.clist_projection(target)?.is_some() {
             return self.augment_clist_field(target, op, value, ops);
         }
@@ -498,6 +501,9 @@ impl Lower<'_> {
                 }
                 Expression::Name(name) if name != "_" && !seen.insert(name) => {
                     return Err(target.at.error("duplicate unpacking binding"));
+                }
+                _ if self.dict_index_target(target) => {
+                    return Err(target.at.error(references::DICT_INDEX_ASSIGNMENT));
                 }
                 _ => {}
             }
@@ -2514,6 +2520,9 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        if self.dict_index_target(target) {
+            return Err(target.at.error(references::DICT_INDEX_ASSIGNMENT));
+        }
         if let Expression::Index(base, index) = &ungroup(target).kind
             && let Some(class) = self.byte_place(base)
         {
@@ -3101,6 +3110,9 @@ impl Lower<'_> {
         let collection = self.place_type(base).map(classes::unbox);
         if name == "pop" && matches!(collection, Some(Ty::Dict(..) | Ty::List(_))) {
             return self.collection_removal(base, args, ops);
+        }
+        if name == "get_mut" && matches!(collection, Some(Ty::Dict(..))) {
+            return self.dict_get_mut(base, args, ops);
         }
         if name == "reverse" && matches!(collection, Some(Ty::List(_))) {
             return self.collection_unit_mutation(base, name, args, ops);
@@ -3737,6 +3749,37 @@ impl Lower<'_> {
         let loan = self.mutation_place(base, ops)?;
         ops.push(Op::MoveLocal(slot));
         ops.push(Op::Collection(operation));
+        ops.push(Op::UseLoan(loan));
+        Ok(Some(result))
+    }
+
+    /// `d.get_mut(k) -> Option[&mut V]`: the value for `k`, borrowed
+    /// exclusively, or `Nothing`. The result holds an exclusive loan of the
+    /// whole dictionary, as a reference-returning method's result would.
+    fn dict_get_mut(&mut self, base: &Expr, args: &[Expr], ops: &mut Vec<Op>) -> Result<Type> {
+        let [argument] = args else {
+            return Err(base.at.error("get_mut requires one key argument"));
+        };
+        let ty = classes::unbox(self.place_type(base).expect("dictionary place"));
+        let operation = CollectionOp::DictGetMut(ty);
+        let (inputs, result) = operation.signature();
+        let key = inputs[1].clone();
+        // Observe the key before borrowing the receiver exclusively, as `pop`
+        // does: a key read from the same dictionary stays valid.
+        let (actual, reads) = self.observe_expected(argument, Some(key.clone()), ops)?;
+        self.same(Some(actual), Some(key.clone()), &argument.at)?;
+        let slot = self.slot(key, &argument.at)?;
+        ops.push(Op::StoreLocal(slot));
+        Self::end_reads(reads, ops);
+        let (reference, loan) = self.borrow(base, true, ops)?;
+        self.unbox_reference(reference, ops);
+        ops.push(Op::MoveLocal(slot));
+        ops.push(Op::Collection(operation));
+        let id = self.new_loan(self.loans[loan].root, true, Some(loan), ops);
+        self.loans[id].precise = false;
+        if let Some(Op::Loan(fact)) = ops.last_mut() {
+            *fact = self.loans[id].clone();
+        }
         ops.push(Op::UseLoan(loan));
         Ok(Some(result))
     }
@@ -4560,6 +4603,7 @@ fn receiver_requirement(name: &str, ty: &Ty) -> Option<&'static str> {
             "a mutable list binding or class field"
         }
         "update" => "a mutable dictionary or set binding or class field",
+        "get_mut" if matches!(ty, Ty::Dict(..)) => "a mutable dictionary binding or class field",
         "clear" => "a mutable list, dictionary, or set binding or class field",
         _ => return None,
     })

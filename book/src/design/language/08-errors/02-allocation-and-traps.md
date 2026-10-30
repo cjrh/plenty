@@ -101,7 +101,7 @@ thread the report has no position.
 | Numeric cast to an integer type that cannot represent the value | `integer cast out of range` |
 | `unwrap()` on `Nothing` or `Err` | `unwrap on Nothing`, `unwrap on Err` |
 | List, text, range, or `Bytes` index out of range | `index out of bounds: index I, length N` |
-| Absent dictionary key | `dictionary key not found`; indexed assignment adds `; use insert to add a new key` |
+| Absent dictionary key in `d[k]` | `dictionary key not found` |
 | A range longer than `i64` | `range length exceeds i64` |
 | Empty `split` separator | `string split requires a nonempty separator` |
 

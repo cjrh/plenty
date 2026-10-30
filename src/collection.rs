@@ -200,6 +200,7 @@ pub enum CollectionOp {
     ListRFind(Ty),
     DictGet(Ty),      // observed dictionary/key -> Option[non-affine value]
     DictPop(Ty),      // exclusive dictionary/key -> Option[owned value]
+    DictGetMut(Ty),   // exclusive dictionary reference/key -> Option[&mut value]
     ListPop(Ty),      // exclusive list/index -> Option[owned element]
     SetDiscard(Ty),   // exclusive set/value -> bool
     ListReverse(Ty),  // exclusive list -> retained internal alias
@@ -640,6 +641,13 @@ impl CollectionOp {
                     crate::sum::option((**v).clone()),
                 )
             }
+            DictGetMut(t) => {
+                let Ty::Dict(k, v) = t else { unreachable!() };
+                (
+                    vec![Ty::Ref(Arc::new(t.clone()), true), (**k).clone()],
+                    crate::sum::option(Ty::Ref(v.clone(), true)),
+                )
+            }
             ListGet(t) | ListPop(t) => {
                 let Ty::List(element) = t else { unreachable!() };
                 (
@@ -847,6 +855,7 @@ impl CollectionOp {
             Self::ListFind(_) => 74,
             Self::ListRFind(_) => 75,
             Self::DictPop(_) => 39,
+            Self::DictGetMut(_) => 113,
             Self::ListPop(_) => 40,
             Self::SetDiscard(_) => 41,
             Self::ListReverse(_) => 57,

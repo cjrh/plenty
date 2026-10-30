@@ -148,7 +148,7 @@ print(d).unwrap()
     "[1, 2]\n[9, 2, 3]\n"
 )]
 #[case(
-    "mut a = {'a': [1].unwrap()}.unwrap()\nmut b = copy(a).unwrap()\nb['a'] = [2].unwrap()\nb.insert('b', [3].unwrap()).unwrap()\nprint(a).unwrap()\nprint(b).unwrap()",
+    "mut a = {'a': [1].unwrap()}.unwrap()\nmut b = copy(a).unwrap()\nb.insert('a', [2].unwrap()).unwrap()\nb.insert('b', [3].unwrap()).unwrap()\nprint(a).unwrap()\nprint(b).unwrap()",
     "{\"a\": [1]}\n{\"a\": [2], \"b\": [3]}\n"
 )]
 #[case(

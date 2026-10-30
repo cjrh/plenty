@@ -245,7 +245,7 @@ print(data).unwrap()
 
 #[rstest]
 #[case("data.insert(3, 4).unwrap()")]
-#[case("data[1] = 3")]
+#[case("value = data.get_mut(1)")]
 #[case("data.update({3: 4}.unwrap()).unwrap()")]
 #[case("data.pop(1)")]
 #[case("data.clear()")]
@@ -305,7 +305,7 @@ fn bound_view_prevents_mutation_or_move(#[case] mutation: &str) {
     "local-only"
 )]
 #[case(
-    "mut data = {1: 2}.unwrap()\nview = data.keys()\nalias = view\ndata[1] = 3\nprint(len(alias)).unwrap()",
+    "mut data = {1: 2}.unwrap()\nview = data.keys()\nalias = view\ndata.insert(1, 3).unwrap()\nprint(len(alias)).unwrap()",
     "borrow"
 )]
 #[case("data = {1: 2}.unwrap()\nview = Some(data.keys())", "references")]

@@ -132,6 +132,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ),
     ("std.regex", include_str!("../../stdlib/std/regex.plenty")),
     ("std.json", include_str!("../../stdlib/std/json.plenty")),
+    ("std.jwt", include_str!("../../stdlib/std/jwt.plenty")),
     ("std.log", include_str!("../../stdlib/std/log.plenty")),
     ("std.xml", include_str!("../../stdlib/std/xml.plenty")),
     ("std.toml", include_str!("../../stdlib/std/toml.plenty")),

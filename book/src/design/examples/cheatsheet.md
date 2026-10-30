@@ -131,7 +131,12 @@ def main() -> Result[(), AllocError | IoError]:
     mut counts: dict[str, i64] = {}?
     for word in "a b a".split()?:
         counts.insert(word, counts.get(word, 0) + 1)?
-    counts["b"] = 5
+    counts.insert("b", 5)?
+    match counts.get_mut("a"):
+        case Some(count):
+            *count += 10
+        case Nothing:
+            pass
     print(counts, counts.get("z"))?
     for word, count in counts.items():
         print(word, *count)?
@@ -146,8 +151,8 @@ def main() -> Result[(), AllocError | IoError]:
 ```output
 [1, 2, 3, 4] 1 4 Option[i64].Nothing
 [2, 3] Option[i64].Some(4) True
-{"a": 2, "b": 5} Option[i64].Nothing
-a 2
+{"a": 12, "b": 5} Option[i64].Nothing
+a 12
 b 5
 2 True
 2 [0, 4, 16]
@@ -156,7 +161,8 @@ b 5
 Displays, comprehensions, `append`, `insert`, and `add` can fail to allocate,
 so they return `Result`. Empty displays need a type: `xs: list[i64] = []?`.
 Indexing a missing element or key traps; `get` returns an `Option`.
-`dict[key] = value` only replaces an existing key; `insert` adds one. See
+Dictionaries have no indexed assignment: `insert` adds or replaces, and
+`get_mut` returns `Option[&mut V]` to change a value in place. See
 [collections](../facilities/01-builtins/collections.md),
 [lists](../facilities/01-builtins/lists.md), and
 [dictionaries](../facilities/01-builtins/dictionaries.md).
@@ -530,7 +536,8 @@ def main() -> Result[(), IoError]:
 | `lambda x: x + 1` | `def(x: i64) -> i64: x + 1` inside brackets |
 | `map(f, xs)`, `filter(p, xs)`, `reduce(f, xs, init)` | `iter(&xs).filter(p).map(f)`, `.fold(init, f)`; no import |
 | `any(flags)`, `all(p(x) for x in xs)` | `iter(&flags).any()`, `iter(&xs).all(p)` |
-| `d[k] = v` for a new key | `d.insert(k, v)?` |
+| `d[k] = v` | `d.insert(k, v)?`, which adds or replaces |
+| `d[k] += 1` | `d.insert(k, d.get(k, 0) + 1)?`, or `*v += 1` on `Some(v)` from `d.get_mut(k)` |
 | `case x if x > 0:` | Test inside the arm |
 | `class B(A):` | Composition or a [protocol](../language/07-generics/protocols.md) |
 | Global variables | Pass values as parameters; `const` holds a number, `bool`, `str`, or `bytes` computed at compile time |
