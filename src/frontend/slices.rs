@@ -8,10 +8,6 @@ use crate::bytes::BytesOp;
 use crate::clist::ClistOp;
 use crate::collection_opcodes::{SLICE_START, SLICE_STOP};
 
-/// The implicit `std.bytes` import of a module that slices, so that a `bytes`
-/// slice can produce a `Bytes` without the program importing it.
-pub(super) const BYTES_BINDING: &str = "__plenty_bytes";
-
 /// The positions `[start:stop:step]` selects from `len` elements, as the
 /// runtime's `slice_positions` computes them. Tuples use it at compile time.
 fn positions(len: usize, start: Option<i64>, stop: Option<i64>, step: i64) -> Vec<usize> {
@@ -178,8 +174,8 @@ impl Lower<'_> {
         Ok(crate::sum::result(result, alloc()))
     }
 
-    /// `std.bytes.Bytes`, which a `bytes` slice produces. The module's
-    /// implicit import loads it.
+    /// `std.bytes.Bytes`, which a `bytes` slice produces. The loader adds
+    /// `std.bytes` to a program that might need it; see `Loader::slice_bytes`.
     fn bytes_class(&self, at: &Token) -> Result<Ty> {
         TypeRef {
             concrete: None,

@@ -94,7 +94,10 @@ nested handles (issue #582).
 
 A `bytes` literal slice gives an owned `std.bytes.Bytes`. Slice syntax makes the
 `Bytes` type available without an `import std.bytes` line; naming the type in a
-signature still needs the import.
+signature still needs the import. The compiler loads `std.bytes` for this only
+when some module of the program could produce a `bytes` value: one with a
+`b"..."` literal, `include_bytes`, or the word `bytes`. A program that slices
+only lists or text does not load it.
 
 Tuple slice bounds and step must be integer literals, because the result type
 depends on them: `(1, "two", 3.0)[1:]?` has type `Result[(str, f64), AllocError]`.

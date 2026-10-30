@@ -3,6 +3,7 @@
 mod support;
 use rstest::rstest;
 use support::assert_visible_stdout as native;
+use support::{assert_success, compile_file, write_file};
 
 /// Python's selection for `range(len)[start:stop:step]`, by brute force.
 fn python(len: i64, start: Option<i64>, stop: Option<i64>, step: i64) -> Vec<i64> {
@@ -187,6 +188,31 @@ def main() -> Result[(), AllocError | IoError]:
 "#,
         "3\n71\n6\n120\n47",
     );
+}
+
+/// A `bytes` value from a module that neither slices nor imports `std.bytes`
+/// still slices to a `Bytes`: the loader looks for `bytes` across the program.
+#[test]
+fn byte_slices_of_another_modules_bytes_need_no_import() {
+    let dir = tempfile::tempdir().unwrap();
+    write_file(
+        &dir.path().join("other.plenty"),
+        "pub def data() -> bytes:\n    return b\"abcdef\"\n",
+    );
+    let executable = compile_file(
+        dir.path(),
+        r#"
+import other
+
+def main() -> Result[(), AllocError | IoError]:
+    part = other.data()[::2]?
+    print(part.len())?
+    print(part[2])?
+    Ok(())
+"#,
+    );
+    let output = assert_success(std::process::Command::new(executable).output().unwrap());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n101\n");
 }
 
 #[test]

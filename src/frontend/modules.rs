@@ -324,6 +324,10 @@ struct Module {
     /// `include_str`/`include_bytes` constants whose file the loader has not
     /// read yet.
     embeds: Vec<Embed>,
+    /// Whether the module has slice syntax.
+    slices: bool,
+    /// See `Parser::mentions_bytes`.
+    mentions_bytes: bool,
 }
 
 /// A constant initialized by `include_str("path")` or `include_bytes("path")`.
@@ -626,16 +630,8 @@ fn parse_items(
             binding: fstrings::FMT_BINDING.into(),
         });
     }
-    // A `bytes` slice gives a `Bytes` without the program importing it. The
-    // standard library imports `std.bytes` itself where it slices bytes.
-    if parser.slices && !module.name.starts_with("std.") {
-        module.imports.push(Import {
-            at: parser.peek().clone(),
-            module: "std.bytes".into(),
-            item: None,
-            binding: super::slices::BYTES_BINDING.into(),
-        });
-    }
+    module.slices = parser.slices;
+    module.mentions_bytes = parser.mentions_bytes;
     Ok((module, parser.peek().clone()))
 }
 
@@ -930,6 +926,7 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
         };
         entry.push(index);
     }
+    loader.slice_bytes(Some(&module)).map_err(|e| at.error(e))?;
     let standard_sources: Vec<Arc<str>> = loader
         .loaded
         .keys()
@@ -1126,10 +1123,7 @@ impl Loader {
                 self.inputs[input].import(&import.module, &dependency, owner);
             }
             // The implicit `std.fmt` import of an f-string has no source span.
-            if super::ide::active()
-                && import.binding != fstrings::FMT_BINDING
-                && import.binding != super::slices::BYTES_BINDING
-            {
+            if super::ide::active() && import.binding != fstrings::FMT_BINDING {
                 super::ide::module(
                     &import.module,
                     &dependency.path(),
@@ -1172,6 +1166,26 @@ impl Loader {
         self.modules.push(module);
         self.dependencies.push(deps);
         Ok((index, at))
+    }
+
+    /// Loads `std.bytes` for a program that might slice a `bytes` value, which
+    /// produces a `std.bytes.Bytes`, when nothing has imported it. A `bytes`
+    /// value comes only from a `b"..."` literal, `include_bytes`, or a type
+    /// spelled `bytes`, so a program whose modules have none of these never
+    /// needs it. An f-string field is not scanned: an f-string imports
+    /// `std.fmt`, which imports `std.bytes`. `entry` is a module not yet in
+    /// `self.modules`.
+    fn slice_bytes(&mut self, entry: Option<&Module>) -> Result<()> {
+        let source = ModuleSource::Standard("std.bytes");
+        let modules = || self.modules.iter().chain(entry);
+        if self.loaded.contains_key(&source)
+            || !modules().any(|m| m.slices)
+            || !modules().any(|m| m.mentions_bytes)
+        {
+            return Ok(());
+        }
+        self.file(source, 0, "std.bytes".into())?;
+        Ok(())
     }
 
     fn import_path(&self, import: &Import, package: usize) -> Result<(ModuleSource, usize)> {
@@ -1324,6 +1338,7 @@ pub(super) fn load_graph_with(
         inputs: vec![],
     };
     let (_, at) = loader.file(ModuleSource::File(entry), 0, String::new())?;
+    loader.slice_bytes(None).map_err(|e| at.error(e))?;
     let inputs = inputs::Inputs::new(std::mem::take(&mut loader.inputs));
     let mut result = resolve(loader.modules, loader.dependencies, at, require_main)?;
     result.inputs = inputs;
@@ -2683,6 +2698,25 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Whether loading `source` adds `std.bytes` to the program.
+    fn loads_bytes(source: &str) -> bool {
+        single(source)
+            .unwrap()
+            .standard_sources
+            .iter()
+            .any(|path| path.ends_with("bytes.plenty"))
+    }
+
+    #[test]
+    fn slices_load_std_bytes_only_when_a_bytes_value_can_exist() {
+        let list = "def main() -> ():\n    xs = [1, 2]\n    ys = xs[1:]\n";
+        assert!(!loads_bytes(list));
+        let mention = "def f(b: bytes) -> i64:\n    return b.len()\n";
+        assert!(!loads_bytes(mention));
+        assert!(loads_bytes("def main() -> ():\n    ys = b\"ab\"[1:]\n"));
+        assert!(loads_bytes("def f(b: bytes) -> ():\n    ys = b[1:]\n"));
     }
 
     /// Every repository module goes to one of this many cases, which the

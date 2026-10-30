@@ -1309,6 +1309,10 @@ struct Parser {
     formats: bool,
     /// Whether the module has a slice, which can produce `std.bytes.Bytes`.
     slices: bool,
+    /// Whether the module can introduce a `bytes` value: it has a `b"..."`
+    /// literal, `include_bytes`, or the word `bytes`. See
+    /// [`modules::Loader::slice_bytes`].
+    mentions_bytes: bool,
     /// Elements of the lists being parsed; see [`Parser::exact_list`].
     scratch_stmts: Vec<Stmt>,
     scratch_exprs: Vec<Expr>,
@@ -1338,6 +1342,7 @@ impl Parser {
             deepest: 0,
             formats: false,
             slices: false,
+            mentions_bytes: false,
             scratch_stmts: Vec::new(),
             scratch_exprs: Vec::new(),
             scratch_inputs: Vec::new(),
@@ -1394,6 +1399,11 @@ impl Parser {
                 if matches!(symbol, "(" | "[" | "{") {
                     depth += 1;
                 }
+                self.mentions_bytes |= match &token.kind {
+                    Kind::Bytes(_) => true,
+                    Kind::Word(word) => matches!(&**word, "bytes" | "include_bytes"),
+                    _ => false,
+                };
             }
             // An annotation line belongs to the declaration below it, so
             // stacked annotations do not use up the lookahead.
