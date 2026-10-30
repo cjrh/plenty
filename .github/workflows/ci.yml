@@ -19,12 +19,13 @@ env:
 # ("CI build caches and timings") for the shards and caches below.
 jobs:
   native-engines:
-    name: Optional ${{ matrix.engine }} engine
-    runs-on: ubuntu-latest
+    name: Optional ${{ matrix.engine }} engine (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         engine: [dataframe, linalg]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
     env:
       POLARS_MAX_THREADS: "2"
     steps:
@@ -40,20 +41,9 @@ jobs:
           workspaces: |
             . -> target
             plenty-${{ matrix.engine }} -> ../target/${{ matrix.engine }}-engine
-          key: ${{ matrix.engine }}-baseline
+          key: ${{ matrix.engine }}-${{ runner.arch }}-baseline
           cache-bin: "false"
-      - run: python3 -B scripts/build_native_engine.py ${{ matrix.engine }} --out target/engine --jobs 2
-      - name: Validate native engine
-        env:
-          CARGO_TARGET_DIR: target/${{ matrix.engine }}-engine
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc
-          RUSTFLAGS: "-C target-cpu=x86-64 -C link-arg=-Wl,-soname,libplenty_${{ matrix.engine }}_v1.so"
-          CFLAGS: "-march=x86-64 -mtune=generic"
-          CXXFLAGS: "-march=x86-64 -mtune=generic"
-        run: |
-          cargo fmt --manifest-path plenty-${{ matrix.engine }}/Cargo.toml -- --check
-          cargo test --manifest-path plenty-${{ matrix.engine }}/Cargo.toml --locked --release -j 2
-          cargo clippy --manifest-path plenty-${{ matrix.engine }}/Cargo.toml --locked --release --all-targets -j 2 -- -D warnings
+      - run: python3 -B scripts/build_native_engine.py ${{ matrix.engine }} --out target/engine --jobs 2 --validate
       - run: "cargo test --locked --features runtime-checks --test integration test_std_${{ matrix.engine }}::"
       - run: cargo test --locked --test integration test_tutorial::${{ matrix.engine }}_examples_with_optional_engine
       - name: Check the sales report application
@@ -66,8 +56,8 @@ jobs:
   # `cargo nextest archive` would add a dependent job's setup to the critical
   # path and save no wall time. SHARDS must match the matrix.
   test:
-    name: Tests (shard ${{ matrix.shard }}/4)
-    runs-on: ubuntu-latest
+    name: Tests (${{ matrix.runner }}, shard ${{ matrix.shard }}/4)
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       # Deletes this shard's superseded compiled-function cache on main.
@@ -76,10 +66,11 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
     env:
       SHARDS: 4
       FN_CACHE: target/plenty-cache/fn
-      FN_CACHE_PREFIX: plenty-fn-Linux-x64-shard-${{ matrix.shard }}-of-4-
+      FN_CACHE_PREFIX: plenty-fn-Linux-${{ runner.arch }}-shard-${{ matrix.shard }}-of-4-
     steps:
       - uses: actions/checkout@v4
       - name: Install mold
@@ -91,7 +82,7 @@ jobs:
       - run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
-          key: stable
+          key: stable-${{ runner.arch }}
           cache-bin: "false"
           save-if: ${{ github.ref == 'refs/heads/main' && matrix.shard == 1 }}
       - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
@@ -127,7 +118,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: junit-shard-${{ matrix.shard }}
+          name: junit-${{ runner.arch }}-shard-${{ matrix.shard }}
           path: target/nextest/ci/junit.xml
           if-no-files-found: ignore
           retention-days: 7
@@ -135,7 +126,7 @@ jobs:
         if: always() && matrix.shard == 1
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cargo-timings-tests
+          name: cargo-timings-tests-${{ runner.arch }}
           path: target/cargo-timings/*.html
           if-no-files-found: ignore
           retention-days: 7
@@ -172,7 +163,11 @@ jobs:
   # few tests, so they keep the faster-building dev profile.
   doctests:
     name: Doctests and default-feature build
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
     steps:
       - uses: actions/checkout@v4
       - name: Install mold
@@ -192,7 +187,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cargo-timings-build
+          name: cargo-timings-build-${{ runner.arch }}
           path: target/cargo-timings/*.html
           if-no-files-found: ignore
           retention-days: 7
@@ -200,7 +195,11 @@ jobs:
   # Stable only: new nightly lints would fail unrelated changes.
   lint:
     name: Format, clippy, and book links
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy && rustup default stable

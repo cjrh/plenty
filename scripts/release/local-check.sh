@@ -13,6 +13,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 # shellcheck source=/dev/null
 . "$here/toolchain.env"
+# shellcheck source=target.sh
+. "$here/target.sh"
 
 build_args=()
 smoke=1
@@ -24,20 +26,20 @@ for option in "$@"; do
     esac
 done
 
-out="$repo/target/release-container"
+out="$repo/target/release-container-$release_arch"
 mkdir -p "$out/home" "$out/tmp"
 rm -rf "$out/dist"
 docker run --rm --label org.plenty.release-build=1 \
     --user "$(id -u):$(id -g)" \
     -v "$repo:/work" -w /work \
-    -e HOME=/work/target/release-container/home \
-    -e CARGO_TARGET_DIR=/work/target/release-container/target \
-    -e TMPDIR=/work/target/release-container/tmp \
+    -e HOME="/work/target/release-container-$release_arch/home" \
+    -e CARGO_TARGET_DIR="/work/target/release-container-$release_arch/target" \
+    -e TMPDIR="/work/target/release-container-$release_arch/tmp" \
     -e SOURCE_DATE_EPOCH="$(git -C "$repo" log -1 --format=%ct)" \
     ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
     ${RUST_TEST_THREADS:+-e RUST_TEST_THREADS="$RUST_TEST_THREADS"} \
     "$BUILD_IMAGE" \
-    scripts/release/build.sh --out-dir /work/target/release-container/dist "${build_args[@]}"
+    scripts/release/build.sh --out-dir "/work/target/release-container-$release_arch/dist" "${build_args[@]}"
 
 archive="$(ls "$out"/dist/plenty-[0-9]*.tar.gz)"
 engine="$(ls "$out"/dist/plenty-dataframe-*.tar.gz)"

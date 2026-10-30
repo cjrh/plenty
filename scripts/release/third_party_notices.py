@@ -349,13 +349,14 @@ def main():
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--list", action="store_true", help="print name, version, license only")
     parser.add_argument("--component", choices=("compiler", "dataframe", "linalg"), default="compiler")
+    parser.add_argument("--target", choices=("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"), default=TARGET)
     args = parser.parse_args()
     manifest = args.repo / (f"plenty-{args.component}/Cargo.toml" if args.component != "compiler" else "Cargo.toml")
     metadata = json.loads(
         subprocess.run(
             [
                 "cargo", "metadata", "--locked", "--format-version", "1",
-                "--filter-platform", TARGET,
+                "--filter-platform", args.target,
                 "--manifest-path", str(manifest),
             ],
             check=True,

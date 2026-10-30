@@ -4,8 +4,7 @@ This optional archive supplies `std.linalg`'s faer engine. Use the compiler and
 engine from the **same Plenty release**. Applications that do not reach native
 linear algebra operations need no engine. Matrices themselves are Plenty values.
 
-Requires x86-64 GNU/Linux, glibc 2.28 or later, and `libgcc_s.so.1`. AVX2 is not
-required. Other platforms are not supported by this release.
+Requires GNU/Linux on @TARGET@, glibc 2.28 or later, and `libgcc_s.so.1`. The baseline is x86-64/SSE2 or ARMv8-A, matching the archive target.
 
 ## Install
 

@@ -18,6 +18,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 # shellcheck source=/dev/null
 . "$here/toolchain.env"
+# shellcheck source=target.sh
+. "$here/target.sh"
 
 out_dir=""
 run_tests=0
@@ -41,7 +43,7 @@ export PATH="$CARGO_HOME/bin:$PATH"
 if ! rustc +"$RUST_VERSION" --version >/dev/null 2>&1; then
     init="$(mktemp "${TMPDIR:-/tmp}/rustup-init.XXXXXX")"
     curl --proto '=https' --tlsv1.2 -sSfL -o "$init" \
-        "https://static.rust-lang.org/rustup/archive/$RUSTUP_INIT_VERSION/x86_64-unknown-linux-gnu/rustup-init"
+        "https://static.rust-lang.org/rustup/archive/$RUSTUP_INIT_VERSION/$PLENTY_RELEASE_TARGET/rustup-init"
     echo "$RUSTUP_INIT_SHA256  $init" | sha256sum -c -
     chmod +x "$init"
     "$init" -y --no-modify-path --profile minimal --default-toolchain "$RUST_VERSION"
@@ -61,8 +63,13 @@ bash "$here/install-mold.sh" "$target_dir/release-tools/mold"
 export PATH="$target_dir/release-tools/mold/bin:$PATH"
 export COMPILER_PATH="$target_dir/release-tools/mold/libexec/mold"
 "$repo/scripts/ci_check_mold.sh"
-# Generic x86-64: no host CPU tuning reaches the compiler or runtime archives.
+# Baseline CPU: no host tuning reaches the compiler or runtime archives.
 unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
+export RUSTFLAGS="-C target-cpu=$release_cpu"
+export PLENTY_RUNTIME_RUSTFLAGS="-C target-cpu=$release_cpu"
+export CFLAGS="$release_cflags" CXXFLAGS="$release_cflags"
+host="$(rustc -vV | sed -n 's/^host: //p')"
+[ "$host" = "$PLENTY_RELEASE_TARGET" ] || { echo "build.sh: target $PLENTY_RELEASE_TARGET differs from host $host" >&2; exit 1; }
 cargo build --locked --release --bins
 "$here/check-elf.sh" "$target_dir/release/plenty" "$target_dir/release/plentyc"
 if [ "$run_tests" = 1 ]; then

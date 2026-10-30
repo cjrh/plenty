@@ -22,15 +22,22 @@ dist="$3"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must name the repository}"
 
-compiler="plenty-${tag#v}-x86_64-unknown-linux-gnu.tar.gz"
-engine="plenty-dataframe-${tag#v}-x86_64-unknown-linux-gnu.tar.gz"
-linalg="plenty-linalg-${tag#v}-x86_64-unknown-linux-gnu.tar.gz"
-assets=("$dist/$compiler" "$dist/$compiler.sha256" "$dist/$engine" "$dist/$engine.sha256" "$dist/$linalg" "$dist/$linalg.sha256")
+assets=()
+checksums=()
+for target in ${PLENTY_RELEASE_TARGETS:-x86_64-unknown-linux-gnu}; do
+    case "$target" in x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu) ;; *) echo "publish.sh: unsupported target $target" >&2; exit 1 ;; esac
+    for component in plenty plenty-dataframe plenty-linalg; do
+        archive="$component-${tag#v}-$target.tar.gz"
+        assets+=("$dist/$archive" "$dist/$archive.sha256")
+        checksums+=("$archive.sha256")
+    done
+done
+mapfile -t assets < <(printf '%s\n' "${assets[@]}" | sort)
 for asset in "${assets[@]}"; do
     [ -f "$asset" ] || { echo "publish.sh: missing release asset $asset" >&2; exit 1; }
 done
 actual=("$dist"/*.tar.gz "$dist"/*.sha256)
-[ "${#actual[@]}" = 6 ] || { echo "publish.sh: expected exactly three archives and three checksums in $dist" >&2; exit 1; }
+[ "${#actual[@]}" = "${#assets[@]}" ] || { echo "publish.sh: unexpected archive/checksum set in $dist" >&2; exit 1; }
 (cd "$dist" && sha256sum -c ./*.sha256)
 
 notes="$(mktemp)"
@@ -60,9 +67,12 @@ case "$state" in
     false)
         published="$(mktemp -d)"
         gh release download "$tag" --repo "$repo" --pattern '*.sha256' --dir "$published"
-        if cmp -s "$published/$compiler.sha256" "$dist/$compiler.sha256" \
-            && cmp -s "$published/$engine.sha256" "$dist/$engine.sha256" \
-            && cmp -s "$published/$linalg.sha256" "$dist/$linalg.sha256"; then
+        matches=1
+        for checksum in "${checksums[@]}"; do
+            cmp -s "$published/$checksum" "$dist/$checksum" || matches=0
+        done
+        count="$(find "$published" -maxdepth 1 -name '*.sha256' | wc -l)"
+        if [ "$matches" = 1 ] && [ "$count" = "${#checksums[@]}" ]; then
             echo "publish.sh: $tag is already published with these assets; nothing to do"
             exit 0
         fi

@@ -15,7 +15,7 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-TARGET = "x86_64-unknown-linux-gnu"
+TARGET = {"x86_64": "x86_64-unknown-linux-gnu", "aarch64": "aarch64-unknown-linux-gnu"}.get(os.uname().machine)
 
 
 def output(*args):
@@ -61,6 +61,7 @@ def main(component=None):
     parser = argparse.ArgumentParser(description=__doc__)
     if component is None:
         parser.add_argument("name", choices=("dataframe", "linalg"))
+    parser.add_argument("--target", choices=("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"), default=os.environ.get("PLENTY_RELEASE_TARGET", TARGET))
     parser.add_argument("--engine", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--rust-sysroot", type=Path)
@@ -68,15 +69,18 @@ def main(component=None):
                         help="install NAME-notices beside an engine in --out-dir; no portable archive")
     args = parser.parse_args()
     component = component or args.name
+    target = args.target
+    if target is None:
+        parser.error("--target is required for an unsupported host")
     library = f"libplenty_{component}_v1.so"
     engine = args.engine.resolve(strict=True)
     if args.local_install and engine != (args.out_dir / library).resolve():
         parser.error("--local-install requires --engine to be the library in --out-dir")
     audit_mode = "--local-engine" if args.local_install else "--engine"
-    subprocess.run([str(HERE / "check-elf.sh"), audit_mode, library, str(engine)], check=True)
+    subprocess.run([str(HERE / "check-elf.sh"), audit_mode, library, str(engine)], check=True, env={**os.environ, "PLENTY_RELEASE_TARGET": target})
     check_exports(engine, component)
     version = output(str(HERE / "check-version.sh"), "--print")
-    name = f"plenty-{component}-{version}-{TARGET}"
+    name = f"plenty-{component}-{version}-{target}"
     sysroot = args.rust_sysroot or Path(output("rustc", "--print", "sysroot"))
     rust_docs = sysroot / "share/doc/rust"
     rust_licenses = sorted((rust_docs / "licenses").glob("*.txt"))
@@ -94,12 +98,12 @@ def main(component=None):
             shutil.copyfile(REPO / filename, root / filename)
         for source in [rust_docs / "COPYRIGHT-library.html", *rust_licenses]:
             shutil.copyfile(source, root / "licenses/rust" / source.name)
-        readme = (HERE / f"README.{component}.md").read_text().replace("@VERSION@", version).replace("@TARGET@", TARGET)
+        readme = (HERE / f"README.{component}.md").read_text().replace("@VERSION@", version).replace("@TARGET@", target)
         (root / "README.md").write_text(readme)
         subprocess.run(["python3", "-B", str(HERE / "third_party_notices.py"), "--repo", str(REPO),
-                        "--component", component, "--out", str(root / "THIRD-PARTY-NOTICES.md")], check=True)
+                        "--target", target, "--component", component, "--out", str(root / "THIRD-PARTY-NOTICES.md")], check=True)
         manifest = {
-            "format": 1, "plenty_version": version, "target": TARGET,
+            "format": 1, "plenty_version": version, "target": target,
             "abi_generation": 1, "library": f"lib/{library}",
             "minimum_glibc": minimum_glibc(engine) if args.local_install else "2.28",
             "source_commit": output("git", "-C", str(REPO), "rev-parse", "HEAD"),

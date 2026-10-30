@@ -14,8 +14,8 @@ is needed to install it or run compiled applications.
 | `LICENSE-MIT`, `LICENSE-APACHE` | Plenty license texts |
 | `THIRD-PARTY-NOTICES.md`, `licenses/` | Engine dependency and Rust standard-library notices |
 
-Requires x86-64 GNU/Linux with glibc **2.28 or later** and `libgcc_s.so.1`.
-The release uses baseline x86-64; AVX2 is not required. This archive does not
+Requires GNU/Linux on @TARGET@ with glibc **2.28 or later** and `libgcc_s.so.1`.
+The CPU baseline matches @TARGET@: x86-64/SSE2 or ARMv8-A. This archive does not
 support musl/Alpine, Windows, macOS or ARM. Compiling an application still needs
 the compiler archive's documented `cc` and C development files.
 
