@@ -817,6 +817,25 @@ impl Lower<'_> {
                 self.range(args, (*t).clone(), &e.at, ops).map(Some)
             }
             Expression::Number(n)
+                if expected
+                    .as_ref()
+                    .is_some_and(|ty| ty.nonzero_element().is_some())
+                    && !numeric_suffix(n)
+                    && !n.contains(['.', 'e', 'E']) =>
+            {
+                self.nonzero_literal(e, expected.as_ref().unwrap(), ops)
+            }
+            Expression::Unary(op, inner)
+                if op == "-"
+                    && expected
+                        .as_ref()
+                        .is_some_and(|ty| ty.nonzero_element().is_some())
+                    && matches!(&ungroup(inner).kind, Expression::Number(n)
+                        if !numeric_suffix(n) && !n.contains(['.', 'e', 'E'])) =>
+            {
+                self.nonzero_literal(e, expected.as_ref().unwrap(), ops)
+            }
+            Expression::Number(n)
                 if expected.as_ref().is_some_and(|ty| {
                     ty.is_numeric() && (ty.is_float() || !n.contains(['.', 'e', 'E']))
                 }) && !numeric_suffix(n) =>
@@ -2878,7 +2897,17 @@ impl Lower<'_> {
                 return Ok(result);
             }
         }
+        if name == "try_from"
+            && matches!(&base.kind, Expression::Name(n) if n == nonzero::CLASS && !self.names.contains_key(n))
+        {
+            return self.nonzero_try_from(None, args, &base.at, ops);
+        }
         if let Some(ty) = self.qualified_type(base)? {
+            if let Some(element) = ty.nonzero_element()
+                && name == "try_from"
+            {
+                return self.nonzero_try_from(Some(element), args, &base.at, ops);
+            }
             if matches!(ty, Ty::Clist(_)) {
                 self.check_clist_access(&ty, &base.at)?;
                 let operation = match (name, args) {
@@ -2959,7 +2988,18 @@ impl Lower<'_> {
                 if args.len() != 1 {
                     return Err(base.at.error("str.from takes one numeric or bool argument"));
                 }
-                let (source, loans) = self.observe(&args[0], ops)?;
+                let (mut source, loans) = self.observe(&args[0], ops)?;
+                if let Ty::Ref(inner, _) = &source
+                    && inner.nonzero_element().is_some()
+                {
+                    let inner = (**inner).clone();
+                    ops.push(Op::ReadRef(inner.clone()));
+                    source = inner;
+                }
+                if let (Some(element), Ty::Class(class)) = (source.nonzero_element(), &source) {
+                    ops.push(Op::Class(crate::record::ClassOp::Field(class.clone(), 0)));
+                    source = element;
+                }
                 if !source.is_numeric() && source != Ty::Bool {
                     return Err(args[0]
                         .at
@@ -3960,14 +4000,43 @@ impl Lower<'_> {
             ops.push(Op::PushInt(integer(&format!("0{element}"), false, at)?));
         }
         for (i, arg) in args.iter().enumerate() {
-            let expected = if i == 2 { Ty::I64 } else { element.clone() };
-            let actual = self.expr_expected(arg, Some(expected.clone()), ops)?;
-            self.same(actual, Some(expected), &arg.at)?;
+            if i == 2 {
+                self.range_step(arg, ops)?;
+                continue;
+            }
+            let actual = self.expr_expected(arg, Some(element.clone()), ops)?;
+            self.same(actual, Some(element.clone()), &arg.at)?;
         }
         if args.len() < 3 {
             ops.push(Op::PushInt(Value::I64(1)));
         }
         self.mark(at, ops);
+        Ok(())
+    }
+
+    /// A range step is a `NonZero[i64]`, so a zero step cannot reach the
+    /// range; the operand stack receives its `i64`.
+    fn range_step(&mut self, step: &Expr, ops: &mut Vec<Op>) -> Result<()> {
+        let ty = self.nonzero_type(&Ty::I64, &step.at)?;
+        let actual = self.expr_expected(step, Some(ty.clone()), ops)?;
+        let actual = match actual {
+            Some(Ty::Ref(inner, _)) if *inner == ty => {
+                ops.push(Op::ReadRef(ty.clone()));
+                Some(ty.clone())
+            }
+            other => other,
+        };
+        if actual.as_ref().is_some_and(Ty::is_int) {
+            return Err(step.at.error(format!(
+                "range step must be `NonZero[i64]`, not `{}`; write a nonzero literal, or convert a value with `NonZero.try_from(step)?`",
+                actual.unwrap()
+            )));
+        }
+        self.same(actual, Some(ty.clone()), &step.at)?;
+        let Ty::Class(class) = ty else {
+            unreachable!("NonZero is a class")
+        };
+        ops.push(Op::Class(crate::record::ClassOp::Field(class, 0)));
         Ok(())
     }
 

@@ -30,9 +30,8 @@ impl Range {
         signed: bool,
         site: *const crate::Site,
     ) -> Self {
-        if step == 0 {
-            crate::fail_at(site, format_args!("range step cannot be zero"));
-        }
+        // The compiler accepts only a `NonZero[i64]` step.
+        debug_assert_ne!(step, 0, "range step is zero");
         let number = |n: u64| if signed { n as i64 as i128 } else { n as i128 };
         let distance = if step > 0 {
             number(stop) - number(start)

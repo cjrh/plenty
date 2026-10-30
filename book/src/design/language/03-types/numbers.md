@@ -187,3 +187,60 @@ Arithmetic outside a block compiles exactly as before: plain types and an
 inline check that traps. A block's operations compute the wrapped result and a
 failure flag, then branch to a cold exit path; see the
 [design note](../../../proposals/completed/checked-arithmetic.md).
+
+## Nonzero integers
+
+`NonZero[T]`, for any integer type `T`, holds a `T` that is not zero. Where
+one is expected, so that the program cannot hold a zero, an integer literal
+converts at compile time, including a negative one; `0` is a compile-time
+error. Any other value is converted with `NonZero.try_from(value)`, which
+returns `Result[NonZero[T], RangeError]` and fails with
+`RangeError.OutOfRange` for zero. `T` is the value's type;
+`NonZero[T].try_from(value)` names it and requires a `T`. `get()` reads the
+integer back.
+
+```plenty
+def per_group(total: i64, groups: NonZero[i64]) -> i64:
+    total // groups.get()
+
+def main() -> Result[(), IoError | RangeError]:
+    three: NonZero[i64] = 3
+    print(per_group(12, three))?
+    print(per_group(12, -4))?
+    count = 5
+    five = NonZero.try_from(count)?
+    print(five * three, five + three, five > three)?
+    match NonZero.try_from(count - 5):
+        case Ok(n):
+            print(n)?
+        case Err(RangeError.OutOfRange):
+            print("zero")?
+    Ok(())
+```
+
+```output
+4
+-3
+15 8 True
+zero
+```
+
+A value has the same representation as its integer and allocates nothing.
+The constructor is private: `NonZero(3)` is a compile-time error that names
+the two conversions. `NonZero[T]` copies, compares with `==`, `!=`, `<`, `<=`,
+`>`, and `>=`, prints and formats as its integer, and is a valid dictionary
+key and set element.
+
+Arithmetic keeps a result nonzero only where that follows from nonzero
+operands. Unary `-` and `+`, and `*` between two `NonZero[T]` values, return
+`NonZero[T]`; `*=` updates one. `+` and `-` between two values return `T`,
+since their result can be zero. Overflow traps, or is an `Err` in a
+[`checked:` block](#checked-blocks), so a product cannot wrap to zero. Other
+operators, including `//`, `%`, bitwise operators, and shifts, are compile-time
+errors that suggest `.get()`. An integer literal beside a `NonZero[T]` operand
+is a `NonZero[T]` too: `step * 2` is a `NonZero[i64]`, and `step == 0` is a
+compile-time error. Operands must otherwise have the same type; mixing
+`NonZero[T]` with `T` is a type error whose hint shows `try_from`.
+
+A [range](../../facilities/01-builtins/ranges.md) step is `NonZero[i64]`.
+`NonZero` is a builtin name and cannot be redefined.

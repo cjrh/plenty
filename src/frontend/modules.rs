@@ -737,9 +737,16 @@ impl Items<'_, '_> {
                 .find(|(_, a)| *a == annotations::Annotation::Copy)
                 .map(|(at, _)| at.clone());
             if let Some(at) = &c.copy {
-                if !c.type_params.is_empty() {
+                // A numeric bound guarantees every argument copies, so the
+                // field rule holds for each instance.
+                if c.type_params.iter().any(|(_, bound)| {
+                    !bound.as_ref().is_some_and(|b| {
+                        b.args.is_empty()
+                            && matches!(b.name.as_deref(), Some("IntType" | "FloatType"))
+                    })
+                }) {
                     return Err(at.error(
-                        "`@copy` classes cannot have type parameters; declare a `@copy` class for each field type",
+                        "`@copy` class type parameters need an `IntType` or `FloatType` bound, which guarantees they copy; declare a `@copy` class for each other field type",
                     ));
                 }
                 if let Some(f) = c.methods.iter().find(|f| f.name == "__del__") {
@@ -2043,10 +2050,11 @@ fn canonical_facility_expression(e: &mut Expr) {
 const PARALLEL_FUNCTIONS: usize = 256;
 const PARALLEL_CLASSES: usize = 64;
 
-/// The errors a `checked:` block returns, declared as ordinary classes so
-/// construction, fields, printing and patterns follow the class rules. Every
-/// compilation shares these unqualified declarations; see
-/// book/src/design/language/03-types/numbers.md#checked-blocks.
+/// The errors a `checked:` block returns, and `NonZero[T]`, declared as
+/// ordinary classes so construction, fields, printing and patterns follow the
+/// class rules. Every compilation shares these unqualified declarations; see
+/// book/src/design/language/03-types/numbers.md#checked-blocks and
+/// book/src/design/language/03-types/numbers.md#nonzero-integers.
 const ARITHMETIC_ERRORS_PATH: &str = "<builtin arithmetic errors>";
 const ARITHMETIC_ERRORS: &str = "\
 pub class ZeroDivisionError:
@@ -2054,6 +2062,14 @@ pub class ZeroDivisionError:
 
 pub class OverflowError[T]:
     pub wrapped: T
+
+@newtype
+@copy
+pub class NonZero[T: IntType]:
+    value: T
+
+    pub def get(self) -> T:
+        self.value
 ";
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -2431,6 +2447,13 @@ pub(super) fn check_member_at(
             return Err(diagnostic.error(
                 "a Mutex's fields are private; reach its value with `with mutex.lock() as value:`",
             ));
+        }
+        if class == super::nonzero::CLASS {
+            return Err(diagnostic.error(if member == "__new__" {
+                "a `NonZero` comes from a nonzero integer literal where one is expected, or from `NonZero.try_from(value)?`"
+            } else {
+                "a `NonZero`'s field is private; read its integer with `.get()`"
+            }));
         }
         return Err(diagnostic.error(format!(
                 "`{class}.{member}` is private to its defining module; declare the member public to allow access from another module"

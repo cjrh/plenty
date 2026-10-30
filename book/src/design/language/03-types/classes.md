@@ -102,11 +102,14 @@ The declaration is checked as a whole:
 - Every field must copy: a scalar, `str`, another `@copy` class, or a tuple or
   enum whose components copy. The error names the field and its type.
 - The class cannot define `__del__`, because each copy would run it.
-- The class cannot have type parameters. No bound states that a type argument
-  copies, so the field rule could not be checked at the declaration.
+- Each type parameter needs an `IntType` or `FloatType`
+  [bound](../07-generics/index.md), which guarantees that its arguments copy.
+  No other bound states that a type argument copies, so the field rule could
+  not be checked at the declaration.
 
 Equality, printing, field access, and matching are unchanged. Classes,
-including copy classes, are not yet dictionary keys or set elements; see the
+including copy classes, are not yet dictionary keys or set elements, except the
+builtin [`NonZero[T]`](numbers.md#nonzero-integers); see the
 [user type hashing proposal](../../../proposals/user-type-hashing.md).
 
 ### Annotations

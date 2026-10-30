@@ -240,8 +240,8 @@ pub(super) fn resolve_types(
     for (i, declaration) in declarations.iter().enumerate() {
         let name = declaration.name();
         // Module parsing already rejects source declarations of these
-        // names; the arithmetic errors themselves are declared as classes.
-        if builtin(name) && !matches!(name, "OverflowError" | "ZeroDivisionError") {
+        // names; the arithmetic errors and `NonZero` are declared as classes.
+        if builtin(name) && !matches!(name, "OverflowError" | "ZeroDivisionError" | "NonZero") {
             return Err(declaration
                 .at()
                 .error(format!("cannot redefine builtin `{name}` as a type")));

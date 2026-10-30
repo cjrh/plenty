@@ -31,7 +31,7 @@ for x in reversed(""):
 print([x for x in reversed(range(0))].unwrap()).unwrap()
 print([x for x in reversed(list[i64]().unwrap())].unwrap()).unwrap()
 print([x for x in reversed(range(i64.MAX - 1, i64.MAX))].unwrap()).unwrap()
-print([x for x in reversed(range(0u64, u64.MAX, i64.MAX))].unwrap()).unwrap()
+print([x for x in reversed(range(0u64, u64.MAX, 9223372036854775807))].unwrap()).unwrap()
 "#,
         "[3, 2, 1]\n[7, 5, 3, 1]\n[2, 5, 8]\n🙂\n中\né\na\n[]\n[]\n[9223372036854775806]\n[18446744073709551614, 9223372036854775807, 0]",
     );

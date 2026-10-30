@@ -30,6 +30,8 @@ otherwise. `RangeError` has just that one variant, so an exhaustive error match
 needs one arm. Conversion allocates nothing and does not call the
 runtime. Float and non-numeric arguments are compile-time errors, as is
 `try_from` on a float type; float conversions use casts.
+[`NonZero.try_from(value)`](../../language/03-types/numbers.md#nonzero-integers)
+fails with the same error for zero.
 
 Parsing still returns `ParseError`, which distinguishes malformed text from
 an out-of-range number. A function that parses and then narrows can return
