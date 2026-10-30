@@ -240,10 +240,17 @@ def main() -> Result[(), IoError]:
             String::from_utf8_lossy(&output.stderr)
         );
         let text = String::from_utf8(output.stdout).unwrap();
-        let expected_vector = vectorized && cfg!(target_arch = "x86_64");
-        assert_eq!(text.contains("load.i32x4"), expected_vector, "{text}");
-        if expected_vector {
-            assert!(text.contains("pcmpgtd"), "{text}");
+        assert_eq!(text.contains("load.i32x4"), vectorized, "{text}");
+        if vectorized {
+            let comparisons: &[&str] = if cfg!(target_arch = "aarch64") {
+                &["cmgt ", "cmge ", "cmeq "]
+            } else {
+                &["pcmpgtd"]
+            };
+            assert!(
+                comparisons.iter().any(|mnemonic| text.contains(mnemonic)),
+                "{text}"
+            );
         }
     }
 }
