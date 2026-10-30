@@ -65,6 +65,10 @@ tmpfs. Limit `CARGO_BUILD_JOBS` when sharing a machine with other builds.
 A Cargo runner wraps the Rust test process only. Plenty integration tests also
 spawn a compiler, linker and generated programs, so setting a QEMU runner alone
 is insufficient. Use an explicit subprocess harness or run inside an ARM guest.
+Keep task scratch files outside the sysroot. In this harness, a task-owned
+`sysroot/tmp` directory interfered with QEMU path handling: three SQLite/KV
+cases failed before removing it and passed afterward with unchanged binaries.
+Preserve the original results and test artifacts before correcting harness inputs.
 
 ## Full ARM Linux guest
 
